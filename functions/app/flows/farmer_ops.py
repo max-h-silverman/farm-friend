@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.copy import templates
-from app.flows._time import format_day_and_range, format_deadline
+from app.flows._time import format_day_and_range, format_deadline, post_event_time_for
 from app.messaging import MessagingProvider
 from app.messaging._safe_send import safe_send
 from app.repos import opportunities_repo, users_repo
@@ -140,6 +140,22 @@ def apply_edit(
     if new_headcount is not None and new_headcount > opp.seats_filled:
         if opp.status == OpportunityStatus.FULL:
             field_updates["status"] = OpportunityStatus.FILLING.value
+
+    # If the time of the event moved, recompute the post-event checkin time
+    # so the day-after-checkin SMS doesn't fire on the old date.
+    if "starts_at" in field_updates or "deadline_at" in field_updates:
+        new_starts = field_updates.get("starts_at", opp.starts_at)
+        new_deadline = field_updates.get("deadline_at", opp.deadline_at)
+        new_checkin = post_event_time_for(
+            is_pickup=opp.kind == OpportunityKind.PICKUP,
+            starts_at=new_starts,
+            deadline_at=new_deadline,
+        )
+        field_updates["post_event_checkin_at"] = new_checkin
+        # If the event was bumped to the future, allow the checkin to fire
+        # again (the tick is one-shot via post_event_checkin_sent).
+        if new_checkin and new_checkin > datetime.now(UTC):
+            field_updates["post_event_checkin_sent"] = False
 
     opportunities_repo.update_fields(opp.id, field_updates)
     refreshed = opportunities_repo.get_by_id(opp.id) or opp.model_copy(update=field_updates)

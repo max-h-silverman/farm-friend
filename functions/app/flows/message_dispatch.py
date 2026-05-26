@@ -37,7 +37,12 @@ from app.flows import claim as claim_flow
 from app.flows import farmer_ops
 from app.flows import outreach as outreach_flow
 from app.flows import post_event as post_event_flow
-from app.flows._time import VASHON_TZ, format_day_and_range, format_deadline
+from app.flows._time import (
+    VASHON_TZ,
+    format_day_and_range,
+    format_deadline,
+    post_event_time_for,
+)
 from app.llm import get_llm_client
 from app.messaging import InboundMessage, get_messaging_provider
 from app.messaging._safe_send import safe_send
@@ -117,6 +122,14 @@ def handle_inbound_webhook(req: https_fn.Request) -> https_fn.Response:
 def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" = None) -> None:
     settings = load_settings()
     provider = messaging or get_messaging_provider(settings)
+
+    # Idempotency: Telnyx occasionally retries webhook delivery for the same
+    # SMS. If we've already processed this provider_msg_id, drop silently —
+    # processing again would double-create claims, opportunities, etc.
+    if inbound.provider_msg_id and messages_repo.exists_by_provider_msg_id(
+        inbound.provider_msg_id
+    ):
+        return
 
     sender = users_repo.get_by_phone(inbound.from_phone)
 
@@ -493,7 +506,15 @@ def _handle_hotkey(
         _reply_and_log(provider=provider, to=sender, body=body, opp=None, intent=intent)
         return
 
-    if intent == IntentLabel.CLAIM and target_opp is not None:
+    if intent == IntentLabel.CLAIM:
+        if target_opp is None:
+            _handle_orphan_claim_or_maybe(
+                sender=sender,
+                inbound_doc_id=inbound_doc_id,
+                provider=provider,
+                intent=intent,
+            )
+            return
         farm = farms_repo.get_by_id(target_opp.farm_id)
         farmer = users_repo.get_by_id(farm.owner_user_id) if farm else None
         slots = int(match.payload.get("slots", 1) or 1)
@@ -508,7 +529,15 @@ def _handle_hotkey(
         _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
         return
 
-    if intent == IntentLabel.MAYBE and target_opp is not None:
+    if intent == IntentLabel.MAYBE:
+        if target_opp is None:
+            _handle_orphan_claim_or_maybe(
+                sender=sender,
+                inbound_doc_id=inbound_doc_id,
+                provider=provider,
+                intent=intent,
+            )
+            return
         farm = farms_repo.get_by_id(target_opp.farm_id)
         reply = claim_flow.handle_maybe(
             opportunity=target_opp,
@@ -997,6 +1026,36 @@ def _handle_llm_reply(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _handle_orphan_claim_or_maybe(
+    *,
+    sender: UserDoc,
+    inbound_doc_id: str,
+    provider,
+    intent: IntentLabel,
+) -> None:
+    """A YES/MAYBE arrived but we can't tie it to an opportunity.
+
+    Common cause: the volunteer's last outbound was a non-opp message (HELP,
+    STOP ack, intro), or outreach delivery failed so no MessageDoc was logged.
+    Reply with a helpful note and flag for admin so the YES isn't silently lost.
+    """
+    flags_repo.create(
+        FlagDoc(
+            message_id=inbound_doc_id,
+            flagged_by_user_id=sender.id,
+            reason=f"{intent.value} with no opportunity anchor — last outbound to this user has no opportunity_id.",
+            created_at=datetime.now(UTC),
+        )
+    )
+    _reply_and_log(
+        provider=provider,
+        to=sender,
+        body=templates.render_orphan_yes(),
+        opp=None,
+        intent=intent,
+    )
+
+
 def _reply_and_log(
     *,
     provider,
@@ -1033,14 +1092,16 @@ def _label_from_intent_string(s: str) -> IntentLabel:
 
 
 def _is_post_event_question(last_outbound: MessageDoc | None, opp: OpportunityDoc | None) -> bool:
+    """True iff the user's last outbound was the post-event checkin SMS.
+
+    Signal is the persisted `intent_label` on the outbound message — reliable
+    even if the copy is reworded. We also verify `post_event_checkin_sent` so
+    a label that somehow lingered from a prior cycle doesn't fool us."""
     if last_outbound is None or opp is None:
         return False
-    # Most reliable signal: the opportunity has a checkin-sent flag and the
-    # last outbound to this user is the checkin question.
     if not opp.post_event_checkin_sent:
         return False
-    body = (last_outbound.body or "").lower()
-    return "any issues" in body and "y/n" in body or "any issues" in body and "reply y" in body
+    return last_outbound.intent_label == IntentLabel.POST_EVENT_CHECKIN
 
 
 def _looks_like_posting(text: str) -> bool:
@@ -1099,17 +1160,11 @@ def _parse_iso(s: str) -> datetime | None:
 def _post_event_time_for(
     *, kind: OpportunityKind, starts_at: datetime | None, deadline_at: datetime | None
 ) -> datetime | None:
-    """Day-after-the-event checkin time, 9am Vashon local."""
-    target = deadline_at if kind == OpportunityKind.PICKUP else starts_at
-    if not target:
-        return None
-    local = target.astimezone(VASHON_TZ)
-    next_morning = local.replace(hour=9, minute=0, second=0, microsecond=0)
-    # If event is in the afternoon, "next morning" should be the next day.
-    if next_morning <= local:
-        from datetime import timedelta
-        next_morning = next_morning + timedelta(days=1)
-    return next_morning.astimezone(UTC)
+    return post_event_time_for(
+        is_pickup=kind == OpportunityKind.PICKUP,
+        starts_at=starts_at,
+        deadline_at=deadline_at,
+    )
 
 
 def _farmer_posting_summary(*, parsed) -> str:

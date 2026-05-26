@@ -156,6 +156,35 @@ This list is the source of truth for "what's the next thing to do." Update it as
 - [ ] Test a deliberately-malformed farmer post → should land in the flags Worklist (admin escalation).
 - [ ] Test post-event flow by manually advancing `post_event_checkin_at` on an opportunity and waiting for `tick_post_event` to fire.
 
+### Coordination + LLM review (2026-05-26) — fixed in this pass
+
+Reference notes for a fresh session: a full review on 2026-05-26 found six high-priority coordination/correctness gaps. All six were fixed in the same session:
+
+1. **Claim races are now transactional.** `opportunities_repo.try_claim_in_transaction()` does the read/decide/seat-increment/status-flip atomically. `claim.handle_claim` calls it; the SMS side-effects (volunteer ack, farmer milestones) fire outside the transaction. Before this, two concurrent `YES` messages on a 1-seat shift could both land as CONFIRMED.
+2. **Editing `starts_at` or `deadline_at` now reschedules `post_event_checkin_at`.** `farmer_ops.apply_edit` recomputes it via `flows._time.post_event_time_for` and clears `post_event_checkin_sent` if the new time is in the future. The helper was lifted out of `message_dispatch.py` into `_time.py` so both the new-post and edit paths share it.
+3. **`YES`/`MAYBE` with no opportunity anchor is no longer silently dropped.** Routes through `_handle_orphan_claim_or_maybe` which flags for admin and replies `render_orphan_yes()`.
+4. **Inbound webhook is idempotent.** `messages_repo.exists_by_provider_msg_id` early-returns from `_dispatch` if Telnyx redelivers. Single-field index — Firestore auto-indexes; no `firestore.indexes.json` change needed.
+5. **Post-event checkin detection uses an intent label, not substring matching.** Outbound checkin SMS is stamped with `IntentLabel.POST_EVENT_CHECKIN`; `_is_post_event_question` reads that field. Reworded copy can no longer break the Y/N routing.
+6. **(Deferred, not in this pass: the LLM consolidation win — see below.)**
+
+### Known issues from 2026-05-26 review — deferred
+
+These are the review findings we *didn't* fix this pass. Listed in rough priority order so a future session can pick them up:
+
+- **Two LLM calls per farmer-with-open-opps posting.** `_handle_farmer_message_with_open_opps` calls the triage prompt (edit/cancel/new_post/clarify), and on `new_post` falls through to `_handle_farmer_post` which calls the parser. Fold both into a single prompt that can return either a triage decision or a parsed-new-post payload. Biggest LLM cost win available.
+- **Parser prompts duplicate each other.** `parser.md`, `parser_merge.md`, `parser_edit.md` share ~90% of their content (classification rules, date semantics, required-field rules). Consolidate into one cached system prompt with a `mode` flag in the user message. Roughly doubles prompt-cache hit rate on the farmer path.
+- **Headcount-up edit doesn't reactivate outreach.** `farmer_ops.apply_edit` flips FULL→FILLING when headcount increases past seats_filled, but never calls `set_next_escalation` — so the escalation tick never re-picks the opp. Fix: after the status flip, `opportunities_repo.set_next_escalation(opp_id, at=now, tier=current_tier)`.
+- **`INSIDER <phone>` for an existing user skips the admin gate.** `_handle_hotkey` adds the insider link directly when the nominated phone is already a user, but routes unknown phones through `pending_users`. Two paths to the same outcome (one gated, one not) — pick one. Probably route everything through `pending_users` so admin always sees nominations.
+- **`flags_repo.is_user_flagged` only mutes the LLM classifier path.** Farmer free-form postings, edits, and cancels run *before* the flag check in `_dispatch`. A farmer with an open flag will still have their posting parsed and replied to. Either move the flag check above the farmer branches, or document the scope intentionally.
+- **Stale-draft tick uses `created_at`, not last-activity.** A clarification dialog crossing the 2h boundary will get flagged even if it's still alive. Track `last_updated_at` on drafts (update it on merge) and use that for the staleness clock.
+- **Strong-model failures fall through silently.** `_handle_llm_reply` doesn't wrap `resolve_ambiguous` in a try/except. If Anthropic 5xxs or the Sonnet alias drifts, the user gets no reply at all. Catch `LLMProviderError` and route to the flag-for-admin branch.
+- **Classifier confidence is self-reported and miscalibrated.** Consider asking the fast model to output a boolean `escalate` it derives from its own rationale instead of a fuzzy float, OR drop the threshold and always route `AMBIGUOUS` to the strong model.
+- **`_looks_like_posting` keyword gate misses laconic postings.** A farmer texting "tomorrow 9am, 3 ppl" hits no keyword and gets routed to the volunteer classifier. For farmer-role senders with no open opps, just always run the parser (cost: one Haiku call; benefit: no missed postings).
+- **`destinations` collection is dead code.** Declared in CLAUDE.md, has a repo, never read. Either wire it into the pickup parser as a canonical list, or delete the repo + collection for v1.
+- **Classifier doesn't see the volunteer's prior `INTERESTED` claim.** "I'm in" after a MAYBE often hits AMBIGUOUS because the prompt has no signal that this user already expressed soft interest. Plumb prior claim status into the user prompt.
+- **`max_tokens` headroom.** Parser uses 512, classifier/ambiguous use 400 — JSON outputs in these schemas top out around 200. Tightening reduces tail latency variance and caps worst-case cost. No correctness risk.
+- **`_no_admins_exist()` bootstrap is racy.** Two concurrent `set_admin_claim` calls during first-run both see no admins and both succeed. Wrap in a transactional sentinel doc. Hypothetical at pilot scale.
+
 ### Known limitations / deferred to v2
 
 - **No eval harness** for LLM swaps. The architecture supports any OpenAI-compatible provider via `LLM_PROVIDER=openai-compatible` + `LLM_BASE_URL`, but before flipping the default away from Anthropic you must build golden test sets for the parser, classifier, and ambiguous handler with pass-rate parity. See "LLM portability" section above.

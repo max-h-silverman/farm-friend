@@ -153,6 +153,13 @@ def render_fallback_ambiguous() -> str:
     return "Coordinator will follow up shortly."
 
 
+def render_orphan_yes() -> str:
+    return (
+        "Got your YES but we're not sure which shift it's for. "
+        "Coordinator will follow up shortly."
+    )
+
+
 def render_clarification(*, question: str) -> str:
     """Pass through the LLM's clarification question as-is. The question is
     expected to be the entire SMS — no framing prefix."""

@@ -3,11 +3,32 @@ see them in America/Los_Angeles."""
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
 VASHON_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def post_event_time_for(
+    *,
+    is_pickup: bool,
+    starts_at: datetime | None,
+    deadline_at: datetime | None,
+) -> datetime | None:
+    """Day-after-the-event checkin time, 9am Vashon local. Returns UTC.
+
+    Defined here (not in message_dispatch) so both the new-post and
+    farmer-edit paths can recompute the checkin time without importing
+    the dispatch module."""
+    target = deadline_at if is_pickup else starts_at
+    if not target:
+        return None
+    local = target.astimezone(VASHON_TZ)
+    next_morning = local.replace(hour=9, minute=0, second=0, microsecond=0)
+    if next_morning <= local:
+        next_morning = next_morning + timedelta(days=1)
+    return next_morning.astimezone(UTC)
 
 
 def to_local(dt: datetime) -> datetime:

@@ -20,6 +20,7 @@ from app.messaging import MessagingProvider, get_messaging_provider
 from app.messaging._safe_send import safe_send
 from app.repos import farms_repo, messages_repo, opportunities_repo, users_repo
 from app.repos.models import (
+    IntentLabel,
     MessageDirection,
     MessageDoc,
     OpportunityDoc,
@@ -58,6 +59,7 @@ def _send_checkin_for(*, opp: OpportunityDoc, messaging: MessagingProvider) -> N
                 user_id=owner.id,
                 opportunity_id=opp.id,
                 body=body,
+                intent_label=IntentLabel.POST_EVENT_CHECKIN,
                 created_at=datetime.now(UTC),
             )
         )

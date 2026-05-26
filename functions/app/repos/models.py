@@ -92,6 +92,7 @@ class IntentLabel(StrEnum):
     EDIT = "EDIT"              # farmer-only: edit fields on an open opp
     POST_EVENT_OK = "POST_EVENT_OK"
     POST_EVENT_ISSUE = "POST_EVENT_ISSUE"
+    POST_EVENT_CHECKIN = "POST_EVENT_CHECKIN"  # outbound: the "any issues? Y/N" we sent
 
 
 CANONICAL_ACTIVITIES = (

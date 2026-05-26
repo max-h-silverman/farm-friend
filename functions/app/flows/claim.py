@@ -25,6 +25,8 @@ from app.repos.models import (
     UserDoc,
 )
 
+# ClaimDoc / ClaimStatus stay imported for handle_maybe below.
+
 
 def handle_claim(
     *,
@@ -35,64 +37,53 @@ def handle_claim(
     farm_name: str,
     notify_farmer_phone: str | None,
 ) -> str:
-    """Apply a YES claim; return the SMS body that should be sent back to the volunteer."""
+    """Apply a YES claim; return the SMS body that should be sent back to the volunteer.
+
+    Seat resolution runs inside a Firestore transaction so concurrent YES
+    messages can't overshoot `headcount_needed`. The transaction returns a
+    ClaimOutcome describing what happened; SMS side-effects (volunteer reply,
+    farmer milestones) fire here, outside the transaction.
+    """
     assert opportunity.id is not None
     assert volunteer.id is not None
 
     if opportunity.status in (OpportunityStatus.COMPLETED, OpportunityStatus.CANCELLED, OpportunityStatus.EXPIRED):
         return _stale_opportunity_body(opportunity, farm_name)
 
-    seats_left = opportunity.headcount_needed - opportunity.seats_filled
-    if seats_left <= 0:
-        # Already full — record a waitlist claim and tell them.
-        opportunities_repo.upsert_claim(
-            opp_id=opportunity.id,
-            claim=ClaimDoc(
-                volunteer_user_id=volunteer.id,
-                slots=slots,
-                claimed_at=datetime.now(UTC),
-                status=ClaimStatus.WAITLIST,
-            ),
-        )
-        if opportunity.kind == OpportunityKind.PICKUP:
+    outcome = opportunities_repo.try_claim_in_transaction(
+        opp_id=opportunity.id,
+        volunteer_user_id=volunteer.id,
+        requested_slots=slots,
+        now=datetime.now(UTC),
+    )
+
+    if outcome.is_stale:
+        return _stale_opportunity_body(opportunity, farm_name)
+
+    if outcome.is_waitlist:
+        if outcome.kind == OpportunityKind.PICKUP:
             return templates.render_pickup_already_claimed(farm_name=farm_name)
         return templates.render_shift_full(farm_name=farm_name)
 
-    granted_slots = min(slots, seats_left)
-    opportunities_repo.upsert_claim(
-        opp_id=opportunity.id,
-        claim=ClaimDoc(
-            volunteer_user_id=volunteer.id,
-            slots=granted_slots,
-            claimed_at=datetime.now(UTC),
-            status=ClaimStatus.CONFIRMED,
-        ),
-    )
-    opportunities_repo.increment_seats(opportunity.id, by=granted_slots)
-    new_filled = opportunity.seats_filled + granted_slots
+    # Re-load with the post-transaction state so milestone helpers see the
+    # updated seats_filled / status when deciding whether to fire.
+    refreshed = opportunities_repo.get_by_id(opportunity.id) or opportunity
 
-    # First-claim notification to the farmer — once per opp.
     from app.flows import farmer_ops
     farmer_ops.notify_first_claim_if_unsent(
-        opp=opportunity,
+        opp=refreshed,
         volunteer_name=volunteer.name,
         farmer_phone=notify_farmer_phone,
         messaging=messaging,
     )
 
-    # Move FILLING/OPEN -> FULL if we just filled the last seat.
-    if new_filled >= opportunity.headcount_needed:
-        opportunities_repo.update_status(opportunity.id, OpportunityStatus.FULL)
-        if notify_farmer_phone:
-            messaging.send(
-                to_phone=notify_farmer_phone,
-                body=f"{farm_name} is fully claimed for {farmer_ops.opp_short_summary(opportunity)}.",
-            )
-    else:
-        if opportunity.status == OpportunityStatus.OPEN:
-            opportunities_repo.update_status(opportunity.id, OpportunityStatus.FILLING)
+    if outcome.just_filled and notify_farmer_phone:
+        messaging.send(
+            to_phone=notify_farmer_phone,
+            body=f"{farm_name} is fully claimed for {farmer_ops.opp_short_summary(refreshed)}.",
+        )
 
-    return _confirmation_body(opportunity, farm_name)
+    return _confirmation_body(refreshed, farm_name)
 
 
 def handle_maybe(

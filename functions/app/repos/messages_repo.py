@@ -46,6 +46,20 @@ def list_for_opportunity(opp_id: str, *, limit: int = 200) -> list[MessageDoc]:
     return [snapshot_to_model(s, MessageDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
 
 
+def exists_by_provider_msg_id(provider_msg_id: str) -> bool:
+    """True if any message (inbound or outbound) with this provider_msg_id is
+    already on file. Used to make the inbound webhook idempotent against
+    Telnyx retries that double-deliver the same SMS."""
+    if not provider_msg_id:
+        return False
+    q = (
+        db.collection(COLLECTION)
+        .where("provider_msg_id", "==", provider_msg_id)
+        .limit(1)
+    )
+    return any(True for _ in q.stream())
+
+
 def latest_outbound_for_user(user_id: str) -> MessageDoc | None:
     """Used to determine which opportunity a YES is in reply to."""
     q = (

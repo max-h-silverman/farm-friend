@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
-from google.cloud.firestore import Increment
+from google.cloud.firestore import Increment, transactional
 
 from app.firebase_app import db
 
@@ -13,6 +14,7 @@ from .models import (
     ClaimDoc,
     ClaimStatus,
     OpportunityDoc,
+    OpportunityKind,
     OpportunityStatus,
     OutreachLogDoc,
     OutreachTier,
@@ -184,3 +186,130 @@ def list_confirmed_claims(opp_id: str) -> list[ClaimDoc]:
 def list_all_claims(opp_id: str) -> list[ClaimDoc]:
     snaps = db.collection(COLLECTION).document(opp_id).collection(CLAIMS_SUB).stream()
     return [snapshot_to_model(s, ClaimDoc) for s in snaps if s.exists]  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Transactional claim
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class ClaimOutcome:
+    """Result of `try_claim_in_transaction`.
+
+    Tells the caller what actually happened so it can send the right SMS and
+    fire the right farmer notifications — all outside the transaction so the
+    transaction stays short and only writes Firestore.
+    """
+    granted_slots: int
+    seats_filled_after: int
+    headcount_needed: int
+    status_after: OpportunityStatus
+    just_filled: bool  # True iff this claim was the one that flipped to FULL
+    is_waitlist: bool
+    is_stale: bool    # opp was completed/cancelled/expired when we read it
+    kind: OpportunityKind
+
+
+def try_claim_in_transaction(
+    *,
+    opp_id: str,
+    volunteer_user_id: str,
+    requested_slots: int,
+    now: datetime,
+) -> ClaimOutcome:
+    """Atomically: read the opp, decide seats, write claim + increment + status.
+
+    Firestore retries on contention, so concurrent YES messages serialize and
+    can't overshoot headcount_needed. All decisions inside the txn are made
+    from the snapshot we read inside the txn (not from a stale in-memory doc).
+    """
+    opp_ref = db.collection(COLLECTION).document(opp_id)
+    claim_ref = opp_ref.collection(CLAIMS_SUB).document(volunteer_user_id)
+    txn = db.transaction()
+
+    @transactional
+    def _run(transaction) -> ClaimOutcome:
+        snap = opp_ref.get(transaction=transaction)
+        if not snap.exists:
+            raise ValueError(f"opportunity {opp_id} not found")
+        opp = snapshot_to_model(snap, OpportunityDoc)
+        assert opp is not None
+
+        if opp.status in (
+            OpportunityStatus.COMPLETED,
+            OpportunityStatus.CANCELLED,
+            OpportunityStatus.EXPIRED,
+        ):
+            return ClaimOutcome(
+                granted_slots=0,
+                seats_filled_after=opp.seats_filled,
+                headcount_needed=opp.headcount_needed,
+                status_after=opp.status,
+                just_filled=False,
+                is_waitlist=False,
+                is_stale=True,
+                kind=opp.kind,
+            )
+
+        seats_left = opp.headcount_needed - opp.seats_filled
+        if seats_left <= 0:
+            transaction.set(
+                claim_ref,
+                model_to_dict(
+                    ClaimDoc(
+                        volunteer_user_id=volunteer_user_id,
+                        slots=requested_slots,
+                        claimed_at=now,
+                        status=ClaimStatus.WAITLIST,
+                    )
+                ),
+            )
+            return ClaimOutcome(
+                granted_slots=0,
+                seats_filled_after=opp.seats_filled,
+                headcount_needed=opp.headcount_needed,
+                status_after=opp.status,
+                just_filled=False,
+                is_waitlist=True,
+                is_stale=False,
+                kind=opp.kind,
+            )
+
+        granted = min(requested_slots, seats_left)
+        new_filled = opp.seats_filled + granted
+        just_filled = new_filled >= opp.headcount_needed
+        new_status: OpportunityStatus
+        if just_filled:
+            new_status = OpportunityStatus.FULL
+        elif opp.status == OpportunityStatus.OPEN:
+            new_status = OpportunityStatus.FILLING
+        else:
+            new_status = opp.status
+
+        transaction.set(
+            claim_ref,
+            model_to_dict(
+                ClaimDoc(
+                    volunteer_user_id=volunteer_user_id,
+                    slots=granted,
+                    claimed_at=now,
+                    status=ClaimStatus.CONFIRMED,
+                )
+            ),
+        )
+        update_payload: dict = {"seats_filled": Increment(granted)}
+        if new_status != opp.status:
+            update_payload["status"] = new_status.value
+        transaction.update(opp_ref, update_payload)
+
+        return ClaimOutcome(
+            granted_slots=granted,
+            seats_filled_after=new_filled,
+            headcount_needed=opp.headcount_needed,
+            status_after=new_status,
+            just_filled=just_filled,
+            is_waitlist=False,
+            is_stale=False,
+            kind=opp.kind,
+        )
+
+    return _run(txn)
