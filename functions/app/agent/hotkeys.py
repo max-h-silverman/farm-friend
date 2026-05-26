@@ -30,8 +30,11 @@ class HotkeyMatch:
 
 
 _YES_RE = re.compile(r"^\s*y(es)?(?:\s+(\d+))?\s*[!\.]?\s*$", re.IGNORECASE)
+_MAYBE_RE = re.compile(r"^\s*maybe\s*[!\.\?]?\s*$", re.IGNORECASE)
 _HELP_RE = re.compile(r"^\s*help\s*[!\.\?]?\s*$", re.IGNORECASE)
-_STOP_PLAIN_RE = re.compile(r"^\s*(stop|unsubscribe|quit|cancel|end)\s*[!\.]?\s*$", re.IGNORECASE)
+_STATUS_RE = re.compile(r"^\s*status\s*[!\.\?]?\s*$", re.IGNORECASE)
+_CANCEL_RE = re.compile(r"^\s*cancel\s*[!\.]?\s*$", re.IGNORECASE)
+_STOP_PLAIN_RE = re.compile(r"^\s*(stop|unsubscribe|quit|end)\s*[!\.]?\s*$", re.IGNORECASE)
 _FLAG_RE = re.compile(r"^\s*flag\b.*$", re.IGNORECASE)
 _JOIN_RE = re.compile(r"^\s*(join|start)\s*[!\.]?\s*$", re.IGNORECASE)
 _MUTE_RE = re.compile(r"^\s*(mute|pass|skip)\s*[!\.]?\s*$", re.IGNORECASE)
@@ -82,6 +85,12 @@ def parse(
     if _MUTE_RE.match(text):
         return HotkeyMatch(IntentLabel.MUTE, {})
 
+    if _STATUS_RE.match(text):
+        return HotkeyMatch(IntentLabel.STATUS, {})
+
+    if _CANCEL_RE.match(text):
+        return HotkeyMatch(IntentLabel.CANCEL, {})
+
     if _STOP_PLAIN_RE.match(text):
         return HotkeyMatch(IntentLabel.STOP, {})
 
@@ -89,6 +98,9 @@ def parse(
     if yes_match:
         slots = int(yes_match.group(2)) if yes_match.group(2) else 1
         return HotkeyMatch(IntentLabel.CLAIM, {"slots": slots})
+
+    if _MAYBE_RE.match(text):
+        return HotkeyMatch(IntentLabel.MAYBE, {})
 
     insider_match = _INSIDER_RE.match(text)
     if insider_match:

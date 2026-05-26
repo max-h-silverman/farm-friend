@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.copy import templates
 from app.firebase_app import db
-from app.flows._time import format_deadline, format_when
+from app.flows._time import format_day_and_range, format_deadline
 from app.messaging import MessagingProvider, get_messaging_provider
 from app.messaging._safe_send import safe_send
 from app.repos import (
@@ -119,6 +119,14 @@ def _escalate_to_broader(*, opp: OpportunityDoc, messaging: MessagingProvider) -
     farm = farms_repo.get_by_id(opp.farm_id)
     if not farm:
         return
+    # Notify the farmer once that we're escalating past insiders.
+    from app.flows import farmer_ops
+    farmer = users_repo.get_by_id(farm.owner_user_id) if farm.owner_user_id else None
+    farmer_ops.notify_tier_escalated_if_unsent(
+        opp=opp,
+        farmer_phone=farmer.phone if farmer else None,
+        messaging=messaging,
+    )
     recipients = _select_recipients(opp=opp, tier=OutreachTier.BROADER)
     body = _render_outreach_body(opp=opp, farm_name=farm.name)
     sent_ids = []
@@ -209,7 +217,10 @@ def _render_outreach_body(*, opp: OpportunityDoc, farm_name: str) -> str:
         )
     seats_remaining = max(0, opp.headcount_needed - opp.seats_filled)
     activity = ", ".join(opp.activity_tags) if opp.activity_tags else "volunteer help"
-    when = format_when(opp.starts_at) if opp.starts_at else "soon"
+    if opp.starts_at:
+        when = format_day_and_range(opp.starts_at, opp.duration_min)
+    else:
+        when = "soon"
     return templates.render_shift_outreach(
         farm_name=farm_name,
         activity=activity,

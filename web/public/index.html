@@ -367,47 +367,48 @@
             </template>
           </div>
 
-          <button type="submit" class="btn" :disabled="test.running || !test.userId || !test.body.trim()">
-            <span x-show="!test.running">Run</span>
-            <span x-show="test.running">Running…</span>
-          </button>
+          <div class="test-actions">
+            <button type="submit" class="btn" :disabled="test.running || !test.userId || !test.body.trim()">
+              <span x-show="!test.running">Send</span>
+              <span x-show="test.running">Sending…</span>
+            </button>
+            <button type="button" class="btn btn-ghost"
+              :disabled="!test.userId || activeThread().length === 0 || test.running"
+              @click="clearActiveThread()">
+              Clear thread
+            </button>
+          </div>
         </form>
 
-        <template x-if="test.lastError">
-          <div class="card warn" style="border-left-color:var(--warn)">
-            <div class="card-title" style="color:var(--warn)">Error</div>
-            <div class="card-body-text" style="font-family:ui-monospace,monospace;font-size:13px"
-              x-text="test.lastError"></div>
-          </div>
-        </template>
-
-        <template x-if="test.lastResult">
+        <template x-if="test.userId && activeThread().length > 0">
           <div>
             <div class="transcript">
-              <!-- The 'inbound' is what we sent INTO the system (i.e. as the user). -->
-              <div class="turn inbound">
-                <span x-text="test.lastInboundBody"></span>
-                <span class="caption">
-                  as <span x-text="test.lastInboundFromLabel"></span>
-                </span>
-              </div>
-
-              <template x-if="test.lastResult.outbound.length === 0">
-                <div class="empty" style="grid-column: 1 / -1">
-                  <span class="glyph">…</span>
-                  No reply — the system stayed silent.
-                </div>
-              </template>
-
-              <template x-for="(m, i) in test.lastResult.outbound" :key="i">
-                <div class="turn outbound">
-                  <span x-text="m.body"></span>
-                  <span class="caption">to <span x-text="m.to_phone"></span></span>
+              <template x-for="(turn, i) in activeThread()" :key="i">
+                <div>
+                  <div x-show="turn.kind === 'inbound'" class="turn inbound">
+                    <span x-text="turn.body"></span>
+                    <span class="caption">
+                      as <span x-text="turn.fromLabel"></span>
+                    </span>
+                  </div>
+                  <div x-show="turn.kind === 'outbound'" class="turn outbound">
+                    <span x-text="turn.body"></span>
+                    <span class="caption">to <span x-text="turn.to_phone"></span></span>
+                  </div>
+                  <div x-show="turn.kind === 'silence'" class="empty">
+                    <span class="glyph">…</span>
+                    No reply — the system stayed silent.
+                  </div>
+                  <div x-show="turn.kind === 'error'" class="card warn" style="border-left-color:var(--warn)">
+                    <div class="card-title" style="color:var(--warn)">Error</div>
+                    <div class="card-body-text" style="font-family:ui-monospace,monospace;font-size:13px"
+                      x-text="turn.body"></div>
+                  </div>
                 </div>
               </template>
             </div>
             <p class="transcript-footer">
-              Any opportunities, claims, or flags this message created are persisted —
+              Any opportunities, claims, or flags this thread created are persisted —
               check the Worklist and Opportunities tabs.
             </p>
           </div>

@@ -14,7 +14,7 @@ from app.config import ALL_SECRETS
 from app.flows import outreach as outreach_flow
 from app.flows import post_event as post_event_flow
 from app.flows import message_dispatch
-from app.firebase_app import db  # noqa: F401 — ensure admin SDK initialized at import
+from app.firebase_app import db  # noqa: F401 — triggers eager init at runtime (see firebase_app.py)
 
 # Default region. us-west1 is closest to Vashon Island.
 options.set_global_options(region="us-west1", memory=MemoryOption.MB_512)
@@ -74,6 +74,19 @@ def tick_stale_drafts(event: scheduler_fn.ScheduledEvent) -> None:
     outreach_flow.run_stale_draft_tick()
 
 
+@scheduler_fn.on_schedule(
+    schedule="every 15 minutes",
+    secrets=ALL_SECRETS,
+    timezone=scheduler_fn.Timezone("America/Los_Angeles"),
+)
+def tick_unfilled_at_start(event: scheduler_fn.ScheduledEvent) -> None:
+    """Notify farmers of shifts that started while still unfilled. Fires
+    once per opportunity."""
+    from app.flows import farmer_ops as _farmer_ops
+    from app.messaging import get_messaging_provider
+    _farmer_ops.run_unfilled_at_start_tick(get_messaging_provider())
+
+
 # Admin callable functions are registered in app/admin/callables.py and
 # re-exported here by name so the Firebase deploy tooling sees them.
 from app.admin.callables import (  # noqa: E402
@@ -92,6 +105,7 @@ __all__ = [
     "tick_outreach",
     "tick_post_event",
     "tick_stale_drafts",
+    "tick_unfilled_at_start",
     "approve_pending_user",
     "suspend_user",
     "resolve_flag",

@@ -16,12 +16,13 @@ const CANONICAL_ACTIVITIES = [
 
 const TEST_PRESETS = [
   { label: "YES",        value: "YES" },
+  { label: "MAYBE",      value: "MAYBE" },
   { label: "HELP",       value: "HELP" },
   { label: "FLAG",       value: "FLAG" },
   { label: "STOP weeding", value: "STOP weeding" },
   { label: "farmer post",  value: "need 2 ppl tomorrow 10am to harvest greens" },
   { label: "vague post",   value: "need help with plum harvest tomorrow" },
-  { label: "ambiguous",    value: "maybe later this week, depends on weather" },
+  { label: "ambiguous",    value: "yeah idk depends on weather" },
 ];
 
 // -- Visible error reporter -----------------------------------------------
@@ -75,8 +76,12 @@ window.adminApp = function adminApp() {
     stats: { activeUsers: 0, openOpps: 0, outbound24h: 0 },
     test: {
       userId: "", body: "", running: false,
-      lastResult: null, lastError: "",
-      lastInboundBody: "", lastInboundFromLabel: "",
+      // Per-persona conversation threads. Key = user.id. Value = array of
+      // turns: { kind: "inbound" | "outbound" | "error" | "silence",
+      //          body, to_phone?, fromLabel? }. We keep one thread per
+      // persona so switching the "Send as" dropdown swaps the visible
+      // conversation rather than blowing it away.
+      threads: {},
     },
     dayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     expanded: { farmer: null, volunteer: null },
@@ -386,22 +391,43 @@ window.adminApp = function adminApp() {
     },
 
     // ------------- System Test -------------
+    activeThread() {
+      const id = this.test.userId;
+      if (!id) return [];
+      if (!this.test.threads[id]) this.test.threads[id] = [];
+      return this.test.threads[id];
+    },
+
+    clearActiveThread() {
+      const id = this.test.userId;
+      if (id) this.test.threads[id] = [];
+    },
+
     async runTest() {
       const userId = this.test.userId;
       const body = this.test.body.trim();
       if (!userId || !body) return;
       const user = this.users.find((u) => u.id === userId);
+      const fromLabel = user ? `${user.name} (${user.phone})` : userId;
+
+      if (!this.test.threads[userId]) this.test.threads[userId] = [];
+      const thread = this.test.threads[userId];
+      thread.push({ kind: "inbound", body, fromLabel });
+      this.test.body = "";
       this.test.running = true;
-      this.test.lastError = "";
-      this.test.lastResult = null;
-      this.test.lastInboundBody = body;
-      this.test.lastInboundFromLabel = user ? `${user.name} (${user.phone})` : userId;
       try {
         const call = window.__fb.httpsCallable(this._functions, "simulate_inbound_sms");
         const resp = await call({ user_id: userId, body });
-        this.test.lastResult = resp.data;
+        const outbound = resp.data?.outbound || [];
+        if (outbound.length === 0) {
+          thread.push({ kind: "silence" });
+        } else {
+          for (const m of outbound) {
+            thread.push({ kind: "outbound", body: m.body, to_phone: m.to_phone });
+          }
+        }
       } catch (e) {
-        this.test.lastError = e?.message || String(e);
+        thread.push({ kind: "error", body: e?.message || String(e) });
       } finally {
         this.test.running = false;
       }

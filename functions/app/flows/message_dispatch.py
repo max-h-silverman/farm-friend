@@ -26,13 +26,18 @@ from firebase_functions import https_fn
 from app.agent import hotkeys
 from app.agent.ambiguous import resolve_ambiguous
 from app.agent.classifier import classify_reply
-from app.agent.parser import merge_clarification_into_draft, parse_opportunity
+from app.agent.parser import (
+    classify_farmer_message,
+    merge_clarification_into_draft,
+    parse_opportunity,
+)
 from app.config import load_settings
 from app.copy import templates
 from app.flows import claim as claim_flow
+from app.flows import farmer_ops
 from app.flows import outreach as outreach_flow
 from app.flows import post_event as post_event_flow
-from app.flows._time import VASHON_TZ
+from app.flows._time import VASHON_TZ, format_day_and_range, format_deadline
 from app.llm import get_llm_client
 from app.messaging import InboundMessage, get_messaging_provider
 from app.messaging._safe_send import safe_send
@@ -198,6 +203,20 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
                     provider=provider,
                 )
                 return
+            # If there are open opps, route through the edit/cancel/new-post
+            # triage. Otherwise fall through to the simpler new-post path.
+            open_opps = opportunities_repo.list_open_for_farm(farm.id or "")
+            if open_opps and len(inbound.body.strip()) > 4:
+                _handle_farmer_message_with_open_opps(
+                    sender=sender,
+                    farm_id=farm.id or "",
+                    farm_name=farm.name,
+                    open_opps=open_opps,
+                    inbound_text=inbound.body,
+                    inbound_doc_id=inbound_doc.id or "",
+                    provider=provider,
+                )
+                return
             if _looks_like_posting(inbound.body):
                 _handle_farmer_post(
                     sender=sender,
@@ -259,8 +278,13 @@ def _handle_hotkey(
     intent = match.intent
 
     if intent == IntentLabel.HELP:
+        is_farmer = sender.role == UserRole.FARMER
         _reply_and_log(
-            provider=provider, to=sender, body=templates.HELP_TEXT, opp=target_opp, intent=intent
+            provider=provider,
+            to=sender,
+            body=templates.render_help(is_farmer=is_farmer),
+            opp=target_opp,
+            intent=intent,
         )
         return
 
@@ -288,8 +312,13 @@ def _handle_hotkey(
 
     if intent == IntentLabel.JOIN:
         # Already an active user — JOIN is a no-op; reply with HELP.
+        is_farmer = sender.role == UserRole.FARMER
         _reply_and_log(
-            provider=provider, to=sender, body=templates.HELP_TEXT, opp=target_opp, intent=intent
+            provider=provider,
+            to=sender,
+            body=templates.render_help(is_farmer=is_farmer),
+            opp=target_opp,
+            intent=intent,
         )
         return
 
@@ -414,6 +443,56 @@ def _handle_hotkey(
                 )
         return
 
+    if intent == IntentLabel.STATUS:
+        if sender.role not in (UserRole.FARMER, UserRole.BOTH):
+            _reply_and_log(
+                provider=provider,
+                to=sender,
+                body="STATUS is for farmers. Reply HELP for volunteer commands.",
+                opp=target_opp,
+                intent=intent,
+            )
+            return
+        farm = farms_repo.get_by_owner(sender.id) if sender.id else None
+        if farm is None or farm.id is None:
+            _reply_and_log(
+                provider=provider,
+                to=sender,
+                body="No farm on file for you yet — Max can set that up.",
+                opp=target_opp,
+                intent=intent,
+            )
+            return
+        body = farmer_ops.handle_status(farm_id=farm.id)
+        _reply_and_log(provider=provider, to=sender, body=body, opp=None, intent=intent)
+        return
+
+    if intent == IntentLabel.CANCEL:
+        if sender.role not in (UserRole.FARMER, UserRole.BOTH):
+            _reply_and_log(
+                provider=provider,
+                to=sender,
+                body="CANCEL is for farmers. Reply STOP to unsubscribe, MUTE to silence this thread.",
+                opp=target_opp,
+                intent=intent,
+            )
+            return
+        farm = farms_repo.get_by_owner(sender.id) if sender.id else None
+        if farm is None or farm.id is None:
+            _reply_and_log(
+                provider=provider,
+                to=sender,
+                body="No farm on file for you yet — Max can set that up.",
+                opp=target_opp,
+                intent=intent,
+            )
+            return
+        body = farmer_ops.handle_cancel(
+            farm_id=farm.id, farm_name=farm.name, messaging=provider
+        )
+        _reply_and_log(provider=provider, to=sender, body=body, opp=None, intent=intent)
+        return
+
     if intent == IntentLabel.CLAIM and target_opp is not None:
         farm = farms_repo.get_by_id(target_opp.farm_id)
         farmer = users_repo.get_by_id(farm.owner_user_id) if farm else None
@@ -425,6 +504,16 @@ def _handle_hotkey(
             slots=slots,
             farm_name=farm.name if farm else "the farm",
             notify_farmer_phone=farmer.phone if farmer else None,
+        )
+        _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
+        return
+
+    if intent == IntentLabel.MAYBE and target_opp is not None:
+        farm = farms_repo.get_by_id(target_opp.farm_id)
+        reply = claim_flow.handle_maybe(
+            opportunity=target_opp,
+            volunteer=sender,
+            farm_name=farm.name if farm else "the farm",
         )
         _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
         return
@@ -449,6 +538,144 @@ def _handle_hotkey(
             )
         _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
         return
+
+
+def _handle_farmer_message_with_open_opps(
+    *,
+    sender: UserDoc,
+    farm_id: str,
+    farm_name: str,
+    open_opps: list[OpportunityDoc],
+    inbound_text: str,
+    inbound_doc_id: str,
+    provider,
+) -> None:
+    """Triage a farmer message when their farm has at least one open opp.
+
+    The LLM decides edit / cancel / new_post / clarify. On `new_post` we
+    fall through to the existing _handle_farmer_post path so nothing else
+    changes.
+    """
+    settings = load_settings()
+    llm = get_llm_client(settings)
+    now_local = datetime.now(VASHON_TZ)
+    opp_dicts = [_opp_for_edit_prompt(o) for o in open_opps]
+    decision = classify_farmer_message(
+        llm=llm,
+        farmer_message=inbound_text,
+        open_opps=opp_dicts,
+        now_local=now_local,
+    )
+
+    if decision.action == "clarify":
+        safe_send(
+            provider,
+            to_phone=sender.phone,
+            body=decision.clarification_question or "Which post are you referring to?",
+        )
+        return
+
+    if decision.action == "cancel" and decision.opp_id:
+        target = next((o for o in open_opps if o.id == decision.opp_id), None)
+        if target is None:
+            safe_send(provider, to_phone=sender.phone, body="Couldn't find that post.")
+            return
+        farmer_ops._do_cancel(opp=target, farm_name=farm_name, messaging=provider)
+        safe_send(
+            provider,
+            to_phone=sender.phone,
+            body=templates.render_cancel_confirmed(summary=farmer_ops.opp_short_summary(target)),
+        )
+        return
+
+    if decision.action == "edit" and decision.opp_id:
+        target = next((o for o in open_opps if o.id == decision.opp_id), None)
+        if target is None:
+            safe_send(provider, to_phone=sender.phone, body="Couldn't find that post.")
+            return
+        field_updates = _normalize_edit_updates(decision.field_updates)
+        if not field_updates:
+            safe_send(
+                provider,
+                to_phone=sender.phone,
+                body="What should change? (time, headcount, requirements, drop location...)",
+            )
+            return
+        try:
+            updated = farmer_ops.apply_edit(
+                opp=target,
+                field_updates=field_updates,
+                farm_name=farm_name,
+                messaging=provider,
+            )
+        except farmer_ops.HeadcountTooLow as e:
+            safe_send(
+                provider,
+                to_phone=sender.phone,
+                body=templates.render_edit_headcount_too_low(currently_filled=e.currently_filled),
+            )
+            return
+        safe_send(
+            provider,
+            to_phone=sender.phone,
+            body=templates.render_edit_confirmed(summary=farmer_ops.opp_short_summary(updated)),
+        )
+        return
+
+    # action == "new_post" — fall through to the existing handler.
+    _handle_farmer_post(
+        sender=sender,
+        farm_id=farm_id,
+        farm_name=farm_name,
+        inbound_text=inbound_text,
+        inbound_doc_id=inbound_doc_id,
+        provider=provider,
+    )
+
+
+def _opp_for_edit_prompt(opp: OpportunityDoc) -> dict:
+    """Shape an OpportunityDoc for the edit-triage LLM prompt."""
+    return {
+        "id": opp.id,
+        "kind": opp.kind.value,
+        "activity_or_produce": (
+            ", ".join(opp.activity_tags) if opp.kind == OpportunityKind.SHIFT
+            else (opp.produce_description or "surplus")
+        ),
+        "when_human": farmer_ops.opp_short_summary(opp),
+        "headcount_needed": opp.headcount_needed,
+        "seats_filled": opp.seats_filled,
+    }
+
+
+_EDITABLE_FIELDS = {
+    "starts_at",
+    "duration_min",
+    "headcount_needed",
+    "requirements_text",
+    "produce_description",
+    "destination",
+}
+
+
+def _normalize_edit_updates(raw: dict) -> dict:
+    """Reject unknown fields, parse ISO datetimes, coerce numeric strings."""
+    out: dict = {}
+    for k, v in (raw or {}).items():
+        if k not in _EDITABLE_FIELDS or v is None or v == "":
+            continue
+        if k == "starts_at":
+            dt = _parse_iso(v) if isinstance(v, str) else None
+            if dt is not None:
+                out[k] = dt
+        elif k in ("duration_min", "headcount_needed"):
+            try:
+                out[k] = int(v)
+            except (ValueError, TypeError):
+                continue
+        else:
+            out[k] = str(v)
+    return out
 
 
 def _handle_farmer_post(
@@ -705,6 +932,19 @@ def _handle_llm_reply(
         )
         return
 
+    # High-confidence soft MAYBE — record interest without a seat.
+    if classification.intent == "MAYBE" and target_opp and classification.confidence >= threshold:
+        farm = farms_repo.get_by_id(target_opp.farm_id)
+        reply = claim_flow.handle_maybe(
+            opportunity=target_opp,
+            volunteer=sender,
+            farm_name=farm.name if farm else "the farm",
+        )
+        _reply_and_log(
+            provider=provider, to=sender, body=reply, opp=target_opp, intent=IntentLabel.MAYBE
+        )
+        return
+
     # High-confidence non-claim with a draft reply — send it.
     if classification.draft_reply and classification.confidence >= threshold:
         _reply_and_log(
@@ -873,10 +1113,25 @@ def _post_event_time_for(
 
 
 def _farmer_posting_summary(*, parsed) -> str:
+    """Conversational readback of a parsed posting, used to confirm with the
+    farmer after we've successfully filled in all required fields. Reads back
+    every field we resolved (including ones the farmer didn't supply but
+    defaults filled), so a missing detail is the farmer's cue to correct us."""
     if parsed.kind == "shift":
-        when = parsed.starts_at or "soon"
-        activity = ",".join(parsed.activity_tags) if parsed.activity_tags else "shift"
-        return f"{activity} {when}, need {parsed.headcount_needed or 1}"
+        headcount = parsed.headcount_needed or 1
+        people = "1 person" if headcount == 1 else f"{headcount} people"
+        activity = ", ".join(parsed.activity_tags) if parsed.activity_tags else "a shift"
+        when_str: str
+        starts_dt = _parse_iso(parsed.starts_at) if parsed.starts_at else None
+        if starts_dt:
+            when_str = format_day_and_range(starts_dt, parsed.duration_min)
+        else:
+            when_str = "soon"
+        return f"{people} to help with {activity} {when_str}"
     if parsed.kind == "pickup":
-        return f"pickup of {parsed.produce_description or 'surplus'} by {parsed.deadline_at or 'today'}"
+        produce = parsed.produce_description or "surplus produce"
+        deadline_dt = _parse_iso(parsed.deadline_at) if parsed.deadline_at else None
+        when_str = format_deadline(deadline_dt) if deadline_dt else "today"
+        dest = f", drop at {parsed.destination}" if parsed.destination else ""
+        return f"pickup of {produce} {when_str}{dest}"
     return "posting"

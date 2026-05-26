@@ -71,19 +71,60 @@ def handle_claim(
     opportunities_repo.increment_seats(opportunity.id, by=granted_slots)
     new_filled = opportunity.seats_filled + granted_slots
 
+    # First-claim notification to the farmer — once per opp.
+    from app.flows import farmer_ops
+    farmer_ops.notify_first_claim_if_unsent(
+        opp=opportunity,
+        volunteer_name=volunteer.name,
+        farmer_phone=notify_farmer_phone,
+        messaging=messaging,
+    )
+
     # Move FILLING/OPEN -> FULL if we just filled the last seat.
     if new_filled >= opportunity.headcount_needed:
         opportunities_repo.update_status(opportunity.id, OpportunityStatus.FULL)
         if notify_farmer_phone:
             messaging.send(
                 to_phone=notify_farmer_phone,
-                body=f"Your {opportunity.kind.value} is fully claimed. Coordinator details to follow.",
+                body=f"{farm_name} is fully claimed for {farmer_ops.opp_short_summary(opportunity)}.",
             )
     else:
         if opportunity.status == OpportunityStatus.OPEN:
             opportunities_repo.update_status(opportunity.id, OpportunityStatus.FILLING)
 
     return _confirmation_body(opportunity, farm_name)
+
+
+def handle_maybe(
+    *,
+    opportunity: OpportunityDoc,
+    volunteer: UserDoc,
+    farm_name: str,
+) -> str:
+    """Record soft interest on the opportunity without consuming a seat.
+
+    Returned body is the volunteer ack. The interest is visible to admins
+    via the claims subcollection (status=INTERESTED).
+    """
+    assert opportunity.id is not None
+    assert volunteer.id is not None
+    if opportunity.status in (
+        OpportunityStatus.COMPLETED,
+        OpportunityStatus.CANCELLED,
+        OpportunityStatus.EXPIRED,
+        OpportunityStatus.FULL,
+    ):
+        return _stale_opportunity_body(opportunity, farm_name)
+    opportunities_repo.upsert_claim(
+        opp_id=opportunity.id,
+        claim=ClaimDoc(
+            volunteer_user_id=volunteer.id,
+            slots=0,
+            claimed_at=datetime.now(UTC),
+            status=ClaimStatus.INTERESTED,
+        ),
+    )
+    return templates.render_maybe_ack(farm_name=farm_name)
 
 
 def _confirmation_body(opp: OpportunityDoc, farm_name: str) -> str:

@@ -70,11 +70,14 @@ def approve_pending_user(req: https_fn.CallableRequest) -> dict:
 
     pending_users_repo.mark_approved(pending_id)
 
-    # Send the first-contact intro SMS.
+    # Send the first-contact intro SMS, using the role-appropriate template.
     settings = load_settings()
     intro_sent = False
     if settings.vcard_url:
-        body = templates.render_intro(name=user.name, vcard_url=settings.vcard_url)
+        if role == UserRole.FARMER:
+            body = templates.render_intro_farmer(name=user.name, vcard_url=settings.vcard_url)
+        else:
+            body = templates.render_intro_volunteer(name=user.name, vcard_url=settings.vcard_url)
         provider = get_messaging_provider(settings)
         provider_id = safe_send(provider, to_phone=user.phone, body=body)
         if provider_id is not None:

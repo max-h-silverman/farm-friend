@@ -109,6 +109,31 @@ def list_due_for_post_event(*, now: datetime) -> list[OpportunityDoc]:
     return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
 
 
+def list_open_for_farm(farm_id: str) -> list[OpportunityDoc]:
+    """Open + filling opportunities for a farm. Used by STATUS / EDIT / CANCEL
+    handlers to enumerate what the farmer might be referring to."""
+    q = (
+        db.collection(COLLECTION)
+        .where("farm_id", "==", farm_id)
+        .where("status", "in", [OpportunityStatus.OPEN.value, OpportunityStatus.FILLING.value])
+        .order_by("created_at", direction="DESCENDING")
+    )
+    return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
+def list_unfilled_started(*, now: datetime) -> list[OpportunityDoc]:
+    """Open/filling shifts whose start time has passed and whose farmer
+    hasn't been notified yet about the unfilled state. Pickups use
+    deadline_at and are not returned here."""
+    q = (
+        db.collection(COLLECTION)
+        .where("status", "in", [OpportunityStatus.OPEN.value, OpportunityStatus.FILLING.value])
+        .where("farmer_notified_unfilled", "==", False)
+        .where("starts_at", "<=", now)
+    )
+    return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
 # ---------------------------------------------------------------------------
 # Outreach log
 # ---------------------------------------------------------------------------

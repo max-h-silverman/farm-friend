@@ -38,7 +38,7 @@ def test_yes_n_slots(text: str, slots: int) -> None:
     assert m.payload["slots"] == slots
 
 
-@pytest.mark.parametrize("text", ["STOP", "stop", "STOP.", "Unsubscribe", "quit", "cancel"])
+@pytest.mark.parametrize("text", ["STOP", "stop", "STOP.", "Unsubscribe", "quit", "end"])
 def test_plain_stop_unsubscribes(text: str) -> None:
     m = parse(text)
     assert m is not None
@@ -71,6 +71,49 @@ def test_mute_synonyms() -> None:
     for word in ("MUTE", "mute", "pass", "skip"):
         m = parse(word)
         assert m is not None and m.intent is IntentLabel.MUTE
+
+
+@pytest.mark.parametrize("text", ["MAYBE", "maybe", "Maybe.", " maybe!", "maybe?"])
+def test_bare_maybe_is_maybe(text: str) -> None:
+    m = parse(text)
+    assert m is not None
+    assert m.intent is IntentLabel.MAYBE
+
+
+def test_maybe_with_extra_words_falls_through_to_llm() -> None:
+    # Anything past a bare MAYBE goes to the classifier so it can interpret
+    # nuance ("maybe later", "maybe 2 of us").
+    assert parse("maybe later") is None
+    assert parse("maybe 2 of us") is None
+
+
+@pytest.mark.parametrize("text", ["STATUS", "status", "Status?", " status."])
+def test_status_hotkey(text: str) -> None:
+    m = parse(text)
+    assert m is not None and m.intent is IntentLabel.STATUS
+
+
+@pytest.mark.parametrize("text", ["CANCEL", "cancel", "Cancel.", " cancel "])
+def test_cancel_hotkey(text: str) -> None:
+    m = parse(text)
+    assert m is not None and m.intent is IntentLabel.CANCEL
+
+
+def test_cancel_with_args_falls_through_to_llm() -> None:
+    # "cancel the plum harvest" is a free-text edit/cancel intent — let the
+    # edit-triage LLM handle it so it can disambiguate which opp.
+    assert parse("cancel the plum harvest") is None
+
+
+def test_plain_cancel_no_longer_unsubscribes() -> None:
+    # Important behavior change: "cancel" used to be a STOP synonym. It's
+    # now the farmer CANCEL hotkey. STOP / unsubscribe / quit / end still
+    # unsubscribe.
+    m = parse("cancel")
+    assert m is not None and m.intent is IntentLabel.CANCEL
+    for stop_word in ("STOP", "unsubscribe", "quit", "end"):
+        m = parse(stop_word)
+        assert m is not None and m.intent is IntentLabel.STOP
 
 
 def test_stop_activity_known_slug() -> None:

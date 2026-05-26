@@ -24,6 +24,7 @@ from app.llm.client import Message
 
 PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "parser.md"
 MERGE_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "parser_merge.md"
+EDIT_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "parser_edit.md"
 
 
 # Required-field rules. Kept in code (not just the prompt) so dispatch can
@@ -163,6 +164,47 @@ def _format_user_prompt(
             parts.append(f"farm_defaults: {hints}")
     parts.append(f"message:\n{farmer_message}")
     return "\n".join(parts)
+
+
+class ParsedEditDecision(BaseModel):
+    """Output schema for the edit/cancel/new-post triage."""
+
+    action: Literal["new_post", "edit", "cancel", "clarify"]
+    opp_id: str | None = None
+    field_updates: dict = Field(default_factory=dict)
+    clarification_question: str = ""
+
+
+def classify_farmer_message(
+    *,
+    llm: LLMClient,
+    farmer_message: str,
+    open_opps: list[dict],
+    now_local: datetime,
+) -> ParsedEditDecision:
+    """Triage a farmer's free-form message when the farm has at least one
+    open or filling opportunity. Decide: new_post, edit, cancel, or clarify.
+
+    `open_opps` is a list of dicts the caller has already shaped for the
+    prompt (one per open opp): `{id, kind, activity_or_produce, when_human,
+    headcount_needed, seats_filled}`.
+    """
+    system_prompt = EDIT_PROMPT_PATH.read_text(encoding="utf-8")
+    user_prompt = (
+        f"now: {now_local.isoformat()}\n"
+        f"open_opps: {open_opps}\n\n"
+        f"farmer_message:\n{farmer_message}"
+    )
+    return llm.chat_json(
+        model_tier="fast",
+        messages=[
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=user_prompt),
+        ],
+        response_model=ParsedEditDecision,
+        cache_system_prompt=True,
+        max_tokens=384,
+    )
 
 
 def _apply_farm_defaults(

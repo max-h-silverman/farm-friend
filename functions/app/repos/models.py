@@ -55,6 +55,7 @@ class OutreachTier(StrEnum):
 
 class ClaimStatus(StrEnum):
     CONFIRMED = "confirmed"
+    INTERESTED = "interested"  # MAYBE — recorded but does not consume a seat
     WAITLIST = "waitlist"
     DROPPED = "dropped"
 
@@ -73,6 +74,7 @@ class MessageDirection(StrEnum):
 
 class IntentLabel(StrEnum):
     CLAIM = "CLAIM"
+    MAYBE = "MAYBE"
     MUTE = "MUTE"
     STOP = "STOP"
     STOP_ACTIVITY = "STOP_ACTIVITY"
@@ -85,6 +87,9 @@ class IntentLabel(StrEnum):
     QUESTION = "QUESTION"
     DECLINE = "DECLINE"
     AMBIGUOUS = "AMBIGUOUS"
+    STATUS = "STATUS"          # farmer-only: snapshot of open opps
+    CANCEL = "CANCEL"          # farmer-only: cancel an open opp
+    EDIT = "EDIT"              # farmer-only: edit fields on an open opp
     POST_EVENT_OK = "POST_EVENT_OK"
     POST_EVENT_ISSUE = "POST_EVENT_ISSUE"
 
@@ -166,6 +171,12 @@ class OpportunityDoc(BaseModel):
     current_tier: OutreachTier = OutreachTier.INSIDER
     post_event_checkin_at: datetime | None = None
     post_event_checkin_sent: bool = False
+    # Once-per-opportunity farmer notifications. Tracked here (not via a
+    # separate collection) so the existing admin/observability surface sees
+    # the state without joins.
+    farmer_notified_first_claim: bool = False
+    farmer_notified_broader: bool = False
+    farmer_notified_unfilled: bool = False
 
 
 class OutreachLogDoc(BaseModel):

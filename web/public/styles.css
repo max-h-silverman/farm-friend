@@ -461,6 +461,7 @@ h1, h2, h3 { margin: 0; }
 }
 .test-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .test-presets .chip { font-size: var(--t-xs); padding: 4px 10px; min-height: 28px; }
+.test-actions { display: flex; gap: var(--s-2); }
 
 .transcript {
   display: grid; gap: var(--s-2);
