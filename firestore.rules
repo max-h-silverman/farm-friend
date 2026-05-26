@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Default deny. All data access goes through Cloud Functions using the
+// Admin SDK (which bypasses these rules). The admin SPA reads via Firestore
+// JS SDK only after the user signs in with Google and has the custom claim
+// `admin = true` on their auth token.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+          && request.auth.token.admin == true;
+    }
+
+    // Admins can read all collections.
+    match /{document=**} {
+      allow read: if isAdmin();
+    }
+
+    // Admin writes are limited to specific actions; most data is written
+    // by Functions using the Admin SDK. We allow admin writes to a
+    // narrow set of fields that the SPA touches (resolving flags,
+    // approving pending users, suspending users). Detailed field-level
+    // checks are deferred to a follow-up — for v1 the SPA proxies all
+    // writes through callable functions, so we keep this conservative.
+    //
+    // No public read or write under any path.
+  }
+}

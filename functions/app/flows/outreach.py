@@ -1,0 +1,235 @@
+"""Tiered outreach + escalation.
+
+Two surfaces:
+
+1. `send_initial_outreach(opp)` — called when a new opportunity opens.
+   Picks insiders for that farm, sends them the outreach SMS, schedules a
+   future escalation if seats remain.
+
+2. `run_escalation_tick()` — scheduled function. Scans for opportunities
+   whose `next_escalation_at` has fired and:
+     - if still in insider tier, escalates to broader pool;
+     - if already in broader pool and still unfilled, leaves it (the admin
+       view will surface it as stalled).
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+from app.copy import templates
+from app.firebase_app import db
+from app.flows._time import format_deadline, format_when
+from app.messaging import MessagingProvider, get_messaging_provider
+from app.messaging._safe_send import safe_send
+from app.repos import (
+    farms_repo,
+    messages_repo,
+    mutes_repo,
+    opportunities_repo,
+    users_repo,
+)
+from app.repos.models import (
+    MessageDirection,
+    MessageDoc,
+    OpportunityDoc,
+    OpportunityKind,
+    OpportunityStatus,
+    OutreachLogDoc,
+    OutreachTier,
+    UserStatus,
+)
+
+
+# ---------------------------------------------------------------------------
+# Initial outreach when an opportunity is created
+# ---------------------------------------------------------------------------
+def send_initial_outreach(*, opp: OpportunityDoc, messaging: MessagingProvider | None = None) -> None:
+    """Send the insider tier and schedule the escalation tick."""
+    assert opp.id is not None
+    m = messaging or get_messaging_provider()
+    farm = farms_repo.get_by_id(opp.farm_id)
+    if not farm:
+        return
+    # Open the opportunity FIRST, so its status is correct even if every send
+    # fails. Outbound delivery is best-effort and must not gate status flips.
+    if opp.status == OpportunityStatus.DRAFT:
+        opportunities_repo.update_status(opp.id, OpportunityStatus.OPEN)
+
+    recipients = _select_recipients(opp=opp, tier=OutreachTier.INSIDER)
+    body = _render_outreach_body(opp=opp, farm_name=farm.name)
+    sent_ids = []
+    for u in recipients:
+        if u.id is None:
+            continue
+        provider_id = safe_send(m, to_phone=u.phone, body=body)
+        if provider_id is None:
+            continue  # send failed; skip the message log + recipient record
+        messages_repo.create(
+            MessageDoc(
+                direction=MessageDirection.OUTBOUND,
+                provider_msg_id=provider_id,
+                user_id=u.id,
+                opportunity_id=opp.id,
+                body=body,
+                created_at=datetime.now(UTC),
+            )
+        )
+        sent_ids.append(u.id)
+
+    opportunities_repo.log_outreach(
+        opp_id=opp.id,
+        entry=OutreachLogDoc(
+            tier=OutreachTier.INSIDER,
+            sent_at=datetime.now(UTC),
+            recipient_ids=sent_ids,
+        ),
+    )
+    next_at = _next_escalation_time(opp=opp, farm_insider_window_min=_window_minutes(opp, farm))
+    opportunities_repo.set_next_escalation(opp.id, at=next_at, tier=OutreachTier.INSIDER)
+
+
+# ---------------------------------------------------------------------------
+# Scheduled escalation tick
+# ---------------------------------------------------------------------------
+def run_escalation_tick(*, messaging: MessagingProvider | None = None) -> None:
+    """Called by `tick_outreach` scheduled function every ~5 minutes."""
+    m = messaging or get_messaging_provider()
+    now = datetime.now(UTC)
+    due = opportunities_repo.list_due_for_escalation(now=now)
+    for opp in due:
+        # Re-check seats — race with claims.
+        if opp.seats_filled >= opp.headcount_needed:
+            opportunities_repo.set_next_escalation(opp.id, at=None, tier=opp.current_tier)  # type: ignore[arg-type]
+            continue
+        if opp.current_tier == OutreachTier.INSIDER:
+            _escalate_to_broader(opp=opp, messaging=m)
+        else:
+            # Already in broader tier — leave it; admin view will surface as stalled.
+            opportunities_repo.set_next_escalation(opp.id, at=None, tier=OutreachTier.BROADER)  # type: ignore[arg-type]
+
+
+def _escalate_to_broader(*, opp: OpportunityDoc, messaging: MessagingProvider) -> None:
+    assert opp.id is not None
+    farm = farms_repo.get_by_id(opp.farm_id)
+    if not farm:
+        return
+    recipients = _select_recipients(opp=opp, tier=OutreachTier.BROADER)
+    body = _render_outreach_body(opp=opp, farm_name=farm.name)
+    sent_ids = []
+    for u in recipients:
+        if u.id is None:
+            continue
+        provider_id = safe_send(messaging, to_phone=u.phone, body=body)
+        if provider_id is None:
+            continue
+        messages_repo.create(
+            MessageDoc(
+                direction=MessageDirection.OUTBOUND,
+                provider_msg_id=provider_id,
+                user_id=u.id,
+                opportunity_id=opp.id,
+                body=body,
+                created_at=datetime.now(UTC),
+            )
+        )
+        sent_ids.append(u.id)
+    opportunities_repo.log_outreach(
+        opp_id=opp.id,
+        entry=OutreachLogDoc(
+            tier=OutreachTier.BROADER,
+            sent_at=datetime.now(UTC),
+            recipient_ids=sent_ids,
+        ),
+    )
+    opportunities_repo.set_next_escalation(opp.id, at=None, tier=OutreachTier.BROADER)
+
+
+# ---------------------------------------------------------------------------
+# Recipient selection (the heart of "tiered, respecting mutes")
+# ---------------------------------------------------------------------------
+def _select_recipients(*, opp: OpportunityDoc, tier: OutreachTier):
+    assert opp.id is not None
+    farm_id = opp.farm_id
+    now = datetime.now(UTC)
+    # Insider candidates: members of the farm's insider subcollection.
+    if tier == OutreachTier.INSIDER:
+        insider_ids = {ins.volunteer_user_id for ins in farms_repo.list_insiders(farm_id)}
+        candidates = [u for u in (users_repo.get_by_id(i) for i in insider_ids) if u]
+    else:
+        # Broader: all ACTIVE users who AREN'T already insiders for this farm
+        # (insiders were already pinged in the insider tier).
+        active = users_repo.list_active()
+        insider_ids = {ins.volunteer_user_id for ins in farms_repo.list_insiders(farm_id)}
+        candidates = [u for u in active if u.id not in insider_ids]
+
+    # Filter: never re-ping someone who already claimed, was already in this tier's
+    # outreach log, or has a matching mute rule.
+    already_pinged = set()
+    for log in opportunities_repo.list_outreach(opp.id):
+        already_pinged.update(log.recipient_ids)
+    claims = opportunities_repo.list_all_claims(opp.id)
+    claimed_ids = {c.volunteer_user_id for c in claims}
+
+    activity = opp.activity_tags[0] if opp.activity_tags else None
+    recipients = []
+    for u in candidates:
+        if u.status != UserStatus.ACTIVE:
+            continue
+        if u.id in already_pinged or u.id in claimed_ids:
+            continue
+        if u.id and mutes_repo.is_muted(
+            user_id=u.id,
+            activity=activity,
+            farm_id=farm_id,
+            opportunity_id=opp.id,
+            at=now,
+        ):
+            continue
+        recipients.append(u)
+    return recipients
+
+
+# ---------------------------------------------------------------------------
+# Rendering + timing
+# ---------------------------------------------------------------------------
+def _render_outreach_body(*, opp: OpportunityDoc, farm_name: str) -> str:
+    if opp.kind == OpportunityKind.PICKUP:
+        return templates.render_pickup_outreach(
+            farm_name=farm_name,
+            produce=opp.produce_description or "surplus produce",
+            deadline_human=format_deadline(opp.deadline_at) if opp.deadline_at else "today",
+            destination=opp.destination,
+            vehicle_needed=opp.vehicle_needed,
+        )
+    seats_remaining = max(0, opp.headcount_needed - opp.seats_filled)
+    activity = ", ".join(opp.activity_tags) if opp.activity_tags else "volunteer help"
+    when = format_when(opp.starts_at) if opp.starts_at else "soon"
+    return templates.render_shift_outreach(
+        farm_name=farm_name,
+        activity=activity,
+        when_human=when,
+        headcount=opp.headcount_needed,
+        seats_remaining=seats_remaining,
+        requirements=opp.requirements_text,
+    )
+
+
+def _window_minutes(opp: OpportunityDoc, farm) -> int:
+    if opp.kind == OpportunityKind.PICKUP:
+        return farm.pickup_insider_window_minutes
+    return farm.insider_window_minutes
+
+
+def _next_escalation_time(*, opp: OpportunityDoc, farm_insider_window_min: int) -> datetime:
+    now = datetime.now(UTC)
+    candidate = now + timedelta(minutes=farm_insider_window_min)
+    # Compress the window if the event is imminent.
+    target = opp.deadline_at or opp.starts_at
+    if target is not None:
+        # Always escalate at least 60 min before the event if seats unfilled.
+        cap = target - timedelta(minutes=60)
+        if cap < now:
+            cap = now + timedelta(minutes=5)
+        candidate = min(candidate, cap)
+    return candidate

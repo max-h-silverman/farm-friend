@@ -1,0 +1,10 @@
+BEGIN:VCARD
+VERSION:3.0
+FN:Farm Friend
+N:Friend;Farm;;;
+ORG:Farm Friend (Vashon Island)
+TITLE:Volunteer Coordinator
+NOTE:SMS-based volunteer coordination for Vashon Island farms. Reply HELP for commands\, or STOP to unsubscribe.
+TEL;TYPE=CELL,VOICE:+15555550100
+URL:https://farm-friend.web.app
+END:VCARD

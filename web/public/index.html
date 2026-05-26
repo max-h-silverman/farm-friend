@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Farm Friend — Admin</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <!-- Firebase init + app code must load BEFORE Alpine so window.adminApp is
+       defined when Alpine scans the DOM. Both are module scripts so Alpine
+       is deferred by default; the explicit order guarantees this script's
+       sync top-level runs first. -->
+  <script type="module" src="/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+</head>
+<body>
+  <div id="error-banner" hidden
+       style="position:fixed;top:0;left:0;right:0;background:#b94b4b;color:white;padding:12px;font-family:monospace;z-index:9999;"></div>
+  <header>
+    <h1>Farm Friend</h1>
+    <div id="auth-status"></div>
+  </header>
+
+  <!-- Sign-in gate. The app.js module toggles visibility based on auth state. -->
+  <section id="signin-gate" hidden>
+    <p>You need to sign in to view the admin dashboard.</p>
+    <button id="signin-btn">Sign in with Google</button>
+  </section>
+
+  <main id="app" hidden x-data="adminApp()" x-init="boot()">
+
+    <nav>
+      <button :class="{active: tab === 'worklist'}" @click="tab = 'worklist'">Worklist</button>
+      <button :class="{active: tab === 'stats'}" @click="tab = 'stats'">Stats</button>
+      <button :class="{active: tab === 'roster'}" @click="tab = 'roster'">Roster</button>
+      <button :class="{active: tab === 'opportunities'}" @click="tab = 'opportunities'">Opportunities</button>
+    </nav>
+
+    <!-- Worklist: pending approvals + open flags -->
+    <section x-show="tab === 'worklist'">
+      <h2>Pending approvals <span class="count" x-text="pendingUsers.length"></span></h2>
+      <ul class="cards">
+        <template x-for="p in pendingUsers" :key="p.id">
+          <li class="card">
+            <div class="card-body">
+              <div><strong x-text="p.name || '(no name)'"></strong> — <span x-text="p.phone"></span></div>
+              <div class="meta">
+                Source: <span x-text="p.source"></span>
+                <template x-if="p.nominated_by_farm_id">
+                  <span> · nominated by farm <span x-text="p.nominated_by_farm_id"></span></span>
+                </template>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button @click="approve(p, 'volunteer')">Approve as volunteer</button>
+              <button @click="approve(p, 'farmer')">Approve as farmer</button>
+              <button class="ghost" @click="reject(p)">Reject</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+
+      <h2>Open flags <span class="count" x-text="openFlags.length"></span></h2>
+      <ul class="cards">
+        <template x-for="f in openFlags" :key="f.id">
+          <li class="card">
+            <div class="card-body">
+              <div><strong>Flag</strong> — <span x-text="f.reason || '(no reason)'"></span></div>
+              <div class="meta">
+                Message: <span x-text="f.message_id"></span> ·
+                User: <span x-text="f.flagged_by_user_id || '(agent)'"></span> ·
+                <span x-text="formatTime(f.created_at)"></span>
+              </div>
+            </div>
+            <div class="card-actions">
+              <button @click="resolve(f)">Resolve</button>
+            </div>
+          </li>
+        </template>
+      </ul>
+    </section>
+
+    <!-- Stats -->
+    <section x-show="tab === 'stats'">
+      <h2>Last 24h</h2>
+      <ul class="stats">
+        <li>Active users: <strong x-text="stats.activeUsers"></strong></li>
+        <li>Open opportunities: <strong x-text="stats.openOpps"></strong></li>
+        <li>Outbound messages: <strong x-text="stats.outbound24h"></strong></li>
+        <li>Pending approvals: <strong x-text="pendingUsers.length"></strong></li>
+        <li>Open flags: <strong x-text="openFlags.length"></strong></li>
+      </ul>
+    </section>
+
+    <!-- Volunteer roster -->
+    <section x-show="tab === 'roster'">
+      <h2>Roster <span class="count" x-text="users.length"></span></h2>
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Phone</th><th>Role</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          <template x-for="u in users" :key="u.id">
+            <tr>
+              <td x-text="u.name"></td>
+              <td x-text="u.phone"></td>
+              <td x-text="u.role"></td>
+              <td x-text="u.status"></td>
+              <td><button class="ghost" @click="suspend(u)" x-show="u.status === 'active'">Suspend</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Opportunities -->
+    <section x-show="tab === 'opportunities'">
+      <h2>Opportunities</h2>
+      <div class="filters">
+        <label>Filter by farm:
+          <select x-model="filters.farm">
+            <option value="">all</option>
+            <template x-for="f in farms" :key="f.id">
+              <option :value="f.id" x-text="f.name"></option>
+            </template>
+          </select>
+        </label>
+        <label>Activity:
+          <select x-model="filters.activity">
+            <option value="">all</option>
+            <template x-for="a in canonicalActivities" :key="a">
+              <option :value="a" x-text="a"></option>
+            </template>
+          </select>
+        </label>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Farm</th><th>Kind</th><th>When</th><th>Status</th><th>Filled</th><th>Tier</th></tr>
+        </thead>
+        <tbody>
+          <template x-for="o in filteredOpps" :key="o.id">
+            <tr>
+              <td x-text="farmName(o.farm_id)"></td>
+              <td x-text="o.kind"></td>
+              <td x-text="formatTime(o.starts_at || o.deadline_at)"></td>
+              <td x-text="o.status"></td>
+              <td><span x-text="o.seats_filled"></span> / <span x-text="o.headcount_needed"></span></td>
+              <td x-text="o.current_tier"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </section>
+
+  </main>
+</body>
+</html>
