@@ -2,24 +2,26 @@
 //
 // Order of operations matters: define `window.adminApp` SYNCHRONOUSLY at the
 // top of this module, before any await, so Alpine.js can always find it when
-// it scans the DOM. All async work happens inside boot() which Alpine calls
-// after the component initializes.
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-import {
-  getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut,
-} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-import {
-  getFirestore, collection, onSnapshot, query, where, orderBy, getCountFromServer, Timestamp,
-  updateDoc, doc, serverTimestamp,
-} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import {
-  getFunctions, httpsCallable,
-} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-functions.js";
+// it scans the DOM. To make sure that holds, the Firebase SDK imports are
+// loaded *dynamically inside boot()* rather than at module top — top-level
+// `import "https://..."` statements force the module to fetch them from the
+// network before any of this code runs, which can race with Alpine's init
+// and leave `window.adminApp` undefined at the wrong moment. Defining the
+// component first and importing on-demand removes that race.
 
 const CANONICAL_ACTIVITIES = [
   "harvest", "gleaning", "weeding", "planting", "transplanting",
   "livestock", "infrastructure", "processing",
+];
+
+const TEST_PRESETS = [
+  { label: "YES",        value: "YES" },
+  { label: "HELP",       value: "HELP" },
+  { label: "FLAG",       value: "FLAG" },
+  { label: "STOP weeding", value: "STOP weeding" },
+  { label: "farmer post",  value: "need 2 ppl tomorrow 10am to harvest greens" },
+  { label: "vague post",   value: "need help with plum harvest tomorrow" },
+  { label: "ambiguous",    value: "maybe later this week, depends on weather" },
 ];
 
 // -- Visible error reporter -----------------------------------------------
@@ -27,37 +29,70 @@ function showError(msg, err) {
   const fullMsg = err ? `${msg}: ${err?.message || err}` : msg;
   console.error("[farm-friend]", fullMsg, err);
   const banner = document.getElementById("error-banner");
-  if (banner) {
-    banner.textContent = fullMsg;
+  const text = document.getElementById("error-banner-text");
+  if (banner && text) {
+    text.textContent = fullMsg;
     banner.hidden = false;
-  } else {
-    // banner not in DOM yet — fall back to inline div
-    const div = document.createElement("div");
-    div.style.cssText =
-      "position:fixed;top:0;left:0;right:0;background:#b94b4b;color:white;padding:12px;font-family:monospace;z-index:9999;";
-    div.textContent = fullMsg;
-    document.body.appendChild(div);
+    return;
   }
+  // Fallback if the banner isn't in the DOM yet.
+  const div = document.createElement("div");
+  div.className = "toast-error";
+  div.textContent = fullMsg;
+  document.body.appendChild(div);
+}
+
+function wireErrorBannerClose() {
+  const closeBtn = document.getElementById("error-banner-close");
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => {
+      document.getElementById("error-banner").hidden = true;
+    });
+  }
+}
+// `app.js` is a module, so it runs after parsing — but `DOMContentLoaded`
+// may have fired already by the time we get here. Handle both cases.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", wireErrorBannerClose);
+} else {
+  wireErrorBannerClose();
 }
 
 // -- Synchronous Alpine component definition ------------------------------
-// Defined BEFORE any await so it's always present when Alpine boots.
-// The boot() method does the actual async wiring.
 window.adminApp = function adminApp() {
   return {
     // state
     tab: "worklist",
+    ready: false,
     pendingUsers: [],
     openFlags: [],
     users: [],
     farms: [],
     opps: [],
     canonicalActivities: CANONICAL_ACTIVITIES,
+    testPresets: TEST_PRESETS,
     filters: { farm: "", activity: "" },
     stats: { activeUsers: 0, openOpps: 0, outbound24h: 0 },
+    test: {
+      userId: "", body: "", running: false,
+      lastResult: null, lastError: "",
+      lastInboundBody: "", lastInboundFromLabel: "",
+    },
+    dayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    expanded: { farmer: null, volunteer: null },
+    farmEditor: {
+      saving: false, farmId: "", farmName: "",
+      typical_start_hour: null, typical_shift_duration_min: null, usual_days_of_week: [],
+    },
+    userEditor: {
+      saving: false, userId: "", userName: "",
+      available_days: [], available_start_hour: null, available_end_hour: null,
+      max_commit_hours_per_week: null,
+    },
     _db: null,
     _functions: null,
     _booted: false,
+    _readyMarks: 0,
 
     async boot() {
       if (this._booted) return;
@@ -69,7 +104,15 @@ window.adminApp = function adminApp() {
       }
     },
 
+    _markReady() {
+      // We consider the app "ready" once the first snapshot of each critical
+      // collection has landed. Used to swap skeletons → empty/full states.
+      this._readyMarks = (this._readyMarks || 0) + 1;
+      if (this._readyMarks >= 5 && !this.ready) this.ready = true;
+    },
+
     _subscribePending() {
+      const { query, collection, where, orderBy, onSnapshot } = window.__fb;
       const q = query(
         collection(this._db, "pending_users"),
         where("status", "==", "pending"),
@@ -77,10 +120,12 @@ window.adminApp = function adminApp() {
       );
       onSnapshot(q, (snap) => {
         this.pendingUsers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        this._markReady();
       }, (err) => showError("pending_users subscription failed", err));
     },
 
     _subscribeFlags() {
+      const { query, collection, where, orderBy, onSnapshot } = window.__fb;
       const q = query(
         collection(this._db, "flags"),
         where("resolved_at", "==", null),
@@ -88,34 +133,42 @@ window.adminApp = function adminApp() {
       );
       onSnapshot(q, (snap) => {
         this.openFlags = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        this._markReady();
       }, (err) => showError("flags subscription failed", err));
     },
 
     _subscribeUsers() {
+      const { query, collection, orderBy, onSnapshot } = window.__fb;
       const q = query(collection(this._db, "users"), orderBy("name"));
       onSnapshot(q, (snap) => {
         this.users = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        this._markReady();
       }, (err) => showError("users subscription failed", err));
     },
 
     _subscribeFarms() {
+      const { collection, onSnapshot } = window.__fb;
       onSnapshot(
         collection(this._db, "farms"),
         (snap) => {
           this.farms = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          this._markReady();
         },
         (err) => showError("farms subscription failed", err),
       );
     },
 
     _subscribeOpps() {
+      const { query, collection, orderBy, onSnapshot } = window.__fb;
       const q = query(collection(this._db, "opportunities"), orderBy("created_at", "desc"));
       onSnapshot(q, (snap) => {
         this.opps = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        this._markReady();
       }, (err) => showError("opportunities subscription failed", err));
     },
 
     async _refreshStats() {
+      const { Timestamp, getCountFromServer, query, collection, where } = window.__fb;
       const since = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
       try {
         const activeUsers = await getCountFromServer(
@@ -141,6 +194,11 @@ window.adminApp = function adminApp() {
       }
     },
 
+    // ------------- derived state -------------
+    get worklistCount() {
+      return this.openFlags.length + this.pendingUsers.length;
+    },
+
     get filteredOpps() {
       return this.opps.filter((o) => {
         if (this.filters.farm && o.farm_id !== this.filters.farm) return false;
@@ -152,9 +210,65 @@ window.adminApp = function adminApp() {
       });
     },
 
+    get farmerUsers() {
+      return this.users.filter((u) => u.role === "farmer" || u.role === "both");
+    },
+
+    get volunteerUsers() {
+      return this.users.filter((u) => u.role === "volunteer" || u.role === "both");
+    },
+
     farmName(id) {
+      if (!id) return "";
       const f = this.farms.find((x) => x.id === id);
       return f ? f.name : id;
+    },
+
+    farmForOwner(userId) {
+      return this.farms.find((f) => f.owner_user_id === userId);
+    },
+
+    farmNameForOwner(userId) {
+      const f = this.farmForOwner(userId);
+      return f ? f.name : "(no farm yet)";
+    },
+
+    hasFarmDefaults(userId) {
+      const f = this.farmForOwner(userId);
+      if (!f) return false;
+      return (
+        (f.typical_start_hour !== null && f.typical_start_hour !== undefined) ||
+        (f.typical_shift_duration_min !== null && f.typical_shift_duration_min !== undefined) ||
+        (Array.isArray(f.usual_days_of_week) && f.usual_days_of_week.length > 0)
+      );
+    },
+
+    hasAvailability(u) {
+      return (
+        (Array.isArray(u.available_days) && u.available_days.length > 0) ||
+        (u.available_start_hour !== null && u.available_start_hour !== undefined) ||
+        (u.available_end_hour !== null && u.available_end_hour !== undefined) ||
+        (u.max_commit_hours_per_week !== null && u.max_commit_hours_per_week !== undefined)
+      );
+    },
+
+    statusClass(status) {
+      switch (status) {
+        case "open":
+        case "filling": return "ok";
+        case "full":    return "info";
+        case "draft":   return "attention";
+        case "cancelled":
+        case "expired": return "neutral";
+        case "completed": return "neutral";
+        default: return "neutral";
+      }
+    },
+
+    seatsPct(o) {
+      if (!o.headcount_needed) return 0;
+      const pct = ((o.seats_filled || 0) / o.headcount_needed) * 100;
+      return Math.min(100, Math.max(0, pct));
     },
 
     formatTime(ts) {
@@ -166,13 +280,89 @@ window.adminApp = function adminApp() {
       });
     },
 
+    // ------------- Roster expansion -------------
+    toggleFarmer(u) {
+      if (this.expanded.farmer === u.id) {
+        this.expanded.farmer = null;
+        return;
+      }
+      const f = this.farmForOwner(u.id);
+      if (!f) {
+        showError("No farm found for this farmer.");
+        return;
+      }
+      this.farmEditor = {
+        saving: false, farmId: f.id, farmName: f.name,
+        typical_start_hour: f.typical_start_hour ?? null,
+        typical_shift_duration_min: f.typical_shift_duration_min ?? null,
+        usual_days_of_week: Array.isArray(f.usual_days_of_week) ? [...f.usual_days_of_week] : [],
+      };
+      this.expanded.farmer = u.id;
+      this.expanded.volunteer = null;
+    },
+
+    async saveFarmDefaults() {
+      this.farmEditor.saving = true;
+      try {
+        const call = window.__fb.httpsCallable(this._functions, "update_farm_defaults");
+        await call({
+          farm_id: this.farmEditor.farmId,
+          typical_start_hour: this.farmEditor.typical_start_hour,
+          typical_shift_duration_min: this.farmEditor.typical_shift_duration_min,
+          usual_days_of_week: this.farmEditor.usual_days_of_week,
+        });
+        this.expanded.farmer = null;
+      } catch (e) {
+        showError("Save defaults failed", e);
+      } finally {
+        this.farmEditor.saving = false;
+      }
+    },
+
+    toggleVolunteer(u) {
+      if (this.expanded.volunteer === u.id) {
+        this.expanded.volunteer = null;
+        return;
+      }
+      this.userEditor = {
+        saving: false, userId: u.id, userName: u.name,
+        available_days: Array.isArray(u.available_days) ? [...u.available_days] : [],
+        available_start_hour: u.available_start_hour ?? null,
+        available_end_hour: u.available_end_hour ?? null,
+        max_commit_hours_per_week: u.max_commit_hours_per_week ?? null,
+      };
+      this.expanded.volunteer = u.id;
+      this.expanded.farmer = null;
+    },
+
+    async saveUserAvailability() {
+      this.userEditor.saving = true;
+      try {
+        const call = window.__fb.httpsCallable(this._functions, "update_user_availability");
+        await call({
+          user_id: this.userEditor.userId,
+          available_days: this.userEditor.available_days,
+          available_start_hour: this.userEditor.available_start_hour,
+          available_end_hour: this.userEditor.available_end_hour,
+          max_commit_hours_per_week: this.userEditor.max_commit_hours_per_week,
+        });
+        this.expanded.volunteer = null;
+      } catch (e) {
+        showError("Save availability failed", e);
+      } finally {
+        this.userEditor.saving = false;
+      }
+    },
+
+    // ------------- Worklist actions -------------
     async approve(pending, role) {
-      const call = httpsCallable(this._functions, "approve_pending_user");
+      const call = window.__fb.httpsCallable(this._functions, "approve_pending_user");
       try { await call({ pending_id: pending.id, role }); }
       catch (e) { showError("Approve failed", e); }
     },
 
     async reject(pending) {
+      const { updateDoc, doc, serverTimestamp } = window.__fb;
       try {
         await updateDoc(doc(this._db, "pending_users", pending.id), {
           status: "rejected",
@@ -184,21 +374,87 @@ window.adminApp = function adminApp() {
     },
 
     async suspend(user) {
-      const call = httpsCallable(this._functions, "suspend_user");
+      const call = window.__fb.httpsCallable(this._functions, "suspend_user");
       try { await call({ user_id: user.id }); }
       catch (e) { showError("Suspend failed", e); }
     },
 
     async resolve(flag) {
-      const call = httpsCallable(this._functions, "resolve_flag");
+      const call = window.__fb.httpsCallable(this._functions, "resolve_flag");
       try { await call({ flag_id: flag.id }); }
       catch (e) { showError("Resolve failed", e); }
+    },
+
+    // ------------- System Test -------------
+    async runTest() {
+      const userId = this.test.userId;
+      const body = this.test.body.trim();
+      if (!userId || !body) return;
+      const user = this.users.find((u) => u.id === userId);
+      this.test.running = true;
+      this.test.lastError = "";
+      this.test.lastResult = null;
+      this.test.lastInboundBody = body;
+      this.test.lastInboundFromLabel = user ? `${user.name} (${user.phone})` : userId;
+      try {
+        const call = window.__fb.httpsCallable(this._functions, "simulate_inbound_sms");
+        const resp = await call({ user_id: userId, body });
+        this.test.lastResult = resp.data;
+      } catch (e) {
+        this.test.lastError = e?.message || String(e);
+      } finally {
+        this.test.running = false;
+      }
     },
   };
 };
 
+// Held by initializeFirebaseAndAuth so the subscription helpers and callable
+// wrappers below can use them without re-importing every call.
+let _fb = null;
+
+async function loadFirebase() {
+  if (_fb) return _fb;
+  const [appMod, authMod, fsMod, fnMod] = await Promise.all([
+    import("https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js"),
+    import("https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js"),
+    import("https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js"),
+    import("https://www.gstatic.com/firebasejs/10.13.0/firebase-functions.js"),
+  ]);
+  _fb = {
+    initializeApp: appMod.initializeApp,
+    getAuth: authMod.getAuth,
+    GoogleAuthProvider: authMod.GoogleAuthProvider,
+    signInWithPopup: authMod.signInWithPopup,
+    onAuthStateChanged: authMod.onAuthStateChanged,
+    signOut: authMod.signOut,
+    getFirestore: fsMod.getFirestore,
+    collection: fsMod.collection,
+    onSnapshot: fsMod.onSnapshot,
+    query: fsMod.query,
+    where: fsMod.where,
+    orderBy: fsMod.orderBy,
+    getCountFromServer: fsMod.getCountFromServer,
+    Timestamp: fsMod.Timestamp,
+    updateDoc: fsMod.updateDoc,
+    doc: fsMod.doc,
+    serverTimestamp: fsMod.serverTimestamp,
+    getFunctions: fnMod.getFunctions,
+    httpsCallable: fnMod.httpsCallable,
+  };
+  // Expose for the methods on the component (which run after boot completes).
+  window.__fb = _fb;
+  return _fb;
+}
+
 // -- Async Firebase initialization ----------------------------------------
 async function initializeFirebaseAndAuth(component) {
+  const fb = await loadFirebase();
+  const {
+    initializeApp, getAuth, GoogleAuthProvider, signInWithPopup,
+    onAuthStateChanged, signOut, getFirestore, getFunctions,
+  } = fb;
+
   // 1. Fetch the auto-injected Firebase config from Hosting.
   let config;
   try {
@@ -223,6 +479,7 @@ async function initializeFirebaseAndAuth(component) {
 
   // 3. Auth gate.
   const signInGate = document.getElementById("signin-gate");
+  const signInPending = document.getElementById("signin-pending");
   const appMain = document.getElementById("app");
   const authStatus = document.getElementById("auth-status");
 
@@ -233,20 +490,31 @@ async function initializeFirebaseAndAuth(component) {
 
   // Event-delegated sign-out (works regardless of which path rendered the button).
   authStatus.addEventListener("click", (e) => {
-    if (e.target && e.target.id === "signout-btn") {
+    const btn = e.target.closest("[data-action='signout']");
+    if (btn) {
       signOut(auth).catch((err) => showError("Sign-out failed", err));
     }
   });
 
-  function signOutButtonHtml() {
-    return ` <button class="ghost" id="signout-btn">Sign out</button>`;
+  function authMetaHtml(user) {
+    return `
+      <span class="email">${user.email}</span>
+      <button class="icon-btn" data-action="signout" title="Sign out" aria-label="Sign out">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M16 17l5-5-5-5"/>
+          <path d="M21 12H9"/>
+          <path d="M13 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7"/>
+        </svg>
+      </button>`;
   }
 
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
       signInGate.hidden = false;
       appMain.hidden = true;
-      authStatus.textContent = "";
+      authStatus.innerHTML = "";
+      if (signInPending) signInPending.hidden = true;
       return;
     }
     let token;
@@ -259,13 +527,17 @@ async function initializeFirebaseAndAuth(component) {
     if (!token.claims.admin) {
       signInGate.hidden = false;
       appMain.hidden = true;
-      authStatus.innerHTML =
-        `Signed in as ${user.email} — not an admin yet.` + signOutButtonHtml();
+      authStatus.innerHTML = "";
+      if (signInPending) {
+        signInPending.hidden = false;
+        signInPending.textContent =
+          `Signed in as ${user.email}. Waiting for admin access.`;
+      }
       return;
     }
     signInGate.hidden = true;
     appMain.hidden = false;
-    authStatus.innerHTML = `${user.email}` + signOutButtonHtml();
+    authStatus.innerHTML = authMetaHtml(user);
 
     // Start Firestore subscriptions now that the user is admin-authenticated.
     component._subscribePending();

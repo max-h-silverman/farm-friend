@@ -38,6 +38,40 @@ def update_status(opp_id: str, status: OpportunityStatus) -> None:
     db.collection(COLLECTION).document(opp_id).update({"status": status.value})
 
 
+def update_fields(opp_id: str, fields: dict) -> None:
+    """Generic field update. Used by the clarification flow to merge new
+    farmer-supplied details into a draft. The caller is responsible for
+    only passing keys that map to OpportunityDoc fields."""
+    if not fields:
+        return
+    db.collection(COLLECTION).document(opp_id).update(fields)
+
+
+def list_recent_drafts_for_farm(*, farm_id: str, since: datetime) -> list[OpportunityDoc]:
+    """Drafts created for this farm since `since`, newest first. Used by the
+    clarification flow to find the draft a farmer's reply should merge into."""
+    q = (
+        db.collection(COLLECTION)
+        .where("farm_id", "==", farm_id)
+        .where("status", "==", OpportunityStatus.DRAFT.value)
+        .where("created_at", ">=", since)
+        .order_by("created_at", direction="DESCENDING")
+        .limit(5)
+    )
+    return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
+def list_stale_drafts(*, older_than: datetime) -> list[OpportunityDoc]:
+    """Drafts created before `older_than`. Used by the stale-draft cleanup
+    tick to flag drafts that never completed clarification."""
+    q = (
+        db.collection(COLLECTION)
+        .where("status", "==", OpportunityStatus.DRAFT.value)
+        .where("created_at", "<", older_than)
+    )
+    return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
 def set_next_escalation(opp_id: str, *, at: datetime | None, tier: OutreachTier) -> None:
     db.collection(COLLECTION).document(opp_id).update(
         {

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f6f4ee" />
   <title>Farm Friend — Admin</title>
   <link rel="stylesheet" href="/styles.css" />
   <!-- Firebase init + app code must load BEFORE Alpine so window.adminApp is
@@ -13,145 +14,407 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
 </head>
 <body>
-  <div id="error-banner" hidden
-       style="position:fixed;top:0;left:0;right:0;background:#b94b4b;color:white;padding:12px;font-family:monospace;z-index:9999;"></div>
-  <header>
-    <h1>Farm Friend</h1>
-    <div id="auth-status"></div>
-  </header>
+  <!-- Error toast (managed by app.js) -->
+  <div id="error-banner" class="toast-error" hidden>
+    <span id="error-banner-text"></span>
+    <button id="error-banner-close" aria-label="Dismiss">×</button>
+  </div>
 
-  <!-- Sign-in gate. The app.js module toggles visibility based on auth state. -->
-  <section id="signin-gate" hidden>
-    <p>You need to sign in to view the admin dashboard.</p>
-    <button id="signin-btn">Sign in with Google</button>
+  <!-- Sign-in gate -->
+  <section id="signin-gate" class="signin" hidden>
+    <div class="signin-card">
+      <div class="wordmark">Farm Friend</div>
+      <p class="tagline">Volunteer coordinator for Vashon farms</p>
+      <button id="signin-btn" class="btn btn-block">Sign in with Google</button>
+      <div id="signin-pending" class="pending-state" hidden></div>
+    </div>
   </section>
 
-  <main id="app" hidden x-data="adminApp()" x-init="boot()">
+  <!-- Authenticated app -->
+  <div id="app" hidden x-data="adminApp()" x-init="boot()">
 
-    <nav>
-      <button :class="{active: tab === 'worklist'}" @click="tab = 'worklist'">Worklist</button>
-      <button :class="{active: tab === 'stats'}" @click="tab = 'stats'">Stats</button>
+    <header class="app-header">
+      <div class="wordmark">Farm Friend</div>
+      <div class="auth-meta" id="auth-status"></div>
+    </header>
+
+    <!-- Compact summary strip: replaces the old Stats tab. -->
+    <div class="summary-strip" aria-label="Current state">
+      <span class="stat attention" :class="{attention: pendingUsers.length > 0}">
+        <strong x-text="pendingUsers.length"></strong> waiting
+      </span>
+      <span class="stat warn" :class="{warn: openFlags.length > 0}">
+        <strong x-text="openFlags.length"></strong> flags
+      </span>
+      <span class="stat"><strong x-text="stats.openOpps"></strong> open opps</span>
+      <span class="stat"><strong x-text="stats.activeUsers"></strong> active users</span>
+      <span class="stat"><strong x-text="stats.outbound24h"></strong> sent · 24h</span>
+    </div>
+
+    <nav class="tabs" role="tablist">
+      <button :class="{active: tab === 'worklist'}" @click="tab = 'worklist'">
+        Worklist
+        <span class="pill" :class="{attention: worklistCount > 0}" x-show="worklistCount > 0" x-text="worklistCount"></span>
+      </button>
       <button :class="{active: tab === 'roster'}" @click="tab = 'roster'">Roster</button>
       <button :class="{active: tab === 'opportunities'}" @click="tab = 'opportunities'">Opportunities</button>
+      <button :class="{active: tab === 'test'}" @click="tab = 'test'">System test</button>
     </nav>
 
-    <!-- Worklist: pending approvals + open flags -->
-    <section x-show="tab === 'worklist'">
-      <h2>Pending approvals <span class="count" x-text="pendingUsers.length"></span></h2>
-      <ul class="cards">
-        <template x-for="p in pendingUsers" :key="p.id">
-          <li class="card">
-            <div class="card-body">
-              <div><strong x-text="p.name || '(no name)'"></strong> — <span x-text="p.phone"></span></div>
-              <div class="meta">
-                Source: <span x-text="p.source"></span>
-                <template x-if="p.nominated_by_farm_id">
-                  <span> · nominated by farm <span x-text="p.nominated_by_farm_id"></span></span>
-                </template>
-              </div>
-            </div>
-            <div class="card-actions">
-              <button @click="approve(p, 'volunteer')">Approve as volunteer</button>
-              <button @click="approve(p, 'farmer')">Approve as farmer</button>
-              <button class="ghost" @click="reject(p)">Reject</button>
-            </div>
-          </li>
-        </template>
-      </ul>
+    <main>
 
-      <h2>Open flags <span class="count" x-text="openFlags.length"></span></h2>
-      <ul class="cards">
-        <template x-for="f in openFlags" :key="f.id">
-          <li class="card">
-            <div class="card-body">
-              <div><strong>Flag</strong> — <span x-text="f.reason || '(no reason)'"></span></div>
-              <div class="meta">
-                Message: <span x-text="f.message_id"></span> ·
-                User: <span x-text="f.flagged_by_user_id || '(agent)'"></span> ·
-                <span x-text="formatTime(f.created_at)"></span>
-              </div>
-            </div>
-            <div class="card-actions">
-              <button @click="resolve(f)">Resolve</button>
-            </div>
-          </li>
-        </template>
-      </ul>
-    </section>
+      <!-- ================== WORKLIST ================== -->
+      <section x-show="tab === 'worklist'">
+        <h2 class="section-title">Needs your attention</h2>
+        <p class="section-sub" x-show="worklistCount > 0">
+          Flagged messages and join requests, oldest first.
+        </p>
 
-    <!-- Stats -->
-    <section x-show="tab === 'stats'">
-      <h2>Last 24h</h2>
-      <ul class="stats">
-        <li>Active users: <strong x-text="stats.activeUsers"></strong></li>
-        <li>Open opportunities: <strong x-text="stats.openOpps"></strong></li>
-        <li>Outbound messages: <strong x-text="stats.outbound24h"></strong></li>
-        <li>Pending approvals: <strong x-text="pendingUsers.length"></strong></li>
-        <li>Open flags: <strong x-text="openFlags.length"></strong></li>
-      </ul>
-    </section>
-
-    <!-- Volunteer roster -->
-    <section x-show="tab === 'roster'">
-      <h2>Roster <span class="count" x-text="users.length"></span></h2>
-      <table>
-        <thead>
-          <tr><th>Name</th><th>Phone</th><th>Role</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody>
-          <template x-for="u in users" :key="u.id">
-            <tr>
-              <td x-text="u.name"></td>
-              <td x-text="u.phone"></td>
-              <td x-text="u.role"></td>
-              <td x-text="u.status"></td>
-              <td><button class="ghost" @click="suspend(u)" x-show="u.status === 'active'">Suspend</button></td>
-            </tr>
+        <!-- Loading skeleton -->
+        <ul class="cards" x-show="!ready">
+          <template x-for="i in 2" :key="i">
+            <li class="skeleton-card">
+              <div class="skel-line med"></div>
+              <div class="skel-line short"></div>
+            </li>
           </template>
-        </tbody>
-      </table>
-    </section>
+        </ul>
 
-    <!-- Opportunities -->
-    <section x-show="tab === 'opportunities'">
-      <h2>Opportunities</h2>
-      <div class="filters">
-        <label>Filter by farm:
-          <select x-model="filters.farm">
-            <option value="">all</option>
-            <template x-for="f in farms" :key="f.id">
-              <option :value="f.id" x-text="f.name"></option>
-            </template>
-          </select>
-        </label>
-        <label>Activity:
-          <select x-model="filters.activity">
-            <option value="">all</option>
-            <template x-for="a in canonicalActivities" :key="a">
-              <option :value="a" x-text="a"></option>
-            </template>
-          </select>
-        </label>
-      </div>
-      <table>
-        <thead>
-          <tr><th>Farm</th><th>Kind</th><th>When</th><th>Status</th><th>Filled</th><th>Tier</th></tr>
-        </thead>
-        <tbody>
+        <!-- Empty state -->
+        <div class="empty worklist-empty" x-show="ready && worklistCount === 0">
+          <span class="glyph" aria-hidden="true">✓</span>
+          All clear — nothing waiting.
+        </div>
+
+        <!-- Combined list: flags first (warn marker), then join requests (attention marker) -->
+        <ul class="cards" x-show="ready && worklistCount > 0">
+          <template x-for="f in openFlags" :key="f.id">
+            <li class="card warn">
+              <div class="card-row">
+                <div>
+                  <div class="card-title">
+                    <span class="pill warn">Flag</span>
+                    <span x-text="f.reason || 'No reason given'" style="margin-left:6px"></span>
+                  </div>
+                  <div class="card-meta">
+                    <span x-text="formatTime(f.created_at)"></span>
+                    <span x-show="f.flagged_by_user_id"> · raised by user</span>
+                    <span x-show="!f.flagged_by_user_id"> · raised by agent</span>
+                  </div>
+                </div>
+                <button class="btn btn-ghost" @click="resolve(f)">Resolve</button>
+              </div>
+            </li>
+          </template>
+
+          <template x-for="p in pendingUsers" :key="p.id">
+            <li class="card attention">
+              <div class="card-row">
+                <div>
+                  <div class="card-title" x-text="p.name || '(no name yet)'"></div>
+                  <div class="card-meta">
+                    <span x-text="p.phone"></span>
+                    <span x-show="p.source === 'join'"> · texted JOIN</span>
+                    <span x-show="p.source === 'insider_nomination'">
+                      · nominated by <span x-text="farmName(p.nominated_by_farm_id) || 'a farm'"></span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div class="card-actions">
+                <button class="btn" @click="approve(p, 'volunteer')">Add as volunteer</button>
+                <button class="btn btn-ghost" @click="approve(p, 'farmer')">Add as farmer</button>
+                <button class="btn-quiet btn" @click="reject(p)" style="margin-left:auto">Reject</button>
+              </div>
+            </li>
+          </template>
+        </ul>
+      </section>
+
+      <!-- ================== ROSTER ================== -->
+      <section x-show="tab === 'roster'">
+        <div class="roster-section">
+          <h2 class="section-title">
+            Farmers
+            <span class="muted-count" x-text="farmerUsers.length"></span>
+          </h2>
+          <p class="section-sub">
+            Tap to set typical hours and shift length. The parser uses these to
+            fill in details farmers don't include in their post.
+          </p>
+
+          <div class="empty" x-show="ready && farmerUsers.length === 0">
+            <span class="glyph">🌾</span>
+            No farmers yet.
+          </div>
+
+          <template x-for="u in farmerUsers" :key="u.id">
+            <div class="roster-card" :data-open="expanded.farmer === u.id">
+              <div class="roster-card-head" @click="toggleFarmer(u)">
+                <div class="who">
+                  <span class="name" x-text="u.name"></span>
+                  <span class="sub">
+                    <span x-text="farmNameForOwner(u.id)"></span>
+                    · <span x-text="u.phone"></span>
+                    <template x-if="!hasFarmDefaults(u.id)">
+                      <span class="pill attention" style="margin-left:6px">defaults not set</span>
+                    </template>
+                  </span>
+                </div>
+                <span class="chev" aria-hidden="true">›</span>
+              </div>
+
+              <div class="roster-card-body" x-show="expanded.farmer === u.id" x-cloak>
+                <form class="form" @submit.prevent="saveFarmDefaults()">
+                  <div class="hour-range">
+                    <label class="field">
+                      Typical start hour
+                      <input type="number" min="0" max="23" placeholder="e.g. 9"
+                        x-model.number="farmEditor.typical_start_hour" />
+                    </label>
+                    <label class="field">
+                      Typical length (min)
+                      <input type="number" min="0" step="15" placeholder="e.g. 180"
+                        x-model.number="farmEditor.typical_shift_duration_min" />
+                    </label>
+                  </div>
+                  <div class="field">
+                    <span>Usual days</span>
+                    <div class="day-toggles">
+                      <template x-for="(label, i) in dayLabels" :key="i">
+                        <label class="day">
+                          <input type="checkbox" :value="i" x-model.number="farmEditor.usual_days_of_week" />
+                          <span x-text="label"></span>
+                        </label>
+                      </template>
+                    </div>
+                  </div>
+                  <div class="card-actions" style="margin-top:0">
+                    <button type="submit" class="btn" :disabled="farmEditor.saving">
+                      <span x-show="!farmEditor.saving">Save</span>
+                      <span x-show="farmEditor.saving">Saving…</span>
+                    </button>
+                    <button type="button" class="btn btn-ghost" @click="expanded.farmer = null">Close</button>
+                    <button type="button" class="btn-quiet btn" @click="suspend(u)" x-show="u.status === 'active'" style="margin-left:auto">Suspend</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="roster-section">
+          <h2 class="section-title">
+            Volunteers
+            <span class="muted-count" x-text="volunteerUsers.length"></span>
+          </h2>
+          <p class="section-sub">
+            Tap to set days and hours. Used to weight outreach so people aren't
+            pinged when they're not around.
+          </p>
+
+          <div class="empty" x-show="ready && volunteerUsers.length === 0">
+            <span class="glyph">🧑‍🌾</span>
+            No volunteers yet.
+          </div>
+
+          <template x-for="u in volunteerUsers" :key="u.id">
+            <div class="roster-card" :data-open="expanded.volunteer === u.id">
+              <div class="roster-card-head" @click="toggleVolunteer(u)">
+                <div class="who">
+                  <span class="name" x-text="u.name"></span>
+                  <span class="sub">
+                    <span x-text="u.phone"></span>
+                    <template x-if="!hasAvailability(u)">
+                      <span class="pill attention" style="margin-left:6px">availability not set</span>
+                    </template>
+                  </span>
+                </div>
+                <span class="chev" aria-hidden="true">›</span>
+              </div>
+
+              <div class="roster-card-body" x-show="expanded.volunteer === u.id" x-cloak>
+                <form class="form" @submit.prevent="saveUserAvailability()">
+                  <div class="field">
+                    <span>Available days</span>
+                    <div class="day-toggles">
+                      <template x-for="(label, i) in dayLabels" :key="i">
+                        <label class="day">
+                          <input type="checkbox" :value="i" x-model.number="userEditor.available_days" />
+                          <span x-text="label"></span>
+                        </label>
+                      </template>
+                    </div>
+                  </div>
+                  <div class="hour-range">
+                    <label class="field">
+                      From hour
+                      <input type="number" min="0" max="23" placeholder="0–23"
+                        x-model.number="userEditor.available_start_hour" />
+                    </label>
+                    <label class="field">
+                      To hour
+                      <input type="number" min="0" max="23" placeholder="0–23"
+                        x-model.number="userEditor.available_end_hour" />
+                    </label>
+                  </div>
+                  <label class="field">
+                    Max hours / week
+                    <input type="number" min="0" placeholder="optional"
+                      x-model.number="userEditor.max_commit_hours_per_week" />
+                  </label>
+                  <div class="card-actions" style="margin-top:0">
+                    <button type="submit" class="btn" :disabled="userEditor.saving">
+                      <span x-show="!userEditor.saving">Save</span>
+                      <span x-show="userEditor.saving">Saving…</span>
+                    </button>
+                    <button type="button" class="btn btn-ghost" @click="expanded.volunteer = null">Close</button>
+                    <button type="button" class="btn-quiet btn" @click="suspend(u)" x-show="u.status === 'active'" style="margin-left:auto">Suspend</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- ================== OPPORTUNITIES ================== -->
+      <section x-show="tab === 'opportunities'">
+        <h2 class="section-title">
+          Opportunities
+          <span class="muted-count" x-text="filteredOpps.length"></span>
+        </h2>
+
+        <div class="chip-row" aria-label="Filter">
+          <button class="chip" :class="{active: filters.farm === ''}" @click="filters.farm = ''">All farms</button>
+          <template x-for="f in farms" :key="f.id">
+            <button class="chip" :class="{active: filters.farm === f.id}"
+              @click="filters.farm = f.id" x-text="f.name"></button>
+          </template>
+        </div>
+        <div class="chip-row" aria-label="Activity">
+          <button class="chip" :class="{active: filters.activity === ''}" @click="filters.activity = ''">All activities</button>
+          <template x-for="a in canonicalActivities" :key="a">
+            <button class="chip" :class="{active: filters.activity === a}"
+              @click="filters.activity = a" x-text="a"></button>
+          </template>
+        </div>
+
+        <div class="empty" x-show="ready && filteredOpps.length === 0">
+          <span class="glyph">📭</span>
+          Nothing matches.
+        </div>
+
+        <ul class="cards" x-show="filteredOpps.length > 0">
           <template x-for="o in filteredOpps" :key="o.id">
-            <tr>
-              <td x-text="farmName(o.farm_id)"></td>
-              <td x-text="o.kind"></td>
-              <td x-text="formatTime(o.starts_at || o.deadline_at)"></td>
-              <td x-text="o.status"></td>
-              <td><span x-text="o.seats_filled"></span> / <span x-text="o.headcount_needed"></span></td>
-              <td x-text="o.current_tier"></td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </section>
+            <li class="card opp-card" :class="{full: o.status === 'full'}">
+              <div class="top">
+                <div>
+                  <div class="farm" x-text="farmName(o.farm_id)"></div>
+                  <div class="activity">
+                    <span x-text="o.kind"></span>
+                    <template x-if="o.activity_tags && o.activity_tags.length">
+                      <span> · <span x-text="o.activity_tags.join(', ')"></span></span>
+                    </template>
+                  </div>
+                </div>
+                <span class="pill" :class="statusClass(o.status)" x-text="o.status"></span>
+              </div>
 
-  </main>
+              <div class="meta-row">
+                <span x-text="formatTime(o.starts_at || o.deadline_at) || 'no time set'"></span>
+                <span><span x-text="o.seats_filled || 0"></span> / <span x-text="o.headcount_needed"></span> filled</span>
+                <span x-show="o.current_tier">tier: <span x-text="o.current_tier"></span></span>
+              </div>
+
+              <div class="seats-bar" aria-hidden="true">
+                <span :style="`width:${seatsPct(o)}%`"></span>
+              </div>
+            </li>
+          </template>
+        </ul>
+      </section>
+
+      <!-- ================== SYSTEM TEST ================== -->
+      <section x-show="tab === 'test'">
+        <h2 class="section-title">System test</h2>
+        <p class="section-sub">
+          Pipes a message through the real dispatch pipeline as if the user
+          texted in. Outbound SMS is captured here instead of sent.
+        </p>
+
+        <form class="test-form" @submit.prevent="runTest()">
+          <label class="field">
+            Send as
+            <select x-model="test.userId">
+              <option value="">— pick a user —</option>
+              <template x-for="u in users" :key="u.id">
+                <option :value="u.id"
+                  x-text="u.name + ' · ' + u.role + ' · ' + u.phone"></option>
+              </template>
+            </select>
+          </label>
+
+          <label class="field">
+            Message
+            <textarea x-model="test.body" rows="3"
+              placeholder="YES, HELP, or 'need 2 ppl tomorrow 10am to harvest greens'"></textarea>
+          </label>
+
+          <div class="test-presets" aria-label="Quick fill">
+            <template x-for="p in testPresets" :key="p.label">
+              <button type="button" class="chip" @click="test.body = p.value" x-text="p.label"></button>
+            </template>
+          </div>
+
+          <button type="submit" class="btn" :disabled="test.running || !test.userId || !test.body.trim()">
+            <span x-show="!test.running">Run</span>
+            <span x-show="test.running">Running…</span>
+          </button>
+        </form>
+
+        <template x-if="test.lastError">
+          <div class="card warn" style="border-left-color:var(--warn)">
+            <div class="card-title" style="color:var(--warn)">Error</div>
+            <div class="card-body-text" style="font-family:ui-monospace,monospace;font-size:13px"
+              x-text="test.lastError"></div>
+          </div>
+        </template>
+
+        <template x-if="test.lastResult">
+          <div>
+            <div class="transcript">
+              <!-- The 'inbound' is what we sent INTO the system (i.e. as the user). -->
+              <div class="turn inbound">
+                <span x-text="test.lastInboundBody"></span>
+                <span class="caption">
+                  as <span x-text="test.lastInboundFromLabel"></span>
+                </span>
+              </div>
+
+              <template x-if="test.lastResult.outbound.length === 0">
+                <div class="empty" style="grid-column: 1 / -1">
+                  <span class="glyph">…</span>
+                  No reply — the system stayed silent.
+                </div>
+              </template>
+
+              <template x-for="(m, i) in test.lastResult.outbound" :key="i">
+                <div class="turn outbound">
+                  <span x-text="m.body"></span>
+                  <span class="caption">to <span x-text="m.to_phone"></span></span>
+                </div>
+              </template>
+            </div>
+            <p class="transcript-footer">
+              Any opportunities, claims, or flags this message created are persisted —
+              check the Worklist and Opportunities tabs.
+            </p>
+          </div>
+        </template>
+      </section>
+
+    </main>
+  </div>
 </body>
 </html>

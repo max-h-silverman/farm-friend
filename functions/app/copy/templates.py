@@ -123,3 +123,24 @@ def render_fallback_ambiguous() -> str:
         "Thanks for the message — let me check with the coordinator and get back to you "
         "shortly."
     )
+
+
+def render_clarification(*, question: str) -> str:
+    """Wrap the LLM's clarification question with a short framing prefix so
+    the farmer knows we got the post but need a detail before we can ping
+    anyone."""
+    return f"Got the post — just need a bit more. {question}"
+
+
+def render_draft_complete(*, summary: str) -> str:
+    return f"Thanks — opening it up: {summary}. Insiders pinged."
+
+
+def render_draft_cancelled() -> str:
+    return "No problem — cancelled. Text again when you're ready."
+
+
+STALE_DRAFT_FLAG_REASON = (
+    "Draft opportunity older than 2h still has missing required fields — "
+    "farmer never finished the clarification dialog."
+)

@@ -24,12 +24,14 @@ from app.messaging import MessagingProvider, get_messaging_provider
 from app.messaging._safe_send import safe_send
 from app.repos import (
     farms_repo,
+    flags_repo,
     messages_repo,
     mutes_repo,
     opportunities_repo,
     users_repo,
 )
 from app.repos.models import (
+    FlagDoc,
     MessageDirection,
     MessageDoc,
     OpportunityDoc,
@@ -39,6 +41,9 @@ from app.repos.models import (
     OutreachTier,
     UserStatus,
 )
+
+
+STALE_DRAFT_AGE_HOURS = 2
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +224,30 @@ def _window_minutes(opp: OpportunityDoc, farm) -> int:
     if opp.kind == OpportunityKind.PICKUP:
         return farm.pickup_insider_window_minutes
     return farm.insider_window_minutes
+
+
+def run_stale_draft_tick() -> None:
+    """Surface drafts older than STALE_DRAFT_AGE_HOURS that never finished
+    clarification. We don't auto-cancel — the farmer might come back. We
+    flag for admin so Max can reach out manually.
+
+    Idempotent: each call only flags drafts that don't already have an open
+    flag tied to their `created_from_message_id`."""
+    cutoff = datetime.now(UTC) - timedelta(hours=STALE_DRAFT_AGE_HOURS)
+    stale = opportunities_repo.list_stale_drafts(older_than=cutoff)
+    for opp in stale:
+        if not opp.id or not opp.created_from_message_id:
+            continue
+        if flags_repo.has_open_flag_for_message(opp.created_from_message_id):
+            continue
+        flags_repo.create(
+            FlagDoc(
+                message_id=opp.created_from_message_id,
+                flagged_by_user_id=None,  # raised by the agent
+                reason=templates.STALE_DRAFT_FLAG_REASON,
+                created_at=datetime.now(UTC),
+            )
+        )
 
 
 def _next_escalation_time(*, opp: OpportunityDoc, farm_insider_window_min: int) -> datetime:

@@ -58,3 +58,20 @@ def list_insiders(farm_id: str) -> list[InsiderDoc]:
 
 def list_all() -> list[FarmDoc]:
     return [snapshot_to_model(s, FarmDoc) for s in db.collection(COLLECTION).stream() if s.exists]  # type: ignore[misc]
+
+
+def update_defaults(
+    farm_id: str,
+    *,
+    typical_start_hour: int | None,
+    typical_shift_duration_min: int | None,
+    usual_days_of_week: list[int],
+) -> None:
+    """Set the onboarding-captured defaults the parser uses to fill gaps."""
+    db.collection(COLLECTION).document(farm_id).update(
+        {
+            "typical_start_hour": typical_start_hour,
+            "typical_shift_duration_min": typical_shift_duration_min,
+            "usual_days_of_week": usual_days_of_week,
+        }
+    )

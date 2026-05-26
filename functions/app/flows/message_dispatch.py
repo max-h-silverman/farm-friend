@@ -26,7 +26,7 @@ from firebase_functions import https_fn
 from app.agent import hotkeys
 from app.agent.ambiguous import resolve_ambiguous
 from app.agent.classifier import classify_reply
-from app.agent.parser import parse_opportunity
+from app.agent.parser import merge_clarification_into_draft, parse_opportunity
 from app.config import load_settings
 from app.copy import templates
 from app.flows import claim as claim_flow
@@ -109,15 +109,15 @@ def handle_inbound_webhook(req: https_fn.Request) -> https_fn.Response:
 # ---------------------------------------------------------------------------
 # Dispatch core (also called by tests with a fake provider)
 # ---------------------------------------------------------------------------
-def _dispatch(*, inbound: InboundMessage) -> None:
+def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" = None) -> None:
     settings = load_settings()
-    provider = get_messaging_provider(settings)
+    provider = messaging or get_messaging_provider(settings)
 
     sender = users_repo.get_by_phone(inbound.from_phone)
 
     # Unknown sender — treat as a JOIN candidate so the coordinator can review.
     if sender is None:
-        _handle_unknown_sender(inbound=inbound)
+        _handle_unknown_sender(inbound=inbound, provider=provider)
         return
 
     if sender.status == UserStatus.UNSUBSCRIBED:
@@ -179,19 +179,35 @@ def _dispatch(*, inbound: InboundMessage) -> None:
     if sender.id and flags_repo.is_user_flagged(sender.id):
         return
 
-    # Farmer free-form posting?
+    # Farmer free-form posting (or clarification reply on an in-progress draft)?
     if sender.role in (UserRole.FARMER, UserRole.BOTH):
         farm = farms_repo.get_by_owner(sender.id) if sender.id else None
-        if farm and _looks_like_posting(inbound.body):
-            _handle_farmer_post(
-                sender=sender,
-                farm_id=farm.id or "",
-                farm_name=farm.name,
-                inbound_text=inbound.body,
-                inbound_doc_id=inbound_doc.id or "",
-                provider=provider,
-            )
-            return
+        if farm:
+            # An open draft from this farm within the clarification window
+            # short-circuits the "is this a posting?" check: any reply at all
+            # within ~2h gets treated as an answer to the pending question.
+            draft = _find_recent_draft(farm_id=farm.id or "")
+            if draft is not None:
+                _handle_clarification_reply(
+                    sender=sender,
+                    farm_id=farm.id or "",
+                    farm_name=farm.name,
+                    draft=draft,
+                    inbound_text=inbound.body,
+                    inbound_doc_id=inbound_doc.id or "",
+                    provider=provider,
+                )
+                return
+            if _looks_like_posting(inbound.body):
+                _handle_farmer_post(
+                    sender=sender,
+                    farm_id=farm.id or "",
+                    farm_name=farm.name,
+                    inbound_text=inbound.body,
+                    inbound_doc_id=inbound_doc.id or "",
+                    provider=provider,
+                )
+                return
 
     # Otherwise: LLM classification path.
     _handle_llm_reply(
@@ -207,7 +223,7 @@ def _dispatch(*, inbound: InboundMessage) -> None:
 # ---------------------------------------------------------------------------
 # Branches
 # ---------------------------------------------------------------------------
-def _handle_unknown_sender(*, inbound: InboundMessage) -> None:
+def _handle_unknown_sender(*, inbound: InboundMessage, provider) -> None:
     """Persist the message, create a pending_user record for admin review."""
     # If a pending_user already exists for this phone, don't duplicate.
     existing = pending_users_repo.get_by_phone(inbound.from_phone)
@@ -229,7 +245,6 @@ def _handle_unknown_sender(*, inbound: InboundMessage) -> None:
             created_at=inbound.received_at,
         )
     )
-    provider = get_messaging_provider()
     safe_send(provider, to_phone=inbound.from_phone, body=templates.render_join_ack())
 
 
@@ -445,16 +460,24 @@ def _handle_farmer_post(
     inbound_doc_id: str,
     provider,
 ) -> None:
-    """Parse the farmer's free-form posting and create the opportunity."""
+    """Parse the farmer's free-form posting and create the opportunity.
+
+    If required fields are missing, the opportunity is saved as a draft and
+    a clarification question is sent. Outreach only fires when all required
+    fields are present.
+    """
     settings = load_settings()
     llm = get_llm_client(settings)
     now_local = datetime.now(VASHON_TZ)
+    farm = farms_repo.get_by_id(farm_id)
+    farm_defaults = _farm_defaults_dict(farm)
 
     parsed = parse_opportunity(
         llm=llm,
         farmer_message=inbound_text,
         farm_name=farm_name,
         now_local=now_local,
+        farm_defaults=farm_defaults,
     )
     if parsed.kind == "other":
         # Not a posting — flag for admin.
@@ -466,7 +489,8 @@ def _handle_farmer_post(
                 created_at=datetime.now(UTC),
             )
         )
-        provider.send(
+        safe_send(
+            provider,
             to_phone=sender.phone,
             body="Didn't quite parse that as a shift or pickup. Coordinator will follow up.",
         )
@@ -475,14 +499,172 @@ def _handle_farmer_post(
     opp_doc = _opportunity_from_parsed(
         farm_id=farm_id, parsed=parsed, source_message_id=inbound_doc_id
     )
+
+    if parsed.missing_fields:
+        # Save as draft and ask the farmer for the missing details. No outreach.
+        created = opportunities_repo.create(opp_doc)
+        safe_send(
+            provider,
+            to_phone=sender.phone,
+            body=templates.render_clarification(question=parsed.clarification_question),
+        )
+        return
+
     created = opportunities_repo.create(opp_doc)
-
-    # Send the initial insider tier outreach immediately.
     outreach_flow.send_initial_outreach(opp=created, messaging=provider)
-
-    # Confirm to the farmer (best-effort; failure here doesn't unwind the post).
     summary = _farmer_posting_summary(parsed=parsed)
-    safe_send(provider, to_phone=sender.phone, body=f"Got it: {summary}. Insiders pinged.")
+    safe_send(
+        provider,
+        to_phone=sender.phone,
+        body=templates.render_draft_complete(summary=summary),
+    )
+
+
+def _handle_clarification_reply(
+    *,
+    sender: UserDoc,
+    farm_id: str,
+    farm_name: str,
+    draft: OpportunityDoc,
+    inbound_text: str,
+    inbound_doc_id: str,
+    provider,
+) -> None:
+    """The farmer is replying to our clarification question for `draft`.
+
+    Run the merge parser, persist the merged fields, and either: (a) re-ask
+    if something is still missing, (b) cancel if the farmer bailed, or
+    (c) flip to open + fire outreach if we're complete.
+    """
+    settings = load_settings()
+    llm = get_llm_client(settings)
+    now_local = datetime.now(VASHON_TZ)
+    farm = farms_repo.get_by_id(farm_id)
+    farm_defaults = _farm_defaults_dict(farm)
+    draft_as_parsed = _parsed_from_opportunity(draft)
+
+    merged = merge_clarification_into_draft(
+        llm=llm,
+        draft=draft_as_parsed,
+        farmer_reply=inbound_text,
+        farm_name=farm_name,
+        now_local=now_local,
+        farm_defaults=farm_defaults,
+    )
+
+    if merged.kind == "other":
+        # Farmer cancelled the post.
+        assert draft.id is not None
+        opportunities_repo.update_status(draft.id, OpportunityStatus.CANCELLED)
+        safe_send(provider, to_phone=sender.phone, body=templates.render_draft_cancelled())
+        return
+
+    assert draft.id is not None
+    field_updates = _merge_updates_for_opportunity(parsed=merged)
+    opportunities_repo.update_fields(draft.id, field_updates)
+
+    if merged.missing_fields:
+        safe_send(
+            provider,
+            to_phone=sender.phone,
+            body=templates.render_clarification(question=merged.clarification_question),
+        )
+        return
+
+    # All required fields are present. Reload the doc with the merged values,
+    # flip to open, and send outreach.
+    refreshed = opportunities_repo.get_by_id(draft.id)
+    if refreshed is None:
+        return
+    opportunities_repo.update_status(draft.id, OpportunityStatus.OPEN)
+    refreshed = refreshed.model_copy(update={"status": OpportunityStatus.OPEN})
+    outreach_flow.send_initial_outreach(opp=refreshed, messaging=provider)
+    summary = _farmer_posting_summary(parsed=merged)
+    safe_send(
+        provider,
+        to_phone=sender.phone,
+        body=templates.render_draft_complete(summary=summary),
+    )
+
+
+def _find_recent_draft(*, farm_id: str) -> OpportunityDoc | None:
+    """Look back ~2h for a draft from this farm. We use the most recent.
+
+    Two hours is the same window the stale-draft tick uses to flag abandoned
+    drafts, so the boundaries line up: a farmer either finishes the dialog
+    within the window, or it gets flagged for admin review.
+    """
+    from datetime import timedelta
+    since = datetime.now(UTC) - timedelta(hours=2)
+    drafts = opportunities_repo.list_recent_drafts_for_farm(farm_id=farm_id, since=since)
+    return drafts[0] if drafts else None
+
+
+def _farm_defaults_dict(farm) -> dict | None:
+    if farm is None:
+        return None
+    return {
+        "typical_start_hour": farm.typical_start_hour,
+        "typical_shift_duration_min": farm.typical_shift_duration_min,
+        "usual_days_of_week": farm.usual_days_of_week,
+    }
+
+
+def _parsed_from_opportunity(opp: OpportunityDoc):
+    """Re-build a ParsedOpportunity-ish dict from a persisted draft so the merge
+    parser sees what we already have. We pass datetimes back as ISO strings
+    to match the original parser's wire format."""
+    from app.agent.parser import ParsedOpportunity
+    return ParsedOpportunity(
+        kind="shift" if opp.kind == OpportunityKind.SHIFT else "pickup",
+        starts_at=opp.starts_at.isoformat() if opp.starts_at else None,
+        duration_min=opp.duration_min,
+        headcount_needed=opp.headcount_needed if opp.headcount_needed else None,
+        activity_tags=list(opp.activity_tags),
+        requirements_text=opp.requirements_text,
+        deadline_at=opp.deadline_at.isoformat() if opp.deadline_at else None,
+        produce_description=opp.produce_description,
+        destination=opp.destination,
+        vehicle_needed=opp.vehicle_needed,
+    )
+
+
+def _merge_updates_for_opportunity(*, parsed) -> dict:
+    """Translate a merged ParsedOpportunity into the dict of OpportunityDoc
+    field updates to persist. Only includes fields that have a value, so we
+    never blank a previously-set field."""
+    updates: dict = {}
+    if parsed.kind == "shift":
+        if parsed.starts_at:
+            starts = _parse_iso(parsed.starts_at)
+            if starts:
+                updates["starts_at"] = starts
+                updates["post_event_checkin_at"] = _post_event_time_for(
+                    kind=OpportunityKind.SHIFT, starts_at=starts, deadline_at=None
+                )
+        if parsed.headcount_needed:
+            updates["headcount_needed"] = parsed.headcount_needed
+        if parsed.duration_min:
+            updates["duration_min"] = parsed.duration_min
+        if parsed.activity_tags:
+            updates["activity_tags"] = list(parsed.activity_tags)
+        if parsed.requirements_text:
+            updates["requirements_text"] = parsed.requirements_text
+    elif parsed.kind == "pickup":
+        if parsed.deadline_at:
+            deadline = _parse_iso(parsed.deadline_at)
+            if deadline:
+                updates["deadline_at"] = deadline
+                updates["post_event_checkin_at"] = _post_event_time_for(
+                    kind=OpportunityKind.PICKUP, starts_at=None, deadline_at=deadline
+                )
+        if parsed.produce_description:
+            updates["produce_description"] = parsed.produce_description
+        if parsed.destination:
+            updates["destination"] = parsed.destination
+        if parsed.vehicle_needed is not None:
+            updates["vehicle_needed"] = parsed.vehicle_needed
+    return updates
 
 
 def _handle_llm_reply(

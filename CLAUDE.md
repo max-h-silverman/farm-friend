@@ -2,6 +2,14 @@
 
 SMS-first agentic system for coordinating volunteer help on Vashon Island farms.
 
+## Status (as of 2026-05-25)
+
+**v1 codebase is built and deployed.** All Firebase functions, Firestore data model, admin SPA, and SMS pipeline are live in the `farm-friend-vashon` project. End-to-end smoke test confirmed: an inbound farmer SMS gets parsed by Claude Haiku, persists as an `Opportunity`, and the admin SPA picks it up in real time.
+
+**Blocked on Telnyx A2P 10DLC campaign approval** (submitted 2026-05-25; brand verified within hours, campaign in carrier review; expected to clear within a few days based on the preview showing no MNO Review required).
+
+**Once approval lands**, the remaining work to start the real pilot is small (see "Next steps" at the bottom of this file).
+
 ## What this is
 
 Farms (mostly small, VIGA-affiliated) need volunteer help — gleaning, weeding, harvest. Volunteers (a mix of retirees, gardeners, food-system enthusiasts) want to help but need low-friction discovery and signup. The previous human-coordinator approach didn't scale. Farm Friend replaces it with an agentic SMS workflow: the system decides who to ping, when to escalate, how to interpret replies, and when to check in after an event — autonomously.
@@ -114,3 +122,60 @@ The system is architected so the LLM can be swapped between Anthropic and any Op
 - SMS-facing copy lives in `functions/app/copy/` as plain text or Jinja templates, not interpolated in business logic. Easy to A/B and review.
 - Tests in `functions/tests/`. Use the Firestore emulator for integration tests.
 - All datetime values are timezone-aware UTC at the boundary; convert to America/Los_Angeles only for human-facing SMS copy.
+
+---
+
+## Next steps
+
+This list is the source of truth for "what's the next thing to do." Update it as state changes — it's what a fresh session needs to read to know where to pick up.
+
+### Blocked on external (no action needed from us right now)
+
+- [ ] **Telnyx campaign approval.** Submitted 2026-05-25. Brand verified. Carrier preview showed no MNO Review required. Check the Telnyx 10DLC Campaigns dashboard. Expected: hours to a few days.
+
+### Ready to do once Telnyx campaign is approved
+
+1. [ ] Get the real Telnyx `from`-number (the 10DLC number you provisioned).
+2. [ ] Update `functions/.env.farm-friend-vashon` — change `TELNYX_FROM_NUMBER=+15555550100` to the real number.
+3. [ ] Update `web/public/farmfriend.vcf` — replace the placeholder `+15555550100` on the `TEL` line with the real number.
+4. [ ] `firebase deploy` to push both updates.
+5. [ ] In Telnyx Mission Control → Messaging → your profile, configure the **inbound webhook** to `https://us-west1-farm-friend-vashon.cloudfunctions.net/inbound_sms`.
+6. [ ] Re-run the end-to-end smoke test, this time with a *real* phone number for the volunteer (your own second number or a Google Voice line). Verify the volunteer actually receives the outbound SMS.
+
+### Hygiene before real users (do anytime)
+
+- [ ] Delete the test data that's currently sitting in production Firestore: `Test Farm`, `Test Farmer`, `Test Volunteer`, and the two test opportunities (one `draft`, one `open`). Easiest path: a one-off script in `functions/scripts/`. Doc IDs were `Mdq9CTxUHKRfANApkjRx` (farm), `P0z4cHtjU6W2UwZ6tTcv` (farmer), `E2QEyfT8tMQr6Uy94UQq` (volunteer), `dPBDvJlCJMvYYVeBrtA0` + `RbDSNDL0YKXi7xJAXJ55` (opps).
+- [ ] Decide what to do about the stale `LLM_API_KEY` secret in Cloud Secret Manager (one accidental version, costs ~$0/month at zero accesses). Optionally: `firebase functions:secrets:destroy LLM_API_KEY`.
+
+### Pilot prep (do before approaching the first real farm)
+
+- [ ] **Capture farm + volunteer defaults at onboarding.** The admin SPA Roster tab now has "Edit defaults" (farms: typical start hour / shift length / usual days) and "Edit availability" (volunteers: available days / hours / max hours/week). These feed the parser so the system doesn't bother farmers with questions like duration when there's a sensible default. Fill these in for the first pilot users when you admit them.
+- [ ] Identify the first friendly farmer who'll be the pilot user. Seed them with `scripts/seed_smoke_test.py` (rename script's args or write a wrapper).
+- [ ] Draft a 1-page flyer text for farmers markets / farm stands that says what Farm Friend is and how to opt in (`Text JOIN to <number>`).
+- [ ] Manually test all hotkey paths against the deployed system: `YES`, `YES 2`, `MUTE`, `STOP weeding`, `STOP <farm>`, `UNAVAILABLE`, `FLAG`, `HELP`, `STOP`, `JOIN`, `INSIDER <phone>`.
+- [ ] Test a deliberately-malformed farmer post → should land in the flags Worklist (admin escalation).
+- [ ] Test post-event flow by manually advancing `post_event_checkin_at` on an opportunity and waiting for `tick_post_event` to fire.
+
+### Known limitations / deferred to v2
+
+- **No eval harness** for LLM swaps. The architecture supports any OpenAI-compatible provider via `LLM_PROVIDER=openai-compatible` + `LLM_BASE_URL`, but before flipping the default away from Anthropic you must build golden test sets for the parser, classifier, and ambiguous handler with pass-rate parity. See "LLM portability" section above.
+- **No farmer web portal.** Farmers stay on SMS in v1. If the pilot reveals this is a real friction point, add a minimal portal.
+- **No public self-signup page.** All onboarding is coordinator-mediated for the pilot.
+- **No reputation / skill registry.** Replaced by activity-type mutes + farmer free-text requirements. Revisit only if real usage shows mutes aren't expressive enough.
+- **No cost dashboard** in the admin SPA. Telnyx + Firebase + Anthropic each have their own billing UIs; revisit if real spend exceeds budget.
+- **No automated test coverage** for the Firebase-touching layers (repos, flows that hit Firestore, dispatch). Pure-logic layers (hotkeys, copy, llm/client, time) have 48 unit tests. Add emulator-based integration tests if regression bugs start landing on the Firebase paths.
+- **Bypass token in the webhook.** `app/flows/message_dispatch.py` has a smoke-test bypass that skips Telnyx signature verification when `X-Smoke-Test-Token` matches the `SMOKE_TEST_TOKEN` secret. Useful for testing but a real failure mode if the token leaks. Either rotate periodically or gate the bypass on a flag that's off in production. Acceptable for the pilot; remove or harden before any wider rollout.
+
+### Architecture invariants that should stay true
+
+These are baked into the design — changing any of them is a real refactor, not a minor tweak. Verify before deviating:
+
+- `repos/` is the only package that imports `google.cloud.firestore`. Business logic goes through repos.
+- All outbound SMS goes through `app.messaging._safe_send.safe_send()` — never call `provider.send()` directly. Failures must not crash the webhook.
+- The deterministic hotkey parser runs BEFORE the LLM classifier. Common-path messages (YES / STOP / HELP / FLAG / MUTE / JOIN / INSIDER) never cost an LLM call.
+- The LLMClient interface is `chat_json(messages, schema, *, cache_system_prompt=False)` — single entrypoint, JSON-only output. Don't add features that work only on Anthropic (tool-use loops, etc.) without first justifying it in the eval harness.
+- `firebase_app.py`'s `db` and `auth` are lazy — they don't connect until first attribute access. Don't change to eager init or `firebase deploy` analyzer will fail.
+- Opportunity state machine: `draft → open → filling → full → completed` (or `cancelled`/`expired`). Status flips happen even when outbound delivery fails — outreach is best-effort.
+- **Required-field rules for opportunities live in code (`agent/parser.py: REQUIRED_SHIFT_FIELDS / REQUIRED_PICKUP_FIELDS`), not just in the prompt.** `compute_missing_fields()` is the authoritative server-side check; the LLM's own `missing_fields` output is overwritten by it after parsing/merging. Changing what's required for a shift or pickup means updating both constants and the parser prompts.
+- **Clarification flow re-uses the `draft` status.** A draft opportunity within ~2h of creation is the dispatch path's signal to route an inbound farmer message to the merge parser instead of treating it as a new post. `tick_stale_drafts` (every 30 min) flags drafts older than 2h that never completed — admin handles abandoned ones manually.
+

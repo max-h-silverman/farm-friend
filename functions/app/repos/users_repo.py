@@ -44,3 +44,22 @@ def list_active() -> list[UserDoc]:
 def list_by_status(status: UserStatus) -> list[UserDoc]:
     q = db.collection(COLLECTION).where("status", "==", status.value)
     return [snapshot_to_model(s, UserDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
+def update_availability(
+    user_id: str,
+    *,
+    available_days: list[int],
+    available_start_hour: int | None,
+    available_end_hour: int | None,
+    max_commit_hours_per_week: int | None,
+) -> None:
+    """Set the volunteer availability captured at onboarding."""
+    db.collection(COLLECTION).document(user_id).update(
+        {
+            "available_days": available_days,
+            "available_start_hour": available_start_hour,
+            "available_end_hour": available_end_hour,
+            "max_commit_hours_per_week": max_commit_hours_per_week,
+        }
+    )

@@ -8,14 +8,17 @@ with Firebase Auth. We gate each callable on `request.auth.token.admin == true`
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from firebase_functions import https_fn
 
 from app.config import ALL_SECRETS, load_settings
 from app.copy import templates
 from app.firebase_app import auth, db
-from app.messaging import get_messaging_provider
+from app.flows import message_dispatch
+from app.messaging import InboundMessage, get_messaging_provider
 from app.messaging._safe_send import safe_send
+from app.messaging.fake_provider import FakeMessagingProvider
 from app.repos import farms_repo, flags_repo, messages_repo, pending_users_repo, users_repo
 from app.repos.models import (
     MessageDirection,
@@ -102,6 +105,87 @@ def suspend_user(req: https_fn.CallableRequest) -> dict:
 
 
 @https_fn.on_call()
+def update_farm_defaults(req: https_fn.CallableRequest) -> dict:
+    """Set the farm's onboarding defaults that the parser uses to fill gaps.
+
+    Inputs:
+      - farm_id
+      - typical_start_hour (int 0-23, or None)
+      - typical_shift_duration_min (int, or None)
+      - usual_days_of_week (list[int] 0=Mon..6=Sun)
+    """
+    _require_admin(req)
+    data = req.data or {}
+    farm_id = data.get("farm_id")
+    if not farm_id:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT, "farm_id required"
+        )
+    start_hour = data.get("typical_start_hour")
+    duration = data.get("typical_shift_duration_min")
+    days = data.get("usual_days_of_week") or []
+    if start_hour is not None and not (0 <= int(start_hour) <= 23):
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
+            "typical_start_hour must be 0-23",
+        )
+    if duration is not None and int(duration) < 0:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
+            "typical_shift_duration_min must be >= 0",
+        )
+    farms_repo.update_defaults(
+        farm_id,
+        typical_start_hour=int(start_hour) if start_hour is not None else None,
+        typical_shift_duration_min=int(duration) if duration is not None else None,
+        usual_days_of_week=[int(d) for d in days],
+    )
+    return {"ok": True}
+
+
+@https_fn.on_call()
+def update_user_availability(req: https_fn.CallableRequest) -> dict:
+    """Set a volunteer's onboarding-captured availability.
+
+    Inputs:
+      - user_id
+      - available_days (list[int] 0=Mon..6=Sun)
+      - available_start_hour (int 0-23, or None)
+      - available_end_hour (int 0-23, or None)
+      - max_commit_hours_per_week (int, or None)
+    """
+    _require_admin(req)
+    data = req.data or {}
+    user_id = data.get("user_id")
+    if not user_id:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT, "user_id required"
+        )
+    days = data.get("available_days") or []
+    start = data.get("available_start_hour")
+    end = data.get("available_end_hour")
+    cap = data.get("max_commit_hours_per_week")
+    for label, value in (("available_start_hour", start), ("available_end_hour", end)):
+        if value is not None and not (0 <= int(value) <= 23):
+            raise https_fn.HttpsError(
+                https_fn.FunctionsErrorCode.INVALID_ARGUMENT, f"{label} must be 0-23"
+            )
+    if cap is not None and int(cap) < 0:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
+            "max_commit_hours_per_week must be >= 0",
+        )
+    users_repo.update_availability(
+        user_id,
+        available_days=[int(d) for d in days],
+        available_start_hour=int(start) if start is not None else None,
+        available_end_hour=int(end) if end is not None else None,
+        max_commit_hours_per_week=int(cap) if cap is not None else None,
+    )
+    return {"ok": True}
+
+
+@https_fn.on_call()
 def resolve_flag(req: https_fn.CallableRequest) -> dict:
     _require_admin(req)
     flag_id = (req.data or {}).get("flag_id")
@@ -125,6 +209,62 @@ def set_admin_claim(req: https_fn.CallableRequest) -> dict:
         _require_admin(req)
     auth.set_custom_user_claims(target_uid, {"admin": True})
     return {"ok": True, "bootstrap": is_first_admin}
+
+
+@https_fn.on_call(secrets=ALL_SECRETS)
+def simulate_inbound_sms(req: https_fn.CallableRequest) -> dict:
+    """Run an inbound message through the real dispatch pipeline, but reroute
+    outbound replies to an in-memory provider so nothing actually goes out over
+    SMS. All other side effects (messages log, opportunities, flags, claims)
+    write to production Firestore exactly as they would for a real inbound.
+
+    Inputs:
+      - user_id (optional): existing user.id to send as. Their phone is used.
+      - phone (optional): raw E.164 to send as (for testing the unknown-sender
+        / JOIN path). Ignored if user_id is set.
+      - body: SMS text.
+
+    Returns:
+      - outbound: list of {to_phone, body} the system would have sent.
+      - inbound_logged_as: the from_phone used.
+    """
+    _require_admin(req)
+    data = req.data or {}
+    user_id = data.get("user_id")
+    phone = data.get("phone")
+    body = (data.get("body") or "").strip()
+    if not body:
+        raise https_fn.HttpsError(https_fn.FunctionsErrorCode.INVALID_ARGUMENT, "body required")
+
+    if user_id:
+        user = users_repo.get_by_id(user_id)
+        if user is None:
+            raise https_fn.HttpsError(https_fn.FunctionsErrorCode.NOT_FOUND, "user not found")
+        from_phone = user.phone
+    elif phone:
+        from_phone = phone
+    else:
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT, "user_id or phone required"
+        )
+
+    settings = load_settings()
+    fake = FakeMessagingProvider()
+    inbound = InboundMessage(
+        from_phone=from_phone,
+        to_phone=settings.telnyx_from_number or "+15555550100",
+        body=body,
+        provider_msg_id=f"sim-{uuid4()}",
+        received_at=datetime.now(UTC),
+    )
+    message_dispatch._dispatch(inbound=inbound, messaging=fake)
+
+    return {
+        "inbound_logged_as": from_phone,
+        "outbound": [
+            {"to_phone": m.to_phone, "body": m.body} for m in fake.sent
+        ],
+    }
 
 
 def _no_admins_exist() -> bool:

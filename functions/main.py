@@ -64,6 +64,16 @@ def tick_post_event(event: scheduler_fn.ScheduledEvent) -> None:
     post_event_flow.run_checkin_tick()
 
 
+@scheduler_fn.on_schedule(
+    schedule="every 30 minutes",
+    secrets=ALL_SECRETS,
+    timezone=scheduler_fn.Timezone("America/Los_Angeles"),
+)
+def tick_stale_drafts(event: scheduler_fn.ScheduledEvent) -> None:
+    """Flag draft opportunities that never finished clarification."""
+    outreach_flow.run_stale_draft_tick()
+
+
 # Admin callable functions are registered in app/admin/callables.py and
 # re-exported here by name so the Firebase deploy tooling sees them.
 from app.admin.callables import (  # noqa: E402
@@ -71,6 +81,9 @@ from app.admin.callables import (  # noqa: E402
     suspend_user,
     resolve_flag,
     set_admin_claim,
+    simulate_inbound_sms,
+    update_farm_defaults,
+    update_user_availability,
 )
 
 __all__ = [
@@ -78,8 +91,12 @@ __all__ = [
     "health",
     "tick_outreach",
     "tick_post_event",
+    "tick_stale_drafts",
     "approve_pending_user",
     "suspend_user",
     "resolve_flag",
     "set_admin_claim",
+    "simulate_inbound_sms",
+    "update_farm_defaults",
+    "update_user_availability",
 ]

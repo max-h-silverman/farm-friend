@@ -112,6 +112,13 @@ class UserDoc(BaseModel):
     status: UserStatus
     created_at: datetime
     notes: str = ""
+    # Volunteer availability captured at onboarding. Used to weigh outreach so
+    # we don't ping people on days/times they've said they're unavailable.
+    # Empty values mean "no preference recorded — treat as fully available".
+    available_days: list[int] = Field(default_factory=list)  # 0=Mon .. 6=Sun
+    available_start_hour: int | None = None                  # 0-23, Vashon local
+    available_end_hour: int | None = None                    # 0-23, Vashon local
+    max_commit_hours_per_week: int | None = None
 
 
 class FarmDoc(BaseModel):
@@ -123,6 +130,12 @@ class FarmDoc(BaseModel):
     insider_window_minutes: int = 180  # default 3h before broader pool
     pickup_insider_window_minutes: int = 30  # pickup default 30m
     created_at: datetime
+    # Onboarding-captured defaults. Used by the parser to fill gaps the farmer
+    # left out (e.g. duration when only a start time was given). All optional;
+    # absent values mean "no default known, leave the field empty".
+    typical_start_hour: int | None = None             # 0-23, Vashon local
+    typical_shift_duration_min: int | None = None     # minutes
+    usual_days_of_week: list[int] = Field(default_factory=list)  # 0=Mon .. 6=Sun
 
 
 class InsiderDoc(BaseModel):

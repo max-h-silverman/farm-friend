@@ -37,3 +37,15 @@ def is_user_flagged(user_id: str) -> bool:
         .limit(1)
     )
     return any(True for _ in q.stream())
+
+
+def has_open_flag_for_message(message_id: str) -> bool:
+    """True if there's already an unresolved flag tied to this message_id.
+    Used by the stale-draft tick to keep itself idempotent."""
+    q = (
+        db.collection(COLLECTION)
+        .where("message_id", "==", message_id)
+        .where("resolved_at", "==", None)
+        .limit(1)
+    )
+    return any(True for _ in q.stream())
