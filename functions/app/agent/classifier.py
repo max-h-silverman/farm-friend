@@ -20,12 +20,16 @@ PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "classifier.md"
 
 
 class ClassifiedReply(BaseModel):
-    intent: Literal["CLAIM", "DECLINE", "QUESTION", "AMBIGUOUS", "MUTE"]
+    intent: Literal["CLAIM", "DECLINE", "QUESTION", "AMBIGUOUS", "MUTE", "ESCALATE"]
     confidence: float = Field(ge=0.0, le=1.0)
     draft_reply: str = ""
     # When intent is MUTE, what should be muted (free-text; coordinator confirms).
     mute_value: str = ""
     rationale: str = ""
+    # Only populated when intent=="ESCALATE". "routine" = flag for the admin's
+    # next dashboard review; "immediate" = also text the coordinator now.
+    escalation_urgency: Literal["routine", "immediate"] = "routine"
+    escalation_reason: str = ""
 
 
 def classify_reply(

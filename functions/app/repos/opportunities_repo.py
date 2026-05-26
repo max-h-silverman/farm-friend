@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from google.cloud.firestore import Increment, transactional
 
@@ -123,6 +123,46 @@ def list_open_for_farm(farm_id: str) -> list[OpportunityDoc]:
     return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
 
 
+def list_opps_due_for_confirmation(
+    *,
+    now: datetime,
+    shift_lead_time: timedelta,
+    pickup_lead_time: timedelta,
+) -> list[OpportunityDoc]:
+    """Opportunities whose event is within the confirmation-reminder window.
+
+    Shifts: `now <= starts_at <= now + shift_lead_time`.
+    Pickups: `now <= deadline_at <= now + pickup_lead_time`.
+
+    Returns OPEN/FILLING/FULL opps in either window. The caller iterates each
+    opp's confirmed claims and decides per-claim whether to send a reminder.
+    """
+    shift_q = (
+        db.collection(COLLECTION)
+        .where("kind", "==", OpportunityKind.SHIFT.value)
+        .where(
+            "status", "in",
+            [OpportunityStatus.OPEN.value, OpportunityStatus.FILLING.value, OpportunityStatus.FULL.value],
+        )
+        .where("starts_at", ">=", now)
+        .where("starts_at", "<=", now + shift_lead_time)
+    )
+    pickup_q = (
+        db.collection(COLLECTION)
+        .where("kind", "==", OpportunityKind.PICKUP.value)
+        .where(
+            "status", "in",
+            [OpportunityStatus.OPEN.value, OpportunityStatus.FILLING.value, OpportunityStatus.FULL.value],
+        )
+        .where("deadline_at", ">=", now)
+        .where("deadline_at", "<=", now + pickup_lead_time)
+    )
+    results: list[OpportunityDoc] = []
+    for q in (shift_q, pickup_q):
+        results.extend(snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists)  # type: ignore[misc]
+    return results
+
+
 def list_unfilled_started(*, now: datetime) -> list[OpportunityDoc]:
     """Open/filling shifts whose start time has passed and whose farmer
     hasn't been notified yet about the unfilled state. Pickups use
@@ -186,6 +226,18 @@ def list_confirmed_claims(opp_id: str) -> list[ClaimDoc]:
 def list_all_claims(opp_id: str) -> list[ClaimDoc]:
     snaps = db.collection(COLLECTION).document(opp_id).collection(CLAIMS_SUB).stream()
     return [snapshot_to_model(s, ClaimDoc) for s in snaps if s.exists]  # type: ignore[misc]
+
+
+def mark_confirmation_sent(*, opp_id: str, volunteer_user_id: str, at: datetime) -> None:
+    """Stamp `confirmation_sent_at` on a single claim. Used by the confirmation
+    tick to avoid double-pinging."""
+    ref = (
+        db.collection(COLLECTION)
+        .document(opp_id)
+        .collection(CLAIMS_SUB)
+        .document(volunteer_user_id)
+    )
+    ref.update({"confirmation_sent_at": at})
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +362,82 @@ def try_claim_in_transaction(
             is_waitlist=False,
             is_stale=False,
             kind=opp.kind,
+        )
+
+    return _run(txn)
+
+
+@dataclass(frozen=True, slots=True)
+class DropOutcome:
+    dropped: bool                         # False if the claim wasn't CONFIRMED to begin with
+    seats_filled_after: int
+    headcount_needed: int
+    status_after: OpportunityStatus
+    reopened: bool                        # True iff status flipped FULL -> FILLING / OPEN -> FILLING
+
+
+def drop_confirmed_claim_in_transaction(
+    *,
+    opp_id: str,
+    volunteer_user_id: str,
+    now: datetime,
+) -> DropOutcome:
+    """Atomically drop a CONFIRMED claim: set status=DROPPED, decrement
+    seats_filled, and unwind opp status (FULL -> FILLING) if applicable.
+    If the claim doesn't exist or isn't CONFIRMED, returns dropped=False.
+    """
+    opp_ref = db.collection(COLLECTION).document(opp_id)
+    claim_ref = opp_ref.collection(CLAIMS_SUB).document(volunteer_user_id)
+    txn = db.transaction()
+
+    @transactional
+    def _run(transaction) -> DropOutcome:
+        opp_snap = opp_ref.get(transaction=transaction)
+        claim_snap = claim_ref.get(transaction=transaction)
+        if not opp_snap.exists or not claim_snap.exists:
+            opp = snapshot_to_model(opp_snap, OpportunityDoc)
+            return DropOutcome(
+                dropped=False,
+                seats_filled_after=opp.seats_filled if opp else 0,
+                headcount_needed=opp.headcount_needed if opp else 0,
+                status_after=opp.status if opp else OpportunityStatus.OPEN,
+                reopened=False,
+            )
+        opp = snapshot_to_model(opp_snap, OpportunityDoc)
+        claim = snapshot_to_model(claim_snap, ClaimDoc)
+        assert opp is not None and claim is not None
+        if claim.status != ClaimStatus.CONFIRMED:
+            return DropOutcome(
+                dropped=False,
+                seats_filled_after=opp.seats_filled,
+                headcount_needed=opp.headcount_needed,
+                status_after=opp.status,
+                reopened=False,
+            )
+
+        slots = max(1, claim.slots)
+        new_filled = max(0, opp.seats_filled - slots)
+        # Unwind status. A dropped seat from FULL means we're back to FILLING
+        # (someone was already filled, so it's not OPEN). FILLING stays FILLING.
+        new_status: OpportunityStatus
+        if opp.status == OpportunityStatus.FULL:
+            new_status = OpportunityStatus.FILLING
+        else:
+            new_status = opp.status
+        reopened = new_status != opp.status
+
+        transaction.update(claim_ref, {"status": ClaimStatus.DROPPED.value})
+        update_payload: dict = {"seats_filled": Increment(-slots)}
+        if reopened:
+            update_payload["status"] = new_status.value
+        transaction.update(opp_ref, update_payload)
+
+        return DropOutcome(
+            dropped=True,
+            seats_filled_after=new_filled,
+            headcount_needed=opp.headcount_needed,
+            status_after=new_status,
+            reopened=reopened,
         )
 
     return _run(txn)

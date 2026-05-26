@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from app.copy import templates
 from app.flows._time import format_deadline, format_when
 from app.messaging import MessagingProvider
+from app.messaging._safe_send import safe_send
 from app.repos import opportunities_repo
 from app.repos.models import (
     ClaimDoc,
@@ -78,12 +79,71 @@ def handle_claim(
     )
 
     if outcome.just_filled and notify_farmer_phone:
-        messaging.send(
+        safe_send(
+            messaging,
             to_phone=notify_farmer_phone,
             body=f"{farm_name} is fully claimed for {farmer_ops.opp_short_summary(refreshed)}.",
         )
 
     return _confirmation_body(refreshed, farm_name)
+
+
+def handle_volunteer_drop(
+    *,
+    messaging: MessagingProvider,
+    opportunity: OpportunityDoc,
+    volunteer: UserDoc,
+) -> str:
+    """Volunteer is dropping a confirmed claim (typically in reply to a
+    confirmation reminder). Decrements seats_filled atomically, flips status
+    back to FILLING if it was FULL, resets next_escalation_at so the existing
+    outreach tick re-fires, and notifies the farmer of the drop.
+
+    Returns the SMS body to send back to the volunteer. If their claim wasn't
+    actually CONFIRMED (already dropped, never confirmed, opp gone), returns
+    a neutral ack rather than erroring.
+    """
+    assert opportunity.id is not None
+    assert volunteer.id is not None
+    outcome = opportunities_repo.drop_confirmed_claim_in_transaction(
+        opp_id=opportunity.id,
+        volunteer_user_id=volunteer.id,
+        now=datetime.now(UTC),
+    )
+    if not outcome.dropped:
+        # Either never confirmed, or already dropped. Acknowledge harmlessly.
+        return templates.render_volunteer_drop_ack()
+
+    # Re-fire outreach. The existing escalation tick re-pings the broader pool
+    # (or insiders, if we're somehow still in insider tier) and skips anyone
+    # already pinged, claimed, or muted — so this is safe even if the opp was
+    # already saturated with outreach attempts.
+    opportunities_repo.set_next_escalation(
+        opportunity.id, at=datetime.now(UTC), tier=opportunity.current_tier
+    )
+
+    # Notify the farmer. Direct one-to-one, sends even in quiet hours because
+    # the farmer needs to know in real time.
+    from app.flows import farmer_ops
+    refreshed = opportunities_repo.get_by_id(opportunity.id) or opportunity
+    farm = None
+    try:
+        from app.repos import farms_repo as _farms_repo
+        from app.repos import users_repo as _users_repo
+        farm = _farms_repo.get_by_id(refreshed.farm_id)
+        farmer = _users_repo.get_by_id(farm.owner_user_id) if farm else None
+        if farmer and farmer.phone:
+            body = templates.render_volunteer_dropped_to_farmer(
+                opp_summary=farmer_ops.opp_short_summary(refreshed),
+                volunteer_name=volunteer.name,
+                filled=outcome.seats_filled_after,
+                headcount=outcome.headcount_needed,
+            )
+            safe_send(messaging, to_phone=farmer.phone, body=body)
+    except Exception:  # noqa: BLE001 — farmer notification is best-effort
+        pass
+
+    return templates.render_volunteer_drop_ack()
 
 
 def handle_maybe(

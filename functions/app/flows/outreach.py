@@ -19,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.copy import templates
 from app.firebase_app import db
+from app.flows import _time
 from app.flows._time import format_day_and_range, format_deadline
 from app.messaging import MessagingProvider, get_messaging_provider
 from app.messaging._safe_send import safe_send
@@ -61,6 +62,14 @@ def send_initial_outreach(*, opp: OpportunityDoc, messaging: MessagingProvider |
     if opp.status == OpportunityStatus.DRAFT:
         opportunities_repo.update_status(opp.id, OpportunityStatus.OPEN)
 
+    # Quiet hours: defer the whole broadcast to 7am. The escalation tick will
+    # pick it up — see _has_outreach_at_tier guard in run_escalation_tick.
+    if _time.is_quiet_hours():
+        opportunities_repo.set_next_escalation(
+            opp.id, at=_time.next_quiet_hours_end(), tier=OutreachTier.INSIDER
+        )
+        return
+
     recipients = _select_recipients(opp=opp, tier=OutreachTier.INSIDER)
     body = _render_outreach_body(opp=opp, farm_name=farm.name)
     sent_ids = []
@@ -101,6 +110,8 @@ def run_escalation_tick(*, messaging: MessagingProvider | None = None) -> None:
     """Called by `tick_outreach` scheduled function every ~5 minutes."""
     m = messaging or get_messaging_provider()
     now = datetime.now(UTC)
+    if _time.is_quiet_hours(now):
+        return  # Whole tick is a no-op during quiet hours; we'll catch up at 7am.
     due = opportunities_repo.list_due_for_escalation(now=now)
     for opp in due:
         # Re-check seats — race with claims.
@@ -108,10 +119,24 @@ def run_escalation_tick(*, messaging: MessagingProvider | None = None) -> None:
             opportunities_repo.set_next_escalation(opp.id, at=None, tier=opp.current_tier)  # type: ignore[arg-type]
             continue
         if opp.current_tier == OutreachTier.INSIDER:
-            _escalate_to_broader(opp=opp, messaging=m)
+            # Insider tier was either pinged earlier (now time to escalate) or
+            # was deferred from quiet hours (still needs the first ping). The
+            # outreach log tells us which.
+            if _insider_tier_already_pinged(opp.id):  # type: ignore[arg-type]
+                _escalate_to_broader(opp=opp, messaging=m)
+            else:
+                send_initial_outreach(opp=opp, messaging=m)
         else:
             # Already in broader tier — leave it; admin view will surface as stalled.
             opportunities_repo.set_next_escalation(opp.id, at=None, tier=OutreachTier.BROADER)  # type: ignore[arg-type]
+
+
+def _insider_tier_already_pinged(opp_id: str) -> bool:
+    """True if there's at least one insider-tier outreach log entry."""
+    return any(
+        log.tier == OutreachTier.INSIDER
+        for log in opportunities_repo.list_outreach(opp_id)
+    )
 
 
 def _escalate_to_broader(*, opp: OpportunityDoc, messaging: MessagingProvider) -> None:

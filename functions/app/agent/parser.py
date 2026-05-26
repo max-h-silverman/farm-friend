@@ -169,10 +169,13 @@ def _format_user_prompt(
 class ParsedEditDecision(BaseModel):
     """Output schema for the edit/cancel/new-post triage."""
 
-    action: Literal["new_post", "edit", "cancel", "clarify"]
+    action: Literal["new_post", "edit", "cancel", "clarify", "escalate"]
     opp_id: str | None = None
     field_updates: dict = Field(default_factory=dict)
     clarification_question: str = ""
+    # Populated when action=="escalate": one-phrase admin summary + urgency.
+    escalation_reason: str = ""
+    escalation_urgency: Literal["routine", "immediate"] = "routine"
 
 
 def classify_farmer_message(

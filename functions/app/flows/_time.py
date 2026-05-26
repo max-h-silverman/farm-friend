@@ -10,6 +10,31 @@ from zoneinfo import ZoneInfo
 VASHON_TZ = ZoneInfo("America/Los_Angeles")
 
 
+QUIET_HOURS_START = 23  # 11pm
+QUIET_HOURS_END = 7     # 7am
+
+
+def is_quiet_hours(at: datetime | None = None) -> bool:
+    """True if Vashon-local time is in [11pm, 7am)."""
+    if at is None:
+        at = datetime.now(UTC)
+    local = at.astimezone(VASHON_TZ)
+    h = local.hour
+    return h >= QUIET_HOURS_START or h < QUIET_HOURS_END
+
+
+def next_quiet_hours_end(at: datetime | None = None) -> datetime:
+    """The next Vashon-local 7am, as UTC. If `at` is already after 7am today,
+    returns 7am tomorrow."""
+    if at is None:
+        at = datetime.now(UTC)
+    local = at.astimezone(VASHON_TZ)
+    seven = local.replace(hour=QUIET_HOURS_END, minute=0, second=0, microsecond=0)
+    if seven <= local:
+        seven = seven + timedelta(days=1)
+    return seven.astimezone(UTC)
+
+
 def post_event_time_for(
     *,
     is_pickup: bool,

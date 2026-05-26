@@ -132,6 +132,24 @@
         { "fieldPath": "farmer_notified_unfilled", "order": "ASCENDING" },
         { "fieldPath": "starts_at", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "opportunities",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "starts_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "opportunities",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kind", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "deadline_at", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

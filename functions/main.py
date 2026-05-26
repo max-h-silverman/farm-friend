@@ -11,6 +11,7 @@ from firebase_functions import https_fn, options, scheduler_fn
 from firebase_functions.options import MemoryOption
 
 from app.config import ALL_SECRETS
+from app.flows import confirmations as confirmations_flow
 from app.flows import outreach as outreach_flow
 from app.flows import post_event as post_event_flow
 from app.flows import message_dispatch
@@ -79,6 +80,16 @@ def tick_stale_drafts(event: scheduler_fn.ScheduledEvent) -> None:
     secrets=ALL_SECRETS,
     timezone=scheduler_fn.Timezone("America/Los_Angeles"),
 )
+def tick_confirmations(event: scheduler_fn.ScheduledEvent) -> None:
+    """Send pre-event confirmation reminders to volunteers with confirmed claims."""
+    confirmations_flow.run_confirmation_tick()
+
+
+@scheduler_fn.on_schedule(
+    schedule="every 15 minutes",
+    secrets=ALL_SECRETS,
+    timezone=scheduler_fn.Timezone("America/Los_Angeles"),
+)
 def tick_unfilled_at_start(event: scheduler_fn.ScheduledEvent) -> None:
     """Notify farmers of shifts that started while still unfilled. Fires
     once per opportunity."""
@@ -106,6 +117,7 @@ __all__ = [
     "tick_post_event",
     "tick_stale_drafts",
     "tick_unfilled_at_start",
+    "tick_confirmations",
     "approve_pending_user",
     "suspend_user",
     "resolve_flag",

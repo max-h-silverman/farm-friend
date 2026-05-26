@@ -49,6 +49,16 @@ Things that aren't code — the manual steps you need to do once before any of t
    firebase functions:secrets:set ANTHROPIC_API_KEY
    ```
 
+## 3a. Coordinator phone (for immediate escalations)
+
+The LLM can mark an escalation as `immediate` urgency — in which case dispatch texts the coordinator directly so it doesn't sit in the dashboard. Set your phone in `.env.<project>`:
+
+```
+COORDINATOR_PHONE=+1206XXXXXXX
+```
+
+Without this, urgent escalations still flag and reply to the user — they just don't ring through to you. Strongly recommended before pilot.
+
 ## 4. First deploy
 
 ```bash
@@ -69,7 +79,7 @@ After the first deploy:
 
 ## 6. Seed your first farm
 
-Until there's an admin UI for it (deferred to v2), seed your first farm + farmer manually:
+The admin SPA onboards subsequent farmers/volunteers through the `pending_users` → approve flow (texted JOIN, or admin-typed in). But for the very first farmer (so the system has *someone* to text), seed manually in the Firebase Console:
 
 1. In the Firebase Console → Firestore Data, create a `users` doc:
    ```json
@@ -100,8 +110,10 @@ Until there's an admin UI for it (deferred to v2), seed your first farm + farmer
 Before onboarding real farms (target: ~July 2026):
 
 - [ ] Telnyx A2P 10DLC campaign is **approved** (this takes 1–2 weeks; do it first).
+- [ ] `COORDINATOR_PHONE` is set in `.env.<project>` and deployed — without it, urgent escalations don't page you.
 - [ ] vCard is updated with the real number.
-- [ ] You've run through the end-to-end manual test in the v1 plan (post a test shift, claim it, confirm post-event check-in, FLAG a message).
+- [ ] You've run through the end-to-end manual test (post a test shift, claim it, confirm post-event check-in, FLAG a message, send a deliberately-escalating message like "someone hurt their hand" and verify it lands as an immediate-urgency flag + texts your phone).
+- [ ] You've verified the confirmation reminder fires: claim a shift whose `starts_at` is within ~24h, wait for `tick_confirmations` (every 15 min) to send the reminder, then reply CANCEL and confirm seat unwinds + farmer gets notified.
 - [ ] At least one friendly farmer + 3–5 friendly volunteers are onboarded as a soft pilot.
 - [ ] Cost dashboard shows total spend tracking under the $30/month budget.
 

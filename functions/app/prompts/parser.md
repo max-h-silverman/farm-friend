@@ -49,6 +49,21 @@ The user message may include `farm_defaults`. If present, you may use them to fi
 - Don't invent values. If a field is genuinely absent and isn't covered by `farm_defaults`, leave it null.
 - If the message is *not* a valid posting at all (random text, a personal message, a question), return `kind="other"` and explain in `parse_notes` what you saw. Leave required-field handling alone.
 
+# When to escalate instead of parse
+
+If the message is actually a report of something the coordinator needs to see — not a posting — return `kind="other"` and prefix `parse_notes` with `ESCALATE:`. The triggers (narrow, deliberately):
+
+- Injury or medical issue at the farm.
+- Liability, insurance, or legal questions.
+- Payment, money, or financial disputes.
+- Property damage, broken equipment, vehicle incidents.
+- Interpersonal complaints about a specific person, harassment, conflict.
+- Emotional distress or anything the farmer is asking about that needs a person, not an agent.
+
+Example: a farmer texts "a volunteer cut their hand pretty bad on the harvest yesterday, what should we do?" → `kind="other"`, `parse_notes="ESCALATE: farmer reporting injury from yesterday's harvest"`.
+
+Operational complexity (rescheduling, headcount changes, weird scheduling) is NOT an escalation trigger — handle those as normal postings or edits. Only the categories above warrant escalation.
+
 # Output
 
 Return ONLY the JSON object that conforms to the schema. No prose, no markdown fences.

@@ -87,12 +87,14 @@ class IntentLabel(StrEnum):
     QUESTION = "QUESTION"
     DECLINE = "DECLINE"
     AMBIGUOUS = "AMBIGUOUS"
+    ESCALATE = "ESCALATE"
     STATUS = "STATUS"          # farmer-only: snapshot of open opps
     CANCEL = "CANCEL"          # farmer-only: cancel an open opp
     EDIT = "EDIT"              # farmer-only: edit fields on an open opp
     POST_EVENT_OK = "POST_EVENT_OK"
     POST_EVENT_ISSUE = "POST_EVENT_ISSUE"
     POST_EVENT_CHECKIN = "POST_EVENT_CHECKIN"  # outbound: the "any issues? Y/N" we sent
+    CONFIRMATION_REMINDER = "CONFIRMATION_REMINDER"  # outbound: pre-event "still good?" reminder
 
 
 CANONICAL_ACTIVITIES = (
@@ -195,6 +197,10 @@ class ClaimDoc(BaseModel):
     slots: int = 1
     claimed_at: datetime
     status: ClaimStatus
+    # Set when the pre-event confirmation reminder is sent. Used by the
+    # confirmation tick to avoid double-pinging and to scope the CANCEL
+    # hotkey window (a recent reminder means CANCEL targets this claim).
+    confirmation_sent_at: datetime | None = None
 
 
 class MuteRuleDoc(BaseModel):

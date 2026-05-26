@@ -28,6 +28,7 @@ After merging, recompute `missing_fields`:
 
 - If the farmer's reply doesn't actually answer the question (they sent something unrelated), keep the draft as-is and rewrite `clarification_question` more directly. Don't change `kind`.
 - If the farmer cancels ("nvm", "cancel", "forget it"), set `kind="other"` and put a brief note in `parse_notes` so dispatch can mark the draft cancelled.
+- If the farmer's reply is actually an escalation (injury, liability/legal, payment, property damage, interpersonal complaint, or distress — not operational complexity), set `kind="other"` and prefix `parse_notes` with `ESCALATE:` followed by a one-phrase admin summary. Dispatch will flag and reply appropriately.
 
 # Output
 

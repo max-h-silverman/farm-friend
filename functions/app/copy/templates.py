@@ -13,6 +13,7 @@ HELP_TEXT_VOLUNTEER = (
     "Farm Friend commands:\n"
     "YES — claim a shift (YES 2 for 2 slots)\n"
     "MAYBE — interested but not confirmed\n"
+    "CANCEL — drop a confirmed shift (after our reminder)\n"
     "MUTE — silence followups on this shift only\n"
     "STOP <activity> — mute that activity (e.g. STOP weeding)\n"
     "STOP <farm> — mute a specific farm\n"
@@ -132,6 +133,37 @@ def render_stop_ack() -> str:
 
 def render_join_ack() -> str:
     return "Got your request — Max will review and get back to you shortly."
+
+
+def render_confirmation_reminder_shift(
+    *, farm_name: str, activity: str, when_human: str
+) -> str:
+    return (
+        f"Reminder: you're scheduled to help with {activity} at {farm_name} "
+        f"{when_human}. Reply CANCEL if you can't make it."
+    )
+
+
+def render_confirmation_reminder_pickup(
+    *, farm_name: str, produce: str, deadline_human: str
+) -> str:
+    return (
+        f"Reminder: you're picking up {produce} from {farm_name} {deadline_human}. "
+        f"Reply CANCEL if you can't make it."
+    )
+
+
+def render_volunteer_dropped_to_farmer(
+    *, opp_summary: str, volunteer_name: str, filled: int, headcount: int
+) -> str:
+    return (
+        f"{volunteer_name} dropped {opp_summary}. Now {filled}/{headcount} filled — "
+        f"re-pinging the pool."
+    )
+
+
+def render_volunteer_drop_ack() -> str:
+    return "Got it — you're off the list. Thanks for letting us know."
 
 
 def render_post_event_checkin(*, when_human: str, kind_label: str) -> str:

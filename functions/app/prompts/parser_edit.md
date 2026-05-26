@@ -13,10 +13,12 @@ Return JSON matching this shape exactly:
 
 ```
 {
-  "action": "new_post" | "edit" | "cancel" | "clarify",
+  "action": "new_post" | "edit" | "cancel" | "clarify" | "escalate",
   "opp_id": "<the id of the targeted open opp, or null>",
   "field_updates": { ... },
-  "clarification_question": "<question to send back, or empty>"
+  "clarification_question": "<question to send back, or empty>",
+  "escalation_reason": "<one-phrase admin summary, only when action=escalate>",
+  "escalation_urgency": "routine" | "immediate"
 }
 ```
 
@@ -29,6 +31,7 @@ Return JSON matching this shape exactly:
   - Two open opps, farmer says "cancel": "Which one — plum harvest tomorrow or weeding Thursday?"
   - Farmer says "move it later" with no time: "What new start time?"
   - Farmer says "make it more": "More what — people, time, something else?"
+- `action="escalate"` — the message is a report the coordinator needs to handle: injury, liability/legal, payment, property damage, interpersonal complaint, or distress. NOT for operational complexity. Populate `escalation_reason` (one phrase) and `escalation_urgency` (`immediate` for injury/safety/anything time-sensitive; `routine` otherwise). Leave `opp_id` and `field_updates` empty. Dispatch will flag and reply with a contextual handoff.
 
 # Confidence bar
 

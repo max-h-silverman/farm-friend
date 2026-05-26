@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.copy import templates
+from app.flows import _time as _timeutil
 from app.flows._time import format_day_and_range, format_deadline, post_event_time_for
 from app.messaging import MessagingProvider
 from app.messaging._safe_send import safe_send
@@ -302,6 +303,8 @@ def run_unfilled_at_start_tick(messaging: MessagingProvider) -> None:
     from app.repos import farms_repo
 
     now = datetime.now(UTC)
+    if _timeutil.is_quiet_hours(now):
+        return
     for opp in opportunities_repo.list_unfilled_started(now=now):
         if opp.seats_filled >= opp.headcount_needed:
             continue  # filled in the gap between query and processing

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#f6f4ee" />
+  <meta name="theme-color" content="#0e1420" />
   <title>Farm Friend — Admin</title>
   <link rel="stylesheet" href="/styles.css" />
   <!-- Firebase init + app code must load BEFORE Alpine so window.adminApp is
@@ -393,7 +393,7 @@
                   </div>
                   <div x-show="turn.kind === 'outbound'" class="turn outbound">
                     <span x-text="turn.body"></span>
-                    <span class="caption">to <span x-text="turn.to_phone"></span></span>
+                    <span class="caption">to <span x-text="turn.toLabel || turn.to_phone"></span></span>
                   </div>
                   <div x-show="turn.kind === 'silence'" class="empty">
                     <span class="glyph">…</span>

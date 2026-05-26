@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.copy import templates
+from app.flows import _time
 from app.flows._time import format_when
 from app.messaging import MessagingProvider, get_messaging_provider
 from app.messaging._safe_send import safe_send
@@ -32,6 +33,8 @@ from app.repos.models import (
 def run_checkin_tick(*, messaging: MessagingProvider | None = None) -> None:
     m = messaging or get_messaging_provider()
     now = datetime.now(UTC)
+    if _time.is_quiet_hours(now):
+        return  # Post-event checkins wait for morning.
     due = opportunities_repo.list_due_for_post_event(now=now)
     for opp in due:
         _send_checkin_for(opp=opp, messaging=m)

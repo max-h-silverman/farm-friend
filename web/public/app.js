@@ -423,7 +423,11 @@ window.adminApp = function adminApp() {
           thread.push({ kind: "silence" });
         } else {
           for (const m of outbound) {
-            thread.push({ kind: "outbound", body: m.body, to_phone: m.to_phone });
+            const recipient = this.users.find((u) => u.phone === m.to_phone);
+            const toLabel = recipient
+              ? `${recipient.name} (${m.to_phone})`
+              : m.to_phone;
+            thread.push({ kind: "outbound", body: m.body, to_phone: m.to_phone, toLabel });
           }
         }
       } catch (e) {

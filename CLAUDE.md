@@ -2,9 +2,11 @@
 
 SMS-first agentic system for coordinating volunteer help on Vashon Island farms.
 
-## Status (as of 2026-05-25)
+## Status (as of 2026-05-26)
 
 **v1 codebase is built and deployed.** All Firebase functions, Firestore data model, admin SPA, and SMS pipeline are live in the `farm-friend-vashon` project. End-to-end smoke test confirmed: an inbound farmer SMS gets parsed by Claude Haiku, persists as an `Opportunity`, and the admin SPA picks it up in real time.
+
+**Recent hardening pass (2026-05-26)** added: transactional claim resolution, inbound webhook idempotency, post-event reschedule on edits, intent-label-based post-event detection, orphan-YES flag-and-reply, **pre-event confirmation reminders + volunteer CANCEL flow**, **quiet hours (11pm–7am Vashon)**, **first-class `ESCALATE` intent with `routine`/`immediate` urgency** that texts the coordinator on urgent triggers. Admin SPA repainted as a dark-mode control panel. See "Next steps" → "Recent fixes" for the full list and what's still deferred.
 
 **Blocked on Telnyx A2P 10DLC campaign approval** (submitted 2026-05-25; brand verified within hours, campaign in carrier review; expected to clear within a few days based on the preview showing no MNO Review required).
 
@@ -16,7 +18,7 @@ Farms (mostly small, VIGA-affiliated) need volunteer help — gleaning, weeding,
 
 ## Roles
 
-- **Coordinator (Max)** — sole admin. Approves new users into the pool; monitors flagged messages and system health. Does *not* participate in every event cycle.
+- **Coordinator (Max)** — sole admin. Approves new users into the pool; monitors flagged messages and system health; receives immediate SMS for urgent escalations (injury, safety, payment, distress). Does *not* participate in every event cycle.
 - **Farmer** — interacts only via SMS. Posts shifts and surplus pickups in free-form text, nominates "insiders" (trusted volunteers) by texting in their phone numbers, answers a post-event check-in.
 - **Volunteer** — interacts only via SMS. Claims opportunities via `YES`; uses hotkeys to mute/opt-out.
 
@@ -34,13 +36,18 @@ Farmers can suggest new activities (texted as part of a post); the agent flags u
 - **The system runs autonomously; the coordinator moderates.** Default to letting the agent act and surfacing the result to the admin view, rather than blocking on human approval. The one manual gate is admitting new users.
 - **SMS is the universal channel, but the core is channel-agnostic.** Everything routes through a `MessagingProvider` abstraction. Don't bake Telnyx-specific assumptions into business logic.
 - **Tiered outreach, not blast.** Farmers nominate insiders; insiders ping first; broader pool only if seats stay unfilled. Keeps message volume (and cost) low and quality high.
-- **The agent does the nagging.** Post-event check-ins, escalations, follow-ups — the system remembers so humans don't have to.
+- **The agent does the nagging.** Post-event check-ins, escalations, follow-ups, and pre-event confirmation reminders — the system remembers so humans don't have to.
+- **One pre-event reminder per commitment, with an easy out.** Confirmed volunteers get one "you're scheduled to help… reply CANCEL if you can't make it" SMS in the 24h before a shift (3h before a pickup). Silence = still in. A CANCEL drops the seat, re-fires outreach for the gap, and notifies the farmer. Designed to catch the most common failure mode (people forget plans) without nagging.
+- **Quiet hours: 11pm–7am Vashon local.** All scheduled/broadcast outbound (initial outreach, escalation, post-event checkin, confirmation reminder, unfilled-at-start) is deferred during this window; the next scheduled tick after 7am picks it up. Direct one-to-one replies and notifications to explicit user actions (claim acks, edit/cancel fan-outs, volunteer-drop notifications) send anytime — deferring an acknowledgment of something the user just did is worse than slightly off-hours timing.
 - **FLAG is sacred.** Any user can text `FLAG` to report a bad system reply. Stops auto-replies on that thread and surfaces to admin immediately. The trust safety valve.
+- **The LLM handles operational complexity; it escalates only on narrow, well-defined triggers.** Scheduling conflicts, swap requests, plan changes, and weird postings are *not* escalations — the system has flows and the model has latitude to use them. The model escalates (intent=`ESCALATE`) only for: injury/medical, liability/insurance/legal, payment/money, property damage, interpersonal disputes/harassment, emotional distress, or threats/safety. The model also chooses urgency: `routine` (flag for the next admin review) or `immediate` (also text the coordinator's phone right now). Overcautious escalation is a real failure mode — operational complexity is the system's job, not Max's.
 - **Deterministic before LLM.** Hotkeys are parsed by regex first. The LLM only runs on messages that aren't a hotkey. Cheaper, faster, and more reliable for the common path.
 
 ## Hotkey vocabulary (the SMS API)
 
 - `YES` / `YES N` — claim an opportunity (optionally N slots)
+- `MAYBE` — express soft interest, no seat held
+- `CANCEL` — context-sensitive. For volunteers: drops a confirmed claim when sent in response to a confirmation reminder. For farmers: cancels an open post.
 - `STOP {activity}` — mute an activity type
 - `STOP {farm name}` — mute a specific farm
 - `UNAVAILABLE {window}` — silence everything during a window
@@ -48,6 +55,7 @@ Farmers can suggest new activities (texted as part of a post); the agent flags u
 - `FLAG` — report wrong/confusing system reply
 - `JOIN` — request to join (admin-approved)
 - `HELP` — list commands
+- `STATUS` — farmer-only: snapshot of open posts and how they're filling
 - `STOP` — full unsubscribe (TCPA)
 - `INSIDER {phone} {name}` — farmer-only: nominate a trusted volunteer
 
@@ -70,17 +78,24 @@ Farmers can suggest new activities (texted as part of a post); the agent flags u
 - **Functions in Python, 2nd gen.** Python is GA on Firebase Functions; keeps agent code + business logic in one language. Defer to `firebase-functions` Python SDK patterns.
 - **Repository layer required.** All Firestore reads/writes go through repository functions in `functions/app/repos/` (e.g., `users_repo.get_by_phone`). Business logic does not import the Firestore SDK directly. This isolates the data store so migration is a single-layer change.
 - **Collections** (top-level, with subcollections where relational):
-  - `users` (phone-indexed)
-  - `farms` (owned by a farmer user)
+  - `users` (phone-indexed; includes onboarding-captured availability)
+  - `farms` (owned by a farmer user; includes onboarding-captured defaults like `typical_start_hour`, `typical_shift_duration_min`)
   - `farms/{farmId}/insiders` (subcollection: volunteer_id, added_at)
-  - `opportunities` (kind: shift | pickup; status: draft | open | filling | full | completed | cancelled | expired)
+  - `opportunities` (kind: shift | pickup; status: draft | open | filling | full | completed | cancelled | expired; tracks `post_event_checkin_at`, `next_escalation_at`, once-per-opp farmer notification flags)
   - `opportunities/{oppId}/outreach` (subcollection: per-tier ping log)
-  - `opportunities/{oppId}/claims` (subcollection)
+  - `opportunities/{oppId}/claims` (subcollection; tracks `status` ∈ confirmed|interested|waitlist|dropped, plus `confirmation_sent_at` for the pre-event reminder idempotency marker)
   - `mute_rules` (volunteer_id, dimension, value)
-  - `messages` (direction, body, intent, confidence, user_id, opportunity_id) — TTL purge after 90 days unless flagged
-  - `flags` (message_id, flagged_by, reason, resolved_at)
-  - `destinations` (food banks, community fridges)
+  - `messages` (direction, body, `intent_label`, confidence, user_id, opportunity_id, provider_msg_id) — TTL purge after 90 days unless flagged. `intent_label` on *outbound* messages is load-bearing: `POST_EVENT_CHECKIN` and `CONFIRMATION_REMINDER` let inbound dispatch route Y/N and CANCEL replies correctly without substring-matching the body.
+  - `flags` (message_id, flagged_by, reason, resolved_at). An open flag for a user pauses LLM auto-replies on their thread.
+  - `destinations` (food banks, community fridges) — declared but currently unused; see "Known issues" below.
   - `pending_users` (JOIN requests + farmer nominations awaiting admin approval)
+
+- **Scheduled functions** (all in `main.py`, all Cloud Scheduler-driven). Each tick gates on quiet hours at its entry point — if it's 11pm–7am Vashon, the tick no-ops and the next run catches up.
+  - `tick_outreach` (every 5 min) — escalates opps whose insider tier has timed out; also re-fires deferred initial outreach when an opp's insider tier was never pinged (quiet-hours deferral).
+  - `tick_confirmations` (every 15 min) — sends the one-shot pre-event reminder to each CONFIRMED claim within 24h (shifts) or 3h (pickups) of the event.
+  - `tick_post_event` (every 15 min) — sends the "any issues? Y/N" check-in to the farmer the morning after.
+  - `tick_unfilled_at_start` (every 15 min) — notifies the farmer once if a shift starts unfilled.
+  - `tick_stale_drafts` (every 30 min) — flags drafts >2h old that never completed clarification.
 - **Indexes**: define in `firestore.indexes.json` and check in. Don't rely on auto-creation in dev.
 - **Security rules**: `firestore.rules` denies all client access by default. Admin SPA reads via Auth; Functions write with service-account creds. Public clients cannot read or write anything.
 - **Don't use Firestore real-time listeners on the server side.** Functions read on demand; real-time is for the admin SPA only.
@@ -101,6 +116,7 @@ The system is architected so the LLM can be swapped between Anthropic and any Op
 - **Pilot scale.** 2–5 farms, 20–50 volunteers in v1. Don't optimize for scale we don't have.
 - **Privacy.** Firestore is encrypted at rest by default. Minimal PII; 90-day TTL on `messages` (Firestore TTL field). Don't log raw PII in observability tools.
 - **TCPA compliance.** `STOP` must immediately unsubscribe and prevent further outbound messages to that number. `HELP` must return a description of the service.
+- **Quiet hours.** 11pm–7am Vashon local. Gated at the entry point of each scheduled tick (so the tick simply no-ops and the next run catches up) and as an optional flag on `safe_send` for any explicit broadcast paths. Helpers live in `app/flows/_time.py`: `is_quiet_hours()`, `next_quiet_hours_end()`. Quiet hours do NOT gate ESCALATE handoffs to the coordinator — an injury report at 2am needs to land.
 - **Cold starts.** Firebase Functions 2nd gen has cold starts. Set `min_instances=1` on the SMS webhook function so Telnyx never times out. Other functions can scale to zero.
 
 ## Don't
@@ -207,4 +223,7 @@ These are baked into the design — changing any of them is a real refactor, not
 - Opportunity state machine: `draft → open → filling → full → completed` (or `cancelled`/`expired`). Status flips happen even when outbound delivery fails — outreach is best-effort.
 - **Required-field rules for opportunities live in code (`agent/parser.py: REQUIRED_SHIFT_FIELDS / REQUIRED_PICKUP_FIELDS`), not just in the prompt.** `compute_missing_fields()` is the authoritative server-side check; the LLM's own `missing_fields` output is overwritten by it after parsing/merging. Changing what's required for a shift or pickup means updating both constants and the parser prompts.
 - **Clarification flow re-uses the `draft` status.** A draft opportunity within ~2h of creation is the dispatch path's signal to route an inbound farmer message to the merge parser instead of treating it as a new post. `tick_stale_drafts` (every 30 min) flags drafts older than 2h that never completed — admin handles abandoned ones manually.
+- **Confirmation reminders are one-shot per claim, tracked on the claim doc.** `ClaimDoc.confirmation_sent_at` is the idempotency marker. The lead-time constants (`SHIFT_LEAD_TIME=24h`, `PICKUP_LEAD_TIME=3h`) live in `flows/confirmations.py`. A volunteer CANCEL only routes to a drop when the user's last outbound on the opp is a `CONFIRMATION_REMINDER` — outside that context, CANCEL retains its farmer-only meaning.
+- **Volunteer drop unwinds atomically.** `opportunities_repo.drop_confirmed_claim_in_transaction` decrements `seats_filled`, flips FULL→FILLING, and marks the claim DROPPED in one txn. The flow then resets `next_escalation_at` to `now` so the existing `tick_outreach` re-pings the pool (skipping anyone already pinged/claimed/muted). Farmer is notified out-of-band; that send is best-effort.
+- **ESCALATE is its own first-class intent, not a confidence fallback.** Classifier output schema includes `intent="ESCALATE"`, `escalation_reason`, and `escalation_urgency` (`routine` | `immediate`). The parser/merge prompts emit the same escalation via `kind="other"` with a `parse_notes` string prefixed `ESCALATE:` and dispatch keyword-sniffs the reason for urgency (see `_looks_immediate` in `message_dispatch.py`). The parser_edit prompt has its own `action="escalate"` branch. All three paths land in `_handle_escalation` which: (1) creates a FLAG so further auto-replies on the thread pause until admin clears, (2) sends a contextual reply with a coordinator handoff line, (3) if `immediate`, texts `settings.coordinator_phone`. The coordinator phone is read from `COORDINATOR_PHONE` env var — without it, urgent escalations still flag + reply but do not page Max.
 

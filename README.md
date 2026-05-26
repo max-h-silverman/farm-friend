@@ -27,13 +27,14 @@ farm-friend/
 │   │   ├── messaging/              # MessagingProvider abstraction + Telnyx + fake; safe_send wrapper
 │   │   ├── repos/                  # Firestore data access (the ONLY place that imports firestore directly)
 │   │   ├── agent/                  # hotkeys (deterministic), opportunity parser, reply classifier, ambiguous handler
-│   │   ├── flows/                  # business logic (message_dispatch, outreach, claim, post_event)
+│   │   ├── flows/                  # business logic (message_dispatch, outreach, claim, post_event, confirmations, farmer_ops)
 │   │   ├── prompts/                # LLM system prompts as versioned text files
 │   │   ├── copy/                   # SMS-facing copy templates
 │   │   └── admin/                  # callable functions for the admin SPA
 │   ├── scripts/
 │   │   ├── set_admin.py            # one-time: grant admin claim to a Firebase Auth user
 │   │   ├── seed_smoke_test.py      # seed a test farmer/farm/volunteer/insider into Firestore
+│   │   ├── seed_test_data.py      # seed minimal test data for exercising the admin SPA
 │   │   └── fire_inbound_sms.py     # POST a Telnyx-shaped payload at the deployed webhook (smoke testing)
 │   └── tests/                      # pytest; pure-logic unit tests (no Firebase needed)
 └── web/                            # Admin SPA (Alpine.js + Firebase JS SDK on Firebase Hosting)
@@ -74,7 +75,7 @@ cd functions
 venv/bin/python -m pytest tests/
 ```
 
-Tests are pure-logic only (hotkey parser, copy templates, LLM client schema validation, time formatting) — no Firebase touched. ~48 tests, <2 seconds.
+Tests are pure-logic only (hotkey parser, copy templates, LLM client schema validation, time formatting) — no Firebase touched. 86 tests, <1 second.
 
 ### Run locally with emulators
 

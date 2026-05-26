@@ -187,6 +187,7 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
             match=match,
             sender=sender,
             target_opp=target_opp,
+            last_outbound=last_outbound,
             inbound_doc_id=inbound_doc.id or "",
             provider=provider,
         )
@@ -285,6 +286,7 @@ def _handle_hotkey(
     match: hotkeys.HotkeyMatch,
     sender: UserDoc,
     target_opp: OpportunityDoc | None,
+    last_outbound: MessageDoc | None,
     inbound_doc_id: str,
     provider,
 ) -> None:
@@ -481,11 +483,30 @@ def _handle_hotkey(
         return
 
     if intent == IntentLabel.CANCEL:
+        # Volunteer-on-reminder path: CANCEL after a confirmation reminder drops
+        # the volunteer's claim on that opp. The reminder anchors target_opp
+        # via opportunity_id on the outbound MessageDoc.
+        is_volunteer_drop = (
+            sender.role in (UserRole.VOLUNTEER, UserRole.BOTH)
+            and target_opp is not None
+            and last_outbound is not None
+            and last_outbound.intent_label == IntentLabel.CONFIRMATION_REMINDER
+        )
+        if is_volunteer_drop:
+            reply = claim_flow.handle_volunteer_drop(
+                messaging=provider,
+                opportunity=target_opp,
+                volunteer=sender,
+            )
+            _reply_and_log(
+                provider=provider, to=sender, body=reply, opp=target_opp, intent=intent
+            )
+            return
         if sender.role not in (UserRole.FARMER, UserRole.BOTH):
             _reply_and_log(
                 provider=provider,
                 to=sender,
-                body="CANCEL is for farmers. Reply STOP to unsubscribe, MUTE to silence this thread.",
+                body="CANCEL is for farmers, or for volunteers replying to a shift reminder. Reply STOP to unsubscribe, MUTE to silence this thread.",
                 opp=target_opp,
                 intent=intent,
             )
@@ -595,6 +616,17 @@ def _handle_farmer_message_with_open_opps(
         open_opps=opp_dicts,
         now_local=now_local,
     )
+
+    if decision.action == "escalate":
+        _handle_escalation(
+            sender=sender,
+            inbound_doc_id=inbound_doc_id,
+            provider=provider,
+            reason=decision.escalation_reason,
+            urgency=decision.escalation_urgency,
+            reply_body=None,
+        )
+        return
 
     if decision.action == "clarify":
         safe_send(
@@ -736,7 +768,20 @@ def _handle_farmer_post(
         farm_defaults=farm_defaults,
     )
     if parsed.kind == "other":
-        # Not a posting — flag for admin.
+        # Two flavors: the parser thinks this is something the coordinator
+        # needs to see (prefixed ESCALATE:), or it's just not a posting.
+        notes = (parsed.parse_notes or "").strip()
+        if notes.startswith("ESCALATE:"):
+            reason = notes[len("ESCALATE:"):].strip()
+            _handle_escalation(
+                sender=sender,
+                inbound_doc_id=inbound_doc_id,
+                provider=provider,
+                reason=reason,
+                urgency="immediate" if _looks_immediate(reason) else "routine",
+                reply_body=None,  # use the fallback handoff template
+            )
+            return
         flags_repo.create(
             FlagDoc(
                 message_id=inbound_doc_id,
@@ -809,6 +854,20 @@ def _handle_clarification_reply(
     )
 
     if merged.kind == "other":
+        notes = (merged.parse_notes or "").strip()
+        if notes.startswith("ESCALATE:"):
+            reason = notes[len("ESCALATE:"):].strip()
+            # Leave the draft as-is; the admin needs to see the full thread
+            # and decide what to do with the in-progress opp.
+            _handle_escalation(
+                sender=sender,
+                inbound_doc_id=inbound_doc_id,
+                provider=provider,
+                reason=reason,
+                urgency="immediate" if _looks_immediate(reason) else "routine",
+                reply_body=None,
+            )
+            return
         # Farmer cancelled the post.
         assert draft.id is not None
         opportunities_repo.update_status(draft.id, OpportunityStatus.CANCELLED)
@@ -944,6 +1003,20 @@ def _handle_llm_reply(
 
     threshold = settings.classifier_confidence_threshold
 
+    # ESCALATE — always act, regardless of confidence. The model's confidence
+    # on an escalation reflects "should we escalate" not "should we auto-reply".
+    if classification.intent == "ESCALATE":
+        _handle_escalation(
+            sender=sender,
+            inbound_doc_id=inbound_doc_id,
+            provider=provider,
+            reason=classification.escalation_reason or classification.rationale,
+            urgency=classification.escalation_urgency,
+            reply_body=classification.draft_reply,
+            target_opp=target_opp,
+        )
+        return
+
     # High-confidence soft CLAIM — route to claim handler.
     if classification.intent == "CLAIM" and target_opp and classification.confidence >= threshold:
         farm = farms_repo.get_by_id(target_opp.farm_id)
@@ -1026,6 +1099,45 @@ def _handle_llm_reply(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _handle_escalation(
+    *,
+    sender: UserDoc,
+    inbound_doc_id: str,
+    provider,
+    reason: str,
+    urgency: str,
+    reply_body: str | None,
+    target_opp: OpportunityDoc | None = None,
+) -> None:
+    """Common ESCALATE side effects: flag (which auto-mutes the thread),
+    send the contextual handoff reply to the user, and optionally text the
+    coordinator immediately for urgent cases.
+    """
+    settings = load_settings()
+    flags_repo.create(
+        FlagDoc(
+            message_id=inbound_doc_id,
+            flagged_by_user_id=sender.id,
+            reason=f"ESCALATE ({urgency}): {reason or 'no reason given'}",
+            created_at=datetime.now(UTC),
+        )
+    )
+    body = reply_body or templates.render_fallback_ambiguous()
+    _reply_and_log(
+        provider=provider,
+        to=sender,
+        body=body,
+        opp=target_opp,
+        intent=IntentLabel.ESCALATE,
+    )
+    if urgency == "immediate" and settings.coordinator_phone:
+        sender_label = sender.name or sender.phone
+        admin_body = (
+            f"[Farm Friend ESCALATE] {sender_label} ({sender.phone}): {reason}"
+        )
+        safe_send(provider, to_phone=settings.coordinator_phone, body=admin_body)
+
+
 def _handle_orphan_claim_or_maybe(
     *,
     sender: UserDoc,
@@ -1102,6 +1214,21 @@ def _is_post_event_question(last_outbound: MessageDoc | None, opp: OpportunityDo
     if not opp.post_event_checkin_sent:
         return False
     return last_outbound.intent_label == IntentLabel.POST_EVENT_CHECKIN
+
+
+_IMMEDIATE_KEYWORDS = (
+    "injur", "hurt", "bleed", "cut ", "fell", "fall", "accident", "911",
+    "emergency", "ambulance", "hospital", "unsafe", "threat", "harass",
+    "crisis", "urgent",
+)
+
+
+def _looks_immediate(text: str) -> bool:
+    """Heuristic: does this escalation reason warrant texting the coordinator
+    immediately vs. waiting for their next dashboard review? Used when the
+    upstream classifier didn't emit an explicit urgency."""
+    t = (text or "").lower()
+    return any(k in t for k in _IMMEDIATE_KEYWORDS)
 
 
 def _looks_like_posting(text: str) -> bool:
