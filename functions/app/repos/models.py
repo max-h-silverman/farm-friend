@@ -125,6 +125,13 @@ CANONICAL_ACTIVITIES = (
     "livestock",
     "infrastructure",
     "processing",
+    # Side-asymmetric slugs — used to express "no activity constraint" in two
+    # distinct ways. NOT interchangeable: the farmer-side slug describes the
+    # opp ("type TBD until day-of"); the volunteer-side slug describes the
+    # volunteer's openness ("match me to anything"). The agent prompt enforces
+    # which side may use which.
+    "tbd",       # farmer-side: posting where work-type is uncertain
+    "flexible",  # volunteer-side: offer/preference open to any activity
 )
 
 

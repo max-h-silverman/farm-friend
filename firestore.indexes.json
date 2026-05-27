@@ -57,6 +57,16 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "direction", "order": "ASCENDING" },
+        { "fieldPath": "intent_label", "order": "ASCENDING" },
+        { "fieldPath": "user_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "direction", "order": "ASCENDING" },
         { "fieldPath": "created_at", "order": "ASCENDING" }
       ]
     },

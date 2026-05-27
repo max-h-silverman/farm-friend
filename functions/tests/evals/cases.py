@@ -339,6 +339,42 @@ CASES.append(EvalCase(
 ))
 
 CASES.append(EvalCase(
+    id="reg.farmer.post.crop_name_no_activity",
+    category="REGRESSION",
+    description=(
+        "Farmer posts with a crop name but no activity word ('need tomatoes "
+        "two people Friday 9am'). 'Tomatoes' could mean harvest, weeding, "
+        "transplanting, or surplus pickup — the agent must NOT infer 'harvest'. "
+        "Should clarify what kind of work."
+    ),
+    world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="need tomatoes two people friday 9am",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(mode="clarify"),
+))
+
+CASES.append(EvalCase(
+    id="reg.farmer.post.tbd_explicit",
+    category="REGRESSION",
+    description=(
+        "Farmer explicitly says they don't know the activity yet ('not sure "
+        "what we'll do — just need extra hands'). Should confirm with "
+        "activity_tags=['tbd'] rather than clarifying or auto-picking a slug."
+    ),
+    world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="not sure what we'll do monday but need 2 extra hands 9am-12",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(
+        mode="confirm", action_name="create_opportunity",
+        payload_must_include={
+            "kind": "shift",
+            "headcount_needed": 2,
+            "activity_tags": ["tbd"],
+        },
+    ),
+))
+
+CASES.append(EvalCase(
     id="reg.farmer.clarification_completes_draft",
     category="REGRESSION",
     description=(
@@ -562,6 +598,39 @@ CASES.append(EvalCase(
     inbound_text="can I help with tilling this weekend?",
     inbound_from_user_id="u_vol_a",
     expected=ExpectedOutput(mode="confirm", action_name="record_offer"),
+))
+
+CASES.append(EvalCase(
+    id="new.vol.offer.flexible_phys_work",
+    category="NEW_INTENT",
+    description=(
+        "Volunteer offers themselves for any activity within a specific window "
+        "('i'd love to get in some physical work this weekend, some morning'). "
+        "Has day-range + time-window + explicit openness — clears the offer "
+        "floor. Should confirm record_offer with activity_tags=['flexible']."
+    ),
+    world=World(users=[VOL_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="i'd love to get in some physical work this weekend, some morning",
+    inbound_from_user_id="u_vol_a",
+    expected=ExpectedOutput(
+        mode="confirm", action_name="record_offer",
+        payload_must_include={"activity_tags": ["flexible"]},
+    ),
+))
+
+CASES.append(EvalCase(
+    id="new.vol.offer.vague_crop_only",
+    category="NEW_INTENT",
+    description=(
+        "Volunteer says 'help with tomatoes this week' — crop name (not an "
+        "activity) + week-broad window. Below the offer floor: no specific "
+        "day, no time, no real activity signal. Should clarify, not silently "
+        "record a useless offer."
+    ),
+    world=World(users=[VOL_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="help with tomatoes this week",
+    inbound_from_user_id="u_vol_a",
+    expected=ExpectedOutput(mode="clarify"),
 ))
 
 CASES.append(EvalCase(

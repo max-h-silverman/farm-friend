@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 # Required-field rules. The unified agent prompt also lists these, but
 # dispatch re-checks here — never trust the agent to set missing_fields
 # correctly.
-REQUIRED_SHIFT_FIELDS = ("starts_at", "headcount_needed")
+REQUIRED_SHIFT_FIELDS = ("starts_at", "headcount_needed", "activity_tags")
 REQUIRED_PICKUP_FIELDS = ("deadline_at", "produce_description", "destination")
 
 
@@ -69,7 +69,16 @@ def compute_missing_fields(parsed: ParsedOpportunity) -> list[str]:
     push an opp to OPEN with missing required fields.
     """
     if parsed.kind == "shift":
-        return [f for f in REQUIRED_SHIFT_FIELDS if getattr(parsed, f) in (None, "", 0)]
+        missing: list[str] = []
+        for f in REQUIRED_SHIFT_FIELDS:
+            value = getattr(parsed, f)
+            # Treat None/empty-string/0 as missing, and explicitly catch the
+            # empty-list case for list-typed required fields (activity_tags).
+            if value in (None, "", 0):
+                missing.append(f)
+            elif isinstance(value, list) and len(value) == 0:
+                missing.append(f)
+        return missing
     if parsed.kind == "pickup":
         return [f for f in REQUIRED_PICKUP_FIELDS if getattr(parsed, f) in (None, "")]
     return []

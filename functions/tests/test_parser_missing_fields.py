@@ -26,13 +26,43 @@ def test_shift_missing_both_starts_and_headcount():
 
 
 def test_shift_missing_only_headcount():
-    parsed = ParsedOpportunity(kind="shift", starts_at="2026-06-01T09:00:00-07:00")
+    parsed = ParsedOpportunity(
+        kind="shift",
+        starts_at="2026-06-01T09:00:00-07:00",
+        activity_tags=["harvest"],
+    )
     assert compute_missing_fields(parsed) == ["headcount_needed"]
 
 
 def test_shift_missing_only_starts():
-    parsed = ParsedOpportunity(kind="shift", headcount_needed=5)
+    parsed = ParsedOpportunity(
+        kind="shift", headcount_needed=5, activity_tags=["harvest"],
+    )
     assert compute_missing_fields(parsed) == ["starts_at"]
+
+
+def test_shift_missing_only_activity():
+    """activity_tags is required — empty list counts as missing, even though
+    the model defaults it to []. The farmer must either name the work or
+    explicitly elect `tbd`."""
+    parsed = ParsedOpportunity(
+        kind="shift",
+        starts_at="2026-06-01T09:00:00-07:00",
+        headcount_needed=5,
+    )
+    assert compute_missing_fields(parsed) == ["activity_tags"]
+
+
+def test_shift_tbd_satisfies_activity_requirement():
+    """`tbd` is a canonical farmer-side slug for "work-type intentionally
+    open". A shift with activity_tags=['tbd'] is fully specified."""
+    parsed = ParsedOpportunity(
+        kind="shift",
+        starts_at="2026-06-01T09:00:00-07:00",
+        headcount_needed=2,
+        activity_tags=["tbd"],
+    )
+    assert compute_missing_fields(parsed) == []
 
 
 def test_shift_complete_returns_empty():
@@ -40,6 +70,7 @@ def test_shift_complete_returns_empty():
         kind="shift",
         starts_at="2026-06-01T09:00:00-07:00",
         headcount_needed=5,
+        activity_tags=["harvest"],
     )
     assert compute_missing_fields(parsed) == []
 

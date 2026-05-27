@@ -823,6 +823,26 @@ def _(c): return _confirm(
 @stub_for("reg.farmer.post.missing_time")
 def _(c): return _clarify("What time would you like to start, and how long?")
 
+@stub_for("reg.farmer.post.crop_name_no_activity")
+def _(c): return _clarify(
+    "What kind of work — harvest, weeding, transplanting, or something else?"
+)
+
+@stub_for("reg.farmer.post.tbd_explicit")
+def _(c): return _confirm(
+    "create_opportunity",
+    {"parsed": {
+        "kind": "shift",
+        "starts_at": "2026-06-08T16:00:00+00:00",
+        "duration_min": 180,
+        "headcount_needed": 2,
+        "activity_tags": ["tbd"],
+        "missing_fields": [],
+    }},
+    token="POSTOK",
+    text="Post 2 volunteers Monday 9am-12, work-type TBD (you'll decide on the day)? Reply POSTOK.",
+)
+
 @stub_for("reg.farmer.clarification_completes_draft")
 def _(c): return _confirm(
     "update_draft_opportunity",
@@ -917,6 +937,23 @@ def _(c): return _confirm(
      "note": "wants to help with tilling this weekend"},
     token="OFFER",
     text="Recording your tilling offer for the weekend. Reply OFFER to record.",
+)
+
+@stub_for("new.vol.offer.flexible_phys_work")
+def _(c): return _confirm(
+    "record_offer",
+    {"activity_tags": ["flexible"],
+     "earliest_at": "2026-06-06T07:00:00-07:00",
+     "latest_at": "2026-06-07T12:00:00-07:00",
+     "note": "some physical work this weekend, some morning"},
+    token="OFFER",
+    text="Recording you as available for any work this weekend morning. Reply OFFER to confirm, STOP to opt out.",
+)
+
+@stub_for("new.vol.offer.vague_crop_only")
+def _(c): return _clarify(
+    "Happy to help connect you — what kind of work are you up for "
+    "(planting, harvest, weeding, etc.), and is there a particular day this week?"
 )
 
 @stub_for("new.vol.availability.add_day")

@@ -28,7 +28,12 @@ Farms (mostly small, VIGA-affiliated) need volunteer help — gleaning, weeding,
 
 Two distinct posting types share users, insiders, mute rules, and the agent layer but have their own shapes:
 
-- **Volunteer Shift** — timed, headcount-bounded work at the farm with an `activity` from the canonical list: `harvest`, `gleaning`, `weeding`, `planting`, `transplanting`, `livestock`, `infrastructure`, `processing`. Harvest and gleaning are distinct (harvest = main crop, may need technique; gleaning = leftovers, usually for food bank).
+- **Volunteer Shift** — timed, headcount-bounded work at the farm with an `activity` from the canonical list:
+  - **Work-type slugs** (used on both farmer and volunteer sides): `harvest`, `gleaning`, `weeding`, `planting`, `transplanting`, `livestock`, `infrastructure`, `processing`. Harvest and gleaning are distinct (harvest = main crop, may need technique; gleaning = leftovers, usually for food bank).
+  - **Side-asymmetric slugs** (not interchangeable):
+    - `tbd` — **farmer-side only.** Used when the farmer explicitly says they don't yet know what the work will be ("not sure what we'll do — just need extra hands"). Means "work type is intentionally open; whoever shows up will do whatever needs doing." Outreach copy renders this as "general farm work — TBD" so volunteers know what they're signing up for.
+    - `flexible` — **volunteer-side only.** Used on offers when the volunteer signals openness to any activity ("I'm open to anything", "any physical work"). Matching: a `flexible` offer matches any opp; a `tbd` opp matches any offer. The agent prompt forbids cross-stream use (no `tbd` on offers, no `flexible` on opps).
+  - **`activity_tags` is REQUIRED for shifts** (`parser.py:REQUIRED_SHIFT_FIELDS`). Empty list counts as missing. The agent must either resolve to a canonical slug from explicit signal, or recognize explicit `tbd`/`flexible` framing, or clarify — it must never infer activity from a crop name ("tomatoes" alone is not enough).
 - **Surplus Pickup** — single-claim race for already-set-aside produce that needs to be picked up and taken to a destination (food bank, community fridge, mutual aid). Faster outreach pacing (perishable). Often needs a vehicle.
 
 Farmers can suggest new activities (texted as part of a post); the agent flags unknown activities for admin approval into the canonical list. Mute rules act on activity slugs directly (`STOP harvest` is distinct from `STOP gleaning`).
@@ -134,6 +139,66 @@ Confirmation tokens (drafted by the unified agent per action; not a fixed vocabu
 - **Indexes**: define in `firestore.indexes.json` and check in. Don't rely on auto-creation in dev.
 - **Security rules**: `firestore.rules` denies all client access by default. Admin SPA reads via Auth; Functions write with service-account creds. Public clients cannot read or write anything.
 - **Don't use Firestore real-time listeners on the server side.** Functions read on demand; real-time is for the admin SPA only.
+
+## How the system works end-to-end
+
+This section is the map. If you're trying to find where a behavior lives, start here. Specific invariants are in "Architecture invariants" at the bottom of the file.
+
+### Inbound flow (one SMS arrives)
+
+The whole inbound pipeline lives in `app/flows/message_dispatch.py:_dispatch`. The order matters — earlier steps short-circuit later ones.
+
+1. **Telnyx webhook** (`inbound_sms` HTTP function) → signature verification → JSON parse → `_dispatch`.
+2. **Idempotency**: if `provider_msg_id` already exists in `messages`, return silently (handles Telnyx retries).
+3. **Sender lookup** by phone. Unknown phone → `_handle_unknown_sender` → creates a `pending_users` doc for admin review, no auto-reply.
+4. **UNSUBSCRIBED gate**: if `sender.status == UNSUBSCRIBED`, persist inbound for audit but do not reply.
+5. **Persist inbound** as a `messages` doc (intent label filled in later).
+6. **Deterministic hotkey parse** (`app/agent/hotkeys.parse`) — runs BEFORE any LLM call. Matches: `STOP`/`UNSUBSCRIBE`/`END`/`QUIT`/`CANCEL` (context-sensitive), `HELP`/`INFO`, `JOIN`/`START`, `YES`/`YES N`, `MAYBE`, `MUTE`, `STOP <activity|farm>`, `UNAVAILABLE <window>`, `STATUS`, `INSIDER <phone>`, `FLAG`, `UNDO`, `PAUSE`/`RESUME`, plus post-event Y/N when the prior outbound was a `POST_EVENT_CHECKIN`. Match → `_handle_hotkey` → return. **Compliance-required keywords never reach the LLM.**
+7. **FLAG gate**: if `sender.id` has any open flag, return silently. Auto-replies pause until admin resolves the flag.
+8. **PRE-AGENT step 1 — token match**: if the most-recent outbound to this user is a live `PENDING_CONFIRMATION` and the inbound matches its `pending_action.token` (literal or an affirmative variant), execute the persisted action directly via `_execute_pending_action`. No LLM call.
+9. **PRE-AGENT step 2 — UNDO window**: if the inbound contains "UNDO" and the most-recent outbound is an `ACTION_RECEIPT` within `settings.undo_window_min` (default 5 min), reverse the executed action.
+10. **PRE-AGENT step 3 — clarification cap**: if the consecutive CLARIFY-outbound streak to this user is at `settings.clarify_round_max` (default 2), escalate to admin without another LLM call. Also a soft 24h cap of `clarify_user_24h_max` (default 5) CLARIFY outbounds per user per day.
+11. **Build `AgentContext`** (`_build_agent_context`): sender state, sender's open claims, sender's farm + open opps if applicable, cross-cutting open opps system-wide, recent message excerpts, live pending action and executed action, known farms, canonical activities, mute summary.
+12. **Call `run_agent`** (`app/agent/unified.py`) — one LLM call, one JSON output (`AgentOutput`). Any exception → flag for admin + fallback reply.
+13. **Route on `output.mode`** (`_route_agent_output`):
+    - `reply` → send `output.reply_text`, log as `QUESTION`
+    - `clarify` → send `output.reply_text`, log as `CLARIFY` with `clarification_round` incremented
+    - `confirm` → send `output.reply_text`, log as `PENDING_CONFIRMATION` with `pending_action` stored
+    - `execute` → call mapped flow function (`claim_flow.handle_claim`, `farmer_ops.apply_edit`, etc.), send receipt, log as `ACTION_RECEIPT` with `executed_action`
+    - `escalate` → `_handle_escalation`: create FLAG (pauses thread), send acknowledgment to user, text `coordinator_phone` if `urgency=immediate`
+
+### Scheduled ticks (proactive flows)
+
+All scheduled functions live in `main.py` (registration only) with logic in `app/flows/`. Each tick is **quiet-hours-gated at entry** — if the time is 11pm–7am Vashon-local, the tick no-ops and the next run catches up. Exception: `_handle_escalation` to the coordinator phone is never quiet-hours-gated.
+
+| Tick | Cadence | Purpose |
+|---|---|---|
+| `tick_outreach` | every 5 min | Escalate opps whose insider-tier ping timed out; re-fire deferred initial outreach. |
+| `tick_confirmations` | every 15 min | Send one-shot pre-event reminder to CONFIRMED claims within 24h (shifts) / 3h (pickups) of the event. |
+| `tick_post_event` | every 15 min | Send "any issues? Y/N" check-in to the farmer the morning after a completed event. |
+| `tick_unfilled_at_start` | every 15 min | Notify the farmer once if a shift starts unfilled. |
+| `tick_stale_drafts` | every 30 min | Flag drafts older than 2h that never completed clarification. |
+| `tick_agent_review` | every 30 min | Run the unified agent in `review` mode against board state; apply budget filters (per-user 48h, per-opp 2-lifetime, per-tick 3-global); send top proposals as `PENDING_CONFIRMATION`s. |
+
+### State machines
+
+- **Opportunity**: `draft → open → filling → full → completed` (or `cancelled` / `expired` from any state). Edges worth knowing: claim of last seat flips `filling → full`; volunteer drop flips `full → filling` and re-fires outreach; headcount edit up past `seats_filled` flips `full → filling`; headcount edit down below `seats_filled` is rejected (hard rule).
+- **Claim**: `confirmed | interested (MAYBE — no seat) | waitlist | dropped`. CONFIRMED is the only status that consumes a seat. Drop is atomic and decrements `seats_filled` in a transaction.
+- **User**: `pending → active → suspended | unsubscribed`. Admin approves `pending → active`. `STOP` flips to `unsubscribed` and is permanent until admin clears.
+
+### Cross-cutting safety mechanisms
+
+These are spread across the codebase but conceptually belong together. Each one exists because a specific failure mode would otherwise be possible.
+
+- **Receipt rail.** Every state-changing action emits an `ACTION_RECEIPT` outbound naming what was done. The receipt is what makes the affirmative-variant acceptance safe: if the user says "yes" to confirm and we did the wrong thing, they see the receipt and can `UNDO`.
+- **UNDO window** (5 min default, `settings.undo_window_min`). After an `ACTION_RECEIPT`, the user can text `UNDO` to reverse. Outside the window, dispatch replies "too late to undo" and the user must take the forward action explicitly.
+- **FLAG-pauses-thread.** Any user can text `FLAG` to report a bad reply. While any unresolved flag exists for that user, the agent does not auto-reply. Admin clears the flag to resume.
+- **Quiet hours** (11pm–7am Vashon). All scheduled / broadcast outbound is deferred. Direct one-to-one replies to user-initiated messages send anytime.
+- **Clarification cap.** Max 2 consecutive CLARIFY outbounds per thread; 3rd → routine escalation. Plus soft 24h-per-user cap of 5 CLARIFY outbounds.
+- **Agent-nudge budget** (review tick only). Per-user 48h budget, per-opp 2-lifetime cap, per-tick global ceiling of 3. Enforced in dispatch, not in the prompt.
+- **Token confirmation rail.** The unified agent never executes; it drafts. The user must reply with the action-specific token (or affirmative variant) before any state change runs. Dispatch is the only writer.
+- **Repo-layer isolation.** All Firestore reads/writes go through `app/repos/*`. Business logic and the agent never import the Firestore SDK. Migration to a different store is a single-layer change.
+- **`safe_send` invariant.** Every outbound SMS goes through `app/messaging/_safe_send.safe_send()`. Telnyx failures don't crash the webhook; they log and continue.
 
 ## LLM portability
 
@@ -271,7 +336,7 @@ These are baked into the design — changing any of them is a real refactor, not
 - The LLMClient interface is `chat_json(messages, schema, *, cache_system_prompt=False)` — single entrypoint, JSON-only output. Don't add features that work only on Anthropic (tool-use loops, etc.) without first justifying it in the eval harness.
 - `firebase_app.py`'s `db` and `auth` are lazy — they don't connect until first attribute access. Don't change to eager init or `firebase deploy` analyzer will fail.
 - Opportunity state machine: `draft → open → filling → full → completed` (or `cancelled`/`expired`). Status flips happen even when outbound delivery fails — outreach is best-effort.
-- **Required-field rules for opportunities live in code (`agent/parser.py: REQUIRED_SHIFT_FIELDS / REQUIRED_PICKUP_FIELDS`), not just in the prompt.** `compute_missing_fields()` is the authoritative server-side check; the LLM's own `missing_fields` output is overwritten by it after parsing/merging. Changing what's required for a shift or pickup means updating both constants and the parser prompts.
+- **Required-field rules for opportunities live in code (`agent/parser.py: REQUIRED_SHIFT_FIELDS / REQUIRED_PICKUP_FIELDS`), not just in the prompt.** `compute_missing_fields()` is the authoritative server-side check; the LLM's own `missing_fields` output is overwritten by it after parsing/merging. `activity_tags` is on the required-shift list — empty list counts as missing; `["tbd"]` is a satisfying value. Changing what's required for a shift or pickup means updating both constants and the agent prompt (`prompts/agent.md`).
 - **Clarification flow re-uses the `draft` status.** A draft opportunity within ~2h of creation is the dispatch path's signal to route an inbound farmer message to the merge parser instead of treating it as a new post. `tick_stale_drafts` (every 30 min) flags drafts older than 2h that never completed — admin handles abandoned ones manually.
 - **Confirmation reminders are one-shot per claim, tracked on the claim doc.** `ClaimDoc.confirmation_sent_at` is the idempotency marker. The lead-time constants (`SHIFT_LEAD_TIME=24h`, `PICKUP_LEAD_TIME=3h`) live in `flows/confirmations.py`. A volunteer CANCEL only routes to a drop when the user's last outbound on the opp is a `CONFIRMATION_REMINDER` — outside that context, CANCEL retains its farmer-only meaning.
 - **Volunteer drop unwinds atomically.** `opportunities_repo.drop_confirmed_claim_in_transaction` decrements `seats_filled`, flips FULL→FILLING, and marks the claim DROPPED in one txn. The flow then resets `next_escalation_at` to `now` so the existing `tick_outreach` re-pings the pool (skipping anyone already pinged/claimed/muted). Farmer is notified out-of-band; that send is best-effort.
