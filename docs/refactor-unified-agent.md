@@ -1,5 +1,9 @@
 # Refactor plan: Unified Agent
 
+> **Status (2026-05-27):** Shipped. All code described below is in place; all retired files listed at the bottom have been deleted; the live eval gate passes against real Anthropic (Sonnet 4.6) for every REGRESSION, NEW_INTENT, and ADVERSARIAL case. REVIEW cases are authored in `functions/tests/evals/cases.py` but the runner doesn't yet build a `BoardState` to exercise them — wiring REVIEW into the runner is a deferred eval-coverage task, not a cutover blocker.
+>
+> A handful of paragraphs below — specifically the `USE_UNIFIED_AGENT` flag in `config.py` and the "Flag on in prod; one-week watch" sequencing step — describe an earlier draft of the cutover plan. The actual cutover was a straight switch (no flag, no shadow mode) per the explicit decision later in this same doc ("nuke freely"). Treat those lines as plan-archaeology.
+
 ## Goal
 
 Make Farm Friend handle the full set of straightforward intents — from either a farmer or a volunteer, inbound or outbound — as a neutral AI coordinator that has agency under supervision. Replace the current reactive classifier vocabulary with a single role-aware agent that drafts confirmations for state-changing actions and answers everything else directly.

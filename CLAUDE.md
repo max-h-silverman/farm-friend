@@ -2,11 +2,11 @@
 
 SMS-first agentic system for coordinating volunteer help on Vashon Island farms.
 
-## Status (as of 2026-05-26)
+## Status (as of 2026-05-27)
 
-**v1 codebase is built and deployed.** All Firebase functions, Firestore data model, admin SPA, and SMS pipeline are live in the `farm-friend-vashon` project. End-to-end smoke test confirmed: an inbound farmer SMS gets parsed by Claude Haiku, persists as an `Opportunity`, and the admin SPA picks it up in real time.
+**v1 codebase is built and deployed.** All Firebase functions, Firestore data model, admin SPA, and SMS pipeline are live in the `farm-friend-vashon` project. End-to-end smoke test confirmed: an inbound farmer SMS gets parsed (now by the unified agent), persists as an `Opportunity`, and the admin SPA picks it up in real time.
 
-**Unified-agent refactor — code complete, awaiting live eval (as of 2026-05-26):** the v1 classifier/ambiguous/parser trio has been replaced by `app/agent/unified.py` (one role-aware agent, one prompt at `app/prompts/agent.md`, structured JSON output) plus a rewritten `_dispatch` in `app/flows/message_dispatch.py`. The reactive path handles inbound messages with token-gated state changes (5-8 char uppercase alphanumeric, no hyphens) and 5-min UNDO via `ACTION_RECEIPT` outbounds. A proactive review path (`tick_agent_review` every 30 min, gated by quiet hours) runs the same agent in review mode and surfaces nudges through deterministic budget filters: per-user 48h budget, per-opp 2-lifetime cap, per-tick global ceiling of 3. Users can `PAUSE` / `RESUME` agent-initiated nudges. The motivating bug — volunteer-initiated "anyone need tilling Friday?" — is now a first-class `record_offer` flow. Plan: `docs/refactor-unified-agent.md`. Eval spec: `functions/tests/evals/cases.py` (50 cases: 16 REGRESSION, 13 NEW_INTENT, 13 ADVERSARIAL, 8 REVIEW). All 50 pass against the stub LLM. **The remaining gate is task 22: a `--live` eval pass against real Anthropic before the refactor ships, where the prompt + dispatch glue iterate until existing-flow parity holds.** Until that gate passes, the dispatch path is live in the codebase but unverified end-to-end against a real model.
+**Unified-agent refactor — shipped, eval-gated, ready for pilot (as of 2026-05-27):** the v1 classifier/ambiguous/parser trio has been replaced by `app/agent/unified.py` (one role-aware agent, one prompt at `app/prompts/agent.md`, structured JSON output) plus a rewritten `_dispatch` in `app/flows/message_dispatch.py`. The reactive path handles inbound messages with token-gated state changes (5-8 char uppercase alphanumeric, no hyphens) and 5-min UNDO via `ACTION_RECEIPT` outbounds. A proactive review path (`tick_agent_review` every 30 min, gated by quiet hours) runs the same agent in review mode and surfaces nudges through deterministic budget filters: per-user 48h budget, per-opp 2-lifetime cap, per-tick global ceiling of 3. Users can `PAUSE` / `RESUME` agent-initiated nudges. The motivating bug — volunteer-initiated "anyone need tilling Friday?" — is now a first-class `record_offer` flow. Plan: `docs/refactor-unified-agent.md`. Eval spec: `functions/tests/evals/cases.py` (50 cases: 16 REGRESSION, 13 NEW_INTENT, 13 ADVERSARIAL, 8 REVIEW). **Live `--live` eval against real Anthropic passes all 42 non-REVIEW cases**; REGRESSION + NEW_INTENT exact-match, ADVERSARIAL behavioral match (with `reply`/`clarify` interchangeable for non-state-changing intents). REVIEW cases are still skipped in the runner — they need the `board_review` integration but that's not on the cutover path. Sonnet 4.6 is mildly non-deterministic — expect 1–2 sporadic JSON-shape flakes per full sweep; re-running the affected case individually almost always passes.
 
 **Recent hardening pass (2026-05-26)** added: transactional claim resolution, inbound webhook idempotency, post-event reschedule on edits, intent-label-based post-event detection, orphan-YES flag-and-reply, **pre-event confirmation reminders + volunteer CANCEL flow**, **quiet hours (11pm–7am Vashon)**, **first-class `ESCALATE` intent with `routine`/`immediate` urgency** that texts the coordinator on urgent triggers. Admin SPA repainted as a dark-mode control panel. See "Next steps" → "Recent fixes" for the full list and what's still deferred.
 
@@ -139,7 +139,7 @@ Confirmation tokens (drafted by the unified agent per action; not a fixed vocabu
 
 The system is architected so the LLM can be swapped between Anthropic and any OpenAI-compatible provider (including self-hosted open-weight runtimes like vLLM) via config.
 
-**Before swapping providers, build the eval harness first.** v1 deliberately ships without one because we only target Anthropic. The harness is a known prerequisite for any swap — golden test sets for the parser, classifier, and ambiguous handler (20–50 examples each), with pass-rate parity required before flipping the default. Do not change the default model in production without it.
+**An eval harness exists** at `functions/tests/evals/` — 50 cases (`cases.py`) covering REGRESSION, NEW_INTENT, ADVERSARIAL, and REVIEW categories, with a `runner.py` that supports both stub-LLM (for CI / harness-mechanic verification) and `--live` (real Anthropic) modes. Before swapping the default provider, re-run `python -m tests.evals.runner --live` against the candidate and require pass-rate parity with the current Anthropic baseline. Note: the cases were authored against the unified agent's output shape — if you swap to a provider whose JSON-following discipline is materially weaker, expect to either iterate the prompt or add a retry layer in the adapter.
 
 **Don't reach for `litellm` or similar.** The Anthropic adapter is hand-rolled (~50 lines). The OpenAI-compatible path uses the OpenAI Python SDK with `base_url` swapped. Keep the dependency surface small.
 
@@ -163,7 +163,7 @@ The system is architected so the LLM can be swapped between Anthropic and any Op
 - Don't auto-reply on a thread after the user has texted `FLAG` until admin clears it.
 - Don't store raw message content longer than 90 days unless it's tied to an active opportunity or open flag.
 - Don't add `litellm` or similar omnibus LLM-routing libraries; hand-roll the thin adapters.
-- Don't change the default LLM provider without first building the eval harness and getting pass-rate parity.
+- Don't change the default LLM provider without first re-running the live eval (`python -m tests.evals.runner --live` from `functions/`) against the candidate and requiring pass-rate parity with Anthropic Sonnet 4.6.
 - Don't import the Firestore SDK from business logic — go through the `repos/` layer.
 
 ## Repo conventions
@@ -249,7 +249,7 @@ These are the review findings we *didn't* fix this pass. Listed in rough priorit
 
 ### Known limitations / deferred to v2
 
-- **No eval harness** for LLM swaps. The architecture supports any OpenAI-compatible provider via `LLM_PROVIDER=openai-compatible` + `LLM_BASE_URL`, but before flipping the default away from Anthropic you must build golden test sets for the parser, classifier, and ambiguous handler with pass-rate parity. See "LLM portability" section above.
+- **REVIEW eval cases are skipped in the runner.** The 8 REVIEW cases in `functions/tests/evals/cases.py` describe expected behavior for `tick_agent_review` (board-state context, budget filters, proposal ranking), but `runner.simulate_dispatch` doesn't yet build a `BoardState` and call `run_review_agent`. Reactive-path cases (REGRESSION + NEW_INTENT + ADVERSARIAL) are fully covered. Wiring REVIEW is a future eval-coverage task, not a cutover blocker.
 - **No farmer web portal.** Farmers stay on SMS in v1. If the pilot reveals this is a real friction point, add a minimal portal.
 - **No public self-signup page.** All onboarding is coordinator-mediated for the pilot.
 - **No reputation / skill registry.** Replaced by activity-type mutes + farmer free-text requirements. Revisit only if real usage shows mutes aren't expressive enough.
