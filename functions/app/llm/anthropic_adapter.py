@@ -80,4 +80,46 @@ class AnthropicAdapter(LLMAdapter):
                 text = text[4:]
             text = text.strip()
 
+        # Robustness: if the model emitted any reasoning prose before the JSON,
+        # extract the outermost {...} block. Cheaper than reprompting.
+        if not text.startswith("{"):
+            extracted = _extract_first_json_object(text)
+            if extracted is not None:
+                text = extracted
+
         return text
+
+
+def _extract_first_json_object(text: str) -> str | None:
+    """Find the first balanced JSON object in `text` and return it as a string.
+
+    Walks the text counting braces while respecting string literals (and their
+    escape sequences). Returns None if no balanced object is found. Used as a
+    last-resort recovery when the model emits reasoning prose before the JSON.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None

@@ -29,10 +29,14 @@ from typing import Any, Literal
 
 UTC = timezone.utc
 
-# A frozen "now" so cases are deterministic. Vashon is UTC-7 in summer; we
-# pick a Wed afternoon so "Friday" / "tomorrow" / "this weekend" are all
-# unambiguous in the human sense.
-NOW = datetime(2026, 6, 3, 21, 0, tzinfo=UTC)  # Wed 2pm Vashon-local
+# A frozen "now" so cases are deterministic. We use a Wednesday early-evening
+# stamp so all the relative date references ("Friday", "tomorrow", "this
+# weekend") are unambiguous in the human sense. Datetimes throughout this
+# module are best read as Vashon-local clock time — the runner strips the
+# UTC tz when building the agent's context so date arithmetic is internally
+# consistent: `NOW + timedelta(days=2)` is two calendar days later in the
+# same wall-clock frame.
+NOW = datetime(2026, 6, 3, 21, 0, tzinfo=UTC)  # Wed Jun 3, 9pm local (treated as naive)
 
 
 # ---------------------------------------------------------------------------
@@ -186,21 +190,22 @@ FARM_PLUM_FOREST = FakeFarm(
 )
 
 # A common "Friday morning shift" used across many cases.
+# NOW is Wed Jun 3 21:00 (Vashon-local). +1d +12h = Fri Jun 5 09:00 local.
 SHIFT_FRI_HARVEST = FakeOpp(
     id="o_fri_harvest", farm_id="f_3c", kind="shift", status="open",
-    starts_at=NOW + timedelta(days=2, hours=12),  # Friday 9am Vashon
+    starts_at=NOW + timedelta(days=1, hours=12),  # Friday Jun 5 9am Vashon
     duration_min=180, headcount_needed=3, seats_filled=1,
     activity_tags=["harvest"],
 )
 SHIFT_SAT_GLEAN = FakeOpp(
     id="o_sat_glean", farm_id="f_pf", kind="shift", status="open",
-    starts_at=NOW + timedelta(days=3, hours=12),  # Saturday 9am Vashon
+    starts_at=NOW + timedelta(days=2, hours=12),  # Saturday Jun 6 9am Vashon
     duration_min=180, headcount_needed=4, seats_filled=0,
     activity_tags=["gleaning"],
 )
 PICKUP_THU = FakeOpp(
     id="o_thu_pickup", farm_id="f_3c", kind="pickup", status="open",
-    deadline_at=NOW + timedelta(days=1, hours=20),
+    deadline_at=NOW + timedelta(hours=23),  # Thu Jun 4 8pm Vashon
     produce_description="50 lbs carrots", destination="Vashon Food Bank",
 )
 
@@ -344,12 +349,22 @@ CASES.append(EvalCase(
         users=[FARMER_A], farms=[FARM_THREE_CEDARS],
         opps=[FakeOpp(
             id="o_draft", farm_id="f_3c", kind="shift", status="draft",
+            # Day is settled from the prior post ("tomorrow"); only time was
+            # missing. starts_at is at midnight Vashon-local on the target day
+            # as a placeholder — the clarification updates the hour.
+            starts_at=NOW + timedelta(days=1, hours=7),  # Thu 00:00 Vashon
             headcount_needed=2, activity_tags=["weeding"],
         )],
-        messages=[FakeMessage(direction="outbound", user_id="u_farmer_a",
-                              body="What time should we start?",
-                              intent_label="CLARIFY",
-                              opportunity_id="o_draft")],
+        messages=[
+            FakeMessage(direction="inbound", user_id="u_farmer_a",
+                        body="need 2 for weeding tomorrow",
+                        created_at=NOW - timedelta(minutes=5)),
+            FakeMessage(direction="outbound", user_id="u_farmer_a",
+                        body="What time should we start, and how long?",
+                        intent_label="CLARIFY",
+                        opportunity_id="o_draft",
+                        created_at=NOW - timedelta(minutes=4)),
+        ],
     ),
     inbound_text="9am for 3 hours",
     inbound_from_user_id="u_farmer_a",
@@ -388,7 +403,7 @@ CASES.append(EvalCase(
     world=World(
         users=[FARMER_A], farms=[FARM_THREE_CEDARS],
         opps=[FakeOpp(id="o_fri_harvest", farm_id="f_3c", kind="shift", status="filling",
-                      starts_at=NOW + timedelta(days=2, hours=12),
+                      starts_at=NOW + timedelta(days=1, hours=12),  # Fri 9am
                       duration_min=180, headcount_needed=3, seats_filled=2,
                       activity_tags=["harvest"])],
     ),
@@ -419,7 +434,7 @@ CASES.append(EvalCase(
         opps=[
             SHIFT_FRI_HARVEST,
             FakeOpp(id="o_fri_glean", farm_id="f_3c", kind="shift", status="open",
-                    starts_at=NOW + timedelta(days=2, hours=18),
+                    starts_at=NOW + timedelta(days=1, hours=18),  # Fri 3pm
                     duration_min=120, headcount_needed=2, activity_tags=["gleaning"]),
         ],
     ),
@@ -686,7 +701,7 @@ CASES.append(EvalCase(
     world=World(
         users=[VOL_A], opps=[FakeOpp(
             id="o_fri_harvest", farm_id="f_3c", kind="shift", status="filling",
-            starts_at=NOW + timedelta(days=2, hours=12),
+            starts_at=NOW + timedelta(days=1, hours=12),  # Fri 9am
             duration_min=180, headcount_needed=3, seats_filled=2,
             activity_tags=["harvest"])], farms=[FARM_THREE_CEDARS],
         claims=[FakeClaim(opp_id="o_fri_harvest", volunteer_user_id="u_vol_a")],
@@ -718,7 +733,12 @@ CASES.append(EvalCase(
         "Stress test: prompt should never produce a token longer than 8 chars. "
         "If it does, schema validation rejects and runner records a hard fail."
     ),
-    world=World(users=[VOL_A], opps=[SHIFT_FRI_HARVEST], farms=[FARM_THREE_CEDARS]),
+    world=World(
+        users=[VOL_A], opps=[SHIFT_FRI_HARVEST], farms=[FARM_THREE_CEDARS],
+        messages=[FakeMessage(direction="outbound", user_id="u_vol_a",
+                              body="Three Cedars needs 3 for harvest Fri 9am-12.",
+                              opportunity_id="o_fri_harvest")],
+    ),
     inbound_text="yeah I'll do the Friday thing",
     inbound_from_user_id="u_vol_a",
     expected=ExpectedOutput(
@@ -731,7 +751,12 @@ CASES.append(EvalCase(
     id="adv.token.collides_with_hotkey",
     category="ADVERSARIAL",
     description="Confirm token must NOT equal STOP/HELP/YES/etc.",
-    world=World(users=[VOL_A], opps=[SHIFT_FRI_HARVEST], farms=[FARM_THREE_CEDARS]),
+    world=World(
+        users=[VOL_A], opps=[SHIFT_FRI_HARVEST], farms=[FARM_THREE_CEDARS],
+        messages=[FakeMessage(direction="outbound", user_id="u_vol_a",
+                              body="Three Cedars needs 3 for harvest Fri 9am-12.",
+                              opportunity_id="o_fri_harvest")],
+    ),
     inbound_text="alright sign me up",
     inbound_from_user_id="u_vol_a",
     expected=ExpectedOutput(
@@ -951,12 +976,19 @@ CASES.append(EvalCase(
         "clarifies, not on any-two-clarifies-in-a-row."
     ),
     world=World(
-        users=[VOL_A], farms=[FARM_THREE_CEDARS],
+        users=[VOL_A], farms=[FARM_THREE_CEDARS, FARM_PLUM_FOREST],
         opps=[SHIFT_FRI_HARVEST, SHIFT_SAT_GLEAN],
-        claims=[FakeClaim(opp_id="o_fri_harvest", volunteer_user_id="u_vol_a")],
+        # Two confirmed claims — the prior CLARIFY was disambiguating which to drop.
+        claims=[
+            FakeClaim(opp_id="o_fri_harvest", volunteer_user_id="u_vol_a"),
+            FakeClaim(opp_id="o_sat_glean", volunteer_user_id="u_vol_a"),
+        ],
         messages=[
+            FakeMessage(direction="inbound", user_id="u_vol_a",
+                        body="need to cancel my shift",
+                        created_at=NOW - timedelta(minutes=3)),
             FakeMessage(direction="outbound", user_id="u_vol_a",
-                        body="Which shift did you mean — Friday harvest or Saturday gleaning?",
+                        body="Which shift did you mean to drop — Friday harvest at Three Cedars or Saturday gleaning at Plum Forest?",
                         intent_label="CLARIFY",
                         created_at=NOW - timedelta(minutes=2)),
         ],
