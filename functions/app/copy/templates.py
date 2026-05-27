@@ -4,43 +4,37 @@ without touching business logic.
 Functions render templates with `render(name, **kwargs)` returning a finalized
 string. Templates are plain Python f-strings for now — Jinja is overkill for
 single-paragraph SMS bodies.
+
+A2P 10DLC compliance: `render_help`, `render_stop_ack`, and `render_join_ack`
+return the exact text Telnyx approved for the campaign. Wording changes there
+require re-registering the campaign. See docs/sms-compliance-requirements.md.
 """
 
 from __future__ import annotations
 
 
-HELP_TEXT_VOLUNTEER = (
-    "Farm Friend commands:\n"
-    "YES — claim a shift (YES 2 for 2 slots)\n"
-    "MAYBE — interested but not confirmed\n"
-    "CANCEL — drop a confirmed shift (after our reminder)\n"
-    "MUTE — silence followups on this shift only\n"
-    "STOP <activity> — mute that activity (e.g. STOP weeding)\n"
-    "STOP <farm> — mute a specific farm\n"
-    "UNAVAILABLE <window> — silence everything for a while\n"
-    "FLAG — report a wrong/confusing reply\n"
-    "STOP — fully unsubscribe"
+# The carrier-approved help reply. Single source of truth — both volunteers
+# and farmers get this same text. Farmer-specific commands (STATUS, EDIT,
+# INSIDER) are surfaced via the agent's natural-language replies instead of
+# being listed here; the campaign description we registered with Telnyx
+# scopes HELP to the subscriber-facing commands.
+HELP_TEXT_COMPLIANCE = (
+    "Farm Friend Vashon coordinates local farm volunteer shifts and produce "
+    "pickups by SMS. Reply YES to claim an opportunity, MUTE to skip one "
+    "shift, FLAG to report an issue, or STOP to unsubscribe. Msg&data rates "
+    "may apply. Privacy: https://farm-friend-vashon.web.app/privacy"
 )
 
-HELP_TEXT_FARMER = (
-    "Farm Friend commands:\n"
-    "Post a request in plain text (e.g. \"need 2 ppl tomorrow 10am to harvest greens\")\n"
-    "STATUS — see your open posts and how they're filling\n"
-    "EDIT — change a detail on an open post (just describe the change)\n"
-    "CANCEL — cancel an open post\n"
-    "INSIDER <phone> <name> — nominate a trusted volunteer\n"
-    "FLAG — report a wrong/confusing reply\n"
-    "HELP — show this list\n"
-    "STOP — fully unsubscribe"
-)
-
-# Back-compat alias: callers that imported the old name continue to work; new
-# code should prefer render_help(role) instead.
-HELP_TEXT = HELP_TEXT_VOLUNTEER
+# Back-compat aliases. Existing callsites for HELP_TEXT_VOLUNTEER and
+# HELP_TEXT_FARMER keep working; both resolve to the compliance text.
+HELP_TEXT_VOLUNTEER = HELP_TEXT_COMPLIANCE
+HELP_TEXT_FARMER = HELP_TEXT_COMPLIANCE
+HELP_TEXT = HELP_TEXT_COMPLIANCE
 
 
-def render_help(*, is_farmer: bool) -> str:
-    return HELP_TEXT_FARMER if is_farmer else HELP_TEXT_VOLUNTEER
+def render_help(*, is_farmer: bool = False) -> str:
+    """Compliance-mandated reply. Same text for all roles — do NOT branch."""
+    return HELP_TEXT_COMPLIANCE
 
 
 def render_intro_volunteer(*, name: str, vcard_url: str) -> str:
@@ -77,11 +71,11 @@ def render_shift_outreach(
     requirements: str,
 ) -> str:
     people = "1 person" if seats_remaining == 1 else f"{seats_remaining} people"
-    head = f"{farm_name} needs {people} for {activity} {when_human}."
+    head = f"Farm Friend Vashon: {farm_name} needs {people} for {activity} {when_human}."
     parts = [head]
     if requirements:
         parts.append(requirements)
-    parts.append("YES to claim, MAYBE if uncertain, MUTE to skip.")
+    parts.append("Reply YES to claim, MUTE to skip this one, or STOP to unsubscribe.")
     return " ".join(parts)
 
 
@@ -94,10 +88,13 @@ def render_pickup_outreach(
     vehicle_needed: bool | None,
 ) -> str:
     drop = f", drop at {destination}" if destination else ""
-    parts = [f"{farm_name} has surplus to pick up {deadline_human}: {produce}{drop}."]
+    parts = [
+        f"Farm Friend Vashon: {farm_name} has surplus to pick up "
+        f"{deadline_human}: {produce}{drop}."
+    ]
     if vehicle_needed:
         parts.append("Vehicle helpful.")
-    parts.append("YES to claim, MAYBE if uncertain, MUTE to skip.")
+    parts.append("Reply YES if you can take it, or STOP to unsubscribe.")
     return " ".join(parts)
 
 
@@ -128,19 +125,46 @@ def render_mute_ack(*, what: str) -> str:
 
 
 def render_stop_ack() -> str:
-    return "Unsubscribed. We won't text you again. Reply START to rejoin."
+    """Compliance-mandated opt-out confirmation. Do NOT change without
+    re-registering the Telnyx campaign."""
+    return (
+        "Farm Friend Vashon: You're unsubscribed and will receive no further "
+        "messages. Reply JOIN to request to rejoin."
+    )
 
 
 def render_join_ack() -> str:
-    return "Got your request — Max will review and get back to you shortly."
+    """Compliance-mandated opt-in confirmation. Sent on JOIN/START.
+
+    The coordinator-approval note can follow as a SECOND SMS (so the
+    compliance language stays untouched) — handled by the JOIN dispatch path.
+    Do NOT change without re-registering the Telnyx campaign.
+    """
+    return (
+        "Farm Friend Vashon: Welcome. You'll receive texts about local farm "
+        "volunteer shifts and produce pickups. Msg frequency varies, usually "
+        "0–6/week. Msg&data rates may apply. Reply HELP for help, STOP to "
+        "unsubscribe. Terms: https://farm-friend-vashon.web.app/terms "
+        "Privacy: https://farm-friend-vashon.web.app/privacy"
+    )
+
+
+def render_join_pending_admin_note() -> str:
+    """Follow-up SMS sent after the compliance opt-in text when the JOIN
+    requester needs admin approval. Kept separate so the compliance copy
+    above stays verbatim."""
+    return "Max will review and approve your request shortly."
 
 
 def render_confirmation_reminder_shift(
     *, farm_name: str, activity: str, when_human: str
 ) -> str:
+    # Token here is DROP (not CANCEL — CANCEL is a compliance opt-out keyword).
+    # The CONFIRMATION_REMINDER outbound's pending_action.token must match.
     return (
-        f"Reminder: you're scheduled to help with {activity} at {farm_name} "
-        f"{when_human}. Reply CANCEL if you can't make it."
+        f"Farm Friend Vashon: Reminder — you're scheduled to help with {activity} "
+        f"at {farm_name} {when_human}. Reply DROP if you can't make it, "
+        f"or STOP to unsubscribe."
     )
 
 
@@ -148,8 +172,9 @@ def render_confirmation_reminder_pickup(
     *, farm_name: str, produce: str, deadline_human: str
 ) -> str:
     return (
-        f"Reminder: you're picking up {produce} from {farm_name} {deadline_human}. "
-        f"Reply CANCEL if you can't make it."
+        f"Farm Friend Vashon: Reminder — you're picking up {produce} from "
+        f"{farm_name} {deadline_human}. Reply DROP if you can't make it, "
+        f"or STOP to unsubscribe."
     )
 
 
@@ -178,7 +203,11 @@ def render_post_event_followup() -> str:
 
 
 def render_flag_ack() -> str:
-    return "Flagged for the coordinator. No more auto-replies on this thread until they review."
+    """Compliance-mandated FLAG confirmation."""
+    return (
+        "Farm Friend Vashon: Thanks. This thread has been flagged for review, "
+        "and automated replies are paused. Reply STOP to unsubscribe."
+    )
 
 
 def render_fallback_ambiguous() -> str:

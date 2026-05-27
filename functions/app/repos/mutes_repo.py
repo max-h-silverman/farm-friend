@@ -19,6 +19,11 @@ def add(rule: MuteRuleDoc) -> MuteRuleDoc:
     return rule.model_copy(update={"id": ref.id})
 
 
+def delete(rule_id: str) -> None:
+    """Remove a mute rule by id. Used by RESUME to clear agent_nudge mutes."""
+    db.collection(COLLECTION).document(rule_id).delete()
+
+
 def list_for_user(user_id: str) -> list[MuteRuleDoc]:
     q = db.collection(COLLECTION).where("user_id", "==", user_id)
     return [snapshot_to_model(s, MuteRuleDoc) for s in q.stream() if s.exists]  # type: ignore[misc]

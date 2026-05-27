@@ -55,6 +55,14 @@ def _settings() -> Settings:
         vcard_url="",
         coordinator_phone="",
         classifier_confidence_threshold=0.75,
+        agent_review_interval_min=30,
+        agent_nudge_budget_hours=48,
+        agent_nudge_per_opp_max=2,
+        agent_review_per_tick_max=3,
+        clarify_round_max=2,
+        clarify_user_24h_max=5,
+        undo_window_min=5,
+        offer_default_ttl_days=7,
     )
 
 

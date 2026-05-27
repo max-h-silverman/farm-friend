@@ -28,14 +28,21 @@ def test_farmer_intro_mentions_farmer_actions() -> None:
     assert "STOP" in body
 
 
-def test_help_is_role_aware() -> None:
+def test_help_is_compliance_text() -> None:
+    """The carrier-approved help reply is the same for both roles. Farmer
+    commands like STATUS and EDIT are surfaced via the agent's natural-language
+    replies, not by branching the HELP response."""
     farmer = templates.render_help(is_farmer=True)
     volunteer = templates.render_help(is_farmer=False)
-    assert "STATUS" in farmer
-    assert "CANCEL" in farmer
-    assert "STATUS" not in volunteer  # volunteers don't see STATUS
-    assert "YES" in volunteer
-    assert "MAYBE" in volunteer
+    assert farmer == volunteer
+    # Required by docs/sms-compliance-requirements.md §"Help Message":
+    assert "Farm Friend Vashon" in farmer
+    assert "YES" in farmer
+    assert "MUTE" in farmer
+    assert "FLAG" in farmer
+    assert "STOP" in farmer
+    assert "Msg&data rates may apply" in farmer
+    assert "privacy" in farmer.lower()
 
 
 def test_status_renders_lines_and_empty() -> None:
@@ -94,11 +101,13 @@ def test_shift_outreach_has_action_prompt() -> None:
         seats_remaining=2,
         requirements="",
     )
+    # Compliance: program name + STOP opt-out path on every operational alert.
+    assert "Farm Friend Vashon" in body
     assert "Plum Forest" in body
     assert "weeding" in body
     assert "Thu 9a-12p" in body
     assert "YES" in body
-    assert "MAYBE" in body
+    assert "STOP" in body  # opt-out path required
     # singular/plural phrasing
     assert "people" in body
 
@@ -111,11 +120,12 @@ def test_pickup_outreach_mentions_destination_when_provided() -> None:
         destination="Vashon Food Bank",
         vehicle_needed=True,
     )
+    assert "Farm Friend Vashon" in body
     assert "Sea Breeze" in body
     assert "zucchini" in body
     assert "Vashon Food Bank" in body
     assert "vehicle" in body.lower() or "truck" in body.lower()
-    assert "MAYBE" in body
+    assert "STOP" in body
 
 
 def test_post_event_checkin_has_y_n_prompt() -> None:
@@ -127,3 +137,45 @@ def test_help_lists_main_commands() -> None:
     body = templates.HELP_TEXT
     for cmd in ("YES", "STOP", "MUTE", "FLAG"):
         assert cmd in body
+
+
+# ---------------------------------------------------------------------------
+# Compliance copy — these strings are bound to the Telnyx campaign registration.
+# Changes here require re-registering the campaign with the carrier.
+# Source of truth: docs/sms-compliance-requirements.md.
+# ---------------------------------------------------------------------------
+def test_stop_ack_matches_compliance_text() -> None:
+    body = templates.render_stop_ack()
+    assert body == (
+        "Farm Friend Vashon: You're unsubscribed and will receive no further "
+        "messages. Reply JOIN to request to rejoin."
+    )
+
+
+def test_join_ack_matches_compliance_text() -> None:
+    body = templates.render_join_ack()
+    # Pinning the exact text. Length and content are carrier-approved.
+    assert "Farm Friend Vashon: Welcome" in body
+    assert "0–6/week" in body
+    assert "Msg&data rates may apply" in body
+    assert "Reply HELP for help, STOP to unsubscribe" in body
+    assert "Terms: https://farm-friend-vashon.web.app/terms" in body
+    assert "Privacy: https://farm-friend-vashon.web.app/privacy" in body
+
+
+def test_flag_ack_matches_compliance_text() -> None:
+    body = templates.render_flag_ack()
+    assert body == (
+        "Farm Friend Vashon: Thanks. This thread has been flagged for review, "
+        "and automated replies are paused. Reply STOP to unsubscribe."
+    )
+
+
+def test_confirmation_reminder_uses_DROP_not_CANCEL() -> None:
+    """CANCEL is a compliance opt-out keyword; volunteer drops use DROP."""
+    body = templates.render_confirmation_reminder_shift(
+        farm_name="Three Cedars", activity="harvest", when_human="Friday 9am",
+    )
+    assert "DROP" in body
+    assert "CANCEL" not in body
+    assert "Farm Friend Vashon" in body

@@ -11,6 +11,7 @@ from firebase_functions import https_fn, options, scheduler_fn
 from firebase_functions.options import MemoryOption
 
 from app.config import ALL_SECRETS
+from app.flows import board_review as board_review_flow
 from app.flows import confirmations as confirmations_flow
 from app.flows import outreach as outreach_flow
 from app.flows import post_event as post_event_flow
@@ -98,6 +99,18 @@ def tick_unfilled_at_start(event: scheduler_fn.ScheduledEvent) -> None:
     _farmer_ops.run_unfilled_at_start_tick(get_messaging_provider())
 
 
+@scheduler_fn.on_schedule(
+    schedule="every 30 minutes",
+    secrets=ALL_SECRETS,
+    timezone=scheduler_fn.Timezone("America/Los_Angeles"),
+)
+def tick_agent_review(event: scheduler_fn.ScheduledEvent) -> None:
+    """Proactive coordinator-on-the-board review tick. Runs the unified agent
+    in review mode against current board state. Quiet-hours-gated. See
+    docs/refactor-unified-agent.md §"Proactive review"."""
+    board_review_flow.run_board_review_tick()
+
+
 # Admin callable functions are registered in app/admin/callables.py and
 # re-exported here by name so the Firebase deploy tooling sees them.
 from app.admin.callables import (  # noqa: E402
@@ -118,6 +131,7 @@ __all__ = [
     "tick_stale_drafts",
     "tick_unfilled_at_start",
     "tick_confirmations",
+    "tick_agent_review",
     "approve_pending_user",
     "suspend_user",
     "resolve_flag",

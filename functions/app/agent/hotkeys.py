@@ -31,13 +31,22 @@ class HotkeyMatch:
 
 _YES_RE = re.compile(r"^\s*y(es)?(?:\s+(\d+))?\s*[!\.]?\s*$", re.IGNORECASE)
 _MAYBE_RE = re.compile(r"^\s*maybe\s*[!\.\?]?\s*$", re.IGNORECASE)
-_HELP_RE = re.compile(r"^\s*help\s*[!\.\?]?\s*$", re.IGNORECASE)
+_HELP_RE = re.compile(r"^\s*(help|info)\s*[!\.\?]?\s*$", re.IGNORECASE)
 _STATUS_RE = re.compile(r"^\s*status\s*[!\.\?]?\s*$", re.IGNORECASE)
 _CANCEL_RE = re.compile(r"^\s*cancel\s*[!\.]?\s*$", re.IGNORECASE)
 _STOP_PLAIN_RE = re.compile(r"^\s*(stop|unsubscribe|quit|end)\s*[!\.]?\s*$", re.IGNORECASE)
 _FLAG_RE = re.compile(r"^\s*flag\b.*$", re.IGNORECASE)
 _JOIN_RE = re.compile(r"^\s*(join|start)\s*[!\.]?\s*$", re.IGNORECASE)
 _MUTE_RE = re.compile(r"^\s*(mute|pass|skip)\s*[!\.]?\s*$", re.IGNORECASE)
+_UNDO_RE = re.compile(r"^\s*undo\s*[!\.]?\s*$", re.IGNORECASE)
+_PAUSE_RE = re.compile(r"^\s*pause\s*[!\.]?\s*$", re.IGNORECASE)
+_RESUME_RE = re.compile(r"^\s*resume\s*[!\.]?\s*$", re.IGNORECASE)
+# Confirmation tokens drafted by the unified agent. Loose match: 5–8
+# uppercase alphanumeric. Hotkey precedence handled in parse() so the
+# explicit hotkey words above always win over this generic pattern.
+_TOKEN_RE = re.compile(r"^\s*([A-Z][A-Z0-9]{4,7})\s*[!\.]?\s*$")
+# Affirmative variants accepted as a match for a live PENDING_CONFIRMATION.
+_AFFIRMATIVE = frozenset({"YES", "OK", "OKAY", "SURE", "CONFIRM", "GO", "GO AHEAD", "YEP", "YEAH"})
 _POST_EVENT_Y_RE = re.compile(r"^\s*y(es)?\s*[!\.]?\s*$", re.IGNORECASE)
 _POST_EVENT_N_RE = re.compile(r"^\s*n(o)?\s*[!\.]?\s*$", re.IGNORECASE)
 _STOP_ACTIVITY_RE = re.compile(r"^\s*stop\s+(.+?)\s*[!\.]?\s*$", re.IGNORECASE)
@@ -93,6 +102,15 @@ def parse(
 
     if _STOP_PLAIN_RE.match(text):
         return HotkeyMatch(IntentLabel.STOP, {})
+
+    if _UNDO_RE.match(text):
+        return HotkeyMatch(IntentLabel.UNDO, {})
+
+    if _PAUSE_RE.match(text):
+        return HotkeyMatch(IntentLabel.PAUSE, {})
+
+    if _RESUME_RE.match(text):
+        return HotkeyMatch(IntentLabel.RESUME, {})
 
     yes_match = _YES_RE.match(text)
     if yes_match:
@@ -152,3 +170,38 @@ def _normalize_phone(raw: str) -> str:
         elif len(s) == 11 and s.startswith("1"):
             s = "+" + s
     return s
+
+
+# ---------------------------------------------------------------------------
+# Token-confirmation matching (PENDING_CONFIRMATION → execute)
+# ---------------------------------------------------------------------------
+# Hotkeys the agent must NEVER use as a confirmation token. Keep in sync with
+# the parse() branches above. The unified agent prompt also lists these so the
+# model knows to avoid them.
+RESERVED_HOTKEY_TOKENS = frozenset({
+    "STOP", "UNSUBSCRIBE", "QUIT", "END", "CANCEL",
+    "HELP", "INFO",
+    "JOIN", "START",
+    "YES", "MAYBE", "MUTE", "FLAG", "STATUS",
+    "INSIDER", "UNAVAILABLE",
+    "UNDO", "PAUSE", "RESUME",
+})
+
+
+def match_pending_token(*, body: str, pending: dict | None) -> bool:
+    """True if `body` should be treated as confirmation of the pending action.
+
+    Match rules (any of):
+      1. body normalizes to the exact token on `pending`.
+      2. body normalizes to one of the affirmative variants (YES/OK/...).
+         The receipt sent on execute spells out what was done, so this loose
+         match is safe.
+
+    Returns False if no live pending action.
+    """
+    if not pending or not pending.get("token"):
+        return False
+    norm = body.strip().upper().rstrip("!.?")
+    if norm == pending["token"]:
+        return True
+    return norm in _AFFIRMATIVE

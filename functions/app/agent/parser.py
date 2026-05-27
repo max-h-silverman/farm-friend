@@ -1,41 +1,41 @@
-"""Opportunity parser — farmer free-form SMS -> structured shift OR pickup.
+"""ParsedOpportunity schema + required-field rules.
 
-Calls the LLM (fast tier) with a cached system prompt. Output is validated
-against `ParsedOpportunity`. On validation failure or `kind=other`, the
-caller flags for admin rather than auto-creating an opportunity.
+This file used to host three LLM-calling functions (`parse_opportunity`,
+`merge_clarification_into_draft`, `classify_farmer_message`) plus three
+prompts. All of that was retired in the unified-agent refactor — see
+`docs/refactor-unified-agent.md`. The unified agent now emits a `parsed`
+sub-payload inside its `create_opportunity` / `update_draft_opportunity`
+actions, dispatch validates it against `ParsedOpportunity`, and
+`compute_missing_fields` is the server-authoritative check.
 
-If required fields are missing, the parser populates `missing_fields` and a
-human-friendly `clarification_question`. Dispatch saves the opportunity as a
-draft, asks the farmer the question, and merges the reply via
-`merge_clarification_into_draft`.
+What stays here:
+  - `ParsedOpportunity` — the structured shape for a parsed shift / pickup.
+  - `compute_missing_fields` — authoritative server-side check.
+  - `REQUIRED_SHIFT_FIELDS` / `REQUIRED_PICKUP_FIELDS` — the truth about
+    which fields must be present before an opp can go live.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.llm import LLMClient
-from app.llm.client import Message
 
-
-PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "parser.md"
-MERGE_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "parser_merge.md"
-EDIT_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "parser_edit.md"
-
-
-# Required-field rules. Kept in code (not just the prompt) so dispatch can
-# re-check after a merge — we don't trust the LLM to set missing_fields
-# correctly every time.
+# Required-field rules. The unified agent prompt also lists these, but
+# dispatch re-checks here — never trust the agent to set missing_fields
+# correctly.
 REQUIRED_SHIFT_FIELDS = ("starts_at", "headcount_needed")
 REQUIRED_PICKUP_FIELDS = ("deadline_at", "produce_description", "destination")
 
 
 class ParsedOpportunity(BaseModel):
-    """LLM output schema."""
+    """Structured shape of a parsed shift or pickup.
+
+    Used inside `ActionSpec.create_opportunity.parsed` and
+    `ActionSpec.update_draft_opportunity.parsed`. The unified agent fills
+    this in; dispatch validates and persists.
+    """
 
     kind: Literal["shift", "pickup", "other"]
     parse_notes: str = ""
@@ -54,7 +54,9 @@ class ParsedOpportunity(BaseModel):
     destination: str | None = None
     vehicle_needed: bool | None = None
 
-    # Clarification handshake.
+    # Clarification handshake (mostly cosmetic now — the agent emits
+    # `mode="clarify"` rather than setting these, but keeping the fields
+    # avoids breaking ParsedOpportunity round-trips).
     missing_fields: list[str] = Field(default_factory=list)
     clarification_question: str = ""
 
@@ -62,152 +64,15 @@ class ParsedOpportunity(BaseModel):
 def compute_missing_fields(parsed: ParsedOpportunity) -> list[str]:
     """Authoritative server-side check of which required fields are still empty.
 
-    The LLM also populates `missing_fields` but we recompute here so dispatch
-    can rely on a deterministic source of truth (esp. after a merge, where the
-    LLM might forget to clear the list).
+    The agent also populates `missing_fields` but we recompute here so dispatch
+    has a deterministic source of truth — the agent should never be able to
+    push an opp to OPEN with missing required fields.
     """
     if parsed.kind == "shift":
         return [f for f in REQUIRED_SHIFT_FIELDS if getattr(parsed, f) in (None, "", 0)]
     if parsed.kind == "pickup":
         return [f for f in REQUIRED_PICKUP_FIELDS if getattr(parsed, f) in (None, "")]
     return []
-
-
-def parse_opportunity(
-    *,
-    llm: LLMClient,
-    farmer_message: str,
-    farm_name: str,
-    now_local: datetime,
-    farm_defaults: dict | None = None,
-) -> ParsedOpportunity:
-    """Parse a fresh farmer message into a (possibly partial) opportunity.
-
-    `farm_defaults` (optional): a dict with `typical_shift_duration_min`,
-    `typical_start_hour` from FarmDoc. Used to fill omitted fields so the
-    farmer doesn't have to specify every detail.
-    """
-    system_prompt = PROMPT_PATH.read_text(encoding="utf-8")
-    user_prompt = _format_user_prompt(
-        farm_name=farm_name,
-        now_local=now_local,
-        farm_defaults=farm_defaults,
-        farmer_message=farmer_message,
-    )
-    parsed = llm.chat_json(
-        model_tier="fast",
-        messages=[
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=user_prompt),
-        ],
-        response_model=ParsedOpportunity,
-        cache_system_prompt=True,
-        max_tokens=512,
-    )
-    # Apply farm defaults the prompt may have skipped (cheap belt-and-suspenders).
-    parsed = _apply_farm_defaults(parsed=parsed, farm_defaults=farm_defaults)
-    # Server-authoritative missing-field check overrides whatever the LLM said.
-    parsed = parsed.model_copy(update={"missing_fields": compute_missing_fields(parsed)})
-    return parsed
-
-
-def merge_clarification_into_draft(
-    *,
-    llm: LLMClient,
-    draft: ParsedOpportunity,
-    farmer_reply: str,
-    farm_name: str,
-    now_local: datetime,
-    farm_defaults: dict | None = None,
-) -> ParsedOpportunity:
-    """Merge a farmer's clarification reply into an existing draft.
-
-    The merge prompt is told what the draft currently looks like, what fields
-    are still missing, and the farmer's new message. It returns the same
-    schema with the additional fields filled in (and the question rewritten
-    if some required fields are still missing).
-    """
-    system_prompt = MERGE_PROMPT_PATH.read_text(encoding="utf-8")
-    user_prompt = (
-        f"farm: {farm_name}\n"
-        f"now: {now_local.isoformat()}\n"
-        f"draft_so_far:\n{draft.model_dump_json(exclude={'parse_notes'})}\n\n"
-        f"farmer_reply:\n{farmer_reply}"
-    )
-    merged = llm.chat_json(
-        model_tier="fast",
-        messages=[
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=user_prompt),
-        ],
-        response_model=ParsedOpportunity,
-        cache_system_prompt=True,
-        max_tokens=512,
-    )
-    merged = _apply_farm_defaults(parsed=merged, farm_defaults=farm_defaults)
-    merged = merged.model_copy(update={"missing_fields": compute_missing_fields(merged)})
-    return merged
-
-
-def _format_user_prompt(
-    *,
-    farm_name: str,
-    now_local: datetime,
-    farm_defaults: dict | None,
-    farmer_message: str,
-) -> str:
-    parts = [f"farm: {farm_name}", f"now: {now_local.isoformat()}"]
-    if farm_defaults:
-        # Only include keys that are actually set, so the LLM can rely on them.
-        hints = {k: v for k, v in farm_defaults.items() if v not in (None, [], "")}
-        if hints:
-            parts.append(f"farm_defaults: {hints}")
-    parts.append(f"message:\n{farmer_message}")
-    return "\n".join(parts)
-
-
-class ParsedEditDecision(BaseModel):
-    """Output schema for the edit/cancel/new-post triage."""
-
-    action: Literal["new_post", "edit", "cancel", "clarify", "escalate"]
-    opp_id: str | None = None
-    field_updates: dict = Field(default_factory=dict)
-    clarification_question: str = ""
-    # Populated when action=="escalate": one-phrase admin summary + urgency.
-    escalation_reason: str = ""
-    escalation_urgency: Literal["routine", "immediate"] = "routine"
-
-
-def classify_farmer_message(
-    *,
-    llm: LLMClient,
-    farmer_message: str,
-    open_opps: list[dict],
-    now_local: datetime,
-) -> ParsedEditDecision:
-    """Triage a farmer's free-form message when the farm has at least one
-    open or filling opportunity. Decide: new_post, edit, cancel, or clarify.
-
-    `open_opps` is a list of dicts the caller has already shaped for the
-    prompt (one per open opp): `{id, kind, activity_or_produce, when_human,
-    headcount_needed, seats_filled}`.
-    """
-    system_prompt = EDIT_PROMPT_PATH.read_text(encoding="utf-8")
-    user_prompt = (
-        f"now: {now_local.isoformat()}\n"
-        f"open_opps: {open_opps}\n\n"
-        f"farmer_message:\n{farmer_message}"
-    )
-    return llm.chat_json(
-        model_tier="fast",
-        messages=[
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=user_prompt),
-        ],
-        response_model=ParsedEditDecision,
-        cache_system_prompt=True,
-        max_tokens=384,
-    )
 
 
 def _apply_farm_defaults(
@@ -217,9 +82,13 @@ def _apply_farm_defaults(
 ) -> ParsedOpportunity:
     """Fill optional fields the farmer didn't specify using farm-level defaults.
 
-    Required fields (starts_at, headcount_needed, etc.) are NOT defaulted —
-    those must trigger a clarification question. This only fills truly
-    optional fields like duration_min.
+    Required fields (starts_at, headcount_needed, etc.) are NEVER defaulted —
+    those must come from the farmer's words. Only fills truly optional fields
+    like `duration_min`.
+
+    Dispatch calls this defensively after the unified agent emits a
+    `create_opportunity` action: the prompt also describes the rule, but
+    this is the deterministic backstop.
     """
     if not farm_defaults or parsed.kind != "shift":
         return parsed

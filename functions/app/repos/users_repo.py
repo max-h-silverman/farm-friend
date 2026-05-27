@@ -54,7 +54,7 @@ def update_availability(
     available_end_hour: int | None,
     max_commit_hours_per_week: int | None,
 ) -> None:
-    """Set the volunteer availability captured at onboarding."""
+    """Set the volunteer availability (onboarding or unified-agent update)."""
     db.collection(COLLECTION).document(user_id).update(
         {
             "available_days": available_days,
@@ -63,3 +63,37 @@ def update_availability(
             "max_commit_hours_per_week": max_commit_hours_per_week,
         }
     )
+
+
+def update_activity_preferences(user_id: str, preferences: list[str]) -> None:
+    """Set the full activity_preferences list. Caller decides add/remove semantics."""
+    db.collection(COLLECTION).document(user_id).update(
+        {"activity_preferences": preferences}
+    )
+
+
+def set_last_agent_initiated_outbound_at(user_id: str, at: datetime) -> None:
+    """Stamp the timestamp used by the 48h agent-nudge budget gate."""
+    db.collection(COLLECTION).document(user_id).update(
+        {"last_agent_initiated_outbound_at": at}
+    )
+
+
+def is_within_agent_nudge_budget(
+    user_id: str,
+    *,
+    now: datetime,
+    window_hours: int,
+) -> bool:
+    """True if we may send another agent-initiated nudge to this user.
+
+    "Within budget" means: never nudged before, OR the last nudge was longer
+    ago than `window_hours`. Scheduled flows the user consented to (post-event
+    check-in, confirmation reminder) are NOT counted — they don't update this
+    timestamp.
+    """
+    from datetime import timedelta
+    user = get_by_id(user_id)
+    if user is None or user.last_agent_initiated_outbound_at is None:
+        return True
+    return (now - user.last_agent_initiated_outbound_at) >= timedelta(hours=window_hours)

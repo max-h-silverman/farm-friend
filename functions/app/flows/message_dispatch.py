@@ -18,18 +18,24 @@ Pipeline:
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 from firebase_functions import https_fn
 
 from app.agent import hotkeys
-from app.agent.ambiguous import resolve_ambiguous
-from app.agent.classifier import classify_reply
 from app.agent.parser import (
-    classify_farmer_message,
-    merge_clarification_into_draft,
-    parse_opportunity,
+    ParsedOpportunity,
+    compute_missing_fields,
+)
+from app.agent.unified import (
+    AgentContext,
+    AgentOutput,
+    ClaimSummary,
+    MessageExcerpt,
+    OppSummary,
+    run_agent,
 )
 from app.config import load_settings
 from app.copy import templates
@@ -56,6 +62,8 @@ from app.repos import (
     users_repo,
 )
 from app.repos.models import (
+    CANONICAL_ACTIVITIES,
+    ClaimStatus,
     FlagDoc,
     IntentLabel,
     InsiderDoc,
@@ -198,56 +206,108 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
     if sender.id and flags_repo.is_user_flagged(sender.id):
         return
 
-    # Farmer free-form posting (or clarification reply on an in-progress draft)?
-    if sender.role in (UserRole.FARMER, UserRole.BOTH):
-        farm = farms_repo.get_by_owner(sender.id) if sender.id else None
-        if farm:
-            # An open draft from this farm within the clarification window
-            # short-circuits the "is this a posting?" check: any reply at all
-            # within ~2h gets treated as an answer to the pending question.
-            draft = _find_recent_draft(farm_id=farm.id or "")
-            if draft is not None:
-                _handle_clarification_reply(
-                    sender=sender,
-                    farm_id=farm.id or "",
-                    farm_name=farm.name,
-                    draft=draft,
-                    inbound_text=inbound.body,
-                    inbound_doc_id=inbound_doc.id or "",
-                    provider=provider,
-                )
-                return
-            # If there are open opps, route through the edit/cancel/new-post
-            # triage. Otherwise fall through to the simpler new-post path.
-            open_opps = opportunities_repo.list_open_for_farm(farm.id or "")
-            if open_opps and len(inbound.body.strip()) > 4:
-                _handle_farmer_message_with_open_opps(
-                    sender=sender,
-                    farm_id=farm.id or "",
-                    farm_name=farm.name,
-                    open_opps=open_opps,
-                    inbound_text=inbound.body,
-                    inbound_doc_id=inbound_doc.id or "",
-                    provider=provider,
-                )
-                return
-            if _looks_like_posting(inbound.body):
-                _handle_farmer_post(
-                    sender=sender,
-                    farm_id=farm.id or "",
-                    farm_name=farm.name,
-                    inbound_text=inbound.body,
-                    inbound_doc_id=inbound_doc.id or "",
-                    provider=provider,
-                )
-                return
+    # --- Unified-agent path ------------------------------------------------
+    #
+    # The four-branch fan-out (farmer-with-open-opps / clarification-reply /
+    # farmer-post / volunteer-llm-reply) has been replaced by a single agent
+    # call. See docs/refactor-unified-agent.md.
+    #
+    # Pre-agent dispatch steps (token-match-executes, UNDO window, clarify
+    # cap) are deterministic and fire BEFORE the agent runs — those paths
+    # never cost an LLM call.
 
-    # Otherwise: LLM classification path.
-    _handle_llm_reply(
+    # PRE-AGENT step 1: token match against the live PENDING_CONFIRMATION.
+    # If the user replied to a confirmation prompt with its token (or an
+    # affirmative variant), execute the persisted action deterministically.
+    if _is_live_pending_confirmation(last_outbound) and last_outbound.pending_action:
+        if hotkeys.match_pending_token(body=inbound.body, pending=last_outbound.pending_action):
+            _execute_pending_action(
+                sender=sender,
+                pending=last_outbound.pending_action,
+                last_outbound=last_outbound,
+                provider=provider,
+            )
+            return
+
+    # PRE-AGENT step 2: UNDO within the 5-minute window after an executed
+    # action. UNDO as a bare hotkey is already handled by `_handle_hotkey`
+    # above; this branch is reached if the user texts UNDO as part of a
+    # longer message that didn't match the hotkey regex. We treat that as
+    # a request to undo too — same semantics, same window.
+    if _looks_like_undo(inbound.body) and _is_recent_executed_action(
+        last_outbound, window_min=settings.undo_window_min,
+    ):
+        _undo_last_executed_action(
+            sender=sender,
+            last_outbound=last_outbound,
+            provider=provider,
+        )
+        return
+
+    # PRE-AGENT step 3: clarification cap. If we've already asked `cap`
+    # clarifying questions in a row, escalate to Max without another LLM
+    # call. The cap exists so users don't get stuck in a clarification loop
+    # — "feels like support, not management" is the north star.
+    clarify_streak = _consecutive_clarify_count(
+        user_id=sender.id, since=last_outbound,
+    )
+    if clarify_streak >= settings.clarify_round_max:
+        _escalate_clarify_cap(
+            sender=sender,
+            inbound_doc_id=inbound_doc.id or "",
+            streak=clarify_streak,
+            provider=provider,
+        )
+        return
+
+    # Soft secondary rail: per-user clarification budget per 24h.
+    if sender.id:
+        from datetime import timedelta as _td
+        clarify_24h = messages_repo.count_clarifications_for_user_in_window(
+            sender.id, since=datetime.now(UTC) - _td(hours=24),
+        )
+        if clarify_24h >= settings.clarify_user_24h_max:
+            _escalate_clarify_cap(
+                sender=sender,
+                inbound_doc_id=inbound_doc.id or "",
+                streak=clarify_24h,
+                provider=provider,
+                reason_override=f"User received {clarify_24h} clarification questions in 24h",
+            )
+            return
+
+    # Call the unified agent.
+    context = _build_agent_context(
+        sender=sender,
+        last_outbound=last_outbound,
+        target_opp=target_opp,
+    )
+    try:
+        llm = get_llm_client(settings)
+        output = run_agent(llm=llm, context=context, inbound_text=inbound.body)
+    except Exception as e:  # LLMProviderError or anything else
+        # Agent failure is a flag-for-admin, NOT a silent drop. Better the
+        # user gets the fallback than nothing.
+        flags_repo.create(
+            FlagDoc(
+                message_id=inbound_doc.id or "",
+                flagged_by_user_id=sender.id,
+                reason=f"Unified agent call failed: {type(e).__name__}: {e}",
+                created_at=datetime.now(UTC),
+            )
+        )
+        _reply_and_log(
+            provider=provider, to=sender,
+            body=templates.render_fallback_ambiguous(),
+            opp=target_opp, intent=IntentLabel.CLARIFY,
+        )
+        return
+
+    _route_agent_output(
+        output=output,
         sender=sender,
         target_opp=target_opp,
-        last_outbound_body=last_outbound.body if last_outbound else None,
-        inbound_text=inbound.body,
+        clarify_streak=clarify_streak,
         inbound_doc_id=inbound_doc.id or "",
         provider=provider,
     )
@@ -589,124 +649,58 @@ def _handle_hotkey(
         _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
         return
 
-
-def _handle_farmer_message_with_open_opps(
-    *,
-    sender: UserDoc,
-    farm_id: str,
-    farm_name: str,
-    open_opps: list[OpportunityDoc],
-    inbound_text: str,
-    inbound_doc_id: str,
-    provider,
-) -> None:
-    """Triage a farmer message when their farm has at least one open opp.
-
-    The LLM decides edit / cancel / new_post / clarify. On `new_post` we
-    fall through to the existing _handle_farmer_post path so nothing else
-    changes.
-    """
-    settings = load_settings()
-    llm = get_llm_client(settings)
-    now_local = datetime.now(VASHON_TZ)
-    opp_dicts = [_opp_for_edit_prompt(o) for o in open_opps]
-    decision = classify_farmer_message(
-        llm=llm,
-        farmer_message=inbound_text,
-        open_opps=opp_dicts,
-        now_local=now_local,
-    )
-
-    if decision.action == "escalate":
-        _handle_escalation(
-            sender=sender,
-            inbound_doc_id=inbound_doc_id,
-            provider=provider,
-            reason=decision.escalation_reason,
-            urgency=decision.escalation_urgency,
-            reply_body=None,
-        )
-        return
-
-    if decision.action == "clarify":
-        safe_send(
-            provider,
-            to_phone=sender.phone,
-            body=decision.clarification_question or "Which post are you referring to?",
-        )
-        return
-
-    if decision.action == "cancel" and decision.opp_id:
-        target = next((o for o in open_opps if o.id == decision.opp_id), None)
-        if target is None:
-            safe_send(provider, to_phone=sender.phone, body="Couldn't find that post.")
-            return
-        farmer_ops._do_cancel(opp=target, farm_name=farm_name, messaging=provider)
-        safe_send(
-            provider,
-            to_phone=sender.phone,
-            body=templates.render_cancel_confirmed(summary=farmer_ops.opp_short_summary(target)),
-        )
-        return
-
-    if decision.action == "edit" and decision.opp_id:
-        target = next((o for o in open_opps if o.id == decision.opp_id), None)
-        if target is None:
-            safe_send(provider, to_phone=sender.phone, body="Couldn't find that post.")
-            return
-        field_updates = _normalize_edit_updates(decision.field_updates)
-        if not field_updates:
-            safe_send(
-                provider,
-                to_phone=sender.phone,
-                body="What should change? (time, headcount, requirements, drop location...)",
+    if intent == IntentLabel.UNDO:
+        # Reverse the most recent agent-executed action if within window.
+        settings = load_settings()
+        if _is_recent_executed_action(last_outbound, window_min=settings.undo_window_min):
+            _undo_last_executed_action(
+                sender=sender, last_outbound=last_outbound, provider=provider,
             )
-            return
-        try:
-            updated = farmer_ops.apply_edit(
-                opp=target,
-                field_updates=field_updates,
-                farm_name=farm_name,
-                messaging=provider,
+        else:
+            _reply_and_log(
+                provider=provider, to=sender,
+                body="Nothing recent to undo. Reply with what you'd like to change.",
+                opp=target_opp, intent=intent,
             )
-        except farmer_ops.HeadcountTooLow as e:
-            safe_send(
-                provider,
-                to_phone=sender.phone,
-                body=templates.render_edit_headcount_too_low(currently_filled=e.currently_filled),
+        return
+
+    if intent == IntentLabel.PAUSE:
+        # 14-day mute on agent-initiated nudges. Does NOT affect scheduled
+        # flows the user consented to (confirmation reminders, post-event
+        # check-ins) or direct replies to user-initiated messages.
+        from datetime import timedelta as _td
+        if sender.id:
+            mutes_repo.add(
+                MuteRuleDoc(
+                    user_id=sender.id,
+                    dimension=MuteDimension.AGENT_NUDGE,
+                    value="all",
+                    created_at=datetime.now(UTC),
+                    expires_at=datetime.now(UTC) + _td(days=14),
+                )
             )
-            return
-        safe_send(
-            provider,
-            to_phone=sender.phone,
-            body=templates.render_edit_confirmed(summary=farmer_ops.opp_short_summary(updated)),
+        _reply_and_log(
+            provider=provider, to=sender,
+            body="Farm Friend Vashon: Paused proactive nudges for 14 days. "
+                 "You'll still get messages for shifts you've committed to. "
+                 "Reply RESUME to unpause, or STOP to unsubscribe entirely.",
+            opp=target_opp, intent=intent,
         )
         return
 
-    # action == "new_post" — fall through to the existing handler.
-    _handle_farmer_post(
-        sender=sender,
-        farm_id=farm_id,
-        farm_name=farm_name,
-        inbound_text=inbound_text,
-        inbound_doc_id=inbound_doc_id,
-        provider=provider,
-    )
-
-
-def _opp_for_edit_prompt(opp: OpportunityDoc) -> dict:
-    """Shape an OpportunityDoc for the edit-triage LLM prompt."""
-    return {
-        "id": opp.id,
-        "kind": opp.kind.value,
-        "activity_or_produce": (
-            ", ".join(opp.activity_tags) if opp.kind == OpportunityKind.SHIFT
-            else (opp.produce_description or "surplus")
-        ),
-        "when_human": farmer_ops.opp_short_summary(opp),
-        "headcount_needed": opp.headcount_needed,
-        "seats_filled": opp.seats_filled,
-    }
+    if intent == IntentLabel.RESUME:
+        # Remove agent_nudge mutes (we set them with expires_at, but explicit
+        # RESUME zeros them out now). Lookup-by-dimension is cheap at pilot scale.
+        if sender.id:
+            for rule in mutes_repo.list_for_user(sender.id):
+                if rule.dimension == MuteDimension.AGENT_NUDGE and rule.id:
+                    mutes_repo.delete(rule.id)
+        _reply_and_log(
+            provider=provider, to=sender,
+            body="Farm Friend Vashon: Proactive nudges resumed.",
+            opp=target_opp, intent=intent,
+        )
+        return
 
 
 _EDITABLE_FIELDS = {
@@ -739,182 +733,6 @@ def _normalize_edit_updates(raw: dict) -> dict:
     return out
 
 
-def _handle_farmer_post(
-    *,
-    sender: UserDoc,
-    farm_id: str,
-    farm_name: str,
-    inbound_text: str,
-    inbound_doc_id: str,
-    provider,
-) -> None:
-    """Parse the farmer's free-form posting and create the opportunity.
-
-    If required fields are missing, the opportunity is saved as a draft and
-    a clarification question is sent. Outreach only fires when all required
-    fields are present.
-    """
-    settings = load_settings()
-    llm = get_llm_client(settings)
-    now_local = datetime.now(VASHON_TZ)
-    farm = farms_repo.get_by_id(farm_id)
-    farm_defaults = _farm_defaults_dict(farm)
-
-    parsed = parse_opportunity(
-        llm=llm,
-        farmer_message=inbound_text,
-        farm_name=farm_name,
-        now_local=now_local,
-        farm_defaults=farm_defaults,
-    )
-    if parsed.kind == "other":
-        # Two flavors: the parser thinks this is something the coordinator
-        # needs to see (prefixed ESCALATE:), or it's just not a posting.
-        notes = (parsed.parse_notes or "").strip()
-        if notes.startswith("ESCALATE:"):
-            reason = notes[len("ESCALATE:"):].strip()
-            _handle_escalation(
-                sender=sender,
-                inbound_doc_id=inbound_doc_id,
-                provider=provider,
-                reason=reason,
-                urgency="immediate" if _looks_immediate(reason) else "routine",
-                reply_body=None,  # use the fallback handoff template
-            )
-            return
-        flags_repo.create(
-            FlagDoc(
-                message_id=inbound_doc_id,
-                flagged_by_user_id=sender.id,
-                reason=f"Farmer message didn't parse as a posting: {parsed.parse_notes}",
-                created_at=datetime.now(UTC),
-            )
-        )
-        safe_send(
-            provider,
-            to_phone=sender.phone,
-            body="Didn't quite parse that as a shift or pickup. Coordinator will follow up.",
-        )
-        return
-
-    opp_doc = _opportunity_from_parsed(
-        farm_id=farm_id, parsed=parsed, source_message_id=inbound_doc_id
-    )
-
-    if parsed.missing_fields:
-        # Save as draft and ask the farmer for the missing details. No outreach.
-        created = opportunities_repo.create(opp_doc)
-        safe_send(
-            provider,
-            to_phone=sender.phone,
-            body=templates.render_clarification(question=parsed.clarification_question),
-        )
-        return
-
-    created = opportunities_repo.create(opp_doc)
-    outreach_flow.send_initial_outreach(opp=created, messaging=provider)
-    summary = _farmer_posting_summary(parsed=parsed)
-    safe_send(
-        provider,
-        to_phone=sender.phone,
-        body=templates.render_draft_complete(summary=summary),
-    )
-
-
-def _handle_clarification_reply(
-    *,
-    sender: UserDoc,
-    farm_id: str,
-    farm_name: str,
-    draft: OpportunityDoc,
-    inbound_text: str,
-    inbound_doc_id: str,
-    provider,
-) -> None:
-    """The farmer is replying to our clarification question for `draft`.
-
-    Run the merge parser, persist the merged fields, and either: (a) re-ask
-    if something is still missing, (b) cancel if the farmer bailed, or
-    (c) flip to open + fire outreach if we're complete.
-    """
-    settings = load_settings()
-    llm = get_llm_client(settings)
-    now_local = datetime.now(VASHON_TZ)
-    farm = farms_repo.get_by_id(farm_id)
-    farm_defaults = _farm_defaults_dict(farm)
-    draft_as_parsed = _parsed_from_opportunity(draft)
-
-    merged = merge_clarification_into_draft(
-        llm=llm,
-        draft=draft_as_parsed,
-        farmer_reply=inbound_text,
-        farm_name=farm_name,
-        now_local=now_local,
-        farm_defaults=farm_defaults,
-    )
-
-    if merged.kind == "other":
-        notes = (merged.parse_notes or "").strip()
-        if notes.startswith("ESCALATE:"):
-            reason = notes[len("ESCALATE:"):].strip()
-            # Leave the draft as-is; the admin needs to see the full thread
-            # and decide what to do with the in-progress opp.
-            _handle_escalation(
-                sender=sender,
-                inbound_doc_id=inbound_doc_id,
-                provider=provider,
-                reason=reason,
-                urgency="immediate" if _looks_immediate(reason) else "routine",
-                reply_body=None,
-            )
-            return
-        # Farmer cancelled the post.
-        assert draft.id is not None
-        opportunities_repo.update_status(draft.id, OpportunityStatus.CANCELLED)
-        safe_send(provider, to_phone=sender.phone, body=templates.render_draft_cancelled())
-        return
-
-    assert draft.id is not None
-    field_updates = _merge_updates_for_opportunity(parsed=merged)
-    opportunities_repo.update_fields(draft.id, field_updates)
-
-    if merged.missing_fields:
-        safe_send(
-            provider,
-            to_phone=sender.phone,
-            body=templates.render_clarification(question=merged.clarification_question),
-        )
-        return
-
-    # All required fields are present. Reload the doc with the merged values,
-    # flip to open, and send outreach.
-    refreshed = opportunities_repo.get_by_id(draft.id)
-    if refreshed is None:
-        return
-    opportunities_repo.update_status(draft.id, OpportunityStatus.OPEN)
-    refreshed = refreshed.model_copy(update={"status": OpportunityStatus.OPEN})
-    outreach_flow.send_initial_outreach(opp=refreshed, messaging=provider)
-    summary = _farmer_posting_summary(parsed=merged)
-    safe_send(
-        provider,
-        to_phone=sender.phone,
-        body=templates.render_draft_complete(summary=summary),
-    )
-
-
-def _find_recent_draft(*, farm_id: str) -> OpportunityDoc | None:
-    """Look back ~2h for a draft from this farm. We use the most recent.
-
-    Two hours is the same window the stale-draft tick uses to flag abandoned
-    drafts, so the boundaries line up: a farmer either finishes the dialog
-    within the window, or it gets flagged for admin review.
-    """
-    from datetime import timedelta
-    since = datetime.now(UTC) - timedelta(hours=2)
-    drafts = opportunities_repo.list_recent_drafts_for_farm(farm_id=farm_id, since=since)
-    return drafts[0] if drafts else None
-
-
 def _farm_defaults_dict(farm) -> dict | None:
     if farm is None:
         return None
@@ -923,25 +741,6 @@ def _farm_defaults_dict(farm) -> dict | None:
         "typical_shift_duration_min": farm.typical_shift_duration_min,
         "usual_days_of_week": farm.usual_days_of_week,
     }
-
-
-def _parsed_from_opportunity(opp: OpportunityDoc):
-    """Re-build a ParsedOpportunity-ish dict from a persisted draft so the merge
-    parser sees what we already have. We pass datetimes back as ISO strings
-    to match the original parser's wire format."""
-    from app.agent.parser import ParsedOpportunity
-    return ParsedOpportunity(
-        kind="shift" if opp.kind == OpportunityKind.SHIFT else "pickup",
-        starts_at=opp.starts_at.isoformat() if opp.starts_at else None,
-        duration_min=opp.duration_min,
-        headcount_needed=opp.headcount_needed if opp.headcount_needed else None,
-        activity_tags=list(opp.activity_tags),
-        requirements_text=opp.requirements_text,
-        deadline_at=opp.deadline_at.isoformat() if opp.deadline_at else None,
-        produce_description=opp.produce_description,
-        destination=opp.destination,
-        vehicle_needed=opp.vehicle_needed,
-    )
 
 
 def _merge_updates_for_opportunity(*, parsed) -> dict:
@@ -980,120 +779,6 @@ def _merge_updates_for_opportunity(*, parsed) -> dict:
         if parsed.vehicle_needed is not None:
             updates["vehicle_needed"] = parsed.vehicle_needed
     return updates
-
-
-def _handle_llm_reply(
-    *,
-    sender: UserDoc,
-    target_opp: OpportunityDoc | None,
-    last_outbound_body: str | None,
-    inbound_text: str,
-    inbound_doc_id: str,
-    provider,
-) -> None:
-    settings = load_settings()
-    llm = get_llm_client(settings)
-    classification = classify_reply(
-        llm=llm,
-        inbound_text=inbound_text,
-        volunteer_name=sender.name,
-        recent_outbound_body=last_outbound_body,
-        opportunity=target_opp,
-    )
-
-    threshold = settings.classifier_confidence_threshold
-
-    # ESCALATE — always act, regardless of confidence. The model's confidence
-    # on an escalation reflects "should we escalate" not "should we auto-reply".
-    if classification.intent == "ESCALATE":
-        _handle_escalation(
-            sender=sender,
-            inbound_doc_id=inbound_doc_id,
-            provider=provider,
-            reason=classification.escalation_reason or classification.rationale,
-            urgency=classification.escalation_urgency,
-            reply_body=classification.draft_reply,
-            target_opp=target_opp,
-        )
-        return
-
-    # High-confidence soft CLAIM — route to claim handler.
-    if classification.intent == "CLAIM" and target_opp and classification.confidence >= threshold:
-        farm = farms_repo.get_by_id(target_opp.farm_id)
-        farmer = users_repo.get_by_id(farm.owner_user_id) if farm else None
-        reply = claim_flow.handle_claim(
-            messaging=provider,
-            opportunity=target_opp,
-            volunteer=sender,
-            slots=1,
-            farm_name=farm.name if farm else "the farm",
-            notify_farmer_phone=farmer.phone if farmer else None,
-        )
-        _reply_and_log(
-            provider=provider, to=sender, body=reply, opp=target_opp, intent=IntentLabel.CLAIM
-        )
-        return
-
-    # High-confidence soft MAYBE — record interest without a seat.
-    if classification.intent == "MAYBE" and target_opp and classification.confidence >= threshold:
-        farm = farms_repo.get_by_id(target_opp.farm_id)
-        reply = claim_flow.handle_maybe(
-            opportunity=target_opp,
-            volunteer=sender,
-            farm_name=farm.name if farm else "the farm",
-        )
-        _reply_and_log(
-            provider=provider, to=sender, body=reply, opp=target_opp, intent=IntentLabel.MAYBE
-        )
-        return
-
-    # High-confidence non-claim with a draft reply — send it.
-    if classification.draft_reply and classification.confidence >= threshold:
-        _reply_and_log(
-            provider=provider,
-            to=sender,
-            body=classification.draft_reply,
-            opp=target_opp,
-            intent=_label_from_intent_string(classification.intent),
-            confidence=classification.confidence,
-        )
-        return
-
-    # Below threshold — second pass with the stronger model.
-    resolution = resolve_ambiguous(
-        llm=llm,
-        inbound_text=inbound_text,
-        volunteer_name=sender.name,
-        recent_outbound_body=last_outbound_body,
-        opportunity=target_opp,
-        prior=classification,
-    )
-    if resolution.escalate or not resolution.reply:
-        flags_repo.create(
-            FlagDoc(
-                message_id=inbound_doc_id,
-                flagged_by_user_id=None,
-                reason=f"Agent escalated. Prior: {classification.intent} ({classification.confidence:.2f}). {resolution.reason}",
-                created_at=datetime.now(UTC),
-            )
-        )
-        _reply_and_log(
-            provider=provider,
-            to=sender,
-            body=templates.render_fallback_ambiguous(),
-            opp=target_opp,
-            intent=IntentLabel.AMBIGUOUS,
-            confidence=classification.confidence,
-        )
-        return
-    _reply_and_log(
-        provider=provider,
-        to=sender,
-        body=resolution.reply,
-        opp=target_opp,
-        intent=_label_from_intent_string(classification.intent),
-        confidence=classification.confidence,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1196,13 +881,6 @@ def _reply_and_log(
     )
 
 
-def _label_from_intent_string(s: str) -> IntentLabel:
-    try:
-        return IntentLabel(s)
-    except ValueError:
-        return IntentLabel.AMBIGUOUS
-
-
 def _is_post_event_question(last_outbound: MessageDoc | None, opp: OpportunityDoc | None) -> bool:
     """True iff the user's last outbound was the post-event checkin SMS.
 
@@ -1229,26 +907,6 @@ def _looks_immediate(text: str) -> bool:
     upstream classifier didn't emit an explicit urgency."""
     t = (text or "").lower()
     return any(k in t for k in _IMMEDIATE_KEYWORDS)
-
-
-def _looks_like_posting(text: str) -> bool:
-    """Heuristic: does this read like a farmer posting a shift/pickup?
-    Loose check; the LLM will classify rigorously."""
-    t = text.lower()
-    keywords = (
-        "need",
-        "harvest",
-        "pickup",
-        "pick up",
-        "weed",
-        "glean",
-        "plant",
-        "volunteers",
-        "help",
-        "surplus",
-        "extra",
-    )
-    return any(k in t for k in keywords) and len(text) > 20
 
 
 def _opportunity_from_parsed(*, farm_id: str, parsed, source_message_id: str) -> OpportunityDoc:
@@ -1317,3 +975,1035 @@ def _farmer_posting_summary(*, parsed) -> str:
         dest = f", drop at {parsed.destination}" if parsed.destination else ""
         return f"pickup of {produce} {when_str}{dest}"
     return "posting"
+
+
+# ===========================================================================
+# Unified-agent dispatch helpers
+# ===========================================================================
+# Everything below is for the unified-agent path. The pre-agent functions
+# (`_is_live_pending_confirmation`, `_is_recent_executed_action`, etc.) run
+# BEFORE the agent is invoked. The post-agent function (`_route_agent_output`)
+# turns the agent's structured output into Firestore writes + SMS sends.
+#
+# The single invariant: the agent never writes to Firestore. All state changes
+# happen here, in functions called by `_route_agent_output` after the user
+# has confirmed via a token reply.
+
+
+def _is_live_pending_confirmation(last_outbound: MessageDoc | None) -> bool:
+    """True if the user's last outbound is a PENDING_CONFIRMATION whose
+    `expires_at` (if set) hasn't passed. The agent prompt also enforces token
+    freshness via the context payload, but dispatch is the source of truth."""
+    if last_outbound is None:
+        return False
+    if last_outbound.intent_label != IntentLabel.PENDING_CONFIRMATION:
+        return False
+    pending = last_outbound.pending_action or {}
+    expires_at_iso = pending.get("expires_at")
+    if expires_at_iso:
+        try:
+            expires_at = datetime.fromisoformat(expires_at_iso.replace("Z", "+00:00"))
+            if datetime.now(UTC) > expires_at:
+                return False
+        except (ValueError, AttributeError):
+            pass
+    return True
+
+
+def _is_recent_executed_action(
+    last_outbound: MessageDoc | None, *, window_min: int,
+) -> bool:
+    """True if `last_outbound` is an ACTION_RECEIPT executed within the UNDO
+    window. Used both by the pre-agent UNDO branch and the hotkey UNDO branch."""
+    if last_outbound is None:
+        return False
+    if last_outbound.intent_label != IntentLabel.ACTION_RECEIPT:
+        return False
+    executed = last_outbound.executed_action or {}
+    executed_at_iso = executed.get("executed_at")
+    if not executed_at_iso:
+        return False
+    try:
+        executed_at = datetime.fromisoformat(executed_at_iso.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return False
+    from datetime import timedelta as _td
+    return datetime.now(UTC) - executed_at <= _td(minutes=window_min)
+
+
+def _looks_like_undo(text: str) -> bool:
+    """Loose check for free-form undo phrasing that didn't match the UNDO hotkey.
+    Conservative — when in doubt, let the agent decide."""
+    t = text.lower().strip()
+    return t in {"undo", "undo!", "undo.", "undo that", "nevermind", "never mind"}
+
+
+def _consecutive_clarify_count(
+    *, user_id: str | None, since: MessageDoc | None,
+) -> int:
+    """Count of CLARIFY outbounds at the tail of this user's outbound stream.
+
+    Read off `clarification_round` on the most recent outbound — the field
+    tracks the streak. Reset to 0 when last_outbound is anything other than
+    CLARIFY (the user got unstuck on the previous turn)."""
+    if not user_id or since is None:
+        return 0
+    if since.intent_label != IntentLabel.CLARIFY:
+        return 0
+    return since.clarification_round or 0
+
+
+def _escalate_clarify_cap(
+    *,
+    sender: UserDoc,
+    inbound_doc_id: str,
+    streak: int,
+    provider,
+    reason_override: str | None = None,
+) -> None:
+    """Auto-escalate after the clarification cap is reached. Creates a FLAG
+    (which pauses further auto-replies on this thread per the existing
+    FLAG-pauses-thread invariant) and sends the fallback reply."""
+    reason = reason_override or (
+        f"Auto-escalation: {streak} consecutive clarification rounds did not "
+        f"resolve the user's message."
+    )
+    flags_repo.create(
+        FlagDoc(
+            message_id=inbound_doc_id,
+            flagged_by_user_id=sender.id,
+            reason=reason,
+            created_at=datetime.now(UTC),
+        )
+    )
+    _reply_and_log(
+        provider=provider, to=sender,
+        body=templates.render_fallback_ambiguous(),
+        opp=None, intent=IntentLabel.ESCALATE,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Building the agent context
+# ---------------------------------------------------------------------------
+def _build_agent_context(
+    *,
+    sender: UserDoc,
+    last_outbound: MessageDoc | None,
+    target_opp: OpportunityDoc | None,
+) -> AgentContext:
+    """Assemble the AgentContext payload the unified agent sees.
+
+    Includes: sender state, recent message excerpts, the live pending action
+    (if any), the live executed action (if within UNDO window), the sender's
+    open claims (volunteer side), the sender's farm + open opps (farmer side),
+    cross-cutting open opps across all farms (for queries / matching).
+    """
+    now_local = datetime.now(VASHON_TZ)
+
+    # Sender's own confirmed/interested claims, lifted to ClaimSummary shape.
+    sender_claims: list[ClaimSummary] = []
+    if sender.id:
+        # Walk the sender's recent messages to find opps they have claims on.
+        # Cheaper than scanning every claim subcollection across all opps.
+        recent_msgs = messages_repo.list_for_user(sender.id, limit=50)
+        seen_opp_ids: set[str] = set()
+        for msg in recent_msgs:
+            if not msg.opportunity_id or msg.opportunity_id in seen_opp_ids:
+                continue
+            seen_opp_ids.add(msg.opportunity_id)
+            claim = opportunities_repo.get_claim(
+                opp_id=msg.opportunity_id, volunteer_user_id=sender.id,
+            )
+            if claim is None or claim.status == ClaimStatus.DROPPED:
+                continue
+            opp = opportunities_repo.get_by_id(msg.opportunity_id)
+            if opp is None or opp.status in (
+                OpportunityStatus.COMPLETED, OpportunityStatus.CANCELLED, OpportunityStatus.EXPIRED,
+            ):
+                continue
+            farm = farms_repo.get_by_id(opp.farm_id)
+            sender_claims.append(_claim_summary_from(opp=opp, claim=claim, farm=farm))
+
+    # Farmer-side: own farm + open opps + defaults.
+    sender_farm_id: str | None = None
+    sender_farm_name: str | None = None
+    sender_farm_defaults: dict | None = None
+    sender_farm_open_opps: list[OppSummary] = []
+    if sender.id and sender.role in (UserRole.FARMER, UserRole.BOTH):
+        farm = farms_repo.get_by_owner(sender.id)
+        if farm and farm.id:
+            sender_farm_id = farm.id
+            sender_farm_name = farm.name
+            sender_farm_defaults = _farm_defaults_dict(farm)
+            for opp in opportunities_repo.list_open_for_farm(farm.id):
+                sender_farm_open_opps.append(_opp_summary_from(opp=opp, farm=farm))
+
+    # Cross-cutting: all OPEN/FILLING opps system-wide. At pilot scale this
+    # is small (2-3 farms × maybe 5 opps each). Revisit caps if it grows.
+    cross_cutting: list[OppSummary] = []
+    all_farms = {f.id: f for f in farms_repo.list_all() if f.id}
+    for farm_id, farm in all_farms.items():
+        if farm_id == sender_farm_id:
+            continue  # already in sender_farm_open_opps
+        for opp in opportunities_repo.list_open_for_farm(farm_id):
+            cross_cutting.append(_opp_summary_from(opp=opp, farm=farm))
+
+    # Live pending action and executed action, if alive.
+    pending_action = None
+    executed_action = None
+    last_outbound_opp_summary: OppSummary | None = None
+    if last_outbound is not None:
+        if _is_live_pending_confirmation(last_outbound):
+            pending_action = last_outbound.pending_action
+        # Executed action freshness uses the configured UNDO window.
+        settings = load_settings()
+        if _is_recent_executed_action(last_outbound, window_min=settings.undo_window_min):
+            executed_action = last_outbound.executed_action
+        # Summarize the opp last_outbound was about, if any.
+        if target_opp:
+            farm = farms_repo.get_by_id(target_opp.farm_id)
+            last_outbound_opp_summary = _opp_summary_from(opp=target_opp, farm=farm)
+
+    # Per-opportunity message excerpt (last 5 on the targeted opp).
+    opp_excerpt: list[MessageExcerpt] = []
+    if target_opp and target_opp.id:
+        for msg in messages_repo.list_for_opportunity(target_opp.id, limit=5):
+            opp_excerpt.append(_excerpt_from(msg))
+
+    # Per-user message excerpt (last 3 to / from this user, any opp).
+    user_excerpt: list[MessageExcerpt] = []
+    if sender.id:
+        for msg in messages_repo.list_for_user(sender.id, limit=3):
+            user_excerpt.append(_excerpt_from(msg))
+
+    # Mute summary — render as a list of "dim:value" strings for the prompt.
+    mute_summary: list[str] = []
+    if sender.id:
+        for rule in mutes_repo.list_for_user(sender.id):
+            mute_summary.append(f"{rule.dimension.value}:{rule.value}")
+
+    return AgentContext(
+        now_local_iso=now_local.isoformat(),
+        sender_role=sender.role.value,
+        sender_name=sender.name,
+        sender_phone=sender.phone,
+        sender_availability={
+            "available_days": sender.available_days,
+            "available_start_hour": sender.available_start_hour,
+            "available_end_hour": sender.available_end_hour,
+            "max_commit_hours_per_week": sender.max_commit_hours_per_week,
+        },
+        sender_activity_preferences=sender.activity_preferences,
+        sender_mute_summary=mute_summary,
+        sender_open_claims=sender_claims,
+        sender_farm_id=sender_farm_id,
+        sender_farm_name=sender_farm_name,
+        sender_farm_defaults=sender_farm_defaults,
+        sender_farm_open_opps=sender_farm_open_opps,
+        last_outbound_body=last_outbound.body if last_outbound else None,
+        last_outbound_intent=(
+            last_outbound.intent_label.value if last_outbound and last_outbound.intent_label else None
+        ),
+        last_outbound_clarification_round=(
+            last_outbound.clarification_round if last_outbound else 0
+        ),
+        last_outbound_opp_summary=last_outbound_opp_summary,
+        pending_action=pending_action,
+        executed_action=executed_action,
+        cross_cutting_opps=cross_cutting,
+        known_farms=[{"id": fid, "name": f.name} for fid, f in all_farms.items()],
+        canonical_activities=list(CANONICAL_ACTIVITIES),
+        opp_message_excerpt=opp_excerpt,
+        user_recent_excerpt=user_excerpt,
+    )
+
+
+def _opp_summary_from(*, opp: OpportunityDoc, farm) -> OppSummary:
+    activity_or_produce = (
+        ", ".join(opp.activity_tags) if opp.kind == OpportunityKind.SHIFT
+        else (opp.produce_description or "surplus")
+    )
+    return OppSummary(
+        opp_id=opp.id or "",
+        farm_name=farm.name if farm else "unknown farm",
+        kind=opp.kind.value,
+        status=opp.status.value,
+        when_human=farmer_ops.opp_short_summary(opp),
+        activity_or_produce=activity_or_produce,
+        headcount_needed=opp.headcount_needed,
+        seats_filled=opp.seats_filled,
+        requirements_text=opp.requirements_text or "",
+    )
+
+
+def _claim_summary_from(*, opp: OpportunityDoc, claim, farm) -> ClaimSummary:
+    activity_or_produce = (
+        ", ".join(opp.activity_tags) if opp.kind == OpportunityKind.SHIFT
+        else (opp.produce_description or "surplus")
+    )
+    return ClaimSummary(
+        opp_id=opp.id or "",
+        opp_kind=opp.kind.value,
+        farm_name=farm.name if farm else "unknown farm",
+        activity_or_produce=activity_or_produce,
+        when_human=farmer_ops.opp_short_summary(opp),
+        status=claim.status.value,
+    )
+
+
+def _excerpt_from(msg: MessageDoc) -> MessageExcerpt:
+    return MessageExcerpt(
+        direction=msg.direction.value,
+        body=msg.body[:200],  # truncate long bodies
+        intent_label=msg.intent_label.value if msg.intent_label else None,
+        created_at_iso=msg.created_at.isoformat(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Routing the agent's output
+# ---------------------------------------------------------------------------
+def _route_agent_output(
+    *,
+    output: AgentOutput,
+    sender: UserDoc,
+    target_opp: OpportunityDoc | None,
+    clarify_streak: int,
+    inbound_doc_id: str,
+    provider,
+) -> None:
+    """Switch on `output.mode` and dispatch accordingly."""
+    if output.mode == "reply":
+        _reply_and_log(
+            provider=provider, to=sender, body=output.reply_text,
+            opp=target_opp, intent=IntentLabel.QUESTION,
+        )
+        return
+
+    if output.mode == "clarify":
+        _send_clarify(
+            sender=sender, body=output.reply_text,
+            previous_streak=clarify_streak, target_opp=target_opp, provider=provider,
+        )
+        return
+
+    if output.mode == "confirm":
+        _send_pending_confirmation(
+            sender=sender, output=output, target_opp=target_opp, provider=provider,
+        )
+        return
+
+    if output.mode == "execute":
+        # The agent emitted execute directly (rare — mainly acknowledge_post_event).
+        _execute_action(
+            sender=sender, action_payload=_extract_action_payload(output),
+            action_name=output.action.name if output.action else "",
+            target_opp=target_opp, provider=provider,
+        )
+        return
+
+    if output.mode == "escalate":
+        urgency = output.escalation.urgency if output.escalation else "routine"
+        reason = output.escalation.reason if output.escalation else "agent escalated"
+        _handle_escalation(
+            sender=sender, inbound_doc_id=inbound_doc_id, provider=provider,
+            reason=reason, urgency=urgency,
+            reply_body=output.reply_text or None,
+            target_opp=target_opp,
+        )
+        return
+
+    # Unknown mode — flag and fallback. Shouldn't happen given JSON schema validation.
+    flags_repo.create(
+        FlagDoc(
+            message_id=inbound_doc_id,
+            flagged_by_user_id=sender.id,
+            reason=f"Agent emitted unknown mode={output.mode!r}",
+            created_at=datetime.now(UTC),
+        )
+    )
+    _reply_and_log(
+        provider=provider, to=sender,
+        body=templates.render_fallback_ambiguous(),
+        opp=target_opp, intent=IntentLabel.CLARIFY,
+    )
+
+
+def _send_clarify(
+    *,
+    sender: UserDoc,
+    body: str,
+    previous_streak: int,
+    target_opp: OpportunityDoc | None,
+    provider,
+) -> None:
+    """Send a CLARIFY outbound, stamping the clarification_round counter."""
+    next_round = previous_streak + 1
+    provider_id = safe_send(provider, to_phone=sender.phone, body=body)
+    if provider_id is None:
+        return
+    messages_repo.create(
+        MessageDoc(
+            direction=MessageDirection.OUTBOUND,
+            provider_msg_id=provider_id,
+            user_id=sender.id,
+            opportunity_id=target_opp.id if target_opp else None,
+            body=body,
+            intent_label=IntentLabel.CLARIFY,
+            clarification_round=next_round,
+            created_at=datetime.now(UTC),
+        )
+    )
+
+
+def _send_pending_confirmation(
+    *,
+    sender: UserDoc,
+    output: AgentOutput,
+    target_opp: OpportunityDoc | None,
+    provider,
+) -> None:
+    """Send a PENDING_CONFIRMATION outbound, persisting the action payload
+    so dispatch can execute it deterministically when the user replies with
+    the token (or an affirmative variant).
+
+    Guardrails enforced here, NOT trusted to the prompt:
+      - Token must match the regex AND not collide with a reserved hotkey.
+        If either check fails, we flag and reply with a generic clarify.
+      - The action and its payload must round-trip through the discriminated
+        union (handled by pydantic validation on AgentOutput).
+    """
+    settings = load_settings()
+    token = (output.confirmation_token or "").upper()
+    if not _is_valid_token(token):
+        flags_repo.create(
+            FlagDoc(
+                message_id=None,  # not tied to a single inbound
+                flagged_by_user_id=sender.id,
+                reason=f"Agent proposed invalid confirmation token: {token!r}",
+                created_at=datetime.now(UTC),
+            )
+        )
+        _reply_and_log(
+            provider=provider, to=sender,
+            body=templates.render_fallback_ambiguous(),
+            opp=target_opp, intent=IntentLabel.CLARIFY,
+        )
+        return
+
+    if output.action is None:
+        # Shouldn't happen — schema requires action for confirm mode.
+        return
+
+    from datetime import timedelta as _td
+    pending_payload = {
+        "action": output.action.name,
+        "token": token,
+        "payload": _extract_action_payload(output),
+        "expires_at": (datetime.now(UTC) + _td(minutes=30)).isoformat(),
+    }
+    provider_id = safe_send(provider, to_phone=sender.phone, body=output.reply_text)
+    if provider_id is None:
+        return
+    messages_repo.create(
+        MessageDoc(
+            direction=MessageDirection.OUTBOUND,
+            provider_msg_id=provider_id,
+            user_id=sender.id,
+            opportunity_id=target_opp.id if target_opp else None,
+            body=output.reply_text,
+            intent_label=IntentLabel.PENDING_CONFIRMATION,
+            pending_action=pending_payload,
+            created_at=datetime.now(UTC),
+        )
+    )
+
+
+def _is_valid_token(token: str) -> bool:
+    """Token must be 5–8 uppercase alphanumeric, not collide with a hotkey.
+
+    UNDO is the one exception — the agent may use UNDO as a token for the
+    `undo_last` action, since UNDO is itself a deterministic hotkey and the
+    semantics line up. All other reserved hotkeys are off-limits.
+    """
+    if token == "UNDO":
+        return True
+    if not re.match(r"^[A-Z][A-Z0-9]{4,7}$", token):
+        return False
+    return token not in hotkeys.RESERVED_HOTKEY_TOKENS
+
+
+def _extract_action_payload(output: AgentOutput) -> dict:
+    """Pull the populated payload sub-model into a plain dict for persistence."""
+    if output.action is None:
+        return {}
+    payload_obj = getattr(output.action, output.action.name, None)
+    if payload_obj is None:
+        return {}
+    return payload_obj.model_dump(exclude_none=False, mode="json")
+
+
+# ---------------------------------------------------------------------------
+# Executing the persisted action (called when user confirms via token)
+# ---------------------------------------------------------------------------
+def _execute_pending_action(
+    *,
+    sender: UserDoc,
+    pending: dict,
+    last_outbound: MessageDoc,
+    provider,
+) -> None:
+    """The user confirmed a pending action via token. Execute the persisted
+    payload deterministically — no LLM call here."""
+    target_opp = (
+        opportunities_repo.get_by_id(last_outbound.opportunity_id)
+        if last_outbound.opportunity_id else None
+    )
+    _execute_action(
+        sender=sender,
+        action_payload=pending.get("payload") or {},
+        action_name=pending.get("action") or "",
+        target_opp=target_opp,
+        provider=provider,
+    )
+
+
+def _execute_action(
+    *,
+    sender: UserDoc,
+    action_payload: dict,
+    action_name: str,
+    target_opp: OpportunityDoc | None,
+    provider,
+) -> None:
+    """Run the named action and send a receipt SMS.
+
+    Each action maps to an existing flow function (or a small new one for
+    the refactor-introduced actions: set_availability, set_activity_preferences,
+    record_offer, undo_last). After the action runs, an ACTION_RECEIPT outbound
+    is sent so the user sees what happened and can UNDO within the window.
+    """
+    receipt_body: str | None = None
+    receipt_opp_id: str | None = None
+    executed_payload = {
+        "action": action_name,
+        "payload": action_payload,
+        "executed_at": datetime.now(UTC).isoformat(),
+        "undo_token": "UNDO",
+    }
+
+    if action_name == "claim_opportunity":
+        receipt_body, receipt_opp_id = _execute_claim_opportunity(
+            sender=sender, payload=action_payload, provider=provider,
+        )
+    elif action_name == "record_maybe":
+        receipt_body, receipt_opp_id = _execute_record_maybe(
+            sender=sender, payload=action_payload,
+        )
+    elif action_name == "drop_confirmed_claim":
+        receipt_body, receipt_opp_id = _execute_drop_confirmed_claim(
+            sender=sender, payload=action_payload, provider=provider,
+        )
+    elif action_name == "cancel_opportunity":
+        receipt_body, receipt_opp_id = _execute_cancel_opportunity(
+            sender=sender, payload=action_payload, provider=provider,
+        )
+    elif action_name == "edit_opportunity":
+        receipt_body, receipt_opp_id = _execute_edit_opportunity(
+            sender=sender, payload=action_payload, provider=provider,
+        )
+    elif action_name == "create_opportunity":
+        receipt_body, receipt_opp_id = _execute_create_opportunity(
+            sender=sender, payload=action_payload, provider=provider,
+        )
+    elif action_name == "update_draft_opportunity":
+        receipt_body, receipt_opp_id = _execute_update_draft_opportunity(
+            sender=sender, payload=action_payload, provider=provider,
+        )
+    elif action_name == "acknowledge_post_event":
+        receipt_body, receipt_opp_id = _execute_acknowledge_post_event(
+            sender=sender, payload=action_payload, provider=provider,
+        )
+    elif action_name == "add_mute_rule":
+        receipt_body, receipt_opp_id = _execute_add_mute_rule(
+            sender=sender, payload=action_payload,
+        )
+    elif action_name == "set_availability":
+        receipt_body, receipt_opp_id = _execute_set_availability(
+            sender=sender, payload=action_payload,
+        )
+    elif action_name == "set_activity_preferences":
+        receipt_body, receipt_opp_id = _execute_set_activity_preferences(
+            sender=sender, payload=action_payload,
+        )
+    elif action_name == "record_offer":
+        receipt_body, receipt_opp_id = _execute_record_offer(
+            sender=sender, payload=action_payload,
+        )
+    else:
+        # Unknown action — flag and bail. Schema validation should have caught this.
+        flags_repo.create(
+            FlagDoc(
+                message_id=None,
+                flagged_by_user_id=sender.id,
+                reason=f"Unknown action_name in execute: {action_name!r}",
+                created_at=datetime.now(UTC),
+            )
+        )
+        return
+
+    if receipt_body is None:
+        # Execution failed (e.g. opp not found) — receipt_body=None means
+        # something went wrong and the action-specific helper already replied
+        # with a contextual error. No ACTION_RECEIPT in that case.
+        return
+
+    # Send the receipt SMS. Stamping it as ACTION_RECEIPT enables the UNDO
+    # window for the next inbound from this user.
+    provider_id = safe_send(provider, to_phone=sender.phone, body=receipt_body)
+    if provider_id is None:
+        return
+    messages_repo.create(
+        MessageDoc(
+            direction=MessageDirection.OUTBOUND,
+            provider_msg_id=provider_id,
+            user_id=sender.id,
+            opportunity_id=receipt_opp_id,
+            body=receipt_body,
+            intent_label=IntentLabel.ACTION_RECEIPT,
+            executed_action=executed_payload,
+            created_at=datetime.now(UTC),
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Per-action executors
+# Each returns (receipt_body, receipt_opp_id_or_None). receipt_body=None on
+# failure (the executor already replied with an error message).
+# ---------------------------------------------------------------------------
+def _execute_claim_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    opp_id = payload.get("opp_id")
+    slots = int(payload.get("slots", 1) or 1)
+    if not opp_id:
+        return None, None
+    opp = opportunities_repo.get_by_id(opp_id)
+    if opp is None:
+        safe_send(provider, to_phone=sender.phone,
+                  body="That post is no longer available.")
+        return None, None
+    farm = farms_repo.get_by_id(opp.farm_id)
+    farmer = users_repo.get_by_id(farm.owner_user_id) if farm else None
+    reply = claim_flow.handle_claim(
+        messaging=provider,
+        opportunity=opp,
+        volunteer=sender,
+        slots=slots,
+        farm_name=farm.name if farm else "the farm",
+        notify_farmer_phone=farmer.phone if farmer else None,
+    )
+    # `handle_claim` already returns the user-facing ack text; we use that
+    # plus a one-line UNDO hint as the receipt.
+    receipt = f"{reply} Reply UNDO within 5 min if that wasn't right."
+    return receipt, opp_id
+
+
+def _execute_record_maybe(*, sender: UserDoc, payload: dict) -> tuple[str | None, str | None]:
+    opp_id = payload.get("opp_id")
+    if not opp_id:
+        return None, None
+    opp = opportunities_repo.get_by_id(opp_id)
+    if opp is None:
+        return None, None
+    farm = farms_repo.get_by_id(opp.farm_id)
+    reply = claim_flow.handle_maybe(
+        opportunity=opp,
+        volunteer=sender,
+        farm_name=farm.name if farm else "the farm",
+    )
+    receipt = f"{reply} Reply UNDO within 5 min if that wasn't right."
+    return receipt, opp_id
+
+
+def _execute_drop_confirmed_claim(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    opp_id = payload.get("opp_id")
+    if not opp_id:
+        return None, None
+    opp = opportunities_repo.get_by_id(opp_id)
+    if opp is None:
+        return None, None
+    reply = claim_flow.handle_volunteer_drop(
+        messaging=provider, opportunity=opp, volunteer=sender,
+    )
+    receipt = f"{reply} Reply UNDO within 5 min if that wasn't right."
+    return receipt, opp_id
+
+
+def _execute_cancel_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    opp_id = payload.get("opp_id")
+    if not opp_id:
+        return None, None
+    opp = opportunities_repo.get_by_id(opp_id)
+    if opp is None:
+        return None, None
+    farm = farms_repo.get_by_id(opp.farm_id)
+    farm_name = farm.name if farm else "the farm"
+    farmer_ops._do_cancel(opp=opp, farm_name=farm_name, messaging=provider)
+    summary = farmer_ops.opp_short_summary(opp)
+    receipt = (
+        f"Farm Friend Vashon: cancelled {summary}. Confirmed volunteers "
+        f"notified. Reply UNDO within 5 min if wrong."
+    )
+    return receipt, opp_id
+
+
+def _execute_edit_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    opp_id = payload.get("opp_id")
+    raw_updates = payload.get("field_updates") or {}
+    if not opp_id or not raw_updates:
+        return None, None
+    opp = opportunities_repo.get_by_id(opp_id)
+    if opp is None:
+        return None, None
+    farm = farms_repo.get_by_id(opp.farm_id)
+    farm_name = farm.name if farm else "the farm"
+    field_updates = _normalize_edit_updates(raw_updates)
+    try:
+        updated = farmer_ops.apply_edit(
+            opp=opp, field_updates=field_updates, farm_name=farm_name, messaging=provider,
+        )
+    except farmer_ops.HeadcountTooLow as e:
+        safe_send(
+            provider, to_phone=sender.phone,
+            body=templates.render_edit_headcount_too_low(currently_filled=e.currently_filled),
+        )
+        return None, None
+    summary = farmer_ops.opp_short_summary(updated)
+    receipt = (
+        f"Farm Friend Vashon: updated {summary}. Confirmed volunteers notified. "
+        f"Reply UNDO within 5 min if wrong."
+    )
+    return receipt, opp_id
+
+
+def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    parsed_raw = payload.get("parsed") or {}
+    parsed = ParsedOpportunity.model_validate(parsed_raw)
+    # Server-authoritative missing-fields check — never trust the agent.
+    missing = compute_missing_fields(parsed)
+    if missing:
+        # The agent shouldn't have emitted create_opportunity with missing
+        # required fields, but if it did, fall back to a clarification.
+        flags_repo.create(
+            FlagDoc(
+                message_id=None,
+                flagged_by_user_id=sender.id,
+                reason=f"Agent tried create_opportunity with missing required fields: {missing}",
+                created_at=datetime.now(UTC),
+            )
+        )
+        safe_send(
+            provider, to_phone=sender.phone,
+            body=f"Missing some details before I can post that: {', '.join(missing)}",
+        )
+        return None, None
+    farm = farms_repo.get_by_owner(sender.id) if sender.id else None
+    if farm is None or farm.id is None:
+        return None, None
+    opp_doc = _opportunity_from_parsed(
+        farm_id=farm.id, parsed=parsed, source_message_id="",
+    )
+    # Posts go live immediately on a successful create_opportunity execute —
+    # the user has just confirmed via token, so no DRAFT bounce.
+    opp_doc = opp_doc.model_copy(update={"status": OpportunityStatus.OPEN})
+    created = opportunities_repo.create(opp_doc)
+    outreach_flow.send_initial_outreach(opp=created, messaging=provider)
+    summary = _farmer_posting_summary(parsed=parsed)
+    receipt = (
+        f"Farm Friend Vashon: posted {summary}. Pinging insiders now. "
+        f"Reply UNDO within 5 min if wrong."
+    )
+    return receipt, created.id
+
+
+def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    opp_id = payload.get("opp_id")
+    parsed_raw = payload.get("parsed") or {}
+    if not opp_id:
+        return None, None
+    parsed = ParsedOpportunity.model_validate(parsed_raw)
+    missing = compute_missing_fields(parsed)
+    if missing:
+        safe_send(
+            provider, to_phone=sender.phone,
+            body=f"Still need: {', '.join(missing)}",
+        )
+        return None, None
+    field_updates = _merge_updates_for_opportunity(parsed=parsed)
+    opportunities_repo.update_fields(opp_id, field_updates)
+    opportunities_repo.update_status(opp_id, OpportunityStatus.OPEN)
+    refreshed = opportunities_repo.get_by_id(opp_id)
+    if refreshed is None:
+        return None, None
+    refreshed = refreshed.model_copy(update={"status": OpportunityStatus.OPEN})
+    outreach_flow.send_initial_outreach(opp=refreshed, messaging=provider)
+    summary = _farmer_posting_summary(parsed=parsed)
+    receipt = (
+        f"Farm Friend Vashon: posted {summary}. Pinging insiders now. "
+        f"Reply UNDO within 5 min if wrong."
+    )
+    return receipt, opp_id
+
+
+def _execute_acknowledge_post_event(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    opp_id = payload.get("opp_id")
+    answer = (payload.get("answer") or "Y").upper()
+    if not opp_id:
+        return None, None
+    opp = opportunities_repo.get_by_id(opp_id)
+    if opp is None:
+        return None, None
+    reply = post_event_flow.handle_post_event_reply(
+        messaging=provider,
+        opportunity=opp,
+        farmer_phone=sender.phone,
+        answer=answer,
+    )
+    if answer == "N":
+        flags_repo.create(
+            FlagDoc(
+                message_id=None,
+                flagged_by_user_id=sender.id,
+                reason="Post-event issue reported (N). Awaiting farmer detail.",
+                created_at=datetime.now(UTC),
+            )
+        )
+    # Post-event ACK doesn't need an UNDO offer — answering Y/N isn't reversible
+    # in any meaningful way. We still send a receipt to acknowledge.
+    return reply, opp_id
+
+
+def _execute_add_mute_rule(*, sender: UserDoc, payload: dict) -> tuple[str | None, str | None]:
+    if not sender.id:
+        return None, None
+    dim = payload.get("dimension")
+    value = payload.get("value")
+    if not dim or not value:
+        return None, None
+    try:
+        dimension = MuteDimension(dim)
+    except ValueError:
+        return None, None
+    mutes_repo.add(
+        MuteRuleDoc(
+            user_id=sender.id,
+            dimension=dimension,
+            value=value,
+            created_at=datetime.now(UTC),
+        )
+    )
+    receipt = (
+        f"Farm Friend Vashon: muted {dim}={value}. Reply UNDO within 5 min "
+        f"if that wasn't right."
+    )
+    return receipt, None
+
+
+def _execute_set_availability(*, sender: UserDoc, payload: dict) -> tuple[str | None, str | None]:
+    if not sender.id:
+        return None, None
+    users_repo.update_availability(
+        sender.id,
+        available_days=payload.get("available_days") or [],
+        available_start_hour=payload.get("available_start_hour"),
+        available_end_hour=payload.get("available_end_hour"),
+        max_commit_hours_per_week=payload.get("max_commit_hours_per_week"),
+    )
+    days = payload.get("available_days") or []
+    days_str = ", ".join(_day_name(d) for d in days) if days else "no days set"
+    receipt = (
+        f"Farm Friend Vashon: availability set to {days_str}. Reply UNDO "
+        f"within 5 min if wrong."
+    )
+    return receipt, None
+
+
+def _execute_set_activity_preferences(*, sender: UserDoc, payload: dict) -> tuple[str | None, str | None]:
+    if not sender.id:
+        return None, None
+    add = payload.get("add") or []
+    remove = payload.get("remove") or []
+    if not add and not remove:
+        return None, None
+    current = set(sender.activity_preferences or [])
+    current.update(add)
+    current.difference_update(remove)
+    new_prefs = sorted(current)
+    users_repo.update_activity_preferences(sender.id, new_prefs)
+    parts = []
+    if add:
+        parts.append(f"added {', '.join(add)}")
+    if remove:
+        parts.append(f"removed {', '.join(remove)}")
+    receipt = (
+        f"Farm Friend Vashon: preferences updated ({'; '.join(parts)}). "
+        f"Reply UNDO within 5 min if wrong."
+    )
+    return receipt, None
+
+
+def _execute_record_offer(*, sender: UserDoc, payload: dict) -> tuple[str | None, str | None]:
+    if not sender.id:
+        return None, None
+    from app.repos import offers_repo
+    from app.repos.models import OfferDoc
+    from datetime import timedelta as _td
+
+    settings = load_settings()
+    activity_tags = payload.get("activity_tags") or []
+    earliest_at = _parse_iso(payload["earliest_at"]) if payload.get("earliest_at") else None
+    latest_at = _parse_iso(payload["latest_at"]) if payload.get("latest_at") else None
+    note = payload.get("note") or ""
+    now = datetime.now(UTC)
+    expires_at = latest_at or (now + _td(days=settings.offer_default_ttl_days))
+    offer = OfferDoc(
+        volunteer_user_id=sender.id,
+        activity_tags=activity_tags,
+        earliest_at=earliest_at,
+        latest_at=latest_at,
+        note=note,
+        status="open",
+        created_at=now,
+        expires_at=expires_at,
+    )
+    offers_repo.create(offer)
+    activity_str = ", ".join(activity_tags) if activity_tags else "helping out"
+    receipt = (
+        f"Farm Friend Vashon: recorded your offer ({activity_str}). I'll "
+        f"reach out if something matches. Reply UNDO within 5 min if wrong."
+    )
+    return receipt, None
+
+
+def _undo_last_executed_action(
+    *,
+    sender: UserDoc,
+    last_outbound: MessageDoc,
+    provider,
+) -> None:
+    """Reverse the action recorded on the last ACTION_RECEIPT.
+
+    Each reversible action's inverse is inlined here. The receipt that was
+    sent on execute persisted the full payload, so we have everything we need.
+    The undo itself sends a confirmation SMS but does NOT stamp another
+    ACTION_RECEIPT (UNDO-of-UNDO would be a confusing rabbit hole).
+    """
+    executed = last_outbound.executed_action or {}
+    action_name = executed.get("action") or ""
+    payload = executed.get("payload") or {}
+
+    undid_what: str = ""
+
+    if action_name == "claim_opportunity":
+        opp_id = payload.get("opp_id")
+        if opp_id:
+            opp = opportunities_repo.get_by_id(opp_id)
+            if opp:
+                claim_flow.handle_volunteer_drop(
+                    messaging=provider, opportunity=opp, volunteer=sender,
+                )
+                undid_what = "your claim"
+    elif action_name == "drop_confirmed_claim":
+        # Re-claiming after a drop is best-effort — the seat may have been
+        # taken. We try; if it fails the user sees the failure message.
+        opp_id = payload.get("opp_id")
+        if opp_id:
+            opp = opportunities_repo.get_by_id(opp_id)
+            if opp:
+                farm = farms_repo.get_by_id(opp.farm_id)
+                claim_flow.handle_claim(
+                    messaging=provider, opportunity=opp, volunteer=sender,
+                    slots=1, farm_name=farm.name if farm else "the farm",
+                    notify_farmer_phone=None,  # don't double-notify on undo
+                )
+                undid_what = "your drop (re-claimed if seat still open)"
+    elif action_name == "set_availability":
+        # We don't store the prior availability anywhere, so we can't truly
+        # undo. Surface that honestly.
+        safe_send(
+            provider, to_phone=sender.phone,
+            body=(
+                "Can't auto-undo an availability change since I don't track "
+                "the previous values. Reply with the days you want set."
+            ),
+        )
+        return
+    elif action_name == "set_activity_preferences":
+        # Reverse the add/remove.
+        if sender.id:
+            add_orig = payload.get("add") or []
+            remove_orig = payload.get("remove") or []
+            current = set(sender.activity_preferences or [])
+            current.difference_update(add_orig)  # un-add
+            current.update(remove_orig)          # un-remove
+            users_repo.update_activity_preferences(sender.id, sorted(current))
+            undid_what = "your preference change"
+    elif action_name == "record_offer":
+        # Best-effort: find the most recent open offer for this user and cancel it.
+        from app.repos import offers_repo
+        if sender.id:
+            offers = offers_repo.list_open_for_volunteer(sender.id)
+            if offers:
+                # Most recent first.
+                offers.sort(key=lambda o: o.created_at, reverse=True)
+                if offers[0].id:
+                    offers_repo.set_status(offers[0].id, status="cancelled")
+                    undid_what = "your offer"
+    elif action_name == "add_mute_rule":
+        # We could find-and-delete by (user_id, dimension, value), but the
+        # mutes_repo doesn't have that query. Honest about the limitation:
+        safe_send(
+            provider, to_phone=sender.phone,
+            body=(
+                "Can't auto-undo that mute. Text MUTE again or contact Max if "
+                "you need it removed sooner."
+            ),
+        )
+        return
+    elif action_name in ("cancel_opportunity", "create_opportunity", "edit_opportunity"):
+        # Farmer actions — these have already fanned out to volunteers. We
+        # don't auto-undo them in v1; reply explaining.
+        safe_send(
+            provider, to_phone=sender.phone,
+            body=(
+                "That change has already been sent to volunteers — can't "
+                "auto-undo. Text Max if you need to reverse it."
+            ),
+        )
+        return
+    elif action_name == "acknowledge_post_event":
+        # No real-world side effect to undo; allow re-answering.
+        undid_what = "your check-in answer"
+    else:
+        undid_what = "the last action"
+
+    body = f"Farm Friend Vashon: undone — {undid_what}."
+    provider_id = safe_send(provider, to_phone=sender.phone, body=body)
+    if provider_id is None:
+        return
+    messages_repo.create(
+        MessageDoc(
+            direction=MessageDirection.OUTBOUND,
+            provider_msg_id=provider_id,
+            user_id=sender.id,
+            opportunity_id=last_outbound.opportunity_id,
+            body=body,
+            intent_label=IntentLabel.UNDO,
+            created_at=datetime.now(UTC),
+        )
+    )
+
+
+def _day_name(d: int) -> str:
+    return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d % 7]

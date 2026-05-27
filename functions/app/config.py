@@ -72,7 +72,16 @@ class Settings:
     telnyx_from_number: str
     vcard_url: str
     coordinator_phone: str
-    classifier_confidence_threshold: float
+    classifier_confidence_threshold: float  # DEPRECATED with dispatch rewrite
+    # --- Refactor-introduced (unified agent) ---
+    agent_review_interval_min: int        # tick_agent_review cadence
+    agent_nudge_budget_hours: int         # per-user min spacing between AGENT_NUDGE outbounds
+    agent_nudge_per_opp_max: int          # lifetime cap on AGENT_NUDGE outbounds per opp
+    agent_review_per_tick_max: int        # max user-facing nudges per review tick
+    clarify_round_max: int                # auto-escalate after this many consecutive CLARIFY rounds
+    clarify_user_24h_max: int             # soft cap: CLARIFY outbounds per user per 24h
+    undo_window_min: int                  # how long after ACTION_RECEIPT the UNDO hotkey is honored
+    offer_default_ttl_days: int           # default expires_at for OfferDoc when no latest_at given
 
 
 def load_settings() -> Settings:
@@ -91,6 +100,16 @@ def load_settings() -> Settings:
         classifier_confidence_threshold=float(
             _env("CLASSIFIER_CONFIDENCE_THRESHOLD", "0.75")
         ),
+        # Refactor-introduced settings (unified agent). Defaults match the
+        # design doc; override in .env.<project> if a pilot reveals a need.
+        agent_review_interval_min=int(_env("AGENT_REVIEW_INTERVAL_MIN", "30")),
+        agent_nudge_budget_hours=int(_env("AGENT_NUDGE_BUDGET_HOURS", "48")),
+        agent_nudge_per_opp_max=int(_env("AGENT_NUDGE_PER_OPP_MAX", "2")),
+        agent_review_per_tick_max=int(_env("AGENT_REVIEW_PER_TICK_MAX", "3")),
+        clarify_round_max=int(_env("CLARIFY_ROUND_MAX", "2")),
+        clarify_user_24h_max=int(_env("CLARIFY_USER_24H_MAX", "5")),
+        undo_window_min=int(_env("UNDO_WINDOW_MIN", "5")),
+        offer_default_ttl_days=int(_env("OFFER_DEFAULT_TTL_DAYS", "7")),
         # Deploy-time param
         telnyx_from_number=_env("TELNYX_FROM_NUMBER") or _string_param(TELNYX_FROM_NUMBER),
         # Secrets

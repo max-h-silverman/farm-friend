@@ -65,6 +65,7 @@ class MuteDimension(StrEnum):
     FARM = "farm"
     WINDOW = "window"
     OPPORTUNITY = "opportunity"
+    AGENT_NUDGE = "agent_nudge"  # PAUSE/RESUME — silences review-tick nudges only
 
 
 class MessageDirection(StrEnum):
@@ -73,24 +74,42 @@ class MessageDirection(StrEnum):
 
 
 class IntentLabel(StrEnum):
+    # --- Compliance-mandated keyword intents (see docs/sms-compliance-requirements.md) ---
+    STOP = "STOP"              # global unsubscribe (also UNSUBSCRIBE, END, QUIT)
+    HELP = "HELP"              # canonical help reply (also INFO)
+    JOIN = "JOIN"              # opt-in (also START)
+    YES = "YES"                # alias kept for legibility; CLAIM is the action name
+    # --- Hotkey intents ---
     CLAIM = "CLAIM"
     MAYBE = "MAYBE"
     MUTE = "MUTE"
-    STOP = "STOP"
     STOP_ACTIVITY = "STOP_ACTIVITY"
     STOP_FARM = "STOP_FARM"
     UNAVAILABLE = "UNAVAILABLE"
     FLAG = "FLAG"
-    JOIN = "JOIN"
-    HELP = "HELP"
     INSIDER = "INSIDER"
+    STATUS = "STATUS"          # farmer-only: snapshot of open opps
+    CANCEL = "CANCEL"          # context-sensitive; see CLAUDE.md §SMS compliance
+    EDIT = "EDIT"              # farmer-only: edit fields on an open opp
+    # --- Refactor-introduced hotkey intents ---
+    UNDO = "UNDO"              # reverse the last agent-executed action (5-min window)
+    PAUSE = "PAUSE"            # 14-day mute on agent-initiated nudges
+    RESUME = "RESUME"          # undo PAUSE
+    # --- Volunteer reply intents (formerly classifier output, now agent mode hint) ---
     QUESTION = "QUESTION"
     DECLINE = "DECLINE"
-    AMBIGUOUS = "AMBIGUOUS"
     ESCALATE = "ESCALATE"
-    STATUS = "STATUS"          # farmer-only: snapshot of open opps
-    CANCEL = "CANCEL"          # farmer-only: cancel an open opp
-    EDIT = "EDIT"              # farmer-only: edit fields on an open opp
+    # AMBIGUOUS removed with the unified-agent refactor — the new agent emits
+    # mode="clarify" instead.
+    # --- Refactor-introduced agent-output intents ---
+    OFFER = "OFFER"                       # inbound/outbound: volunteer-initiated offer
+    AVAILABILITY = "AVAILABILITY"         # inbound/outbound: standing availability update
+    QUERY = "QUERY"                       # inbound/outbound: status-of-things question
+    CLARIFY = "CLARIFY"                   # outbound: agent's clarifying question
+    PENDING_CONFIRMATION = "PENDING_CONFIRMATION"  # outbound: drafted action awaiting token reply
+    ACTION_RECEIPT = "ACTION_RECEIPT"     # outbound: "here's what I did" after execute
+    AGENT_NUDGE = "AGENT_NUDGE"           # outbound: review-tick initiated nudge (budgeted)
+    # --- Post-event flow (load-bearing — see CLAUDE.md) ---
     POST_EVENT_OK = "POST_EVENT_OK"
     POST_EVENT_ISSUE = "POST_EVENT_ISSUE"
     POST_EVENT_CHECKIN = "POST_EVENT_CHECKIN"  # outbound: the "any issues? Y/N" we sent
@@ -127,6 +146,14 @@ class UserDoc(BaseModel):
     available_start_hour: int | None = None                  # 0-23, Vashon local
     available_end_hour: int | None = None                    # 0-23, Vashon local
     max_commit_hours_per_week: int | None = None
+    # --- Refactor-introduced fields (unified agent) ---
+    # Positive activity preferences (canonical slugs). The negative side lives
+    # in mute_rules (STOP {activity}); this captures "I love gleaning" signals
+    # the agent learns from inbound messages or onboarding.
+    activity_preferences: list[str] = Field(default_factory=list)
+    # Timestamp of the most recent AGENT_NUDGE outbound. Used by the per-user
+    # 48h budget gate in the review tick. None means "never nudged."
+    last_agent_initiated_outbound_at: datetime | None = None
 
 
 class FarmDoc(BaseModel):
@@ -180,6 +207,11 @@ class OpportunityDoc(BaseModel):
     farmer_notified_first_claim: bool = False
     farmer_notified_broader: bool = False
     farmer_notified_unfilled: bool = False
+    # --- Refactor-introduced fields (unified agent review tick) ---
+    # Lifetime count of agent-initiated nudges drafted for this opp (after
+    # successful safe_send). Per-opp cap is 2; beyond that the review agent
+    # can only flag to admin, not message users about this opp.
+    agent_nudges_sent: int = 0
 
 
 class OutreachLogDoc(BaseModel):
@@ -220,9 +252,25 @@ class MessageDoc(BaseModel):
     opportunity_id: str | None = None
     body: str
     intent_label: IntentLabel | None = None
-    confidence: float | None = None
+    confidence: float | None = None  # DEPRECATED: classifier self-report; removed with the dispatch rewrite
     created_at: datetime
     ttl: datetime | None = None  # Firestore TTL; ~90 days after created_at
+    # --- Refactor-introduced fields (unified agent) ---
+    # On outbounds with intent_label == PENDING_CONFIRMATION: the action drafted
+    # by the agent awaiting user confirmation. Shape:
+    #   {"action": "<name>", "token": "<5–8 uppercase>", "payload": {...},
+    #    "expires_at": <iso datetime>}
+    pending_action: dict | None = None
+    # On outbounds with intent_label == ACTION_RECEIPT: the action that was
+    # just executed, with enough payload to reverse it via UNDO. Shape:
+    #   {"action": "<name>", "payload": {...},
+    #    "executed_at": <iso datetime>, "undo_token": "UNDO"}
+    executed_action: dict | None = None
+    # On outbounds with intent_label == CLARIFY: which round this is in the
+    # current clarification streak. Used to enforce the 2-round cap before
+    # auto-escalating to admin. Counter resets when the user's reply produces
+    # a mode other than clarify.
+    clarification_round: int = 0
 
 
 class FlagDoc(BaseModel):
@@ -234,11 +282,24 @@ class FlagDoc(BaseModel):
     created_at: datetime
 
 
-class DestinationDoc(BaseModel):
+class OfferDoc(BaseModel):
+    """Volunteer-initiated offer of help, decoupled from any specific opportunity.
+
+    Captured when a volunteer texts in something like "anyone need tilling
+    Friday?". Lives until matched to an opp, expired, or cancelled by the
+    volunteer. Used by the review tick to suggest matches when an opp opens
+    up that fits an outstanding offer.
+    """
     id: str | None = None
-    name: str
-    address: str | None = None
-    notes: str = ""
+    volunteer_user_id: str
+    activity_tags: list[str] = Field(default_factory=list)  # canonical slugs
+    earliest_at: datetime | None = None  # earliest the volunteer can help
+    latest_at: datetime | None = None    # latest the volunteer can help
+    note: str = ""                       # raw text the agent captured
+    status: Literal["open", "matched", "expired", "cancelled"] = "open"
+    matched_opportunity_id: str | None = None
+    created_at: datetime
+    expires_at: datetime  # default: latest_at or +7 days; set at create time
 
 
 class PendingUserDoc(BaseModel):

@@ -91,6 +91,14 @@ def mark_post_event_sent(opp_id: str) -> None:
     db.collection(COLLECTION).document(opp_id).update({"post_event_checkin_sent": True})
 
 
+def increment_agent_nudges_sent(opp_id: str, *, by: int = 1) -> None:
+    """Atomic increment of the per-opp nudge counter. Called after a review-tick
+    AGENT_NUDGE outbound for this opp has successfully sent (safe_send returned
+    a non-None provider id). The 2-per-opp cap is enforced in dispatch by
+    reading the current value before drafting."""
+    db.collection(COLLECTION).document(opp_id).update({"agent_nudges_sent": Increment(by)})
+
+
 def list_due_for_escalation(*, now: datetime) -> list[OpportunityDoc]:
     """Opportunities whose escalation timer has fired and still need help."""
     q = (

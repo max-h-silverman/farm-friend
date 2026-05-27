@@ -6,6 +6,8 @@ SMS-first agentic system for coordinating volunteer help on Vashon Island farms.
 
 **v1 codebase is built and deployed.** All Firebase functions, Firestore data model, admin SPA, and SMS pipeline are live in the `farm-friend-vashon` project. End-to-end smoke test confirmed: an inbound farmer SMS gets parsed by Claude Haiku, persists as an `Opportunity`, and the admin SPA picks it up in real time.
 
+**Unified-agent refactor — code complete, awaiting live eval (as of 2026-05-26):** the v1 classifier/ambiguous/parser trio has been replaced by `app/agent/unified.py` (one role-aware agent, one prompt at `app/prompts/agent.md`, structured JSON output) plus a rewritten `_dispatch` in `app/flows/message_dispatch.py`. The reactive path handles inbound messages with token-gated state changes (5-8 char uppercase alphanumeric, no hyphens) and 5-min UNDO via `ACTION_RECEIPT` outbounds. A proactive review path (`tick_agent_review` every 30 min, gated by quiet hours) runs the same agent in review mode and surfaces nudges through deterministic budget filters: per-user 48h budget, per-opp 2-lifetime cap, per-tick global ceiling of 3. Users can `PAUSE` / `RESUME` agent-initiated nudges. The motivating bug — volunteer-initiated "anyone need tilling Friday?" — is now a first-class `record_offer` flow. Plan: `docs/refactor-unified-agent.md`. Eval spec: `functions/tests/evals/cases.py` (50 cases: 16 REGRESSION, 13 NEW_INTENT, 13 ADVERSARIAL, 8 REVIEW). All 50 pass against the stub LLM. **The remaining gate is task 22: a `--live` eval pass against real Anthropic before the refactor ships, where the prompt + dispatch glue iterate until existing-flow parity holds.** Until that gate passes, the dispatch path is live in the codebase but unverified end-to-end against a real model.
+
 **Recent hardening pass (2026-05-26)** added: transactional claim resolution, inbound webhook idempotency, post-event reschedule on edits, intent-label-based post-event detection, orphan-YES flag-and-reply, **pre-event confirmation reminders + volunteer CANCEL flow**, **quiet hours (11pm–7am Vashon)**, **first-class `ESCALATE` intent with `routine`/`immediate` urgency** that texts the coordinator on urgent triggers. Admin SPA repainted as a dark-mode control panel. See "Next steps" → "Recent fixes" for the full list and what's still deferred.
 
 **Blocked on Telnyx A2P 10DLC campaign approval** (submitted 2026-05-25; brand verified within hours, campaign in carrier review; expected to clear within a few days based on the preview showing no MNO Review required).
@@ -43,21 +45,54 @@ Farmers can suggest new activities (texted as part of a post); the agent flags u
 - **The LLM handles operational complexity; it escalates only on narrow, well-defined triggers.** Scheduling conflicts, swap requests, plan changes, and weird postings are *not* escalations — the system has flows and the model has latitude to use them. The model escalates (intent=`ESCALATE`) only for: injury/medical, liability/insurance/legal, payment/money, property damage, interpersonal disputes/harassment, emotional distress, or threats/safety. The model also chooses urgency: `routine` (flag for the next admin review) or `immediate` (also text the coordinator's phone right now). Overcautious escalation is a real failure mode — operational complexity is the system's job, not Max's.
 - **Deterministic before LLM.** Hotkeys are parsed by regex first. The LLM only runs on messages that aren't a hotkey. Cheaper, faster, and more reliable for the common path.
 
+## SMS compliance (A2P 10DLC — authoritative requirements)
+
+**`docs/sms-compliance-requirements.md` is the source of truth for all SMS-facing behavior.** It encodes the language we submitted to Telnyx for carrier campaign approval. Any change that affects SMS copy, keyword handling, opt-in/opt-out, or LLM invocation rules must be checked against that document. If this CLAUDE.md and the compliance doc ever disagree, the compliance doc wins.
+
+Hard rules derived from the compliance doc:
+
+- **Program name:** Outbound SMS uses "Farm Friend Vashon" — full name, not "Farm Friend" — on all compliance-required messages (opt-in confirmation, opt-out confirmation, help reply, FLAG ack) and on every operational alert where space allows.
+- **Mandatory deterministic keywords** (parsed BEFORE any LLM call; LLM must NOT run on any of these):
+  - Opt-in: `JOIN`, `START`
+  - Opt-out: `STOP`, `UNSUBSCRIBE`, `END`, `QUIT` (all are global unsubscribe; `CANCEL` is context-sensitive — see below)
+  - Help: `HELP`, `INFO`
+  - Operational: `YES`, `YES N`, `MUTE`, `FLAG`
+- **Exact copy** is required for opt-in confirmation, opt-out confirmation, and the help reply. See the compliance doc §"Required Auto-Responses." The unified agent NEVER drafts these — they are sent verbatim by the deterministic hotkey path. Updating the wording requires re-registering the campaign with Telnyx.
+- **`YES` is claim-only, never opt-in.** A `YES` from an unsubscribed or unknown number does NOT subscribe them — it gets the orphan-YES flag-and-reply treatment. New users must text `JOIN` or `START`.
+- **`CANCEL` is context-sensitive — a documented divergence from the campaign language.** The campaign description lists CANCEL among opt-out keywords. Our implementation keeps the legacy farmer-cancel and volunteer-drop meanings *when there is clear context* (the sender is a farmer with an open post they're referencing, or a volunteer whose last outbound was a `CONFIRMATION_REMINDER`). With no context, `CANCEL` falls through to global unsubscribe like `STOP`. **This is a deliberate product decision** to preserve the v1 SMS UX; if a carrier raises it during audit, the answer is "behavior matches user intent in context; ambiguous CANCEL always unsubscribes." Re-evaluate if it ever causes a real complaint.
+- **Frequency disclosure.** Opt-in flow and printed signup must say "Message frequency varies based on farm needs, usually 0–6 messages per week." The unified agent's per-user 48h budget (1 agent-initiated outbound per 48h, not counting scheduled flows the user consented to) is the operational mechanism that keeps us within this band; the budget is configurable but should not be raised without re-evaluating the campaign registration.
+- **All operational alerts include an opt-out path.** Every outbound the agent drafts (confirmation prompts, receipts, review-tick nudges, op-alert SMS) carries either an explicit STOP path or is part of a thread where STOP was offered recently. The deterministic hotkey path is the safety net; agent-drafted prose should still mention STOP where the message is initiating contact or asking for an action.
+
+The compliance doc also has a launch checklist (§"Implementation Checklist"). It must be green before the pilot starts.
+
 ## Hotkey vocabulary (the SMS API)
 
-- `YES` / `YES N` — claim an opportunity (optionally N slots)
-- `MAYBE` — express soft interest, no seat held
-- `CANCEL` — context-sensitive. For volunteers: drops a confirmed claim when sent in response to a confirmation reminder. For farmers: cancels an open post.
-- `STOP {activity}` — mute an activity type
-- `STOP {farm name}` — mute a specific farm
-- `UNAVAILABLE {window}` — silence everything during a window
-- `MUTE` — silence followups on the current opportunity only
-- `FLAG` — report wrong/confusing system reply
-- `JOIN` — request to join (admin-approved)
-- `HELP` — list commands
-- `STATUS` — farmer-only: snapshot of open posts and how they're filling
-- `STOP` — full unsubscribe (TCPA)
-- `INSIDER {phone} {name}` — farmer-only: nominate a trusted volunteer
+Compliance-required keywords (see `docs/sms-compliance-requirements.md`):
+- `JOIN` / `START` — opt-in (admin-approved). `START` is a synonym for `JOIN`.
+- `STOP` / `UNSUBSCRIBE` / `END` / `QUIT` — global unsubscribe (TCPA). All four behave identically.
+- `HELP` / `INFO` — return the compliance-required help reply.
+- `YES` / `YES N` — claim an opportunity (optionally N slots). NOT an opt-in.
+- `MUTE` — silence followups on the current opportunity only.
+- `FLAG` — report wrong/confusing system reply.
+
+Product keywords:
+- `MAYBE` — express soft interest, no seat held.
+- `CANCEL` — context-sensitive (see "SMS compliance" above for the divergence note). For volunteers with a recent `CONFIRMATION_REMINDER`: drops a confirmed claim. For farmers with an open post: cancels it. With no context: behaves like `STOP`.
+- `STOP {activity}` — mute an activity type.
+- `STOP {farm name}` — mute a specific farm.
+- `UNAVAILABLE {window}` — silence everything during a window.
+- `STATUS` — farmer-only: snapshot of open posts and how they're filling.
+- `INSIDER {phone} {name}` — farmer-only: nominate a trusted volunteer.
+
+Refactor-introduced keywords (active 2026-05-26 refactor; see `docs/refactor-unified-agent.md`):
+- `UNDO` — reverse the most recent agent-executed action within 5 minutes.
+- `PAUSE` — mute agent-initiated nudges (review-tick proposals) for 14 days. Does NOT affect scheduled flows the user consented to (confirmation reminders, post-event check-ins) or direct replies to user-initiated messages.
+- `RESUME` — undo `PAUSE`.
+
+Confirmation tokens (drafted by the unified agent per action; not a fixed vocabulary):
+- Tokens are 5–8 uppercase alphanumeric, no hyphens, must not collide with any keyword above.
+- Examples the agent might pick: `CONFIRM`, `DROP`, `EDITOK`, `ADDSAT`, `OFFER`, `DROPOPP`.
+- Affirmative variants (`yes`, `ok`, `sure`, `confirm`, `go ahead`) are accepted as a token match for a live `PENDING_CONFIRMATION`. Receipt rail catches mis-resolution.
 
 ## Stack
 
@@ -87,7 +122,7 @@ Farmers can suggest new activities (texted as part of a post); the agent flags u
   - `mute_rules` (volunteer_id, dimension, value)
   - `messages` (direction, body, `intent_label`, confidence, user_id, opportunity_id, provider_msg_id) — TTL purge after 90 days unless flagged. `intent_label` on *outbound* messages is load-bearing: `POST_EVENT_CHECKIN` and `CONFIRMATION_REMINDER` let inbound dispatch route Y/N and CANCEL replies correctly without substring-matching the body.
   - `flags` (message_id, flagged_by, reason, resolved_at). An open flag for a user pauses LLM auto-replies on their thread.
-  - `destinations` (food banks, community fridges) — declared but currently unused; see "Known issues" below.
+  - `offers` (volunteer-initiated offers of help: activity tags, time window, status, optional matched_opportunity_id). Added by the unified-agent refactor.
   - `pending_users` (JOIN requests + farmer nominations awaiting admin approval)
 
 - **Scheduled functions** (all in `main.py`, all Cloud Scheduler-driven). Each tick gates on quiet hours at its entry point — if it's 11pm–7am Vashon, the tick no-ops and the next run catches up.
@@ -149,6 +184,18 @@ This list is the source of truth for "what's the next thing to do." Update it as
 
 - [ ] **Telnyx campaign approval.** Submitted 2026-05-25. Brand verified. Carrier preview showed no MNO Review required. Check the Telnyx 10DLC Campaigns dashboard. Expected: hours to a few days.
 
+### P0 — must land before pilot
+
+- [x] **Unified-agent refactor — code complete.** Files: `app/agent/unified.py`, `app/prompts/agent.md`, `app/flows/board_review.py`, dispatch rewrite in `app/flows/message_dispatch.py`. Retired: `app/agent/classifier.py`, `app/agent/ambiguous.py`, `app/prompts/{classifier,ambiguous,parser,parser_merge,parser_edit}.md`, the LLM-calling functions in `app/agent/parser.py`, `IntentLabel.AMBIGUOUS`, the four-branch fan-out in `_dispatch`, `app/repos/destinations_repo.py` + `DestinationDoc`.
+- [ ] **Live eval pass (the cutover gate).** Run `python -m tests.evals.runner --live` against real Anthropic. Iterate `app/prompts/agent.md` until every REGRESSION case passes exact-match, every NEW_INTENT passes exact-match, every ADVERSARIAL passes behavioral match. Stub mode (50/50) verifies harness mechanic; live mode verifies the prompt actually produces what the cases assert. Note: live mode currently returns "not implemented yet" — needs the runner's `live` branch wired to call `run_agent` against a real LLMClient instead of the stub. Small lift; deferred to its own focused session.
+- [x] **SMS compliance pass — code complete.** `docs/sms-compliance-requirements.md` is the authoritative spec.
+  - [x] `START`, `UNSUBSCRIBE`, `END`, `QUIT`, `INFO` recognized by `app/agent/hotkeys.py` as deterministic synonyms (`START`→JOIN, `UNSUBSCRIBE/END/QUIT`→STOP, `INFO`→HELP).
+  - [x] `copy/templates.py` opt-in / opt-out / help / FLAG ack templates match the exact compliance text with `Farm Friend Vashon:` prefix. Pinning tests in `tests/test_copy.py` catch any future drift.
+  - [x] Opportunity-alert and confirmation-reminder copy carry the program-name prefix and explicit STOP path. Confirmation reminder uses `DROP` instead of `CANCEL` (CANCEL is a compliance opt-out keyword).
+  - [x] `PAUSE` / `RESUME` hotkeys recognized by the parser. Dispatch creates an `agent_nudge` `MuteRuleDoc` for PAUSE; RESUME removes it.
+  - [x] `CANCEL` context-sensitivity documented in CLAUDE.md §"SMS compliance"; the hotkey path routes accordingly.
+  - [ ] Walk the compliance doc's "Implementation Checklist" §line 297 against the final deployed system before pilot. All items must be checked before any real user gets a JOIN.
+
 ### Ready to do once Telnyx campaign is approved
 
 1. [ ] Get the real Telnyx `from`-number (the 10DLC number you provisioned).
@@ -196,7 +243,6 @@ These are the review findings we *didn't* fix this pass. Listed in rough priorit
 - **Strong-model failures fall through silently.** `_handle_llm_reply` doesn't wrap `resolve_ambiguous` in a try/except. If Anthropic 5xxs or the Sonnet alias drifts, the user gets no reply at all. Catch `LLMProviderError` and route to the flag-for-admin branch.
 - **Classifier confidence is self-reported and miscalibrated.** Consider asking the fast model to output a boolean `escalate` it derives from its own rationale instead of a fuzzy float, OR drop the threshold and always route `AMBIGUOUS` to the strong model.
 - **`_looks_like_posting` keyword gate misses laconic postings.** A farmer texting "tomorrow 9am, 3 ppl" hits no keyword and gets routed to the volunteer classifier. For farmer-role senders with no open opps, just always run the parser (cost: one Haiku call; benefit: no missed postings).
-- **`destinations` collection is dead code.** Declared in CLAUDE.md, has a repo, never read. Either wire it into the pickup parser as a canonical list, or delete the repo + collection for v1.
 - **Classifier doesn't see the volunteer's prior `INTERESTED` claim.** "I'm in" after a MAYBE often hits AMBIGUOUS because the prompt has no signal that this user already expressed soft interest. Plumb prior claim status into the user prompt.
 - **`max_tokens` headroom.** Parser uses 512, classifier/ambiguous use 400 — JSON outputs in these schemas top out around 200. Tightening reduces tail latency variance and caps worst-case cost. No correctness risk.
 - **`_no_admins_exist()` bootstrap is racy.** Two concurrent `set_admin_claim` calls during first-run both see no admins and both succeed. Wrap in a transactional sentinel doc. Hypothetical at pilot scale.
@@ -215,6 +261,10 @@ These are the review findings we *didn't* fix this pass. Listed in rough priorit
 
 These are baked into the design — changing any of them is a real refactor, not a minor tweak. Verify before deviating:
 
+- **`docs/sms-compliance-requirements.md` is authoritative for SMS-facing behavior.** Keyword handling, opt-in/opt-out copy, help reply text, and the LLM-bypass list are derived from there. Drift between code and that doc must be fixed in the code, not the doc.
+- **LLM never runs on a compliance-mandated keyword.** Hard list: `STOP`, `UNSUBSCRIBE`, `CANCEL`, `END`, `QUIT`, `HELP`, `INFO`, `JOIN`, `START`, `YES`, `YES N`, `MUTE`, `FLAG`. Deterministic parsing first; if there's a match, LLM is bypassed entirely.
+- **The unified agent never drafts compliance-required copy.** Opt-in confirmation, opt-out confirmation, and the help reply are sent verbatim by the deterministic hotkey path. The agent's `mode="reply"` and `mode="confirm"` outputs are for everything else.
+- **Every agent-drafted operational outbound includes the program name "Farm Friend Vashon" and an opt-out path** where the message initiates contact or asks for an action. Enforced by prompt and spot-checked in eval.
 - `repos/` is the only package that imports `google.cloud.firestore`. Business logic goes through repos.
 - All outbound SMS goes through `app.messaging._safe_send.safe_send()` — never call `provider.send()` directly. Failures must not crash the webhook.
 - The deterministic hotkey parser runs BEFORE the LLM classifier. Common-path messages (YES / STOP / HELP / FLAG / MUTE / JOIN / INSIDER) never cost an LLM call.

@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from app.firebase_app import db
 
 from ._base import model_to_dict, snapshot_to_model
-from .models import MessageDoc
+from .models import IntentLabel, MessageDoc
 
 
 COLLECTION = "messages"
@@ -78,6 +78,49 @@ def count_outbound_since(since: datetime) -> int:
     q = (
         db.collection(COLLECTION)
         .where("direction", "==", "outbound")
+        .where("created_at", ">=", since)
+    )
+    return sum(1 for _ in q.stream())
+
+
+# ---------------------------------------------------------------------------
+# Refactor-introduced helpers (unified agent)
+# ---------------------------------------------------------------------------
+def latest_outbound_with_intent(
+    user_id: str,
+    intent_label: IntentLabel,
+) -> MessageDoc | None:
+    """Most recent outbound to this user with the given intent_label.
+
+    Used by dispatch to find: the live PENDING_CONFIRMATION whose token might
+    match an inbound, the live ACTION_RECEIPT whose UNDO window might be open,
+    the prior CLARIFY for clarification-round counting.
+    """
+    q = (
+        db.collection(COLLECTION)
+        .where("user_id", "==", user_id)
+        .where("direction", "==", "outbound")
+        .where("intent_label", "==", intent_label.value)
+        .order_by("created_at", direction="DESCENDING")
+        .limit(1)
+    )
+    for s in q.stream():
+        return snapshot_to_model(s, MessageDoc)
+    return None
+
+
+def count_clarifications_for_user_in_window(
+    user_id: str,
+    *,
+    since: datetime,
+) -> int:
+    """Count CLARIFY outbounds to this user since `since`. Used by the soft
+    per-user 5/24h clarification rail in dispatch."""
+    q = (
+        db.collection(COLLECTION)
+        .where("user_id", "==", user_id)
+        .where("direction", "==", "outbound")
+        .where("intent_label", "==", IntentLabel.CLARIFY.value)
         .where("created_at", ">=", since)
     )
     return sum(1 for _ in q.stream())
