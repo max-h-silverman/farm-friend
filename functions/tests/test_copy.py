@@ -107,6 +107,8 @@ def test_shift_outreach_has_action_prompt() -> None:
     assert "weeding" in body
     assert "Thu 9a-12p" in body
     assert "YES" in body
+    assert "MAYBE" in body
+    assert "MUTE" in body
     assert "STOP" in body  # opt-out path required
     # singular/plural phrasing
     assert "people" in body
@@ -125,6 +127,8 @@ def test_pickup_outreach_mentions_destination_when_provided() -> None:
     assert "zucchini" in body
     assert "Vashon Food Bank" in body
     assert "vehicle" in body.lower() or "truck" in body.lower()
+    assert "YES" in body
+    assert "MAYBE" in body
     assert "STOP" in body
 
 
@@ -179,6 +183,9 @@ def test_confirmation_reminder_uses_DROP_not_CANCEL() -> None:
     assert "DROP" in body
     assert "CANCEL" not in body
     assert "Farm Friend Vashon" in body
+    # Confirmation reminders are direct acknowledgments of an existing
+    # commitment, not a new opt-in solicitation — no STOP line.
+    assert "STOP" not in body
 
 
 def test_intro_volunteer_uses_program_name_vashon() -> None:
@@ -191,13 +198,15 @@ def test_intro_farmer_uses_program_name_vashon() -> None:
     assert "Farm Friend Vashon" in body
 
 
-def test_orphan_yes_includes_program_name_and_stop() -> None:
+def test_orphan_yes_includes_program_name_no_stop() -> None:
     body = templates.render_orphan_yes()
     assert "Farm Friend Vashon" in body
-    assert "STOP" in body
+    # Direct reply to a user inbound — no STOP line.
+    assert "STOP" not in body
 
 
-def test_fallback_ambiguous_includes_program_name_and_stop() -> None:
+def test_fallback_ambiguous_includes_program_name_no_stop() -> None:
     body = templates.render_fallback_ambiguous()
     assert "Farm Friend Vashon" in body
-    assert "STOP" in body
+    # Direct reply to a user inbound — no STOP line.
+    assert "STOP" not in body

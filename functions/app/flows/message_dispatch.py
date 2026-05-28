@@ -1537,9 +1537,9 @@ def _send_pending_confirmation(
 
 
 def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str | None:
-    """Detect agent over-confirms on create_opportunity / update_draft_opportunity.
+    """Detect agent over-confirms on create_opportunity.
 
-    Two signals (any one is sufficient to downgrade to clarify):
+    Three signals (any one is sufficient to downgrade to clarify):
 
     1. **`parse_notes` self-report.** The agent prompt explicitly forbids
        filling required fields from defaults; despite that, smaller models
@@ -1550,14 +1550,21 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
        "pm", "noon", "morning", etc.), the agent inferred. Same for
        `activity_tags` populated when the inbound has no activity word —
        only a crop name. Catches the "tomatoes 9am" case.
+    3. **Required fields still missing after defaults are applied.** Mirrors
+       the executor's `compute_missing_fields` check. If the agent emitted
+       `create_opportunity` without a required field (e.g. `headcount_needed`),
+       catch it here instead of letting the executor reject after the user
+       has already confirmed with a token.
+
+    Only checks `create_opportunity`. `update_draft_opportunity` legitimately
+    carries fields forward from the existing draft (the prior turn established
+    them), so the current inbound need not restate activity / time markers,
+    and its own executor handles missing-fields via the draft merge.
 
     Returns None if no issue, or a short reason string for the flag.
     """
     if output.action is None:
         return None
-    # Only check create_opportunity. update_draft_opportunity legitimately
-    # carries fields forward from the existing draft (the prior turn established
-    # them), so the current inbound need not restate activity / time markers.
     if output.action.name != "create_opportunity":
         return None
     payload = getattr(output.action, output.action.name, None)
@@ -1582,6 +1589,20 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
     if parsed.kind == "shift" and parsed.starts_at and not _inbound_has_time_signal(text_lower):
         return "parsed.starts_at filled but inbound text has no clock-time signal"
 
+    # Signal 2c: inbound expresses date-flexibility ("any day", "monday to
+    # friday", "next week", "whenever") but agent silently picked a single
+    # starts_at. v1 only supports single-day shifts; until multi-day windows
+    # land, the agent must clarify which specific day rather than guess.
+    if (
+        parsed.kind == "shift"
+        and parsed.starts_at
+        and _inbound_has_date_range_signal(text_lower)
+    ):
+        return (
+            "parsed.starts_at filled from a date-range phrasing "
+            "(any day / mon-fri / next week) — must clarify which day"
+        )
+
     # Signal 2b: activity_tags populated with a canonical work-type slug, but
     # the inbound has no activity word — only a crop name. The "tomatoes 9am"
     # case. `tbd`/`flexible` are explicit choices and don't trigger this.
@@ -1596,7 +1617,32 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
             "no activity word (possible crop-name-only inference)"
         )
 
-    return None
+    # Signal 3: required fields still missing after farm defaults are applied.
+    # Mirrors the executor — catches the case where the agent emits confirm
+    # without (e.g.) headcount_needed, the user says YES, then the executor
+    # rejects with a raw-field-name error.
+    return _missing_required_reason(parsed=parsed)
+
+
+def _missing_required_reason(*, parsed) -> str | None:
+    """Apply farm defaults and run compute_missing_fields; return a reason
+    string if anything is still missing, else None. Mirrors the executor.
+
+    Imported lazily to avoid a circular import with app.agent.parser at
+    module load time (parser doesn't import dispatch, but keeping the import
+    local keeps the call site obvious)."""
+    from app.agent.parser import _apply_farm_defaults, compute_missing_fields
+    # We don't have the sender's farm at this point in the call site; the
+    # missing-fields check is on hard-required fields (starts_at,
+    # headcount_needed, activity_tags) — none of which are defaulted. So
+    # passing an empty defaults dict is sound for the check: the executor's
+    # later _apply_farm_defaults can only fill optional fields like
+    # duration_min, which never appear in REQUIRED_SHIFT_FIELDS.
+    parsed_defaulted = _apply_farm_defaults(parsed=parsed, farm_defaults={})
+    missing = compute_missing_fields(parsed_defaulted)
+    if not missing:
+        return None
+    return f"required fields still missing after defaults: {missing}"
 
 
 _TIME_SIGNAL_PATTERN = re.compile(
@@ -1640,24 +1686,80 @@ def _inbound_has_activity_signal(text_lower: str) -> bool:
     return False
 
 
+# Phrases that imply the farmer is offering a window of days, not picking one.
+# v1 only supports single-day shifts (starts_at is a single datetime), so the
+# agent must clarify to a specific day before confirming. This pattern is
+# intentionally conservative — false positives just trigger an extra clarify.
+_DATE_RANGE_PATTERN = re.compile(
+    r"\b("
+    r"any\s+day"
+    r"|some\s+day"
+    r"|whenever"
+    r"|any\s*time\s+this"
+    r"|any\s*time\s+next"
+    r"|this\s+week"
+    r"|next\s+week"
+    r"|this\s+weekend"
+    r"|next\s+weekend"
+    r"|mon(day)?\s*(through|to|-|–|—)\s*fri(day)?"
+    r"|mon(day)?\s*(through|to|-|–|—)\s*sun(day)?"
+    r"|all\s+week"
+    r"|every\s+day"
+    r"|several\s+days"
+    r"|a\s+few\s+days"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _inbound_has_date_range_signal(text_lower: str) -> bool:
+    """True if the inbound expresses date-flexibility (a window of days)
+    rather than a specific day. v1 can't honor a window with a single
+    `starts_at`; the agent must clarify which day."""
+    return bool(_DATE_RANGE_PATTERN.search(text_lower))
+
+
+_FIELD_QUESTIONS = {
+    "starts_at": "what time should it start",
+    "deadline_at": "when does it need to be picked up by",
+    "headcount_needed": "how many people do you need",
+    "activity_tags": "what kind of work",
+    "produce_description": "what's the produce",
+    "destination": "where should it go",
+}
+
+
 def _clarify_for_overconfirm(*, reason: str) -> str:
     """User-facing clarify body for the agent-over-confirm backstop.
 
-    Generic enough to cover both the missing-time and the crop-name-inference
-    cases. Keeps the farmer in the dialog instead of dropping their post."""
+    Translates the backstop's internal reason string into a friendly question
+    the farmer can answer. Never leaks raw schema field names."""
+    # Signal 3 path: required fields still missing. Reason looks like
+    # "required fields still missing after defaults: ['starts_at', 'headcount_needed']".
+    if "required fields still missing" in reason:
+        # Cheap parse — pull names that match our known field set.
+        missing = [name for name in _FIELD_QUESTIONS if name in reason]
+        if missing:
+            questions = [_FIELD_QUESTIONS[n] for n in missing]
+            if len(questions) == 1:
+                return f"Almost there — {questions[0]}?"
+            joined = ", ".join(questions[:-1]) + f", and {questions[-1]}"
+            return f"Almost there — {joined}?"
+
+    # Signal 2c: date-range phrasing collapsed to one day.
+    if "date-range" in reason:
+        return (
+            "Got it — which specific day works best? I can post one shift "
+            "now and you can text again to add more."
+        )
+    # Signal 2a: starts_at inferred from no time signal.
     if "time" in reason:
-        return (
-            "Farm Friend Vashon: What time should it start, and how long?"
-        )
+        return "What time should it start, and how long?"
+    # Signal 2b: activity_tags inferred from crop name.
     if "activity_tags" in reason:
-        return (
-            "Farm Friend Vashon: What kind of work — harvest, weeding, "
-            "transplanting, or something else?"
-        )
-    return (
-        "Farm Friend Vashon: A few details are still missing — what time "
-        "should the shift start, and what kind of work?"
-    )
+        return "What kind of work — harvest, weeding, transplanting, or something else?"
+    # Signal 1 (parse_notes self-report) or anything unrecognized.
+    return "A few details are still missing — what time should it start, and what kind of work?"
 
 
 def _is_valid_token(token: str) -> bool:
@@ -1943,22 +2045,28 @@ def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
     # the farmer's words. See _apply_farm_defaults docstring.
     farm = farms_repo.get_by_owner(sender.id) if sender.id else None
     parsed = _apply_farm_defaults(parsed=parsed, farm_defaults=_farm_defaults_dict(farm))
-    # Server-authoritative missing-fields check — never trust the agent.
+    # Server-authoritative missing-fields check — never trust the agent. The
+    # over-confirm backstop in _route_agent_output should have caught this
+    # before the user confirmed; if we reach here it means the backstop missed
+    # something. Recover with a friendly clarify (no schema field names).
     missing = compute_missing_fields(parsed)
     if missing:
-        # The agent shouldn't have emitted create_opportunity with missing
-        # required fields, but if it did, fall back to a clarification.
         flags_repo.create(
             FlagDoc(
                 message_id=None,
                 flagged_by_user_id=sender.id,
-                reason=f"Agent tried create_opportunity with missing required fields: {missing}",
+                reason=(
+                    "Executor caught missing required fields the backstop should "
+                    f"have rejected pre-confirm: {missing}"
+                ),
                 created_at=datetime.now(UTC),
             )
         )
         safe_send(
             provider, to_phone=sender.phone,
-            body=f"Missing some details before I can post that: {', '.join(missing)}",
+            body=_clarify_for_overconfirm(
+                reason=f"required fields still missing after defaults: {missing}"
+            ),
         )
         return None, None
     if farm is None or farm.id is None:
@@ -1992,7 +2100,9 @@ def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provide
     if missing:
         safe_send(
             provider, to_phone=sender.phone,
-            body=f"Still need: {', '.join(missing)}",
+            body=_clarify_for_overconfirm(
+                reason=f"required fields still missing after defaults: {missing}"
+            ),
         )
         return None, None
     # _merge_updates_for_opportunity recomputes post_event_checkin_at from the

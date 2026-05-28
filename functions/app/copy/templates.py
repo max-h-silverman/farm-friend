@@ -75,7 +75,10 @@ def render_shift_outreach(
     parts = [head]
     if requirements:
         parts.append(requirements)
-    parts.append("Reply YES to claim, MUTE to skip this one, or STOP to unsubscribe.")
+    parts.append(
+        "Reply YES to confirm, MAYBE if maybe available, MUTE to skip, "
+        "or STOP to opt out."
+    )
     return " ".join(parts)
 
 
@@ -94,7 +97,10 @@ def render_pickup_outreach(
     ]
     if vehicle_needed:
         parts.append("Vehicle helpful.")
-    parts.append("Reply YES if you can take it, or STOP to unsubscribe.")
+    parts.append(
+        "Reply YES to confirm, MAYBE if maybe available, MUTE to skip, "
+        "or STOP to opt out."
+    )
     return " ".join(parts)
 
 
@@ -163,8 +169,7 @@ def render_confirmation_reminder_shift(
     # The CONFIRMATION_REMINDER outbound's pending_action.token must match.
     return (
         f"Farm Friend Vashon: Reminder — you're scheduled to help with {activity} "
-        f"at {farm_name} {when_human}. Reply DROP if you can't make it, "
-        f"or STOP to unsubscribe."
+        f"at {farm_name} {when_human}. Reply DROP if you can't make it."
     )
 
 
@@ -173,8 +178,7 @@ def render_confirmation_reminder_pickup(
 ) -> str:
     return (
         f"Farm Friend Vashon: Reminder — you're picking up {produce} from "
-        f"{farm_name} {deadline_human}. Reply DROP if you can't make it, "
-        f"or STOP to unsubscribe."
+        f"{farm_name} {deadline_human}. Reply DROP if you can't make it."
     )
 
 
@@ -211,16 +215,13 @@ def render_flag_ack() -> str:
 
 
 def render_fallback_ambiguous() -> str:
-    return (
-        "Farm Friend Vashon: Coordinator will follow up shortly. "
-        "Reply STOP to unsubscribe."
-    )
+    return "Farm Friend Vashon: Coordinator will follow up shortly."
 
 
 def render_orphan_yes() -> str:
     return (
         "Farm Friend Vashon: Got your YES but we're not sure which shift it's "
-        "for. Coordinator will follow up shortly. Reply STOP to unsubscribe."
+        "for. Coordinator will follow up shortly."
     )
 
 
