@@ -395,6 +395,9 @@
                     <span x-text="turn.body"></span>
                     <span class="caption">to <span x-text="turn.toLabel || turn.to_phone"></span></span>
                   </div>
+                  <div x-show="turn.kind === 'typing'" class="turn outbound typing" aria-label="Farm Friend is responding">
+                    <span class="typing-dots"><span></span><span></span><span></span></span>
+                  </div>
                   <div x-show="turn.kind === 'silence'" class="empty">
                     <span class="glyph">…</span>
                     No reply — the system stayed silent.

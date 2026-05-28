@@ -1204,10 +1204,15 @@ def _build_agent_context(
         for msg in messages_repo.list_for_opportunity(target_opp.id, limit=5):
             opp_excerpt.append(_excerpt_from(msg))
 
-    # Per-user message excerpt (last 3 to / from this user, any opp).
+    # Per-user message excerpt: messages in the last 24h with a hard cap of
+    # 20. Time-bounded so a multi-turn SMS dialog (clarify → answer → confirm)
+    # stays coherent in context, but unrelated conversations from earlier in
+    # the week don't bleed in. Hard cap protects against pathological bursts.
     user_excerpt: list[MessageExcerpt] = []
     if sender.id:
-        for msg in messages_repo.list_for_user(sender.id, limit=3):
+        from datetime import timedelta as _td
+        since = datetime.now(UTC) - _td(hours=24)
+        for msg in messages_repo.list_for_user_since(sender.id, since=since, hard_cap=20):
             user_excerpt.append(_excerpt_from(msg))
 
     # Mute summary — render as a list of "dim:value" strings for the prompt.

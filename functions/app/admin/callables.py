@@ -214,7 +214,7 @@ def set_admin_claim(req: https_fn.CallableRequest) -> dict:
     return {"ok": True, "bootstrap": is_first_admin}
 
 
-@https_fn.on_call(secrets=ALL_SECRETS)
+@https_fn.on_call(secrets=ALL_SECRETS, min_instances=1)
 def simulate_inbound_sms(req: https_fn.CallableRequest) -> dict:
     """Run an inbound message through the real dispatch pipeline, but reroute
     outbound replies to an in-memory provider so nothing actually goes out over

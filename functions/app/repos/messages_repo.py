@@ -36,6 +36,26 @@ def list_for_user(user_id: str, *, limit: int = 50) -> list[MessageDoc]:
     return [snapshot_to_model(s, MessageDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
 
 
+def list_for_user_since(
+    user_id: str, *, since: datetime, hard_cap: int = 20,
+) -> list[MessageDoc]:
+    """Messages for this user since `since`, newest first, hard-capped.
+
+    Used by the unified-agent context builder to give the LLM enough thread
+    history to handle multi-turn dialogs (clarify → answer → confirm) without
+    bloating context with old unrelated conversations. The hard cap is a
+    safety valve against a pathological burst of messages in the window.
+    """
+    q = (
+        db.collection(COLLECTION)
+        .where("user_id", "==", user_id)
+        .where("created_at", ">=", since)
+        .order_by("created_at", direction="DESCENDING")
+        .limit(hard_cap)
+    )
+    return [snapshot_to_model(s, MessageDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
 def list_for_opportunity(opp_id: str, *, limit: int = 200) -> list[MessageDoc]:
     q = (
         db.collection(COLLECTION)

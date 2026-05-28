@@ -413,12 +413,21 @@ window.adminApp = function adminApp() {
       if (!this.test.threads[userId]) this.test.threads[userId] = [];
       const thread = this.test.threads[userId];
       thread.push({ kind: "inbound", body, fromLabel });
+      // Animated "typing" indicator while dispatch + agent run. Simulator
+      // only — real SMS has no typing-indicator equivalent on the carrier
+      // side, so this is a UI affordance for the System Test page only.
+      thread.push({ kind: "typing" });
       this.test.body = "";
       this.test.running = true;
+      const removeTyping = () => {
+        const idx = thread.findIndex((t) => t.kind === "typing");
+        if (idx !== -1) thread.splice(idx, 1);
+      };
       try {
         const call = window.__fb.httpsCallable(this._functions, "simulate_inbound_sms");
         const resp = await call({ user_id: userId, body });
         const outbound = resp.data?.outbound || [];
+        removeTyping();
         if (outbound.length === 0) {
           thread.push({ kind: "silence" });
         } else {
@@ -431,6 +440,7 @@ window.adminApp = function adminApp() {
           }
         }
       } catch (e) {
+        removeTyping();
         thread.push({ kind: "error", body: e?.message || String(e) });
       } finally {
         this.test.running = false;

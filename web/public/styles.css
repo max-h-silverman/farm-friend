@@ -500,6 +500,29 @@ h1, h2, h3 { margin: 0; }
   opacity: 0.7;
   margin-top: 4px;
 }
+.transcript .turn.typing {
+  padding: 14px 16px;
+}
+.transcript .typing-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.transcript .typing-dots > span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg);
+  opacity: 0.35;
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+.transcript .typing-dots > span:nth-child(2) { animation-delay: 0.15s; }
+.transcript .typing-dots > span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-3px); opacity: 0.85; }
+}
+
 .transcript-footer {
   margin-top: var(--s-3);
   font-size: var(--t-sm);

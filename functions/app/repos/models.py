@@ -284,7 +284,10 @@ class MessageDoc(BaseModel):
 
 class FlagDoc(BaseModel):
     id: str | None = None
-    message_id: str
+    # Inbound MessageDoc this flag is anchored to. Optional because agent-
+    # raised flags (review tick, schema-validation failures, missing-fields
+    # backstops) aren't tied to a single inbound — they're system-side.
+    message_id: str | None = None
     flagged_by_user_id: str | None = None  # None when raised by the agent
     reason: str = ""
     resolved_at: datetime | None = None
