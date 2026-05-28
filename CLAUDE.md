@@ -6,6 +6,22 @@ SMS-first agentic system for coordinating volunteer help on Vashon Island farms.
 
 **v1 codebase is built and deployed.** All Firebase functions, Firestore data model, admin SPA, and SMS pipeline are live in the `farm-friend-vashon` project. End-to-end smoke test confirmed: an inbound farmer SMS gets parsed (now by the unified agent), persists as an `Opportunity`, and the admin SPA picks it up in real time.
 
+**v1.1 — post-refactor hardening + OSS LLM swap (in progress, 2026-05-27):** a fresh architectural review on top of the unified-agent refactor surfaced a small set of fixes that all landed in the same session:
+- SMS-compliance template drift fixed (`render_intro_*`, `render_orphan_yes`, `render_fallback_ambiguous` now carry "Farm Friend Vashon" + STOP path; unknown-sender JOIN ack now persists an outbound MessageDoc for audit).
+- Dead/stale code removed: `classifier_confidence_threshold`, `MessageDoc.confidence`, unused `IntentLabel.YES` / `IntentLabel.EDIT`, stale "classifier"/"ambiguous"/"four-branch" comments throughout.
+- `_apply_farm_defaults` is now actually called from dispatch (`_execute_create_opportunity` and `_execute_update_draft_opportunity`) as the docstring always claimed — fills `duration_min` from `typical_shift_duration_min` when the farmer didn't specify, never fills required fields.
+- Headcount-up edits past `seats_filled` now call `set_next_escalation` so the existing tick re-pings the pool (`farmer_ops.apply_edit`).
+- Stale-draft tick uses `last_updated_at` (auto-bumped on every `update_fields` write) as the staleness clock so a live clarification mid-dialog doesn't get flagged. `last_updated_at` is a new optional field on `OpportunityDoc`; legacy drafts without it fall back to `created_at`.
+- Clarification-streak counter is now derived by walking the message stream (`_consecutive_clarify_count`) rather than read off the latest outbound's `clarification_round` field — robust to non-CLARIFY outbounds sitting between two CLARIFY turns.
+- Dead `if mutes_repo.is_muted(...): pass` branch removed from `board_review._route_review_proposals` (the agent_nudge mute check is the real one).
+- **LLM default is now an OSS model:** Llama 3.3 70B Instruct on DeepInfra (`LLM_PROVIDER=openai-compatible`, `LLM_BASE_URL=https://api.deepinfra.com/v1/openai`). Anthropic Sonnet 4.6 is still selectable by setting `LLM_PROVIDER=anthropic`. **Eval gate cleared 2026-05-27:** the live `--live` run against DeepInfra hits 53/54 deterministically; the single flake (`reg.farmer.cancel.unique_match`) passes on re-run in isolation — same intermittent behavior the Sonnet 4.6 baseline showed. Pass-rate parity with the Anthropic baseline achieved.
+- **Three things were needed to get there**, all worth knowing for a future provider swap:
+  - **Adapter quirk for DeepInfra:** `response_format=json_schema` is accepted by the API but not actually enforced — Llama writes prose anyway. The adapter (`openai_compat_adapter.py`) now detects `deepinfra` in the base URL and skips straight to `json_object` + schema-in-system-prompt. Other OpenAI-compatible providers that honor `json_schema` (OpenAI proper, vLLM with guided_json) keep the fast path. There's also a `LLM_FORCE_JSON_OBJECT=1` env override for any provider that needs the same treatment.
+  - **Prompt round (`prompts/agent.md`):** added "Rule 0: Default to asking, not acting" at the top of the system prompt with 7 worked examples covering the exact failure modes (polite-decline, missing-time, crop-name-no-activity, headcount-down hard-block, unknown-activity-slug, affirmative-to-clarify, volunteer-offer-as-question). Tightened token-length rule with character counts and good/bad examples.
+  - **Server-side over-confirm backstop** (`_route_agent_output` + `_agent_overconfirm_reason` in `message_dispatch.py`): when the agent emits `mode=confirm + action=create_opportunity` with self-incriminating `parse_notes` ("default", "inferred", "typical") OR with `starts_at` filled but no clock-time signal in the inbound OR with a canonical activity slug populated but no activity word in the inbound, dispatch downgrades to `mode=clarify` and flags for admin. Scoped to `create_opportunity` only — `update_draft_opportunity` legitimately carries fields forward from the draft. Eval runner mirrors this so eval results reflect what real users see.
+
+96/96 unit tests pass and the OSS path is eval-green. Cutover is unblocked.
+
 **Unified-agent refactor — shipped, eval-gated, ready for pilot (as of 2026-05-27):** the v1 classifier/ambiguous/parser trio has been replaced by `app/agent/unified.py` (one role-aware agent, one prompt at `app/prompts/agent.md`, structured JSON output) plus a rewritten `_dispatch` in `app/flows/message_dispatch.py`. The reactive path handles inbound messages with token-gated state changes (5-8 char uppercase alphanumeric, no hyphens) and 5-min UNDO via `ACTION_RECEIPT` outbounds. A proactive review path (`tick_agent_review` every 30 min, gated by quiet hours) runs the same agent in review mode and surfaces nudges through deterministic budget filters: per-user 48h budget, per-opp 2-lifetime cap, per-tick global ceiling of 3. Users can `PAUSE` / `RESUME` agent-initiated nudges. The motivating bug — volunteer-initiated "anyone need tilling Friday?" — is now a first-class `record_offer` flow. Plan: `docs/refactor-unified-agent.md`. Eval spec: `functions/tests/evals/cases.py` (50 cases: 16 REGRESSION, 13 NEW_INTENT, 13 ADVERSARIAL, 8 REVIEW). **Live `--live` eval against real Anthropic passes all 42 non-REVIEW cases**; REGRESSION + NEW_INTENT exact-match, ADVERSARIAL behavioral match (with `reply`/`clarify` interchangeable for non-state-changing intents). REVIEW cases are still skipped in the runner — they need the `board_review` integration but that's not on the cutover path. Sonnet 4.6 is mildly non-deterministic — expect 1–2 sporadic JSON-shape flakes per full sweep; re-running the affected case individually almost always passes.
 
 **Recent hardening pass (2026-05-26)** added: transactional claim resolution, inbound webhook idempotency, post-event reschedule on edits, intent-label-based post-event detection, orphan-YES flag-and-reply, **pre-event confirmation reminders + volunteer CANCEL flow**, **quiet hours (11pm–7am Vashon)**, **first-class `ESCALATE` intent with `routine`/`immediate` urgency** that texts the coordinator on urgent triggers. Admin SPA repainted as a dark-mode control panel. See "Next steps" → "Recent fixes" for the full list and what's still deferred.
@@ -108,9 +124,11 @@ Confirmation tokens (drafted by the unified agent per action; not a fixed vocabu
   - **Firebase Hosting** — static hosting for the admin SPA
   - **Cloud Scheduler** (via scheduled functions) — recurring escalation checks
 - **SMS:** Telnyx (abstracted behind `MessagingProvider`)
-- **LLM:** abstracted via internal `LLMClient` (OpenAI-format wire protocol, opt-in Anthropic cache hints). **v1 default is Anthropic; the system is architected to support a fully self-hosted open-weight model later.**
-  - v1 provider: Anthropic (Haiku 4.5 for parsing/classification, Sonnet 4.6 for ambiguous-reply handling). Prompt caching is used.
-  - Future paths supported by config: vLLM/Ollama hosting Llama 3.3 70B Instruct, Qwen 2.5, etc.; or cloud open-weight providers (Groq, Together, Fireworks, DeepInfra).
+- **LLM:** abstracted via internal `LLMClient` (OpenAI-format wire protocol, opt-in Anthropic cache hints). **v1.1 default is an OSS path: Llama 3.3 70B Instruct hosted on DeepInfra**. Anthropic Sonnet 4.6 remains a config-switchable fallback. The unified-agent refactor consolidated the v1 trio of LLM calls into a single `model_tier="strong"` call per inbound, so a single OSS model in that size class is sufficient (no separate fast path is needed in production).
+  - Current default: `LLM_PROVIDER=openai-compatible`, `LLM_BASE_URL=https://api.deepinfra.com/v1/openai`, `LLM_MODEL_STRONG=meta-llama/Llama-3.3-70B-Instruct`. Key from `LLM_API_KEY` secret.
+  - Fallback: `LLM_PROVIDER=anthropic`, `LLM_MODEL_STRONG=claude-sonnet-4-6` (cached system prompt honored).
+  - Other OpenAI-compatible providers (Together, Fireworks, Groq, vLLM, Ollama) work by swapping `LLM_BASE_URL`. No SDK changes needed.
+  - The adapter prefers `response_format=json_schema` and falls back to `json_object` with the schema concatenated into the existing system message (single system message, no second one prepended — some providers honor only the first).
 - **Admin UI:** Vanilla TypeScript + Alpine.js on Firebase Hosting, talking to Firestore directly via the Firebase JS SDK
 
 ## Firebase conventions
@@ -204,7 +222,7 @@ These are spread across the codebase but conceptually belong together. Each one 
 
 The system is architected so the LLM can be swapped between Anthropic and any OpenAI-compatible provider (including self-hosted open-weight runtimes like vLLM) via config.
 
-**An eval harness exists** at `functions/tests/evals/` — 50 cases (`cases.py`) covering REGRESSION, NEW_INTENT, ADVERSARIAL, and REVIEW categories, with a `runner.py` that supports both stub-LLM (for CI / harness-mechanic verification) and `--live` (real Anthropic) modes. Before swapping the default provider, re-run `python -m tests.evals.runner --live` against the candidate and require pass-rate parity with the current Anthropic baseline. Note: the cases were authored against the unified agent's output shape — if you swap to a provider whose JSON-following discipline is materially weaker, expect to either iterate the prompt or add a retry layer in the adapter.
+**An eval harness exists** at `functions/tests/evals/` — 50 cases (`cases.py`) covering REGRESSION, NEW_INTENT, ADVERSARIAL, and REVIEW categories, with a `runner.py` that supports both stub-LLM (for CI / harness-mechanic verification) and `--live` (real provider) modes. The runner picks the provider from the `LLM_PROVIDER` env var: `openai-compatible` needs `LLM_API_KEY` + `LLM_BASE_URL`; `anthropic` needs `ANTHROPIC_API_KEY`. Before swapping the default provider, re-run `python -m tests.evals.runner --live` against the candidate and require pass-rate parity with the existing baseline (Sonnet 4.6 hit 42/42 non-REVIEW cases). The cases were authored against the unified agent's output shape — if you swap to a provider whose JSON-following discipline is materially weaker, expect to either iterate the prompt or add a retry layer in the adapter.
 
 **Don't reach for `litellm` or similar.** The Anthropic adapter is hand-rolled (~50 lines). The OpenAI-compatible path uses the OpenAI Python SDK with `base_url` swapped. Keep the dependency surface small.
 
@@ -228,7 +246,7 @@ The system is architected so the LLM can be swapped between Anthropic and any Op
 - Don't auto-reply on a thread after the user has texted `FLAG` until admin clears it.
 - Don't store raw message content longer than 90 days unless it's tied to an active opportunity or open flag.
 - Don't add `litellm` or similar omnibus LLM-routing libraries; hand-roll the thin adapters.
-- Don't change the default LLM provider without first re-running the live eval (`python -m tests.evals.runner --live` from `functions/`) against the candidate and requiring pass-rate parity with Anthropic Sonnet 4.6.
+- Don't change the default LLM provider without first re-running the live eval (`python -m tests.evals.runner --live` from `functions/`) against the candidate and requiring pass-rate parity with the existing baseline (Sonnet 4.6 cleared 42/42 non-REVIEW cases; Llama 3.3 70B is the current default, pending its own eval pass).
 - Don't import the Firestore SDK from business logic — go through the `repos/` layer.
 
 ## Repo conventions
@@ -270,10 +288,22 @@ This list is the source of truth for "what's the next thing to do." Update it as
 5. [ ] In Telnyx Mission Control → Messaging → your profile, configure the **inbound webhook** to `https://us-west1-farm-friend-vashon.cloudfunctions.net/inbound_sms`.
 6. [ ] Re-run the end-to-end smoke test, this time with a *real* phone number for the volunteer (your own second number or a Google Voice line). Verify the volunteer actually receives the outbound SMS.
 
+### OSS LLM swap — done, deploy at any time
+
+The adapter is wired, defaults are set, the live eval cleared 53/54 deterministically (1 flake same shape as Sonnet 4.6's). To take it live: just `firebase deploy`. The DeepInfra `LLM_API_KEY` is already in Secret Manager from the eval setup.
+
+To swap back to Anthropic without code changes: set `LLM_PROVIDER=anthropic` in `.env.farm-friend-vashon` and re-deploy. The Anthropic adapter and Sonnet 4.6 baseline are intentionally preserved as a fast fallback.
+
+How the eval went, for reference if a future swap surfaces similar issues:
+- **Round 1 (baseline OSS, no adjustments):** 46/54. Two failure modes — adapter not enforcing JSON, and Llama over-confirming.
+- **Round 2 (adapter fix: DeepInfra → json_object always):** schema failures gone, 50/54. Behavioral failures remained.
+- **Round 3 (prompt: Rule 0 + 7 worked examples):** 52/54 — over-confirm cases halved.
+- **Round 4 (server-side over-confirm backstop, scoped to create_opportunity):** 53/54 deterministic, 54/54 with single-case retry — parity with Sonnet 4.6.
+
 ### Hygiene before real users (do anytime)
 
 - [ ] Delete the test data that's currently sitting in production Firestore: `Test Farm`, `Test Farmer`, `Test Volunteer`, and the two test opportunities (one `draft`, one `open`). Easiest path: a one-off script in `functions/scripts/`. Doc IDs were `Mdq9CTxUHKRfANApkjRx` (farm), `P0z4cHtjU6W2UwZ6tTcv` (farmer), `E2QEyfT8tMQr6Uy94UQq` (volunteer), `dPBDvJlCJMvYYVeBrtA0` + `RbDSNDL0YKXi7xJAXJ55` (opps).
-- [ ] Decide what to do about the stale `LLM_API_KEY` secret in Cloud Secret Manager (one accidental version, costs ~$0/month at zero accesses). Optionally: `firebase functions:secrets:destroy LLM_API_KEY`.
+- [x] ~~Decide what to do about the stale `LLM_API_KEY` secret~~ — superseded: the OSS LLM swap requires `LLM_API_KEY` to hold a real DeepInfra key. The placeholder value `unused` will be overwritten when the user provisions DeepInfra access.
 
 ### Pilot prep (do before approaching the first real farm)
 
@@ -295,22 +325,35 @@ Reference notes for a fresh session: a full review on 2026-05-26 found six high-
 5. **Post-event checkin detection uses an intent label, not substring matching.** Outbound checkin SMS is stamped with `IntentLabel.POST_EVENT_CHECKIN`; `_is_post_event_question` reads that field. Reworded copy can no longer break the Y/N routing.
 6. **(Deferred, not in this pass: the LLM consolidation win — see below.)**
 
-### Known issues from 2026-05-26 review — deferred
+### Known issues — current (post-v1.1) deferred list
 
-These are the review findings we *didn't* fix this pass. Listed in rough priority order so a future session can pick them up:
+The 2026-05-26 list is mostly obsolete: the unified-agent refactor superseded the architecture eight of those twelve items were diagnosing. The v1.1 hardening pass on 2026-05-27 resolved three more. What remains, plus new findings from that review:
 
-- **Two LLM calls per farmer-with-open-opps posting.** `_handle_farmer_message_with_open_opps` calls the triage prompt (edit/cancel/new_post/clarify), and on `new_post` falls through to `_handle_farmer_post` which calls the parser. Fold both into a single prompt that can return either a triage decision or a parsed-new-post payload. Biggest LLM cost win available.
-- **Parser prompts duplicate each other.** `parser.md`, `parser_merge.md`, `parser_edit.md` share ~90% of their content (classification rules, date semantics, required-field rules). Consolidate into one cached system prompt with a `mode` flag in the user message. Roughly doubles prompt-cache hit rate on the farmer path.
-- **Headcount-up edit doesn't reactivate outreach.** `farmer_ops.apply_edit` flips FULL→FILLING when headcount increases past seats_filled, but never calls `set_next_escalation` — so the escalation tick never re-picks the opp. Fix: after the status flip, `opportunities_repo.set_next_escalation(opp_id, at=now, tier=current_tier)`.
+**Resolved by the unified-agent refactor (2026-05-27):**
+- Two LLM calls per farmer-with-open-opps → single agent call.
+- Parser prompts duplicating each other → single `agent.md`.
+- Classifier confidence miscalibrated / self-reported → no classifier exists.
+- `_looks_like_posting` keyword gate missing laconic postings → agent decides directly.
+- Classifier doesn't see prior INTERESTED claim → agent context includes `sender_open_claims`.
+- `max_tokens` headroom → cleaned up (1024 reactive, 2048 review).
+- Strong-model failures silent → `_dispatch` wraps `run_agent` in try/except → flag + fallback reply.
+
+**Resolved in the v1.1 hardening pass (2026-05-27):**
+- Headcount-up edit doesn't reactivate outreach → `farmer_ops.apply_edit` now calls `set_next_escalation` after FULL→FILLING.
+- Stale-draft tick uses `created_at`, not activity → `OpportunityDoc.last_updated_at` auto-bumped on every `update_fields` write; the tick uses it as the clock with `created_at` fallback for legacy drafts.
+- `flags_repo.is_user_flagged` only mutes the LLM path → in the rewritten `_dispatch`, the FLAG check sits between hotkey routing and agent invocation. Hotkeys (STOP/HELP/etc) still execute on a flagged user, which is intentional (compliance keywords must always work). A deliberate decision worth surfacing: should an open flag also pause `YES`/`MAYBE`/`MUTE`? Current answer is no; revisit if pilot reveals confusion.
+- Clarification-streak counter could under-count when a non-CLARIFY outbound interleaves → now derived by walking the message stream.
+- Dead `mutes_repo.is_muted` branch in board-review proposal routing → removed.
+- Dead/stale identifiers (`classifier_confidence_threshold`, `MessageDoc.confidence`, unused `IntentLabel.YES`/`EDIT`, "classifier" comments) → removed.
+
+**Still real — deferred:**
 - **`INSIDER <phone>` for an existing user skips the admin gate.** `_handle_hotkey` adds the insider link directly when the nominated phone is already a user, but routes unknown phones through `pending_users`. Two paths to the same outcome (one gated, one not) — pick one. Probably route everything through `pending_users` so admin always sees nominations.
-- **`flags_repo.is_user_flagged` only mutes the LLM classifier path.** Farmer free-form postings, edits, and cancels run *before* the flag check in `_dispatch`. A farmer with an open flag will still have their posting parsed and replied to. Either move the flag check above the farmer branches, or document the scope intentionally.
-- **Stale-draft tick uses `created_at`, not last-activity.** A clarification dialog crossing the 2h boundary will get flagged even if it's still alive. Track `last_updated_at` on drafts (update it on merge) and use that for the staleness clock.
-- **Strong-model failures fall through silently.** `_handle_llm_reply` doesn't wrap `resolve_ambiguous` in a try/except. If Anthropic 5xxs or the Sonnet alias drifts, the user gets no reply at all. Catch `LLMProviderError` and route to the flag-for-admin branch.
-- **Classifier confidence is self-reported and miscalibrated.** Consider asking the fast model to output a boolean `escalate` it derives from its own rationale instead of a fuzzy float, OR drop the threshold and always route `AMBIGUOUS` to the strong model.
-- **`_looks_like_posting` keyword gate misses laconic postings.** A farmer texting "tomorrow 9am, 3 ppl" hits no keyword and gets routed to the volunteer classifier. For farmer-role senders with no open opps, just always run the parser (cost: one Haiku call; benefit: no missed postings).
-- **Classifier doesn't see the volunteer's prior `INTERESTED` claim.** "I'm in" after a MAYBE often hits AMBIGUOUS because the prompt has no signal that this user already expressed soft interest. Plumb prior claim status into the user prompt.
-- **`max_tokens` headroom.** Parser uses 512, classifier/ambiguous use 400 — JSON outputs in these schemas top out around 200. Tightening reduces tail latency variance and caps worst-case cost. No correctness risk.
 - **`_no_admins_exist()` bootstrap is racy.** Two concurrent `set_admin_claim` calls during first-run both see no admins and both succeed. Wrap in a transactional sentinel doc. Hypothetical at pilot scale.
+- **`_build_agent_context` does an N+1 message read on every inbound.** Reads sender's last 50 messages, then for each unique `opportunity_id` does extra `get_by_id` calls. Fine at pilot scale; revisit if active volunteers with many recent claims become common. Also: the message read happens before the FLAG-pause check, so flagged users still pay the cost — move the FLAG check above the context build for a small win.
+- **`cross_cutting_opps` and the hotkey-path `known_farms` both call `farms_repo.list_all()`** on every inbound. Cache once per request.
+- **`_build_board_state` does `users_repo.list_active()` + per-user `latest_outbound_for_user`.** N+1 on each review tick; replace with a single message-collection query filtered by intent+age, grouped by user. Cost is negligible at pilot scale but worth a single-query rewrite when it gets touched.
+- **Agent prompt read from disk on every call.** `PROMPT_PATH.read_text()` runs inside `run_agent`. Cheap on a warm function (page-cached) but unnecessary. Make it a module-level constant so it's read once at import.
+- **Smoke-test bypass is unconditionally active when both the secret and header match.** Acceptable for pilot per CLAUDE.md note; harden before any wider rollout (gate on a separate `ENABLE_SMOKE_BYPASS` env var that's off in `.env.farm-friend-vashon`, rotate the secret monthly).
 
 ### Known limitations / deferred to v2
 
@@ -332,7 +375,8 @@ These are baked into the design — changing any of them is a real refactor, not
 - **Every agent-drafted operational outbound includes the program name "Farm Friend Vashon" and an opt-out path** where the message initiates contact or asks for an action. Enforced by prompt and spot-checked in eval.
 - `repos/` is the only package that imports `google.cloud.firestore`. Business logic goes through repos.
 - All outbound SMS goes through `app.messaging._safe_send.safe_send()` — never call `provider.send()` directly. Failures must not crash the webhook.
-- The deterministic hotkey parser runs BEFORE the LLM classifier. Common-path messages (YES / STOP / HELP / FLAG / MUTE / JOIN / INSIDER) never cost an LLM call.
+- The deterministic hotkey parser runs BEFORE the unified agent. Common-path messages (YES / STOP / HELP / FLAG / MUTE / JOIN / INSIDER, plus PAUSE / RESUME / UNDO and post-event Y/N when expected) never cost an LLM call.
+- **Pre-agent dispatch steps run before the agent.** In order: idempotency check, sender lookup, UNSUBSCRIBED gate, inbound persistence, hotkey parse, FLAG-pauses-thread, token-match against a live PENDING_CONFIRMATION, UNDO window, clarification cap (hard cap 2 consecutive, soft cap 5/24h). Each step that fires returns without invoking the agent.
 - The LLMClient interface is `chat_json(messages, schema, *, cache_system_prompt=False)` — single entrypoint, JSON-only output. Don't add features that work only on Anthropic (tool-use loops, etc.) without first justifying it in the eval harness.
 - `firebase_app.py`'s `db` and `auth` are lazy — they don't connect until first attribute access. Don't change to eager init or `firebase deploy` analyzer will fail.
 - Opportunity state machine: `draft → open → filling → full → completed` (or `cancelled`/`expired`). Status flips happen even when outbound delivery fails — outreach is best-effort.
@@ -340,5 +384,8 @@ These are baked into the design — changing any of them is a real refactor, not
 - **Clarification flow re-uses the `draft` status.** A draft opportunity within ~2h of creation is the dispatch path's signal to route an inbound farmer message to the merge parser instead of treating it as a new post. `tick_stale_drafts` (every 30 min) flags drafts older than 2h that never completed — admin handles abandoned ones manually.
 - **Confirmation reminders are one-shot per claim, tracked on the claim doc.** `ClaimDoc.confirmation_sent_at` is the idempotency marker. The lead-time constants (`SHIFT_LEAD_TIME=24h`, `PICKUP_LEAD_TIME=3h`) live in `flows/confirmations.py`. A volunteer CANCEL only routes to a drop when the user's last outbound on the opp is a `CONFIRMATION_REMINDER` — outside that context, CANCEL retains its farmer-only meaning.
 - **Volunteer drop unwinds atomically.** `opportunities_repo.drop_confirmed_claim_in_transaction` decrements `seats_filled`, flips FULL→FILLING, and marks the claim DROPPED in one txn. The flow then resets `next_escalation_at` to `now` so the existing `tick_outreach` re-pings the pool (skipping anyone already pinged/claimed/muted). Farmer is notified out-of-band; that send is best-effort.
-- **ESCALATE is its own first-class intent, not a confidence fallback.** Classifier output schema includes `intent="ESCALATE"`, `escalation_reason`, and `escalation_urgency` (`routine` | `immediate`). The parser/merge prompts emit the same escalation via `kind="other"` with a `parse_notes` string prefixed `ESCALATE:` and dispatch keyword-sniffs the reason for urgency (see `_looks_immediate` in `message_dispatch.py`). The parser_edit prompt has its own `action="escalate"` branch. All three paths land in `_handle_escalation` which: (1) creates a FLAG so further auto-replies on the thread pause until admin clears, (2) sends a contextual reply with a coordinator handoff line, (3) if `immediate`, texts `settings.coordinator_phone`. The coordinator phone is read from `COORDINATOR_PHONE` env var — without it, urgent escalations still flag + reply but do not page Max.
+- **ESCALATE is its own first-class agent mode, not a confidence fallback.** The unified agent emits `mode="escalate"` with `escalation.reason` and `escalation.urgency` (`routine` | `immediate`). Dispatch's `_handle_escalation` then: (1) creates a FLAG so further auto-replies on the thread pause until admin clears, (2) sends a contextual reply with a coordinator handoff line, (3) if `immediate`, texts `settings.coordinator_phone`. The coordinator phone is read from `COORDINATOR_PHONE` env var — without it, urgent escalations still flag + reply but do not page Max.
+- **`OpportunityDoc.last_updated_at` is the staleness clock for drafts.** Auto-bumped by `opportunities_repo.update_fields` on every write. The stale-draft tick reads `last_updated_at` (with `created_at` fallback for legacy drafts). Don't introduce a code path that writes opp fields outside `update_fields` without also stamping this — otherwise a live clarification can get flagged as stale.
+- **LLM provider is config-switchable.** The unified agent uses one `chat_json(model_tier="strong", …)` call per inbound and per review tick. The default is Llama 3.3 70B Instruct on DeepInfra (`LLM_PROVIDER=openai-compatible`); Anthropic Sonnet 4.6 is preserved as a fallback (`LLM_PROVIDER=anthropic`). Changing the default requires re-running `python -m tests.evals.runner --live` against the candidate and requiring pass-rate parity. The runner picks the provider from `LLM_PROVIDER` automatically.
+- **Over-confirm backstop on `create_opportunity`.** Smaller open-weight models occasionally emit `mode=confirm` with required fields filled from defaults (the prompt forbids this but the rule isn't always sticky on instruction-following). `_agent_overconfirm_reason` in `message_dispatch.py` runs before `_send_pending_confirmation` fires; it downgrades to `mode=clarify` and flags for admin if (1) `parse_notes` self-reports filling from defaults ("default", "inferred", "typical", "assumed", "guessing") OR (2) `starts_at` is set but the inbound has no clock-time signal OR (3) a canonical activity slug is in `activity_tags` but the inbound has no activity word. Scoped to `create_opportunity` only — `update_draft_opportunity` legitimately carries fields forward from the existing draft. The eval runner mirrors this so eval results reflect production behavior.
 

@@ -3,7 +3,7 @@
 Runs BEFORE any LLM call. The vast majority of inbound messages match one of
 these patterns; matching here avoids paying the LLM cost and gives crisp,
 predictable behavior for the common path. Only messages that don't match get
-forwarded to the LLM classifier.
+forwarded to the unified agent.
 
 Parser is intentionally permissive on case/whitespace/punctuation; SMS users
 type messily. We strip a single trailing period and treat "Yes!" or "yes "
@@ -152,8 +152,8 @@ def parse(
     unavailable_match = _UNAVAILABLE_RE.match(text)
     if unavailable_match:
         window = (unavailable_match.group(1) or "").strip()
-        # We delegate window parsing to the LLM (date phrases are diverse) but
-        # still tag the intent so the classifier knows we tried.
+        # We delegate window parsing to the unified agent (date phrases are
+        # diverse) but still tag the intent so the agent knows we tried.
         return HotkeyMatch(IntentLabel.UNAVAILABLE, {"raw_window": window})
 
     return None

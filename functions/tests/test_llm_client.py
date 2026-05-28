@@ -54,7 +54,6 @@ def _settings() -> Settings:
         telnyx_from_number="",
         vcard_url="",
         coordinator_phone="",
-        classifier_confidence_threshold=0.75,
         agent_review_interval_min=30,
         agent_nudge_budget_hours=48,
         agent_nudge_per_opp_max=2,

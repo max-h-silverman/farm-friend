@@ -138,9 +138,14 @@ def apply_edit(
 
     # Reopen the status if headcount increased past the current filled count.
     # The escalation tick will re-fire outreach for the additional seats.
+    reactivate_outreach = False
     if new_headcount is not None and new_headcount > opp.seats_filled:
         if opp.status == OpportunityStatus.FULL:
             field_updates["status"] = OpportunityStatus.FILLING.value
+            # FULL → FILLING means we need to re-ping the pool for the gap.
+            # Outside this branch (already OPEN/FILLING with headcount bumped)
+            # the existing escalation timer keeps the pool moving; no kick needed.
+            reactivate_outreach = True
 
     # If the time of the event moved, recompute the post-event checkin time
     # so the day-after-checkin SMS doesn't fire on the old date.
@@ -159,6 +164,13 @@ def apply_edit(
             field_updates["post_event_checkin_sent"] = False
 
     opportunities_repo.update_fields(opp.id, field_updates)
+    if reactivate_outreach:
+        # Kick the escalation tick by resetting next_escalation_at to now.
+        # The existing tick skips already-pinged/claimed/muted recipients, so
+        # only new candidates get a fresh message.
+        opportunities_repo.set_next_escalation(
+            opp.id, at=datetime.now(UTC), tier=opp.current_tier,
+        )
     refreshed = opportunities_repo.get_by_id(opp.id) or opp.model_copy(update=field_updates)
 
     what_changed = _summarize_changes(before=opp, after=refreshed)

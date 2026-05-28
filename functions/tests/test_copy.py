@@ -179,3 +179,25 @@ def test_confirmation_reminder_uses_DROP_not_CANCEL() -> None:
     assert "DROP" in body
     assert "CANCEL" not in body
     assert "Farm Friend Vashon" in body
+
+
+def test_intro_volunteer_uses_program_name_vashon() -> None:
+    body = templates.render_intro_volunteer(name="Alex", vcard_url="https://x.test/v.vcf")
+    assert "Farm Friend Vashon" in body
+
+
+def test_intro_farmer_uses_program_name_vashon() -> None:
+    body = templates.render_intro_farmer(name="Iris", vcard_url="https://x.test/v.vcf")
+    assert "Farm Friend Vashon" in body
+
+
+def test_orphan_yes_includes_program_name_and_stop() -> None:
+    body = templates.render_orphan_yes()
+    assert "Farm Friend Vashon" in body
+    assert "STOP" in body
+
+
+def test_fallback_ambiguous_includes_program_name_and_stop() -> None:
+    body = templates.render_fallback_ambiguous()
+    assert "Farm Friend Vashon" in body
+    assert "STOP" in body

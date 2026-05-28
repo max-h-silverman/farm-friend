@@ -7,12 +7,15 @@ provider abstraction.
 Pipeline:
   1. Verify webhook signature (provider-specific).
   2. Parse payload into normalized InboundMessage.
-  3. Look up sender. If unknown phone → handle as a JOIN candidate.
-  4. Persist inbound message.
-  5. Run hotkey parser (deterministic).
-  6. If hotkey matched → dispatch to handler.
-  7. Otherwise → LLM classifier; if confident → reply; else → ambiguous
-     handler → reply or escalate.
+  3. Idempotency check on provider_msg_id.
+  4. Look up sender. If unknown phone → handle as a JOIN candidate.
+  5. Persist inbound message.
+  6. Run hotkey parser (deterministic). If hotkey matched → dispatch.
+  7. FLAG-pauses-thread invariant: silent if sender has an open flag.
+  8. Pre-agent steps (deterministic, no LLM cost): token match against a
+     live PENDING_CONFIRMATION, UNDO window, clarification cap.
+  9. Otherwise → unified agent (one LLM call, one JSON output). Route on
+     the output's `mode` (reply/clarify/confirm/execute/escalate).
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from firebase_functions import https_fn
 from app.agent import hotkeys
 from app.agent.parser import (
     ParsedOpportunity,
+    _apply_farm_defaults,
     compute_missing_fields,
 )
 from app.agent.unified import (
@@ -309,6 +313,7 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
         target_opp=target_opp,
         clarify_streak=clarify_streak,
         inbound_doc_id=inbound_doc.id or "",
+        inbound_text=inbound.body,
         provider=provider,
     )
 
@@ -338,7 +343,21 @@ def _handle_unknown_sender(*, inbound: InboundMessage, provider) -> None:
             created_at=inbound.received_at,
         )
     )
-    safe_send(provider, to_phone=inbound.from_phone, body=templates.render_join_ack())
+    ack_body = templates.render_join_ack()
+    provider_id = safe_send(provider, to_phone=inbound.from_phone, body=ack_body)
+    if provider_id is not None:
+        # Audit trail: log the outbound even though we don't have a user_id yet.
+        # Admin approval will link the eventual UserDoc back via phone if needed.
+        messages_repo.create(
+            MessageDoc(
+                direction=MessageDirection.OUTBOUND,
+                provider_msg_id=provider_id,
+                user_id=None,
+                body=ack_body,
+                intent_label=IntentLabel.JOIN,
+                created_at=datetime.now(UTC),
+            )
+        )
 
 
 def _handle_hotkey(
@@ -860,7 +879,6 @@ def _reply_and_log(
     body: str,
     opp: OpportunityDoc | None,
     intent: IntentLabel,
-    confidence: float | None = None,
 ) -> None:
     provider_id = safe_send(provider, to_phone=to.phone, body=body)
     if provider_id is None:
@@ -875,7 +893,6 @@ def _reply_and_log(
             opportunity_id=opp.id if opp else None,
             body=body,
             intent_label=intent,
-            confidence=confidence,
             created_at=datetime.now(UTC),
         )
     )
@@ -1043,14 +1060,30 @@ def _consecutive_clarify_count(
 ) -> int:
     """Count of CLARIFY outbounds at the tail of this user's outbound stream.
 
-    Read off `clarification_round` on the most recent outbound — the field
-    tracks the streak. Reset to 0 when last_outbound is anything other than
-    CLARIFY (the user got unstuck on the previous turn)."""
+    Walks the user's recent outbounds in reverse and counts consecutive
+    CLARIFYs. The streak terminates at the first non-CLARIFY outbound, even
+    if a `clarification_round` field on the latest CLARIFY would suggest a
+    longer streak — what matters is the *user's* most recent experience.
+
+    Why walk rather than read `clarification_round`: a non-CLARIFY outbound
+    (an unrelated fan-out, a milestone, an ACTION_RECEIPT for a different
+    opp) can sit between two CLARIFYs and falsely reset the in-stamped
+    counter. Walking the actual stream is cheap at pilot scale and accurate.
+    """
     if not user_id or since is None:
         return 0
     if since.intent_label != IntentLabel.CLARIFY:
         return 0
-    return since.clarification_round or 0
+    # Walk back through this user's outbound stream until a non-CLARIFY appears.
+    streak = 0
+    for msg in messages_repo.list_for_user(user_id, limit=20):
+        if msg.direction != MessageDirection.OUTBOUND:
+            continue
+        if msg.intent_label == IntentLabel.CLARIFY:
+            streak += 1
+        else:
+            break
+    return streak
 
 
 def _escalate_clarify_cap(
@@ -1271,6 +1304,7 @@ def _route_agent_output(
     target_opp: OpportunityDoc | None,
     clarify_streak: int,
     inbound_doc_id: str,
+    inbound_text: str,
     provider,
 ) -> None:
     """Switch on `output.mode` and dispatch accordingly."""
@@ -1289,6 +1323,29 @@ def _route_agent_output(
         return
 
     if output.mode == "confirm":
+        # Server-side backstop: catch agent over-confirms on create_opportunity
+        # where the agent has filled a required field from defaults rather than
+        # the farmer's words. The prompt forbids this but smaller models drift —
+        # detection signals are (1) parse_notes self-report containing "default"
+        # or "inferred", and (2) inbound text lacking a time/activity marker
+        # while parsed shows one. On detection we downgrade to clarify rather
+        # than send the bad confirmation prose.
+        reject_reason = _agent_overconfirm_reason(output=output, inbound_text=inbound_text)
+        if reject_reason is not None:
+            flags_repo.create(
+                FlagDoc(
+                    message_id=inbound_doc_id,
+                    flagged_by_user_id=sender.id,
+                    reason=f"Agent over-confirmed (downgraded to clarify): {reject_reason}",
+                    created_at=datetime.now(UTC),
+                )
+            )
+            _send_clarify(
+                sender=sender,
+                body=_clarify_for_overconfirm(reason=reject_reason),
+                previous_streak=clarify_streak, target_opp=target_opp, provider=provider,
+            )
+            return
         _send_pending_confirmation(
             sender=sender, output=output, target_opp=target_opp, provider=provider,
         )
@@ -1417,6 +1474,130 @@ def _send_pending_confirmation(
             pending_action=pending_payload,
             created_at=datetime.now(UTC),
         )
+    )
+
+
+def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str | None:
+    """Detect agent over-confirms on create_opportunity / update_draft_opportunity.
+
+    Two signals (any one is sufficient to downgrade to clarify):
+
+    1. **`parse_notes` self-report.** The agent prompt explicitly forbids
+       filling required fields from defaults; despite that, smaller models
+       sometimes do it AND write a self-incriminating note like "Start time
+       from farm default". Scan for that phrase shape.
+    2. **Inbound text doesn't justify required-field values.** If `starts_at`
+       is set but the farmer's inbound has no clock-time signal (digit, "am",
+       "pm", "noon", "morning", etc.), the agent inferred. Same for
+       `activity_tags` populated when the inbound has no activity word —
+       only a crop name. Catches the "tomatoes 9am" case.
+
+    Returns None if no issue, or a short reason string for the flag.
+    """
+    if output.action is None:
+        return None
+    # Only check create_opportunity. update_draft_opportunity legitimately
+    # carries fields forward from the existing draft (the prior turn established
+    # them), so the current inbound need not restate activity / time markers.
+    if output.action.name != "create_opportunity":
+        return None
+    payload = getattr(output.action, output.action.name, None)
+    if payload is None:
+        return None
+    parsed = getattr(payload, "parsed", None)
+    if parsed is None:
+        return None
+
+    text_lower = inbound_text.lower()
+
+    # Signal 1: parse_notes self-report. The agent prompt forbids filling
+    # required fields from defaults, but smaller models sometimes do it and
+    # then helpfully self-incriminate in parse_notes.
+    notes = (getattr(parsed, "parse_notes", "") or "").lower()
+    smell_phrases = ("default", "inferred", "typical", "assumed", "guessing")
+    for phrase in smell_phrases:
+        if phrase in notes:
+            return f"parse_notes contains '{phrase}': {notes[:120]!r}"
+
+    # Signal 2a: starts_at set but no time marker in inbound.
+    if parsed.kind == "shift" and parsed.starts_at and not _inbound_has_time_signal(text_lower):
+        return "parsed.starts_at filled but inbound text has no clock-time signal"
+
+    # Signal 2b: activity_tags populated with a canonical work-type slug, but
+    # the inbound has no activity word — only a crop name. The "tomatoes 9am"
+    # case. `tbd`/`flexible` are explicit choices and don't trigger this.
+    if (
+        parsed.kind == "shift"
+        and parsed.activity_tags
+        and not any(t in ("tbd", "flexible") for t in parsed.activity_tags)
+        and not _inbound_has_activity_signal(text_lower)
+    ):
+        return (
+            f"parsed.activity_tags={parsed.activity_tags!r} but inbound text has "
+            "no activity word (possible crop-name-only inference)"
+        )
+
+    return None
+
+
+_TIME_SIGNAL_PATTERN = re.compile(
+    r"\b("
+    r"\d{1,2}\s*(am|pm|a\.m\.|p\.m\.|:\d{2})"  # 9am, 9:30, 9 pm
+    r"|noon|midnight|morning|afternoon|evening|night|dawn|dusk"
+    r"|early|late"
+    r"|o'?clock"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _inbound_has_time_signal(text_lower: str) -> bool:
+    """True if the inbound text has any clock-time signal the agent could
+    reasonably resolve into `starts_at`. Lenient — we'd rather pass through
+    a marginal case than block a valid post."""
+    return bool(_TIME_SIGNAL_PATTERN.search(text_lower))
+
+
+# Canonical activities + close-enough synonyms the agent prompt accepts. Keep
+# in sync with the activity decision tree in prompts/agent.md.
+_ACTIVITY_WORDS = (
+    "harvest", "harvesting", "pick", "picking", "picked",
+    "glean", "gleaning",
+    "weed", "weeding", "weeds",
+    "plant", "planting", "seed", "seeding",
+    "transplant", "transplanting",
+    "livestock", "animal", "animals", "chickens", "goats", "sheep",
+    "infrastructure", "fence", "fencing", "repair", "build", "fix",
+    "process", "processing",
+    "tbd", "general", "anything", "whatever",
+)
+
+
+def _inbound_has_activity_signal(text_lower: str) -> bool:
+    """True if the inbound contains any canonical activity word or close synonym."""
+    for word in _ACTIVITY_WORDS:
+        if re.search(rf"\b{re.escape(word)}\b", text_lower):
+            return True
+    return False
+
+
+def _clarify_for_overconfirm(*, reason: str) -> str:
+    """User-facing clarify body for the agent-over-confirm backstop.
+
+    Generic enough to cover both the missing-time and the crop-name-inference
+    cases. Keeps the farmer in the dialog instead of dropping their post."""
+    if "time" in reason:
+        return (
+            "Farm Friend Vashon: What time should it start, and how long?"
+        )
+    if "activity_tags" in reason:
+        return (
+            "Farm Friend Vashon: What kind of work — harvest, weeding, "
+            "transplanting, or something else?"
+        )
+    return (
+        "Farm Friend Vashon: A few details are still missing — what time "
+        "should the shift start, and what kind of work?"
     )
 
 
@@ -1690,6 +1871,12 @@ def _execute_edit_opportunity(*, sender: UserDoc, payload: dict, provider) -> tu
 def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
     parsed_raw = payload.get("parsed") or {}
     parsed = ParsedOpportunity.model_validate(parsed_raw)
+    # Apply farm defaults to optional fields the farmer didn't specify (the
+    # agent prompt also describes this, but dispatch is the deterministic
+    # backstop). Required fields are NEVER defaulted — they must come from
+    # the farmer's words. See _apply_farm_defaults docstring.
+    farm = farms_repo.get_by_owner(sender.id) if sender.id else None
+    parsed = _apply_farm_defaults(parsed=parsed, farm_defaults=_farm_defaults_dict(farm))
     # Server-authoritative missing-fields check — never trust the agent.
     missing = compute_missing_fields(parsed)
     if missing:
@@ -1708,7 +1895,6 @@ def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
             body=f"Missing some details before I can post that: {', '.join(missing)}",
         )
         return None, None
-    farm = farms_repo.get_by_owner(sender.id) if sender.id else None
     if farm is None or farm.id is None:
         return None, None
     opp_doc = _opportunity_from_parsed(
@@ -1733,6 +1919,9 @@ def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provide
     if not opp_id:
         return None, None
     parsed = ParsedOpportunity.model_validate(parsed_raw)
+    # Apply farm defaults to optional fields before checking completeness.
+    farm = farms_repo.get_by_owner(sender.id) if sender.id else None
+    parsed = _apply_farm_defaults(parsed=parsed, farm_defaults=_farm_defaults_dict(farm))
     missing = compute_missing_fields(parsed)
     if missing:
         safe_send(
@@ -1740,6 +1929,10 @@ def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provide
             body=f"Still need: {', '.join(missing)}",
         )
         return None, None
+    # _merge_updates_for_opportunity recomputes post_event_checkin_at from the
+    # new starts_at/deadline_at — important: an update_draft path that lands the
+    # event time for the first time would otherwise leave checkin_at=None and
+    # the post-event tick would never fire for the opp.
     field_updates = _merge_updates_for_opportunity(parsed=parsed)
     opportunities_repo.update_fields(opp_id, field_updates)
     opportunities_repo.update_status(opp_id, OpportunityStatus.OPEN)

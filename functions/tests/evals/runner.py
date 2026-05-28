@@ -270,6 +270,20 @@ def simulate_dispatch(
             dispatch_reason=f"{type(e).__name__}: {str(e)[:300]}",
         )
 
+    # Apply the production over-confirm backstop so the eval reflects what the
+    # user actually sees, not the raw agent output. See _route_agent_output in
+    # app/flows/message_dispatch.py for the production version.
+    from app.flows.message_dispatch import _agent_overconfirm_reason
+    if output.mode == "confirm":
+        reject = _agent_overconfirm_reason(output=output, inbound_text=case.inbound_text)
+        if reject is not None:
+            return DispatchResult(
+                agent_was_called=True,
+                mode="clarify",
+                reply_text="[downgraded by over-confirm backstop]",
+                dispatch_reason=f"backstop: {reject}",
+            )
+
     return DispatchResult(
         agent_was_called=True,
         mode=output.mode,
@@ -453,34 +467,97 @@ _LIVE_LLM_CACHE: list = []  # one-element cache so we reuse the client across ca
 
 
 def _get_live_llm():
-    """Return a real LLMClient that calls Anthropic. Cached across cases."""
+    """Return a real LLMClient. Provider chosen by LLM_PROVIDER env var
+    (default: openai-compatible against DeepInfra). Cached across cases.
+
+    For openai-compatible: needs LLM_API_KEY + LLM_BASE_URL + LLM_MODEL_STRONG.
+    For anthropic: needs ANTHROPIC_API_KEY.
+    """
     if _LIVE_LLM_CACHE:
         return _LIVE_LLM_CACHE[0]
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        raise RuntimeError(
-            "ANTHROPIC_API_KEY env var is required for --live mode. "
-            "Try: ANTHROPIC_API_KEY=$(firebase functions:secrets:access ANTHROPIC_API_KEY) "
-            "python -m tests.evals.runner --live"
-        )
-    # Build a Settings + AnthropicAdapter directly — avoids load_settings()
-    # touching firebase_functions.params at import time outside a function.
+
+    provider = os.environ.get("LLM_PROVIDER", "openai-compatible").strip()
+
+    # Build Settings directly — avoids load_settings() touching
+    # firebase_functions.params at import time outside a function.
     from app.config import Settings
-    from app.llm.anthropic_adapter import AnthropicAdapter
     from app.llm.client import LLMClient
-    settings = Settings(
-        llm_provider="anthropic",
-        llm_model_fast=os.environ.get("LLM_MODEL_FAST", "claude-haiku-4-5-20251001"),
-        llm_model_strong=os.environ.get("LLM_MODEL_STRONG", "claude-sonnet-4-6"),
-        llm_base_url="",
-        llm_api_key="",
-        anthropic_api_key=api_key,
+
+    if provider == "anthropic":
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY env var is required for --live mode with "
+                "LLM_PROVIDER=anthropic. Try: "
+                "ANTHROPIC_API_KEY=$(firebase functions:secrets:access ANTHROPIC_API_KEY) "
+                "python -m tests.evals.runner --live"
+            )
+        from app.llm.anthropic_adapter import AnthropicAdapter
+        settings = _eval_settings(
+            llm_provider="anthropic",
+            llm_model_strong=os.environ.get("LLM_MODEL_STRONG", "claude-sonnet-4-6"),
+            llm_model_fast=os.environ.get("LLM_MODEL_FAST", "claude-haiku-4-5-20251001"),
+            llm_base_url="",
+            llm_api_key="",
+            anthropic_api_key=api_key,
+        )
+        adapter = AnthropicAdapter(api_key=api_key)
+    else:
+        # openai-compatible (the default — DeepInfra + Llama 3.3 70B).
+        api_key = os.environ.get("LLM_API_KEY", "").strip()
+        base_url = os.environ.get(
+            "LLM_BASE_URL", "https://api.deepinfra.com/v1/openai"
+        ).strip()
+        if not api_key:
+            raise RuntimeError(
+                "LLM_API_KEY env var is required for --live mode with "
+                "LLM_PROVIDER=openai-compatible. Try: "
+                "LLM_API_KEY=$(firebase functions:secrets:access LLM_API_KEY) "
+                "python -m tests.evals.runner --live"
+            )
+        from app.llm.openai_compat_adapter import OpenAICompatibleAdapter
+        model = os.environ.get(
+            "LLM_MODEL_STRONG", "meta-llama/Llama-3.3-70B-Instruct"
+        )
+        settings = _eval_settings(
+            llm_provider="openai-compatible",
+            llm_model_strong=model,
+            llm_model_fast=model,
+            llm_base_url=base_url,
+            llm_api_key=api_key,
+            anthropic_api_key="",
+        )
+        adapter = OpenAICompatibleAdapter(api_key=api_key, base_url=base_url)
+
+    client = LLMClient(adapter, settings)
+    _LIVE_LLM_CACHE.append(client)
+    return client
+
+
+def _eval_settings(
+    *,
+    llm_provider: str,
+    llm_model_strong: str,
+    llm_model_fast: str,
+    llm_base_url: str,
+    llm_api_key: str,
+    anthropic_api_key: str,
+):
+    """Minimal Settings for the eval runner. Defaults match production where
+    they matter (agent budgets, undo window) and are zeroed where they don't."""
+    from app.config import Settings
+    return Settings(
+        llm_provider=llm_provider,
+        llm_model_fast=llm_model_fast,
+        llm_model_strong=llm_model_strong,
+        llm_base_url=llm_base_url,
+        llm_api_key=llm_api_key,
+        anthropic_api_key=anthropic_api_key,
         telnyx_api_key="",
         telnyx_public_key="",
         telnyx_from_number="",
         vcard_url="",
         coordinator_phone="",
-        classifier_confidence_threshold=0.75,
         agent_review_interval_min=30,
         agent_nudge_budget_hours=48,
         agent_nudge_per_opp_max=2,
@@ -490,9 +567,6 @@ def _get_live_llm():
         undo_window_min=5,
         offer_default_ttl_days=7,
     )
-    client = LLMClient(AnthropicAdapter(api_key=api_key), settings)
-    _LIVE_LLM_CACHE.append(client)
-    return client
 
 
 def _when_human(opp: FakeOpp) -> str:

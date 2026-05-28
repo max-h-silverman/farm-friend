@@ -254,10 +254,10 @@ def _route_review_proposals(
             continue
 
         # Filter 1: active PAUSE / agent_nudge mute → drop entirely.
-        if mutes_repo.is_muted(user_id=user.id, at=now):
-            # is_muted only checks ACTIVITY/FARM/OPPORTUNITY/WINDOW. Agent-nudge
-            # check needs its own walk:
-            pass
+        # NOTE: mutes_repo.is_muted only covers ACTIVITY/FARM/OPPORTUNITY/
+        # WINDOW dimensions; AGENT_NUDGE has its own walker because PAUSE is
+        # specifically about review-tick nudges, not the user's opt-out from a
+        # specific farm/activity.
         if _is_agent_nudge_muted(user.id or "", now=now):
             _create_admin_flag(
                 proposal,

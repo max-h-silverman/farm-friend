@@ -78,7 +78,6 @@ class IntentLabel(StrEnum):
     STOP = "STOP"              # global unsubscribe (also UNSUBSCRIBE, END, QUIT)
     HELP = "HELP"              # canonical help reply (also INFO)
     JOIN = "JOIN"              # opt-in (also START)
-    YES = "YES"                # alias kept for legibility; CLAIM is the action name
     # --- Hotkey intents ---
     CLAIM = "CLAIM"
     MAYBE = "MAYBE"
@@ -90,7 +89,6 @@ class IntentLabel(StrEnum):
     INSIDER = "INSIDER"
     STATUS = "STATUS"          # farmer-only: snapshot of open opps
     CANCEL = "CANCEL"          # context-sensitive; see CLAUDE.md §SMS compliance
-    EDIT = "EDIT"              # farmer-only: edit fields on an open opp
     # --- Refactor-introduced hotkey intents ---
     UNDO = "UNDO"              # reverse the last agent-executed action (5-min window)
     PAUSE = "PAUSE"            # 14-day mute on agent-initiated nudges
@@ -204,6 +202,11 @@ class OpportunityDoc(BaseModel):
     vehicle_needed: bool | None = None
     created_from_message_id: str | None = None
     created_at: datetime
+    # Bumped on every update_fields write. The stale-draft tick uses this
+    # (not created_at) as the staleness clock so a live clarification dialog
+    # crossing the 2h boundary doesn't get flagged while the farmer is still
+    # responding.
+    last_updated_at: datetime | None = None
     next_escalation_at: datetime | None = None
     current_tier: OutreachTier = OutreachTier.INSIDER
     post_event_checkin_at: datetime | None = None
@@ -259,7 +262,6 @@ class MessageDoc(BaseModel):
     opportunity_id: str | None = None
     body: str
     intent_label: IntentLabel | None = None
-    confidence: float | None = None  # DEPRECATED: classifier self-report; removed with the dispatch rewrite
     created_at: datetime
     ttl: datetime | None = None  # Firestore TTL; ~90 days after created_at
     # --- Refactor-introduced fields (unified agent) ---

@@ -85,5 +85,5 @@ def handle_post_event_reply(
     if answer.upper().startswith("Y"):
         return "Glad to hear it — logged complete. Thanks!"
     # On N, ask for a brief detail. The follow-up text from the farmer will be
-    # routed to the LLM classifier, which will flag it for admin.
+    # routed to the unified agent, which will typically clarify or escalate.
     return templates.render_post_event_followup()

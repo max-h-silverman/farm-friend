@@ -39,8 +39,8 @@ def render_help(*, is_farmer: bool = False) -> str:
 
 def render_intro_volunteer(*, name: str, vcard_url: str) -> str:
     return (
-        f"Hi {name} — Farm Friend here, the volunteer coordinator for Vashon farms. "
-        f"Save us as a contact: {vcard_url}\n"
+        f"Hi {name} — Farm Friend Vashon here, the volunteer coordinator for "
+        f"Vashon farms. Save us as a contact: {vcard_url}\n"
         f"We'll text when a farm needs help. Reply YES to claim, MAYBE if uncertain, MUTE to skip. "
         f"HELP for commands, STOP to opt out."
     )
@@ -48,7 +48,7 @@ def render_intro_volunteer(*, name: str, vcard_url: str) -> str:
 
 def render_intro_farmer(*, name: str, vcard_url: str) -> str:
     return (
-        f"Hi {name} — Farm Friend here. Text us when you need volunteers and "
+        f"Hi {name} — Farm Friend Vashon here. Text us when you need volunteers and "
         f"we'll handle outreach.\n"
         f"Save us as a contact: {vcard_url}\n"
         f"Post in plain English (e.g. \"need 2 ppl tomorrow 10am to harvest greens\"). "
@@ -211,13 +211,16 @@ def render_flag_ack() -> str:
 
 
 def render_fallback_ambiguous() -> str:
-    return "Coordinator will follow up shortly."
+    return (
+        "Farm Friend Vashon: Coordinator will follow up shortly. "
+        "Reply STOP to unsubscribe."
+    )
 
 
 def render_orphan_yes() -> str:
     return (
-        "Got your YES but we're not sure which shift it's for. "
-        "Coordinator will follow up shortly."
+        "Farm Friend Vashon: Got your YES but we're not sure which shift it's "
+        "for. Coordinator will follow up shortly. Reply STOP to unsubscribe."
     )
 
 

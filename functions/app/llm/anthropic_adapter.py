@@ -3,7 +3,7 @@
 Translates the internal OpenAI-format `messages` list + JSON schema into a
 call to Anthropic's Messages API. Honors `cache_system_prompt` via Anthropic's
 cache_control mechanism on the system block — critical for keeping cost down
-on the hot agent paths (parser, classifier).
+on the hot agent path (unified agent on every non-hotkey inbound).
 
 We deliberately do not depend on `litellm` or similar omnibus libraries; this
 adapter is intentionally small and pinned to one provider's API surface.

@@ -43,10 +43,16 @@ def update_status(opp_id: str, status: OpportunityStatus) -> None:
 def update_fields(opp_id: str, fields: dict) -> None:
     """Generic field update. Used by the clarification flow to merge new
     farmer-supplied details into a draft. The caller is responsible for
-    only passing keys that map to OpportunityDoc fields."""
+    only passing keys that map to OpportunityDoc fields.
+
+    Stamps `last_updated_at` automatically so the stale-draft tick can use
+    activity (not creation time) as its staleness clock.
+    """
     if not fields:
         return
-    db.collection(COLLECTION).document(opp_id).update(fields)
+    from datetime import UTC, datetime as _dt
+    payload = {**fields, "last_updated_at": _dt.now(UTC)}
+    db.collection(COLLECTION).document(opp_id).update(payload)
 
 
 def list_recent_drafts_for_farm(*, farm_id: str, since: datetime) -> list[OpportunityDoc]:
@@ -64,14 +70,32 @@ def list_recent_drafts_for_farm(*, farm_id: str, since: datetime) -> list[Opport
 
 
 def list_stale_drafts(*, older_than: datetime) -> list[OpportunityDoc]:
-    """Drafts created before `older_than`. Used by the stale-draft cleanup
-    tick to flag drafts that never completed clarification."""
+    """Drafts whose last activity is before `older_than`. Used by the
+    stale-draft tick to flag drafts the farmer has gone quiet on.
+
+    The staleness clock is `last_updated_at` if set, falling back to
+    `created_at` for legacy drafts written before that field existed.
+    Filtering uses `created_at < older_than` as the Firestore query (cheap),
+    then we filter in-app on `last_updated_at` so we don't drop drafts
+    that are old by creation but recently touched.
+    """
     q = (
         db.collection(COLLECTION)
         .where("status", "==", OpportunityStatus.DRAFT.value)
         .where("created_at", "<", older_than)
     )
-    return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+    out: list[OpportunityDoc] = []
+    for snap in q.stream():
+        if not snap.exists:
+            continue
+        opp = snapshot_to_model(snap, OpportunityDoc)
+        if opp is None:
+            continue
+        # last_updated_at supersedes created_at when present.
+        clock = opp.last_updated_at or opp.created_at
+        if clock < older_than:
+            out.append(opp)
+    return out
 
 
 def set_next_escalation(opp_id: str, *, at: datetime | None, tier: OutreachTier) -> None:
