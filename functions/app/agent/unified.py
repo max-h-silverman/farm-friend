@@ -128,9 +128,10 @@ class AgentContext(BaseModel):
 # ---------------------------------------------------------------------------
 # Output — actions
 # ---------------------------------------------------------------------------
-# Token regex: 5–8 uppercase alphanumeric, must start with a letter. No hyphens.
-# Hotkey-collision check is enforced by dispatch (centralized list there).
-TOKEN_REGEX = r"^[A-Z][A-Z0-9]{4,7}$"
+# Token regex: exactly 4 uppercase letters. No digits, no hyphens — must read
+# as a real word or a clear abbreviation. Hotkey-collision check is enforced
+# by dispatch (centralized list there).
+TOKEN_REGEX = r"^[A-Z]{4}$"
 
 
 class ClaimOpportunityPayload(BaseModel):

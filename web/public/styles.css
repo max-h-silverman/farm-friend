@@ -529,6 +529,142 @@ h1, h2, h3 { margin: 0; }
   color: var(--muted);
 }
 
+/* --- Multi-thread System Test ------------------------------------------- */
+
+/* Pin bar above the grid. Flex-wrap so chips fall to a second row on narrow
+   viewports. */
+.pinbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) 0;
+  margin: var(--s-3) 0 var(--s-2) 0;
+}
+.pinbar-label {
+  font-size: var(--t-sm);
+  color: var(--muted);
+  font-weight: 600;
+}
+.pinbar-empty {
+  font-size: var(--t-sm);
+  color: var(--muted);
+  font-style: italic;
+}
+.pin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 12px;
+  border-radius: var(--r-pill, 999px);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: var(--t-sm);
+}
+.pin-x {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.pin-x:hover { color: var(--fg); background: var(--surface-3, var(--surface-2)); }
+.pin-add select {
+  padding: 4px 8px;
+  font-size: var(--t-sm);
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 6px);
+}
+
+/* Thread grid: 1 column = full width; 2 columns = side by side; 3+ = wrap.
+   Tight breakpoints so on a typical desktop two panels share the row, three
+   wrap at narrower widths. */
+.thread-grid {
+  display: grid;
+  gap: var(--s-3);
+  margin-top: var(--s-2);
+}
+.thread-grid.grid-1 { grid-template-columns: minmax(0, 1fr); }
+.thread-grid.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.thread-grid.grid-3plus { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+@media (max-width: 900px) {
+  .thread-grid.grid-2,
+  .thread-grid.grid-3plus { grid-template-columns: minmax(0, 1fr); }
+}
+
+.thread-panel {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  background: var(--surface-1, var(--surface-2));
+  padding: var(--s-3);
+  min-width: 0; /* prevents grid blowout when content is wide */
+  min-height: 360px;
+}
+.thread-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--s-2);
+  font-size: var(--t-base);
+}
+.thread-head strong {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-link {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: var(--t-sm);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.btn-link:hover:not(:disabled) { color: var(--fg); text-decoration: underline; }
+.btn-link:disabled { opacity: 0.4; cursor: default; }
+
+.thread-transcript {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 460px;
+  margin-bottom: var(--s-2);
+  padding-right: 4px;
+}
+.thread-empty {
+  color: var(--muted);
+  font-size: var(--t-sm);
+  font-style: italic;
+  margin: var(--s-2) 0;
+}
+.thread-input textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: var(--t-sm);
+  padding: 8px 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 6px);
+  resize: vertical;
+  box-sizing: border-box;
+}
+.thread-input .test-presets {
+  margin: var(--s-2) 0;
+  flex-wrap: wrap;
+}
+.thread-input .test-actions { margin-top: 0; }
+
 .toast-error {
   position: fixed; left: 50%; bottom: 24px;
   transform: translateX(-50%);

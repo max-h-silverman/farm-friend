@@ -41,10 +41,14 @@ _MUTE_RE = re.compile(r"^\s*(mute|pass|skip)\s*[!\.]?\s*$", re.IGNORECASE)
 _UNDO_RE = re.compile(r"^\s*undo\s*[!\.]?\s*$", re.IGNORECASE)
 _PAUSE_RE = re.compile(r"^\s*pause\s*[!\.]?\s*$", re.IGNORECASE)
 _RESUME_RE = re.compile(r"^\s*resume\s*[!\.]?\s*$", re.IGNORECASE)
-# Confirmation tokens drafted by the unified agent. Loose match: 5–8
-# uppercase alphanumeric. Hotkey precedence handled in parse() so the
-# explicit hotkey words above always win over this generic pattern.
-_TOKEN_RE = re.compile(r"^\s*([A-Z][A-Z0-9]{4,7})\s*[!\.]?\s*$")
+# Confirmation tokens drafted by the unified agent. Exactly 4 letters
+# (uppercase A–Z, no digits, no hyphens) — i.e. a real word or a clear
+# abbreviation. Hotkey precedence is handled in parse() so the explicit
+# hotkey words above always win over this generic pattern. (Several
+# 4-letter words collide with reserved hotkeys — STOP, QUIT, MUTE, FLAG,
+# HELP, INFO, JOIN, UNDO — those are excluded by precedence order above
+# and by _is_valid_token below.)
+_TOKEN_RE = re.compile(r"^\s*([A-Z]{4})\s*[!\.]?\s*$")
 # Affirmative variants accepted as a match for a live PENDING_CONFIRMATION.
 _AFFIRMATIVE = frozenset({"YES", "OK", "OKAY", "SURE", "CONFIRM", "GO", "GO AHEAD", "YEP", "YEAH"})
 _POST_EVENT_Y_RE = re.compile(r"^\s*y(es)?\s*[!\.]?\s*$", re.IGNORECASE)
@@ -61,6 +65,7 @@ def parse(
     body: str,
     *,
     expecting_post_event_reply: bool = False,
+    last_outbound_was_clarify: bool = False,
     known_activity_slugs: tuple[str, ...] = CANONICAL_ACTIVITIES,
     known_farm_names: tuple[str, ...] = (),
 ) -> HotkeyMatch | None:
@@ -68,6 +73,14 @@ def parse(
 
     `expecting_post_event_reply` flips how a bare "Y"/"N" is interpreted —
     in that context it's a check-in answer, not a claim/decline.
+
+    `last_outbound_was_clarify` suppresses the YES-as-claim and MAYBE-as-soft-
+    interest matches, so a YES reply to a yes/no-phrased clarify falls through
+    to the agent (which will see the YES inbound + the CLARIFY context and
+    promote to a confirm). Without this, YES/OK after a clarify would route
+    to the claim hotkey and try to claim the opp the clarify was about. All
+    other hotkeys (STOP/HELP/FLAG/MUTE/etc.) still match — compliance
+    keywords must always work.
     """
     text = body.strip()
     if not text:
@@ -112,12 +125,17 @@ def parse(
     if _RESUME_RE.match(text):
         return HotkeyMatch(IntentLabel.RESUME, {})
 
+    # When the last outbound was a CLARIFY, suppress YES/MAYBE as claim/maybe
+    # hotkeys. A YES reply to a yes/no-phrased clarify is the user agreeing
+    # with the agent's guess, not claiming the clarified-about opp. Letting
+    # this fall through to the agent gives it the chance to promote to a
+    # proper confirm.
     yes_match = _YES_RE.match(text)
-    if yes_match:
+    if yes_match and not last_outbound_was_clarify:
         slots = int(yes_match.group(2)) if yes_match.group(2) else 1
         return HotkeyMatch(IntentLabel.CLAIM, {"slots": slots})
 
-    if _MAYBE_RE.match(text):
+    if _MAYBE_RE.match(text) and not last_outbound_was_clarify:
         return HotkeyMatch(IntentLabel.MAYBE, {})
 
     insider_match = _INSIDER_RE.match(text)

@@ -75,12 +75,20 @@ window.adminApp = function adminApp() {
     filters: { farm: "", activity: "" },
     stats: { activeUsers: 0, openOpps: 0, outbound24h: 0 },
     test: {
+      // Legacy single-thread fields (still referenced by some helpers).
       userId: "", body: "", running: false,
+      // Multi-thread state. `pinnedUserIds` is the ordered list of user ids
+      // currently visible as panels. `bodies` is keyed by user id so each
+      // panel has its own input box. `runningByUser` is keyed by user id so
+      // each panel shows its own busy state. `addPickerId` is the dropdown
+      // value used by "+ Pin user" before it's committed via pinUser().
+      pinnedUserIds: [],
+      bodies: {},
+      runningByUser: {},
+      addPickerId: "",
       // Per-persona conversation threads. Key = user.id. Value = array of
-      // turns: { kind: "inbound" | "outbound" | "error" | "silence",
-      //          body, to_phone?, fromLabel? }. We keep one thread per
-      // persona so switching the "Send as" dropdown swaps the visible
-      // conversation rather than blowing it away.
+      // turns: { kind: "inbound" | "outbound" | "typing" | "error" | "silence",
+      //          body, to_phone?, fromLabel? }.
       threads: {},
     },
     dayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
@@ -391,34 +399,71 @@ window.adminApp = function adminApp() {
     },
 
     // ------------- System Test -------------
-    activeThread() {
-      const id = this.test.userId;
-      if (!id) return [];
-      if (!this.test.threads[id]) this.test.threads[id] = [];
-      return this.test.threads[id];
+    threadFor(userId) {
+      if (!userId) return [];
+      if (!this.test.threads[userId]) this.test.threads[userId] = [];
+      return this.test.threads[userId];
     },
 
-    clearActiveThread() {
-      const id = this.test.userId;
-      if (id) this.test.threads[id] = [];
+    bodyFor(userId) {
+      return this.test.bodies[userId] || "";
     },
 
-    async runTest() {
-      const userId = this.test.userId;
-      const body = this.test.body.trim();
+    setBodyFor(userId, value) {
+      this.test.bodies = { ...this.test.bodies, [userId]: value };
+    },
+
+    runningFor(userId) {
+      return !!this.test.runningByUser[userId];
+    },
+
+    userLabel(userId) {
+      const u = this.users.find((x) => x.id === userId);
+      return u ? `${u.name} · ${u.role}` : userId;
+    },
+
+    availableUsersToPin() {
+      // Users who aren't already pinned.
+      const pinned = new Set(this.test.pinnedUserIds);
+      return this.users.filter((u) => !pinned.has(u.id));
+    },
+
+    pinUser(userId) {
+      if (!userId) return;
+      if (this.test.pinnedUserIds.includes(userId)) return;
+      this.test.pinnedUserIds.push(userId);
+      this.test.addPickerId = "";
+    },
+
+    unpinUser(userId) {
+      this.test.pinnedUserIds = this.test.pinnedUserIds.filter((id) => id !== userId);
+    },
+
+    clearThread(userId) {
+      if (userId) this.test.threads[userId] = [];
+    },
+
+    fillPreset(userId, value) {
+      this.setBodyFor(userId, value);
+    },
+
+    async runTest(userId) {
+      // Backwards-compat: if called with no arg, fall back to the legacy
+      // single-thread state. New panel-based UI always passes userId.
+      if (!userId) userId = this.test.userId;
+      const body = (this.test.bodies[userId] ?? this.test.body ?? "").trim();
       if (!userId || !body) return;
       const user = this.users.find((u) => u.id === userId);
       const fromLabel = user ? `${user.name} (${user.phone})` : userId;
 
-      if (!this.test.threads[userId]) this.test.threads[userId] = [];
-      const thread = this.test.threads[userId];
+      const thread = this.threadFor(userId);
       thread.push({ kind: "inbound", body, fromLabel });
       // Animated "typing" indicator while dispatch + agent run. Simulator
       // only — real SMS has no typing-indicator equivalent on the carrier
       // side, so this is a UI affordance for the System Test page only.
       thread.push({ kind: "typing" });
-      this.test.body = "";
-      this.test.running = true;
+      this.setBodyFor(userId, "");
+      this.test.runningByUser = { ...this.test.runningByUser, [userId]: true };
       const removeTyping = () => {
         const idx = thread.findIndex((t) => t.kind === "typing");
         if (idx !== -1) thread.splice(idx, 1);
@@ -443,9 +488,13 @@ window.adminApp = function adminApp() {
         removeTyping();
         thread.push({ kind: "error", body: e?.message || String(e) });
       } finally {
-        this.test.running = false;
+        this.test.runningByUser = { ...this.test.runningByUser, [userId]: false };
       }
     },
+
+    // Legacy aliases so older bindings still work if anything references them.
+    activeThread() { return this.threadFor(this.test.userId); },
+    clearActiveThread() { this.clearThread(this.test.userId); },
   };
 };
 

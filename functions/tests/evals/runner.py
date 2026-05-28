@@ -212,19 +212,12 @@ def simulate_dispatch(
             dispatch_reason="UNDO outside 5-min window",
         )
 
-    # Clarification cap: if we've already done `cap` CLARIFY outbounds in a
-    # row, the dispatch path escalates BEFORE calling the agent. This protects
-    # users from being stuck in a clarification loop and matches the "feels
-    # like support, not management" north star.
+    # Compute the current clarification streak. The cap itself fires AFTER
+    # the agent runs (only when the agent's output is also clarify) so the
+    # inbound that *answers* the cap-hitting clarify isn't blocked. See
+    # app/flows/message_dispatch.py — _enforce_clarify_caps.
     clarify_streak = _consecutive_clarify_count(world, sender)
     cap = 2  # mirrors Settings.clarify_round_max default
-    if clarify_streak >= cap:
-        return DispatchResult(
-            agent_was_called=False,
-            mode="escalate",
-            escalation_urgency="routine",
-            dispatch_reason=f"clarify cap ({cap}) already reached; escalate without agent call",
-        )
 
     # Build context for the agent call.
     from app.agent.unified import run_agent
@@ -277,12 +270,30 @@ def simulate_dispatch(
     if output.mode == "confirm":
         reject = _agent_overconfirm_reason(output=output, inbound_text=case.inbound_text)
         if reject is not None:
+            # The backstop downgrades to clarify; apply the cap on that path too.
+            if clarify_streak >= cap:
+                return DispatchResult(
+                    agent_was_called=True,
+                    mode="escalate",
+                    escalation_urgency="routine",
+                    dispatch_reason=f"backstop -> clarify, but cap ({cap}) hit: {reject}",
+                )
             return DispatchResult(
                 agent_was_called=True,
                 mode="clarify",
                 reply_text="[downgraded by over-confirm backstop]",
                 dispatch_reason=f"backstop: {reject}",
             )
+
+    # Post-agent clarify cap. Fires only when the agent SAW the user's reply
+    # and STILL chose clarify — that's when further asking won't help.
+    if output.mode == "clarify" and clarify_streak >= cap:
+        return DispatchResult(
+            agent_was_called=True,
+            mode="escalate",
+            escalation_urgency="routine",
+            dispatch_reason=f"clarify cap ({cap}) hit on agent's new clarify",
+        )
 
     return DispatchResult(
         agent_was_called=True,
@@ -824,9 +835,10 @@ def _synth_receipt_for(pending: dict, world: World) -> str:
 # Stubs (one per case) — minimal canned outputs to exercise the harness
 # ---------------------------------------------------------------------------
 # Conventions used by every stub:
-#  - Confirmation tokens are 5–8 uppercase alphanumeric, no hyphens, not a
-#    reserved hotkey. Stubs use action-specific words (CONFIRM, DROP, EDITOK,
-#    OFFER, ADDDAY, REMDAY, PREFADD, ACK, etc.).
+#  - Confirmation tokens are EITHER literal `YES` (the preferred default,
+#    which is what most agent outputs should look like) OR a 4-letter word
+#    that doesn't collide with a reserved hotkey/affirmative. Stubs mostly
+#    use YES; a few use 4-letter words to exercise the alternate path.
 #  - reply_text mimics the program-name-prefix + STOP-path style the real
 #    agent prompt will require. Eval doesn't check copy; this just makes
 #    stubs realistic.
@@ -866,15 +878,15 @@ def _execute(action_name: str, payload: dict) -> dict:
 # === REGRESSION stubs ===
 @stub_for("reg.claim.free_form_with_opp")
 def _(c): return _confirm("claim_opportunity", {"opp_id": "o_fri_harvest", "slots": 1},
-                          token="CLAIM", text="Reply CLAIM to grab Friday harvest. STOP to opt out.")
+                          token="YES", text="Reply YES to grab Friday harvest. STOP to opt out.")
 
 # reg.claim.token_confirms_claim is handled by deterministic dispatch, not the agent.
 # No stub needed.
 
 @stub_for("reg.maybe.soft_yes")
 def _(c): return _confirm("record_maybe", {"opp_id": "o_fri_harvest"},
-                          token="MAYBE2",  # MAYBE alone would collide with the hotkey
-                          text="Noted as a maybe. Reply MAYBE2 to keep that note, STOP to opt out.")
+                          token="YES",
+                          text="Noted as a maybe. Reply YES to keep that note, STOP to opt out.")
 
 @stub_for("reg.decline.busy")
 def _(c): return _reply("Got it, thanks for letting us know. Reply STOP to opt out.")
@@ -890,8 +902,8 @@ def _(c): return _confirm(
         "activity_tags": ["harvest"],
         "missing_fields": [],
     }},
-    token="POSTOK",
-    text="Confirm posting: 3 ppl for harvest Friday 9am-12. Reply POSTOK to publish, STOP to opt out.",
+    token="YES",
+    text="Confirm posting: 3 ppl for harvest Friday 9am-12. Reply YES to publish, STOP to opt out.",
 )
 
 @stub_for("reg.farmer.post.missing_time")
@@ -913,8 +925,8 @@ def _(c): return _confirm(
         "activity_tags": ["tbd"],
         "missing_fields": [],
     }},
-    token="POSTOK",
-    text="Post 2 volunteers Monday 9am-12, work-type TBD (you'll decide on the day)? Reply POSTOK.",
+    token="YES",
+    text="Post 2 volunteers Monday 9am-12, work-type TBD (you'll decide on the day)? Reply YES.",
 )
 
 @stub_for("reg.farmer.clarification_completes_draft")
@@ -928,16 +940,16 @@ def _(c): return _confirm(
         "activity_tags": ["weeding"],
         "missing_fields": [],
     }},
-    token="POSTOK",
-    text="Confirm: 2 ppl weeding tomorrow 9am-12. Reply POSTOK to publish.",
+    token="YES",
+    text="Confirm: 2 ppl weeding tomorrow 9am-12. Reply YES to publish.",
 )
 
 @stub_for("reg.farmer.edit.time_change")
 def _(c): return _confirm(
     "edit_opportunity",
     {"opp_id": "o_fri_harvest", "field_updates": {"starts_at": "2026-06-06T16:00:00+00:00"}},
-    token="EDITOK",
-    text="Confirm moving Friday harvest to Saturday 9am. Reply EDITOK to update.",
+    token="YES",
+    text="Confirm moving Friday harvest to Saturday 9am. Reply YES to update.",
 )
 
 @stub_for("reg.farmer.edit.headcount_down_below_filled")
@@ -950,8 +962,8 @@ def _(c): return _reply(
 def _(c): return _confirm(
     "cancel_opportunity",
     {"opp_id": "o_fri_harvest"},
-    token="CANCELO",
-    text="Confirm cancelling Friday harvest at Three Cedars. Reply CANCELO to cancel.",
+    token="YES",
+    text="Confirm cancelling Friday harvest at Three Cedars. Reply YES to cancel.",
 )
 
 @stub_for("reg.farmer.cancel.ambiguous_match")
@@ -991,8 +1003,8 @@ def _(c): return _confirm(
     "record_offer",
     {"activity_tags": ["infrastructure"], "earliest_at": None, "latest_at": "2026-06-06T07:00:00+00:00",
      "note": "anyone need help with tilling on Friday"},
-    token="OFFER",
-    text="I'll let farms know you can help with tilling Friday. Reply OFFER to record, STOP to opt out.",
+    token="YES",
+    text="I'll let farms know you can help with tilling Friday. Reply YES to record, STOP to opt out.",
 )
 
 @stub_for("new.vol.offer.directed")
@@ -1000,8 +1012,8 @@ def _(c): return _confirm(
     "record_offer",
     {"activity_tags": [], "earliest_at": None, "latest_at": None,
      "note": "wants to help at Plum Forest this week"},
-    token="OFFER",
-    text="I'll pass along your offer to Plum Forest. Reply OFFER to record.",
+    token="YES",
+    text="I'll pass along your offer to Plum Forest. Reply YES to record.",
 )
 
 @stub_for("new.vol.offer.matches_existing_opp")
@@ -1009,8 +1021,8 @@ def _(c): return _confirm(
     "record_offer",
     {"activity_tags": ["infrastructure"], "earliest_at": None, "latest_at": "2026-06-07T07:00:00+00:00",
      "note": "wants to help with tilling this weekend"},
-    token="OFFER",
-    text="Recording your tilling offer for the weekend. Reply OFFER to record.",
+    token="YES",
+    text="Recording your tilling offer for the weekend. Reply YES to record.",
 )
 
 @stub_for("new.vol.offer.flexible_phys_work")
@@ -1020,8 +1032,8 @@ def _(c): return _confirm(
      "earliest_at": "2026-06-06T07:00:00-07:00",
      "latest_at": "2026-06-07T12:00:00-07:00",
      "note": "some physical work this weekend, some morning"},
-    token="OFFER",
-    text="Recording you as available for any work this weekend morning. Reply OFFER to confirm, STOP to opt out.",
+    token="YES",
+    text="Recording you as available for any work this weekend morning. Reply YES to confirm, STOP to opt out.",
 )
 
 @stub_for("new.vol.offer.vague_crop_only")
@@ -1035,8 +1047,8 @@ def _(c): return _confirm(
     "set_availability",
     {"available_days": [4, 5, 6], "available_start_hour": 8, "available_end_hour": 14,
      "max_commit_hours_per_week": None},
-    token="ADDDAY",
-    text="Adding Fridays to your availability. Reply ADDDAY to confirm.",
+    token="YES",
+    text="Adding Fridays to your availability. Reply YES to confirm.",
 )
 
 @stub_for("new.vol.availability.remove_day")
@@ -1044,16 +1056,16 @@ def _(c): return _confirm(
     "set_availability",
     {"available_days": [5, 6], "available_start_hour": None, "available_end_hour": None,
      "max_commit_hours_per_week": None},
-    token="REMDAY",
-    text="Dropping Tuesdays from your availability. Reply REMDAY to confirm.",
+    token="YES",
+    text="Dropping Tuesdays from your availability. Reply YES to confirm.",
 )
 
 @stub_for("new.vol.activity_preference")
 def _(c): return _confirm(
     "set_activity_preferences",
     {"add": ["gleaning"], "remove": []},
-    token="PREFADD",
-    text="Noting your preference for gleaning. Reply PREFADD to confirm.",
+    token="YES",
+    text="Noting your preference for gleaning. Reply YES to confirm.",
 )
 
 @stub_for("new.vol.query.whats_open")
@@ -1071,8 +1083,8 @@ def _(c): return _reply(
 def _(c): return _confirm(
     "drop_confirmed_claim",
     {"opp_id": "o_fri_harvest"},
-    token="DROPC",
-    text="Drop your Friday harvest shift at Three Cedars? Reply DROPC to confirm.",
+    token="YES",
+    text="Drop your Friday harvest shift at Three Cedars? Reply YES to confirm.",
 )
 
 @stub_for("new.vol.proactive_cancel.ambiguous")
@@ -1099,15 +1111,15 @@ def _(c): return _reply(
 @stub_for("adv.token.too_long")
 def _(c): return _confirm(
     "claim_opportunity", {"opp_id": "o_fri_harvest", "slots": 1},
-    token="CLAIM",  # 5 chars — fits the 5-8 constraint
-    text="Reply CLAIM to grab Friday harvest. STOP to opt out.",
+    token="YES",  # passes the regex; deliberately NOT a too-long stub
+    text="Reply YES to grab Friday harvest. STOP to opt out.",
 )
 
 @stub_for("adv.token.collides_with_hotkey")
 def _(c): return _confirm(
     "claim_opportunity", {"opp_id": "o_fri_harvest", "slots": 1},
-    token="CLAIMA",  # NOT "YES" or any hotkey
-    text="Reply CLAIMA to grab Friday harvest.",
+    token="YES",  # explicitly allowed (the preferred default), not a collision
+    text="Reply YES to grab Friday harvest.",
 )
 
 # adv.affirmative_after_pending — deterministic token-match in dispatch.
@@ -1122,7 +1134,12 @@ def _(c): return _reply(
 
 # adv.undo_outside_window — deterministic in dispatch (UNDO hotkey, window past).
 
-# adv.clarify_cap.escalates_at_third_round — dispatch catches this before the agent.
+# adv.clarify_cap.escalates_at_third_round — agent IS now called (so the user's
+# reply gets a chance to land); when it emits clarify, dispatch catches the cap
+# and escalates instead of sending round-3.
+@stub_for("adv.clarify_cap.escalates_at_third_round")
+def _(c): return _clarify("Could you tell me which shift?")
+
 # adv.clarify_cap.resets_on_resolution
 @stub_for("adv.clarify_cap.resets_on_resolution")
 def _(c): return _clarify("Could you tell me a bit more about what you meant?")
@@ -1131,8 +1148,8 @@ def _(c): return _clarify("Could you tell me a bit more about what you meant?")
 def _(c): return _confirm(
     "drop_confirmed_claim",
     {"opp_id": "o_fri_harvest"},
-    token="DROPC",
-    text="Drop your Friday harvest? Reply DROPC to confirm.",
+    token="YES",
+    text="Drop your Friday harvest? Reply YES to confirm.",
 )
 
 @stub_for("adv.fabrication.claim_not_held")
@@ -1153,8 +1170,8 @@ def _(c): return _clarify(
 @stub_for("adv.quiet_hours_does_not_block_inbound")
 def _(c): return _confirm(
     "claim_opportunity", {"opp_id": "o_fri_harvest", "slots": 1},
-    token="CLAIM",
-    text="Reply CLAIM to grab Friday harvest.",
+    token="YES",
+    text="Reply YES to grab Friday harvest.",
 )
 
 
@@ -1173,13 +1190,17 @@ def _(c): return _reply("review-pending")  # placeholder
 # ---------------------------------------------------------------------------
 # Cases that are deterministic-dispatch-only (no agent call expected). Shared
 # between stub and live mode — these are pre-agent dispatch branches that the
-# runner must reproduce verbatim (token match, UNDO window, clarify cap, FLAG).
+# runner must reproduce verbatim (token match, UNDO window, FLAG).
+#
+# Note: the clarify-cap case is NOT in this set anymore. The cap moved to
+# AFTER the agent runs so the user's answer to round-2 gets a chance to
+# land; the agent is called, sees the still-ambiguous reply, emits clarify
+# again, and dispatch then escalates instead of sending round-3.
 DETERMINISTIC_ONLY = {
     "reg.claim.token_confirms_claim",            # token match
     "new.undo.recent_action",                     # UNDO hotkey
     "adv.affirmative_after_pending",              # affirmative variant on token
     "adv.undo_outside_window",                    # UNDO stale
-    "adv.clarify_cap.escalates_at_third_round",   # cap escalation
 }
 
 
@@ -1248,6 +1269,8 @@ def run_all(*, live: bool, category: str | None, case_id: str | None,
                 ar = getattr(result, "_agent_repr", "")
                 if ar:
                     print(f"     agent_output: {ar}")
+                if result.dispatch_reason:
+                    print(f"     dispatch_reason: {result.dispatch_reason}")
 
     total = len(cases_to_run)
     print()

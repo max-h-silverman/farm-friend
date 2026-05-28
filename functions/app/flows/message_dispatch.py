@@ -10,12 +10,20 @@ Pipeline:
   3. Idempotency check on provider_msg_id.
   4. Look up sender. If unknown phone → handle as a JOIN candidate.
   5. Persist inbound message.
-  6. Run hotkey parser (deterministic). If hotkey matched → dispatch.
-  7. FLAG-pauses-thread invariant: silent if sender has an open flag.
-  8. Pre-agent steps (deterministic, no LLM cost): token match against a
-     live PENDING_CONFIRMATION, UNDO window, clarification cap.
-  9. Otherwise → unified agent (one LLM call, one JSON output). Route on
+  6. Pending-confirmation precedence: if the last outbound was a live
+     PENDING_CONFIRMATION and this inbound matches the token (or an
+     affirmative variant), execute the persisted action. This runs
+     BEFORE the hotkey parser so a "YES" reply to a confirm prompt is
+     read as confirmation, not as a claim hotkey.
+  7. Run hotkey parser (deterministic). If hotkey matched → dispatch.
+  8. FLAG-pauses-thread invariant: silent if sender has an open flag.
+  9. Pre-agent: UNDO window (free-form UNDO inside a longer message).
+ 10. Otherwise → unified agent (one LLM call, one JSON output). Route on
      the output's `mode` (reply/clarify/confirm/execute/escalate).
+ 11. Post-agent rails: if the agent's mode is `clarify`, enforce the
+     consecutive-streak cap and 24h soft cap BEFORE sending. The cap
+     fires only when the agent — having seen the user's reply — still
+     wants to clarify; never on the inbound that answers a clarify.
 """
 
 from __future__ import annotations
@@ -186,11 +194,36 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
         )
     )
 
+    # PENDING-CONFIRMATION precedence: if the user's last outbound is a live
+    # PENDING_CONFIRMATION and this inbound matches its token or one of the
+    # affirmative variants (YES/OK/SURE/...), execute the persisted action.
+    # This MUST run before the hotkey parser, otherwise a YES reply to a
+    # CONFIRM would route to the YES-claim hotkey (which assumes the prior
+    # outbound was an outreach, not a confirmation prompt).
+    #
+    # The affirmative set is narrow (YES/OK/OKAY/SURE/CONFIRM/GO/GO AHEAD/
+    # YEP/YEAH) — compliance keywords (STOP/FLAG/HELP/JOIN) never match it,
+    # so this check doesn't shadow them.
+    if _is_live_pending_confirmation(last_outbound) and last_outbound.pending_action:
+        if hotkeys.match_pending_token(body=inbound.body, pending=last_outbound.pending_action):
+            _execute_pending_action(
+                sender=sender,
+                pending=last_outbound.pending_action,
+                last_outbound=last_outbound,
+                provider=provider,
+            )
+            return
+
     known_activities = tuple()
     known_farms = tuple(f.name for f in farms_repo.list_all())
+    last_was_clarify = (
+        last_outbound is not None
+        and last_outbound.intent_label == IntentLabel.CLARIFY
+    )
     match = hotkeys.parse(
         inbound.body,
         expecting_post_event_reply=expecting_post_event,
+        last_outbound_was_clarify=last_was_clarify,
         known_farm_names=known_farms,
     )
 
@@ -216,28 +249,14 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
     # farmer-post / volunteer-llm-reply) has been replaced by a single agent
     # call. See docs/refactor-unified-agent.md.
     #
-    # Pre-agent dispatch steps (token-match-executes, UNDO window, clarify
-    # cap) are deterministic and fire BEFORE the agent runs — those paths
-    # never cost an LLM call.
+    # Pre-agent dispatch steps (UNDO window) are deterministic and fire
+    # BEFORE the agent runs — those paths never cost an LLM call.
 
-    # PRE-AGENT step 1: token match against the live PENDING_CONFIRMATION.
-    # If the user replied to a confirmation prompt with its token (or an
-    # affirmative variant), execute the persisted action deterministically.
-    if _is_live_pending_confirmation(last_outbound) and last_outbound.pending_action:
-        if hotkeys.match_pending_token(body=inbound.body, pending=last_outbound.pending_action):
-            _execute_pending_action(
-                sender=sender,
-                pending=last_outbound.pending_action,
-                last_outbound=last_outbound,
-                provider=provider,
-            )
-            return
-
-    # PRE-AGENT step 2: UNDO within the 5-minute window after an executed
-    # action. UNDO as a bare hotkey is already handled by `_handle_hotkey`
-    # above; this branch is reached if the user texts UNDO as part of a
-    # longer message that didn't match the hotkey regex. We treat that as
-    # a request to undo too — same semantics, same window.
+    # PRE-AGENT: UNDO within the 5-minute window after an executed action.
+    # UNDO as a bare hotkey is already handled by `_handle_hotkey` above;
+    # this branch is reached if the user texts UNDO as part of a longer
+    # message that didn't match the hotkey regex. Same semantics, same
+    # window.
     if _looks_like_undo(inbound.body) and _is_recent_executed_action(
         last_outbound, window_min=settings.undo_window_min,
     ):
@@ -248,37 +267,16 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
         )
         return
 
-    # PRE-AGENT step 3: clarification cap. If we've already asked `cap`
-    # clarifying questions in a row, escalate to Max without another LLM
-    # call. The cap exists so users don't get stuck in a clarification loop
-    # — "feels like support, not management" is the north star.
+    # Compute the current clarification streak so the agent's CONTEXT can
+    # reflect it (we still send it into the agent) and so the post-agent
+    # clarify cap check has the right baseline. The cap itself is enforced
+    # AFTER the agent runs — see _route_agent_output's clarify branch.
+    # Enforcing it before the agent would block the inbound that *answers*
+    # the cap-hitting clarify, which is exactly when the user is doing what
+    # we asked.
     clarify_streak = _consecutive_clarify_count(
         user_id=sender.id, since=last_outbound,
     )
-    if clarify_streak >= settings.clarify_round_max:
-        _escalate_clarify_cap(
-            sender=sender,
-            inbound_doc_id=inbound_doc.id or "",
-            streak=clarify_streak,
-            provider=provider,
-        )
-        return
-
-    # Soft secondary rail: per-user clarification budget per 24h.
-    if sender.id:
-        from datetime import timedelta as _td
-        clarify_24h = messages_repo.count_clarifications_for_user_in_window(
-            sender.id, since=datetime.now(UTC) - _td(hours=24),
-        )
-        if clarify_24h >= settings.clarify_user_24h_max:
-            _escalate_clarify_cap(
-                sender=sender,
-                inbound_doc_id=inbound_doc.id or "",
-                streak=clarify_24h,
-                provider=provider,
-                reason_override=f"User received {clarify_24h} clarification questions in 24h",
-            )
-            return
 
     # Call the unified agent.
     context = _build_agent_context(
@@ -1086,6 +1084,45 @@ def _consecutive_clarify_count(
     return streak
 
 
+def _enforce_clarify_caps(
+    *,
+    sender: UserDoc,
+    clarify_streak: int,
+    inbound_doc_id: str,
+    provider,
+) -> bool:
+    """Run the consecutive-streak and 24h soft caps before sending a CLARIFY.
+
+    Returns True if a cap fired (escalation already sent — caller should
+    return without sending its own clarify). Returns False if the clarify
+    is safe to send.
+    """
+    settings = load_settings()
+    if clarify_streak >= settings.clarify_round_max:
+        _escalate_clarify_cap(
+            sender=sender,
+            inbound_doc_id=inbound_doc_id,
+            streak=clarify_streak,
+            provider=provider,
+        )
+        return True
+    if sender.id:
+        from datetime import timedelta as _td
+        clarify_24h = messages_repo.count_clarifications_for_user_in_window(
+            sender.id, since=datetime.now(UTC) - _td(hours=24),
+        )
+        if clarify_24h >= settings.clarify_user_24h_max:
+            _escalate_clarify_cap(
+                sender=sender,
+                inbound_doc_id=inbound_doc_id,
+                streak=clarify_24h,
+                provider=provider,
+                reason_override=f"User received {clarify_24h} clarification questions in 24h",
+            )
+            return True
+    return False
+
+
 def _escalate_clarify_cap(
     *,
     sender: UserDoc,
@@ -1321,6 +1358,16 @@ def _route_agent_output(
         return
 
     if output.mode == "clarify":
+        # The clarify-cap rails fire only when we're about to SEND the
+        # (cap+1)th consecutive CLARIFY — never on the inbound that
+        # answers the cap-hitting one. The agent saw the answer and still
+        # chose clarify, which is the signal that further asking won't
+        # help and Max should take over.
+        if _enforce_clarify_caps(
+            sender=sender, clarify_streak=clarify_streak,
+            inbound_doc_id=inbound_doc_id, provider=provider,
+        ):
+            return
         _send_clarify(
             sender=sender, body=output.reply_text,
             previous_streak=clarify_streak, target_opp=target_opp, provider=provider,
@@ -1345,6 +1392,13 @@ def _route_agent_output(
                     created_at=datetime.now(UTC),
                 )
             )
+            # The downgrade emits a CLARIFY; apply the same caps as a
+            # native agent-emitted clarify.
+            if _enforce_clarify_caps(
+                sender=sender, clarify_streak=clarify_streak,
+                inbound_doc_id=inbound_doc_id, provider=provider,
+            ):
+                return
             _send_clarify(
                 sender=sender,
                 body=_clarify_for_overconfirm(reason=reject_reason),
@@ -1607,15 +1661,22 @@ def _clarify_for_overconfirm(*, reason: str) -> str:
 
 
 def _is_valid_token(token: str) -> bool:
-    """Token must be 5–8 uppercase alphanumeric, not collide with a hotkey.
+    """Token must be exactly 4 uppercase letters and not collide with a hotkey.
 
-    UNDO is the one exception — the agent may use UNDO as a token for the
-    `undo_last` action, since UNDO is itself a deterministic hotkey and the
-    semantics line up. All other reserved hotkeys are off-limits.
+    Two exceptions:
+      - `YES` is the default/preferred confirmation token. The pending-token
+        check runs BEFORE the hotkey parser when a live PENDING_CONFIRMATION
+        is on the user's last outbound, so `YES` is unambiguously routed to
+        confirmation in that context (and only falls through to claim-hotkey
+        when no pending confirm exists).
+      - `UNDO` may be used for the `undo_last` action — UNDO is itself a
+        deterministic hotkey and the semantics line up.
+
+    All other reserved hotkey words remain off-limits as tokens.
     """
-    if token == "UNDO":
+    if token in ("YES", "UNDO"):
         return True
-    if not re.match(r"^[A-Z][A-Z0-9]{4,7}$", token):
+    if not re.match(r"^[A-Z]{4}$", token):
         return False
     return token not in hotkeys.RESERVED_HOTKEY_TOKENS
 

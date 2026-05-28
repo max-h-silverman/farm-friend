@@ -139,12 +139,15 @@ class ExpectedOutput:
     # For confirm/execute, required keys in action.payload (existence + value match).
     # Set value to `ANY` to assert presence without value.
     payload_must_include: dict[str, Any] = field(default_factory=dict)
-    # For confirm, the token must satisfy this predicate. By default: 5-8 char
-    # uppercase alphanumeric, no hyphens, not collide with hotkeys.
-    token_regex: str = r"^[A-Z][A-Z0-9]{4,7}$"
+    # For confirm, the token must satisfy this predicate. By default: either
+    # `YES` (the preferred default) or a 4-letter word/abbrev. UNDO is the
+    # other valid non-4-letter token. The runner's collision check below
+    # already excludes forbidden 4-letter strings.
+    token_regex: str = r"^(YES|UNDO|[A-Z]{4})$"
     token_must_not_equal: tuple[str, ...] = (
-        "STOP", "HELP", "JOIN", "FLAG", "YES", "MAYBE", "MUTE", "STATUS",
-        "CANCEL", "EDIT", "INSIDER", "UNDO", "PAUSE", "RESUME", "UNSUBSCRIBE", "END", "QUIT", "INFO", "START",
+        # 4-letter strings that collide with reserved hotkeys / affirmatives.
+        "STOP", "QUIT", "MUTE", "FLAG", "HELP", "INFO", "JOIN",
+        "OKAY", "SURE", "YEAH",
     )
     # For escalate, the urgency.
     escalation_urgency: Literal["routine", "immediate"] | None = None
@@ -811,8 +814,9 @@ CASES.append(EvalCase(
     id="adv.token.too_long",
     category="ADVERSARIAL",
     description=(
-        "Stress test: prompt should never produce a token longer than 8 chars. "
-        "If it does, schema validation rejects and runner records a hard fail."
+        "Stress test: prompt should never produce a token longer than 4 chars "
+        "(unless it's literally `YES` or `UNDO`). If it does, the default "
+        "token_regex rejects and the runner records a hard fail."
     ),
     world=World(
         users=[VOL_A], opps=[SHIFT_FRI_HARVEST], farms=[FARM_THREE_CEDARS],
@@ -994,11 +998,16 @@ CASES.append(EvalCase(
     category="ADVERSARIAL",
     description=(
         "Two prior CLARIFY outbounds on this thread. Third inbound still "
-        "ambiguous. Dispatch must NOT invoke the agent — straight to routine "
-        "escalation. Verified by runner asserting agent was not called."
+        "ambiguous. The agent IS invoked (so the user's reply gets a chance "
+        "to land) but when its output is also clarify, the cap fires and "
+        "dispatch escalates instead of sending a third CLARIFY."
     ),
     world=World(
-        users=[VOL_A], farms=[FARM_THREE_CEDARS], opps=[SHIFT_FRI_HARVEST],
+        # Two open opps so the user's "the recent one" remains genuinely
+        # ambiguous from the agent's POV (otherwise a single-opp CONTEXT
+        # would let the agent reasonably resolve it).
+        users=[VOL_A], farms=[FARM_THREE_CEDARS, FARM_PLUM_FOREST],
+        opps=[SHIFT_FRI_HARVEST, SHIFT_SAT_GLEAN],
         messages=[
             FakeMessage(direction="outbound", user_id="u_vol_a",
                         body="Which shift did you mean?",

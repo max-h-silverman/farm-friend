@@ -339,83 +339,118 @@
       <section x-show="tab === 'test'">
         <h2 class="section-title">System test</h2>
         <p class="section-sub">
-          Pipes a message through the real dispatch pipeline as if the user
-          texted in. Outbound SMS is captured here instead of sent.
+          Pin one or more users to simulate a multi-party engagement — e.g.
+          a farmer posting and two volunteers responding. Each panel is its
+          own thread; messages go through the real dispatch pipeline.
         </p>
 
-        <form class="test-form" @submit.prevent="runTest()">
-          <label class="field">
-            Send as
-            <select x-model="test.userId">
-              <option value="">— pick a user —</option>
-              <template x-for="u in users" :key="u.id">
+        <!-- Pin/unpin controls -->
+        <div class="pinbar">
+          <span class="pinbar-label">Pinned:</span>
+          <template x-if="test.pinnedUserIds.length === 0">
+            <span class="pinbar-empty">none yet — pin a user to start</span>
+          </template>
+          <template x-for="uid in test.pinnedUserIds" :key="uid">
+            <span class="pin-chip">
+              <span x-text="userLabel(uid)"></span>
+              <button type="button" class="pin-x" @click="unpinUser(uid)" aria-label="Unpin">×</button>
+            </span>
+          </template>
+          <span class="pin-add">
+            <select x-model="test.addPickerId"
+              @change="pinUser(test.addPickerId)">
+              <option value="">+ Pin user…</option>
+              <template x-for="u in availableUsersToPin()" :key="u.id">
                 <option :value="u.id"
                   x-text="u.name + ' · ' + u.role + ' · ' + u.phone"></option>
               </template>
             </select>
-          </label>
+          </span>
+        </div>
 
-          <label class="field">
-            Message
-            <textarea x-model="test.body" rows="3"
-              placeholder="YES, HELP, or 'need 2 ppl tomorrow 10am to harvest greens'"></textarea>
-          </label>
-
-          <div class="test-presets" aria-label="Quick fill">
-            <template x-for="p in testPresets" :key="p.label">
-              <button type="button" class="chip" @click="test.body = p.value" x-text="p.label"></button>
-            </template>
-          </div>
-
-          <div class="test-actions">
-            <button type="submit" class="btn" :disabled="test.running || !test.userId || !test.body.trim()">
-              <span x-show="!test.running">Send</span>
-              <span x-show="test.running">Sending…</span>
-            </button>
-            <button type="button" class="btn btn-ghost"
-              :disabled="!test.userId || activeThread().length === 0 || test.running"
-              @click="clearActiveThread()">
-              Clear thread
-            </button>
-          </div>
-        </form>
-
-        <template x-if="test.userId && activeThread().length > 0">
-          <div>
-            <div class="transcript">
-              <template x-for="(turn, i) in activeThread()" :key="i">
-                <div>
-                  <div x-show="turn.kind === 'inbound'" class="turn inbound">
-                    <span x-text="turn.body"></span>
-                    <span class="caption">
-                      as <span x-text="turn.fromLabel"></span>
-                    </span>
-                  </div>
-                  <div x-show="turn.kind === 'outbound'" class="turn outbound">
-                    <span x-text="turn.body"></span>
-                    <span class="caption">to <span x-text="turn.toLabel || turn.to_phone"></span></span>
-                  </div>
-                  <div x-show="turn.kind === 'typing'" class="turn outbound typing" aria-label="Farm Friend is responding">
-                    <span class="typing-dots"><span></span><span></span><span></span></span>
-                  </div>
-                  <div x-show="turn.kind === 'silence'" class="empty">
-                    <span class="glyph">…</span>
-                    No reply — the system stayed silent.
-                  </div>
-                  <div x-show="turn.kind === 'error'" class="card warn" style="border-left-color:var(--warn)">
-                    <div class="card-title" style="color:var(--warn)">Error</div>
-                    <div class="card-body-text" style="font-family:ui-monospace,monospace;font-size:13px"
-                      x-text="turn.body"></div>
-                  </div>
-                </div>
-              </template>
-            </div>
-            <p class="transcript-footer">
-              Any opportunities, claims, or flags this thread created are persisted —
-              check the Worklist and Opportunities tabs.
-            </p>
-          </div>
+        <!-- Multi-thread grid -->
+        <template x-if="test.pinnedUserIds.length === 0">
+          <p class="section-sub" style="margin-top:1rem">
+            Tip: pin one farmer and one or two volunteers to test the full
+            posting → outreach → claim loop.
+          </p>
         </template>
+
+        <div class="thread-grid"
+          :class="{ 'grid-1': test.pinnedUserIds.length === 1,
+                    'grid-2': test.pinnedUserIds.length === 2,
+                    'grid-3plus': test.pinnedUserIds.length >= 3 }">
+          <template x-for="uid in test.pinnedUserIds" :key="uid">
+            <div class="thread-panel">
+              <header class="thread-head">
+                <strong x-text="userLabel(uid)"></strong>
+                <button type="button" class="btn-link"
+                  @click="clearThread(uid)"
+                  :disabled="threadFor(uid).length === 0 || runningFor(uid)">
+                  Clear
+                </button>
+              </header>
+
+              <div class="transcript thread-transcript">
+                <template x-if="threadFor(uid).length === 0">
+                  <p class="thread-empty">No messages yet.</p>
+                </template>
+                <template x-for="(turn, i) in threadFor(uid)" :key="i">
+                  <div>
+                    <div x-show="turn.kind === 'inbound'" class="turn inbound">
+                      <span x-text="turn.body"></span>
+                      <span class="caption">
+                        as <span x-text="turn.fromLabel"></span>
+                      </span>
+                    </div>
+                    <div x-show="turn.kind === 'outbound'" class="turn outbound">
+                      <span x-text="turn.body"></span>
+                      <span class="caption">to <span x-text="turn.toLabel || turn.to_phone"></span></span>
+                    </div>
+                    <div x-show="turn.kind === 'typing'" class="turn outbound typing" aria-label="Farm Friend is responding">
+                      <span class="typing-dots"><span></span><span></span><span></span></span>
+                    </div>
+                    <div x-show="turn.kind === 'silence'" class="empty">
+                      <span class="glyph">…</span>
+                      No reply — the system stayed silent.
+                    </div>
+                    <div x-show="turn.kind === 'error'" class="card warn" style="border-left-color:var(--warn)">
+                      <div class="card-title" style="color:var(--warn)">Error</div>
+                      <div class="card-body-text" style="font-family:ui-monospace,monospace;font-size:13px"
+                        x-text="turn.body"></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+
+              <form class="thread-input" @submit.prevent="runTest(uid)">
+                <textarea rows="2"
+                  :value="bodyFor(uid)"
+                  @input="setBodyFor(uid, $event.target.value)"
+                  placeholder="YES, HELP, or free-form text…"></textarea>
+                <div class="test-presets" aria-label="Quick fill">
+                  <template x-for="p in testPresets" :key="p.label">
+                    <button type="button" class="chip"
+                      @click="fillPreset(uid, p.value)"
+                      x-text="p.label"></button>
+                  </template>
+                </div>
+                <div class="test-actions">
+                  <button type="submit" class="btn"
+                    :disabled="runningFor(uid) || !bodyFor(uid).trim()">
+                    <span x-show="!runningFor(uid)">Send</span>
+                    <span x-show="runningFor(uid)">Sending…</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </template>
+        </div>
+
+        <p class="transcript-footer">
+          Any opportunities, claims, or flags created are persisted —
+          check the Worklist and Opportunities tabs.
+        </p>
       </section>
 
     </main>
