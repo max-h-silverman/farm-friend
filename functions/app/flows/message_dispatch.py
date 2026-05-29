@@ -1352,7 +1352,12 @@ def _route_agent_output(
         # inbound that answers the cap-hitting one, and never when the
         # agent moves on to ask about something different (which means the
         # prior question was effectively answered).
-        new_axis = _infer_clarify_axis(output.reply_text)
+        reply_text = _sanitize_clarify_reply(
+            body=output.reply_text,
+            sender=sender,
+            axis=_infer_clarify_axis(output.reply_text),
+        )
+        new_axis = _infer_clarify_axis(reply_text)
         prior_axis = getattr(last_outbound, "clarify_axis", None) if last_outbound else None
         effective_streak = clarify_streak if new_axis == prior_axis else 0
         if _enforce_clarify_caps(
@@ -1361,7 +1366,7 @@ def _route_agent_output(
         ):
             return
         _send_clarify(
-            sender=sender, body=output.reply_text,
+            sender=sender, body=reply_text,
             previous_streak=effective_streak, target_opp=target_opp, provider=provider,
             axis=new_axis,
         )
@@ -1594,6 +1599,33 @@ def _infer_clarify_axis(body: str) -> str:
             if kw in lower:
                 return axis
     return "general"
+
+
+_DATE_CLARIFY_DETAIL_PATTERN = re.compile(
+    r"^(?P<prefix>\s*(?:what|which)\s+day\b.*?\bworks\s+best)"
+    r"\s+for\s+.+\?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_clarify_reply(*, body: str, sender: UserDoc, axis: str) -> str:
+    """Trim accidental readback details from farmer MVD clarifications.
+
+    Prompt rules forbid mini-readbacks in clarify mode; details belong in
+    the later confirmation. This guard covers the common drift pattern without
+    touching opp-selection clarifies, where labels are required to disambiguate.
+    """
+    if sender.role not in (UserRole.FARMER, UserRole.BOTH):
+        return body
+    if axis == "opp_selection":
+        return body
+    if axis != "date":
+        return body
+
+    match = _DATE_CLARIFY_DETAIL_PATTERN.match(body)
+    if match:
+        return f"{match.group('prefix').strip()}?"
+    return body
 
 
 def _send_pending_confirmation(

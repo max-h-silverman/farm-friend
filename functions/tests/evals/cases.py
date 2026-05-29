@@ -156,6 +156,10 @@ class ExpectedOutput:
     review_max_proposals: int | None = None
     # For execute mode, what the receipt outbound should look like.
     receipt_must_include_phrase: list[str] = field(default_factory=list)
+    # Optional copy assertions for cases where behavior depends on exact SMS
+    # shape, not just mode/action.
+    reply_must_include_phrase: list[str] = field(default_factory=list)
+    reply_must_not_include_phrase: list[str] = field(default_factory=list)
 
 
 ANY: Any = object()
@@ -190,6 +194,12 @@ FARM_THREE_CEDARS = FakeFarm(
 )
 FARM_PLUM_FOREST = FakeFarm(
     id="f_pf", name="Plum Forest", owner_user_id="u_farmer_b",
+)
+FARMER_MAYA = FakeUser(
+    id="u_farmer_maya", phone="+15550100003", name="Maya Olsen", role="farmer",
+)
+FARM_SALT_MARSH = FakeFarm(
+    id="f_salt_marsh", name="Salt Marsh Farm", owner_user_id="u_farmer_maya",
 )
 
 # A common "Friday morning shift" used across many cases.
@@ -354,6 +364,24 @@ CASES.append(EvalCase(
     inbound_text="need tomatoes two people friday 9am",
     inbound_from_user_id="u_farmer_a",
     expected=ExpectedOutput(mode="clarify"),
+))
+
+CASES.append(EvalCase(
+    id="reg.farmer.post.clarify_no_detail_readback",
+    category="REGRESSION",
+    description=(
+        "Farmer post is missing the exact day. Clarify should ask only the "
+        "missing axis; details like activity and farm name belong in the "
+        "later confirmation readback, not in the clarify SMS."
+    ),
+    world=World(users=[FARMER_MAYA], farms=[FARM_SALT_MARSH]),
+    inbound_text="need help next week with bed prep",
+    inbound_from_user_id="u_farmer_maya",
+    expected=ExpectedOutput(
+        mode="clarify",
+        reply_must_include_phrase=["next week"],
+        reply_must_not_include_phrase=["bed prep", "Salt Marsh Farm"],
+    ),
 ))
 
 CASES.append(EvalCase(

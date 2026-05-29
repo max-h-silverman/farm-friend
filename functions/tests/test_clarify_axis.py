@@ -13,10 +13,14 @@ These tests pin:
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from app.flows.message_dispatch import (
     _axis_from_overconfirm_reason,
     _infer_clarify_axis,
+    _sanitize_clarify_reply,
 )
+from app.repos.models import UserDoc, UserRole, UserStatus
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +75,34 @@ def test_axis_inference_unknown_returns_general():
     """Falls through to 'general' on no keyword match. Groups truly-unclear
     clarifies together for streak counting."""
     assert _infer_clarify_axis("Sorry, could you tell me more?") == "general"
+
+
+def _user(role: UserRole) -> UserDoc:
+    return UserDoc(
+        id="u",
+        phone="+15550100003",
+        name="Maya Olsen",
+        role=role,
+        status=UserStatus.ACTIVE,
+        created_at=datetime.now(UTC),
+    )
+
+
+def test_farmer_date_clarify_strips_detail_readback():
+    assert _sanitize_clarify_reply(
+        body="What day next week works best for bed prep at Salt Marsh Farm?",
+        sender=_user(UserRole.FARMER),
+        axis="date",
+    ) == "What day next week works best?"
+
+
+def test_opp_selection_clarify_keeps_needed_labels():
+    body = "Two open Friday posts — the morning harvest or the afternoon gleaning?"
+    assert _sanitize_clarify_reply(
+        body=body,
+        sender=_user(UserRole.FARMER),
+        axis="opp_selection",
+    ) == body
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +189,7 @@ def test_signal_2b_no_activity_word_flags():
 # ---------------------------------------------------------------------------
 # _consecutive_clarify_count — per-axis streak counting
 # ---------------------------------------------------------------------------
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from unittest.mock import patch
 
 from app.flows.message_dispatch import _consecutive_clarify_count

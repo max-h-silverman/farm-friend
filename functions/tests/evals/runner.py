@@ -293,6 +293,16 @@ def simulate_dispatch(
                 dispatch_reason=f"backstop: {reject}",
             )
 
+    # Apply the production clarify-copy guard before assertions/caps so live
+    # eval reflects the SMS the user would actually see.
+    if output.mode == "clarify":
+        from app.flows.message_dispatch import _infer_clarify_axis, _sanitize_clarify_reply
+        output.reply_text = _sanitize_clarify_reply(
+            body=output.reply_text,
+            sender=_repo_user_from_fake(sender),
+            axis=_infer_clarify_axis(output.reply_text),
+        )
+
     # Post-agent clarify cap. Fires only when the agent SAW the user's reply
     # and STILL chose clarify — that's when further asking won't help.
     if output.mode == "clarify" and clarify_streak >= cap:
@@ -655,6 +665,20 @@ def assert_expected(case: EvalCase, result: DispatchResult) -> CaseResult:
                     f"(receipt={result.receipt_text!r})"
                 )
 
+    for phrase in exp.reply_must_include_phrase:
+        if phrase.lower() not in result.reply_text.lower():
+            failures.append(
+                f"reply_text missing required phrase: {phrase!r} "
+                f"(reply={result.reply_text!r})"
+            )
+
+    for phrase in exp.reply_must_not_include_phrase:
+        if phrase.lower() in result.reply_text.lower():
+            failures.append(
+                f"reply_text included forbidden phrase: {phrase!r} "
+                f"(reply={result.reply_text!r})"
+            )
+
     # Review-mode proposal count bounds.
     if exp.mode == "review":
         n = len(result.review_proposals)
@@ -681,6 +705,19 @@ def _find_user(world: World, user_id: str | None) -> FakeUser | None:
         if u.id == user_id:
             return u
     return None
+
+
+def _repo_user_from_fake(user: FakeUser | None):
+    from app.repos.models import UserDoc, UserRole, UserStatus
+
+    return UserDoc(
+        id=user.id if user else "",
+        phone=user.phone if user else "",
+        name=user.name if user else "",
+        role=UserRole(user.role) if user else UserRole.VOLUNTEER,
+        status=UserStatus.ACTIVE,
+        created_at=NOW,
+    )
 
 
 def _latest_outbound(world: World) -> FakeMessage | None:
@@ -1181,6 +1218,9 @@ def _(c): return _clarify("What time would you like to start, and how long?")
 def _(c): return _clarify(
     "What kind of work — harvest, weeding, transplanting, or something else?"
 )
+
+@stub_for("reg.farmer.post.clarify_no_detail_readback")
+def _(c): return _clarify("What day next week works best?")
 
 @stub_for("reg.farmer.post.tbd_explicit")
 def _(c): return _confirm(
