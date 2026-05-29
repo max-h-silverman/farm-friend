@@ -6,14 +6,16 @@ Rules:
   claim.
 - Pickups: single-claim race. First YES wins; later YESes get "already claimed".
   If headcount_needed > 1 on a pickup (big haul), behaves like a shift.
+- Window opps: YES <day> creates a PROPOSED claim per day; farmer accepts via
+  the proposal flow before the volunteer is told they're confirmed.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.copy import templates
-from app.flows._time import format_deadline, format_when
+from app.flows._time import VASHON_TZ, format_deadline, format_when, to_local
 from app.messaging import MessagingProvider
 from app.messaging._safe_send import safe_send
 from app.repos import opportunities_repo
@@ -198,3 +200,194 @@ def _stale_opportunity_body(opp: OpportunityDoc, farm_name: str) -> str:
     if opp.kind == OpportunityKind.PICKUP:
         return templates.render_pickup_already_claimed(farm_name=farm_name)
     return templates.render_shift_full(farm_name=farm_name)
+
+
+# ---------------------------------------------------------------------------
+# Window-opp claims (PROPOSED state, farmer-approval gate)
+# ---------------------------------------------------------------------------
+def handle_window_claim(
+    *,
+    messaging: MessagingProvider,
+    opportunity: OpportunityDoc,
+    volunteer: UserDoc,
+    day_labels: list[str],
+    farm_name: str,
+) -> str:
+    """Apply a window-opp YES <day-list>.
+
+    For each day label, resolves it against the opp's window to a concrete
+    datetime, creates a PROPOSED claim, and triggers the farmer-approval SMS.
+    Returns a single SMS reply describing the outcome to the volunteer.
+
+    Days that don't resolve (label outside the window, or unrecognized) are
+    listed in the reply so the volunteer knows what was skipped.
+    """
+    assert opportunity.id is not None
+    assert volunteer.id is not None
+    if opportunity.status in (
+        OpportunityStatus.COMPLETED,
+        OpportunityStatus.CANCELLED,
+        OpportunityStatus.EXPIRED,
+        OpportunityStatus.FULL,
+    ):
+        return _stale_opportunity_body(opportunity, farm_name)
+
+    resolved: list[tuple[str, datetime]] = []
+    unresolved: list[str] = []
+    for label in day_labels:
+        when = _resolve_day_label(label, opp=opportunity)
+        if when is None:
+            unresolved.append(label)
+        else:
+            resolved.append((label, when))
+
+    if not resolved:
+        return (
+            f"Couldn't match those days to {farm_name}'s window — try "
+            f"specific weekdays like YES WED."
+        )
+
+    # Import inside the function to avoid a circular import at module load.
+    from app.flows import proposals as proposals_flow
+    from app.repos import opportunities_repo as _opp_repo
+
+    accepted_labels: list[str] = []
+    full_labels: list[str] = []
+    for label, when in resolved:
+        outcome = _opp_repo.try_claim_in_transaction(
+            opp_id=opportunity.id,
+            volunteer_user_id=volunteer.id,
+            requested_slots=1,
+            now=datetime.now(UTC),
+            scheduled_for_at=when,
+            target_status=ClaimStatus.PROPOSED,
+        )
+        if outcome.is_stale:
+            return _stale_opportunity_body(opportunity, farm_name)
+        if outcome.is_waitlist:
+            full_labels.append(label)
+            continue
+        accepted_labels.append(label)
+        # Look up the just-written claim to pass to the proposal sender.
+        claim_doc_id = _opp_repo._claim_doc_id(
+            volunteer_user_id=volunteer.id, scheduled_for_at=when,
+        )
+        claim = _opp_repo.get_claim(
+            opp_id=opportunity.id,
+            volunteer_user_id=volunteer.id,
+            scheduled_for_at=when,
+        )
+        if claim is not None:
+            proposals_flow.send_proposal_to_farmer(
+                opp=opportunity,
+                claim=claim,
+                claim_doc_id=claim_doc_id,
+                volunteer=volunteer,
+                messaging=messaging,
+            )
+
+    parts: list[str] = []
+    if accepted_labels:
+        days_str = ", ".join(accepted_labels)
+        parts.append(
+            f"Got it — proposed {days_str} for {farm_name}. The farmer "
+            f"will confirm shortly."
+        )
+    if full_labels:
+        parts.append(f"({', '.join(full_labels)} already at headcount.)")
+    if unresolved:
+        parts.append(f"(Couldn't match: {', '.join(unresolved)}.)")
+    return " ".join(parts)
+
+
+_WEEKDAY_INDEX = {
+    "MON": 0, "MONDAY": 0,
+    "TUE": 1, "TUES": 1, "TUESDAY": 1,
+    "WED": 2, "WEDNESDAY": 2,
+    "THU": 3, "THUR": 3, "THURS": 3, "THURSDAY": 3,
+    "FRI": 4, "FRIDAY": 4,
+    "SAT": 5, "SATURDAY": 5,
+    "SUN": 6, "SUNDAY": 6,
+}
+
+_MONTH_INDEX = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "SEPT": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+}
+
+
+def _resolve_day_label(
+    label: str, *, opp: OpportunityDoc,
+) -> datetime | None:
+    """Resolve a YES-<day> label to a concrete datetime inside the opp's window.
+
+    Time-of-day is inherited from `opp.starts_at`. Date must fall inside
+    `[opp.starts_at.date(), opp.window_end_at.date()]`. Returns None if the
+    label can't be resolved or falls outside the window.
+
+    Single-day opps (no window_end_at): label must match opp.starts_at's day.
+    """
+    if opp.starts_at is None:
+        return None
+    start_local = to_local(opp.starts_at)
+    end_local = to_local(opp.window_end_at) if opp.window_end_at else start_local
+    label_clean = label.strip().upper()
+
+    candidate_date = None
+    if label_clean in _WEEKDAY_INDEX:
+        target_wd = _WEEKDAY_INDEX[label_clean]
+        # Walk the window day-by-day looking for the matching weekday.
+        cursor = start_local.date()
+        while cursor <= end_local.date():
+            if cursor.weekday() == target_wd:
+                candidate_date = cursor
+                break
+            cursor = cursor + timedelta(days=1)
+    elif label_clean == "TODAY":
+        now_local = datetime.now(VASHON_TZ)
+        candidate_date = now_local.date()
+    elif label_clean == "TOMORROW":
+        now_local = datetime.now(VASHON_TZ)
+        candidate_date = (now_local + timedelta(days=1)).date()
+    elif "/" in label_clean:
+        # "6/4" → month 6, day 4. Year inferred from the window.
+        parts = label_clean.split("/")
+        try:
+            month, day = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            return None
+        year = start_local.year
+        try:
+            candidate_date = datetime(year, month, day).date()
+        except ValueError:
+            return None
+    else:
+        # "JUN 4" or "JUN4"
+        compact = label_clean.replace(" ", "")
+        for mname, mnum in _MONTH_INDEX.items():
+            if compact.startswith(mname):
+                tail = compact[len(mname):]
+                try:
+                    day = int(tail)
+                except ValueError:
+                    return None
+                year = start_local.year
+                try:
+                    candidate_date = datetime(year, mnum, day).date()
+                except ValueError:
+                    return None
+                break
+
+    if candidate_date is None:
+        return None
+    if candidate_date < start_local.date() or candidate_date > end_local.date():
+        return None
+
+    # Combine with the opp's time-of-day, in Vashon-local terms, then convert
+    # back to UTC for persistence.
+    combined_local = start_local.replace(
+        year=candidate_date.year,
+        month=candidate_date.month,
+        day=candidate_date.day,
+    )
+    return combined_local.astimezone(UTC)

@@ -62,6 +62,8 @@ def _settings() -> Settings:
         clarify_user_24h_max=5,
         undo_window_min=5,
         offer_default_ttl_days=7,
+        proposal_auto_confirm_far_min=240,
+        proposal_auto_confirm_close_min=60,
     )
 
 

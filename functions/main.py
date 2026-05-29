@@ -15,6 +15,7 @@ from app.flows import board_review as board_review_flow
 from app.flows import confirmations as confirmations_flow
 from app.flows import outreach as outreach_flow
 from app.flows import post_event as post_event_flow
+from app.flows import proposals_tick as proposals_tick_flow
 from app.flows import message_dispatch
 from app.firebase_app import db  # noqa: F401 — triggers eager init at runtime (see firebase_app.py)
 
@@ -100,6 +101,18 @@ def tick_unfilled_at_start(event: scheduler_fn.ScheduledEvent) -> None:
 
 
 @scheduler_fn.on_schedule(
+    schedule="every 15 minutes",
+    secrets=ALL_SECRETS,
+    timezone=scheduler_fn.Timezone("America/Los_Angeles"),
+)
+def tick_proposals(event: scheduler_fn.ScheduledEvent) -> None:
+    """Auto-confirm window-opp PROPOSED claims whose farmer hasn't decided
+    within the timer. See docs/agent-architecture-rethink.md §"Farmer
+    approval gate" → "Auto-confirm fallback"."""
+    proposals_tick_flow.run_proposals_tick()
+
+
+@scheduler_fn.on_schedule(
     schedule="every 30 minutes",
     secrets=ALL_SECRETS,
     timezone=scheduler_fn.Timezone("America/Los_Angeles"),
@@ -131,6 +144,7 @@ __all__ = [
     "tick_stale_drafts",
     "tick_unfilled_at_start",
     "tick_confirmations",
+    "tick_proposals",
     "tick_agent_review",
     "approve_pending_user",
     "suspend_user",

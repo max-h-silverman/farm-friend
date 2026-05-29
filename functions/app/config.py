@@ -96,6 +96,9 @@ class Settings:
     clarify_user_24h_max: int             # soft cap: CLARIFY outbounds per user per 24h
     undo_window_min: int                  # how long after ACTION_RECEIPT the UNDO hotkey is honored
     offer_default_ttl_days: int           # default expires_at for OfferDoc when no latest_at given
+    # --- Farmer-approval gate (window opps) ---
+    proposal_auto_confirm_far_min: int    # auto-confirm after this many minutes when claim is >24h out
+    proposal_auto_confirm_close_min: int  # auto-confirm after this many minutes when claim is <24h out
 
 
 def load_settings() -> Settings:
@@ -133,6 +136,11 @@ def load_settings() -> Settings:
         clarify_user_24h_max=int(_env("CLARIFY_USER_24H_MAX", "5")),
         undo_window_min=int(_env("UNDO_WINDOW_MIN", "5")),
         offer_default_ttl_days=int(_env("OFFER_DEFAULT_TTL_DAYS", "7")),
+        # Proposal auto-confirm timers. Defaults from the rethink doc: 4h for
+        # claims >24h out, 1h for claims <24h out. Tune from admin metrics once
+        # we have real pilot data.
+        proposal_auto_confirm_far_min=int(_env("PROPOSAL_AUTO_CONFIRM_FAR_MIN", "240")),
+        proposal_auto_confirm_close_min=int(_env("PROPOSAL_AUTO_CONFIRM_CLOSE_MIN", "60")),
         # Deploy-time param
         telnyx_from_number=_env("TELNYX_FROM_NUMBER") or _string_param(TELNYX_FROM_NUMBER),
         # Secrets

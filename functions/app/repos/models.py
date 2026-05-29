@@ -58,6 +58,10 @@ class ClaimStatus(StrEnum):
     INTERESTED = "interested"  # MAYBE — recorded but does not consume a seat
     WAITLIST = "waitlist"
     DROPPED = "dropped"
+    # Window-opp claim awaiting farmer ACCEPT/DECLINE. Counts toward
+    # `seats_held` but NOT `seats_filled` — only farmer-confirmed claims
+    # gate the opp's FULL transition. See docs/agent-architecture-rethink.md.
+    PROPOSED = "proposed"
 
 
 class MuteDimension(StrEnum):
@@ -93,6 +97,12 @@ class IntentLabel(StrEnum):
     UNDO = "UNDO"              # reverse the last agent-executed action (5-min window)
     PAUSE = "PAUSE"            # 14-day mute on agent-initiated nudges
     RESUME = "RESUME"          # undo PAUSE
+    # --- Farmer-approval gate (window opps) ---
+    ACCEPT_PROPOSAL = "ACCEPT_PROPOSAL"   # farmer accepts a PROPOSED claim → CONFIRMED
+    DECLINE_PROPOSAL = "DECLINE_PROPOSAL" # farmer declines a PROPOSED claim → DROPPED
+    PROPOSAL_NOTIFICATION = "PROPOSAL_NOTIFICATION"  # outbound: "Alex wants Wed..."
+    AUTO_CONFIRM_NOTICE = "AUTO_CONFIRM_NOTICE"      # outbound: "auto-accepted ... reply DROP"
+    PROPOSAL_DECLINED = "PROPOSAL_DECLINED"          # outbound to volunteer: farmer declined
     # --- Volunteer reply intents (formerly classifier output, now agent mode hint) ---
     QUESTION = "QUESTION"
     DECLINE = "DECLINE"
@@ -112,6 +122,24 @@ class IntentLabel(StrEnum):
     POST_EVENT_ISSUE = "POST_EVENT_ISSUE"
     POST_EVENT_CHECKIN = "POST_EVENT_CHECKIN"  # outbound: the "any issues? Y/N" we sent
     CONFIRMATION_REMINDER = "CONFIRMATION_REMINDER"  # outbound: pre-event "still good?" reminder
+
+
+# Canonical time-of-day buckets. Used when the farmer gives a fuzzy time
+# ("morning", "weekend mornings") and no clock time. Buckets overlap by design
+# — farmer phrasing isn't precise and we'd rather record the bucket than
+# force a clock-time choice. Broadcast copy renders the bucket directly
+# ("late morning"), not a clock range. See docs/agent-architecture-rethink.md
+# §"Canonical time-of-day buckets" for the full rationale.
+TIME_OF_DAY_BUCKETS = (
+    "early_morning",   # before 8am
+    "morning",         # 8am–11am
+    "late_morning",    # 10am–noon
+    "midday",          # 11am–2pm
+    "afternoon",       # 1pm–5pm
+    "late_afternoon",  # 3pm–6pm
+    "early_evening",   # 5pm–7pm
+    "evening",         # 6pm–8pm
+)
 
 
 CANONICAL_ACTIVITIES = (
@@ -194,7 +222,26 @@ class OpportunityDoc(BaseModel):
     deadline_at: datetime | None = None
     duration_min: int | None = None
     headcount_needed: int = 1
-    seats_filled: int = 0
+    seats_filled: int = 0      # CONFIRMED claims only — gates the FULL transition.
+    # PROPOSED + CONFIRMED. Used by tick_outreach to decide whether to keep
+    # broadcasting. A window opp with 2/3 seats_held and 0/3 seats_filled is
+    # still pending farmer decisions; outreach should pause to let those play
+    # out rather than pile up more PROPOSED claims.
+    seats_held: int = 0
+    # Multi-day window post. None = single-day opp (current semantics). When
+    # set and > starts_at, the opp accepts claims for any day in
+    # [starts_at.date(), window_end_at.date()]. The time-of-day comes from
+    # starts_at (and/or time_of_day_bucket) and applies to every day.
+    window_end_at: datetime | None = None
+    # Fuzzy time-of-day from a canonical bucket (see TIME_OF_DAY_BUCKETS).
+    # Mutually substitutable with starts_at's time component — at least one of
+    # starts_at-with-time or time_of_day_bucket must be set for a shift to be
+    # MVD-complete. If both are set, the clock time wins.
+    time_of_day_bucket: str | None = None
+    # Farmer signaled "any number of helpers welcome". headcount_needed is
+    # still set (used as the practical broadcast cap) but the opp doesn't
+    # close to outreach when seats_filled hits it.
+    headcount_open: bool = False
     activity_tags: list[str] = Field(default_factory=list)
     requirements_text: str = ""
     produce_description: str | None = None
@@ -233,7 +280,13 @@ class OutreachLogDoc(BaseModel):
 
 
 class ClaimDoc(BaseModel):
-    """Subcollection under opportunities/{oppId}/claims. Doc id = volunteer_user_id."""
+    """Subcollection under opportunities/{oppId}/claims.
+
+    Doc id:
+      - Single-day opp: `{volunteer_user_id}`.
+      - Window opp: `{volunteer_user_id}_{scheduled_for_at.date().isoformat()}`.
+        Lets one volunteer claim multiple days on the same window opp.
+    """
     id: str | None = None
     volunteer_user_id: str
     slots: int = 1
@@ -243,6 +296,9 @@ class ClaimDoc(BaseModel):
     # confirmation tick to avoid double-pinging and to scope the CANCEL
     # hotkey window (a recent reminder means CANCEL targets this claim).
     confirmation_sent_at: datetime | None = None
+    # For window opps: the specific day this claim is for, with time-of-day
+    # inherited from the opp. None on single-day opps (derive from opp.starts_at).
+    scheduled_for_at: datetime | None = None
 
 
 class MuteRuleDoc(BaseModel):

@@ -240,8 +240,28 @@ def _render_outreach_body(*, opp: OpportunityDoc, farm_name: str) -> str:
             destination=opp.destination,
             vehicle_needed=opp.vehicle_needed,
         )
-    seats_remaining = max(0, opp.headcount_needed - opp.seats_filled)
+    # Window opps get a distinct copy that mentions the day range and
+    # instructs the volunteer to reply with a specific day. Outreach pacing
+    # is still tier-based; PR 5 doesn't change pacing for windows (the doc
+    # flags pacing as a future revisit).
     activity = ", ".join(opp.activity_tags) if opp.activity_tags else "volunteer help"
+    # `seats_remaining` for a window opp uses seats_held (PROPOSED + CONFIRMED)
+    # so we don't over-advertise capacity while proposals are pending farmer
+    # decisions.
+    capacity_used = (
+        opp.seats_held if opp.window_end_at is not None else opp.seats_filled
+    )
+    seats_remaining = max(0, opp.headcount_needed - capacity_used)
+    if opp.window_end_at is not None and opp.starts_at is not None:
+        window_human = _format_window_human(opp)
+        return templates.render_window_outreach(
+            farm_name=farm_name,
+            activity=activity,
+            window_human=window_human,
+            headcount_open=opp.headcount_open,
+            seats_remaining=seats_remaining,
+            requirements=opp.requirements_text,
+        )
     if opp.starts_at:
         when = format_day_and_range(opp.starts_at, opp.duration_min)
     else:
@@ -254,6 +274,44 @@ def _render_outreach_body(*, opp: OpportunityDoc, farm_name: str) -> str:
         seats_remaining=seats_remaining,
         requirements=opp.requirements_text,
     )
+
+
+_BUCKET_PHRASE = {
+    "early_morning": "early morning",
+    "morning": "morning",
+    "late_morning": "late morning",
+    "midday": "midday",
+    "afternoon": "afternoon",
+    "late_afternoon": "late afternoon",
+    "early_evening": "early evening",
+    "evening": "evening",
+}
+
+
+def _format_window_human(opp: OpportunityDoc) -> str:
+    """Render a window opp's day-range + time as one phrase.
+
+    Examples:
+      "any day Mon 6/2 - Fri 6/6, morning"
+      "any day Mon 6/2 - Fri 6/6, 9a-12p"
+    """
+    from app.flows._time import _short_hour, to_local
+    assert opp.starts_at is not None
+    assert opp.window_end_at is not None
+    start_local = to_local(opp.starts_at)
+    end_local = to_local(opp.window_end_at)
+    day_range = (
+        f"{start_local.strftime('%a %-m/%-d')} - "
+        f"{end_local.strftime('%a %-m/%-d')}"
+    )
+    if opp.time_of_day_bucket:
+        time_part = _BUCKET_PHRASE.get(opp.time_of_day_bucket, opp.time_of_day_bucket)
+    elif opp.duration_min:
+        end_t = start_local + timedelta(minutes=opp.duration_min)
+        time_part = f"{_short_hour(start_local)}-{_short_hour(end_t)}"
+    else:
+        time_part = _short_hour(start_local)
+    return f"any day {day_range}, {time_part}"
 
 
 def _window_minutes(opp: OpportunityDoc, farm) -> int:

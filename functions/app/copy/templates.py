@@ -318,3 +318,86 @@ def render_unfilled_at_start(*, opp_summary: str, filled: int, headcount: int) -
         f"{opp_summary} is starting and only {filled}/{headcount} filled. "
         f"Letting you know in case you want to adjust."
     )
+
+
+# ---- Window-opp proposals + farmer-approval gate -------------------------
+
+def render_proposal_to_farmer(
+    *,
+    volunteer_name: str,
+    day_human: str,
+    opp_summary: str,
+    token: str,
+) -> str:
+    """The SMS that goes to the farmer when a volunteer claims a specific day
+    on a window opp. The farmer decides; volunteer is waiting.
+
+    `day_human` is the resolved day (e.g. "Wed Jun 4 morning"); `opp_summary`
+    is short ("weeding at Three Cedars"); `token` is the 4-letter ACCEPT/DECLINE
+    target.
+    """
+    return (
+        f"Farm Friend Vashon: {volunteer_name} wants {day_human} for your "
+        f"{opp_summary}. Reply ACCEPT {token} or DECLINE {token}."
+    )
+
+
+def render_proposal_accepted_to_volunteer(
+    *, farm_name: str, day_human: str, activity_or_produce: str
+) -> str:
+    """Volunteer sees this when the farmer ACCEPTs their proposal."""
+    return (
+        f"You're confirmed for {activity_or_produce} at {farm_name}, "
+        f"{day_human}. MUTE to stop followups on this one."
+    )
+
+
+def render_proposal_declined_to_volunteer(
+    *, farm_name: str, day_human: str
+) -> str:
+    """Volunteer sees this when the farmer DECLINEs their proposal. Non-blaming."""
+    return (
+        f"{farm_name} can't host you on {day_human} — schedule got fuller "
+        f"than expected. Reply with another day if you'd like to try."
+    )
+
+
+def render_proposal_auto_confirmed_to_farmer(
+    *, volunteer_name: str, day_human: str, opp_summary: str
+) -> str:
+    """Farmer sees this when a proposal auto-confirmed because they didn't
+    decide in time. Offers a forward exit (DROP) rather than UNDO."""
+    return (
+        f"Farm Friend Vashon: auto-accepted {volunteer_name} for "
+        f"{day_human} on your {opp_summary} — you didn't reply in time. "
+        f"Reply CANCEL if you need to undo."
+    )
+
+
+def render_window_outreach(
+    *,
+    farm_name: str,
+    activity: str,
+    window_human: str,
+    headcount_open: bool,
+    seats_remaining: int,
+    requirements: str,
+) -> str:
+    """Outreach copy for a window opp. Mentions the window range and instructs
+    the volunteer to reply with a specific day token."""
+    if headcount_open:
+        people = "any number of helpers"
+    else:
+        people = "1 person" if seats_remaining == 1 else f"{seats_remaining} people"
+    head = (
+        f"Farm Friend Vashon: {farm_name} needs {people} for {activity}, "
+        f"{window_human}."
+    )
+    parts = [head]
+    if requirements:
+        parts.append(requirements)
+    parts.append(
+        "Reply YES <day> (e.g. YES WED), MAYBE if maybe available, MUTE to "
+        "skip, or STOP to opt out."
+    )
+    return " ".join(parts)

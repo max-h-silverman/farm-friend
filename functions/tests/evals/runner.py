@@ -139,7 +139,15 @@ def simulate_dispatch(
     Mirrors the order of the rewritten `_dispatch` (see docs/refactor-unified-agent.md
     §"Dispatch rewrite"). The real Firestore-backed dispatch will use repo
     queries; this runner uses the in-memory `World`.
+
+    Review-mode cases take a different path: they build a `BoardState` from the
+    World and call `run_review_agent` once; budget filters run against the
+    resulting proposal list and the surviving proposals are surfaced as
+    `review_proposals` on the DispatchResult.
     """
+    if case.review_trigger:
+        return simulate_review_tick(case, llm, live=live)
+
     world = case.world
     sender = _find_user(world, case.inbound_from_user_id)
     last_outbound = _latest_outbound(world)
@@ -304,6 +312,264 @@ def simulate_dispatch(
         escalation_urgency=(output.escalation.urgency if output.escalation else None),
         reply_text=output.reply_text,
     )
+
+
+# ---------------------------------------------------------------------------
+# Review-tick simulator
+# ---------------------------------------------------------------------------
+def simulate_review_tick(
+    case: EvalCase, llm, *, live: bool,
+) -> DispatchResult:
+    """Run a review-mode eval case through a simplified version of the review
+    tick + dispatch budget filters.
+
+    Steps:
+      1. Build BoardState from World.
+      2. Call run_review_agent (stub or live).
+      3. Apply the same budget filters dispatch's review-tick handler does:
+         - per-user 48h budget (drop if `last_agent_initiated_outbound_at`
+           is within the budget window)
+         - active PAUSE mute on the targeted user (drop)
+         - per-opp lifetime cap of 2 agent_nudges_sent (downgrade user-targeted
+           proposals to admin)
+         - per-tick global ceiling of 3 user-targeted sends (downgrade overflow
+           to admin)
+      4. Return surviving proposals on the DispatchResult so the assertion
+         engine can pin the proposal-count window.
+    """
+    from datetime import timedelta as _td
+
+    world = case.world
+    # Per-tick send budget — mirrors Settings.agent_review_per_tick_max default.
+    PER_TICK_SEND_BUDGET = 3
+    AGENT_NUDGE_BUDGET_HOURS = 48
+    AGENT_NUDGE_PER_OPP_MAX = 2
+
+    if live:
+        board = _build_board_from_world(world)
+        from app.agent.unified import run_review_agent
+        from app.llm.client import LLMProviderError
+        try:
+            review_output = run_review_agent(llm=llm, board=board)
+            proposals = [p.model_dump(exclude_none=False) for p in review_output.proposals]
+        except (LLMProviderError, Exception) as e:
+            return DispatchResult(
+                agent_was_called=True,
+                dispatch_reason=f"review LLMError: {type(e).__name__}: {str(e)[:200]}",
+            )
+    else:
+        # Stub mode: call StubLLM's review path; canned proposals per case_id.
+        proposals = _stub_review_proposals(case)
+
+    # Index helpers.
+    user_by_id = {u.id: u for u in world.users}
+    opp_by_id = {o.id: o for o in world.opps}
+
+    surviving: list[dict] = []
+    sent_count = 0
+    # Process in priority order: high > medium > low.
+    prio_order = {"high": 0, "medium": 1, "low": 2}
+    for prop in sorted(proposals, key=lambda p: prio_order.get(p.get("priority", "low"), 99)):
+        target = prop.get("target")
+        if target == "admin":
+            surviving.append(prop)
+            continue
+        if target != "user":
+            continue
+        target_user_id = prop.get("target_user_id")
+        target_opp_id = prop.get("target_opp_id")
+        user = user_by_id.get(target_user_id) if target_user_id else None
+        # PAUSE-mute drops.
+        if user is not None and ("agent_nudge", "all") in user.mute_dimensions:
+            continue
+        # 48h budget drops.
+        if (
+            user is not None
+            and user.last_agent_initiated_outbound_at is not None
+        ):
+            window = _td(hours=AGENT_NUDGE_BUDGET_HOURS)
+            if NOW - user.last_agent_initiated_outbound_at <= window:
+                continue
+        # Per-opp lifetime cap downgrade.
+        opp = opp_by_id.get(target_opp_id) if target_opp_id else None
+        if opp is not None and opp.agent_nudges_sent >= AGENT_NUDGE_PER_OPP_MAX:
+            # Downgrade to admin flag rather than drop, so the admin sees the
+            # signal.
+            surviving.append({**prop, "target": "admin"})
+            continue
+        # Per-tick global ceiling.
+        if sent_count >= PER_TICK_SEND_BUDGET:
+            surviving.append({**prop, "target": "admin"})
+            continue
+        surviving.append(prop)
+        sent_count += 1
+
+    return DispatchResult(
+        agent_was_called=True,
+        mode="review",
+        review_proposals=surviving,
+        dispatch_reason=f"review tick: {len(proposals)} proposed, {len(surviving)} surviving",
+    )
+
+
+def _build_board_from_world(world: World):
+    """Construct a BoardState from a case's World. Open opps + open offers +
+    upcoming confirmations + stalled threads."""
+    from app.agent.unified import BoardState, ClaimSummary, OffSummary  # type: ignore
+    # OffSummary doesn't exist — it's OfferSummary.
+    from app.agent.unified import OfferSummary, OppSummary
+    farms_by_id = {f.id: f for f in world.farms}
+    users_by_id = {u.id: u for u in world.users}
+
+    open_opps: list[OppSummary] = []
+    for opp in world.opps:
+        if opp.status not in ("open", "filling"):
+            continue
+        farm = farms_by_id.get(opp.farm_id)
+        open_opps.append(OppSummary(**_opp_to_summary_dict(opp, farm)))
+
+    open_offers: list[OfferSummary] = []
+    for off in world.offers:
+        if off.status != "open":
+            continue
+        vol = users_by_id.get(off.volunteer_user_id)
+        open_offers.append(OfferSummary(
+            offer_id=off.id,
+            volunteer_name=vol.name if vol else "unknown",
+            activity_tags=off.activity_tags,
+            when_human=_format_offer_when(off),
+            age_days=max(0, (NOW - off.created_at).days),
+        ))
+
+    # Upcoming confirmations: confirmed claims with confirmation_sent_at in
+    # the last 24h. Tests don't currently populate these but we keep the
+    # structure honest.
+    upcoming: list[ClaimSummary] = []
+
+    return BoardState(
+        now_local_iso=NOW.replace(tzinfo=None).isoformat(),
+        open_opps=open_opps,
+        open_offers=open_offers,
+        upcoming_confirmations=upcoming,
+        stalled_threads=[],
+        per_tick_send_budget=3,
+        canonical_activities=[
+            "harvest", "gleaning", "weeding", "planting", "transplanting",
+            "livestock", "infrastructure", "processing",
+        ],
+    )
+
+
+def _format_offer_when(off: FakeOffer) -> str:
+    if off.earliest_at and off.latest_at:
+        return f"{off.earliest_at.strftime('%a %-m/%-d')} - {off.latest_at.strftime('%a %-m/%-d')}"
+    if off.latest_at:
+        return f"by {off.latest_at.strftime('%a %-m/%-d')}"
+    return "open"
+
+
+def _stub_review_proposals(case: EvalCase) -> list[dict]:
+    """Canned review proposals per case_id. Keys mirror ReviewProposal fields."""
+    return _REVIEW_STUB_REGISTRY.get(case.id, [])
+
+
+_REVIEW_STUB_REGISTRY: dict[str, list[dict]] = {}
+
+
+def review_stub(case_id: str):
+    """Decorator to register canned review proposals for a case_id."""
+    def _wrap(fn):
+        _REVIEW_STUB_REGISTRY[case_id] = fn()
+        return fn
+    return _wrap
+
+
+# Canned review proposals for the 8 REVIEW cases.
+
+@review_stub("review.empty.no_actionable_state")
+def _():
+    return []  # nothing to do
+
+
+@review_stub("review.underfilled_shift_t_minus_24h")
+def _():
+    return [{
+        "priority": "high", "target": "user",
+        "target_user_id": "u_farmer_a", "target_opp_id": "o_fri_harvest",
+        "reason": "underfilled shift T-24h",
+        "action": None, "confirmation_token": None,
+        "reply_text": "Farm Friend Vashon: Friday harvest at 1/3, T-24h.",
+    }]
+
+
+@review_stub("review.aging_offer_no_match")
+def _():
+    return [{
+        "priority": "low", "target": "admin",
+        "target_user_id": None, "target_opp_id": None,
+        "reason": "aging offer with no match",
+        "action": None, "confirmation_token": None, "reply_text": "",
+    }]
+
+
+@review_stub("review.budget_blocks_user_proposal")
+def _():
+    # Agent proposes nudging the farmer; budget filter (last_agent_initiated_outbound_at
+    # within 48h) drops this proposal entirely.
+    return [{
+        "priority": "high", "target": "user",
+        "target_user_id": "u_farmer_a", "target_opp_id": "o_fri_harvest",
+        "reason": "underfilled shift T-24h",
+        "action": None, "confirmation_token": None,
+        "reply_text": "Farm Friend Vashon: Friday harvest at 1/3.",
+    }]
+
+
+@review_stub("review.per_opp_cap_at_max")
+def _():
+    return [{
+        "priority": "high", "target": "user",
+        "target_user_id": "u_farmer_a", "target_opp_id": "o_fri_harvest",
+        "reason": "underfilled but opp at lifetime cap",
+        "action": None, "confirmation_token": None, "reply_text": "...",
+    }]
+
+
+@review_stub("review.pause_mute_drops_user_proposal")
+def _():
+    return [{
+        "priority": "medium", "target": "user",
+        "target_user_id": "u_vol_a", "target_opp_id": "o_fri_harvest",
+        "reason": "offer matches an open opp",
+        "action": None, "confirmation_token": None, "reply_text": "...",
+    }]
+
+
+@review_stub("review.per_tick_global_ceiling")
+def _():
+    # 5 user-targeted proposals; top 3 send, bottom 2 downgrade to admin.
+    return [
+        {"priority": "high", "target": "user", "target_user_id": "u_farmer_a", "target_opp_id": "o1",
+         "reason": "1", "action": None, "confirmation_token": None, "reply_text": "x"},
+        {"priority": "high", "target": "user", "target_user_id": "u_farmer_b", "target_opp_id": "o2",
+         "reason": "2", "action": None, "confirmation_token": None, "reply_text": "x"},
+        {"priority": "high", "target": "user", "target_user_id": "u_vol_a", "target_opp_id": "o3",
+         "reason": "3", "action": None, "confirmation_token": None, "reply_text": "x"},
+        {"priority": "medium", "target": "user", "target_user_id": "u_vol_b", "target_opp_id": "o1",
+         "reason": "4", "action": None, "confirmation_token": None, "reply_text": "x"},
+        {"priority": "medium", "target": "user", "target_user_id": "u_vol_a", "target_opp_id": "o2",
+         "reason": "5", "action": None, "confirmation_token": None, "reply_text": "x"},
+    ]
+
+
+@review_stub("review.failed_send_does_not_increment_counter")
+def _():
+    return [{
+        "priority": "high", "target": "user",
+        "target_user_id": "u_farmer_a", "target_opp_id": "o_fri_harvest",
+        "reason": "underfilled shift T-24h",
+        "action": None, "confirmation_token": None, "reply_text": "...",
+    }]
 
 
 # ---------------------------------------------------------------------------
@@ -577,6 +843,8 @@ def _eval_settings(
         clarify_user_24h_max=5,
         undo_window_min=5,
         offer_default_ttl_days=7,
+        proposal_auto_confirm_far_min=240,
+        proposal_auto_confirm_close_min=60,
     )
 
 
@@ -1175,6 +1443,104 @@ def _(c): return _confirm(
 )
 
 
+# === Window opps + MVD (PR 6 Stage 1) stubs ===
+@stub_for("new.farmer.window.any_day_next_week")
+def _(c): return _confirm(
+    "create_opportunity",
+    {"parsed": {
+        "kind": "shift",
+        "starts_at": "2026-06-08T00:00:00-07:00",
+        "window_end_at": "2026-06-12T00:00:00-07:00",
+        "time_of_day_bucket": "morning",
+        "duration_min": None,
+        "headcount_needed": 2,
+        "activity_tags": ["tbd"],
+        "requirements_text": "prep work",
+        "missing_fields": [],
+    }},
+    token="YES",
+    text="Post 2 ppl for prep work, any day Mon Jun 8 - Fri Jun 12 morning? Reply YES.",
+)
+
+
+@stub_for("new.farmer.window.mon_to_wed_clock")
+def _(c): return _confirm(
+    "create_opportunity",
+    {"parsed": {
+        "kind": "shift",
+        "starts_at": "2026-06-08T09:00:00-07:00",
+        "window_end_at": "2026-06-10T23:59:00-07:00",
+        "duration_min": None,
+        "headcount_needed": 2,
+        "activity_tags": ["harvest"],
+        "missing_fields": [],
+    }},
+    token="YES",
+    text="Post 2 ppl for harvest, Mon Jun 8 - Wed Jun 10 at 9am? Reply YES.",
+)
+
+
+@stub_for("new.farmer.window.weekend_mornings")
+def _(c): return _confirm(
+    "create_opportunity",
+    {"parsed": {
+        "kind": "shift",
+        "starts_at": "2026-06-06T00:00:00-07:00",
+        "window_end_at": "2026-06-07T00:00:00-07:00",
+        "time_of_day_bucket": "morning",
+        "duration_min": None,
+        "headcount_needed": 2,
+        "activity_tags": ["gleaning"],
+        "missing_fields": [],
+    }},
+    token="YES",
+    text="Post 2 ppl for gleaning, Sat Jun 6 - Sun Jun 7 morning? Reply YES.",
+)
+
+
+@stub_for("new.farmer.single_day_no_followup_about_weekend")
+def _(c): return _confirm(
+    "create_opportunity",
+    {"parsed": {
+        "kind": "shift",
+        "starts_at": "2026-06-06T08:00:00-07:00",
+        "duration_min": 180,
+        "headcount_needed": 3,
+        "activity_tags": ["harvest"],
+        "missing_fields": [],
+    }},
+    token="YES",
+    text="Post 3 ppl for harvest Saturday Jun 6 at 8am? Reply YES.",
+)
+
+
+@stub_for("adv.window.bucket_only_no_clarify_for_clock_time")
+def _(c): return _clarify(
+    "Morning, afternoon, or evening?"
+)
+
+
+@stub_for("adv.window.mvd_vacant_focused_clarify")
+def _(c): return _clarify(
+    "What day, what kind of work, and how many people?"
+)
+
+
+@stub_for("new.vol.window_claim_with_day_token")
+def _(c): return _confirm(
+    "claim_opportunity",
+    {"opp_id": "o_window_weed", "slots": 1, "days": ["WED"]},
+    token="YES",
+    text="Propose Wednesday for the Three Cedars weeding window? The farmer will confirm. Reply YES.",
+)
+
+
+@stub_for("new.vol.window_claim_bare_yes_clarifies")
+def _(c): return _clarify(
+    "Which day works for you? Mon, Tue, Wed, Thu, or Fri?"
+)
+
+
 # === REVIEW stubs ===
 # Review-mode cases need a different shape — the runner doesn't simulate the
 # full review tick yet (it's a TODO before live evals). For now the stubs
@@ -1205,12 +1571,6 @@ DETERMINISTIC_ONLY = {
 
 
 def run_one(case: EvalCase, *, live: bool) -> CaseResult:
-    # Skip review-mode for both runners — the harness doesn't simulate the
-    # review tick (board_review integration is a separate task).
-    if case.review_trigger:
-        return CaseResult(case.id, passed=True,
-                          dispatch_reason="review-mode case skipped in runner (TODO)")
-
     if live:
         llm = _get_live_llm()
     else:

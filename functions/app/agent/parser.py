@@ -21,12 +21,27 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.repos.models import TIME_OF_DAY_BUCKETS
 
-# Required-field rules. The unified agent prompt also lists these, but
-# dispatch re-checks here — never trust the agent to set missing_fields
-# correctly.
-REQUIRED_SHIFT_FIELDS = ("starts_at", "headcount_needed", "activity_tags")
-REQUIRED_PICKUP_FIELDS = ("deadline_at", "produce_description", "destination")
+
+# Required-field rules. Expressed as **axes** rather than schema field names
+# because a single axis can be satisfied by multiple fields (e.g. "time" can
+# come from `starts_at`'s clock component OR from `time_of_day_bucket`).
+# Axis names are also what dispatch uses to render farmer-friendly clarify
+# copy via `_FIELD_QUESTIONS` — they read as questions, not as schema fields.
+#
+# Shift axes (each must be satisfied):
+#   - "date":      starts_at has a date component
+#   - "time":      starts_at has a clock time OR time_of_day_bucket is set
+#   - "headcount": headcount_needed > 0 OR headcount_open=True
+#   - "activity":  activity_tags is non-empty (including ["tbd"])
+#
+# Pickup axes (each must be satisfied):
+#   - "deadline":   deadline_at is set
+#   - "produce":    produce_description is set
+#   - "destination": destination is set
+REQUIRED_SHIFT_FIELDS = ("date", "time", "headcount", "activity")
+REQUIRED_PICKUP_FIELDS = ("deadline", "produce", "destination")
 
 
 class ParsedOpportunity(BaseModel):
@@ -47,6 +62,16 @@ class ParsedOpportunity(BaseModel):
     headcount_needed: int | None = None
     activity_tags: list[str] = Field(default_factory=list)
     requirements_text: str = ""
+    # Multi-day window post: end of the window (inclusive). None for
+    # single-day posts. ISO 8601 with offset. See rethink doc §"Multi-day
+    # window posts" and OpportunityDoc.window_end_at.
+    window_end_at: str | None = None
+    # Fuzzy time-of-day bucket. One of TIME_OF_DAY_BUCKETS. Mutually
+    # substitutable with starts_at's clock time — see compute_missing_fields.
+    time_of_day_bucket: str | None = None
+    # Farmer said "any number of helpers welcome". headcount_needed is still
+    # set (used as a practical broadcast cap) but doesn't gate close.
+    headcount_open: bool = False
 
     # Pickup fields (populated when kind=="pickup")
     deadline_at: str | None = None
@@ -62,26 +87,77 @@ class ParsedOpportunity(BaseModel):
 
 
 def compute_missing_fields(parsed: ParsedOpportunity) -> list[str]:
-    """Authoritative server-side check of which required fields are still empty.
+    """Authoritative server-side check of which required AXES are still empty.
 
-    The agent also populates `missing_fields` but we recompute here so dispatch
-    has a deterministic source of truth — the agent should never be able to
-    push an opp to OPEN with missing required fields.
+    Returns axis names (e.g. "time", "headcount") — NOT schema field names.
+    Dispatch's `_FIELD_QUESTIONS` map keys on these axis names to produce
+    farmer-friendly clarify copy.
+
+    Shift axes:
+      - "date":      starts_at is set (carries the day, even when the clock
+                     time is fuzzy and lives in time_of_day_bucket).
+      - "time":      starts_at has a non-midnight clock time OR
+                     time_of_day_bucket is set.
+      - "headcount": headcount_needed > 0 OR headcount_open is True.
+      - "activity":  activity_tags non-empty (["tbd"] is a valid satisfier).
+
+    Pickup axes:
+      - "deadline":    deadline_at is set.
+      - "produce":     produce_description is non-empty.
+      - "destination": destination is non-empty.
+
+    The agent also populates `missing_fields` on the ParsedOpportunity but
+    we recompute here so dispatch has a deterministic source of truth — the
+    agent should never be able to push an opp to OPEN with missing fields.
     """
     if parsed.kind == "shift":
         missing: list[str] = []
-        for f in REQUIRED_SHIFT_FIELDS:
-            value = getattr(parsed, f)
-            # Treat None/empty-string/0 as missing, and explicitly catch the
-            # empty-list case for list-typed required fields (activity_tags).
-            if value in (None, "", 0):
-                missing.append(f)
-            elif isinstance(value, list) and len(value) == 0:
-                missing.append(f)
+        if not parsed.starts_at:
+            missing.append("date")
+        time_satisfied = (
+            bool(parsed.time_of_day_bucket)
+            or _starts_at_has_clock_time(parsed.starts_at)
+        )
+        if not time_satisfied:
+            missing.append("time")
+        if not parsed.headcount_open and not (parsed.headcount_needed and parsed.headcount_needed > 0):
+            missing.append("headcount")
+        if not parsed.activity_tags:
+            missing.append("activity")
         return missing
     if parsed.kind == "pickup":
-        return [f for f in REQUIRED_PICKUP_FIELDS if getattr(parsed, f) in (None, "")]
+        missing_p: list[str] = []
+        if not parsed.deadline_at:
+            missing_p.append("deadline")
+        if not parsed.produce_description:
+            missing_p.append("produce")
+        if not parsed.destination:
+            missing_p.append("destination")
+        return missing_p
     return []
+
+
+def _starts_at_has_clock_time(starts_at: str | None) -> bool:
+    """True if `starts_at` carries a non-midnight clock time.
+
+    The convention: when the agent has only a fuzzy time, it sets
+    `time_of_day_bucket` and uses midnight (T00:00:00) on `starts_at` as a
+    date-only placeholder. A non-midnight clock time means the farmer gave
+    an explicit time.
+
+    This is intentionally lenient — `T00:00:00` is genuinely ambiguous
+    (could be midnight farm work or a bucket placeholder), but no farm shift
+    actually starts at midnight, so treating it as "no clock time" is the
+    right default.
+    """
+    if not starts_at:
+        return False
+    from datetime import datetime as _dt
+    try:
+        dt = _dt.fromisoformat(starts_at.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return False
+    return not (dt.hour == 0 and dt.minute == 0 and dt.second == 0)
 
 
 def _apply_farm_defaults(

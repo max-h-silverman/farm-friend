@@ -26,6 +26,27 @@ OUTREACH_SUB = "outreach"
 CLAIMS_SUB = "claims"
 
 
+def _claim_doc_id(*, volunteer_user_id: str, scheduled_for_at: datetime | None) -> str:
+    """Pick the claim subcollection doc id.
+
+    Single-day opp (no scheduled_for_at): `{volunteer_user_id}`.
+    Window opp: `{volunteer_user_id}_{YYYY-MM-DD}` — lets one volunteer
+    claim multiple days on the same opp without collision.
+
+    The date component is the LOCAL Vashon date of `scheduled_for_at`. This
+    matters because a 9am Vashon shift on Wed is 16:00 UTC Wed — same UTC
+    date as the local date — but an early-evening shift (say 6pm Vashon
+    Wed) is 1:00 UTC Thu, which would split a "Wed shift" across two
+    Firestore doc IDs if we used the UTC date. We always want the
+    farmer's intuition ("Wed shift") to map to a single doc.
+    """
+    if scheduled_for_at is None:
+        return volunteer_user_id
+    from app.flows._time import to_local
+    local = to_local(scheduled_for_at)
+    return f"{volunteer_user_id}_{local.date().isoformat()}"
+
+
 def get_by_id(opp_id: str) -> OpportunityDoc | None:
     return snapshot_to_model(db.collection(COLLECTION).document(opp_id).get(), OpportunityDoc)
 
@@ -134,13 +155,45 @@ def list_due_for_escalation(*, now: datetime) -> list[OpportunityDoc]:
 
 
 def list_due_for_post_event(*, now: datetime) -> list[OpportunityDoc]:
-    """Completed-or-past opportunities whose post-event checkin should fire now."""
+    """Completed-or-past opportunities whose post-event checkin should fire now.
+
+    Single-day path: uses the legacy `post_event_checkin_sent` opp-level flag.
+    Window opps continue to appear here on their last-day checkin time (set
+    when the opp was created) but per-day idempotency is delegated to the
+    `post_event_pings` sidecar — see `list_window_opps_in_progress` for the
+    catch-up surface.
+    """
     q = (
         db.collection(COLLECTION)
         .where("post_event_checkin_sent", "==", False)
         .where("post_event_checkin_at", "<=", now)
     )
     return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
+def list_window_opps_in_progress(*, now: datetime) -> list[OpportunityDoc]:
+    """Window opps whose first day has started — the tick walks per-day claims
+    against the sidecar to decide what's still to ping.
+
+    Query is `kind=shift AND starts_at <= now`; we filter window-only in app
+    code because Firestore can't reliably distinguish "field is set" from
+    "field is missing" on legacy docs without extra indexing. Pilot scale
+    makes the in-memory filter fine.
+    """
+    q = (
+        db.collection(COLLECTION)
+        .where("kind", "==", OpportunityKind.SHIFT.value)
+        .where("starts_at", "<=", now)
+    )
+    out: list[OpportunityDoc] = []
+    for snap in q.stream():
+        if not snap.exists:
+            continue
+        opp = snapshot_to_model(snap, OpportunityDoc)
+        if opp is None or opp.window_end_at is None:
+            continue
+        out.append(opp)
+    return out
 
 
 def list_open_for_farm(farm_id: str) -> list[OpportunityDoc]:
@@ -163,12 +216,18 @@ def list_opps_due_for_confirmation(
 ) -> list[OpportunityDoc]:
     """Opportunities whose event is within the confirmation-reminder window.
 
-    Shifts: `now <= starts_at <= now + shift_lead_time`.
-    Pickups: `now <= deadline_at <= now + pickup_lead_time`.
+    Single-day shifts: `now <= starts_at <= now + shift_lead_time`.
+    Pickups:           `now <= deadline_at <= now + pickup_lead_time`.
+    Window shifts:     anything where any day in the window is within the
+                       lead time — gated below by checking each CONFIRMED
+                       claim's `scheduled_for_at`.
 
-    Returns OPEN/FILLING/FULL opps in either window. The caller iterates each
-    opp's confirmed claims and decides per-claim whether to send a reminder.
+    Returns OPEN/FILLING/FULL opps. The caller iterates each opp's confirmed
+    claims and decides per-claim whether the lead-time window applies.
     """
+    # Single-day shifts: starts_at falls in the window. Window shifts whose
+    # FIRST day is within the lead time also match; window shifts whose only
+    # in-window day is later get caught by the all-active-window query below.
     shift_q = (
         db.collection(COLLECTION)
         .where("kind", "==", OpportunityKind.SHIFT.value)
@@ -177,6 +236,20 @@ def list_opps_due_for_confirmation(
             [OpportunityStatus.OPEN.value, OpportunityStatus.FILLING.value, OpportunityStatus.FULL.value],
         )
         .where("starts_at", ">=", now)
+        .where("starts_at", "<=", now + shift_lead_time)
+    )
+    # Window shifts whose window_end_at is in the future and whose starts_at
+    # is in the past — i.e. windows currently in flight, where any of the
+    # remaining days could be reaching the lead-time window. Filtering by
+    # individual day happens in `_process_opp` via claim.scheduled_for_at.
+    window_active_q = (
+        db.collection(COLLECTION)
+        .where("kind", "==", OpportunityKind.SHIFT.value)
+        .where(
+            "status", "in",
+            [OpportunityStatus.OPEN.value, OpportunityStatus.FILLING.value, OpportunityStatus.FULL.value],
+        )
+        .where("window_end_at", ">=", now)
         .where("starts_at", "<=", now + shift_lead_time)
     )
     pickup_q = (
@@ -189,9 +262,16 @@ def list_opps_due_for_confirmation(
         .where("deadline_at", ">=", now)
         .where("deadline_at", "<=", now + pickup_lead_time)
     )
+    seen: set[str] = set()
     results: list[OpportunityDoc] = []
-    for q in (shift_q, pickup_q):
-        results.extend(snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists)  # type: ignore[misc]
+    for q in (shift_q, window_active_q, pickup_q):
+        for snap in q.stream():
+            if not snap.exists or snap.id in seen:
+                continue
+            seen.add(snap.id)
+            opp = snapshot_to_model(snap, OpportunityDoc)
+            if opp is not None:
+                results.append(opp)
     return results
 
 
@@ -225,21 +305,38 @@ def list_outreach(opp_id: str) -> list[OutreachLogDoc]:
 # Claims
 # ---------------------------------------------------------------------------
 def upsert_claim(*, opp_id: str, claim: ClaimDoc) -> None:
+    """Write a claim doc. Doc id derives from (volunteer_user_id, scheduled_for_at)
+    via _claim_doc_id so window-opp claims for different days coexist."""
+    doc_id = _claim_doc_id(
+        volunteer_user_id=claim.volunteer_user_id,
+        scheduled_for_at=claim.scheduled_for_at,
+    )
     ref = (
         db.collection(COLLECTION)
         .document(opp_id)
         .collection(CLAIMS_SUB)
-        .document(claim.volunteer_user_id)
+        .document(doc_id)
     )
     ref.set(model_to_dict(claim))
 
 
-def get_claim(*, opp_id: str, volunteer_user_id: str) -> ClaimDoc | None:
+def get_claim(
+    *,
+    opp_id: str,
+    volunteer_user_id: str,
+    scheduled_for_at: datetime | None = None,
+) -> ClaimDoc | None:
+    """Fetch a claim doc. For window opps, pass `scheduled_for_at` to disambiguate.
+    For single-day opps, leave it None and we look up by volunteer_user_id alone."""
+    doc_id = _claim_doc_id(
+        volunteer_user_id=volunteer_user_id,
+        scheduled_for_at=scheduled_for_at,
+    )
     snap = (
         db.collection(COLLECTION)
         .document(opp_id)
         .collection(CLAIMS_SUB)
-        .document(volunteer_user_id)
+        .document(doc_id)
         .get()
     )
     return snapshot_to_model(snap, ClaimDoc)
@@ -260,14 +357,24 @@ def list_all_claims(opp_id: str) -> list[ClaimDoc]:
     return [snapshot_to_model(s, ClaimDoc) for s in snaps if s.exists]  # type: ignore[misc]
 
 
-def mark_confirmation_sent(*, opp_id: str, volunteer_user_id: str, at: datetime) -> None:
+def mark_confirmation_sent(
+    *,
+    opp_id: str,
+    volunteer_user_id: str,
+    at: datetime,
+    scheduled_for_at: datetime | None = None,
+) -> None:
     """Stamp `confirmation_sent_at` on a single claim. Used by the confirmation
-    tick to avoid double-pinging."""
+    tick to avoid double-pinging. Pass `scheduled_for_at` for window claims."""
+    doc_id = _claim_doc_id(
+        volunteer_user_id=volunteer_user_id,
+        scheduled_for_at=scheduled_for_at,
+    )
     ref = (
         db.collection(COLLECTION)
         .document(opp_id)
         .collection(CLAIMS_SUB)
-        .document(volunteer_user_id)
+        .document(doc_id)
     )
     ref.update({"confirmation_sent_at": at})
 
@@ -299,16 +406,35 @@ def try_claim_in_transaction(
     volunteer_user_id: str,
     requested_slots: int,
     now: datetime,
+    scheduled_for_at: datetime | None = None,
+    target_status: ClaimStatus = ClaimStatus.CONFIRMED,
 ) -> ClaimOutcome:
     """Atomically: read the opp, decide seats, write claim + increment + status.
 
+    Two modes:
+      - `target_status=CONFIRMED` (single-day opps, default): increments
+        `seats_filled` and `seats_held`; flips FULL when `seats_filled` hits
+        `headcount_needed`. Capacity gated by `headcount_needed - seats_filled`.
+      - `target_status=PROPOSED` (window-opp claims awaiting farmer ACCEPT):
+        increments `seats_held` only — `seats_filled` and FULL transitions
+        stay gated on farmer-confirmed claims. Capacity gated by
+        `headcount_needed - seats_held` (don't propose more than the farmer
+        asked for, even before they decide).
+
+    For window opps, `scheduled_for_at` MUST be set; it scopes the claim doc
+    id and is persisted on the claim. For single-day opps, leave None.
+
     Firestore retries on contention, so concurrent YES messages serialize and
-    can't overshoot headcount_needed. All decisions inside the txn are made
-    from the snapshot we read inside the txn (not from a stale in-memory doc).
+    can't overshoot capacity. All decisions inside the txn are made from the
+    snapshot we read inside the txn (not from a stale in-memory doc).
     """
     opp_ref = db.collection(COLLECTION).document(opp_id)
-    claim_ref = opp_ref.collection(CLAIMS_SUB).document(volunteer_user_id)
+    claim_doc_id = _claim_doc_id(
+        volunteer_user_id=volunteer_user_id, scheduled_for_at=scheduled_for_at,
+    )
+    claim_ref = opp_ref.collection(CLAIMS_SUB).document(claim_doc_id)
     txn = db.transaction()
+    is_proposal = target_status == ClaimStatus.PROPOSED
 
     @transactional
     def _run(transaction) -> ClaimOutcome:
@@ -334,7 +460,10 @@ def try_claim_in_transaction(
                 kind=opp.kind,
             )
 
-        seats_left = opp.headcount_needed - opp.seats_filled
+        # Capacity counter differs by mode: PROPOSED gates on seats_held so
+        # we don't over-propose; CONFIRMED gates on seats_filled.
+        capacity_used = opp.seats_held if is_proposal else opp.seats_filled
+        seats_left = opp.headcount_needed - capacity_used
         if seats_left <= 0:
             transaction.set(
                 claim_ref,
@@ -344,6 +473,7 @@ def try_claim_in_transaction(
                         slots=requested_slots,
                         claimed_at=now,
                         status=ClaimStatus.WAITLIST,
+                        scheduled_for_at=scheduled_for_at,
                     )
                 ),
             )
@@ -359,8 +489,15 @@ def try_claim_in_transaction(
             )
 
         granted = min(requested_slots, seats_left)
-        new_filled = opp.seats_filled + granted
-        just_filled = new_filled >= opp.headcount_needed
+        # seats_filled only moves on CONFIRMED claims. PROPOSED claims move
+        # seats_held alone — farmer ACCEPT promotes them to CONFIRMED and
+        # bumps seats_filled at that point.
+        if is_proposal:
+            new_filled = opp.seats_filled
+            just_filled = False
+        else:
+            new_filled = opp.seats_filled + granted
+            just_filled = new_filled >= opp.headcount_needed
         new_status: OpportunityStatus
         if just_filled:
             new_status = OpportunityStatus.FULL
@@ -376,11 +513,14 @@ def try_claim_in_transaction(
                     volunteer_user_id=volunteer_user_id,
                     slots=granted,
                     claimed_at=now,
-                    status=ClaimStatus.CONFIRMED,
+                    status=target_status,
+                    scheduled_for_at=scheduled_for_at,
                 )
             ),
         )
-        update_payload: dict = {"seats_filled": Increment(granted)}
+        update_payload: dict = {"seats_held": Increment(granted)}
+        if not is_proposal:
+            update_payload["seats_filled"] = Increment(granted)
         if new_status != opp.status:
             update_payload["status"] = new_status.value
         transaction.update(opp_ref, update_payload)
@@ -413,13 +553,20 @@ def drop_confirmed_claim_in_transaction(
     opp_id: str,
     volunteer_user_id: str,
     now: datetime,
+    scheduled_for_at: datetime | None = None,
 ) -> DropOutcome:
     """Atomically drop a CONFIRMED claim: set status=DROPPED, decrement
-    seats_filled, and unwind opp status (FULL -> FILLING) if applicable.
-    If the claim doesn't exist or isn't CONFIRMED, returns dropped=False.
+    seats_filled AND seats_held, and unwind opp status (FULL -> FILLING) if
+    applicable. If the claim doesn't exist or isn't CONFIRMED, returns
+    dropped=False.
+
+    For window opps, pass `scheduled_for_at` to target the right per-day claim.
     """
     opp_ref = db.collection(COLLECTION).document(opp_id)
-    claim_ref = opp_ref.collection(CLAIMS_SUB).document(volunteer_user_id)
+    claim_doc_id = _claim_doc_id(
+        volunteer_user_id=volunteer_user_id, scheduled_for_at=scheduled_for_at,
+    )
+    claim_ref = opp_ref.collection(CLAIMS_SUB).document(claim_doc_id)
     txn = db.transaction()
 
     @transactional
@@ -459,7 +606,10 @@ def drop_confirmed_claim_in_transaction(
         reopened = new_status != opp.status
 
         transaction.update(claim_ref, {"status": ClaimStatus.DROPPED.value})
-        update_payload: dict = {"seats_filled": Increment(-slots)}
+        update_payload: dict = {
+            "seats_filled": Increment(-slots),
+            "seats_held": Increment(-slots),
+        }
         if reopened:
             update_payload["status"] = new_status.value
         transaction.update(opp_ref, update_payload)
@@ -473,3 +623,178 @@ def drop_confirmed_claim_in_transaction(
         )
 
     return _run(txn)
+
+
+# ---------------------------------------------------------------------------
+# Proposal decisions (window-opp farmer-approval gate)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class ProposalDecisionOutcome:
+    """Result of accept/decline against a PROPOSED claim."""
+    found: bool                              # False if doc missing or not PROPOSED
+    was_already_decided: bool                # True if already CONFIRMED or DROPPED
+    seats_filled_after: int
+    seats_held_after: int
+    headcount_needed: int
+    status_after: OpportunityStatus
+    just_filled: bool                        # accept only: did this flip to FULL?
+    slots: int                               # the claim's slots count
+
+
+def accept_proposal_in_transaction(
+    *,
+    opp_id: str,
+    claim_doc_id: str,
+    now: datetime,
+) -> ProposalDecisionOutcome:
+    """Atomically promote a PROPOSED claim to CONFIRMED.
+
+    `claim_doc_id` is the full subcollection doc id (composite for window opps,
+    bare volunteer_user_id for single-day). The caller looks it up via the
+    proposal token's persisted reference.
+
+    Increments `seats_filled` (PROPOSED→CONFIRMED promotion); `seats_held` is
+    unchanged because the claim already counted there as PROPOSED. Flips opp
+    status to FULL when seats_filled hits headcount_needed.
+    """
+    opp_ref = db.collection(COLLECTION).document(opp_id)
+    claim_ref = opp_ref.collection(CLAIMS_SUB).document(claim_doc_id)
+    txn = db.transaction()
+
+    @transactional
+    def _run(transaction) -> ProposalDecisionOutcome:
+        opp_snap = opp_ref.get(transaction=transaction)
+        claim_snap = claim_ref.get(transaction=transaction)
+        if not opp_snap.exists or not claim_snap.exists:
+            opp = snapshot_to_model(opp_snap, OpportunityDoc)
+            return ProposalDecisionOutcome(
+                found=False,
+                was_already_decided=False,
+                seats_filled_after=opp.seats_filled if opp else 0,
+                seats_held_after=opp.seats_held if opp else 0,
+                headcount_needed=opp.headcount_needed if opp else 0,
+                status_after=opp.status if opp else OpportunityStatus.OPEN,
+                just_filled=False,
+                slots=0,
+            )
+        opp = snapshot_to_model(opp_snap, OpportunityDoc)
+        claim = snapshot_to_model(claim_snap, ClaimDoc)
+        assert opp is not None and claim is not None
+        if claim.status != ClaimStatus.PROPOSED:
+            return ProposalDecisionOutcome(
+                found=True,
+                was_already_decided=True,
+                seats_filled_after=opp.seats_filled,
+                seats_held_after=opp.seats_held,
+                headcount_needed=opp.headcount_needed,
+                status_after=opp.status,
+                just_filled=False,
+                slots=claim.slots,
+            )
+
+        slots = max(1, claim.slots)
+        new_filled = opp.seats_filled + slots
+        just_filled = new_filled >= opp.headcount_needed
+        new_status: OpportunityStatus
+        if just_filled:
+            new_status = OpportunityStatus.FULL
+        elif opp.status == OpportunityStatus.OPEN:
+            new_status = OpportunityStatus.FILLING
+        else:
+            new_status = opp.status
+
+        transaction.update(claim_ref, {"status": ClaimStatus.CONFIRMED.value})
+        update_payload: dict = {"seats_filled": Increment(slots)}
+        if new_status != opp.status:
+            update_payload["status"] = new_status.value
+        transaction.update(opp_ref, update_payload)
+
+        return ProposalDecisionOutcome(
+            found=True,
+            was_already_decided=False,
+            seats_filled_after=new_filled,
+            seats_held_after=opp.seats_held,
+            headcount_needed=opp.headcount_needed,
+            status_after=new_status,
+            just_filled=just_filled,
+            slots=slots,
+        )
+
+    return _run(txn)
+
+
+def decline_proposal_in_transaction(
+    *,
+    opp_id: str,
+    claim_doc_id: str,
+    now: datetime,
+) -> ProposalDecisionOutcome:
+    """Atomically drop a PROPOSED claim (farmer declined).
+
+    Decrements `seats_held` (the proposed seat is released) but leaves
+    `seats_filled` unchanged because PROPOSED never counted there.
+    """
+    opp_ref = db.collection(COLLECTION).document(opp_id)
+    claim_ref = opp_ref.collection(CLAIMS_SUB).document(claim_doc_id)
+    txn = db.transaction()
+
+    @transactional
+    def _run(transaction) -> ProposalDecisionOutcome:
+        opp_snap = opp_ref.get(transaction=transaction)
+        claim_snap = claim_ref.get(transaction=transaction)
+        if not opp_snap.exists or not claim_snap.exists:
+            opp = snapshot_to_model(opp_snap, OpportunityDoc)
+            return ProposalDecisionOutcome(
+                found=False,
+                was_already_decided=False,
+                seats_filled_after=opp.seats_filled if opp else 0,
+                seats_held_after=opp.seats_held if opp else 0,
+                headcount_needed=opp.headcount_needed if opp else 0,
+                status_after=opp.status if opp else OpportunityStatus.OPEN,
+                just_filled=False,
+                slots=0,
+            )
+        opp = snapshot_to_model(opp_snap, OpportunityDoc)
+        claim = snapshot_to_model(claim_snap, ClaimDoc)
+        assert opp is not None and claim is not None
+        if claim.status != ClaimStatus.PROPOSED:
+            return ProposalDecisionOutcome(
+                found=True,
+                was_already_decided=True,
+                seats_filled_after=opp.seats_filled,
+                seats_held_after=opp.seats_held,
+                headcount_needed=opp.headcount_needed,
+                status_after=opp.status,
+                just_filled=False,
+                slots=claim.slots,
+            )
+
+        slots = max(1, claim.slots)
+        new_held = max(0, opp.seats_held - slots)
+
+        transaction.update(claim_ref, {"status": ClaimStatus.DROPPED.value})
+        transaction.update(opp_ref, {"seats_held": Increment(-slots)})
+
+        return ProposalDecisionOutcome(
+            found=True,
+            was_already_decided=False,
+            seats_filled_after=opp.seats_filled,
+            seats_held_after=new_held,
+            headcount_needed=opp.headcount_needed,
+            status_after=opp.status,
+            just_filled=False,
+            slots=slots,
+        )
+
+    return _run(txn)
+
+
+def list_proposed_claims(opp_id: str) -> list[ClaimDoc]:
+    """All PROPOSED claims on an opp. Used by tick_proposals for auto-confirm."""
+    q = (
+        db.collection(COLLECTION)
+        .document(opp_id)
+        .collection(CLAIMS_SUB)
+        .where("status", "==", ClaimStatus.PROPOSED.value)
+    )
+    return [snapshot_to_model(s, ClaimDoc) for s in q.stream() if s.exists]  # type: ignore[misc]

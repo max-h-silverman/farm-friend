@@ -58,14 +58,32 @@ def _process_opp(
     if farm is None:
         return
     for claim in opportunities_repo.list_all_claims(opp.id):
+        # CONFIRMED claims get reminded. PROPOSED claims are still awaiting
+        # the farmer's accept/decline and shouldn't get a "you're scheduled"
+        # reminder yet — the proposal flow / auto-confirm tick may still
+        # turn this into either CONFIRMED or DROPPED.
         if claim.status != ClaimStatus.CONFIRMED:
             continue
         if claim.confirmation_sent_at is not None:
             continue
+        # Lead-time anchor: the volunteer's specific day for window claims,
+        # otherwise the opp's single start time.
+        anchor = claim.scheduled_for_at or opp.starts_at
+        if anchor is None and opp.kind == OpportunityKind.SHIFT:
+            continue
+        if opp.kind == OpportunityKind.SHIFT:
+            assert anchor is not None
+            if not (now <= anchor <= now + SHIFT_LEAD_TIME):
+                continue
+        # Pickups have no per-claim scheduled_for_at; the opp's deadline_at
+        # is the anchor and the calling `list_opps_due_for_confirmation`
+        # already gated on it.
         volunteer = users_repo.get_by_id(claim.volunteer_user_id)
         if volunteer is None:
             continue
-        body = _render_reminder(opp=opp, farm_name=farm.name)
+        body = _render_reminder(
+            opp=opp, farm_name=farm.name, anchor=anchor,
+        )
         provider_id = safe_send(messaging, to_phone=volunteer.phone, body=body)
         if provider_id is None:
             continue  # send failed; leave confirmation_sent_at null so we retry
@@ -81,17 +99,22 @@ def _process_opp(
             )
         )
         opportunities_repo.mark_confirmation_sent(
-            opp_id=opp.id, volunteer_user_id=claim.volunteer_user_id, at=now
+            opp_id=opp.id,
+            volunteer_user_id=claim.volunteer_user_id,
+            at=now,
+            scheduled_for_at=claim.scheduled_for_at,
         )
 
 
-def _render_reminder(*, opp: OpportunityDoc, farm_name: str) -> str:
+def _render_reminder(
+    *, opp: OpportunityDoc, farm_name: str, anchor: datetime | None = None,
+) -> str:
     if opp.kind == OpportunityKind.SHIFT:
         activity = ", ".join(opp.activity_tags) if opp.activity_tags else "a shift"
+        when_dt = anchor or opp.starts_at
         when = (
-            format_day_and_range(opp.starts_at, opp.duration_min)
-            if opp.starts_at
-            else "soon"
+            format_day_and_range(when_dt, opp.duration_min)
+            if when_dt else "soon"
         )
         return templates.render_confirmation_reminder_shift(
             farm_name=farm_name, activity=activity, when_human=when

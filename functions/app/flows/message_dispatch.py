@@ -615,6 +615,21 @@ def _handle_hotkey(
             return
         farm = farms_repo.get_by_id(target_opp.farm_id)
         farmer = users_repo.get_by_id(farm.owner_user_id) if farm else None
+        days = list(match.payload.get("days", []) or [])
+        # Window-opp claim path: when the inbound carried day tokens AND the
+        # target opp has a window, route to handle_window_claim (PROPOSED
+        # claims, farmer-approval gate). A bare YES on a window opp falls
+        # through to the agent so it can ask which day.
+        if days and target_opp.window_end_at is not None:
+            reply = claim_flow.handle_window_claim(
+                messaging=provider,
+                opportunity=target_opp,
+                volunteer=sender,
+                day_labels=days,
+                farm_name=farm.name if farm else "the farm",
+            )
+            _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
+            return
         slots = int(match.payload.get("slots", 1) or 1)
         reply = claim_flow.handle_claim(
             messaging=provider,
@@ -719,6 +734,25 @@ def _handle_hotkey(
         )
         return
 
+    if intent in (IntentLabel.ACCEPT_PROPOSAL, IntentLabel.DECLINE_PROPOSAL):
+        # Only farmers can accept/decline proposals — volunteers seeing this
+        # hotkey get a generic "not for you" reply.
+        if sender.role not in (UserRole.FARMER, UserRole.BOTH):
+            _reply_and_log(
+                provider=provider, to=sender,
+                body="ACCEPT/DECLINE are for farmers responding to a volunteer proposal.",
+                opp=target_opp, intent=intent,
+            )
+            return
+        from app.flows import proposals as proposals_flow
+        token = str(match.payload.get("token", "")).upper()
+        decision = "accept" if intent == IntentLabel.ACCEPT_PROPOSAL else "decline"
+        reply = proposals_flow.handle_farmer_decision(
+            messaging=provider, farmer=sender, token=token, decision=decision,
+        )
+        _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
+        return
+
 
 _EDITABLE_FIELDS = {
     "starts_at",
@@ -766,13 +800,28 @@ def _merge_updates_for_opportunity(*, parsed) -> dict:
     never blank a previously-set field."""
     updates: dict = {}
     if parsed.kind == "shift":
-        if parsed.starts_at:
-            starts = _parse_iso(parsed.starts_at)
-            if starts:
-                updates["starts_at"] = starts
-                updates["post_event_checkin_at"] = _post_event_time_for(
-                    kind=OpportunityKind.SHIFT, starts_at=starts, deadline_at=None
-                )
+        starts = _parse_iso(parsed.starts_at) if parsed.starts_at else None
+        window_end = (
+            _parse_iso(parsed.window_end_at)
+            if getattr(parsed, "window_end_at", None) else None
+        )
+        if starts:
+            updates["starts_at"] = starts
+        if window_end:
+            updates["window_end_at"] = window_end
+        # Post-event timer is anchored to the last day of the window (or
+        # starts_at for single-day). Only stamp when we have new info.
+        post_event_basis = window_end or starts
+        if post_event_basis:
+            updates["post_event_checkin_at"] = _post_event_time_for(
+                kind=OpportunityKind.SHIFT,
+                starts_at=post_event_basis,
+                deadline_at=None,
+            )
+        if getattr(parsed, "time_of_day_bucket", None):
+            updates["time_of_day_bucket"] = parsed.time_of_day_bucket
+        if getattr(parsed, "headcount_open", False):
+            updates["headcount_open"] = True
         if parsed.headcount_needed:
             updates["headcount_needed"] = parsed.headcount_needed
         if parsed.duration_min:
@@ -928,8 +977,19 @@ def _opportunity_from_parsed(*, farm_id: str, parsed, source_message_id: str) ->
     """Translate the LLM-parsed shape into a persistable OpportunityDoc."""
     starts_at = _parse_iso(parsed.starts_at) if parsed.starts_at else None
     deadline_at = _parse_iso(parsed.deadline_at) if parsed.deadline_at else None
+    window_end_at = (
+        _parse_iso(parsed.window_end_at) if getattr(parsed, "window_end_at", None) else None
+    )
     kind = OpportunityKind.SHIFT if parsed.kind == "shift" else OpportunityKind.PICKUP
-    post_event_at = _post_event_time_for(kind=kind, starts_at=starts_at, deadline_at=deadline_at)
+    # For a window opp, the legacy single-day post-event timer is computed
+    # from window_end_at (last day of work) rather than starts_at (first day).
+    # PR 5 replaces this with a per-day sidecar collection; until then this
+    # is the right one-shot fallback so a window opp still triggers a
+    # check-in eventually.
+    post_event_basis = window_end_at or starts_at
+    post_event_at = _post_event_time_for(
+        kind=kind, starts_at=post_event_basis, deadline_at=deadline_at,
+    )
     return OpportunityDoc(
         farm_id=farm_id,
         kind=kind,
@@ -939,6 +999,10 @@ def _opportunity_from_parsed(*, farm_id: str, parsed, source_message_id: str) ->
         duration_min=parsed.duration_min,
         headcount_needed=parsed.headcount_needed or 1,
         seats_filled=0,
+        seats_held=0,
+        window_end_at=window_end_at,
+        time_of_day_bucket=getattr(parsed, "time_of_day_bucket", None),
+        headcount_open=getattr(parsed, "headcount_open", False) or False,
         activity_tags=parsed.activity_tags or [],
         requirements_text=parsed.requirements_text or "",
         produce_description=parsed.produce_description,
@@ -973,15 +1037,13 @@ def _farmer_posting_summary(*, parsed) -> str:
     every field we resolved (including ones the farmer didn't supply but
     defaults filled), so a missing detail is the farmer's cue to correct us."""
     if parsed.kind == "shift":
-        headcount = parsed.headcount_needed or 1
-        people = "1 person" if headcount == 1 else f"{headcount} people"
-        activity = ", ".join(parsed.activity_tags) if parsed.activity_tags else "a shift"
-        when_str: str
-        starts_dt = _parse_iso(parsed.starts_at) if parsed.starts_at else None
-        if starts_dt:
-            when_str = format_day_and_range(starts_dt, parsed.duration_min)
+        if getattr(parsed, "headcount_open", False):
+            people = "any number of helpers"
         else:
-            when_str = "soon"
+            headcount = parsed.headcount_needed or 1
+            people = "1 person" if headcount == 1 else f"{headcount} people"
+        activity = ", ".join(parsed.activity_tags) if parsed.activity_tags else "a shift"
+        when_str = _format_shift_when(parsed)
         return f"{people} to help with {activity} {when_str}"
     if parsed.kind == "pickup":
         produce = parsed.produce_description or "surplus produce"
@@ -990,6 +1052,84 @@ def _farmer_posting_summary(*, parsed) -> str:
         dest = f", drop at {parsed.destination}" if parsed.destination else ""
         return f"pickup of {produce} {when_str}{dest}"
     return "posting"
+
+
+# Bucket → human-readable phrase. Used in readback prose when the farmer gave
+# only a fuzzy time. Keep tight — these go into a single-paragraph SMS.
+_BUCKET_PHRASE = {
+    "early_morning": "early morning",
+    "morning": "morning",
+    "late_morning": "late morning",
+    "midday": "midday",
+    "afternoon": "afternoon",
+    "late_afternoon": "late afternoon",
+    "early_evening": "early evening",
+    "evening": "evening",
+}
+
+
+def _format_shift_when(parsed) -> str:
+    """Render the date/time portion of a shift readback.
+
+    Four shapes:
+      - single-day + clock time:   "tomorrow (Fri 6/5) from 9a-12p"
+      - single-day + bucket:       "tomorrow (Fri 6/5) morning"
+      - window + clock time:       "Mon 6/2 - Fri 6/5, 9a-12p"
+      - window + bucket:           "Mon 6/2 - Fri 6/5, morning"
+    """
+    starts_dt = _parse_iso(parsed.starts_at) if parsed.starts_at else None
+    window_end_dt = (
+        _parse_iso(parsed.window_end_at)
+        if getattr(parsed, "window_end_at", None) else None
+    )
+    bucket = getattr(parsed, "time_of_day_bucket", None)
+    if starts_dt is None:
+        return "soon"
+
+    is_window = window_end_dt is not None and window_end_dt.date() > starts_dt.date()
+    if is_window:
+        from app.flows._time import to_local
+        start_local = to_local(starts_dt)
+        end_local = to_local(window_end_dt)
+        day_part = (
+            f"{start_local.strftime('%a %-m/%-d')} - "
+            f"{end_local.strftime('%a %-m/%-d')}"
+        )
+        if bucket:
+            return f"{day_part}, {_BUCKET_PHRASE.get(bucket, bucket)}"
+        # Within-day time range for a window opp. Render from the time on
+        # starts_at + duration.
+        time_part = _format_time_range(starts_dt, parsed.duration_min)
+        return f"{day_part}, {time_part}"
+
+    if bucket:
+        from app.flows._time import to_local
+        local = to_local(starts_dt)
+        # Day-only phrase, no time. Same shape as format_day_and_range but
+        # without the time tail.
+        from datetime import datetime as _dt
+        now_local = _dt.now(VASHON_TZ)
+        delta_days = (local.date() - now_local.date()).days
+        if delta_days == 0:
+            day_phrase = "today"
+        elif delta_days == 1:
+            day_phrase = f"tomorrow ({local.strftime('%a %-m/%-d')})"
+        else:
+            day_phrase = local.strftime("%a %-m/%-d")
+        return f"{day_phrase} {_BUCKET_PHRASE.get(bucket, bucket)}"
+    return format_day_and_range(starts_dt, parsed.duration_min)
+
+
+def _format_time_range(starts_dt: datetime, duration_min: int | None) -> str:
+    """Just the within-day time portion: "9a-12p" or "9a"."""
+    from app.flows._time import _short_hour, to_local
+    local = to_local(starts_dt)
+    start_str = _short_hour(local)
+    if duration_min and duration_min > 0:
+        from datetime import timedelta as _td
+        end_local = local + _td(minutes=duration_min)
+        return f"{start_str}-{_short_hour(end_local)}"
+    return start_str
 
 
 # ===========================================================================
@@ -1546,15 +1686,18 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
        sometimes do it AND write a self-incriminating note like "Start time
        from farm default". Scan for that phrase shape.
     2. **Inbound text doesn't justify required-field values.** If `starts_at`
-       is set but the farmer's inbound has no clock-time signal (digit, "am",
-       "pm", "noon", "morning", etc.), the agent inferred. Same for
+       is set with a clock time but the farmer's inbound has no clock-time
+       signal (digit, "am", "pm", "noon", "morning", etc.) AND no
+       `time_of_day_bucket` was supplied, the agent inferred. Same for
        `activity_tags` populated when the inbound has no activity word —
-       only a crop name. Catches the "tomatoes 9am" case.
-    3. **Required fields still missing after defaults are applied.** Mirrors
-       the executor's `compute_missing_fields` check. If the agent emitted
-       `create_opportunity` without a required field (e.g. `headcount_needed`),
-       catch it here instead of letting the executor reject after the user
-       has already confirmed with a token.
+       only a crop name. Catches the "tomatoes 9am" case. A bucket-only
+       resolution ("any day next week, morning") is a valid fuzzy shape
+       and doesn't fire.
+    3. **Required axes still missing after defaults are applied.** Mirrors
+       the executor's `compute_missing_fields` axis check. If the agent
+       emitted `create_opportunity` without a required axis (e.g.
+       `headcount`), catch it here instead of letting the executor reject
+       after the user has already confirmed with a token.
 
     Only checks `create_opportunity`. `update_draft_opportunity` legitimately
     carries fields forward from the existing draft (the prior turn established
@@ -1585,23 +1728,24 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
         if phrase in notes:
             return f"parse_notes contains '{phrase}': {notes[:120]!r}"
 
-    # Signal 2a: starts_at set but no time marker in inbound.
-    if parsed.kind == "shift" and parsed.starts_at and not _inbound_has_time_signal(text_lower):
-        return "parsed.starts_at filled but inbound text has no clock-time signal"
-
-    # Signal 2c: inbound expresses date-flexibility ("any day", "monday to
-    # friday", "next week", "whenever") but agent silently picked a single
-    # starts_at. v1 only supports single-day shifts; until multi-day windows
-    # land, the agent must clarify which specific day rather than guess.
+    # Signal 2a: starts_at set but no time marker in inbound AND no fuzzy
+    # time-of-day bucket was supplied. With Stage 1 of the rethink, fuzzy
+    # time is a first-class shape (time_of_day_bucket); the only failure
+    # mode is "agent inferred a clock time from nothing." A bucket on its
+    # own is a valid resolution, so don't fire on bucket-only posts.
     if (
         parsed.kind == "shift"
         and parsed.starts_at
-        and _inbound_has_date_range_signal(text_lower)
+        and not getattr(parsed, "time_of_day_bucket", None)
+        and not _inbound_has_time_signal(text_lower)
     ):
-        return (
-            "parsed.starts_at filled from a date-range phrasing "
-            "(any day / mon-fri / next week) — must clarify which day"
-        )
+        return "parsed.starts_at filled but inbound text has no clock-time signal"
+
+    # Signal 2c removed (PR 3): date-range phrasings ("any day Mon-Fri",
+    # "next week", "weekend") are now a *trigger* for the agent to set
+    # window_end_at rather than a backstop rejection. The agent is expected
+    # to recognize the phrasing and emit a window post; only single-day
+    # collapses without a time signal still fire (signal 2a above).
 
     # Signal 2b: activity_tags populated with a canonical work-type slug, but
     # the inbound has no activity word — only a crop name. The "tomatoes 9am"
@@ -1686,45 +1830,16 @@ def _inbound_has_activity_signal(text_lower: str) -> bool:
     return False
 
 
-# Phrases that imply the farmer is offering a window of days, not picking one.
-# v1 only supports single-day shifts (starts_at is a single datetime), so the
-# agent must clarify to a specific day before confirming. This pattern is
-# intentionally conservative — false positives just trigger an extra clarify.
-_DATE_RANGE_PATTERN = re.compile(
-    r"\b("
-    r"any\s+day"
-    r"|some\s+day"
-    r"|whenever"
-    r"|any\s*time\s+this"
-    r"|any\s*time\s+next"
-    r"|this\s+week"
-    r"|next\s+week"
-    r"|this\s+weekend"
-    r"|next\s+weekend"
-    r"|mon(day)?\s*(through|to|-|–|—)\s*fri(day)?"
-    r"|mon(day)?\s*(through|to|-|–|—)\s*sun(day)?"
-    r"|all\s+week"
-    r"|every\s+day"
-    r"|several\s+days"
-    r"|a\s+few\s+days"
-    r")\b",
-    re.IGNORECASE,
-)
-
-
-def _inbound_has_date_range_signal(text_lower: str) -> bool:
-    """True if the inbound expresses date-flexibility (a window of days)
-    rather than a specific day. v1 can't honor a window with a single
-    `starts_at`; the agent must clarify which day."""
-    return bool(_DATE_RANGE_PATTERN.search(text_lower))
-
-
+# Axis name → farmer-facing question fragment. Keys match the axis names
+# returned by app.agent.parser.compute_missing_fields; values are designed
+# to compose naturally inside "Almost there — <question>?".
 _FIELD_QUESTIONS = {
-    "starts_at": "what time should it start",
-    "deadline_at": "when does it need to be picked up by",
-    "headcount_needed": "how many people do you need",
-    "activity_tags": "what kind of work",
-    "produce_description": "what's the produce",
+    "date": "which day",
+    "time": "what time should it start",
+    "headcount": "how many people do you need",
+    "activity": "what kind of work",
+    "deadline": "when does it need to be picked up by",
+    "produce": "what's the produce",
     "destination": "where should it go",
 }
 
@@ -1734,10 +1849,10 @@ def _clarify_for_overconfirm(*, reason: str) -> str:
 
     Translates the backstop's internal reason string into a friendly question
     the farmer can answer. Never leaks raw schema field names."""
-    # Signal 3 path: required fields still missing. Reason looks like
-    # "required fields still missing after defaults: ['starts_at', 'headcount_needed']".
+    # Signal 3 path: required axes still missing. Reason looks like
+    # "required fields still missing after defaults: ['time', 'headcount']".
     if "required fields still missing" in reason:
-        # Cheap parse — pull names that match our known field set.
+        # Cheap parse — pull axis names that match our known set.
         missing = [name for name in _FIELD_QUESTIONS if name in reason]
         if missing:
             questions = [_FIELD_QUESTIONS[n] for n in missing]
@@ -1746,17 +1861,11 @@ def _clarify_for_overconfirm(*, reason: str) -> str:
             joined = ", ".join(questions[:-1]) + f", and {questions[-1]}"
             return f"Almost there — {joined}?"
 
-    # Signal 2c: date-range phrasing collapsed to one day.
-    if "date-range" in reason:
-        return (
-            "Got it — which specific day works best? I can post one shift "
-            "now and you can text again to add more."
-        )
     # Signal 2a: starts_at inferred from no time signal.
     if "time" in reason:
         return "What time should it start, and how long?"
     # Signal 2b: activity_tags inferred from crop name.
-    if "activity_tags" in reason:
+    if "activity" in reason:
         return "What kind of work — harvest, weeding, transplanting, or something else?"
     # Signal 1 (parse_notes self-report) or anything unrecognized.
     return "A few details are still missing — what time should it start, and what kind of work?"
@@ -1889,6 +1998,10 @@ def _execute_action(
     elif action_name == "record_offer":
         receipt_body, receipt_opp_id = _execute_record_offer(
             sender=sender, payload=action_payload,
+        )
+    elif action_name == "farmer_decide_on_proposal":
+        receipt_body, receipt_opp_id = _execute_farmer_decide_on_proposal(
+            sender=sender, payload=action_payload, provider=provider,
         )
     else:
         # Unknown action — flag and bail. Schema validation should have caught this.
@@ -2222,6 +2335,32 @@ def _execute_set_activity_preferences(*, sender: UserDoc, payload: dict) -> tupl
     return receipt, None
 
 
+def _execute_farmer_decide_on_proposal(
+    *, sender: UserDoc, payload: dict, provider,
+) -> tuple[str | None, str | None]:
+    """Farmer accepts or declines a PROPOSED claim via the unified agent's
+    natural-language path. Mirrors the deterministic ACCEPT/DECLINE hotkey
+    handler — same proposals_flow entrypoint."""
+    from app.flows import proposals as proposals_flow
+    token = str(payload.get("token", "")).upper()
+    decision = payload.get("decision")
+    if not token or decision not in ("accept", "decline"):
+        return None, None
+    if sender.role not in (UserRole.FARMER, UserRole.BOTH):
+        safe_send(
+            provider, to_phone=sender.phone,
+            body="ACCEPT/DECLINE are for farmers.",
+        )
+        return None, None
+    reply = proposals_flow.handle_farmer_decision(
+        messaging=provider, farmer=sender, token=token, decision=decision,
+    )
+    # Don't tack on the UNDO suffix here — auto-confirm and farmer-decline
+    # both have explicit forward exits (DROP or text another day). UNDO
+    # within 5 min is fine if needed but the receipt copy stays clean.
+    return reply, None
+
+
 def _execute_record_offer(*, sender: UserDoc, payload: dict) -> tuple[str | None, str | None]:
     if not sender.id:
         return None, None
@@ -2337,6 +2476,19 @@ def _undo_last_executed_action(
             body=(
                 "Can't auto-undo that mute. Text MUTE again or contact Max if "
                 "you need it removed sooner."
+            ),
+        )
+        return
+    elif action_name == "farmer_decide_on_proposal":
+        # The volunteer has already been notified about the decision.
+        # An UNDO would require finding the now-CONFIRMED/DROPPED claim and
+        # flipping it back without confusing the volunteer about their
+        # status. Don't try — surface honestly and offer a forward action.
+        safe_send(
+            provider, to_phone=sender.phone,
+            body=(
+                "Can't auto-undo a proposal decision — the volunteer has "
+                "been notified. Text Max if you need to reverse it."
             ),
         )
         return

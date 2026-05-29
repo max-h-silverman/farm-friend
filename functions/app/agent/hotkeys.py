@@ -30,6 +30,25 @@ class HotkeyMatch:
 
 
 _YES_RE = re.compile(r"^\s*y(es)?(?:\s+(\d+))?\s*[!\.]?\s*$", re.IGNORECASE)
+# YES <day-list> for window opps. The day list is captured raw; dispatch
+# resolves labels against the opp's window. Supported labels (case-insensitive):
+#   - weekday abbrevs MON/TUE/WED/THU/FRI/SAT/SUN (optional full forms)
+#   - TODAY / TOMORROW
+#   - month-day patterns: "JUN 4", "6/4"
+# Separators: comma, " AND ", " & ", optional whitespace.
+_YES_DAY_LIST_RE = re.compile(
+    r"^\s*y(?:es)?\s+([^\s].+?)\s*[!\.]?\s*$", re.IGNORECASE,
+)
+_DAY_TOKEN_RE = re.compile(
+    r"(?:"
+    r"mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|"
+    r"fri(?:day)?|sat(?:urday)?|sun(?:day)?|"
+    r"today|tomorrow|"
+    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s*\d{1,2}|"
+    r"\d{1,2}/\d{1,2}"
+    r")",
+    re.IGNORECASE,
+)
 _MAYBE_RE = re.compile(r"^\s*maybe\s*[!\.\?]?\s*$", re.IGNORECASE)
 _HELP_RE = re.compile(r"^\s*(help|info)\s*[!\.\?]?\s*$", re.IGNORECASE)
 _STATUS_RE = re.compile(r"^\s*status\s*[!\.\?]?\s*$", re.IGNORECASE)
@@ -41,6 +60,16 @@ _MUTE_RE = re.compile(r"^\s*(mute|pass|skip)\s*[!\.]?\s*$", re.IGNORECASE)
 _UNDO_RE = re.compile(r"^\s*undo\s*[!\.]?\s*$", re.IGNORECASE)
 _PAUSE_RE = re.compile(r"^\s*pause\s*[!\.]?\s*$", re.IGNORECASE)
 _RESUME_RE = re.compile(r"^\s*resume\s*[!\.]?\s*$", re.IGNORECASE)
+# Farmer-approval gate on window-opp PROPOSED claims. Each proposal-to-farmer
+# SMS includes a 4-letter token; the farmer replies `ACCEPT <TOKEN>` or
+# `DECLINE <TOKEN>` to act on that specific proposal. See
+# docs/agent-architecture-rethink.md §"Farmer approval gate".
+_ACCEPT_RE = re.compile(
+    r"^\s*accept\s+([A-Z]{4})\s*[!\.]?\s*$", re.IGNORECASE,
+)
+_DECLINE_RE = re.compile(
+    r"^\s*decline\s+([A-Z]{4})\s*[!\.]?\s*$", re.IGNORECASE,
+)
 # Confirmation tokens drafted by the unified agent. Exactly 4 letters
 # (uppercase A–Z, no digits, no hyphens) — i.e. a real word or a clear
 # abbreviation. Hotkey precedence is handled in parse() so the explicit
@@ -125,6 +154,20 @@ def parse(
     if _RESUME_RE.match(text):
         return HotkeyMatch(IntentLabel.RESUME, {})
 
+    # Farmer-approval gate: ACCEPT/DECLINE <TOKEN> for window-opp PROPOSED claims.
+    accept_match = _ACCEPT_RE.match(text)
+    if accept_match:
+        return HotkeyMatch(
+            IntentLabel.ACCEPT_PROPOSAL,
+            {"token": accept_match.group(1).upper()},
+        )
+    decline_match = _DECLINE_RE.match(text)
+    if decline_match:
+        return HotkeyMatch(
+            IntentLabel.DECLINE_PROPOSAL,
+            {"token": decline_match.group(1).upper()},
+        )
+
     # When the last outbound was a CLARIFY, suppress YES/MAYBE as claim/maybe
     # hotkeys. A YES reply to a yes/no-phrased clarify is the user agreeing
     # with the agent's guess, not claiming the clarified-about opp. Letting
@@ -133,7 +176,20 @@ def parse(
     yes_match = _YES_RE.match(text)
     if yes_match and not last_outbound_was_clarify:
         slots = int(yes_match.group(2)) if yes_match.group(2) else 1
-        return HotkeyMatch(IntentLabel.CLAIM, {"slots": slots})
+        return HotkeyMatch(IntentLabel.CLAIM, {"slots": slots, "days": []})
+
+    # YES <day-list> for window opps: "YES WED", "YES MON,WED", "YES MON AND WED".
+    # Only fire if bare YES didn't match (it would have above) — the tail must
+    # contain at least one recognizable day token.
+    yes_day_match = (
+        _YES_DAY_LIST_RE.match(text)
+        if not last_outbound_was_clarify else None
+    )
+    if yes_day_match:
+        tail = yes_day_match.group(1)
+        days = [m.group(0).upper() for m in _DAY_TOKEN_RE.finditer(tail)]
+        if days:
+            return HotkeyMatch(IntentLabel.CLAIM, {"slots": len(days), "days": days})
 
     if _MAYBE_RE.match(text) and not last_outbound_was_clarify:
         return HotkeyMatch(IntentLabel.MAYBE, {})
@@ -203,6 +259,12 @@ RESERVED_HOTKEY_TOKENS = frozenset({
     "YES", "MAYBE", "MUTE", "FLAG", "STATUS",
     "INSIDER", "UNAVAILABLE",
     "UNDO", "PAUSE", "RESUME",
+    # Farmer-approval gate: ACCEPT/DECLINE are themselves hotkey verbs that
+    # take a separate 4-letter target token. The verbs must not be confused
+    # with confirmation tokens the unified agent might draft.
+    "ACCEPT", "DECLINE",
+    # Day labels would collide with the YES <day-list> grammar.
+    "MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN",
 })
 
 

@@ -137,6 +137,11 @@ TOKEN_REGEX = r"^[A-Z]{4}$"
 class ClaimOpportunityPayload(BaseModel):
     opp_id: str
     slots: int = 1
+    # For window opps: which specific day(s) the volunteer is claiming. Each
+    # entry is ISO-8601 (date-only or full datetime). Empty list = single-day
+    # opp; the opp's own starts_at is the implicit day. When non-empty, each
+    # day creates one PROPOSED claim awaiting farmer ACCEPT.
+    days: list[str] = Field(default_factory=list)
 
 
 class RecordMaybePayload(BaseModel):
@@ -206,6 +211,16 @@ class UndoLastPayload(BaseModel):
     pass
 
 
+class FarmerDecideOnProposalPayload(BaseModel):
+    """Farmer accepts or declines a PROPOSED claim on one of their window opps.
+
+    The 4-letter `token` identifies which proposal. Dispatch resolves the
+    token against the farmer's recent PROPOSAL_NOTIFICATION outbounds.
+    """
+    token: str  # 4-letter ACCEPT/DECLINE target
+    decision: Literal["accept", "decline"]
+
+
 class ActionSpec(BaseModel):
     """Discriminated union — one variant per action the agent is allowed to draft.
 
@@ -227,6 +242,7 @@ class ActionSpec(BaseModel):
         "set_activity_preferences",
         "record_offer",
         "undo_last",
+        "farmer_decide_on_proposal",
     ]
     claim_opportunity: ClaimOpportunityPayload | None = None
     record_maybe: RecordMaybePayload | None = None
@@ -241,6 +257,7 @@ class ActionSpec(BaseModel):
     set_activity_preferences: SetActivityPreferencesPayload | None = None
     record_offer: RecordOfferPayload | None = None
     undo_last: UndoLastPayload | None = None
+    farmer_decide_on_proposal: FarmerDecideOnProposalPayload | None = None
 
 
 class EscalationSpec(BaseModel):

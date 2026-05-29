@@ -1091,6 +1091,198 @@ CASES.append(EvalCase(
     ),
 ))
 
+# === Window opps + MVD (PR 6 Stage 1) ====================================
+
+CASES.append(EvalCase(
+    id="new.farmer.window.any_day_next_week",
+    category="NEW_INTENT",
+    description=(
+        "The motivating case: 'any day next week, prep work, 2 ppl, morning'. "
+        "All four MVD axes satisfied via fuzzy shapes — window for date, "
+        "bucket for time, tbd+verbatim for activity, explicit 2 for headcount. "
+        "Should confirm create_opportunity with window_end_at set."
+    ),
+    world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="any day next week, prep work, 2 ppl, morning",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(
+        mode="confirm", action_name="create_opportunity",
+        payload_must_include={
+            "kind": "shift",
+            "window_end_at": ANY,
+            "time_of_day_bucket": "morning",
+            "headcount_needed": 2,
+            "activity_tags": ["tbd"],
+        },
+    ),
+))
+
+CASES.append(EvalCase(
+    id="new.farmer.window.mon_to_wed_clock",
+    category="NEW_INTENT",
+    description=(
+        "Mon to Wed 9am 2 ppl harvest. Window with clock time, not bucket. "
+        "Should confirm create_opportunity with window_end_at=Wed."
+    ),
+    world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="need 2 for harvest mon to wed 9am",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(
+        mode="confirm", action_name="create_opportunity",
+        payload_must_include={
+            "kind": "shift",
+            "starts_at": ANY,
+            "window_end_at": ANY,
+            "headcount_needed": 2,
+            "activity_tags": ["harvest"],
+        },
+    ),
+))
+
+CASES.append(EvalCase(
+    id="new.farmer.window.weekend_mornings",
+    category="NEW_INTENT",
+    description=(
+        "'weekend mornings, 2 ppl, gleaning'. Window Sat-Sun with bucket=morning."
+    ),
+    world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="weekend mornings, 2 ppl, gleaning",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(
+        mode="confirm", action_name="create_opportunity",
+        payload_must_include={
+            "kind": "shift",
+            "window_end_at": ANY,
+            "time_of_day_bucket": "morning",
+            "headcount_needed": 2,
+            "activity_tags": ["gleaning"],
+        },
+    ),
+))
+
+CASES.append(EvalCase(
+    id="new.farmer.single_day_no_followup_about_weekend",
+    category="NEW_INTENT",
+    description=(
+        "'this Sat 8am 3 ppl harvest'. Single-day Saturday post; do NOT ask "
+        "an over-helpful 'did you mean Sun too?' clarify. The farmer said Sat."
+    ),
+    world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="this sat 8am 3 ppl harvest",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(
+        mode="confirm", action_name="create_opportunity",
+        payload_must_include={
+            "kind": "shift",
+            "starts_at": ANY,
+            "headcount_needed": 3,
+            "activity_tags": ["harvest"],
+        },
+    ),
+))
+
+CASES.append(EvalCase(
+    id="adv.window.bucket_only_no_clarify_for_clock_time",
+    category="ADVERSARIAL",
+    description=(
+        "'anytime' as a reply to 'what time?' must NOT be accepted as a value. "
+        "Re-clarify as a bucket multiple choice (morning, afternoon, or evening?)."
+    ),
+    world=World(
+        users=[FARMER_A], farms=[FARM_THREE_CEDARS],
+        opps=[FakeOpp(id="o_draft", farm_id="f_3c", kind="shift", status="draft",
+                      starts_at=NOW + timedelta(days=2),
+                      headcount_needed=2, activity_tags=["harvest"])],
+        messages=[
+            FakeMessage(direction="inbound", user_id="u_farmer_a",
+                        body="2 for harvest friday", opportunity_id="o_draft",
+                        created_at=NOW - timedelta(minutes=5)),
+            FakeMessage(direction="outbound", user_id="u_farmer_a",
+                        body="What time should we start?",
+                        intent_label="CLARIFY", opportunity_id="o_draft",
+                        created_at=NOW - timedelta(minutes=4)),
+        ],
+    ),
+    inbound_text="anytime",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(mode="clarify"),
+))
+
+CASES.append(EvalCase(
+    id="adv.window.mvd_vacant_focused_clarify",
+    category="ADVERSARIAL",
+    description=(
+        "'I need help soon' — MVD-vacant on multiple axes. Should produce a "
+        "focused clarify, not a stab at a confirm. Reply is fine too as an "
+        "alternative if the agent treats this as a conversation-opener."
+    ),
+    world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="I need help soon",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(mode="clarify"),
+))
+
+CASES.append(EvalCase(
+    id="new.vol.window_claim_with_day_token",
+    category="NEW_INTENT",
+    description=(
+        "Volunteer received outreach for a window opp; replies 'YES WED'. "
+        "Hotkey path: emits IntentLabel.CLAIM with days=['WED'], dispatch "
+        "routes to handle_window_claim → PROPOSED claim. This case checks "
+        "the agent ISN'T involved (deterministic) — but if dispatch routes "
+        "to the agent for any reason, it must confirm a claim with days set."
+    ),
+    world=World(
+        users=[VOL_A, FARMER_A], farms=[FARM_THREE_CEDARS],
+        opps=[FakeOpp(
+            id="o_window_weed", farm_id="f_3c", kind="shift", status="open",
+            starts_at=NOW + timedelta(days=1, hours=12),
+            duration_min=180, headcount_needed=2,
+            activity_tags=["weeding"],
+        )],
+        messages=[FakeMessage(
+            direction="outbound", user_id="u_vol_a",
+            body="Three Cedars needs 2 ppl for weeding any day Mon-Fri morning. Reply YES <day>.",
+            opportunity_id="o_window_weed",
+        )],
+    ),
+    inbound_text="YES WED",
+    inbound_from_user_id="u_vol_a",
+    expected=ExpectedOutput(
+        mode="confirm", action_name="claim_opportunity",
+        payload_must_include={"opp_id": "o_window_weed", "days": ["WED"]},
+    ),
+))
+
+CASES.append(EvalCase(
+    id="new.vol.window_claim_bare_yes_clarifies",
+    category="NEW_INTENT",
+    description=(
+        "Bare YES on a window opp can't pick a day — agent must clarify which "
+        "day. The hotkey parser still matches bare YES as a CLAIM intent (with "
+        "days=[]); dispatch sees the empty days list against a window opp and "
+        "either routes to clarify-via-agent or surfaces a 'which day?' reply."
+    ),
+    world=World(
+        users=[VOL_A], farms=[FARM_THREE_CEDARS],
+        opps=[FakeOpp(
+            id="o_window_weed", farm_id="f_3c", kind="shift", status="open",
+            starts_at=NOW + timedelta(days=1, hours=12),
+            duration_min=180, headcount_needed=2,
+            activity_tags=["weeding"],
+        )],
+        messages=[FakeMessage(
+            direction="outbound", user_id="u_vol_a",
+            body="Three Cedars needs 2 ppl for weeding any day Mon-Fri morning. Reply YES <day>.",
+            opportunity_id="o_window_weed",
+        )],
+    ),
+    inbound_text="just YES with no day",  # avoids the bare-YES hotkey shortcut
+    inbound_from_user_id="u_vol_a",
+    expected=ExpectedOutput(mode="clarify"),
+))
+
+
 CASES.append(EvalCase(
     id="adv.quiet_hours_does_not_block_inbound",
     category="ADVERSARIAL",

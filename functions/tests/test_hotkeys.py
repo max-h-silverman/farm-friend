@@ -194,3 +194,102 @@ def test_freeform_does_not_match() -> None:
 def test_empty_message_returns_none() -> None:
     assert parse("") is None
     assert parse("   ") is None
+
+
+# ---------------------------------------------------------------------------
+# Window-opp claim grammar — YES <day-list>
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "text,expected_days",
+    [
+        ("YES WED", ["WED"]),
+        ("yes wed", ["WED"]),
+        ("YES MON,WED", ["MON", "WED"]),
+        ("yes mon, wed", ["MON", "WED"]),
+        ("YES MON AND WED", ["MON", "WED"]),
+        ("yes mon and wed", ["MON", "WED"]),
+        ("YES MON & WED", ["MON", "WED"]),
+        ("YES TOMORROW", ["TOMORROW"]),
+        ("yes today", ["TODAY"]),
+        ("YES JUN 4", ["JUN 4"]),
+        ("YES 6/4", ["6/4"]),
+        ("YES MON,WED,FRI", ["MON", "WED", "FRI"]),
+    ],
+)
+def test_yes_with_day_list(text: str, expected_days: list[str]) -> None:
+    m = parse(text)
+    assert m is not None
+    assert m.intent is IntentLabel.CLAIM
+    assert m.payload["days"] == expected_days
+    # slots derived from day count.
+    assert m.payload["slots"] == len(expected_days)
+
+
+def test_yes_with_unrecognized_tail_falls_through() -> None:
+    """YES followed by gibberish shouldn't claim. Falls through to the agent
+    so it can ask a clarifying question."""
+    assert parse("YES sometime maybe") is None
+
+
+def test_bare_yes_payload_includes_empty_days() -> None:
+    """Bare YES still works; days list is empty so dispatch's window-resolver
+    can distinguish 'single-day claim' from 'window claim with N days'."""
+    m = parse("YES")
+    assert m is not None
+    assert m.payload == {"slots": 1, "days": []}
+
+
+# ---------------------------------------------------------------------------
+# Farmer-approval gate — ACCEPT/DECLINE <TOKEN>
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "text,expected_token",
+    [
+        ("ACCEPT WEDX", "WEDX"),
+        ("accept wedx", "WEDX"),
+        ("Accept Wedx.", "WEDX"),
+        ("  ACCEPT  ABCD ", "ABCD"),
+    ],
+)
+def test_accept_token(text: str, expected_token: str) -> None:
+    m = parse(text)
+    assert m is not None
+    assert m.intent is IntentLabel.ACCEPT_PROPOSAL
+    assert m.payload["token"] == expected_token
+
+
+@pytest.mark.parametrize(
+    "text,expected_token",
+    [
+        ("DECLINE WEDX", "WEDX"),
+        ("decline wedx", "WEDX"),
+        ("Decline Wedx.", "WEDX"),
+    ],
+)
+def test_decline_token(text: str, expected_token: str) -> None:
+    m = parse(text)
+    assert m is not None
+    assert m.intent is IntentLabel.DECLINE_PROPOSAL
+    assert m.payload["token"] == expected_token
+
+
+def test_accept_without_token_falls_through() -> None:
+    """ACCEPT alone has no proposal target; falls through to the agent."""
+    assert parse("ACCEPT") is None
+    assert parse("ACCEPT thanks for everything") is None  # not a single 4-letter tail
+
+
+def test_decline_with_non_token_payload_falls_through() -> None:
+    assert parse("DECLINE this thing") is None  # multi-word tail
+    assert parse("DECLINE WEEKDAY") is None  # 7 letters, not a 4-letter token
+
+
+def test_accept_token_validity_is_dispatch_concern() -> None:
+    """The hotkey parser captures any 4-letter token after ACCEPT/DECLINE.
+    Whether that token corresponds to an actual pending proposal is checked
+    at dispatch — the parser stays permissive about which 4-letter words
+    "look like" proposal tokens."""
+    m = parse("ACCEPT WHAT")  # not a real proposal token, but shape matches
+    assert m is not None
+    assert m.intent is IntentLabel.ACCEPT_PROPOSAL
+    assert m.payload["token"] == "WHAT"
