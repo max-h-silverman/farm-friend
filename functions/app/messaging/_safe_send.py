@@ -31,13 +31,14 @@ def safe_send(
     *,
     to_phone: str,
     body: str,
+    media_urls: list[str] | None = None,
     respect_quiet_hours: bool = False,
 ) -> str | None:
     if respect_quiet_hours and is_quiet_hours():
         log.info("outbound deferred (quiet hours) to %s", to_phone)
         return None
     try:
-        return provider.send(to_phone=to_phone, body=body)
+        return provider.send(to_phone=to_phone, body=body, media_urls=media_urls)
     except Exception as e:  # noqa: BLE001 — provider errors are intentionally broad
         log.warning("outbound send failed to %s: %s", to_phone, e)
         return None

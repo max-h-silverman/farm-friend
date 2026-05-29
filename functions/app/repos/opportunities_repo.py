@@ -92,6 +92,38 @@ def update_fields(opp_id: str, fields: dict) -> None:
     db.collection(COLLECTION).document(opp_id).update(payload)
 
 
+def append_media_urls(opp_id: str, media_urls: list[str]) -> list[str]:
+    """Append farmer-supplied media URLs to an opportunity, preserving order.
+
+    We read/merge instead of using ArrayUnion so duplicate URLs are removed
+    deterministically and the existing order remains stable for outbound MMS.
+    Returns the URLs that were newly added.
+    """
+    if not media_urls:
+        return []
+    opp = get_by_id(opp_id)
+    if opp is None:
+        return []
+    existing = set(opp.media_urls)
+    newly_added = [url for url in media_urls if url and url not in existing]
+    if not newly_added:
+        return []
+    merged = _merge_unique_urls(opp.media_urls, media_urls)
+    update_fields(opp_id, {"media_urls": merged})
+    return newly_added
+
+
+def _merge_unique_urls(existing: list[str], incoming: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for url in [*existing, *incoming]:
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
+
+
 def list_recent_drafts_for_farm(*, farm_id: str, since: datetime) -> list[OpportunityDoc]:
     """Drafts created for this farm since `since`, newest first. Used by the
     clarification flow to find the draft a farmer's reply should merge into."""

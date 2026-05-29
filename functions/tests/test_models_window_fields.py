@@ -47,6 +47,21 @@ def test_opportunity_legacy_doc_defaults():
     assert opp.headcount_open is False
     assert opp.seats_held == 0
     assert opp.seats_filled == 0
+    assert opp.media_urls == []
+
+
+def test_opportunity_media_urls_roundtrip():
+    opp = _make_opp(
+        kind=OpportunityKind.PICKUP,
+        starts_at=None,
+        deadline_at=_now() + timedelta(days=1),
+        produce_description="20 lbs plums",
+        destination="farm stand",
+        media_urls=["https://media.example.test/pickup.jpg"],
+    )
+    data = opp.model_dump(mode="python")
+    restored = OpportunityDoc.model_validate(data)
+    assert restored.media_urls == ["https://media.example.test/pickup.jpg"]
 
 
 def test_opportunity_window_fields_roundtrip():

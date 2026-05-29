@@ -33,10 +33,15 @@ class TelnyxProvider(MessagingProvider):
     # ------------------------------------------------------------------
     # send
     # ------------------------------------------------------------------
-    def send(self, *, to_phone: str, body: str) -> str:
+    def send(
+        self, *, to_phone: str, body: str, media_urls: list[str] | None = None
+    ) -> str:
+        payload = {"from": self._from_number, "to": to_phone, "text": body}
+        if media_urls:
+            payload["media_urls"] = media_urls
         resp = httpx.post(
             f"{TELNYX_API_BASE}/messages",
-            json={"from": self._from_number, "to": to_phone, "text": body},
+            json=payload,
             headers={"Authorization": f"Bearer {self._api_key}"},
             timeout=15.0,
         )
@@ -80,12 +85,18 @@ class TelnyxProvider(MessagingProvider):
         # are filtered upstream in message_dispatch.
         to_phones = attrs.get("to", [])
         to_phone = to_phones[0]["phone_number"] if to_phones else ""
+        media_urls = [
+            item["url"]
+            for item in (attrs.get("media") or [])
+            if isinstance(item, dict) and item.get("url")
+        ]
         return InboundMessage(
             from_phone=attrs["from"]["phone_number"],
             to_phone=to_phone,
             body=attrs.get("text") or "",
             provider_msg_id=attrs["id"],
             received_at=_parse_iso(attrs.get("received_at")) or datetime.now(UTC),
+            media_urls=media_urls,
         )
 
 

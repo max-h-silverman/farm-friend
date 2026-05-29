@@ -248,6 +248,9 @@ class OpportunityDoc(BaseModel):
     produce_description: str | None = None
     destination: str | None = None
     vehicle_needed: bool | None = None
+    # Public media URLs attached by the farmer, usually MMS photos for pickup
+    # location/context. Sent only to volunteers with a confirmed claim.
+    media_urls: list[str] = Field(default_factory=list)
     created_from_message_id: str | None = None
     created_at: datetime
     # Bumped on every update_fields write. The stale-draft tick uses this
@@ -318,6 +321,7 @@ class MessageDoc(BaseModel):
     user_id: str | None = None
     opportunity_id: str | None = None
     body: str
+    media_urls: list[str] = Field(default_factory=list)
     intent_label: IntentLabel | None = None
     created_at: datetime
     ttl: datetime | None = None  # Firestore TTL; ~90 days after created_at

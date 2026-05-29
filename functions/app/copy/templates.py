@@ -14,15 +14,11 @@ from __future__ import annotations
 
 
 # The carrier-approved help reply. Single source of truth — both volunteers
-# and farmers get this same text. Farmer-specific commands (STATUS, EDIT,
-# INSIDER) are surfaced via the agent's natural-language replies instead of
-# being listed here; the campaign description we registered with Telnyx
-# scopes HELP to the subscriber-facing commands.
+# and farmers get this same text.
 HELP_TEXT_COMPLIANCE = (
-    "Farm Friend Vashon coordinates local farm volunteer shifts and produce "
-    "pickups by SMS. Reply YES to claim an opportunity, MUTE to skip one "
-    "shift, FLAG to report an issue, or STOP to unsubscribe. Msg&data rates "
-    "may apply. Privacy: https://farm-friend-vashon.web.app/privacy"
+    "Farm Friend Vashon: Please reach out to max@myco.software or visit "
+    "https://myco.software/farm-friend-vashon.html for help. Reply STOP to "
+    "unsubscribe. Msg&data rates may apply."
 )
 
 # Back-compat aliases. Existing callsites for HELP_TEXT_VOLUNTEER and
@@ -150,11 +146,10 @@ def render_join_ack() -> str:
     Do NOT change without re-registering the Telnyx campaign.
     """
     return (
-        "Farm Friend Vashon: Welcome. You'll receive texts about local farm "
-        "volunteer shifts and produce pickups. Msg frequency varies, usually "
-        "0–6/week. Msg&data rates may apply. Reply HELP for help, STOP to "
-        "unsubscribe. Terms: https://farm-friend-vashon.web.app/terms "
-        "Privacy: https://farm-friend-vashon.web.app/privacy"
+        "Farm Friend Vashon: Thanks for subscribing to local farm volunteer "
+        "shifts and produce pickups. Msg frequency varies, usually 0-6/week. "
+        "Msg&data rates may apply. Consent is not a condition of purchase or "
+        "participation. Reply HELP for help or STOP to opt out."
     )
 
 

@@ -61,6 +61,7 @@ from app.flows._time import (
 from app.llm import get_llm_client
 from app.messaging import InboundMessage, get_messaging_provider
 from app.messaging._safe_send import safe_send
+from app.messaging.media_store import persist_media_urls
 from app.repos import (
     farms_repo,
     flags_repo,
@@ -127,6 +128,15 @@ def handle_inbound_webhook(req: https_fn.Request) -> https_fn.Response:
         return https_fn.Response("ignored", status=200)
 
     inbound = provider.parse_inbound(payload=payload)
+    if inbound.media_urls:
+        inbound = InboundMessage(
+            from_phone=inbound.from_phone,
+            to_phone=inbound.to_phone,
+            body=inbound.body,
+            provider_msg_id=inbound.provider_msg_id,
+            received_at=inbound.received_at,
+            media_urls=persist_media_urls(list(inbound.media_urls)),
+        )
     _dispatch(inbound=inbound)
     return https_fn.Response("ok", status=200)
 
@@ -162,6 +172,7 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
                 provider_msg_id=inbound.provider_msg_id,
                 user_id=sender.id,
                 body=inbound.body,
+                media_urls=list(inbound.media_urls or []),
                 created_at=inbound.received_at,
             )
         )
@@ -185,6 +196,7 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
             user_id=sender.id,
             opportunity_id=target_opp.id if target_opp else None,
             body=inbound.body,
+            media_urls=list(inbound.media_urls or []),
             created_at=inbound.received_at,
         )
     )
@@ -208,6 +220,23 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
                 provider=provider,
             )
             return
+        if _handle_media_for_pending_opportunity(
+            sender=sender,
+            inbound=inbound,
+            inbound_doc=inbound_doc,
+            pending=last_outbound.pending_action,
+            last_outbound=last_outbound,
+            provider=provider,
+        ):
+            return
+
+    if _handle_media_for_existing_opportunity(
+        sender=sender,
+        inbound=inbound,
+        target_opp=target_opp,
+        provider=provider,
+    ):
+        return
 
     known_activities = tuple()
     known_farms = tuple(f.name for f in farms_repo.list_all())
@@ -344,6 +373,7 @@ def _handle_unknown_sender(*, inbound: InboundMessage, provider) -> None:
             provider_msg_id=inbound.provider_msg_id,
             user_id=None,
             body=inbound.body,
+            media_urls=list(inbound.media_urls or []),
             created_at=inbound.received_at,
         )
     )
@@ -670,7 +700,14 @@ def _handle_hotkey(
             farm_name=farm.name if farm else "the farm",
             notify_farmer_phone=farmer.phone if farmer else None,
         )
-        _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
+        _reply_and_log(
+            provider=provider,
+            to=sender,
+            body=reply,
+            opp=target_opp,
+            intent=intent,
+            media_urls=_confirmed_pickup_media_urls(target_opp, reply),
+        )
         return
 
     if intent == IntentLabel.MAYBE:
@@ -783,6 +820,138 @@ def _handle_hotkey(
         )
         _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
         return
+
+
+_PHOTO_ATTACHMENT_WORDS = (
+    "photo", "pic", "picture", "image", "where", "location", "here",
+)
+
+
+def _handle_media_for_existing_opportunity(
+    *,
+    sender: UserDoc,
+    inbound: InboundMessage,
+    target_opp: OpportunityDoc | None,
+    provider,
+) -> bool:
+    """Attach a farmer's follow-up MMS to the opportunity they are discussing.
+
+    This handles the natural flow where the farmer posts a pickup, gets the
+    receipt, then sends a photo of the pickup location/items. If the caption
+    looks like a real edit/request, leave it for the normal hotkey/agent path.
+    """
+    media_urls = list(inbound.media_urls or [])
+    if not media_urls or target_opp is None or target_opp.id is None:
+        return False
+    if target_opp.kind != OpportunityKind.PICKUP:
+        return False
+    if sender.role not in (UserRole.FARMER, UserRole.BOTH) or sender.id is None:
+        return False
+    farm = farms_repo.get_by_owner(sender.id)
+    if farm is None or farm.id != target_opp.farm_id:
+        return False
+    caption = (inbound.body or "").strip().lower()
+    if caption and not any(word in caption for word in _PHOTO_ATTACHMENT_WORDS):
+        return False
+
+    newly_added = opportunities_repo.append_media_urls(target_opp.id, media_urls)
+    if newly_added:
+        _send_pickup_media_to_confirmed_volunteers(
+            provider=provider, opp=target_opp, media_urls=newly_added,
+        )
+    _reply_and_log(
+        provider=provider,
+        to=sender,
+        body=(
+            "Got the photo — I'll send it only to volunteers who confirm that pickup."
+        ),
+        opp=target_opp,
+        intent=IntentLabel.ACTION_RECEIPT,
+    )
+    return True
+
+
+def _send_pickup_media_to_confirmed_volunteers(
+    *,
+    provider,
+    opp: OpportunityDoc,
+    media_urls: list[str],
+) -> None:
+    if opp.id is None or opp.kind != OpportunityKind.PICKUP or not media_urls:
+        return
+    for claim in opportunities_repo.list_confirmed_claims(opp.id):
+        volunteer = users_repo.get_by_id(claim.volunteer_user_id)
+        if volunteer is None or volunteer.id is None:
+            continue
+        body = "Farm Friend Vashon: photo from the farm for your confirmed pickup."
+        provider_id = safe_send(
+            provider, to_phone=volunteer.phone, body=body, media_urls=media_urls,
+        )
+        if provider_id is None:
+            continue
+        messages_repo.create(
+            MessageDoc(
+                direction=MessageDirection.OUTBOUND,
+                provider_msg_id=provider_id,
+                user_id=volunteer.id,
+                opportunity_id=opp.id,
+                body=body,
+                media_urls=list(media_urls),
+                intent_label=IntentLabel.ACTION_RECEIPT,
+                created_at=datetime.now(UTC),
+            )
+        )
+
+
+def _handle_media_for_pending_opportunity(
+    *,
+    sender: UserDoc,
+    inbound: InboundMessage,
+    inbound_doc: MessageDoc,
+    pending: dict,
+    last_outbound: MessageDoc,
+    provider,
+) -> bool:
+    """Let a farmer add an MMS photo while a posting confirmation is pending."""
+    media_urls = list(inbound.media_urls or [])
+    if not media_urls or sender.role not in (UserRole.FARMER, UserRole.BOTH):
+        return False
+    if pending.get("action") not in ("create_opportunity", "update_draft_opportunity"):
+        return False
+    caption = (inbound.body or "").strip().lower()
+    if caption and not any(word in caption for word in _PHOTO_ATTACHMENT_WORDS):
+        return False
+
+    updated_pending = dict(pending)
+    updated_pending["media_urls"] = _merge_unique_urls(
+        list(pending.get("media_urls") or []),
+        media_urls,
+    )
+    updated_pending["source_message_id"] = (
+        pending.get("source_message_id") or inbound_doc.id
+    )
+    action_word = (
+        "post with it"
+        if pending.get("action") == "create_opportunity"
+        else "save that update with it"
+    )
+    body = f"Got the photo — reply {pending.get('token', 'YES')} to {action_word}."
+    provider_id = safe_send(provider, to_phone=sender.phone, body=body)
+    if provider_id is None:
+        return True
+    messages_repo.create(
+        MessageDoc(
+            direction=MessageDirection.OUTBOUND,
+            provider_msg_id=provider_id,
+            user_id=sender.id,
+            opportunity_id=last_outbound.opportunity_id,
+            body=body,
+            intent_label=IntentLabel.PENDING_CONFIRMATION,
+            pending_action=updated_pending,
+            created_at=datetime.now(UTC),
+        )
+    )
+    return True
 
 
 _EDITABLE_FIELDS = {
@@ -947,8 +1116,10 @@ def _reply_and_log(
     body: str,
     opp: OpportunityDoc | None,
     intent: IntentLabel,
+    media_urls: list[str] | None = None,
 ) -> None:
-    provider_id = safe_send(provider, to_phone=to.phone, body=body)
+    media = list(media_urls or [])
+    provider_id = safe_send(provider, to_phone=to.phone, body=body, media_urls=media)
     if provider_id is None:
         # Delivery failed — don't pretend we sent something. Skip the message
         # log entry to avoid stats/cost double-counting.
@@ -960,6 +1131,7 @@ def _reply_and_log(
             user_id=to.id,
             opportunity_id=opp.id if opp else None,
             body=body,
+            media_urls=media,
             intent_label=intent,
             created_at=datetime.now(UTC),
         )
@@ -994,7 +1166,9 @@ def _looks_immediate(text: str) -> bool:
     return any(k in t for k in _IMMEDIATE_KEYWORDS)
 
 
-def _opportunity_from_parsed(*, farm_id: str, parsed, source_message_id: str) -> OpportunityDoc:
+def _opportunity_from_parsed(
+    *, farm_id: str, parsed, source_message_id: str, media_urls: list[str] | None = None,
+) -> OpportunityDoc:
     """Translate the LLM-parsed shape into a persistable OpportunityDoc."""
     starts_at = _parse_iso(parsed.starts_at) if parsed.starts_at else None
     deadline_at = _parse_iso(parsed.deadline_at) if parsed.deadline_at else None
@@ -1029,10 +1203,31 @@ def _opportunity_from_parsed(*, farm_id: str, parsed, source_message_id: str) ->
         produce_description=parsed.produce_description,
         destination=parsed.destination,
         vehicle_needed=parsed.vehicle_needed,
+        media_urls=list(media_urls or []),
         created_from_message_id=source_message_id,
         created_at=datetime.now(UTC),
         post_event_checkin_at=post_event_at,
     )
+
+
+def _media_urls_from_message(message_id: str | None) -> list[str]:
+    if not message_id:
+        return []
+    msg = messages_repo.get_by_id(message_id)
+    if msg is None:
+        return []
+    return list(msg.media_urls or [])
+
+
+def _merge_unique_urls(existing: list[str], incoming: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for url in [*existing, *incoming]:
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
 
 
 def _parse_iso(s: str) -> datetime | None:
@@ -1423,7 +1618,11 @@ def _route_agent_output(
             )
             return
         _send_pending_confirmation(
-            sender=sender, output=output, target_opp=target_opp, provider=provider,
+            sender=sender,
+            output=output,
+            target_opp=target_opp,
+            source_message_id=inbound_doc_id,
+            provider=provider,
         )
         return
 
@@ -1633,6 +1832,7 @@ def _send_pending_confirmation(
     sender: UserDoc,
     output: AgentOutput,
     target_opp: OpportunityDoc | None,
+    source_message_id: str,
     provider,
 ) -> None:
     """Send a PENDING_CONFIRMATION outbound, persisting the action payload
@@ -1672,6 +1872,8 @@ def _send_pending_confirmation(
         "action": output.action.name,
         "token": token,
         "payload": _extract_action_payload(output),
+        "source_message_id": source_message_id,
+        "media_urls": _media_urls_from_message(source_message_id),
         "expires_at": (datetime.now(UTC) + _td(minutes=30)).isoformat(),
     }
     provider_id = safe_send(provider, to_phone=sender.phone, body=output.reply_text)
@@ -1938,9 +2140,14 @@ def _execute_pending_action(
         opportunities_repo.get_by_id(last_outbound.opportunity_id)
         if last_outbound.opportunity_id else None
     )
+    action_payload = dict(pending.get("payload") or {})
+    if pending.get("source_message_id"):
+        action_payload["_source_message_id"] = pending["source_message_id"]
+    if pending.get("media_urls"):
+        action_payload["_media_urls"] = list(pending.get("media_urls") or [])
     _execute_action(
         sender=sender,
-        action_payload=pending.get("payload") or {},
+        action_payload=action_payload,
         action_name=pending.get("action") or "",
         target_opp=target_opp,
         provider=provider,
@@ -2043,7 +2250,15 @@ def _execute_action(
 
     # Send the receipt SMS. Stamping it as ACTION_RECEIPT enables the UNDO
     # window for the next inbound from this user.
-    provider_id = safe_send(provider, to_phone=sender.phone, body=receipt_body)
+    receipt_media_urls = _action_receipt_media_urls(
+        action_name=action_name,
+        receipt_opp_id=receipt_opp_id,
+        receipt_body=receipt_body,
+    )
+    provider_id = safe_send(
+        provider, to_phone=sender.phone, body=receipt_body,
+        media_urls=receipt_media_urls,
+    )
     if provider_id is None:
         return
     messages_repo.create(
@@ -2053,11 +2268,31 @@ def _execute_action(
             user_id=sender.id,
             opportunity_id=receipt_opp_id,
             body=receipt_body,
+            media_urls=receipt_media_urls,
             intent_label=IntentLabel.ACTION_RECEIPT,
             executed_action=executed_payload,
             created_at=datetime.now(UTC),
         )
     )
+
+
+def _action_receipt_media_urls(
+    *, action_name: str, receipt_opp_id: str | None, receipt_body: str,
+) -> list[str]:
+    if action_name != "claim_opportunity" or not receipt_opp_id:
+        return []
+    opp = opportunities_repo.get_by_id(receipt_opp_id)
+    if opp is None:
+        return []
+    return _confirmed_pickup_media_urls(opp, receipt_body)
+
+
+def _confirmed_pickup_media_urls(opp: OpportunityDoc, body: str) -> list[str]:
+    if opp.kind != OpportunityKind.PICKUP:
+        return []
+    if not body.startswith("Confirmed:"):
+        return []
+    return list(opp.media_urls or [])
 
 
 # ---------------------------------------------------------------------------
@@ -2171,6 +2406,8 @@ def _execute_edit_opportunity(*, sender: UserDoc, payload: dict, provider) -> tu
 
 def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
     parsed_raw = payload.get("parsed") or {}
+    source_message_id = payload.get("_source_message_id") or ""
+    source_media_urls = list(payload.get("_media_urls") or [])
     parsed = ParsedOpportunity.model_validate(parsed_raw)
     # Apply farm defaults to optional fields the farmer didn't specify (the
     # agent prompt also describes this, but dispatch is the deterministic
@@ -2205,7 +2442,10 @@ def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
     if farm is None or farm.id is None:
         return None, None
     opp_doc = _opportunity_from_parsed(
-        farm_id=farm.id, parsed=parsed, source_message_id="",
+        farm_id=farm.id,
+        parsed=parsed,
+        source_message_id=source_message_id,
+        media_urls=source_media_urls,
     )
     # Posts go live immediately on a successful create_opportunity execute —
     # the user has just confirmed via token, so no DRAFT bounce.
@@ -2223,6 +2463,8 @@ def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
 def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
     opp_id = payload.get("opp_id")
     parsed_raw = payload.get("parsed") or {}
+    source_message_id = payload.get("_source_message_id") or ""
+    source_media_urls = list(payload.get("_media_urls") or [])
     if not opp_id:
         return None, None
     parsed = ParsedOpportunity.model_validate(parsed_raw)
@@ -2243,6 +2485,12 @@ def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provide
     # event time for the first time would otherwise leave checkin_at=None and
     # the post-event tick would never fire for the opp.
     field_updates = _merge_updates_for_opportunity(parsed=parsed)
+    if source_media_urls:
+        current = opportunities_repo.get_by_id(opp_id)
+        if current is not None:
+            field_updates["media_urls"] = _merge_unique_urls(
+                current.media_urls, source_media_urls,
+            )
     opportunities_repo.update_fields(opp_id, field_updates)
     opportunities_repo.update_status(opp_id, OpportunityStatus.OPEN)
     refreshed = opportunities_repo.get_by_id(opp_id)

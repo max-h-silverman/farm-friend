@@ -33,20 +33,16 @@ def test_farmer_intro_mentions_farmer_actions() -> None:
 
 
 def test_help_is_compliance_text() -> None:
-    """The carrier-approved help reply is the same for both roles. Farmer
-    commands like STATUS and EDIT are surfaced via the agent's natural-language
-    replies, not by branching the HELP response."""
+    """The carrier-approved help reply is the same for both roles."""
     farmer = templates.render_help(is_farmer=True)
     volunteer = templates.render_help(is_farmer=False)
     assert farmer == volunteer
     # Required by docs/sms-compliance-requirements.md §"Help Message":
     assert "Farm Friend Vashon" in farmer
-    assert "YES" in farmer
-    assert "MUTE" in farmer
-    assert "FLAG" in farmer
+    assert "max@myco.software" in farmer
+    assert "https://myco.software/farm-friend-vashon.html" in farmer
     assert "STOP" in farmer
     assert "Msg&data rates may apply" in farmer
-    assert "privacy" in farmer.lower()
 
 
 def test_status_renders_lines_and_empty() -> None:
@@ -141,10 +137,11 @@ def test_post_event_checkin_has_y_n_prompt() -> None:
     assert "Y" in body and "N" in body
 
 
-def test_help_lists_main_commands() -> None:
+def test_help_includes_contact_path() -> None:
     body = templates.HELP_TEXT
-    for cmd in ("YES", "STOP", "MUTE", "FLAG"):
-        assert cmd in body
+    assert "max@myco.software" in body
+    assert "https://myco.software/farm-friend-vashon.html" in body
+    assert "STOP" in body
 
 
 # ---------------------------------------------------------------------------
@@ -163,12 +160,11 @@ def test_stop_ack_matches_compliance_text() -> None:
 def test_join_ack_matches_compliance_text() -> None:
     body = templates.render_join_ack()
     # Pinning the exact text. Length and content are carrier-approved.
-    assert "Farm Friend Vashon: Welcome" in body
-    assert "0–6/week" in body
+    assert "Farm Friend Vashon: Thanks for subscribing" in body
+    assert "0-6/week" in body
     assert "Msg&data rates may apply" in body
-    assert "Reply HELP for help, STOP to unsubscribe" in body
-    assert "Terms: https://farm-friend-vashon.web.app/terms" in body
-    assert "Privacy: https://farm-friend-vashon.web.app/privacy" in body
+    assert "Consent is not a condition of purchase or participation" in body
+    assert "Reply HELP for help or STOP to opt out" in body
 
 
 def test_flag_ack_matches_compliance_text() -> None:

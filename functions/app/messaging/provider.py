@@ -23,6 +23,7 @@ class InboundMessage:
     body: str
     provider_msg_id: str
     received_at: datetime
+    media_urls: list[str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,8 +35,10 @@ class WebhookValidation:
 class MessagingProvider(Protocol):
     """Contract every provider implements."""
 
-    def send(self, *, to_phone: str, body: str) -> str:
-        """Send an SMS. Returns the provider's message id."""
+    def send(
+        self, *, to_phone: str, body: str, media_urls: list[str] | None = None
+    ) -> str:
+        """Send an SMS/MMS. Returns the provider's message id."""
         ...
 
     def verify_webhook(

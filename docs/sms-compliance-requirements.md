@@ -26,13 +26,13 @@ Implementation should match this actual use case. Do not add marketing, fundrais
 
 ## Opt-In Workflow
 
-Subscribers opt in by texting `JOIN` to the Farm Friend Vashon phone number after seeing printed signup instructions posted at participating Vashon Island farms, farm stands, and local food-system partner locations.
+Subscribers opt in by texting `JOIN` to the Farm Friend Vashon phone number after seeing Farm Friend Vashon flyers, Facebook posts, Vashon Island Growers Association website posts, or in-person community outreach.
 
-The printed signup instructions must say:
+The printed or digital signup instructions must say:
 
-> Text JOIN to [PHONE NUMBER] to receive SMS messages from Farm Friend Vashon about local farm volunteer shifts, gleaning opportunities, harvest help, and surplus produce pickups on Vashon Island. Message frequency varies based on farm needs, usually 0–6 messages per week. Message and data rates may apply. Reply HELP for help. Reply STOP to unsubscribe. Terms: https://farm-friend-vashon.web.app/terms. Privacy: https://farm-friend-vashon.web.app/privacy. Your mobile opt-in information will not be sold or shared with third parties for promotional or marketing purposes.
+> Text JOIN to +1 206-864-5326 (206-86-GLEAN) to receive SMS messages from Farm Friend Vashon about local farm volunteer shifts, gleaning opportunities, harvest help, and surplus produce pickups on Vashon Island. Message frequency varies based on farm needs, usually 0–6 messages per week. Message and data rates may apply. Reply HELP for help. Reply STOP to unsubscribe. Terms: https://farm-friend-vashon.web.app/terms. Privacy: https://farm-friend-vashon.web.app/privacy. Your mobile opt-in information will not be sold or shared with third parties for promotional or marketing purposes.
 
-Replace `[PHONE NUMBER]` with the actual Telnyx number before printing or publishing.
+Use the assigned Telnyx number consistently anywhere the opt-in invitation is published.
 
 After a subscriber texts `JOIN`, Farm Friend Vashon replies with an opt-in confirmation message. The coordinator may review and approve the subscriber before opportunity messages are sent.
 
@@ -72,7 +72,7 @@ The system must recognize:
 
 When a user successfully opts in or requests to join, send:
 
-Farm Friend Vashon: Welcome. You’ll receive texts about local farm volunteer shifts and produce pickups. Msg frequency varies, usually 0–6/week. Msg&data rates may apply. Reply HELP for help, STOP to unsubscribe. Terms: https://farm-friend-vashon.web.app/terms Privacy: https://farm-friend-vashon.web.app/privacy
+Farm Friend Vashon: Thanks for subscribing to local farm volunteer shifts and produce pickups. Msg frequency varies, usually 0-6/week. Msg&data rates may apply. Consent is not a condition of purchase or participation. Reply HELP for help or STOP to opt out.
 
 If the user still requires coordinator approval, the message may be followed by a short approval-status note, but do not remove the compliance language above.
 
@@ -88,7 +88,7 @@ After this message, do not send further messages unless the user opts in again.
 
 When a user sends `HELP` or `INFO`, send:
 
-Farm Friend Vashon coordinates local farm volunteer shifts and produce pickups by SMS. Reply YES to claim an opportunity, MUTE to skip one shift, FLAG to report an issue, or STOP to unsubscribe. Msg&data rates may apply. Privacy: https://farm-friend-vashon.web.app/privacy
+Farm Friend Vashon: Please reach out to max@myco.software or visit https://myco.software/farm-friend-vashon.html for help. Reply STOP to unsubscribe. Msg&data rates may apply.
 
 ## Supported User Commands
 

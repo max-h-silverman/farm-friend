@@ -20,13 +20,16 @@ class SentMessage:
     body: str
     provider_msg_id: str
     sent_at: datetime
+    media_urls: list[str] = field(default_factory=list)
 
 
 class FakeMessagingProvider(MessagingProvider):
     def __init__(self) -> None:
         self.sent: list[SentMessage] = []
 
-    def send(self, *, to_phone: str, body: str) -> str:
+    def send(
+        self, *, to_phone: str, body: str, media_urls: list[str] | None = None
+    ) -> str:
         mid = f"fake-{uuid4()}"
         self.sent.append(
             SentMessage(
@@ -34,6 +37,7 @@ class FakeMessagingProvider(MessagingProvider):
                 body=body,
                 provider_msg_id=mid,
                 sent_at=datetime.now(UTC),
+                media_urls=list(media_urls or []),
             )
         )
         return mid
@@ -50,6 +54,7 @@ class FakeMessagingProvider(MessagingProvider):
             body=payload.get("body", ""),
             provider_msg_id=payload.get("id", f"fake-in-{uuid4()}"),
             received_at=datetime.now(UTC),
+            media_urls=list(payload.get("media_urls") or []),
         )
 
     def reset(self) -> None:

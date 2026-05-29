@@ -274,7 +274,6 @@ def _render_outreach_body(*, opp: OpportunityDoc, farm_name: str) -> str:
         requirements=opp.requirements_text,
     )
 
-
 _BUCKET_PHRASE = {
     "early_morning": "early morning",
     "morning": "morning",
