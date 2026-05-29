@@ -2,6 +2,10 @@
 
 The running narrative of what's been built, what was just fixed, and what's been deferred. Dated entries; newest at top. Companion to `CLAUDE.md` (orientation), `docs/next-steps.md` (punch list), and `docs/architecture.md` (invariants).
 
+## Status (as of 2026-05-29)
+
+**OLMo provider support implemented (2026-05-29):** `LLM_PROVIDER=olmo` is now a first-class OpenAI-compatible path. Defaults are `LLM_MODEL=allenai/Olmo-3.1-32B-Instruct` for coordinator-quality multi-turn SMS interpretation/action drafting and `LLM_CLASSIFIER_MODEL=allenai/Olmo-3-7B-Instruct` for lightweight classifier/background work. Runtime knobs: `LLM_BASE_URL` (default `http://localhost:8000/v1`), `LLM_API_KEY`, `LLM_TIMEOUT_MS=20000`, and `LLM_TEMPERATURE=0.1`. Generic `LLM_PROVIDER=openai-compatible` and `LLM_PROVIDER=anthropic` remain supported. Live eval against OLMo still needs to run before pilot traffic.
+
 ## Status (as of 2026-05-27)
 
 **v1 codebase is built and deployed.** All Firebase functions, Firestore data model, admin SPA, and SMS pipeline are live in the `farm-friend-vashon` project. End-to-end smoke test confirmed: an inbound farmer SMS gets parsed (now by the unified agent), persists as an `Opportunity`, and the admin SPA picks it up in real time.

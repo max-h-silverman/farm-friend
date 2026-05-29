@@ -1,6 +1,6 @@
 """OpenAI-compatible provider adapter.
 
-Covers vLLM, Ollama, Groq, Together, Fireworks, DeepInfra — anything that
+Covers vLLM, SGLang, Ollama, Groq, Together, Fireworks, DeepInfra — anything that
 implements the OpenAI `/v1/chat/completions` API surface. We use the official
 `openai` SDK with `base_url` swapped so we don't reinvent retries or pagination.
 
@@ -36,10 +36,22 @@ from .client import LLMAdapter, LLMProviderError, Message
 
 
 class OpenAICompatibleAdapter(LLMAdapter):
-    def __init__(self, *, api_key: str, base_url: str) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        timeout_ms: int = 20000,
+        temperature: float = 0.1,
+    ) -> None:
         if not base_url:
             raise LLMProviderError("LLM_BASE_URL is required for openai-compatible provider")
-        self._client = OpenAI(api_key=api_key or "no-key", base_url=base_url)
+        self._client = OpenAI(
+            api_key=api_key or "no-key",
+            base_url=base_url,
+            timeout=max(timeout_ms, 1) / 1000,
+        )
+        self._temperature = temperature
         # Detect providers we already know mishandle json_schema. DeepInfra
         # accepts the request but doesn't enforce the schema; Llama models will
         # write prose or code instead. Skipping straight to the json_object path
@@ -67,6 +79,7 @@ class OpenAICompatibleAdapter(LLMAdapter):
                     model=model,
                     messages=chat_messages,
                     max_tokens=max_tokens,
+                    temperature=self._temperature,
                     response_format={
                         "type": "json_schema",
                         "json_schema": {
@@ -110,9 +123,15 @@ class OpenAICompatibleAdapter(LLMAdapter):
             model=model,
             messages=patched,
             max_tokens=max_tokens,
+            temperature=self._temperature,
             response_format={"type": "json_object"},
         )
-        return _strip_fences((resp.choices[0].message.content or "").strip())
+        content = _strip_fences((resp.choices[0].message.content or "").strip())
+        if not content.startswith("{"):
+            extracted = _extract_first_json_object(content)
+            if extracted is not None:
+                content = extracted
+        return content
 
 
 def _looks_like_json_object(text: str) -> bool:
@@ -135,3 +154,33 @@ def _strip_fences(text: str) -> str:
             text = text[4:]
         text = text.strip()
     return text
+
+
+def _extract_first_json_object(text: str) -> str | None:
+    """Extract the first balanced JSON object from accidental model prose."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None

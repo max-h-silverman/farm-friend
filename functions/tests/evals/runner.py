@@ -782,15 +782,16 @@ _LIVE_LLM_CACHE: list = []  # one-element cache so we reuse the client across ca
 
 def _get_live_llm():
     """Return a real LLMClient. Provider chosen by LLM_PROVIDER env var
-    (default: openai-compatible against DeepInfra). Cached across cases.
+    (default: olmo through an OpenAI-compatible endpoint). Cached across cases.
 
-    For openai-compatible: needs LLM_API_KEY + LLM_BASE_URL + LLM_MODEL_STRONG.
+    For olmo/openai-compatible: needs LLM_BASE_URL + LLM_MODEL/LLM_MODEL_STRONG;
+    LLM_API_KEY is optional for local endpoints and required for hosted endpoints.
     For anthropic: needs ANTHROPIC_API_KEY.
     """
     if _LIVE_LLM_CACHE:
         return _LIVE_LLM_CACHE[0]
 
-    provider = os.environ.get("LLM_PROVIDER", "openai-compatible").strip()
+    provider = os.environ.get("LLM_PROVIDER", "olmo").strip()
 
     # Build Settings directly — avoids load_settings() touching
     # firebase_functions.params at import time outside a function.
@@ -817,31 +818,43 @@ def _get_live_llm():
         )
         adapter = AnthropicAdapter(api_key=api_key)
     else:
-        # openai-compatible (the default — DeepInfra + Llama 3.3 70B).
-        api_key = os.environ.get("LLM_API_KEY", "").strip()
-        base_url = os.environ.get(
-            "LLM_BASE_URL", "https://api.deepinfra.com/v1/openai"
-        ).strip()
-        if not api_key:
-            raise RuntimeError(
-                "LLM_API_KEY env var is required for --live mode with "
-                "LLM_PROVIDER=openai-compatible. Try: "
-                "LLM_API_KEY=$(firebase functions:secrets:access LLM_API_KEY) "
-                "python -m tests.evals.runner --live"
-            )
-        from app.llm.openai_compat_adapter import OpenAICompatibleAdapter
-        model = os.environ.get(
-            "LLM_MODEL_STRONG", "meta-llama/Llama-3.3-70B-Instruct"
+        # olmo/openai-compatible (OpenAI wire protocol).
+        api_key = os.environ.get("LLM_API_KEY", "no-key").strip() or "no-key"
+        default_base_url = (
+            "https://api.deepinfra.com/v1/openai"
+            if provider == "openai-compatible"
+            else "http://localhost:8000/v1"
         )
+        base_url = os.environ.get("LLM_BASE_URL", default_base_url).strip()
+        from app.llm.openai_compat_adapter import OpenAICompatibleAdapter
+        default_model = (
+            "meta-llama/Llama-3.3-70B-Instruct"
+            if provider == "openai-compatible"
+            else "allenai/Olmo-3.1-32B-Instruct"
+        )
+        default_fast_model = (
+            "meta-llama/Llama-3.3-70B-Instruct"
+            if provider == "openai-compatible"
+            else "allenai/Olmo-3-7B-Instruct"
+        )
+        coordinator_model = os.environ.get("LLM_MODEL", default_model)
+        classifier_model = os.environ.get("LLM_CLASSIFIER_MODEL", default_fast_model)
+        model = os.environ.get("LLM_MODEL_STRONG", coordinator_model)
+        fast_model = os.environ.get("LLM_MODEL_FAST", classifier_model)
         settings = _eval_settings(
-            llm_provider="openai-compatible",
+            llm_provider=provider,
             llm_model_strong=model,
-            llm_model_fast=model,
+            llm_model_fast=fast_model,
             llm_base_url=base_url,
             llm_api_key=api_key,
             anthropic_api_key="",
         )
-        adapter = OpenAICompatibleAdapter(api_key=api_key, base_url=base_url)
+        adapter = OpenAICompatibleAdapter(
+            api_key=api_key,
+            base_url=base_url,
+            timeout_ms=int(os.environ.get("LLM_TIMEOUT_MS", "20000")),
+            temperature=float(os.environ.get("LLM_TEMPERATURE", "0.1")),
+        )
 
     client = LLMClient(adapter, settings)
     _LIVE_LLM_CACHE.append(client)
@@ -866,6 +879,8 @@ def _eval_settings(
         llm_model_strong=llm_model_strong,
         llm_base_url=llm_base_url,
         llm_api_key=llm_api_key,
+        llm_timeout_ms=int(os.environ.get("LLM_TIMEOUT_MS", "20000")),
+        llm_temperature=float(os.environ.get("LLM_TEMPERATURE", "0.1")),
         anthropic_api_key=anthropic_api_key,
         telnyx_api_key="",
         telnyx_public_key="",

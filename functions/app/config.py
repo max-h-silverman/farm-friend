@@ -15,10 +15,10 @@ Three kinds of config, separated deliberately:
    for emulator, or not at all (defaults apply). These do NOT prompt at deploy
    time. To change them, edit `.env.farm-friend-vashon` and re-deploy.
 
-LLM defaults: the v1.1 default is an open-weight model (Llama 3.3 70B Instruct
-on DeepInfra). Anthropic Sonnet 4.6 is still supported by setting
-LLM_PROVIDER=anthropic; pass-rate parity was verified by the live eval. See
-CLAUDE.md → "LLM portability".
+LLM defaults: the current open-model path is Ai2 OLMo through an
+OpenAI-compatible endpoint (local vLLM/SGLang or hosted). Anthropic Sonnet 4.6
+is still supported by setting LLM_PROVIDER=anthropic. See CLAUDE.md → "LLM
+portability".
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from firebase_functions.params import SecretParam, StringParam
 
 # Secrets — set via `firebase functions:secrets:set`
-# LLM_API_KEY is the OSS-provider key (DeepInfra / Together / Fireworks / Groq).
+# LLM_API_KEY is the OSS-provider key (local / hosted OpenAI-compatible provider).
 # ANTHROPIC_API_KEY remains bound for the optional legacy provider.
 LLM_API_KEY = SecretParam("LLM_API_KEY")
 ANTHROPIC_API_KEY = SecretParam("ANTHROPIC_API_KEY")
@@ -52,6 +52,14 @@ ALL_SECRETS = [
     TELNYX_PUBLIC_KEY,
     SMOKE_TEST_TOKEN,
 ]
+
+OLMO_COORDINATOR_MODEL = "allenai/Olmo-3.1-32B-Instruct"
+OLMO_CLASSIFIER_MODEL = "allenai/Olmo-3-7B-Instruct"
+DEFAULT_OLMO_BASE_URL = "http://localhost:8000/v1"
+DEFAULT_OPENAI_COMPAT_BASE_URL = "https://api.deepinfra.com/v1/openai"
+DEFAULT_OPENAI_COMPAT_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+DEFAULT_ANTHROPIC_FAST_MODEL = "claude-haiku-4-5-20251001"
+DEFAULT_ANTHROPIC_STRONG_MODEL = "claude-sonnet-4-6"
 
 
 def _env(key: str, default: str = "") -> str:
@@ -81,6 +89,8 @@ class Settings:
     llm_model_strong: str
     llm_base_url: str
     llm_api_key: str
+    llm_timeout_ms: int
+    llm_temperature: float
     anthropic_api_key: str
     telnyx_api_key: str
     telnyx_public_key: str
@@ -103,25 +113,50 @@ class Settings:
 
 def load_settings() -> Settings:
     """Resolve all settings. Call inside a function invocation, not at import."""
+    llm_provider = _env("LLM_PROVIDER", "olmo")
+    if llm_provider == "anthropic":
+        default_coordinator_model = DEFAULT_ANTHROPIC_STRONG_MODEL
+        default_classifier_model = DEFAULT_ANTHROPIC_FAST_MODEL
+    elif llm_provider == "openai-compatible":
+        default_coordinator_model = DEFAULT_OPENAI_COMPAT_MODEL
+        default_classifier_model = DEFAULT_OPENAI_COMPAT_MODEL
+    else:
+        default_coordinator_model = OLMO_COORDINATOR_MODEL
+        default_classifier_model = OLMO_CLASSIFIER_MODEL
+
+    coordinator_model = _env("LLM_MODEL", default_coordinator_model)
+    classifier_model = _env("LLM_CLASSIFIER_MODEL", default_classifier_model)
+    if llm_provider == "olmo":
+        default_base_url = DEFAULT_OLMO_BASE_URL
+    elif llm_provider == "openai-compatible":
+        default_base_url = DEFAULT_OPENAI_COMPAT_BASE_URL
+    else:
+        default_base_url = ""
     return Settings(
-        # Plain env. Defaults select the OSS path (DeepInfra + Llama 3.3 70B).
-        # Set LLM_PROVIDER=anthropic to fall back to Sonnet 4.6.
-        # NOTE: with the unified-agent refactor, only model_tier="strong" is
-        # actually used in production (run_agent and run_review_agent both
-        # request the strong tier). LLM_MODEL_FAST is kept for adapter
-        # compatibility and any future fast-path additions; we set both to
-        # the same model so a misrouted call doesn't 404.
-        llm_provider=_env("LLM_PROVIDER", "openai-compatible"),
+        # Plain env. Defaults select the OLMo path. These intentionally use
+        # non-Think instruct models for concise SMS coordination output:
+        #   LLM_PROVIDER=olmo
+        #   LLM_MODEL=allenai/Olmo-3.1-32B-Instruct
+        #   LLM_CLASSIFIER_MODEL=allenai/Olmo-3-7B-Instruct
+        #
+        # Backward compatibility:
+        # - LLM_MODEL_STRONG overrides LLM_MODEL for the coordinator tier.
+        # - LLM_MODEL_FAST overrides LLM_CLASSIFIER_MODEL for the lightweight tier.
+        # - LLM_PROVIDER=openai-compatible still works for non-OLMo providers.
+        # - LLM_PROVIDER=anthropic still selects the Anthropic adapter.
+        llm_provider=llm_provider,
         llm_model_fast=_env(
-            "LLM_MODEL_FAST", "meta-llama/Llama-3.3-70B-Instruct"
+            "LLM_MODEL_FAST", classifier_model
         ),
         llm_model_strong=_env(
-            "LLM_MODEL_STRONG", "meta-llama/Llama-3.3-70B-Instruct"
+            "LLM_MODEL_STRONG", coordinator_model
         ),
         llm_base_url=_env(
-            "LLM_BASE_URL", "https://api.deepinfra.com/v1/openai"
+            "LLM_BASE_URL", default_base_url
         ),
         llm_api_key=_env("LLM_API_KEY") or _secret(LLM_API_KEY),
+        llm_timeout_ms=int(_env("LLM_TIMEOUT_MS", "20000")),
+        llm_temperature=float(_env("LLM_TEMPERATURE", "0.1")),
         vcard_url=_env(
             "VCARD_URL", "https://farm-friend-vashon.web.app/farmfriend.vcf"
         ),

@@ -1,8 +1,9 @@
 """LLM portability layer.
 
 A single entrypoint, `LLMClient.chat_json`, that returns validated JSON
-matching a Pydantic model. Provider selection is config-driven; v1 default
-is Anthropic. See CLAUDE.md → "LLM portability" for the rationale.
+matching a Pydantic model. Provider selection is config-driven; the primary
+open-model path is OLMo through an OpenAI-compatible endpoint. See CLAUDE.md →
+"LLM portability" for the rationale.
 
 `cache_system_prompt` is a hint: honored by the Anthropic adapter via
 cache-control headers, no-op on OpenAI-compatible providers (their runtimes
@@ -49,8 +50,9 @@ class LLMAdapter(Protocol):
 class LLMClient:
     """Public LLM interface used by all agent tasks.
 
-    Two model tiers: `fast` (Haiku-class) and `strong` (Sonnet-class). Agent code
-    declares which tier it wants; the actual model name is config-driven.
+    Two model tiers: `fast` (lightweight classifier/background work) and
+    `strong` (coordinator-quality dialogue/planning). Agent code declares which
+    tier it wants; the actual model name is config-driven.
     """
 
     def __init__(self, adapter: LLMAdapter, settings: Settings) -> None:
@@ -93,10 +95,15 @@ def get_llm_client(settings: Settings | None = None) -> LLMClient:
     if s.llm_provider == "anthropic":
         from .anthropic_adapter import AnthropicAdapter
         return LLMClient(AnthropicAdapter(api_key=s.anthropic_api_key), s)
-    elif s.llm_provider == "openai-compatible":
+    elif s.llm_provider in {"openai-compatible", "olmo"}:
         from .openai_compat_adapter import OpenAICompatibleAdapter
         return LLMClient(
-            OpenAICompatibleAdapter(api_key=s.llm_api_key or "no-key", base_url=s.llm_base_url),
+            OpenAICompatibleAdapter(
+                api_key=s.llm_api_key or "no-key",
+                base_url=s.llm_base_url,
+                timeout_ms=s.llm_timeout_ms,
+                temperature=s.llm_temperature,
+            ),
             s,
         )
     else:

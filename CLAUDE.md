@@ -108,10 +108,11 @@ Confirmation tokens (drafted by the unified agent per action; not a fixed vocabu
   - **Firebase Hosting** — static hosting for the admin SPA
   - **Cloud Scheduler** (via scheduled functions) — recurring escalation checks
 - **SMS:** Telnyx (abstracted behind `MessagingProvider`)
-- **LLM:** abstracted via internal `LLMClient` (OpenAI-format wire protocol, opt-in Anthropic cache hints). **v1.1 default is an OSS path: Llama 3.3 70B Instruct hosted on DeepInfra**. Anthropic Sonnet 4.6 remains a config-switchable fallback. The unified-agent refactor consolidated the v1 trio of LLM calls into a single `model_tier="strong"` call per inbound, so a single OSS model in that size class is sufficient (no separate fast path is needed in production).
-  - Current default: `LLM_PROVIDER=openai-compatible`, `LLM_BASE_URL=https://api.deepinfra.com/v1/openai`, `LLM_MODEL_STRONG=meta-llama/Llama-3.3-70B-Instruct`. Key from `LLM_API_KEY` secret.
+- **LLM:** abstracted via internal `LLMClient` (OpenAI-format wire protocol, opt-in Anthropic cache hints). **Current default is an OLMo OSS path through an OpenAI-compatible local or hosted endpoint.** Anthropic Sonnet 4.6 remains a config-switchable fallback. The unified-agent refactor consolidated the v1 trio of LLM calls into a single `model_tier="strong"` call per inbound; `model_tier="fast"` is preserved for cheap classifier/background work.
+  - Current default: `LLM_PROVIDER=olmo`, `LLM_BASE_URL=http://localhost:8000/v1`, `LLM_MODEL=allenai/Olmo-3.1-32B-Instruct`, `LLM_CLASSIFIER_MODEL=allenai/Olmo-3-7B-Instruct`, `LLM_TIMEOUT_MS=20000`, `LLM_TEMPERATURE=0.1`. Key from `LLM_API_KEY` secret.
+  - Avoid OLMo `Think` variants for normal SMS flows unless explicitly configured; this app needs concise structured outputs more than long reasoning traces.
   - Fallback: `LLM_PROVIDER=anthropic`, `LLM_MODEL_STRONG=claude-sonnet-4-6` (cached system prompt honored).
-  - Other OpenAI-compatible providers (Together, Fireworks, Groq, vLLM, Ollama) work by swapping `LLM_BASE_URL`. No SDK changes needed.
+  - Generic OpenAI-compatible providers (Together, Fireworks, Groq, DeepInfra, vLLM, SGLang, Ollama) work by swapping `LLM_PROVIDER=openai-compatible`, `LLM_BASE_URL`, and model env vars. No SDK changes needed.
   - The adapter prefers `response_format=json_schema` and falls back to `json_object` with the schema concatenated into the existing system message (single system message, no second one prepended — some providers honor only the first).
 - **Admin UI:** Vanilla TypeScript + Alpine.js on Firebase Hosting, talking to Firestore directly via the Firebase JS SDK
 
@@ -156,7 +157,7 @@ Confirmation tokens (drafted by the unified agent per action; not a fixed vocabu
 - Don't auto-reply on a thread after the user has texted `FLAG` until admin clears it.
 - Don't store raw message content longer than 90 days unless it's tied to an active opportunity or open flag.
 - Don't add `litellm` or similar omnibus LLM-routing libraries; hand-roll the thin adapters.
-- Don't change the default LLM provider without first re-running the live eval (`python -m tests.evals.runner --live` from `functions/`) against the candidate and requiring pass-rate parity with the existing baseline (Sonnet 4.6 cleared 42/42 non-REVIEW cases; Llama 3.3 70B is the current default, pending its own eval pass).
+- Don't change the default LLM provider without first re-running the live eval (`python -m tests.evals.runner --live` from `functions/`) against the candidate and requiring pass-rate parity with the existing baseline (Sonnet 4.6 cleared 42/42 non-REVIEW cases; the OLMo default still needs a live eval before pilot traffic).
 - Don't import the Firestore SDK from business logic — go through the `repos/` layer.
 
 ## Repo conventions
