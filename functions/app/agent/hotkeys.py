@@ -53,6 +53,7 @@ _MAYBE_RE = re.compile(r"^\s*maybe\s*[!\.\?]?\s*$", re.IGNORECASE)
 _HELP_RE = re.compile(r"^\s*(help|info)\s*[!\.\?]?\s*$", re.IGNORECASE)
 _STATUS_RE = re.compile(r"^\s*status\s*[!\.\?]?\s*$", re.IGNORECASE)
 _CANCEL_RE = re.compile(r"^\s*cancel\s*[!\.]?\s*$", re.IGNORECASE)
+_DROP_RE = re.compile(r"^\s*drop\s*[!\.]?\s*$", re.IGNORECASE)
 _STOP_PLAIN_RE = re.compile(r"^\s*(stop|unsubscribe|quit|end)\s*[!\.]?\s*$", re.IGNORECASE)
 _FLAG_RE = re.compile(r"^\s*flag\b.*$", re.IGNORECASE)
 _JOIN_RE = re.compile(r"^\s*(join|start)\s*[!\.]?\s*$", re.IGNORECASE)
@@ -141,6 +142,9 @@ def parse(
 
     if _CANCEL_RE.match(text):
         return HotkeyMatch(IntentLabel.CANCEL, {})
+
+    if _DROP_RE.match(text):
+        return HotkeyMatch(IntentLabel.DROP, {})
 
     if _STOP_PLAIN_RE.match(text):
         return HotkeyMatch(IntentLabel.STOP, {})
@@ -256,7 +260,7 @@ RESERVED_HOTKEY_TOKENS = frozenset({
     "STOP", "UNSUBSCRIBE", "QUIT", "END", "CANCEL",
     "HELP", "INFO",
     "JOIN", "START",
-    "YES", "MAYBE", "MUTE", "FLAG", "STATUS",
+    "YES", "MAYBE", "MUTE", "FLAG", "STATUS", "DROP",
     "INSIDER", "UNAVAILABLE",
     "UNDO", "PAUSE", "RESUME",
     # Farmer-approval gate: ACCEPT/DECLINE are themselves hotkey verbs that
@@ -282,6 +286,8 @@ def match_pending_token(*, body: str, pending: dict | None) -> bool:
     if not pending or not pending.get("token"):
         return False
     norm = body.strip().upper().rstrip("!.?")
+    if norm in RESERVED_HOTKEY_TOKENS and norm not in {"YES", "UNDO"}:
+        return False
     if norm == pending["token"]:
         return True
     return norm in _AFFIRMATIVE

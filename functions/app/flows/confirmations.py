@@ -3,10 +3,10 @@
 Scheduled function `tick_confirmations` runs every 15 minutes. For each
 opportunity whose event is approaching (shifts: within 24h; pickups: within
 3h), iterates the CONFIRMED claims and sends each volunteer a reminder with
-a CANCEL escape hatch. One reminder per claim, tracked via
+a DROP escape hatch. One reminder per claim, tracked via
 `ClaimDoc.confirmation_sent_at`.
 
-Volunteer CANCEL handling lives in `message_dispatch` so it sits next to the
+Volunteer DROP handling lives in `message_dispatch` so it sits next to the
 other hotkey branches.
 """
 

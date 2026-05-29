@@ -42,17 +42,14 @@ from app.agent.parser import (
     compute_missing_fields,
 )
 from app.agent.unified import (
-    AgentContext,
     AgentOutput,
-    ClaimSummary,
-    MessageExcerpt,
-    OppSummary,
     run_agent,
 )
 from app.config import load_settings
 from app.copy import templates
 from app.flows import claim as claim_flow
 from app.flows import farmer_ops
+from app.flows.agent_context import build_agent_context, farm_defaults_dict
 from app.flows import outreach as outreach_flow
 from app.flows import post_event as post_event_flow
 from app.flows._time import (
@@ -74,8 +71,6 @@ from app.repos import (
     users_repo,
 )
 from app.repos.models import (
-    CANONICAL_ACTIVITIES,
-    ClaimStatus,
     FlagDoc,
     IntentLabel,
     InsiderDoc,
@@ -279,10 +274,20 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
     )
 
     # Call the unified agent.
-    context = _build_agent_context(
+    pending_action = (
+        last_outbound.pending_action
+        if _is_live_pending_confirmation(last_outbound) and last_outbound
+        else None
+    )
+    executed_action = None
+    if _is_recent_executed_action(last_outbound, window_min=settings.undo_window_min):
+        executed_action = last_outbound.executed_action if last_outbound else None
+    context = build_agent_context(
         sender=sender,
         last_outbound=last_outbound,
         target_opp=target_opp,
+        pending_action=pending_action,
+        executed_action=executed_action,
     )
     try:
         llm = get_llm_client(settings)
@@ -560,10 +565,11 @@ def _handle_hotkey(
         _reply_and_log(provider=provider, to=sender, body=body, opp=None, intent=intent)
         return
 
-    if intent == IntentLabel.CANCEL:
-        # Volunteer-on-reminder path: CANCEL after a confirmation reminder drops
-        # the volunteer's claim on that opp. The reminder anchors target_opp
-        # via opportunity_id on the outbound MessageDoc.
+    if intent in (IntentLabel.CANCEL, IntentLabel.DROP):
+        # Volunteer-on-reminder path: DROP (and legacy CANCEL) after a
+        # confirmation reminder drops the volunteer's claim on that opp. The
+        # reminder anchors target_opp via opportunity_id on the outbound
+        # MessageDoc.
         is_volunteer_drop = (
             sender.role in (UserRole.VOLUNTEER, UserRole.BOTH)
             and target_opp is not None
@@ -580,23 +586,47 @@ def _handle_hotkey(
                 provider=provider, to=sender, body=reply, opp=target_opp, intent=intent
             )
             return
-        if sender.role not in (UserRole.FARMER, UserRole.BOTH):
+        if intent == IntentLabel.DROP:
             _reply_and_log(
                 provider=provider,
                 to=sender,
-                body="CANCEL is for farmers, or for volunteers replying to a shift reminder. Reply STOP to unsubscribe, MUTE to silence this thread.",
+                body="DROP is for replying to a shift reminder. Reply CANCEL or STOP to unsubscribe.",
                 opp=target_opp,
                 intent=intent,
             )
             return
-        farm = farms_repo.get_by_owner(sender.id) if sender.id else None
-        if farm is None or farm.id is None:
+        if sender.role not in (UserRole.FARMER, UserRole.BOTH):
+            if sender.id:
+                users_repo.set_status(sender.id, UserStatus.UNSUBSCRIBED)
             _reply_and_log(
                 provider=provider,
                 to=sender,
-                body="No farm on file for you yet — Max can set that up.",
+                body=templates.render_stop_ack(),
                 opp=target_opp,
-                intent=intent,
+                intent=IntentLabel.STOP,
+            )
+            return
+        farm = farms_repo.get_by_owner(sender.id) if sender.id else None
+        if farm is None or farm.id is None:
+            if sender.id:
+                users_repo.set_status(sender.id, UserStatus.UNSUBSCRIBED)
+            _reply_and_log(
+                provider=provider,
+                to=sender,
+                body=templates.render_stop_ack(),
+                opp=target_opp,
+                intent=IntentLabel.STOP,
+            )
+            return
+        if not opportunities_repo.list_open_for_farm(farm.id):
+            if sender.id:
+                users_repo.set_status(sender.id, UserStatus.UNSUBSCRIBED)
+            _reply_and_log(
+                provider=provider,
+                to=sender,
+                body=templates.render_stop_ack(),
+                opp=target_opp,
+                intent=IntentLabel.STOP,
             )
             return
         body = farmer_ops.handle_cancel(
@@ -783,16 +813,6 @@ def _normalize_edit_updates(raw: dict) -> dict:
         else:
             out[k] = str(v)
     return out
-
-
-def _farm_defaults_dict(farm) -> dict | None:
-    if farm is None:
-        return None
-    return {
-        "typical_start_hour": farm.typical_start_hour,
-        "typical_shift_duration_min": farm.typical_shift_duration_min,
-        "usual_days_of_week": farm.usual_days_of_week,
-    }
 
 
 def _merge_updates_for_opportunity(*, parsed) -> dict:
@@ -1301,189 +1321,6 @@ def _escalate_clarify_cap(
         provider=provider, to=sender,
         body=templates.render_fallback_ambiguous(),
         opp=None, intent=IntentLabel.ESCALATE,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Building the agent context
-# ---------------------------------------------------------------------------
-def _build_agent_context(
-    *,
-    sender: UserDoc,
-    last_outbound: MessageDoc | None,
-    target_opp: OpportunityDoc | None,
-) -> AgentContext:
-    """Assemble the AgentContext payload the unified agent sees.
-
-    Includes: sender state, recent message excerpts, the live pending action
-    (if any), the live executed action (if within UNDO window), the sender's
-    open claims (volunteer side), the sender's farm + open opps (farmer side),
-    cross-cutting open opps across all farms (for queries / matching).
-    """
-    now_local = datetime.now(VASHON_TZ)
-
-    # Sender's own confirmed/interested claims, lifted to ClaimSummary shape.
-    sender_claims: list[ClaimSummary] = []
-    if sender.id:
-        # Walk the sender's recent messages to find opps they have claims on.
-        # Cheaper than scanning every claim subcollection across all opps.
-        recent_msgs = messages_repo.list_for_user(sender.id, limit=50)
-        seen_opp_ids: set[str] = set()
-        for msg in recent_msgs:
-            if not msg.opportunity_id or msg.opportunity_id in seen_opp_ids:
-                continue
-            seen_opp_ids.add(msg.opportunity_id)
-            claim = opportunities_repo.get_claim(
-                opp_id=msg.opportunity_id, volunteer_user_id=sender.id,
-            )
-            if claim is None or claim.status == ClaimStatus.DROPPED:
-                continue
-            opp = opportunities_repo.get_by_id(msg.opportunity_id)
-            if opp is None or opp.status in (
-                OpportunityStatus.COMPLETED, OpportunityStatus.CANCELLED, OpportunityStatus.EXPIRED,
-            ):
-                continue
-            farm = farms_repo.get_by_id(opp.farm_id)
-            sender_claims.append(_claim_summary_from(opp=opp, claim=claim, farm=farm))
-
-    # Farmer-side: own farm + open opps + defaults.
-    sender_farm_id: str | None = None
-    sender_farm_name: str | None = None
-    sender_farm_defaults: dict | None = None
-    sender_farm_open_opps: list[OppSummary] = []
-    if sender.id and sender.role in (UserRole.FARMER, UserRole.BOTH):
-        farm = farms_repo.get_by_owner(sender.id)
-        if farm and farm.id:
-            sender_farm_id = farm.id
-            sender_farm_name = farm.name
-            sender_farm_defaults = _farm_defaults_dict(farm)
-            for opp in opportunities_repo.list_open_for_farm(farm.id):
-                sender_farm_open_opps.append(_opp_summary_from(opp=opp, farm=farm))
-
-    # Cross-cutting: all OPEN/FILLING opps system-wide. At pilot scale this
-    # is small (2-3 farms × maybe 5 opps each). Revisit caps if it grows.
-    cross_cutting: list[OppSummary] = []
-    all_farms = {f.id: f for f in farms_repo.list_all() if f.id}
-    for farm_id, farm in all_farms.items():
-        if farm_id == sender_farm_id:
-            continue  # already in sender_farm_open_opps
-        for opp in opportunities_repo.list_open_for_farm(farm_id):
-            cross_cutting.append(_opp_summary_from(opp=opp, farm=farm))
-
-    # Live pending action and executed action, if alive.
-    pending_action = None
-    executed_action = None
-    last_outbound_opp_summary: OppSummary | None = None
-    if last_outbound is not None:
-        if _is_live_pending_confirmation(last_outbound):
-            pending_action = last_outbound.pending_action
-        # Executed action freshness uses the configured UNDO window.
-        settings = load_settings()
-        if _is_recent_executed_action(last_outbound, window_min=settings.undo_window_min):
-            executed_action = last_outbound.executed_action
-        # Summarize the opp last_outbound was about, if any.
-        if target_opp:
-            farm = farms_repo.get_by_id(target_opp.farm_id)
-            last_outbound_opp_summary = _opp_summary_from(opp=target_opp, farm=farm)
-
-    # Per-opportunity message excerpt (last 5 on the targeted opp).
-    opp_excerpt: list[MessageExcerpt] = []
-    if target_opp and target_opp.id:
-        for msg in messages_repo.list_for_opportunity(target_opp.id, limit=5):
-            opp_excerpt.append(_excerpt_from(msg))
-
-    # Per-user message excerpt: messages in the last 24h with a hard cap of
-    # 20. Time-bounded so a multi-turn SMS dialog (clarify → answer → confirm)
-    # stays coherent in context, but unrelated conversations from earlier in
-    # the week don't bleed in. Hard cap protects against pathological bursts.
-    user_excerpt: list[MessageExcerpt] = []
-    if sender.id:
-        from datetime import timedelta as _td
-        since = datetime.now(UTC) - _td(hours=24)
-        for msg in messages_repo.list_for_user_since(sender.id, since=since, hard_cap=20):
-            user_excerpt.append(_excerpt_from(msg))
-
-    # Mute summary — render as a list of "dim:value" strings for the prompt.
-    mute_summary: list[str] = []
-    if sender.id:
-        for rule in mutes_repo.list_for_user(sender.id):
-            mute_summary.append(f"{rule.dimension.value}:{rule.value}")
-
-    return AgentContext(
-        now_local_iso=now_local.isoformat(),
-        sender_role=sender.role.value,
-        sender_name=sender.name,
-        sender_phone=sender.phone,
-        sender_availability={
-            "available_days": sender.available_days,
-            "available_start_hour": sender.available_start_hour,
-            "available_end_hour": sender.available_end_hour,
-            "max_commit_hours_per_week": sender.max_commit_hours_per_week,
-        },
-        sender_activity_preferences=sender.activity_preferences,
-        sender_mute_summary=mute_summary,
-        sender_open_claims=sender_claims,
-        sender_farm_id=sender_farm_id,
-        sender_farm_name=sender_farm_name,
-        sender_farm_defaults=sender_farm_defaults,
-        sender_farm_open_opps=sender_farm_open_opps,
-        last_outbound_body=last_outbound.body if last_outbound else None,
-        last_outbound_intent=(
-            last_outbound.intent_label.value if last_outbound and last_outbound.intent_label else None
-        ),
-        last_outbound_clarification_round=(
-            last_outbound.clarification_round if last_outbound else 0
-        ),
-        last_outbound_opp_summary=last_outbound_opp_summary,
-        pending_action=pending_action,
-        executed_action=executed_action,
-        cross_cutting_opps=cross_cutting,
-        known_farms=[{"id": fid, "name": f.name} for fid, f in all_farms.items()],
-        canonical_activities=list(CANONICAL_ACTIVITIES),
-        opp_message_excerpt=opp_excerpt,
-        user_recent_excerpt=user_excerpt,
-    )
-
-
-def _opp_summary_from(*, opp: OpportunityDoc, farm) -> OppSummary:
-    activity_or_produce = (
-        ", ".join(opp.activity_tags) if opp.kind == OpportunityKind.SHIFT
-        else (opp.produce_description or "surplus")
-    )
-    return OppSummary(
-        opp_id=opp.id or "",
-        farm_name=farm.name if farm else "unknown farm",
-        kind=opp.kind.value,
-        status=opp.status.value,
-        when_human=farmer_ops.opp_short_summary(opp),
-        activity_or_produce=activity_or_produce,
-        headcount_needed=opp.headcount_needed,
-        seats_filled=opp.seats_filled,
-        requirements_text=opp.requirements_text or "",
-    )
-
-
-def _claim_summary_from(*, opp: OpportunityDoc, claim, farm) -> ClaimSummary:
-    activity_or_produce = (
-        ", ".join(opp.activity_tags) if opp.kind == OpportunityKind.SHIFT
-        else (opp.produce_description or "surplus")
-    )
-    return ClaimSummary(
-        opp_id=opp.id or "",
-        opp_kind=opp.kind.value,
-        farm_name=farm.name if farm else "unknown farm",
-        activity_or_produce=activity_or_produce,
-        when_human=farmer_ops.opp_short_summary(opp),
-        status=claim.status.value,
-    )
-
-
-def _excerpt_from(msg: MessageDoc) -> MessageExcerpt:
-    return MessageExcerpt(
-        direction=msg.direction.value,
-        body=msg.body[:200],  # truncate long bodies
-        intent_label=msg.intent_label.value if msg.intent_label else None,
-        created_at_iso=msg.created_at.isoformat(),
     )
 
 
@@ -2308,7 +2145,7 @@ def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
     # backstop). Required fields are NEVER defaulted — they must come from
     # the farmer's words. See _apply_farm_defaults docstring.
     farm = farms_repo.get_by_owner(sender.id) if sender.id else None
-    parsed = _apply_farm_defaults(parsed=parsed, farm_defaults=_farm_defaults_dict(farm))
+    parsed = _apply_farm_defaults(parsed=parsed, farm_defaults=farm_defaults_dict(farm))
     # Server-authoritative missing-fields check — never trust the agent. The
     # over-confirm backstop in _route_agent_output should have caught this
     # before the user confirmed; if we reach here it means the backstop missed
@@ -2359,7 +2196,7 @@ def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provide
     parsed = ParsedOpportunity.model_validate(parsed_raw)
     # Apply farm defaults to optional fields before checking completeness.
     farm = farms_repo.get_by_owner(sender.id) if sender.id else None
-    parsed = _apply_farm_defaults(parsed=parsed, farm_defaults=_farm_defaults_dict(farm))
+    parsed = _apply_farm_defaults(parsed=parsed, farm_defaults=farm_defaults_dict(farm))
     missing = compute_missing_fields(parsed)
     if missing:
         safe_send(

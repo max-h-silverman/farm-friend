@@ -1,6 +1,6 @@
 # Agent architecture rethink + multi-day window posts (Bug A)
 
-> **Status (2026-05-28):** Design doc, not yet implemented. Written after the "need help next week → prep work → monday to friday → yes → Missing some details: starts_at, headcount_needed" exchange exposed both a localized bug (overconfirm backstop missed `headcount_needed`) and a deeper architectural assumption (the system expects precise farmer input). The localized fix landed in the same session (see commit). This doc plans the deeper change.
+> **Status (updated 2026-05-29):** Design record plus remaining-plan doc. Stage 1's core multi-day window machinery is implemented in code (`window_end_at`, `time_of_day_bucket`, `headcount_open`, `scheduled_for_at`, `ClaimStatus.PROPOSED`, `YES <day>`, farmer `ACCEPT`/`DECLINE`, `tick_proposals`, and `post_event_pings`). Remaining Stage 1 work is hardening: admin SPA display audit, targeted window eval cases, and live eval rerun. Stage 2, the Madison persona rewrite, is still planned and not implemented.
 
 ## The trigger
 
@@ -24,7 +24,7 @@ Four things went wrong, each pointing at a different layer:
 3. **Overconfirm backstop too narrow.** The backstop only checked `starts_at` and `activity_tags`. It didn't check `headcount_needed`, so the agent's confirm passed pre-confirm validation, the farmer said YES, and the executor's `compute_missing_fields` fired with raw schema names.
 4. **Recoverability bottoming out as garbage.** "Missing some details before I can post that: starts_at, headcount_needed" isn't a sentence a farmer can act on.
 
-Fixes 3 and 4 landed immediately (this session). Fix 1 got a prompt nudge. Fix 2 got a stopgap backstop (`_inbound_has_date_range_signal`) that forces a clarify-down-to-single-day rather than letting the silent collapse through. **All four together still point at a bigger principle the system isn't honoring**, which is what the rest of this doc is about.
+Fixes 3 and 4 landed immediately in the original hardening session. Fix 1 got a prompt nudge. Fix 2 first got a stopgap rejection backstop, then Stage 1 replaced that stopgap with real window posts via `window_end_at`. **All four together still point at a bigger principle the system isn't honoring**, which is what the rest of this doc is about.
 
 ## The principle the system isn't honoring
 
@@ -175,7 +175,7 @@ Window opps are different — a volunteer claiming a specific day inside a windo
 
 - **Volunteer `YES <day>` on a window opp goes to PROPOSED state, not CONFIRMED.** A new `ClaimStatus.PROPOSED` sits between `interested` and `confirmed`. PROPOSED claims hold a seat (count against `seats_filled`) but don't yet trigger the volunteer's confirmation reminder.
 - **Farmer receives an SMS** describing the proposal with `ACCEPT <token>` / `DECLINE <token>` actions. Token grammar matches existing patterns (4-letter uppercase, action-specific). Farmer's ACCEPT flips the claim to CONFIRMED and sends the volunteer a confirmation receipt. DECLINE flips the claim to DROPPED, decrements `seats_filled`, and sends the volunteer a "the farmer can't host you that day — want to try a different day?" SMS.
-- **Auto-confirm fallback.** If the farmer doesn't respond within a configurable window (default: 4 hours for shifts > 24h out; 1 hour for shifts < 24h out), the proposal auto-confirms and the farmer gets a "auto-accepted Wed proposal from Alex — reply DROP to undo" notification. We don't strand volunteers waiting on a farmer who's busy in a field.
+- **Auto-confirm fallback.** If the farmer doesn't respond within a configurable window (default: 4 hours for shifts > 24h out; 1 hour for shifts < 24h out), the proposal auto-confirms and the farmer gets an "auto-accepted Wed proposal from Alex — text Max if you need to reverse it" notification. We don't strand volunteers waiting on a farmer who's busy in a field.
 - **Single-day opps are unchanged.** Volunteer `YES` still auto-confirms — the farmer already specified the day.
 
 Why the asymmetry: on single-day opps the farmer has already committed to that day, so volunteer claims are filling pre-approved slots. On window opps the farmer committed to a *range*, and each volunteer's day choice is information the farmer can use ("oh, three people want Wed but nobody wants Mon — I'll adjust"). Giving farmers the explicit approval step makes the system feel like a tool that serves them rather than one that books their schedule for them.
@@ -244,7 +244,7 @@ The agent prompt grows:
     - "weekend mornings" → window (Sat → Sun), `time_of_day_bucket=morning`
     - "Saturday harvest, dawn" → single-day with `time_of_day_bucket=early_morning`
     - "Mon morning OR Fri afternoon" → **two opps; clarify which one** (or both; explicit fan-out is a future feature)
-- The date-range backstop signal (`_inbound_has_date_range_signal`) gets retired — it's no longer an over-confirm; it's the trigger to set `window_end_at`.
+- The date-range backstop signal is retired — date ranges are no longer over-confirms; they are the trigger to set `window_end_at`.
 - Rule 0 (default to asking) gets new worked examples:
   - "any day next week, prep work, 2 ppl, morning" → `mode="confirm"` with `window_end_at=Fri`, `time_of_day_bucket=morning`, `activity_tags=["tbd"]`, `requirements_text="prep work"`, `headcount_needed=2`. ALL MVD satisfied; do NOT clarify.
   - "need help" (nothing else) → `mode="clarify"` asking for at least a day window and what kind of work. Below MVD on multiple axes; one focused question rather than a list.
@@ -273,7 +273,7 @@ New ADVERSARIAL cases:
 - "I need help soon" — MVD-vacant inbound — produces a focused clarify, not a stab at a confirm
 - "tomato harvest next week" + reply "anytime" + reply "anytime" — three-round MVD push, lands at default `morning` + admin-flagged on round 3
 - Farmer declines a proposal → volunteer gets a non-blaming "the farmer can't host you that day" SMS with the offer to try a different day
-- Window opp with farmer-approval gate: farmer doesn't respond within 4h → auto-confirm fires; farmer gets the after-the-fact notification with DROP path
+- Window opp with farmer-approval gate: farmer doesn't respond within 4h → auto-confirm fires; farmer gets the after-the-fact notification with a Max handoff for reversal
 
 ### Migration
 

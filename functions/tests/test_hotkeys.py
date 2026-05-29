@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.agent.hotkeys import HotkeyMatch, parse
+from app.agent.hotkeys import HotkeyMatch, match_pending_token, parse
 from app.repos.models import IntentLabel
 
 
@@ -105,15 +105,25 @@ def test_cancel_with_args_falls_through_to_llm() -> None:
     assert parse("cancel the plum harvest") is None
 
 
-def test_plain_cancel_no_longer_unsubscribes() -> None:
-    # Important behavior change: "cancel" used to be a STOP synonym. It's
-    # now the farmer CANCEL hotkey. STOP / unsubscribe / quit / end still
-    # unsubscribe.
+def test_plain_cancel_is_contextual_hotkey() -> None:
+    # Dispatch decides whether this means farmer-cancel, reminder-drop, or
+    # ambiguous-CANCEL unsubscribe.
     m = parse("cancel")
     assert m is not None and m.intent is IntentLabel.CANCEL
     for stop_word in ("STOP", "unsubscribe", "quit", "end"):
         m = parse(stop_word)
         assert m is not None and m.intent is IntentLabel.STOP
+
+
+@pytest.mark.parametrize("text", ["DROP", "drop", "Drop.", " drop "])
+def test_drop_hotkey(text: str) -> None:
+    m = parse(text)
+    assert m is not None and m.intent is IntentLabel.DROP
+
+
+def test_drop_with_args_falls_through_to_llm() -> None:
+    # "drop Tuesdays" is an availability edit, not a reminder-drop hotkey.
+    assert parse("drop Tuesdays") is None
 
 
 def test_stop_activity_known_slug() -> None:
@@ -237,6 +247,17 @@ def test_bare_yes_payload_includes_empty_days() -> None:
     m = parse("YES")
     assert m is not None
     assert m.payload == {"slots": 1, "days": []}
+
+
+def test_pending_token_does_not_shadow_reserved_hotkeys() -> None:
+    assert not match_pending_token(body="DROP", pending={"token": "DROP"})
+    assert not match_pending_token(body="CANCEL", pending={"token": "CANCEL"})
+    assert not match_pending_token(body="STOP", pending={"token": "STOP"})
+
+
+def test_pending_token_allows_yes_and_undo_exceptions() -> None:
+    assert match_pending_token(body="YES", pending={"token": "YES"})
+    assert match_pending_token(body="UNDO", pending={"token": "UNDO"})
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ This file is the orientation layer — read it once. For anything else, go to th
 - **`docs/next-steps.md`** — the punch list. Read at the start of a work session. Update as state changes — it's what a fresh session needs to know where to pick up.
 - **`docs/architecture.md`** — end-to-end inbound flow, scheduled ticks, state machines, cross-cutting safety mechanisms, LLM portability, **architecture invariants**. Read before touching dispatch, the agent, flows, or anything in `app/agent/` / `app/flows/` / `app/repos/`.
 - **`docs/sms-compliance-requirements.md`** — authoritative SMS-facing spec (carrier-submitted). Wins any disagreement with this file.
-- **`docs/agent-architecture-rethink.md`** — the planned multi-day-windows + Madison-persona redesign (not yet implemented).
+- **`docs/agent-architecture-rethink.md`** — design record for multi-day window posts (implemented) and the planned Madison-persona prompt redesign (not yet implemented).
 - **`docs/refactor-unified-agent.md`** — the unified-agent refactor plan (shipped 2026-05-27).
 
 ## What this is
@@ -43,7 +43,7 @@ Farmers can suggest new activities (texted as part of a post); the agent flags u
 - **SMS is the universal channel, but the core is channel-agnostic.** Everything routes through a `MessagingProvider` abstraction. Don't bake Telnyx-specific assumptions into business logic.
 - **Tiered outreach, not blast.** Farmers nominate insiders; insiders ping first; broader pool only if seats stay unfilled. Keeps message volume (and cost) low and quality high.
 - **The agent does the nagging.** Post-event check-ins, escalations, follow-ups, and pre-event confirmation reminders — the system remembers so humans don't have to.
-- **One pre-event reminder per commitment, with an easy out.** Confirmed volunteers get one "you're scheduled to help… reply CANCEL if you can't make it" SMS in the 24h before a shift (3h before a pickup). Silence = still in. A CANCEL drops the seat, re-fires outreach for the gap, and notifies the farmer. Designed to catch the most common failure mode (people forget plans) without nagging.
+- **One pre-event reminder per commitment, with an easy out.** Confirmed volunteers get one "you're scheduled to help… reply DROP if you can't make it" SMS in the 24h before a shift (3h before a pickup). Silence = still in. A DROP drops the seat, re-fires outreach for the gap, and notifies the farmer. Legacy CANCEL still drops only when it is clearly replying to a reminder; ambiguous CANCEL unsubscribes.
 - **Quiet hours: 11pm–7am Vashon local.** All scheduled/broadcast outbound (initial outreach, escalation, post-event checkin, confirmation reminder, unfilled-at-start) is deferred during this window; the next scheduled tick after 7am picks it up. Direct one-to-one replies and notifications to explicit user actions (claim acks, edit/cancel fan-outs, volunteer-drop notifications) send anytime — deferring an acknowledgment of something the user just did is worse than slightly off-hours timing.
 - **FLAG is sacred.** Any user can text `FLAG` to report a bad system reply. Stops auto-replies on that thread and surfaces to admin immediately. The trust safety valve.
 - **The LLM handles operational complexity; it escalates only on narrow, well-defined triggers.** Scheduling conflicts, swap requests, plan changes, and weird postings are *not* escalations — the system has flows and the model has latitude to use them. The model escalates (intent=`ESCALATE`) only for: injury/medical, liability/insurance/legal, payment/money, property damage, interpersonal disputes/harassment, emotional distress, or threats/safety. The model also chooses urgency: `routine` (flag for the next admin review) or `immediate` (also text the coordinator's phone right now). Overcautious escalation is a real failure mode — operational complexity is the system's job, not Max's.
@@ -63,9 +63,9 @@ Hard rules derived from the compliance doc:
   - Operational: `YES`, `YES N`, `MUTE`, `FLAG`
 - **Exact copy** is required for opt-in confirmation, opt-out confirmation, and the help reply. See the compliance doc §"Required Auto-Responses." The unified agent NEVER drafts these — they are sent verbatim by the deterministic hotkey path. Updating the wording requires re-registering the campaign with Telnyx.
 - **`YES` is claim-only, never opt-in.** A `YES` from an unsubscribed or unknown number does NOT subscribe them — it gets the orphan-YES flag-and-reply treatment. New users must text `JOIN` or `START`.
-- **`CANCEL` is context-sensitive — a documented divergence from the campaign language.** The campaign description lists CANCEL among opt-out keywords. Our implementation keeps the legacy farmer-cancel and volunteer-drop meanings *when there is clear context* (the sender is a farmer with an open post they're referencing, or a volunteer whose last outbound was a `CONFIRMATION_REMINDER`). With no context, `CANCEL` falls through to global unsubscribe like `STOP`. **This is a deliberate product decision** to preserve the v1 SMS UX; if a carrier raises it during audit, the answer is "behavior matches user intent in context; ambiguous CANCEL always unsubscribes." Re-evaluate if it ever causes a real complaint.
+- **`CANCEL` is context-sensitive — a documented divergence from the campaign language.** The campaign description lists CANCEL among opt-out keywords. Our implementation keeps the farmer-cancel meaning when the sender is a farmer with open posts, and keeps legacy volunteer-drop behavior only when the sender's last outbound was a `CONFIRMATION_REMINDER`. Reminder copy now asks volunteers for `DROP` to avoid using a carrier opt-out keyword. With no clear context, `CANCEL` falls through to global unsubscribe like `STOP`. **This is a deliberate product decision** to preserve the v1 SMS UX; if a carrier raises it during audit, the answer is "behavior matches user intent in context; ambiguous CANCEL always unsubscribes." Re-evaluate if it ever causes a real complaint.
 - **Frequency disclosure.** Opt-in flow and printed signup must say "Message frequency varies based on farm needs, usually 0–6 messages per week." The unified agent's per-user 48h budget (1 agent-initiated outbound per 48h, not counting scheduled flows the user consented to) is the operational mechanism that keeps us within this band; the budget is configurable but should not be raised without re-evaluating the campaign registration.
-- **All operational alerts include an opt-out path.** Every outbound the agent drafts (confirmation prompts, receipts, review-tick nudges, op-alert SMS) carries either an explicit STOP path or is part of a thread where STOP was offered recently. The deterministic hotkey path is the safety net; agent-drafted prose should still mention STOP where the message is initiating contact or asking for an action.
+- **Initiating operational alerts include an opt-out path.** Broadcast outreach, intro messages, and review-tick nudges to silent users carry STOP copy. Direct in-thread replies, clarifications, confirmation prompts, receipts, and commitment acknowledgments do not repeat STOP; the deterministic hotkey path remains the safety net.
 
 The compliance doc also has a launch checklist (§"Implementation Checklist"). It must be green before the pilot starts.
 
@@ -81,7 +81,8 @@ Compliance-required keywords (see `docs/sms-compliance-requirements.md`):
 
 Product keywords:
 - `MAYBE` — express soft interest, no seat held.
-- `CANCEL` — context-sensitive (see "SMS compliance" above for the divergence note). For volunteers with a recent `CONFIRMATION_REMINDER`: drops a confirmed claim. For farmers with an open post: cancels it. With no context: behaves like `STOP`.
+- `DROP` — volunteer-only: drops a confirmed claim when replying to a recent `CONFIRMATION_REMINDER`.
+- `CANCEL` — context-sensitive (see "SMS compliance" above for the divergence note). For farmers with open posts: cancels or asks which post to cancel. For volunteers with a recent `CONFIRMATION_REMINDER`: legacy synonym for `DROP`. With no context: behaves like `STOP`.
 - `STOP {activity}` — mute an activity type.
 - `STOP {farm name}` — mute a specific farm.
 - `UNAVAILABLE {window}` — silence everything during a window.
@@ -94,8 +95,8 @@ Refactor-introduced keywords (see `docs/refactor-unified-agent.md`):
 - `RESUME` — undo `PAUSE`.
 
 Confirmation tokens (drafted by the unified agent per action; not a fixed vocabulary):
-- Tokens are 5–8 uppercase alphanumeric, no hyphens, must not collide with any keyword above.
-- Examples the agent might pick: `CONFIRM`, `DROP`, `EDITOK`, `ADDSAT`, `OFFER`, `DROPOPP`.
+- The default confirmation token is `YES`. Specific tokens are exactly 4 uppercase letters, no digits or hyphens, and must not collide with any keyword above.
+- Examples the agent might pick when `YES` would be ambiguous: `EDIT`, `POST`, `CANC`, `MABE`, `OFFR`, `LIKE`.
 - Affirmative variants (`yes`, `ok`, `sure`, `confirm`, `go ahead`) are accepted as a token match for a live `PENDING_CONFIRMATION`. Receipt rail catches mis-resolution.
 
 ## Stack
@@ -122,13 +123,14 @@ Confirmation tokens (drafted by the unified agent per action; not a fixed vocabu
   - `users` (phone-indexed; includes onboarding-captured availability)
   - `farms` (owned by a farmer user; includes onboarding-captured defaults like `typical_start_hour`, `typical_shift_duration_min`)
   - `farms/{farmId}/insiders` (subcollection: volunteer_id, added_at)
-  - `opportunities` (kind: shift | pickup; status: draft | open | filling | full | completed | cancelled | expired; tracks `post_event_checkin_at`, `next_escalation_at`, once-per-opp farmer notification flags)
+  - `opportunities` (kind: shift | pickup; status: draft | open | filling | full | completed | cancelled | expired; supports multi-day windows via `window_end_at`, fuzzy `time_of_day_bucket`, `headcount_open`; tracks `post_event_checkin_at`, `next_escalation_at`, once-per-opp farmer notification flags)
   - `opportunities/{oppId}/outreach` (subcollection: per-tier ping log)
-  - `opportunities/{oppId}/claims` (subcollection; tracks `status` ∈ confirmed|interested|waitlist|dropped, plus `confirmation_sent_at` for the pre-event reminder idempotency marker)
+  - `opportunities/{oppId}/claims` (subcollection; tracks `status` ∈ confirmed|proposed|interested|waitlist|dropped, optional `scheduled_for_at` for window claims, plus `confirmation_sent_at` for the pre-event reminder idempotency marker)
   - `mute_rules` (volunteer_id, dimension, value)
-  - `messages` (direction, body, `intent_label`, confidence, user_id, opportunity_id, provider_msg_id) — TTL purge after 90 days unless flagged. `intent_label` on *outbound* messages is load-bearing: `POST_EVENT_CHECKIN` and `CONFIRMATION_REMINDER` let inbound dispatch route Y/N and CANCEL replies correctly without substring-matching the body.
+  - `messages` (direction, body, `intent_label`, confidence, user_id, opportunity_id, provider_msg_id) — TTL purge after 90 days unless flagged. `intent_label` on *outbound* messages is load-bearing: `POST_EVENT_CHECKIN` and `CONFIRMATION_REMINDER` let inbound dispatch route Y/N and DROP/CANCEL reminder replies correctly without substring-matching the body.
   - `flags` (message_id, flagged_by, reason, resolved_at). An open flag for a user pauses LLM auto-replies on their thread.
   - `offers` (volunteer-initiated offers of help: activity tags, time window, status, optional matched_opportunity_id). Added by the unified-agent refactor.
+  - `opportunities/{oppId}/post_event_pings` (sidecar for one post-event check-in per actual worked day on window opportunities)
   - `pending_users` (JOIN requests + farmer nominations awaiting admin approval)
 
 - **Scheduled functions** (all in `main.py`, all Cloud Scheduler-driven). Each tick gates on quiet hours at its entry point — if it's 11pm–7am Vashon, the tick no-ops and the next run catches up. Full table in `docs/architecture.md`.

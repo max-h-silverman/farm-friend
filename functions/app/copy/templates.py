@@ -165,8 +165,8 @@ def render_join_pending_admin_note() -> str:
 def render_confirmation_reminder_shift(
     *, farm_name: str, activity: str, when_human: str
 ) -> str:
-    # Token here is DROP (not CANCEL — CANCEL is a compliance opt-out keyword).
-    # The CONFIRMATION_REMINDER outbound's pending_action.token must match.
+    # DROP is a deterministic reminder-reply hotkey. We avoid CANCEL here
+    # because CANCEL is a carrier opt-out keyword.
     return (
         f"Farm Friend Vashon: Reminder — you're scheduled to help with {activity} "
         f"at {farm_name} {when_human}. Reply DROP if you can't make it."
@@ -366,11 +366,11 @@ def render_proposal_auto_confirmed_to_farmer(
     *, volunteer_name: str, day_human: str, opp_summary: str
 ) -> str:
     """Farmer sees this when a proposal auto-confirmed because they didn't
-    decide in time. Offers a forward exit (DROP) rather than UNDO."""
+    decide in time."""
     return (
         f"Farm Friend Vashon: auto-accepted {volunteer_name} for "
         f"{day_human} on your {opp_summary} — you didn't reply in time. "
-        f"Reply CANCEL if you need to undo."
+        f"Text Max if you need to reverse it."
     )
 
 

@@ -154,29 +154,13 @@ def resolve_proposal_token(
         ref_opp = opportunities_repo.get_by_id(opp_id)
         if ref_opp is None:
             continue
-        # Look up by claim_doc_id directly using the repo's internal API.
-        # The composite-ID helper exposes this implicitly.
-        claim_snap = _get_claim_by_doc_id(opp_id=opp_id, claim_doc_id=claim_doc_id)
+        claim_snap = opportunities_repo.get_claim_by_doc_id(
+            opp_id=opp_id, claim_doc_id=claim_doc_id,
+        )
         if claim_snap is None or claim_snap.status != ClaimStatus.PROPOSED:
             continue
         return payload
     return None
-
-
-def _get_claim_by_doc_id(*, opp_id: str, claim_doc_id: str) -> ClaimDoc | None:
-    """Direct doc-id lookup. Bypasses the (volunteer_user_id, scheduled_for_at)
-    composition because we already have the full doc id from the persisted
-    pending_action payload."""
-    from app.firebase_app import db
-    from app.repos._base import snapshot_to_model
-    snap = (
-        db.collection("opportunities")
-        .document(opp_id)
-        .collection("claims")
-        .document(claim_doc_id)
-        .get()
-    )
-    return snapshot_to_model(snap, ClaimDoc)
 
 
 def handle_farmer_decision(

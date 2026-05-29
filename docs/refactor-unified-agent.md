@@ -37,9 +37,9 @@ These principles override the rest of the plan if they conflict.
 
 - **Hotkey parser** gains `START`, `UNSUBSCRIBE`, `END`, `QUIT`, `INFO` as deterministic synonyms (handled before any LLM call).
 - **Agent never drafts opt-in/opt-out/help copy.** Those three messages are deterministic templates rendered by the hotkey path. The agent's `mode="reply"` and `mode="confirm"` outputs cover everything else.
-- **Every agent-drafted outbound** must include "Farm Friend Vashon" program-name prefix and an opt-out hint where the message is initiating contact or asking for an action. Enforced in the prompt; spot-checked in eval.
-- **`CANCEL` is context-sensitive** with a documented divergence from the campaign description (see CLAUDE.md §"SMS compliance"). The agent does NOT draft a `CANCEL` token for any confirmation — it picks something distinctive like `DROPOPP` for farmer-cancels and `DROP` for volunteer-drops. The hotkey parser handles the divergence routing.
-- **Confirmation reminder copy** changes from "reply CANCEL if you can't make it" to "reply DROP if you can't make it" as part of the refactor — the `CONFIRMATION_REMINDER` outbound stamps `pending_action.token = "DROP"`.
+- **Agent-drafted initiating outbounds** must include the "Farm Friend Vashon" program-name prefix and an opt-out hint. Direct in-thread replies, clarifications, confirmation prompts, receipts, and commitment acknowledgments do not repeat STOP. Enforced in the prompt; spot-checked in eval.
+- **`CANCEL` is context-sensitive** with a documented divergence from the campaign description (see CLAUDE.md §"SMS compliance"). The agent does NOT draft `CANCEL` or `DROP` as confirmation tokens. `CANCEL` is reserved for context-sensitive farmer cancel / ambiguous unsubscribe, and `DROP` is reserved for reminder replies.
+- **Confirmation reminder copy** changes from "reply CANCEL if you can't make it" to "reply DROP if you can't make it" as part of the refactor. `DROP` is a deterministic hotkey routed only when the last outbound was a `CONFIRMATION_REMINDER`; legacy reminder-context `CANCEL` still works, while ambiguous `CANCEL` unsubscribes.
 - **Anti-spam mute** is `PAUSE` / `RESUME`, not `QUIET` / `LOUD`. Avoids collision with `QUIT` (which is now a global unsubscribe per compliance).
 
 ## Prior decisions kept as-is
@@ -75,7 +75,7 @@ All other code in `flows/` stays. The unified agent emits structured outputs tha
 
 Minimal additions. Each is justified by a flow that doesn't work without it.
 
-1. **`MessageDoc.pending_action: dict | None`** — set only on outbound messages with `intent_label == PENDING_CONFIRMATION`. Contains: `{"action": "<name>", "token": "<5–8 char uppercase>", "payload": {...}, "expires_at": <iso>}`. Used by dispatch to execute the action when a matching reply arrives. No new collection: one pending action per user thread is enough (the most recent outbound `PENDING_CONFIRMATION` is the live one).
+1. **`MessageDoc.pending_action: dict | None`** — set on outbound messages with `intent_label == PENDING_CONFIRMATION`, and also on proposal notifications that need a token-to-claim reference. For agent confirmations it contains: `{"action": "<name>", "token": "YES or <4 uppercase letters>", "payload": {...}, "expires_at": <iso>}`. Used by dispatch to execute the action when a matching reply arrives. No new collection: one pending action per user thread is enough for normal confirmations.
 
 2. **`MessageDoc.executed_action: dict | None`** — set only on outbound receipt messages (`intent_label == ACTION_RECEIPT`). Contains: `{"action": "<name>", "payload": {...}, "executed_at": <iso>, "undo_token": "UNDO"}`. Used to implement the 5-minute UNDO window. Lookup: dispatch reads the most recent outbound for the user; if it's an `ACTION_RECEIPT` within 5 min, an inbound `UNDO` reverses it.
 
@@ -151,7 +151,7 @@ Pure data, no callbacks. Keeps the agent deterministic given input.
 class AgentOutput(BaseModel):
     mode: Literal["reply", "confirm", "execute", "clarify", "escalate"]
     reply_text: str = ""                 # the SMS body to send
-    confirmation_token: str | None = None  # required iff mode == "confirm"; regex ^[A-Z][A-Z0-9]{4,7}$
+    confirmation_token: str | None = None  # required iff mode == "confirm"; "YES" or regex ^[A-Z]{4}$
     action: ActionSpec | None = None     # required iff mode in ("confirm", "execute")
     clarification_for: dict | None = None  # optional state to carry into next turn for clarify mode
     escalation: EscalationSpec | None = None  # required iff mode == "escalate"
@@ -241,7 +241,7 @@ The receipt rail is what makes the affirmative-variant acceptance safe.
 
 Reversible actions: `claim_opportunity` (drop), `drop_confirmed_claim` (re-claim if seat still open, else flag), `record_maybe` (delete the INTERESTED record), `set_availability` (revert via stored prior value in the receipt payload), `set_activity_preferences` (revert), `record_offer` (mark cancelled), `add_mute_rule` (remove), `edit_opportunity` (revert via prior values in receipt payload).
 
-Irreversible / best-effort actions: `cancel_opportunity` (already fanned out — UNDO restores the opp to OPEN and sends "never mind" to the volunteers; receipt's executed_at + the fan-out log let us message the right set), `create_opportunity` (UNDO sets status to CANCELLED, fan-outs already sent get a "never mind"), `acknowledge_post_event` (no real-world side effect to undo; just allows re-answering).
+Irreversible / best-effort actions: `cancel_opportunity`, `create_opportunity`, and `edit_opportunity` already fan out to volunteers, so production currently replies that they cannot be auto-undone and asks the user to text Max if reversal is needed. `acknowledge_post_event` has no meaningful real-world undo.
 
 Receipts always include enough payload to reverse. If reverse isn't safely possible, the receipt says "UNDO within 5 min" only when it actually is.
 
@@ -250,9 +250,9 @@ Receipts always include enough payload to reverse. If reverse isn't safely possi
 One prompt: `app/prompts/agent.md`. Structure (kept tight — duplicated text inflates Sonnet cost on every call):
 
 1. **Role.** "You are the Farm Friend coordinator agent…"
-2. **Hard rules** (six, in order): no fabrication; no direct writes; every state change goes through a confirmation token; tokens are 5–8 uppercase alphanumeric, no hyphens; receipts are always sent on execute; escalate only for the narrow human-risk triggers.
+2. **Hard rules** (six, in order): no fabrication; no direct writes; every state change goes through a confirmation token; tokens are `YES` by default or exact 4-letter uppercase strings when needed; receipts are always sent on execute; escalate only for the narrow human-risk triggers.
 3. **Output modes** and when to use each.
-4. **Token rules.** Pick a context-appropriate short token. Generic `CONFIRM` is allowed but action-specific tokens (`CANCEL`, `DROP`, `EDITOK`, `ADDSAT`, `OFFER`, `SWAPOK`) are clearer. Tokens must not collide with hotkeys (`STOP`, `HELP`, `JOIN`, `FLAG`, `YES`, `MAYBE`, `MUTE`, `STATUS`).
+4. **Token rules.** Default to `YES`. Use a specific token only when `YES` would be confusing. Specific tokens are exactly 4 uppercase letters and must not collide with hotkeys or affirmatives (`STOP`, `QUIT`, `CANCEL`, `DROP`, `HELP`, `INFO`, `JOIN`, `FLAG`, `YES`, `MAYBE`, `MUTE`, `STATUS`, `OKAY`, `SURE`, etc.).
 5. **Resolution rules.** Unique match → resolve silently (terse readback in the confirmation). Multiple matches → clarify first. No match → ask, don't guess.
 6. **Inference policy.** Typos can be read through; the confirmation prose must name the date/farm/etc. so the user catches a misread. Unknown activity slugs → flag in the rationale, ask the user.
 7. **The two roles** (farmer / volunteer) and what each can do. Cross-references to the action names.

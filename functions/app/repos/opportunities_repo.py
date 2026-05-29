@@ -212,6 +212,28 @@ def list_window_opps_in_progress(*, now: datetime) -> list[OpportunityDoc]:
     return out
 
 
+def list_upcoming_window_opps(*, now: datetime) -> list[OpportunityDoc]:
+    """Window opps whose first day is still in the future.
+
+    Used by the proposal auto-confirm tick: PROPOSED claims can age before the
+    first day of the window starts, so the in-progress query is not enough.
+    """
+    q = (
+        db.collection(COLLECTION)
+        .where("kind", "==", OpportunityKind.SHIFT.value)
+        .where("starts_at", ">=", now)
+    )
+    out: list[OpportunityDoc] = []
+    for snap in q.stream():
+        if not snap.exists:
+            continue
+        opp = snapshot_to_model(snap, OpportunityDoc)
+        if opp is None or opp.window_end_at is None:
+            continue
+        out.append(opp)
+    return out
+
+
 def list_open_for_farm(farm_id: str) -> list[OpportunityDoc]:
     """Open + filling opportunities for a farm. Used by STATUS / EDIT / CANCEL
     handlers to enumerate what the farmer might be referring to."""
@@ -370,6 +392,18 @@ def get_claim(
         .document(opp_id)
         .collection(CLAIMS_SUB)
         .document(doc_id)
+        .get()
+    )
+    return snapshot_to_model(snap, ClaimDoc)
+
+
+def get_claim_by_doc_id(*, opp_id: str, claim_doc_id: str) -> ClaimDoc | None:
+    """Fetch a claim when the caller already has the exact subcollection doc id."""
+    snap = (
+        db.collection(COLLECTION)
+        .document(opp_id)
+        .collection(CLAIMS_SUB)
+        .document(claim_doc_id)
         .get()
     )
     return snapshot_to_model(snap, ClaimDoc)

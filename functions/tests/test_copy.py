@@ -188,6 +188,16 @@ def test_confirmation_reminder_uses_DROP_not_CANCEL() -> None:
     assert "STOP" not in body
 
 
+def test_auto_confirm_notice_does_not_use_cancel_for_reversal() -> None:
+    body = templates.render_proposal_auto_confirmed_to_farmer(
+        volunteer_name="Alex",
+        day_human="Wed 6/3 morning",
+        opp_summary="weeding window",
+    )
+    assert "CANCEL" not in body
+    assert "Text Max" in body
+
+
 def test_intro_volunteer_uses_program_name_vashon() -> None:
     body = templates.render_intro_volunteer(name="Alex", vcard_url="https://x.test/v.vcf")
     assert "Farm Friend Vashon" in body

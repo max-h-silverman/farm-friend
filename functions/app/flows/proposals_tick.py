@@ -53,35 +53,13 @@ def run_proposals_tick(*, messaging: MessagingProvider | None = None) -> None:
     # proposals may already be aging — list_in_progress only returns those
     # whose first day has started. PROPOSED claims on a Friday opp will start
     # accumulating on Wednesday; pick those up via a separate query.
-    upcoming = _list_upcoming_window_opps(now=now)
+    upcoming = opportunities_repo.list_upcoming_window_opps(now=now)
     seen_ids: set[str] = set()
     for opp in list(in_progress) + list(upcoming):
         if opp.id is None or opp.id in seen_ids:
             continue
         seen_ids.add(opp.id)
         _process_opp(opp=opp, now=now, settings=settings, messaging=m)
-
-
-def _list_upcoming_window_opps(*, now: datetime) -> list[OpportunityDoc]:
-    """Window opps whose first day is still in the future. Repo-layer query
-    inlined here because it's tick-specific and small."""
-    from app.firebase_app import db
-    from app.repos._base import snapshot_to_model
-    from app.repos.models import OpportunityKind
-    q = (
-        db.collection("opportunities")
-        .where("kind", "==", OpportunityKind.SHIFT.value)
-        .where("starts_at", ">=", now)
-    )
-    out: list[OpportunityDoc] = []
-    for snap in q.stream():
-        if not snap.exists:
-            continue
-        opp = snapshot_to_model(snap, OpportunityDoc)
-        if opp is None or opp.window_end_at is None:
-            continue
-        out.append(opp)
-    return out
 
 
 def _process_opp(

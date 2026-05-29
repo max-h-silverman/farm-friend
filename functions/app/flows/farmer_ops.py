@@ -263,11 +263,10 @@ def notify_first_claim_if_unsent(
     assert opp.id is not None
     if opp.farmer_notified_first_claim or farmer_phone is None:
         return
-    new_filled = opp.seats_filled + 1
     body = templates.render_first_claim(
         opp_summary=opp_short_summary(opp),
         volunteer_name=volunteer_name,
-        filled=new_filled,
+        filled=opp.seats_filled,
         headcount=opp.headcount_needed,
     )
     safe_send(messaging, to_phone=farmer_phone, body=body)

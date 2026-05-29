@@ -18,7 +18,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from app.copy import templates
-from app.firebase_app import db
 from app.flows import _time
 from app.flows._time import format_day_and_range, format_deadline
 from app.messaging import MessagingProvider, get_messaging_provider

@@ -93,6 +93,7 @@ class IntentLabel(StrEnum):
     INSIDER = "INSIDER"
     STATUS = "STATUS"          # farmer-only: snapshot of open opps
     CANCEL = "CANCEL"          # context-sensitive; see CLAUDE.md §SMS compliance
+    DROP = "DROP"              # volunteer-only: drop a claim after reminder context
     # --- Refactor-introduced hotkey intents ---
     UNDO = "UNDO"              # reverse the last agent-executed action (5-min window)
     PAUSE = "PAUSE"            # 14-day mute on agent-initiated nudges
@@ -293,8 +294,8 @@ class ClaimDoc(BaseModel):
     claimed_at: datetime
     status: ClaimStatus
     # Set when the pre-event confirmation reminder is sent. Used by the
-    # confirmation tick to avoid double-pinging and to scope the CANCEL
-    # hotkey window (a recent reminder means CANCEL targets this claim).
+    # confirmation tick to avoid double-pinging and to scope the DROP hotkey
+    # window (a recent reminder means DROP targets this claim).
     confirmation_sent_at: datetime | None = None
     # For window opps: the specific day this claim is for, with time-of-day
     # inherited from the opp. None on single-day opps (derive from opp.starts_at).
@@ -323,7 +324,7 @@ class MessageDoc(BaseModel):
     # --- Refactor-introduced fields (unified agent) ---
     # On outbounds with intent_label == PENDING_CONFIRMATION: the action drafted
     # by the agent awaiting user confirmation. Shape:
-    #   {"action": "<name>", "token": "<5–8 uppercase>", "payload": {...},
+    #   {"action": "<name>", "token": "YES or <4 uppercase>", "payload": {...},
     #    "expires_at": <iso datetime>}
     pending_action: dict | None = None
     # On outbounds with intent_label == ACTION_RECEIPT: the action that was
