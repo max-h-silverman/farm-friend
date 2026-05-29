@@ -17,12 +17,16 @@ def test_volunteer_intro_mentions_volunteer_actions() -> None:
     body = templates.render_intro_volunteer(name="Alex", vcard_url="https://x.test/v.vcf")
     assert "Alex" in body
     assert "YES" in body
+    assert "days/times" in body
+    assert "rough answers are fine" in body
     assert "STOP" in body
 
 
 def test_farmer_intro_mentions_farmer_actions() -> None:
     body = templates.render_intro_farmer(name="Iris", vcard_url="https://x.test/v.vcf")
     assert "Iris" in body
+    assert "More detail helps" in body
+    assert "day(s), time, length, people needed, and work type" in body
     assert "STATUS" in body
     assert "CANCEL" in body
     assert "STOP" in body

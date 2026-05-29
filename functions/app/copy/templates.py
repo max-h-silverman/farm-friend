@@ -40,8 +40,9 @@ def render_help(*, is_farmer: bool = False) -> str:
 def render_intro_volunteer(*, name: str, vcard_url: str) -> str:
     return (
         f"Hi {name} — Farm Friend Vashon here, the volunteer coordinator for "
-        f"Vashon farms. Save us as a contact: {vcard_url}\n"
-        f"We'll text when a farm needs help. Reply YES to claim, MAYBE if uncertain, MUTE to skip. "
+        f"Vashon farms. Save us: {vcard_url}\n"
+        f"We'll text when farms need help. YES claims, MAYBE if unsure, MUTE skips. "
+        f"You can text days/times or work that fits. More detail helps, but rough answers are fine. "
         f"HELP for commands, STOP to opt out."
     )
 
@@ -50,8 +51,10 @@ def render_intro_farmer(*, name: str, vcard_url: str) -> str:
     return (
         f"Hi {name} — Farm Friend Vashon here. Text us when you need volunteers and "
         f"we'll handle outreach.\n"
-        f"Save us as a contact: {vcard_url}\n"
-        f"Post in plain English (e.g. \"need 2 ppl tomorrow 10am to harvest greens\"). "
+        f"Save us: {vcard_url}\n"
+        f"Post in plain English. More detail helps, but rough is OK: "
+        f"day(s), time, length, people needed, and work type "
+        f"(e.g. \"need 2 ppl tomorrow 10am for 3 hrs harvest\"). "
         f"STATUS, EDIT, CANCEL, HELP. STOP to opt out."
     )
 
