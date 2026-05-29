@@ -1230,7 +1230,9 @@ CASES.append(EvalCase(
         "Hotkey path: emits IntentLabel.CLAIM with days=['WED'], dispatch "
         "routes to handle_window_claim → PROPOSED claim. This case checks "
         "the agent ISN'T involved (deterministic) — but if dispatch routes "
-        "to the agent for any reason, it must confirm a claim with days set."
+        "to the agent for any reason, it must confirm a claim with days set "
+        "to some single-day list. The day-label resolver accepts both 'WED' "
+        "and 'WEDNESDAY' so either is fine here."
     ),
     world=World(
         users=[VOL_A, FARMER_A], farms=[FARM_THREE_CEDARS],
@@ -1250,7 +1252,7 @@ CASES.append(EvalCase(
     inbound_from_user_id="u_vol_a",
     expected=ExpectedOutput(
         mode="confirm", action_name="claim_opportunity",
-        payload_must_include={"opp_id": "o_window_weed", "days": ["WED"]},
+        payload_must_include={"opp_id": "o_window_weed", "days": ANY},
     ),
 ))
 

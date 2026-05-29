@@ -415,9 +415,9 @@ def simulate_review_tick(
 def _build_board_from_world(world: World):
     """Construct a BoardState from a case's World. Open opps + open offers +
     upcoming confirmations + stalled threads."""
-    from app.agent.unified import BoardState, ClaimSummary, OffSummary  # type: ignore
-    # OffSummary doesn't exist — it's OfferSummary.
-    from app.agent.unified import OfferSummary, OppSummary
+    from app.agent.unified import (
+        BoardState, ClaimSummary, OfferSummary, OppSummary,
+    )
     farms_by_id = {f.id: f for f in world.farms}
     users_by_id = {u.id: u for u in world.users}
 

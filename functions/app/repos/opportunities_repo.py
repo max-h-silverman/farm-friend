@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -21,9 +22,24 @@ from .models import (
 )
 
 
+log = logging.getLogger(__name__)
+
+
 COLLECTION = "opportunities"
 OUTREACH_SUB = "outreach"
 CLAIMS_SUB = "claims"
+
+
+def _parent_exists(opp_id: str) -> bool:
+    """True iff the opportunity doc actually exists.
+
+    Used as a guard before subcollection writes so we don't create phantom
+    parents — docs that have no fields but hold a path because a child was
+    written under them. Phantoms show up in the Firebase console as italic
+    `(missing)` entries and pollute collection listings; they also slip
+    past `.stream()` queries in some SDK versions.
+    """
+    return db.collection(COLLECTION).document(opp_id).get().exists
 
 
 def _claim_doc_id(*, volunteer_user_id: str, scheduled_for_at: datetime | None) -> str:
@@ -292,6 +308,14 @@ def list_unfilled_started(*, now: datetime) -> list[OpportunityDoc]:
 # Outreach log
 # ---------------------------------------------------------------------------
 def log_outreach(*, opp_id: str, entry: OutreachLogDoc) -> None:
+    """Append an outreach-log entry. No-ops with a warning if the parent
+    opportunity doc no longer exists (prevents phantom-parent creation —
+    see `_parent_exists`)."""
+    if not _parent_exists(opp_id):
+        log.warning(
+            "log_outreach skipped: parent opportunity %s does not exist", opp_id,
+        )
+        return
     ref = db.collection(COLLECTION).document(opp_id).collection(OUTREACH_SUB).document()
     ref.set(model_to_dict(entry))
 
@@ -306,7 +330,16 @@ def list_outreach(opp_id: str) -> list[OutreachLogDoc]:
 # ---------------------------------------------------------------------------
 def upsert_claim(*, opp_id: str, claim: ClaimDoc) -> None:
     """Write a claim doc. Doc id derives from (volunteer_user_id, scheduled_for_at)
-    via _claim_doc_id so window-opp claims for different days coexist."""
+    via _claim_doc_id so window-opp claims for different days coexist.
+
+    No-ops with a warning if the parent opportunity doc no longer exists
+    (prevents phantom-parent creation — see `_parent_exists`).
+    """
+    if not _parent_exists(opp_id):
+        log.warning(
+            "upsert_claim skipped: parent opportunity %s does not exist", opp_id,
+        )
+        return
     doc_id = _claim_doc_id(
         volunteer_user_id=claim.volunteer_user_id,
         scheduled_for_at=claim.scheduled_for_at,

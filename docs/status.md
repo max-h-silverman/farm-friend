@@ -1,0 +1,98 @@
+# Farm Friend — Status log
+
+The running narrative of what's been built, what was just fixed, and what's been deferred. Dated entries; newest at top. Companion to `CLAUDE.md` (orientation), `docs/next-steps.md` (punch list), and `docs/architecture.md` (invariants).
+
+## Status (as of 2026-05-27)
+
+**v1 codebase is built and deployed.** All Firebase functions, Firestore data model, admin SPA, and SMS pipeline are live in the `farm-friend-vashon` project. End-to-end smoke test confirmed: an inbound farmer SMS gets parsed (now by the unified agent), persists as an `Opportunity`, and the admin SPA picks it up in real time.
+
+**v1.1 — post-refactor hardening + OSS LLM swap (in progress, 2026-05-27):** a fresh architectural review on top of the unified-agent refactor surfaced a small set of fixes that all landed in the same session:
+- SMS-compliance template drift fixed (`render_intro_*`, `render_orphan_yes`, `render_fallback_ambiguous` now carry "Farm Friend Vashon" + STOP path; unknown-sender JOIN ack now persists an outbound MessageDoc for audit).
+- Dead/stale code removed: `classifier_confidence_threshold`, `MessageDoc.confidence`, unused `IntentLabel.YES` / `IntentLabel.EDIT`, stale "classifier"/"ambiguous"/"four-branch" comments throughout.
+- `_apply_farm_defaults` is now actually called from dispatch (`_execute_create_opportunity` and `_execute_update_draft_opportunity`) as the docstring always claimed — fills `duration_min` from `typical_shift_duration_min` when the farmer didn't specify, never fills required fields.
+- Headcount-up edits past `seats_filled` now call `set_next_escalation` so the existing tick re-pings the pool (`farmer_ops.apply_edit`).
+- Stale-draft tick uses `last_updated_at` (auto-bumped on every `update_fields` write) as the staleness clock so a live clarification mid-dialog doesn't get flagged. `last_updated_at` is a new optional field on `OpportunityDoc`; legacy drafts without it fall back to `created_at`.
+- Clarification-streak counter is now derived by walking the message stream (`_consecutive_clarify_count`) rather than read off the latest outbound's `clarification_round` field — robust to non-CLARIFY outbounds sitting between two CLARIFY turns.
+- Dead `if mutes_repo.is_muted(...): pass` branch removed from `board_review._route_review_proposals` (the agent_nudge mute check is the real one).
+- **LLM default is now an OSS model:** Llama 3.3 70B Instruct on DeepInfra (`LLM_PROVIDER=openai-compatible`, `LLM_BASE_URL=https://api.deepinfra.com/v1/openai`). Anthropic Sonnet 4.6 is still selectable by setting `LLM_PROVIDER=anthropic`. **Eval gate cleared 2026-05-27:** the live `--live` run against DeepInfra hits 53/54 deterministically; the single flake (`reg.farmer.cancel.unique_match`) passes on re-run in isolation — same intermittent behavior the Sonnet 4.6 baseline showed. Pass-rate parity with the Anthropic baseline achieved.
+- **Three things were needed to get there**, all worth knowing for a future provider swap:
+  - **Adapter quirk for DeepInfra:** `response_format=json_schema` is accepted by the API but not actually enforced — Llama writes prose anyway. The adapter (`openai_compat_adapter.py`) now detects `deepinfra` in the base URL and skips straight to `json_object` + schema-in-system-prompt. Other OpenAI-compatible providers that honor `json_schema` (OpenAI proper, vLLM with guided_json) keep the fast path. There's also a `LLM_FORCE_JSON_OBJECT=1` env override for any provider that needs the same treatment.
+  - **Prompt round (`prompts/agent.md`):** added "Rule 0: Default to asking, not acting" at the top of the system prompt with 7 worked examples covering the exact failure modes (polite-decline, missing-time, crop-name-no-activity, headcount-down hard-block, unknown-activity-slug, affirmative-to-clarify, volunteer-offer-as-question). Tightened token-length rule with character counts and good/bad examples.
+  - **Server-side over-confirm backstop** (`_route_agent_output` + `_agent_overconfirm_reason` in `message_dispatch.py`): when the agent emits `mode=confirm + action=create_opportunity` with self-incriminating `parse_notes` ("default", "inferred", "typical") OR with `starts_at` filled but no clock-time signal in the inbound OR with a canonical activity slug populated but no activity word in the inbound, dispatch downgrades to `mode=clarify` and flags for admin. Scoped to `create_opportunity` only — `update_draft_opportunity` legitimately carries fields forward from the draft. Eval runner mirrors this so eval results reflect what real users see.
+
+96/96 unit tests pass and the OSS path is eval-green. Cutover is unblocked.
+
+**Additional tuning since cutover (2026-05-28):**
+- **Tone/voice in `agent.md`:** Rule 0 expanded to 9 worked examples (added under-floor offer signals and the fabrication-on-empty-claims case). Style guide split into farmer-side direct vs. volunteer-side open-invitation voicing — volunteers get warm "open to anything, or something specific?" framing, not intake-form prose. Bias against process narration ("I'll check…", "Let me look…") with worked good/bad pairs.
+- **Time-based context window:** `_build_agent_context` now passes the last 24h of messages (hard cap 20) via `messages_repo.list_for_user_since`, instead of the prior hardcoded last-3. Cluster-coherent for multi-turn dialogs without bleed from older unrelated conversations. Uses existing `(user_id, created_at DESC)` index.
+- **Offer floor is one-clarify-then-record:** under-the-floor offers ("anything this weekend?") now route to a single targeted clarify ("Open to anything, or something specific?") and record on the next turn, rather than dying as a polite reply with no OfferDoc. Explicit farm name alone meets the floor.
+- **`simulate_inbound_sms` has `min_instances=1`** so the admin System Test page doesn't pay the 3-6s cold-start tax. ~$2/mo additional warm-instance cost; combined warm-instance budget across `inbound_sms` + `simulate_inbound_sms` is ~$4/mo.
+- **System Test UI shows animated typing dots** while dispatch is running. Simulator-only — real SMS has no carrier-side typing indicator.
+
+**SMS copy + dispatch fixes (2026-05-28, second session):**
+- **STOP/opt-out removed from in-thread agent replies.** Direct replies, clarifications, confirmations, receipts, and commitment acknowledgments no longer carry "STOP to opt out" — only initiating-contact outbounds (broadcast outreach, intro, review-tick nudges) and the deterministic hotkey path (HELP/STOP/JOIN/FLAG replies) do. Templates updated: `render_orphan_yes`, `render_fallback_ambiguous`, `render_confirmation_reminder_shift`, `render_confirmation_reminder_pickup`. Broadcast templates (`render_shift_outreach`, `render_pickup_outreach`) updated to "Reply YES to confirm, MAYBE if maybe available, MUTE to skip, or STOP to opt out." Agent prompt Rule 5 and style-guide line rewritten to match. Compliance copy (`render_help`, `render_stop_ack`, `render_join_ack`, `render_flag_ack`) untouched — carrier-pinned.
+- **Over-confirm backstop extended.** `_agent_overconfirm_reason` now has three signals (up from two): `parse_notes` self-report; inbound-text-doesn't-justify (time + activity); **and `compute_missing_fields` against farm-defaulted parsed payload**. The third catches the case where the agent emits `mode=confirm` for `create_opportunity` without (e.g.) `headcount_needed` — previously the executor's separate check fired AFTER the user said YES, producing "Missing some details before I can post that: starts_at, headcount_needed" garbage. Now caught pre-confirm and downgraded to a friendly clarify.
+- **Date-range collapse rejected.** New backstop signal `_inbound_has_date_range_signal` catches "monday to friday", "any day", "next week", "weekend", etc. — if `starts_at` is filled from one of those, downgrade to clarify-to-single-day. **This is a stopgap** until multi-day window posts land (see `docs/agent-architecture-rethink.md`); once windows exist, the same phrase is a trigger to set `window_end_at` rather than to clarify.
+- **Friendly clarify copy.** `_clarify_for_overconfirm` now maps internal reason strings to user-facing questions via a field→question map — no more raw schema field names in farmer-facing SMS. Both `_execute_create_opportunity` and `_execute_update_draft_opportunity` route their fallback through the same copy if the backstop ever misses.
+- **Round-2 prompt tightening on non-canonical activity.** Activity decision tree §3 now explicitly handles "any day, prep work" — non-canonical activity word on round-2 maps to `["tbd"]` + verbatim `requirements_text` even when the reply has additional ambiguity on other axes. No more loops asking about activity twice.
+
+**Architecture rethink — planned, not yet implemented (2026-05-28):** Today's bugs (date-range collapse, headcount missed by backstop, garbage executor-rejection copy) exposed a deeper assumption: the system was built expecting precise farmer input. The plan to invert that — accept fuzz as first-class above a Minimum Viable Details floor, herd toward specificity with calibration not interrogation, give the agent a persona (Madison: 40, decade of farm work, manages a home garden, reports to Max) — lives in **`docs/agent-architecture-rethink.md`**. Two stages: (1) multi-day window posts as the canonical fuzz axis (~4 dev days; new `OpportunityDoc.window_end_at` + `time_of_day_bucket` + `headcount_open`, new `ClaimStatus.PROPOSED` with farmer accept/decline gate, new claim grammar `YES MON,WED`, sidecar `post_event_pings` collection, ~12 new eval cases); (2) Madison persona rewrite + prompt rationalization (~1 dev day + eval-tuning). The doc has the full design.
+
+**Unified-agent refactor — shipped, eval-gated, ready for pilot (as of 2026-05-27):** the v1 classifier/ambiguous/parser trio has been replaced by `app/agent/unified.py` (one role-aware agent, one prompt at `app/prompts/agent.md`, structured JSON output) plus a rewritten `_dispatch` in `app/flows/message_dispatch.py`. The reactive path handles inbound messages with token-gated state changes (5-8 char uppercase alphanumeric, no hyphens) and 5-min UNDO via `ACTION_RECEIPT` outbounds. A proactive review path (`tick_agent_review` every 30 min, gated by quiet hours) runs the same agent in review mode and surfaces nudges through deterministic budget filters: per-user 48h budget, per-opp 2-lifetime cap, per-tick global ceiling of 3. Users can `PAUSE` / `RESUME` agent-initiated nudges. The motivating bug — volunteer-initiated "anyone need tilling Friday?" — is now a first-class `record_offer` flow. Plan: `docs/refactor-unified-agent.md`. Eval spec: `functions/tests/evals/cases.py` (50 cases: 16 REGRESSION, 13 NEW_INTENT, 13 ADVERSARIAL, 8 REVIEW). **Live `--live` eval against real Anthropic passes all 42 non-REVIEW cases**; REGRESSION + NEW_INTENT exact-match, ADVERSARIAL behavioral match (with `reply`/`clarify` interchangeable for non-state-changing intents). REVIEW cases are still skipped in the runner — they need the `board_review` integration but that's not on the cutover path. Sonnet 4.6 is mildly non-deterministic — expect 1–2 sporadic JSON-shape flakes per full sweep; re-running the affected case individually almost always passes.
+
+**Recent hardening pass (2026-05-26)** added: transactional claim resolution, inbound webhook idempotency, post-event reschedule on edits, intent-label-based post-event detection, orphan-YES flag-and-reply, **pre-event confirmation reminders + volunteer CANCEL flow**, **quiet hours (11pm–7am Vashon)**, **first-class `ESCALATE` intent with `routine`/`immediate` urgency** that texts the coordinator on urgent triggers. Admin SPA repainted as a dark-mode control panel. See "Coordination + LLM review (2026-05-26)" below for the full list and what's still deferred.
+
+**Blocked on Telnyx A2P 10DLC campaign approval** (submitted 2026-05-25; brand verified within hours, campaign in carrier review; expected to clear within a few days based on the preview showing no MNO Review required).
+
+**Once approval lands**, the remaining work to start the real pilot is small (see `docs/next-steps.md`).
+
+## Coordination + LLM review (2026-05-26) — fixed in this pass
+
+Reference notes for a fresh session: a full review on 2026-05-26 found six high-priority coordination/correctness gaps. All six were fixed in the same session:
+
+1. **Claim races are now transactional.** `opportunities_repo.try_claim_in_transaction()` does the read/decide/seat-increment/status-flip atomically. `claim.handle_claim` calls it; the SMS side-effects (volunteer ack, farmer milestones) fire outside the transaction. Before this, two concurrent `YES` messages on a 1-seat shift could both land as CONFIRMED.
+2. **Editing `starts_at` or `deadline_at` now reschedules `post_event_checkin_at`.** `farmer_ops.apply_edit` recomputes it via `flows._time.post_event_time_for` and clears `post_event_checkin_sent` if the new time is in the future. The helper was lifted out of `message_dispatch.py` into `_time.py` so both the new-post and edit paths share it.
+3. **`YES`/`MAYBE` with no opportunity anchor is no longer silently dropped.** Routes through `_handle_orphan_claim_or_maybe` which flags for admin and replies `render_orphan_yes()`.
+4. **Inbound webhook is idempotent.** `messages_repo.exists_by_provider_msg_id` early-returns from `_dispatch` if Telnyx redelivers. Single-field index — Firestore auto-indexes; no `firestore.indexes.json` change needed.
+5. **Post-event checkin detection uses an intent label, not substring matching.** Outbound checkin SMS is stamped with `IntentLabel.POST_EVENT_CHECKIN`; `_is_post_event_question` reads that field. Reworded copy can no longer break the Y/N routing.
+6. **(Deferred, not in this pass: the LLM consolidation win — see below.)**
+
+## Known issues — current (post-v1.1) deferred list
+
+The 2026-05-26 list is mostly obsolete: the unified-agent refactor superseded the architecture eight of those twelve items were diagnosing. The v1.1 hardening pass on 2026-05-27 resolved three more. What remains, plus new findings from that review:
+
+**Resolved by the unified-agent refactor (2026-05-27):**
+- Two LLM calls per farmer-with-open-opps → single agent call.
+- Parser prompts duplicating each other → single `agent.md`.
+- Classifier confidence miscalibrated / self-reported → no classifier exists.
+- `_looks_like_posting` keyword gate missing laconic postings → agent decides directly.
+- Classifier doesn't see prior INTERESTED claim → agent context includes `sender_open_claims`.
+- `max_tokens` headroom → cleaned up (1024 reactive, 2048 review).
+- Strong-model failures silent → `_dispatch` wraps `run_agent` in try/except → flag + fallback reply.
+
+**Resolved in the v1.1 hardening pass (2026-05-27):**
+- Headcount-up edit doesn't reactivate outreach → `farmer_ops.apply_edit` now calls `set_next_escalation` after FULL→FILLING.
+- Stale-draft tick uses `created_at`, not activity → `OpportunityDoc.last_updated_at` auto-bumped on every `update_fields` write; the tick uses it as the clock with `created_at` fallback for legacy drafts.
+- `flags_repo.is_user_flagged` only mutes the LLM path → in the rewritten `_dispatch`, the FLAG check sits between hotkey routing and agent invocation. Hotkeys (STOP/HELP/etc) still execute on a flagged user, which is intentional (compliance keywords must always work). A deliberate decision worth surfacing: should an open flag also pause `YES`/`MAYBE`/`MUTE`? Current answer is no; revisit if pilot reveals confusion.
+- Clarification-streak counter could under-count when a non-CLARIFY outbound interleaves → now derived by walking the message stream.
+- Dead `mutes_repo.is_muted` branch in board-review proposal routing → removed.
+- Dead/stale identifiers (`classifier_confidence_threshold`, `MessageDoc.confidence`, unused `IntentLabel.YES`/`EDIT`, "classifier" comments) → removed.
+
+**Still real — deferred:**
+- **`INSIDER <phone>` for an existing user skips the admin gate.** `_handle_hotkey` adds the insider link directly when the nominated phone is already a user, but routes unknown phones through `pending_users`. Two paths to the same outcome (one gated, one not) — pick one. Probably route everything through `pending_users` so admin always sees nominations.
+- **`_no_admins_exist()` bootstrap is racy.** Two concurrent `set_admin_claim` calls during first-run both see no admins and both succeed. Wrap in a transactional sentinel doc. Hypothetical at pilot scale.
+- **`_build_agent_context` does an N+1 message read on every inbound.** Reads sender's last 50 messages, then for each unique `opportunity_id` does extra `get_by_id` calls. Fine at pilot scale; revisit if active volunteers with many recent claims become common. Also: the message read happens before the FLAG-pause check, so flagged users still pay the cost — move the FLAG check above the context build for a small win.
+- **`cross_cutting_opps` and the hotkey-path `known_farms` both call `farms_repo.list_all()`** on every inbound. Cache once per request.
+- **`_build_board_state` does `users_repo.list_active()` + per-user `latest_outbound_for_user`.** N+1 on each review tick; replace with a single message-collection query filtered by intent+age, grouped by user. Cost is negligible at pilot scale but worth a single-query rewrite when it gets touched.
+- **Agent prompt read from disk on every call.** `PROMPT_PATH.read_text()` runs inside `run_agent`. Cheap on a warm function (page-cached) but unnecessary. Make it a module-level constant so it's read once at import.
+- **Smoke-test bypass is unconditionally active when both the secret and header match.** Acceptable for pilot per CLAUDE.md note; harden before any wider rollout (gate on a separate `ENABLE_SMOKE_BYPASS` env var that's off in `.env.farm-friend-vashon`, rotate the secret monthly).
+
+## Known limitations / deferred to v2
+
+- **REVIEW eval cases are skipped in the runner.** The 8 REVIEW cases in `functions/tests/evals/cases.py` describe expected behavior for `tick_agent_review` (board-state context, budget filters, proposal ranking), but `runner.simulate_dispatch` doesn't yet build a `BoardState` and call `run_review_agent`. Reactive-path cases (REGRESSION + NEW_INTENT + ADVERSARIAL) are fully covered. Wiring REVIEW is a future eval-coverage task, not a cutover blocker.
+- **No farmer web portal.** Farmers stay on SMS in v1. If the pilot reveals this is a real friction point, add a minimal portal.
+- **No public self-signup page.** All onboarding is coordinator-mediated for the pilot.
+- **No reputation / skill registry.** Replaced by activity-type mutes + farmer free-text requirements. Revisit only if real usage shows mutes aren't expressive enough.
+- **No cost dashboard** in the admin SPA. Telnyx + Firebase + Anthropic each have their own billing UIs; revisit if real spend exceeds budget.
+- **No automated test coverage** for the Firebase-touching layers (repos, flows that hit Firestore, dispatch). Pure-logic layers (hotkeys, copy, llm/client, time) have 48 unit tests. Add emulator-based integration tests if regression bugs start landing on the Firebase paths.
+- **Bypass token in the webhook.** `app/flows/message_dispatch.py` has a smoke-test bypass that skips Telnyx signature verification when `X-Smoke-Test-Token` matches the `SMOKE_TEST_TOKEN` secret. Useful for testing but a real failure mode if the token leaks. Either rotate periodically or gate the bypass on a flag that's off in production. Acceptable for the pilot; remove or harden before any wider rollout.

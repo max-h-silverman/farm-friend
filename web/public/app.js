@@ -90,6 +90,15 @@ window.adminApp = function adminApp() {
       // turns: { kind: "inbound" | "outbound" | "typing" | "error" | "silence",
       //          body, to_phone?, fromLabel? }.
       threads: {},
+      // Clear-DB control state. `clearArmed` toggles the type-to-confirm
+      // input. `clearConfirmInput` holds what the user typed (must equal
+      // "WIPE" before the Wipe button enables). `clearing` shows a busy
+      // indicator while the callable runs. `clearResultMessage` shows
+      // counts on success or an error message on failure.
+      clearArmed: false,
+      clearConfirmInput: "",
+      clearing: false,
+      clearResultMessage: "",
     },
     dayLabels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     expanded: { farmer: null, volunteer: null },
@@ -489,6 +498,41 @@ window.adminApp = function adminApp() {
         thread.push({ kind: "error", body: e?.message || String(e) });
       } finally {
         this.test.runningByUser = { ...this.test.runningByUser, [userId]: false };
+      }
+    },
+
+    async clearTestData() {
+      // Server gates on the literal "WIPE"; the UI gates the button too,
+      // but double-check before calling.
+      if (this.test.clearConfirmInput !== "WIPE") return;
+      this.test.clearing = true;
+      this.test.clearResultMessage = "";
+      try {
+        const call = window.__fb.httpsCallable(this._functions, "clear_test_data");
+        const resp = await call({ confirm: "WIPE" });
+        const d = resp.data?.deleted || {};
+        const parts = [];
+        if (d.opportunities) parts.push(`${d.opportunities} opp`);
+        if (d.opportunities_subcollections) parts.push(`${d.opportunities_subcollections} sub-doc`);
+        if (d.messages) parts.push(`${d.messages} msg`);
+        if (d.offers) parts.push(`${d.offers} offer`);
+        if (d.flags) parts.push(`${d.flags} flag`);
+        const summary = parts.length ? parts.join(", ") : "nothing to delete";
+        this.test.clearResultMessage = `Cleared: ${summary}.`;
+        // Also clear every visible thread so the UI matches the DB.
+        for (const uid of this.test.pinnedUserIds) {
+          this.test.threads[uid] = [];
+        }
+      } catch (e) {
+        this.test.clearResultMessage = `Clear failed: ${e?.message || e}`;
+      } finally {
+        this.test.clearing = false;
+        this.test.clearArmed = false;
+        this.test.clearConfirmInput = "";
+        // Auto-fade the result after 8 seconds so it doesn't linger forever.
+        setTimeout(() => {
+          this.test.clearResultMessage = "";
+        }, 8000);
       }
     },
 

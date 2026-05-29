@@ -336,6 +336,16 @@ class MessageDoc(BaseModel):
     # auto-escalating to admin. Counter resets when the user's reply produces
     # a mode other than clarify.
     clarification_round: int = 0
+    # On outbounds with intent_label == CLARIFY: which MVD axis (or other
+    # ambiguity) the question is about. Used by the clarify-cap streak
+    # counter so a clarify about a DIFFERENT axis doesn't extend the streak
+    # — only consecutive clarifies on the same axis count. None = legacy
+    # outbound or an ambiguity that doesn't map to an axis (e.g. "which opp?").
+    # Axis names match `app.agent.parser.REQUIRED_*_FIELDS`:
+    #   shift: "date", "time", "headcount", "activity"
+    #   pickup: "deadline", "produce", "destination"
+    #   other: "opp_selection", "general"
+    clarify_axis: str | None = None
 
 
 class FlagDoc(BaseModel):

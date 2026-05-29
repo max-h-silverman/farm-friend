@@ -551,6 +551,63 @@ h1, h2, h3 { margin: 0; }
   color: var(--muted);
   font-style: italic;
 }
+
+/* Clear-DB control. Sits below the pinbar; uses the warn palette so it's
+   visually distinct from the harmless "Clear thread" link. */
+.clear-db-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-3) 0;
+  font-size: var(--t-sm);
+}
+.btn-danger-outline {
+  background: transparent;
+  color: var(--warn);
+  border: 1px solid var(--warn);
+  padding: 6px 10px;
+}
+.btn-danger-outline:hover:not(:disabled) {
+  background: var(--warn-soft);
+}
+.btn-danger {
+  background: var(--warn);
+  color: #fff;
+  border: 1px solid var(--warn);
+  padding: 6px 10px;
+}
+.btn-danger:hover:not(:disabled) { filter: brightness(1.1); }
+.btn-danger:disabled,
+.btn-danger-outline:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.clear-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.clear-confirm-label {
+  color: var(--muted);
+}
+.clear-confirm-label code {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--warn);
+  font-weight: 600;
+}
+.clear-confirm-input {
+  width: 100px;
+  font-family: inherit;
+  text-transform: uppercase;
+}
+.clear-result {
+  color: var(--muted);
+  font-style: italic;
+}
 .pin-chip {
   display: inline-flex;
   align-items: center;

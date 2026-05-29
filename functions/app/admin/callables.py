@@ -214,6 +214,102 @@ def set_admin_claim(req: https_fn.CallableRequest) -> dict:
     return {"ok": True, "bootstrap": is_first_admin}
 
 
+@https_fn.on_call()
+def clear_test_data(req: https_fn.CallableRequest) -> dict:
+    """Wipe Firestore collections we use for transient pilot/test state.
+
+    Clears: `opportunities` (including the `outreach`, `claims`, and
+    `post_event_pings` subcollections), `messages`, `offers`, and `flags`.
+    Does NOT touch `users`, `farms`, `farms/{id}/insiders`, `mute_rules`,
+    `pending_users`, or admin claims — those are the configured pilot
+    state we want to preserve across resets.
+
+    The UI requires a type-to-confirm token to discourage accidental clicks
+    (see web/public/app.js → confirmClearDb). The server still authorizes
+    on the admin custom claim and re-checks the confirm token here so
+    a rogue script can't fire without it.
+
+    Implementation lives in `_clear_test_data_impl` so unit tests can call
+    it directly without the Flask-request wrapping the @on_call decorator
+    adds.
+    """
+    _require_admin(req)
+    confirm = (req.data or {}).get("confirm")
+    return _clear_test_data_impl(confirm=confirm)
+
+
+def _clear_test_data_impl(*, confirm: str | None) -> dict:
+    """Body of `clear_test_data`. Validates the confirm token and runs the
+    batch deletes.
+
+    Returns counts of deleted docs per collection.
+
+    NOTE: Firestore has no "delete collection" primitive; we batch through
+    `db.collection(...).stream()` and delete in chunks of 500 (the
+    documented WriteBatch limit). At pilot scale this is a handful of
+    seconds per call; not optimized for large-scale wipes.
+    """
+    if confirm != "WIPE":
+        raise https_fn.HttpsError(
+            https_fn.FunctionsErrorCode.INVALID_ARGUMENT,
+            "Confirmation required: pass confirm='WIPE'",
+        )
+
+    deleted = {
+        "opportunities": 0,
+        "opportunities_subcollections": 0,
+        "messages": 0,
+        "offers": 0,
+        "flags": 0,
+    }
+
+    # Opportunities + their three subcollections. We iterate the parent doc
+    # refs so we can find their subcollection refs by path; deleting a
+    # parent doc does NOT cascade to subcollections in Firestore.
+    #
+    # Use `list_documents()` (not `.stream()`) so we also catch *phantom*
+    # parents — docs that have no fields of their own but were implicitly
+    # created when a subcollection was written under their path. Phantoms
+    # don't appear in `.stream()` but they do show up in the Firebase
+    # console as italic "(missing)" entries, and they're the most common
+    # source of mystery "blank opportunity documents."
+    for opp_ref in db.collection("opportunities").list_documents():
+        for sub_name in ("outreach", "claims", "post_event_pings"):
+            sub_count = _delete_collection(opp_ref.collection(sub_name))
+            deleted["opportunities_subcollections"] += sub_count
+        opp_ref.delete()
+        deleted["opportunities"] += 1
+
+    deleted["messages"] = _delete_collection(db.collection("messages"))
+    deleted["offers"] = _delete_collection(db.collection("offers"))
+    deleted["flags"] = _delete_collection(db.collection("flags"))
+
+    return {"ok": True, "deleted": deleted}
+
+
+def _delete_collection(coll_ref, *, batch_size: int = 500) -> int:
+    """Batch-delete every doc in a collection. Returns count deleted.
+
+    Streams docs and deletes via WriteBatch (max 500 per batch — Firestore's
+    documented limit). Loops until the collection is empty. At pilot scale
+    this terminates quickly; for very large collections it'd need
+    pagination via `start_after` but we don't have that scale.
+    """
+    total = 0
+    while True:
+        batch = db.batch()
+        chunk = list(coll_ref.limit(batch_size).stream())
+        if not chunk:
+            return total
+        for snap in chunk:
+            batch.delete(snap.reference)
+        batch.commit()
+        total += len(chunk)
+        # If we got fewer than batch_size, we're done.
+        if len(chunk) < batch_size:
+            return total
+
+
 @https_fn.on_call(secrets=ALL_SECRETS, min_instances=1)
 def simulate_inbound_sms(req: https_fn.CallableRequest) -> dict:
     """Run an inbound message through the real dispatch pipeline, but reroute

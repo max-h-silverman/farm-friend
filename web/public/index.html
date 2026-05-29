@@ -368,6 +368,42 @@
           </span>
         </div>
 
+        <!-- Clear DB control. Hidden behind a two-click confirm to make
+             accidental wipes hard. Wipes opportunities (+subcollections),
+             messages, offers, flags. Preserves users, farms, mutes. -->
+        <div class="clear-db-bar">
+          <template x-if="!test.clearArmed">
+            <button type="button" class="btn-danger-outline"
+              @click="test.clearArmed = true"
+              :disabled="test.clearing">
+              Clear test data
+            </button>
+          </template>
+          <template x-if="test.clearArmed">
+            <span class="clear-confirm">
+              <span class="clear-confirm-label">
+                Wipes opportunities, messages, offers, flags. Type
+                <code>WIPE</code> to confirm:
+              </span>
+              <input type="text" x-model="test.clearConfirmInput"
+                placeholder="WIPE" class="clear-confirm-input"
+                @keydown.enter="clearTestData()" />
+              <button type="button" class="btn-danger"
+                @click="clearTestData()"
+                :disabled="test.clearConfirmInput !== 'WIPE' || test.clearing"
+                x-text="test.clearing ? 'Clearing…' : 'Wipe'"></button>
+              <button type="button" class="btn-link"
+                @click="test.clearArmed = false; test.clearConfirmInput = ''"
+                :disabled="test.clearing">
+                Cancel
+              </button>
+            </span>
+          </template>
+          <template x-if="test.clearResultMessage">
+            <span class="clear-result" x-text="test.clearResultMessage"></span>
+          </template>
+        </div>
+
         <!-- Multi-thread grid -->
         <template x-if="test.pinnedUserIds.length === 0">
           <p class="section-sub" style="margin-top:1rem">

@@ -128,6 +128,7 @@ def tick_agent_review(event: scheduler_fn.ScheduledEvent) -> None:
 # re-exported here by name so the Firebase deploy tooling sees them.
 from app.admin.callables import (  # noqa: E402
     approve_pending_user,
+    clear_test_data,
     suspend_user,
     resolve_flag,
     set_admin_claim,
@@ -147,6 +148,7 @@ __all__ = [
     "tick_proposals",
     "tick_agent_review",
     "approve_pending_user",
+    "clear_test_data",
     "suspend_user",
     "resolve_flag",
     "set_admin_claim",

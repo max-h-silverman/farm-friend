@@ -1,0 +1,59 @@
+# Farm Friend — Next steps
+
+The source of truth for "what's the next thing to do." Update as state changes — it's what a fresh session needs to read to know where to pick up. Companion to `CLAUDE.md` (orientation), `docs/status.md` (history), and `docs/architecture.md` (invariants).
+
+## Blocked on external (no action needed from us right now)
+
+- [ ] **Telnyx campaign approval.** Submitted 2026-05-25. Brand verified. Carrier preview showed no MNO Review required. Check the Telnyx 10DLC Campaigns dashboard. Expected: hours to a few days.
+
+## Next major build: Architecture rethink — multi-day windows + Madison persona
+
+- [ ] **Stage 1: multi-day window posts (Bug A).** Full design in `docs/agent-architecture-rethink.md`. Roughly 4 dev days. Touches: `OpportunityDoc` (`window_end_at`, `time_of_day_bucket`, `headcount_open`), `ClaimDoc` (`scheduled_for_at`), new `ClaimStatus.PROPOSED`, hotkey grammar (`YES MON,WED`, `ACCEPT`/`DECLINE`), farmer-approval gate flow, new `tick_proposals`, sidecar `post_event_pings` collection for per-day check-ins, admin SPA window display, ~12 new eval cases. The Minimum Viable Details (MVD) framework — time-of-day buckets, date specificity floor, headcount floor, activity floor — is part of Stage 1 because the new prompt examples reference it. Live eval re-run before merge.
+- [ ] **Stage 2: Madison persona + prompt rationalization.** Rewrite `app/prompts/agent.md` with the Madison framing (40, decade of farm experience, home garden, reports to Max). Rewrite Rule 0 as "default to resolving, not to asking." Audit prose-only invariants for code backstops and remove the prose where covered. ~1 dev day plus eval re-tuning. Mostly prompt, almost no code.
+
+## P0 — must land before pilot
+
+- [x] **Unified-agent refactor — code complete.** Files: `app/agent/unified.py`, `app/prompts/agent.md`, `app/flows/board_review.py`, dispatch rewrite in `app/flows/message_dispatch.py`. Retired: `app/agent/classifier.py`, `app/agent/ambiguous.py`, `app/prompts/{classifier,ambiguous,parser,parser_merge,parser_edit}.md`, the LLM-calling functions in `app/agent/parser.py`, `IntentLabel.AMBIGUOUS`, the four-branch fan-out in `_dispatch`, `app/repos/destinations_repo.py` + `DestinationDoc`.
+- [x] **Live eval pass (the cutover gate).** Runner's `--live` branch wires `run_agent` to a real Anthropic `LLMClient` via `_get_live_llm`; `_build_context_from_world` lifts each case's `World` into a real `AgentContext`. Prompt iterated against live output until all 42 non-REVIEW cases pass (REGRESSION + NEW_INTENT exact-match, ADVERSARIAL behavioral match with `reply`/`clarify` interchangeable for non-state-changing intents). REVIEW cases are still skipped in the runner — they need the `board_review` integration (deferred; not blocking cutover). To re-run: `ANTHROPIC_API_KEY=$(firebase functions:secrets:access ANTHROPIC_API_KEY) venv/bin/python -m tests.evals.runner --live` from `functions/`. Sonnet 4.6 is mildly non-deterministic — expect 1–2 sporadic JSON-shape flakes per full run; re-running the affected case individually almost always passes. The runner surfaces provider errors as case failures rather than crashing the suite, so partial-credit runs are still informative.
+- [x] **SMS compliance pass — code complete.** `docs/sms-compliance-requirements.md` is the authoritative spec.
+  - [x] `START`, `UNSUBSCRIBE`, `END`, `QUIT`, `INFO` recognized by `app/agent/hotkeys.py` as deterministic synonyms (`START`→JOIN, `UNSUBSCRIBE/END/QUIT`→STOP, `INFO`→HELP).
+  - [x] `copy/templates.py` opt-in / opt-out / help / FLAG ack templates match the exact compliance text with `Farm Friend Vashon:` prefix. Pinning tests in `tests/test_copy.py` catch any future drift.
+  - [x] Opportunity-alert and confirmation-reminder copy carry the program-name prefix and explicit STOP path. Confirmation reminder uses `DROP` instead of `CANCEL` (CANCEL is a compliance opt-out keyword).
+  - [x] `PAUSE` / `RESUME` hotkeys recognized by the parser. Dispatch creates an `agent_nudge` `MuteRuleDoc` for PAUSE; RESUME removes it.
+  - [x] `CANCEL` context-sensitivity documented in CLAUDE.md §"SMS compliance"; the hotkey path routes accordingly.
+  - [ ] Walk the compliance doc's "Implementation Checklist" §line 297 against the final deployed system before pilot. All items must be checked before any real user gets a JOIN.
+
+## Ready to do once Telnyx campaign is approved
+
+1. [ ] Get the real Telnyx `from`-number (the 10DLC number you provisioned).
+2. [ ] Update `functions/.env.farm-friend-vashon` — change `TELNYX_FROM_NUMBER=+15555550100` to the real number.
+3. [ ] Update `web/public/farmfriend.vcf` — replace the placeholder `+15555550100` on the `TEL` line with the real number.
+4. [ ] `firebase deploy` to push both updates.
+5. [ ] In Telnyx Mission Control → Messaging → your profile, configure the **inbound webhook** to `https://us-west1-farm-friend-vashon.cloudfunctions.net/inbound_sms`.
+6. [ ] Re-run the end-to-end smoke test, this time with a *real* phone number for the volunteer (your own second number or a Google Voice line). Verify the volunteer actually receives the outbound SMS.
+
+## OSS LLM swap — done, deploy at any time
+
+The adapter is wired, defaults are set, the live eval cleared 53/54 deterministically (1 flake same shape as Sonnet 4.6's). To take it live: just `firebase deploy`. The DeepInfra `LLM_API_KEY` is already in Secret Manager from the eval setup.
+
+To swap back to Anthropic without code changes: set `LLM_PROVIDER=anthropic` in `.env.farm-friend-vashon` and re-deploy. The Anthropic adapter and Sonnet 4.6 baseline are intentionally preserved as a fast fallback.
+
+How the eval went, for reference if a future swap surfaces similar issues:
+- **Round 1 (baseline OSS, no adjustments):** 46/54. Two failure modes — adapter not enforcing JSON, and Llama over-confirming.
+- **Round 2 (adapter fix: DeepInfra → json_object always):** schema failures gone, 50/54. Behavioral failures remained.
+- **Round 3 (prompt: Rule 0 + 7 worked examples):** 52/54 — over-confirm cases halved.
+- **Round 4 (server-side over-confirm backstop, scoped to create_opportunity):** 53/54 deterministic, 54/54 with single-case retry — parity with Sonnet 4.6.
+
+## Hygiene before real users (do anytime)
+
+- [ ] Delete the test data that's currently sitting in production Firestore: `Test Farm`, `Test Farmer`, `Test Volunteer`, and the two test opportunities (one `draft`, one `open`). Easiest path: a one-off script in `functions/scripts/`. Doc IDs were `Mdq9CTxUHKRfANApkjRx` (farm), `P0z4cHtjU6W2UwZ6tTcv` (farmer), `E2QEyfT8tMQr6Uy94UQq` (volunteer), `dPBDvJlCJMvYYVeBrtA0` + `RbDSNDL0YKXi7xJAXJ55` (opps).
+- [x] ~~Decide what to do about the stale `LLM_API_KEY` secret~~ — superseded: the OSS LLM swap requires `LLM_API_KEY` to hold a real DeepInfra key. The placeholder value `unused` will be overwritten when the user provisions DeepInfra access.
+
+## Pilot prep (do before approaching the first real farm)
+
+- [ ] **Capture farm + volunteer defaults at onboarding.** The admin SPA Roster tab now has "Edit defaults" (farms: typical start hour / shift length / usual days) and "Edit availability" (volunteers: available days / hours / max hours/week). These feed the parser so the system doesn't bother farmers with questions like duration when there's a sensible default. Fill these in for the first pilot users when you admit them.
+- [ ] Identify the first friendly farmer who'll be the pilot user. Seed them with `scripts/seed_smoke_test.py` (rename script's args or write a wrapper).
+- [ ] Draft a 1-page flyer text for farmers markets / farm stands that says what Farm Friend is and how to opt in (`Text JOIN to <number>`).
+- [ ] Manually test all hotkey paths against the deployed system: `YES`, `YES 2`, `MUTE`, `STOP weeding`, `STOP <farm>`, `UNAVAILABLE`, `FLAG`, `HELP`, `STOP`, `JOIN`, `INSIDER <phone>`.
+- [ ] Test a deliberately-malformed farmer post → should land in the flags Worklist (admin escalation).
+- [ ] Test post-event flow by manually advancing `post_event_checkin_at` on an opportunity and waiting for `tick_post_event` to fire.

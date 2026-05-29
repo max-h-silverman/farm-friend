@@ -310,6 +310,7 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
         sender=sender,
         target_opp=target_opp,
         clarify_streak=clarify_streak,
+        last_outbound=last_outbound,
         inbound_doc_id=inbound_doc.id or "",
         inbound_text=inbound.body,
         provider=provider,
@@ -1196,31 +1197,41 @@ def _looks_like_undo(text: str) -> bool:
 def _consecutive_clarify_count(
     *, user_id: str | None, since: MessageDoc | None,
 ) -> int:
-    """Count of CLARIFY outbounds at the tail of this user's outbound stream.
+    """Count of consecutive CLARIFY outbounds on the SAME axis as `since`.
 
-    Walks the user's recent outbounds in reverse and counts consecutive
-    CLARIFYs. The streak terminates at the first non-CLARIFY outbound, even
-    if a `clarification_round` field on the latest CLARIFY would suggest a
-    longer streak — what matters is the *user's* most recent experience.
+    Walks the user's recent outbounds in reverse. The streak counts how many
+    times in a row the agent asked about the same thing — not how many
+    clarifies in total. A clarify about a *different* axis (e.g. activity then
+    time) breaks the streak: the user effectively answered the prior question,
+    and the agent is now moving on. Only the same-axis-asked-twice case
+    signals "user can't answer this; escalate."
 
-    Why walk rather than read `clarification_round`: a non-CLARIFY outbound
-    (an unrelated fan-out, a milestone, an ACTION_RECEIPT for a different
-    opp) can sit between two CLARIFYs and falsely reset the in-stamped
-    counter. Walking the actual stream is cheap at pilot scale and accurate.
+    The axis is read from `MessageDoc.clarify_axis`. Legacy outbounds without
+    that field (`clarify_axis is None`) count as "general" — same as any
+    other None, so they group together.
+
+    Why this matters: the prior implementation counted every consecutive
+    CLARIFY blindly, so a thread like
+        "what activity?" → "weeding" → "what time?" → "9am" → "how many?"
+    falsely hit the 2-round cap on the third clarify even though every
+    prior clarify was answered. Per-axis counting fires the cap only when
+    the user genuinely can't answer the same question twice.
     """
     if not user_id or since is None:
         return 0
     if since.intent_label != IntentLabel.CLARIFY:
         return 0
-    # Walk back through this user's outbound stream until a non-CLARIFY appears.
+    target_axis = since.clarify_axis  # the axis we care about
     streak = 0
     for msg in messages_repo.list_for_user(user_id, limit=20):
         if msg.direction != MessageDirection.OUTBOUND:
             continue
-        if msg.intent_label == IntentLabel.CLARIFY:
-            streak += 1
-        else:
+        if msg.intent_label != IntentLabel.CLARIFY:
             break
+        if msg.clarify_axis != target_axis:
+            # Different axis = user moved on; streak ends.
+            break
+        streak += 1
     return streak
 
 
@@ -1485,6 +1496,7 @@ def _route_agent_output(
     sender: UserDoc,
     target_opp: OpportunityDoc | None,
     clarify_streak: int,
+    last_outbound: MessageDoc | None = None,
     inbound_doc_id: str,
     inbound_text: str,
     provider,
@@ -1499,18 +1511,22 @@ def _route_agent_output(
 
     if output.mode == "clarify":
         # The clarify-cap rails fire only when we're about to SEND the
-        # (cap+1)th consecutive CLARIFY — never on the inbound that
-        # answers the cap-hitting one. The agent saw the answer and still
-        # chose clarify, which is the signal that further asking won't
-        # help and Max should take over.
+        # (cap+1)th consecutive CLARIFY about the SAME axis — never on the
+        # inbound that answers the cap-hitting one, and never when the
+        # agent moves on to ask about something different (which means the
+        # prior question was effectively answered).
+        new_axis = _infer_clarify_axis(output.reply_text)
+        prior_axis = getattr(last_outbound, "clarify_axis", None) if last_outbound else None
+        effective_streak = clarify_streak if new_axis == prior_axis else 0
         if _enforce_clarify_caps(
-            sender=sender, clarify_streak=clarify_streak,
+            sender=sender, clarify_streak=effective_streak,
             inbound_doc_id=inbound_doc_id, provider=provider,
         ):
             return
         _send_clarify(
             sender=sender, body=output.reply_text,
-            previous_streak=clarify_streak, target_opp=target_opp, provider=provider,
+            previous_streak=effective_streak, target_opp=target_opp, provider=provider,
+            axis=new_axis,
         )
         return
 
@@ -1524,25 +1540,44 @@ def _route_agent_output(
         # than send the bad confirmation prose.
         reject_reason = _agent_overconfirm_reason(output=output, inbound_text=inbound_text)
         if reject_reason is not None:
-            flags_repo.create(
-                FlagDoc(
-                    message_id=inbound_doc_id,
-                    flagged_by_user_id=sender.id,
-                    reason=f"Agent over-confirmed (downgraded to clarify): {reject_reason}",
-                    created_at=datetime.now(UTC),
+            # Only flag for signals that indicate genuine model misbehavior
+            # (filling required fields from no inbound signal, or self-
+            # incriminating parse_notes). Signal 3 ("required fields still
+            # missing") is the system working as designed — the user just
+            # sees one more clarify turn, no admin attention needed.
+            if _is_admin_worth_flagging(reject_reason):
+                flags_repo.create(
+                    FlagDoc(
+                        message_id=inbound_doc_id,
+                        flagged_by_user_id=sender.id,
+                        reason=f"Agent over-confirmed (downgraded to clarify): {reject_reason}",
+                        created_at=datetime.now(UTC),
+                    )
                 )
-            )
             # The downgrade emits a CLARIFY; apply the same caps as a
-            # native agent-emitted clarify.
+            # native agent-emitted clarify. The axis comes from the
+            # backstop's reason string — it's structured enough to parse.
+            downgrade_axis = _axis_from_overconfirm_reason(reject_reason)
+            # Re-compute the streak against the inferred axis. The
+            # `clarify_streak` we already have was computed against
+            # `last_outbound.clarify_axis`; if the new axis differs the
+            # streak is effectively 0 (we're asking about something new).
+            effective_streak = (
+                clarify_streak
+                if last_outbound is not None
+                and getattr(last_outbound, "clarify_axis", None) == downgrade_axis
+                else 0
+            )
             if _enforce_clarify_caps(
-                sender=sender, clarify_streak=clarify_streak,
+                sender=sender, clarify_streak=effective_streak,
                 inbound_doc_id=inbound_doc_id, provider=provider,
             ):
                 return
             _send_clarify(
                 sender=sender,
                 body=_clarify_for_overconfirm(reason=reject_reason),
-                previous_streak=clarify_streak, target_opp=target_opp, provider=provider,
+                previous_streak=effective_streak, target_opp=target_opp, provider=provider,
+                axis=downgrade_axis,
             )
             return
         _send_pending_confirmation(
@@ -1593,9 +1628,14 @@ def _send_clarify(
     previous_streak: int,
     target_opp: OpportunityDoc | None,
     provider,
+    axis: str | None = None,
 ) -> None:
-    """Send a CLARIFY outbound, stamping the clarification_round counter."""
+    """Send a CLARIFY outbound, stamping the clarification_round counter and
+    the axis being asked about (for per-axis streak counting)."""
     next_round = previous_streak + 1
+    if axis is None:
+        # Native agent clarify — infer the axis from the reply text.
+        axis = _infer_clarify_axis(body)
     provider_id = safe_send(provider, to_phone=sender.phone, body=body)
     if provider_id is None:
         return
@@ -1608,9 +1648,115 @@ def _send_clarify(
             body=body,
             intent_label=IntentLabel.CLARIFY,
             clarification_round=next_round,
+            clarify_axis=axis,
             created_at=datetime.now(UTC),
         )
     )
+
+
+# Keyword vocabularies for axis inference. Used when we don't have an
+# explicit axis (native agent clarifies). The keywords below are designed to
+# match phrasings the prompt's worked examples and clarify-tone guide
+# produce — they're not a guarantee, but they're right most of the time at
+# pilot scale, and a miss just lands the clarify in a fresh streak rather
+# than causing an incorrect cap fire.
+_AXIS_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "time": ("what time", "morning, afternoon", "what time of day", "start time", "how long"),
+    "date": ("which day", "which date", "what day", "any specific day", "which one — mon"),
+    "headcount": ("how many", "how many people", "how many helpers", "number of"),
+    "activity": (
+        "what kind of work", "what kind of help", "which activity",
+        "harvest, weeding", "harvest, gleaning", "what activity",
+        "what are all the activity",
+    ),
+    "deadline": ("by when", "when does it need", "what time should it be picked"),
+    "produce": ("what's the produce", "what produce", "what surplus"),
+    "destination": ("where should it go", "where to drop", "destination"),
+    "opp_selection": (
+        "which shift", "which post", "which opp", "which one", "which farm",
+        "which day's",
+    ),
+}
+
+
+def _is_admin_worth_flagging(reason: str) -> bool:
+    """True iff the backstop's reason indicates genuine model misbehavior
+    that warrants admin attention.
+
+    Worth flagging:
+      - signal 1: parse_notes self-report ("default", "inferred", etc.)
+        — the agent literally narrated filling fields from defaults.
+      - signal 2a: inbound has no clock-time signal
+      - signal 2b: inbound has no activity word
+
+    NOT worth flagging:
+      - signal 3: required fields still missing after defaults
+        This fires whenever the agent emits `create_opportunity` without
+        every MVD axis filled — but that's also what happens during a
+        normal multi-turn dialog where the agent has partial info and is
+        moving toward completeness. The user sees one more clarify; that's
+        the system working. Flagging here creates noise (3+ flags per
+        farmer posting in the typical case).
+    """
+    if "required fields still missing" in reason:
+        return False
+    return True
+
+
+def _axis_from_overconfirm_reason(reason: str) -> str:
+    """Pull the axis name out of an `_agent_overconfirm_reason` return string.
+
+    Reason strings look like:
+      "parsed.starts_at filled but inbound text has no clock-time signal"
+        → time
+      "parsed.activity_tags=['weeding'] but inbound text has no activity word..."
+        → activity
+      "required fields still missing after defaults: ['date', 'time']"
+        → return the FIRST missing axis (the streak counter handles one
+          axis at a time; a multi-axis clarify gets the first one as its
+          identity, which matches the user's experience of "I just got
+          asked about date again")
+      "parse_notes contains 'default'..."
+        → "general" (no specific axis implied)
+    """
+    if "no clock-time signal" in reason:
+        return "time"
+    if "no activity word" in reason:
+        return "activity"
+    if "required fields still missing" in reason:
+        # Match in priority order. Date and time are the most common gaps.
+        for axis in ("date", "time", "headcount", "activity",
+                     "deadline", "produce", "destination"):
+            if f"'{axis}'" in reason:
+                return axis
+    return "general"
+
+
+# "you have two friday posts", "the morning harvest or the afternoon
+# gleaning" — distinguishing-between-opps phrasings that the unstructured
+# keyword scan can't reliably match.
+_OPP_SELECTION_PATTERN = re.compile(
+    r"\b("
+    r"(?:two|three|four)\s+(?:mon|tue|wed|thu|fri|sat|sun)"
+    r"|the\s+morning\s+(?:harvest|gleaning|weeding|planting|shift)"
+    r"|the\s+afternoon\s+(?:harvest|gleaning|weeding|planting|shift)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _infer_clarify_axis(body: str) -> str:
+    """Infer the MVD axis the agent is asking about. Returns "general" if no
+    confident match — that bucket groups truly-unclear clarifies together,
+    which is the correct default for the streak counter."""
+    lower = body.lower()
+    if _OPP_SELECTION_PATTERN.search(lower):
+        return "opp_selection"
+    for axis, keywords in _AXIS_KEYWORDS.items():
+        for kw in keywords:
+            if kw in lower:
+                return axis
+    return "general"
 
 
 def _send_pending_confirmation(
@@ -1790,12 +1936,17 @@ def _missing_required_reason(*, parsed) -> str | None:
 
 
 _TIME_SIGNAL_PATTERN = re.compile(
-    r"\b("
-    r"\d{1,2}\s*(am|pm|a\.m\.|p\.m\.|:\d{2})"  # 9am, 9:30, 9 pm
-    r"|noon|midnight|morning|afternoon|evening|night|dawn|dusk"
-    r"|early|late"
+    r"("
+    # 9am / 9 am / 9:30 / 9:30am / 9 a.m. / 9 p.m.
+    r"\b\d{1,2}\s*(am|pm|a\.m\.|p\.m\.|:\d{2})"
+    # 9a / 9p / 9 a / 9 p — common shorthand. Anchored on a leading word
+    # boundary; trailing must end the run (whitespace, punctuation, EOL).
+    r"|\b\d{1,2}\s*[ap](?:\b|[^a-zA-Z])"
+    r"|\bnoon\b|\bmidnight\b"
+    r"|\b(early\s+|late\s+)?(morning|afternoon|evening|night|midday)\b"
+    r"|\bdawn\b|\bdusk\b"
     r"|o'?clock"
-    r")\b",
+    r")",
     re.IGNORECASE,
 )
 
@@ -2386,10 +2537,12 @@ def _execute_record_offer(*, sender: UserDoc, payload: dict) -> tuple[str | None
         expires_at=expires_at,
     )
     offers_repo.create(offer)
-    activity_str = ", ".join(activity_tags) if activity_tags else "helping out"
+    # Short, passive, no first-person. The "UNDO within 5 min" hint stays
+    # because every ACTION_RECEIPT carries it (uniform UNDO rail across
+    # actions). See style rules in prompts/agent.md.
     receipt = (
-        f"Farm Friend Vashon: recorded your offer ({activity_str}). I'll "
-        f"reach out if something matches. Reply UNDO within 5 min if wrong."
+        "Farm Friend Vashon: Your offer has been recorded. "
+        "Reply UNDO within 5 min if wrong."
     )
     return receipt, None
 
