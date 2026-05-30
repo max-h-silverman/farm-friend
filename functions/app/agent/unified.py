@@ -116,6 +116,7 @@ class AgentContext(BaseModel):
     last_outbound_intent: str | None = None
     last_outbound_clarification_round: int = 0
     last_outbound_opp_summary: OppSummary | None = None
+    current_draft: dict | None = None
     pending_action: dict | None = None  # alive PENDING_CONFIRMATION payload, if any
     executed_action: dict | None = None  # alive ACTION_RECEIPT payload (within UNDO window), if any
     cross_cutting_opps: list[OppSummary] = Field(default_factory=list)
@@ -286,6 +287,7 @@ class AgentOutput(BaseModel):
     confirmation_token: str | None = None
     action: ActionSpec | None = None
     escalation: EscalationSpec | None = None
+    intake_draft: dict | None = None
     rationale: str = ""  # admin-facing; not sent to the user
 
 

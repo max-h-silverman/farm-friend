@@ -1564,6 +1564,7 @@ def _route_agent_output(
             sender=sender, body=reply_text,
             previous_streak=effective_streak, target_opp=target_opp, provider=provider,
             axis=new_axis,
+            intake_draft=output.intake_draft,
         )
         return
 
@@ -1615,6 +1616,7 @@ def _route_agent_output(
                 body=_clarify_for_overconfirm(reason=reject_reason),
                 previous_streak=effective_streak, target_opp=target_opp, provider=provider,
                 axis=downgrade_axis,
+                intake_draft=output.intake_draft,
             )
             return
         _send_pending_confirmation(
@@ -1670,6 +1672,7 @@ def _send_clarify(
     target_opp: OpportunityDoc | None,
     provider,
     axis: str | None = None,
+    intake_draft: dict | None = None,
 ) -> None:
     """Send a CLARIFY outbound, stamping the clarification_round counter and
     the axis being asked about (for per-axis streak counting)."""
@@ -1688,6 +1691,7 @@ def _send_clarify(
             opportunity_id=target_opp.id if target_opp else None,
             body=body,
             intent_label=IntentLabel.CLARIFY,
+            intake_draft=intake_draft,
             clarification_round=next_round,
             clarify_axis=axis,
             created_at=datetime.now(UTC),
@@ -1888,6 +1892,7 @@ def _send_pending_confirmation(
             body=output.reply_text,
             intent_label=IntentLabel.PENDING_CONFIRMATION,
             pending_action=pending_payload,
+            intake_draft=output.intake_draft,
             created_at=datetime.now(UTC),
         )
     )

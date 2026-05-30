@@ -17,6 +17,8 @@ from app.repos.models import (
     OpportunityDoc,
     OpportunityKind,
     OpportunityStatus,
+    MessageDirection,
+    MessageDoc,
 )
 
 
@@ -48,6 +50,26 @@ def test_opportunity_legacy_doc_defaults():
     assert opp.seats_held == 0
     assert opp.seats_filled == 0
     assert opp.media_urls == []
+
+
+def test_message_intake_draft_defaults_and_roundtrip():
+    msg = MessageDoc(
+        direction=MessageDirection.OUTBOUND,
+        provider_msg_id="p1",
+        body="How many people do you need?",
+        created_at=_now(),
+    )
+    assert msg.intake_draft is None
+
+    draft = {
+        "kind": "shift",
+        "activity_tags": ["planting"],
+        "time_of_day_bucket": "morning",
+        "missing_fields": ["headcount"],
+    }
+    with_draft = msg.model_copy(update={"intake_draft": draft})
+    restored = MessageDoc.model_validate(with_draft.model_dump(mode="python"))
+    assert restored.intake_draft == draft
 
 
 def test_opportunity_media_urls_roundtrip():

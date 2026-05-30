@@ -104,6 +104,7 @@ def build_agent_context(
             last_outbound.clarification_round if last_outbound else 0
         ),
         last_outbound_opp_summary=last_outbound_opp_summary,
+        current_draft=_current_draft_from(last_outbound=last_outbound, target_opp=target_opp),
         pending_action=pending_action,
         executed_action=executed_action,
         cross_cutting_opps=cross_cutting,
@@ -177,6 +178,45 @@ def _opp_summary_from(*, opp: OpportunityDoc, farm) -> OppSummary:
         if opp.kind == OpportunityKind.SHIFT
         else (opp.produce_description or "surplus")
     )
+
+
+def _current_draft_from(
+    *, last_outbound: MessageDoc | None, target_opp: OpportunityDoc | None,
+) -> dict | None:
+    if last_outbound is not None and last_outbound.intake_draft:
+        return last_outbound.intake_draft
+    if last_outbound is not None and last_outbound.pending_action:
+        payload = last_outbound.pending_action.get("payload") or {}
+        parsed = payload.get("parsed")
+        if isinstance(parsed, dict):
+            return parsed
+    if target_opp is not None and target_opp.status == OpportunityStatus.DRAFT:
+        return _draft_from_opp(target_opp)
+    return None
+
+
+def _draft_from_opp(opp: OpportunityDoc) -> dict:
+    if opp.kind == OpportunityKind.PICKUP:
+        return {
+            "kind": "pickup",
+            "deadline_at": opp.deadline_at.isoformat() if opp.deadline_at else None,
+            "produce_description": opp.produce_description,
+            "destination": opp.destination,
+            "vehicle_needed": opp.vehicle_needed,
+            "missing_fields": [],
+        }
+    return {
+        "kind": "shift",
+        "starts_at": opp.starts_at.isoformat() if opp.starts_at else None,
+        "window_end_at": opp.window_end_at.isoformat() if opp.window_end_at else None,
+        "time_of_day_bucket": opp.time_of_day_bucket,
+        "duration_min": opp.duration_min,
+        "headcount_needed": opp.headcount_needed,
+        "headcount_open": opp.headcount_open,
+        "activity_tags": opp.activity_tags,
+        "requirements_text": opp.requirements_text,
+        "missing_fields": [],
+    }
     return OppSummary(
         opp_id=opp.id or "",
         farm_name=farm.name if farm else "unknown farm",

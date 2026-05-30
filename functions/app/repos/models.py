@@ -331,6 +331,11 @@ class MessageDoc(BaseModel):
     #   {"action": "<name>", "token": "YES or <4 uppercase>", "payload": {...},
     #    "expires_at": <iso datetime>}
     pending_action: dict | None = None
+    # On CLARIFY/PENDING_CONFIRMATION outbounds during farmer/volunteer intake:
+    # the model-maintained draft JSON. Fed back into AgentContext.current_draft
+    # on the next inbound so the model can merge answers instead of relying on
+    # implicit conversation memory.
+    intake_draft: dict | None = None
     # On outbounds with intent_label == ACTION_RECEIPT: the action that was
     # just executed, with enough payload to reverse it via UNDO. Shape:
     #   {"action": "<name>", "payload": {...},
