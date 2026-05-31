@@ -82,7 +82,6 @@ def build_agent_context(
         now_local_iso=now_local.isoformat(),
         sender_role=sender.role.value,
         sender_name=sender.name,
-        sender_phone=sender.phone,
         sender_availability={
             "available_days": sender.available_days,
             "available_start_hour": sender.available_start_hour,
@@ -178,6 +177,17 @@ def _opp_summary_from(*, opp: OpportunityDoc, farm) -> OppSummary:
         if opp.kind == OpportunityKind.SHIFT
         else (opp.produce_description or "surplus")
     )
+    return OppSummary(
+        opp_id=opp.id or "",
+        farm_name=farm.name if farm else "unknown farm",
+        kind=opp.kind.value,
+        status=opp.status.value,
+        when_human=farmer_ops.opp_short_summary(opp),
+        activity_or_produce=activity_or_produce,
+        headcount_needed=opp.headcount_needed,
+        seats_filled=opp.seats_filled,
+        requirements_text=opp.requirements_text or "",
+    )
 
 
 def _current_draft_from(
@@ -217,17 +227,6 @@ def _draft_from_opp(opp: OpportunityDoc) -> dict:
         "requirements_text": opp.requirements_text,
         "missing_fields": [],
     }
-    return OppSummary(
-        opp_id=opp.id or "",
-        farm_name=farm.name if farm else "unknown farm",
-        kind=opp.kind.value,
-        status=opp.status.value,
-        when_human=farmer_ops.opp_short_summary(opp),
-        activity_or_produce=activity_or_produce,
-        headcount_needed=opp.headcount_needed,
-        seats_filled=opp.seats_filled,
-        requirements_text=opp.requirements_text or "",
-    )
 
 
 def _claim_summary_from(*, opp: OpportunityDoc, claim, farm) -> ClaimSummary:

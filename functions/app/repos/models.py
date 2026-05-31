@@ -95,7 +95,7 @@ class IntentLabel(StrEnum):
     CANCEL = "CANCEL"          # context-sensitive; see CLAUDE.md §SMS compliance
     DROP = "DROP"              # volunteer-only: drop a claim after reminder context
     # --- Refactor-introduced hotkey intents ---
-    UNDO = "UNDO"              # reverse the last agent-executed action (5-min window)
+    UNDO = "UNDO"              # reverse the last agent-executed action receipt
     PAUSE = "PAUSE"            # 14-day mute on agent-initiated nudges
     RESUME = "RESUME"          # undo PAUSE
     # --- Farmer-approval gate (window opps) ---
@@ -104,16 +104,16 @@ class IntentLabel(StrEnum):
     PROPOSAL_NOTIFICATION = "PROPOSAL_NOTIFICATION"  # outbound: "Alex wants Wed..."
     AUTO_CONFIRM_NOTICE = "AUTO_CONFIRM_NOTICE"      # outbound: "auto-accepted ... reply DROP"
     PROPOSAL_DECLINED = "PROPOSAL_DECLINED"          # outbound to volunteer: farmer declined
-    # --- Volunteer reply intents (formerly classifier output, now agent mode hint) ---
+    # --- Agent reply/escalate intents ---
+    # QUESTION labels a plain mode="reply" outbound (answer / acknowledgement /
+    # small talk). ESCALATE labels the user-facing handoff line on an escalation.
     QUESTION = "QUESTION"
-    DECLINE = "DECLINE"
     ESCALATE = "ESCALATE"
-    # AMBIGUOUS removed with the unified-agent refactor — the new agent emits
-    # mode="clarify" instead.
-    # --- Refactor-introduced agent-output intents ---
-    OFFER = "OFFER"                       # inbound/outbound: volunteer-initiated offer
-    AVAILABILITY = "AVAILABILITY"         # inbound/outbound: standing availability update
-    QUERY = "QUERY"                       # inbound/outbound: status-of-things question
+    # Removed with the unified-agent refactor (no remaining producers): the
+    # classifier-era labels AMBIGUOUS, DECLINE, OFFER, AVAILABILITY, QUERY. The
+    # agent emits mode="clarify"/"reply" and records offers/availability via
+    # ACTION_RECEIPT/PENDING_CONFIRMATION outbounds, so these never get written.
+    # Kept out of the enum so the model isn't tempted to emit a dead label.
     CLARIFY = "CLARIFY"                   # outbound: agent's clarifying question
     PENDING_CONFIRMATION = "PENDING_CONFIRMATION"  # outbound: drafted action awaiting token reply
     ACTION_RECEIPT = "ACTION_RECEIPT"     # outbound: "here's what I did" after execute
@@ -388,6 +388,35 @@ class OfferDoc(BaseModel):
     matched_opportunity_id: str | None = None
     created_at: datetime
     expires_at: datetime  # default: latest_at or +7 days; set at create time
+
+
+class AgentDecisionDoc(BaseModel):
+    """One audit record per unified-agent inbound call.
+
+    The system's reliability rests on a single open-weight LLM call per inbound
+    message. This is the queryable record of what that model actually decided in
+    production — mode, action, latency, and the model's own rationale — so the
+    coordinator can spot drift (e.g. a spike in `escalate`, or `confirm` on
+    crop-name-only posts) without reading raw logs. Written best-effort after
+    every successful `run_agent`; a write failure never blocks the reply.
+
+    TTL-purged like messages (it can contain message excerpts); not load-bearing
+    for any flow, purely observability.
+    """
+
+    id: str | None = None
+    user_id: str | None = None
+    inbound_message_id: str | None = None
+    sender_role: str = ""
+    inbound_excerpt: str = ""          # first ~200 chars of the inbound
+    mode: str = ""                     # reply | clarify | confirm | execute | escalate
+    action_name: str | None = None     # populated for confirm/execute
+    escalation_urgency: str | None = None
+    rationale: str = ""                # the agent's admin-facing rationale
+    elapsed_ms: int | None = None
+    model: str = ""                    # which model produced this decision
+    created_at: datetime
+    ttl: datetime | None = None        # Firestore TTL; ~90 days after created_at
 
 
 class PendingUserDoc(BaseModel):

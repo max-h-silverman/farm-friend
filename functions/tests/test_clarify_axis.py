@@ -193,6 +193,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from app.flows.message_dispatch import _consecutive_clarify_count
+from app.flows.message_dispatch import _log_value
 from app.repos.models import (
     IntentLabel,
     MessageDirection,
@@ -291,3 +292,8 @@ def test_streak_zero_when_since_is_not_clarify():
     with patch("app.flows.message_dispatch.messages_repo.list_for_user", return_value=[most_recent]):
         streak = _consecutive_clarify_count(user_id="u_a", since=most_recent)
     assert streak == 0
+
+
+def test_log_value_accepts_plain_string_and_enum():
+    assert _log_value("clarify") == "clarify"
+    assert _log_value(IntentLabel.CLARIFY) == "CLARIFY"

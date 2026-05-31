@@ -606,12 +606,9 @@ CASES.append(EvalCase(
 
 CASES.append(EvalCase(
     id="new.vol.offer.directed",
-    # ADVERSARIAL category so the runner treats confirm/clarify as
-    # interchangeable: both are reasonable here. "can I help at Plum Forest
-    # this week?" is over the offer floor (farm name), so the prompt rule
-    # says record. But the time window is vague ("this week"), so a clarify
-    # asking "any particular day?" is arguably better UX — it produces a
-    # more matchable offer. Either is acceptable production behavior.
+    # "can I help at Plum Forest this week?" is over the offer floor (farm
+    # name), so the prompt rule says record even though the time window is
+    # vague.
     category="ADVERSARIAL",
     description=(
         "Volunteer offers help at a specific farm with vague timing. Either "
@@ -623,9 +620,7 @@ CASES.append(EvalCase(
     inbound_text="can I help at Plum Forest this week?",
     inbound_from_user_id="u_vol_a",
     expected=ExpectedOutput(
-        # Pin clarify so the ADVERSARIAL runner accepts either; payload_must_include
-        # only applies if mode=confirm matched.
-        mode="clarify",
+        mode="confirm", action_name="record_offer",
     ),
 ))
 
@@ -819,7 +814,7 @@ CASES.append(EvalCase(
         claims=[FakeClaim(opp_id="o_fri_harvest", volunteer_user_id="u_vol_a")],
         messages=[FakeMessage(
             direction="outbound", user_id="u_vol_a",
-            body="You're confirmed for harvest at Three Cedars Friday 9am-12. Reply UNDO within 5 min if that wasn't right.",
+            body="You're confirmed for harvest at Three Cedars Friday 9am-12. Reply UNDO if that wasn't right.",
             intent_label="ACTION_RECEIPT", opportunity_id="o_fri_harvest",
             created_at=NOW - timedelta(minutes=2),
             executed_action={
@@ -954,18 +949,18 @@ CASES.append(EvalCase(
 ))
 
 CASES.append(EvalCase(
-    id="adv.undo_outside_window",
+    id="adv.undo_after_delay",
     category="ADVERSARIAL",
     description=(
-        "User says UNDO 8 min after the action. Must not execute. Receipt was "
-        "explicit about 5-min window; agent or dispatch replies 'too late'."
+        "User says UNDO 8 min after the action. Dispatch still reverses; "
+        "there is no timer on rescinding the latest action receipt."
     ),
     world=World(
         users=[VOL_A], opps=[SHIFT_FRI_HARVEST], farms=[FARM_THREE_CEDARS],
         claims=[FakeClaim(opp_id="o_fri_harvest", volunteer_user_id="u_vol_a")],
         messages=[FakeMessage(
             direction="outbound", user_id="u_vol_a",
-            body="Confirmed for Friday. Reply UNDO within 5 min if wrong.",
+            body="Confirmed for Friday. Reply UNDO if wrong.",
             intent_label="ACTION_RECEIPT", opportunity_id="o_fri_harvest",
             created_at=NOW - timedelta(minutes=8),
             executed_action={"action": "claim_opportunity",
@@ -976,7 +971,7 @@ CASES.append(EvalCase(
     ),
     inbound_text="UNDO",
     inbound_from_user_id="u_vol_a",
-    expected=ExpectedOutput(mode="reply"),  # dispatch replies "too late"
+    expected=ExpectedOutput(mode="execute", action_name="undo_last"),
 ))
 
 CASES.append(EvalCase(

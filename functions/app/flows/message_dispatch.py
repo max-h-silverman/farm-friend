@@ -17,7 +17,7 @@ Pipeline:
      read as confirmation, not as a claim hotkey.
   7. Run hotkey parser (deterministic). If hotkey matched → dispatch.
   8. FLAG-pauses-thread invariant: silent if sender has an open flag.
-  9. Pre-agent: UNDO window (free-form UNDO inside a longer message).
+  9. Pre-agent: UNDO (free-form UNDO inside a longer message).
  10. Otherwise → unified agent (one LLM call, one JSON output). Route on
      the output's `mode` (reply/clarify/confirm/execute/escalate).
  11. Post-agent rails: if the agent's mode is `clarify`, enforce the
@@ -29,8 +29,10 @@ Pipeline:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import UTC, datetime
+from time import monotonic
 from typing import Any
 
 from firebase_functions import https_fn
@@ -42,7 +44,9 @@ from app.agent.parser import (
     compute_missing_fields,
 )
 from app.agent.unified import (
+    ActionSpec,
     AgentOutput,
+    RecordOfferPayload,
     run_agent,
 )
 from app.config import load_settings
@@ -63,6 +67,7 @@ from app.messaging import InboundMessage, get_messaging_provider
 from app.messaging._safe_send import safe_send
 from app.messaging.media_store import persist_media_urls
 from app.repos import (
+    agent_decisions_repo,
     farms_repo,
     flags_repo,
     messages_repo,
@@ -72,6 +77,8 @@ from app.repos import (
     users_repo,
 )
 from app.repos.models import (
+    AgentDecisionDoc,
+    ClaimStatus,
     FlagDoc,
     IntentLabel,
     InsiderDoc,
@@ -87,6 +94,44 @@ from app.repos.models import (
     UserRole,
     UserStatus,
 )
+
+log = logging.getLogger(__name__)
+
+
+def _log_value(value: Any) -> str:
+    """Render enum-like values and plain strings without risking log failures."""
+    return str(getattr(value, "value", value))
+
+
+# Exception class names that mean "the model didn't answer in time / couldn't
+# be reached" across the providers we use (OpenAI SDK over DeepInfra, the
+# Anthropic adapter, and bare stdlib socket timeouts). Matched by name rather
+# than by `isinstance` so we don't have to import provider SDKs here and stay
+# resilient to SDK version drift. The offer-fallback path keys off this so a
+# slow/unreachable model doesn't drop a volunteer's in-flight message.
+_LLM_TIMEOUT_ERROR_NAMES = frozenset({
+    "APITimeoutError",
+    "APIConnectionError",
+    "APIConnectionTimeoutError",
+    "Timeout",
+    "TimeoutError",
+    "ConnectTimeout",
+    "ReadTimeout",
+    "ConnectionError",
+})
+
+
+def _is_llm_timeout(error: Exception) -> bool:
+    """True if `error` looks like an LLM timeout / connectivity failure.
+
+    Checks the error's own class name and its base classes so a provider
+    subclass (e.g. an SDK-specific timeout deriving from a generic Timeout)
+    still matches.
+    """
+    for klass in type(error).__mro__:
+        if klass.__name__ in _LLM_TIMEOUT_ERROR_NAMES:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +182,20 @@ def handle_inbound_webhook(req: https_fn.Request) -> https_fn.Response:
             received_at=inbound.received_at,
             media_urls=persist_media_urls(list(inbound.media_urls)),
         )
-    _dispatch(inbound=inbound)
+    # Last-resort backstop. _dispatch degrades known failure modes internally
+    # (agent/context failure → flag+fallback). Anything that still escapes —
+    # e.g. a repo read failing in a pre-agent step — must not become a 500:
+    # Telnyx retries 5xx, and idempotency means the retry re-hits the same
+    # crash forever, never reaching the user or the admin. We log it and return
+    # 200 so the retry storm stops; the inbound was already persisted for audit.
+    try:
+        _dispatch(inbound=inbound)
+    except Exception:  # noqa: BLE001 — webhook must not 500 on a processing bug
+        # Correlate by provider_msg_id only — never log the raw phone (PII).
+        log.exception(
+            "dispatch_unhandled_failure provider_msg_id=%s",
+            inbound.provider_msg_id,
+        )
     return https_fn.Response("ok", status=200)
 
 
@@ -273,17 +331,14 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
     # farmer-post / volunteer-llm-reply) has been replaced by a single agent
     # call. See docs/refactor-unified-agent.md.
     #
-    # Pre-agent dispatch steps (UNDO window) are deterministic and fire
+    # Pre-agent dispatch steps (UNDO) are deterministic and fire
     # BEFORE the agent runs — those paths never cost an LLM call.
 
-    # PRE-AGENT: UNDO within the 5-minute window after an executed action.
+    # PRE-AGENT: UNDO after an executed action.
     # UNDO as a bare hotkey is already handled by `_handle_hotkey` above;
     # this branch is reached if the user texts UNDO as part of a longer
-    # message that didn't match the hotkey regex. Same semantics, same
-    # window.
-    if _looks_like_undo(inbound.body) and _is_recent_executed_action(
-        last_outbound, window_min=settings.undo_window_min,
-    ):
+    # message that didn't match the hotkey regex. Same semantics.
+    if _looks_like_undo(inbound.body) and _is_executed_action_receipt(last_outbound):
         _undo_last_executed_action(
             sender=sender,
             last_outbound=last_outbound,
@@ -309,19 +364,61 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
         else None
     )
     executed_action = None
-    if _is_recent_executed_action(last_outbound, window_min=settings.undo_window_min):
+    if _is_executed_action_receipt(last_outbound):
         executed_action = last_outbound.executed_action if last_outbound else None
-    context = build_agent_context(
-        sender=sender,
-        last_outbound=last_outbound,
-        target_opp=target_opp,
-        pending_action=pending_action,
-        executed_action=executed_action,
-    )
     try:
+        # Context assembly is AI prep — a failure here (a malformed read model,
+        # a repo read error, a Pydantic validation error) must degrade to the
+        # same flag+fallback as an agent-call failure, NOT escape as an
+        # unhandled webhook 500. It lives inside this try for that reason.
+        context = build_agent_context(
+            sender=sender,
+            last_outbound=last_outbound,
+            target_opp=target_opp,
+            pending_action=pending_action,
+            executed_action=executed_action,
+        )
         llm = get_llm_client(settings)
+        llm_started = monotonic()
+        log.info(
+            "unified_agent_start user_id=%s role=%s inbound_doc_id=%s provider_msg_id=%s",
+            sender.id,
+            _log_value(sender.role),
+            inbound_doc.id,
+            inbound.provider_msg_id,
+        )
         output = run_agent(llm=llm, context=context, inbound_text=inbound.body)
+        elapsed_ms = int((monotonic() - llm_started) * 1000)
+        log.info(
+            "unified_agent_success user_id=%s mode=%s elapsed_ms=%d",
+            sender.id,
+            _log_value(output.mode),
+            elapsed_ms,
+        )
+        _record_agent_decision(
+            sender=sender,
+            inbound=inbound,
+            inbound_doc_id=inbound_doc.id,
+            output=output,
+            elapsed_ms=elapsed_ms,
+            model=settings.llm_model_strong,
+        )
     except Exception as e:  # LLMProviderError or anything else
+        elapsed_ms = int((monotonic() - llm_started) * 1000) if "llm_started" in locals() else -1
+        log.exception(
+            "unified_agent_failure user_id=%s elapsed_ms=%d error_type=%s",
+            sender.id,
+            elapsed_ms,
+            type(e).__name__,
+        )
+        if _is_llm_timeout(e) and _handle_timeout_offer_fallback(
+            sender=sender,
+            inbound_text=inbound.body,
+            inbound_doc_id=inbound_doc.id or "",
+            target_opp=target_opp,
+            provider=provider,
+        ):
+            return
         # Agent failure is a flag-for-admin, NOT a silent drop. Better the
         # user gets the fallback than nothing.
         flags_repo.create(
@@ -586,7 +683,7 @@ def _handle_hotkey(
             _reply_and_log(
                 provider=provider,
                 to=sender,
-                body="No farm on file for you yet — Max can set that up.",
+                body="No farm on file for you yet — the Farm Friend team can set that up.",
                 opp=target_opp,
                 intent=intent,
             )
@@ -750,9 +847,8 @@ def _handle_hotkey(
         return
 
     if intent == IntentLabel.UNDO:
-        # Reverse the most recent agent-executed action if within window.
-        settings = load_settings()
-        if _is_recent_executed_action(last_outbound, window_min=settings.undo_window_min):
+        # Reverse the most recent agent-executed action receipt.
+        if _is_executed_action_receipt(last_outbound):
             _undo_last_executed_action(
                 sender=sender, last_outbound=last_outbound, provider=provider,
             )
@@ -1071,12 +1167,33 @@ def _handle_escalation(
         opp=target_opp,
         intent=IntentLabel.ESCALATE,
     )
-    if urgency == "immediate" and settings.coordinator_phone:
+    if urgency == "immediate":
+        if not settings.coordinator_phone:
+            # The coordinator phone is the only channel an injury/safety report
+            # reaches the coordinator in real time. If it's unset the escalation silently
+            # rots in the flag queue until the next dashboard glance — for an
+            # "immediate" trigger that is a safety failure, not a minor gap.
+            # Log loudly so it surfaces in alerting; the flag above is still
+            # written so nothing is lost outright.
+            log.error(
+                "IMMEDIATE escalation could not reach coordinator: COORDINATOR_PHONE "
+                "is unset. reason=%r sender=%s. Flag written; no SMS sent.",
+                reason,
+                sender.id,
+            )
+            return
         sender_label = sender.name or sender.phone
         admin_body = (
             f"[Farm Friend ESCALATE] {sender_label} ({sender.phone}): {reason}"
         )
-        safe_send(provider, to_phone=settings.coordinator_phone, body=admin_body)
+        sent = safe_send(provider, to_phone=settings.coordinator_phone, body=admin_body)
+        if sent is None:
+            log.error(
+                "IMMEDIATE escalation SMS to coordinator failed to send. "
+                "reason=%r sender=%s. Flag written.",
+                reason,
+                sender.id,
+            )
 
 
 def _handle_orphan_claim_or_maybe(
@@ -1107,6 +1224,40 @@ def _handle_orphan_claim_or_maybe(
         opp=None,
         intent=intent,
     )
+
+
+def _record_agent_decision(
+    *,
+    sender: UserDoc,
+    inbound: InboundMessage,
+    inbound_doc_id: str | None,
+    output: AgentOutput,
+    elapsed_ms: int,
+    model: str,
+) -> None:
+    """Best-effort audit write of one agent decision. Never raises into the
+    dispatch path — observability must not break the reply. See
+    agent_decisions_repo for why this exists (auditing the frozen model)."""
+    try:
+        agent_decisions_repo.create(
+            AgentDecisionDoc(
+                user_id=sender.id,
+                inbound_message_id=inbound_doc_id,
+                sender_role=_log_value(sender.role),
+                inbound_excerpt=(inbound.body or "")[:200],
+                mode=output.mode,
+                action_name=output.action.name if output.action else None,
+                escalation_urgency=(
+                    output.escalation.urgency if output.escalation else None
+                ),
+                rationale=(output.rationale or "")[:500],
+                elapsed_ms=elapsed_ms,
+                model=model,
+                created_at=datetime.now(UTC),
+            )
+        )
+    except Exception:  # noqa: BLE001 — audit logging is strictly best-effort
+        log.warning("agent_decision audit write failed", exc_info=True)
 
 
 def _reply_and_log(
@@ -1352,7 +1503,7 @@ def _format_time_range(starts_dt: datetime, duration_min: int | None) -> str:
 # Unified-agent dispatch helpers
 # ===========================================================================
 # Everything below is for the unified-agent path. The pre-agent functions
-# (`_is_live_pending_confirmation`, `_is_recent_executed_action`, etc.) run
+# (`_is_live_pending_confirmation`, `_is_executed_action_receipt`, etc.) run
 # BEFORE the agent is invoked. The post-agent function (`_route_agent_output`)
 # turns the agent's structured output into Firestore writes + SMS sends.
 #
@@ -1381,25 +1532,14 @@ def _is_live_pending_confirmation(last_outbound: MessageDoc | None) -> bool:
     return True
 
 
-def _is_recent_executed_action(
-    last_outbound: MessageDoc | None, *, window_min: int,
-) -> bool:
-    """True if `last_outbound` is an ACTION_RECEIPT executed within the UNDO
-    window. Used both by the pre-agent UNDO branch and the hotkey UNDO branch."""
+def _is_executed_action_receipt(last_outbound: MessageDoc | None) -> bool:
+    """True if `last_outbound` is an ACTION_RECEIPT with undo metadata."""
     if last_outbound is None:
         return False
     if last_outbound.intent_label != IntentLabel.ACTION_RECEIPT:
         return False
     executed = last_outbound.executed_action or {}
-    executed_at_iso = executed.get("executed_at")
-    if not executed_at_iso:
-        return False
-    try:
-        executed_at = datetime.fromisoformat(executed_at_iso.replace("Z", "+00:00"))
-    except (ValueError, AttributeError):
-        return False
-    from datetime import timedelta as _td
-    return datetime.now(UTC) - executed_at <= _td(minutes=window_min)
+    return bool(executed.get("action"))
 
 
 def _looks_like_undo(text: str) -> bool:
@@ -1519,6 +1659,169 @@ def _escalate_clarify_cap(
     )
 
 
+def _handle_timeout_offer_fallback(
+    *,
+    sender: UserDoc,
+    inbound_text: str,
+    inbound_doc_id: str,
+    target_opp: OpportunityDoc | None,
+    provider,
+) -> bool:
+    """Timeout-only rescue for obvious volunteer offers.
+
+    The LLM remains the normal coordinator. This path only prevents a slow
+    provider from losing high-confidence "I'm available to help <when>" texts.
+    """
+    if sender.role not in (UserRole.VOLUNTEER, UserRole.BOTH):
+        return False
+    payload = _timeout_offer_payload(inbound_text)
+    if payload is None:
+        return False
+
+    scope = _timeout_offer_scope(inbound_text)
+    output = AgentOutput(
+        mode="confirm",
+        reply_text=f"Great, recording your offer to help {scope}. Reply YES to confirm.",
+        confirmation_token="YES",
+        action=ActionSpec(
+            name="record_offer",
+            record_offer=RecordOfferPayload(**payload),
+        ),
+        rationale="LLM timeout fallback for high-confidence volunteer offer.",
+    )
+    _send_pending_confirmation(
+        sender=sender,
+        output=output,
+        target_opp=target_opp,
+        source_message_id=inbound_doc_id,
+        provider=provider,
+        intake_draft={"kind": "offer", **payload, "missing_fields": []},
+    )
+    return True
+
+
+def _timeout_offer_payload(text: str) -> dict | None:
+    lower = text.lower()
+    if re.search(r"\b(?:can't|cannot|won't|not free|unavailable)\b", lower):
+        return None
+    if not re.search(
+        r"\b(?:free|available|around|can help|able to help|want to help|"
+        r"would like to help|happy to help|open to help|volunteer)\b",
+        lower,
+    ):
+        return None
+
+    window = _timeout_offer_window(lower)
+    if window is None:
+        return None
+    return {
+        "activity_tags": _timeout_offer_activity_tags(lower),
+        "earliest_at": window[0].isoformat(),
+        "latest_at": window[1].isoformat(),
+        "note": text.strip()[:240],
+    }
+
+
+def _timeout_offer_window(lower: str) -> tuple[datetime, datetime] | None:
+    from datetime import timedelta as _td
+
+    now = datetime.now(VASHON_TZ)
+    date_start = date_end = None
+    if "this weekend" in lower or re.search(r"\bweekend\b", lower):
+        days_until_sat = (5 - now.weekday()) % 7
+        start_date = (now + _td(days=days_until_sat)).date()
+        if now.weekday() == 6:
+            start_date = now.date()
+        date_start = start_date
+        date_end = start_date + _td(days=1) if start_date.weekday() == 5 else start_date
+    elif re.search(r"\btoday\b", lower):
+        date_start = date_end = now.date()
+    elif re.search(r"\btomorrow\b", lower):
+        date_start = date_end = (now + _td(days=1)).date()
+    else:
+        weekdays = {
+            "monday": 0,
+            "tuesday": 1,
+            "wednesday": 2,
+            "thursday": 3,
+            "friday": 4,
+            "saturday": 5,
+            "sunday": 6,
+        }
+        for name, weekday in weekdays.items():
+            if re.search(rf"\b(?:{name}|{name[:3]})\b", lower):
+                days = (weekday - now.weekday()) % 7
+                date_start = date_end = (now + _td(days=days)).date()
+                break
+    if date_start is None or date_end is None:
+        return None
+
+    start_hour, end_hour = _timeout_offer_hours(lower)
+    start = datetime.combine(date_start, datetime.min.time(), tzinfo=VASHON_TZ).replace(
+        hour=start_hour
+    )
+    end = datetime.combine(date_end, datetime.min.time(), tzinfo=VASHON_TZ).replace(
+        hour=end_hour
+    )
+    if start < now:
+        start = now.replace(second=0, microsecond=0)
+    if end <= start:
+        end = start + _td(hours=3)
+    return start, end
+
+
+def _timeout_offer_hours(lower: str) -> tuple[int, int]:
+    if re.search(r"\bmorn(?:ing)?\b", lower):
+        return 8, 12
+    if re.search(r"\bafternoon\b", lower):
+        return 12, 17
+    if re.search(r"\bevening\b", lower):
+        return 17, 20
+    if re.search(r"\b(?:during the day|daytime|day time|day)\b", lower):
+        return 9, 17
+    return 9, 17
+
+
+def _timeout_offer_activity_tags(lower: str) -> list[str]:
+    if re.search(r"\b(?:anything|whatever|open to any|wherever needed|general)\b", lower):
+        return ["flexible"]
+    tags: list[str] = []
+    patterns = (
+        ("harvest", r"\bharvest(?:ing)?\b"),
+        ("gleaning", r"\bglean(?:ing)?\b"),
+        ("weeding", r"\bweed(?:ing)?\b"),
+        ("planting", r"\bplant(?:ing)?\b"),
+        ("transplanting", r"\btransplant(?:ing)?\b"),
+        ("livestock", r"\blivestock\b"),
+        ("infrastructure", r"\b(?:infrastructure|fenc(?:e|ing)|repair)\b"),
+        ("processing", r"\bprocessing\b"),
+    )
+    for tag, pattern in patterns:
+        if re.search(pattern, lower):
+            tags.append(tag)
+    return tags
+
+
+def _timeout_offer_scope(text: str) -> str:
+    lower = text.lower()
+    if "weekend" in lower:
+        return "this weekend"
+    for phrase in (
+        "today",
+        "tomorrow",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ):
+        if phrase in lower:
+            return phrase
+    return "then"
+
+
 # ---------------------------------------------------------------------------
 # Routing the agent's output
 # ---------------------------------------------------------------------------
@@ -1542,6 +1845,12 @@ def _route_agent_output(
         return
 
     if output.mode == "clarify":
+        effective_draft = _effective_intake_draft(
+            output_draft=output.intake_draft,
+            last_outbound=last_outbound,
+            inbound_text=inbound_text,
+            sender=sender,
+        )
         # The clarify-cap rails fire only when we're about to SEND the
         # (cap+1)th consecutive CLARIFY about the SAME axis — never on the
         # inbound that answers the cap-hitting one, and never when the
@@ -1553,6 +1862,22 @@ def _route_agent_output(
             axis=_infer_clarify_axis(output.reply_text),
         )
         new_axis = _infer_clarify_axis(reply_text)
+        replacement_axis = _next_unanswered_axis_if_already_answered(
+            axis=new_axis,
+            draft=effective_draft,
+        )
+        if replacement_axis is not None:
+            reply_text = _question_for_axis(replacement_axis)
+            new_axis = replacement_axis
+        elif _draft_axis_answered(axis=new_axis, draft=effective_draft) and _draft_is_complete_post(effective_draft):
+            if _send_complete_draft_confirmation(
+                sender=sender,
+                draft=effective_draft,
+                target_opp=target_opp,
+                source_message_id=inbound_doc_id,
+                provider=provider,
+            ):
+                return
         prior_axis = getattr(last_outbound, "clarify_axis", None) if last_outbound else None
         effective_streak = clarify_streak if new_axis == prior_axis else 0
         if _enforce_clarify_caps(
@@ -1564,11 +1889,17 @@ def _route_agent_output(
             sender=sender, body=reply_text,
             previous_streak=effective_streak, target_opp=target_opp, provider=provider,
             axis=new_axis,
-            intake_draft=output.intake_draft,
+            intake_draft=effective_draft,
         )
         return
 
     if output.mode == "confirm":
+        effective_draft = _effective_intake_draft(
+            output_draft=output.intake_draft,
+            last_outbound=last_outbound,
+            inbound_text=inbound_text,
+            sender=sender,
+        )
         # Server-side backstop: catch agent over-confirms on create_opportunity
         # where the agent has filled a required field from defaults rather than
         # the farmer's words. The prompt forbids this but smaller models drift —
@@ -1616,15 +1947,32 @@ def _route_agent_output(
                 body=_clarify_for_overconfirm(reason=reject_reason),
                 previous_streak=effective_streak, target_opp=target_opp, provider=provider,
                 axis=downgrade_axis,
-                intake_draft=output.intake_draft,
+                intake_draft=effective_draft,
             )
             return
+
+        # Pre-confirm validator for edit_opportunity: a headcount edit that
+        # would drop below the seats already confirmed is a HARD BLOCK. The
+        # prompt forbids it, and the executor (farmer_ops.apply_edit) raises
+        # HeadcountTooLow — but catching it only at execute time means the
+        # farmer is asked to confirm, replies YES, and only THEN is told no.
+        # Catch it here so we never send the confirm prompt for an edit we
+        # already know we'll refuse. Mirrors the create over-confirm backstop.
+        edit_block = _edit_headcount_block_reply(output)
+        if edit_block is not None:
+            _reply_and_log(
+                provider=provider, to=sender, body=edit_block,
+                opp=target_opp, intent=IntentLabel.QUESTION,
+            )
+            return
+
         _send_pending_confirmation(
             sender=sender,
             output=output,
             target_opp=target_opp,
             source_message_id=inbound_doc_id,
             provider=provider,
+            intake_draft=effective_draft,
         )
         return
 
@@ -1831,6 +2179,245 @@ def _sanitize_clarify_reply(*, body: str, sender: UserDoc, axis: str) -> str:
     return body
 
 
+def _effective_intake_draft(
+    *,
+    output_draft: dict | None,
+    last_outbound: MessageDoc | None,
+    inbound_text: str,
+    sender: UserDoc,
+) -> dict | None:
+    """Merge model draft output with prior persisted draft without erasing
+    already-known intake fields.
+
+    The agent owns semantic interpretation, but persisted draft fields are
+    turn memory. A later output must not drop a field the farmer already gave
+    and then ask for it again.
+    """
+    previous = (
+        last_outbound.intake_draft
+        if last_outbound is not None and isinstance(last_outbound.intake_draft, dict)
+        else None
+    )
+    recent_inbound_texts: list[str] = []
+    if sender.id:
+        for msg in messages_repo.list_for_user(sender.id, limit=8):
+            if msg.direction == MessageDirection.INBOUND:
+                recent_inbound_texts.append(msg.body)
+    return _merge_intake_draft_for_turn(
+        output_draft=output_draft,
+        previous_draft=previous,
+        inbound_text=inbound_text,
+        recent_inbound_texts=recent_inbound_texts,
+        sender_role=sender.role,
+    )
+
+
+def _merge_intake_draft_for_turn(
+    *,
+    output_draft: dict | None,
+    previous_draft: dict | None,
+    inbound_text: str,
+    recent_inbound_texts: list[str],
+    sender_role: UserRole,
+) -> dict | None:
+    """Pure helper for intake draft repair; tested directly."""
+    if not output_draft and not previous_draft:
+        return None
+
+    draft: dict = dict(previous_draft or {})
+    for key, value in (output_draft or {}).items():
+        if key == "missing_fields":
+            continue
+        previous_value = draft.get(key)
+        if _draft_value_empty(value) and not _draft_value_empty(previous_value):
+            continue
+        draft[key] = value
+
+    if sender_role in (UserRole.FARMER, UserRole.BOTH):
+        _enrich_farmer_shift_draft(
+            draft=draft,
+            inbound_text=inbound_text,
+            recent_inbound_texts=recent_inbound_texts,
+        )
+
+    missing = _missing_axes_for_draft(draft)
+    if missing is not None:
+        draft["missing_fields"] = missing
+    elif output_draft and "missing_fields" in output_draft:
+        draft["missing_fields"] = list(output_draft.get("missing_fields") or [])
+    elif previous_draft and "missing_fields" in previous_draft:
+        draft["missing_fields"] = list(previous_draft.get("missing_fields") or [])
+    return draft
+
+
+def _draft_value_empty(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}
+
+
+def _enrich_farmer_shift_draft(
+    *, draft: dict, inbound_text: str, recent_inbound_texts: list[str],
+) -> None:
+    kind = draft.get("kind")
+    if kind not in (None, "shift"):
+        return
+    if draft.get("activity_tags"):
+        return
+    combined_text = " ".join([*recent_inbound_texts, inbound_text])
+    tag = _explicit_activity_tag_from_text(combined_text)
+    if tag:
+        draft["kind"] = "shift"
+        draft["activity_tags"] = [tag]
+
+
+def _explicit_activity_tag_from_text(text: str) -> str | None:
+    lower = text.lower()
+    patterns = (
+        ("transplanting", r"\btransplant(?:ing)?\b"),
+        ("planting", r"\b(?:plant|planting|seed|seeding)\b"),
+        ("harvest", r"\b(?:harvest|harvesting|pick|picking|picked)\b"),
+        ("gleaning", r"\b(?:glean|gleaning)\b"),
+        ("weeding", r"\b(?:weed|weeding|weeds)\b"),
+        ("livestock", r"\b(?:livestock|animal|animals|chickens|goats|sheep)\b"),
+        ("infrastructure", r"\b(?:infrastructure|fence|fencing|repair|build|fix)\b"),
+        ("processing", r"\b(?:process|processing)\b"),
+    )
+    for tag, pattern in patterns:
+        if re.search(pattern, lower):
+            return tag
+    if re.search(r"\b(?:tbd|general|anything|whatever)\b", lower):
+        return "tbd"
+    return None
+
+
+def _missing_axes_for_draft(draft: dict | None) -> list[str] | None:
+    if not draft:
+        return None
+    kind = draft.get("kind")
+    if kind == "shift":
+        missing: list[str] = []
+        if not draft.get("starts_at") and not draft.get("window_end_at"):
+            missing.append("date")
+        if not draft.get("time_of_day_bucket") and not _draft_starts_at_has_clock(draft.get("starts_at")):
+            missing.append("time")
+        if not draft.get("headcount_open") and not draft.get("headcount_needed"):
+            missing.append("headcount")
+        if not draft.get("activity_tags"):
+            missing.append("activity")
+        return missing
+    if kind == "pickup":
+        missing = []
+        if not draft.get("deadline_at"):
+            missing.append("deadline")
+        if not draft.get("produce_description"):
+            missing.append("produce")
+        if not draft.get("destination"):
+            missing.append("destination")
+        return missing
+    if kind == "offer":
+        return list(draft.get("missing_fields") or [])
+    return None
+
+
+def _draft_starts_at_has_clock(value: Any) -> bool:
+    if not value:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    return dt.hour != 0 or dt.minute != 0 or dt.second != 0
+
+
+def _next_unanswered_axis_if_already_answered(
+    *, axis: str, draft: dict | None,
+) -> str | None:
+    if not draft or axis in ("general", "opp_selection"):
+        return None
+    missing = _missing_axes_for_draft(draft)
+    if missing is None:
+        return None
+    if axis in missing:
+        return None
+    return missing[0] if missing else None
+
+
+def _draft_axis_answered(*, axis: str, draft: dict | None) -> bool:
+    if not draft or axis in ("general", "opp_selection"):
+        return False
+    missing = _missing_axes_for_draft(draft)
+    return missing is not None and axis not in missing
+
+
+def _draft_is_complete_post(draft: dict | None) -> bool:
+    if not draft or draft.get("kind") not in ("shift", "pickup"):
+        return False
+    missing = _missing_axes_for_draft(draft)
+    return missing == []
+
+
+def _question_for_axis(axis: str) -> str:
+    if axis == "activity":
+        return "What kind of work — harvest, weeding, transplanting, or something else?"
+    question = _FIELD_QUESTIONS.get(axis, "what detail is still missing")
+    return f"Almost there — {question}?"
+
+
+def _send_complete_draft_confirmation(
+    *,
+    sender: UserDoc,
+    draft: dict | None,
+    target_opp: OpportunityDoc | None,
+    source_message_id: str,
+    provider,
+) -> bool:
+    """Send a confirmation when the repaired intake draft is complete but the
+    model tried to clarify an already-answered axis."""
+    if not draft or sender.role not in (UserRole.FARMER, UserRole.BOTH):
+        return False
+    try:
+        parsed = ParsedOpportunity.model_validate(draft)
+    except Exception:
+        return False
+    if _missing_required_reason(parsed=parsed) is not None:
+        return False
+
+    if target_opp is not None and target_opp.status == OpportunityStatus.DRAFT and target_opp.id:
+        action_name = "update_draft_opportunity"
+        payload = {"opp_id": target_opp.id, "parsed": parsed.model_dump(mode="json")}
+    else:
+        action_name = "create_opportunity"
+        payload = {"parsed": parsed.model_dump(mode="json")}
+
+    from datetime import timedelta as _td
+    token = "YES"
+    pending_payload = {
+        "action": action_name,
+        "token": token,
+        "payload": payload,
+        "source_message_id": source_message_id,
+        "media_urls": _media_urls_from_message(source_message_id),
+        "expires_at": (datetime.now(UTC) + _td(minutes=30)).isoformat(),
+    }
+    reply_text = f"Post {_farmer_posting_summary(parsed=parsed)}? Reply {token} to post."
+    provider_id = safe_send(provider, to_phone=sender.phone, body=reply_text)
+    if provider_id is None:
+        return True
+    messages_repo.create(
+        MessageDoc(
+            direction=MessageDirection.OUTBOUND,
+            provider_msg_id=provider_id,
+            user_id=sender.id,
+            opportunity_id=target_opp.id if target_opp else None,
+            body=reply_text,
+            intent_label=IntentLabel.PENDING_CONFIRMATION,
+            pending_action=pending_payload,
+            intake_draft=draft,
+            created_at=datetime.now(UTC),
+        )
+    )
+    return True
+
+
 def _send_pending_confirmation(
     *,
     sender: UserDoc,
@@ -1838,38 +2425,24 @@ def _send_pending_confirmation(
     target_opp: OpportunityDoc | None,
     source_message_id: str,
     provider,
+    intake_draft: dict | None = None,
 ) -> None:
     """Send a PENDING_CONFIRMATION outbound, persisting the action payload
     so dispatch can execute it deterministically when the user replies with
     the token (or an affirmative variant).
 
     Guardrails enforced here, NOT trusted to the prompt:
-      - Token must match the regex AND not collide with a reserved hotkey.
-        If either check fails, we flag and reply with a generic clarify.
+      - The confirmation token is *derived deterministically* from the action
+        (`_token_for_action`), not taken from the model. Any token the agent
+        emitted is ignored. This makes invalid/colliding tokens impossible.
       - The action and its payload must round-trip through the discriminated
         union (handled by pydantic validation on AgentOutput).
     """
     settings = load_settings()
-    token = (output.confirmation_token or "").upper()
-    if not _is_valid_token(token):
-        flags_repo.create(
-            FlagDoc(
-                message_id=None,  # not tied to a single inbound
-                flagged_by_user_id=sender.id,
-                reason=f"Agent proposed invalid confirmation token: {token!r}",
-                created_at=datetime.now(UTC),
-            )
-        )
-        _reply_and_log(
-            provider=provider, to=sender,
-            body=templates.render_fallback_ambiguous(),
-            opp=target_opp, intent=IntentLabel.CLARIFY,
-        )
-        return
-
     if output.action is None:
         # Shouldn't happen — schema requires action for confirm mode.
         return
+    token = _token_for_action(output.action.name)
 
     from datetime import timedelta as _td
     pending_payload = {
@@ -1892,7 +2465,7 @@ def _send_pending_confirmation(
             body=output.reply_text,
             intent_label=IntentLabel.PENDING_CONFIRMATION,
             pending_action=pending_payload,
-            intake_draft=output.intake_draft,
+            intake_draft=intake_draft,
             created_at=datetime.now(UTC),
         )
     )
@@ -1988,6 +2561,37 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
     # without (e.g.) headcount_needed, the user says YES, then the executor
     # rejects with a raw-field-name error.
     return _missing_required_reason(parsed=parsed)
+
+
+def _edit_headcount_block_reply(output: AgentOutput) -> str | None:
+    """If the agent drafted an `edit_opportunity` that would drop
+    `headcount_needed` below the opp's current `seats_filled`, return the
+    user-facing reply explaining the block. Otherwise return None.
+
+    Looks up the opp by the action payload's own `opp_id` (authoritative)
+    rather than `target_opp` (which is anchored to the last outbound and may
+    differ). Read-only — no state change here; this is a pre-confirm gate.
+    """
+    if output.action is None or output.action.name != "edit_opportunity":
+        return None
+    payload = getattr(output.action, "edit_opportunity", None)
+    if payload is None:
+        return None
+    new_headcount = (payload.field_updates or {}).get("headcount_needed")
+    if new_headcount is None:
+        return None
+    try:
+        new_headcount = int(new_headcount)
+    except (TypeError, ValueError):
+        return None
+    opp = opportunities_repo.get_by_id(payload.opp_id)
+    if opp is None:
+        return None
+    if new_headcount < opp.seats_filled:
+        return templates.render_edit_headcount_too_low(
+            currently_filled=opp.seats_filled
+        )
+    return None
 
 
 def _missing_required_reason(*, parsed) -> str | None:
@@ -2098,25 +2702,20 @@ def _clarify_for_overconfirm(*, reason: str) -> str:
     return "A few details are still missing — what time should it start, and what kind of work?"
 
 
-def _is_valid_token(token: str) -> bool:
-    """Token must be exactly 4 uppercase letters and not collide with a hotkey.
-
-    Two exceptions:
-      - `YES` is the default/preferred confirmation token. The pending-token
-        check runs BEFORE the hotkey parser when a live PENDING_CONFIRMATION
-        is on the user's last outbound, so `YES` is unambiguously routed to
-        confirmation in that context (and only falls through to claim-hotkey
-        when no pending confirm exists).
-      - `UNDO` may be used for the `undo_last` action — UNDO is itself a
-        deterministic hotkey and the semantics line up.
-
-    All other reserved hotkey words remain off-limits as tokens.
-    """
-    if token in ("YES", "UNDO"):
-        return True
-    if not re.match(r"^[A-Z]{4}$", token):
-        return False
-    return token not in hotkeys.RESERVED_HOTKEY_TOKENS
+# Deterministic confirmation token per action. Token *selection* is no longer
+# trusted to the model: only the latest outbound's PENDING_CONFIRMATION is ever
+# live, and the inbound matcher accepts any affirmative variant (YES/OK/SURE/…)
+# in addition to the stored token, so a distinct per-action token is never
+# functionally required. Picking it here removes a whole class of small-model
+# failures (invalid 4-letter strings, collisions with reserved hotkeys, prose
+# that says "Reply YES" while the stored token is something else). `YES` is the
+# universal default; `undo_last` keeps `UNDO` because that is itself a
+# deterministic hotkey the user is told to send.
+def _token_for_action(action_name: str | None) -> str:
+    """Return the deterministic confirmation token for an action name."""
+    if action_name == "undo_last":
+        return "UNDO"
+    return "YES"
 
 
 def _extract_action_payload(output: AgentOutput) -> dict:
@@ -2172,7 +2771,7 @@ def _execute_action(
     Each action maps to an existing flow function (or a small new one for
     the refactor-introduced actions: set_availability, set_activity_preferences,
     record_offer, undo_last). After the action runs, an ACTION_RECEIPT outbound
-    is sent so the user sees what happened and can UNDO within the window.
+    is sent so the user sees what happened and can UNDO it.
     """
     receipt_body: str | None = None
     receipt_opp_id: str | None = None
@@ -2253,8 +2852,8 @@ def _execute_action(
         # with a contextual error. No ACTION_RECEIPT in that case.
         return
 
-    # Send the receipt SMS. Stamping it as ACTION_RECEIPT enables the UNDO
-    # window for the next inbound from this user.
+    # Send the receipt SMS. Stamping it as ACTION_RECEIPT enables UNDO for
+    # the next inbound from this user.
     receipt_media_urls = _action_receipt_media_urls(
         action_name=action_name,
         receipt_opp_id=receipt_opp_id,
@@ -2327,7 +2926,7 @@ def _execute_claim_opportunity(*, sender: UserDoc, payload: dict, provider) -> t
     )
     # `handle_claim` already returns the user-facing ack text; we use that
     # plus a one-line UNDO hint as the receipt.
-    receipt = f"{reply} Reply UNDO within 5 min if that wasn't right."
+    receipt = f"{reply} Reply UNDO if that wasn't right."
     return receipt, opp_id
 
 
@@ -2344,7 +2943,7 @@ def _execute_record_maybe(*, sender: UserDoc, payload: dict) -> tuple[str | None
         volunteer=sender,
         farm_name=farm.name if farm else "the farm",
     )
-    receipt = f"{reply} Reply UNDO within 5 min if that wasn't right."
+    receipt = f"{reply} Reply UNDO if that wasn't right."
     return receipt, opp_id
 
 
@@ -2358,7 +2957,7 @@ def _execute_drop_confirmed_claim(*, sender: UserDoc, payload: dict, provider) -
     reply = claim_flow.handle_volunteer_drop(
         messaging=provider, opportunity=opp, volunteer=sender,
     )
-    receipt = f"{reply} Reply UNDO within 5 min if that wasn't right."
+    receipt = f"{reply} Reply UNDO if that wasn't right."
     return receipt, opp_id
 
 
@@ -2375,7 +2974,7 @@ def _execute_cancel_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
     summary = farmer_ops.opp_short_summary(opp)
     receipt = (
         f"Farm Friend Vashon: cancelled {summary}. Confirmed volunteers "
-        f"notified. Reply UNDO within 5 min if wrong."
+        f"notified. Reply UNDO if wrong."
     )
     return receipt, opp_id
 
@@ -2404,7 +3003,7 @@ def _execute_edit_opportunity(*, sender: UserDoc, payload: dict, provider) -> tu
     summary = farmer_ops.opp_short_summary(updated)
     receipt = (
         f"Farm Friend Vashon: updated {summary}. Confirmed volunteers notified. "
-        f"Reply UNDO within 5 min if wrong."
+        f"Reply UNDO if wrong."
     )
     return receipt, opp_id
 
@@ -2460,7 +3059,7 @@ def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
     summary = _farmer_posting_summary(parsed=parsed)
     receipt = (
         f"Farm Friend Vashon: posted {summary}. Pinging insiders now. "
-        f"Reply UNDO within 5 min if wrong."
+        f"Reply UNDO if wrong."
     )
     return receipt, created.id
 
@@ -2506,7 +3105,7 @@ def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provide
     summary = _farmer_posting_summary(parsed=parsed)
     receipt = (
         f"Farm Friend Vashon: posted {summary}. Pinging insiders now. "
-        f"Reply UNDO within 5 min if wrong."
+        f"Reply UNDO if wrong."
     )
     return receipt, opp_id
 
@@ -2559,7 +3158,7 @@ def _execute_add_mute_rule(*, sender: UserDoc, payload: dict) -> tuple[str | Non
         )
     )
     receipt = (
-        f"Farm Friend Vashon: muted {dim}={value}. Reply UNDO within 5 min "
+        f"Farm Friend Vashon: muted {dim}={value}. Reply UNDO "
         f"if that wasn't right."
     )
     return receipt, None
@@ -2579,7 +3178,7 @@ def _execute_set_availability(*, sender: UserDoc, payload: dict) -> tuple[str | 
     days_str = ", ".join(_day_name(d) for d in days) if days else "no days set"
     receipt = (
         f"Farm Friend Vashon: availability set to {days_str}. Reply UNDO "
-        f"within 5 min if wrong."
+        f"if wrong."
     )
     return receipt, None
 
@@ -2603,7 +3202,7 @@ def _execute_set_activity_preferences(*, sender: UserDoc, payload: dict) -> tupl
         parts.append(f"removed {', '.join(remove)}")
     receipt = (
         f"Farm Friend Vashon: preferences updated ({'; '.join(parts)}). "
-        f"Reply UNDO within 5 min if wrong."
+        f"Reply UNDO if wrong."
     )
     return receipt, None
 
@@ -2630,7 +3229,7 @@ def _execute_farmer_decide_on_proposal(
     )
     # Don't tack on the UNDO suffix here — auto-confirm and farmer-decline
     # both have explicit forward exits (DROP or text another day). UNDO
-    # within 5 min is fine if needed but the receipt copy stays clean.
+    # is fine if needed but the receipt copy stays clean.
     return reply, None
 
 
@@ -2659,12 +3258,12 @@ def _execute_record_offer(*, sender: UserDoc, payload: dict) -> tuple[str | None
         expires_at=expires_at,
     )
     offers_repo.create(offer)
-    # Short, passive, no first-person. The "UNDO within 5 min" hint stays
-    # because every ACTION_RECEIPT carries it (uniform UNDO rail across
-    # actions). See style rules in prompts/agent.md.
+    # Short, passive, no first-person. The UNDO hint stays because every
+    # ACTION_RECEIPT carries it (uniform UNDO rail across actions). See style
+    # rules in prompts/agent.md.
     receipt = (
         "Farm Friend Vashon: Your offer has been recorded. "
-        "Reply UNDO within 5 min if wrong."
+        "Reply UNDO if wrong."
     )
     return receipt, None
 
@@ -2749,7 +3348,7 @@ def _undo_last_executed_action(
         safe_send(
             provider, to_phone=sender.phone,
             body=(
-                "Can't auto-undo that mute. Text MUTE again or contact Max if "
+                "Can't auto-undo that mute. Text MUTE again or reply here if "
                 "you need it removed sooner."
             ),
         )
@@ -2763,18 +3362,32 @@ def _undo_last_executed_action(
             provider, to_phone=sender.phone,
             body=(
                 "Can't auto-undo a proposal decision — the volunteer has "
-                "been notified. Text Max if you need to reverse it."
+                "been notified. Reply here if you need to reverse it."
             ),
         )
         return
-    elif action_name in ("cancel_opportunity", "create_opportunity", "edit_opportunity"):
-        # Farmer actions — these have already fanned out to volunteers. We
-        # don't auto-undo them in v1; reply explaining.
+    elif action_name == "create_opportunity":
+        opp_id = last_outbound.opportunity_id
+        if opp_id:
+            opp = opportunities_repo.get_by_id(opp_id)
+            if opp and opp.id:
+                farm = farms_repo.get_by_id(opp.farm_id)
+                farm_name = farm.name if farm else "the farm"
+                opportunities_repo.update_status(opp.id, OpportunityStatus.CANCELLED)
+                _notify_opportunity_rescinded(
+                    opp=opp,
+                    farm_name=farm_name,
+                    provider=provider,
+                )
+                undid_what = "your post; notified anyone already pinged or signed up"
+    elif action_name in ("cancel_opportunity", "edit_opportunity"):
+        # These fan out without storing the prior opportunity snapshot, so we
+        # avoid pretending we can reconstruct the old state.
         safe_send(
             provider, to_phone=sender.phone,
             body=(
-                "That change has already been sent to volunteers — can't "
-                "auto-undo. Text Max if you need to reverse it."
+                "That change was already sent to volunteers. Reply with the "
+                "correction and I'll notify affected volunteers."
             ),
         )
         return
@@ -2799,6 +3412,31 @@ def _undo_last_executed_action(
             created_at=datetime.now(UTC),
         )
     )
+
+
+def _notify_opportunity_rescinded(
+    *, opp: OpportunityDoc, farm_name: str, provider,
+) -> None:
+    """Notify volunteers who saw or acted on a post that the farmer rescinded."""
+    if not opp.id:
+        return
+    recipient_ids: set[str] = set()
+    for entry in opportunities_repo.list_outreach(opp.id):
+        recipient_ids.update(entry.recipient_ids or [])
+    for claim in opportunities_repo.list_all_claims(opp.id):
+        if claim.status != ClaimStatus.DROPPED:
+            recipient_ids.add(claim.volunteer_user_id)
+    if not recipient_ids:
+        return
+    body = templates.render_opportunity_cancelled(
+        farm_name=farm_name,
+        summary=farmer_ops.opp_short_summary(opp),
+    )
+    for uid in recipient_ids:
+        user = users_repo.get_by_id(uid)
+        if user is None:
+            continue
+        safe_send(provider, to_phone=user.phone, body=body)
 
 
 def _day_name(d: int) -> str:

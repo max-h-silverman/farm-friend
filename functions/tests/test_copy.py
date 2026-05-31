@@ -145,8 +145,7 @@ def test_help_includes_contact_path() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Compliance copy — these strings are bound to the Telnyx campaign registration.
-# Changes here require re-registering the campaign with the carrier.
+# Compliance copy — keep these aligned with the Telnyx campaign registration.
 # Source of truth: docs/sms-compliance-requirements.md.
 # ---------------------------------------------------------------------------
 def test_stop_ack_matches_compliance_text() -> None:
@@ -159,11 +158,12 @@ def test_stop_ack_matches_compliance_text() -> None:
 
 def test_join_ack_matches_compliance_text() -> None:
     body = templates.render_join_ack()
-    # Pinning the exact text. Length and content are carrier-approved.
-    assert "Farm Friend Vashon: Thanks for subscribing" in body
+    assert "Farm Friend Vashon: You're signed up" in body
+    assert "local farm help and surplus pickup texts" in body
+    assert "We'll text only about this program" in body
     assert "0-6/week" in body
     assert "Msg&data rates may apply" in body
-    assert "Consent is not a condition of purchase or participation" in body
+    assert "Texting is optional" in body
     assert "Reply HELP for help or STOP to opt out" in body
 
 
@@ -195,7 +195,7 @@ def test_auto_confirm_notice_does_not_use_cancel_for_reversal() -> None:
         opp_summary="weeding window",
     )
     assert "CANCEL" not in body
-    assert "Text Max" in body
+    assert "Reply here if you need to reverse it." in body
 
 
 def test_intro_volunteer_uses_program_name_vashon() -> None:

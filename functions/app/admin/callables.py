@@ -7,7 +7,9 @@ with Firebase Auth. We gate each callable on `request.auth.token.admin == true`
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
+from time import monotonic
 from uuid import uuid4
 
 from firebase_functions import https_fn
@@ -28,6 +30,8 @@ from app.repos.models import (
     UserRole,
     UserStatus,
 )
+
+log = logging.getLogger(__name__)
 
 
 def _require_admin(req: https_fn.CallableRequest) -> None:
@@ -201,7 +205,7 @@ def resolve_flag(req: https_fn.CallableRequest) -> dict:
 @https_fn.on_call()
 def set_admin_claim(req: https_fn.CallableRequest) -> dict:
     """Bootstrap: grants admin = true to a uid. Self-service is fine for the
-    pilot because Max is the only intended admin and runs this once. This must
+    pilot because the coordinator is the only intended admin and runs this once. This must
     only work when called by an already-admin OR when there are zero existing
     admins yet (first-run)."""
     target_uid = (req.data or {}).get("uid")
@@ -328,6 +332,7 @@ def simulate_inbound_sms(req: https_fn.CallableRequest) -> dict:
       - inbound_logged_as: the from_phone used.
     """
     _require_admin(req)
+    started = monotonic()
     data = req.data or {}
     user_id = data.get("user_id")
     phone = data.get("phone")
@@ -349,14 +354,31 @@ def simulate_inbound_sms(req: https_fn.CallableRequest) -> dict:
 
     settings = load_settings()
     fake = FakeMessagingProvider()
+    provider_msg_id = f"sim-{uuid4()}"
     inbound = InboundMessage(
         from_phone=from_phone,
         to_phone=settings.telnyx_from_number or "+15555550100",
         body=body,
-        provider_msg_id=f"sim-{uuid4()}",
+        provider_msg_id=provider_msg_id,
         received_at=datetime.now(UTC),
     )
-    message_dispatch._dispatch(inbound=inbound, messaging=fake)
+    log.info(
+        "simulate_inbound_sms_start from_phone=%s user_id=%s provider_msg_id=%s body_len=%d",
+        from_phone,
+        user_id,
+        provider_msg_id,
+        len(body),
+    )
+    try:
+        message_dispatch._dispatch(inbound=inbound, messaging=fake)
+    finally:
+        log.info(
+            "simulate_inbound_sms_finish from_phone=%s provider_msg_id=%s elapsed_ms=%d outbound_count=%d",
+            from_phone,
+            provider_msg_id,
+            int((monotonic() - started) * 1000),
+            len(fake.sent),
+        )
 
     return {
         "inbound_logged_as": from_phone,

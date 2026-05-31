@@ -46,10 +46,21 @@ class OpenAICompatibleAdapter(LLMAdapter):
     ) -> None:
         if not base_url:
             raise LLMProviderError("LLM_BASE_URL is required for openai-compatible provider")
+        # OpenRouter wants attribution headers; harmless to other providers but
+        # we only attach them when talking to OpenRouter to avoid surprising
+        # strict endpoints with unexpected headers.
+        default_headers = None
+        if "openrouter.ai" in base_url.lower():
+            default_headers = {
+                "HTTP-Referer": "https://farm-friend-vashon.web.app",
+                "X-Title": "Farm Friend Vashon",
+            }
         self._client = OpenAI(
             api_key=api_key or "no-key",
             base_url=base_url,
             timeout=max(timeout_ms, 1) / 1000,
+            max_retries=0,
+            default_headers=default_headers,
         )
         self._temperature = temperature
         # Detect providers we already know mishandle json_schema. DeepInfra

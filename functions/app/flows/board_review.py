@@ -93,6 +93,7 @@ def run_board_review_tick() -> None:
         per_tick_budget=settings.agent_review_per_tick_max,
         per_user_budget_hours=settings.agent_nudge_budget_hours,
         per_opp_max=settings.agent_nudge_per_opp_max,
+        admin_only=settings.agent_review_admin_only,
         messaging=messaging,
     )
 
@@ -226,6 +227,7 @@ def _route_review_proposals(
     per_user_budget_hours: int,
     per_opp_max: int,
     messaging,
+    admin_only: bool = True,
 ) -> None:
     sent_count = 0
     now = datetime.now(UTC)
@@ -237,6 +239,19 @@ def _route_review_proposals(
     )
 
     for proposal in sorted_proposals:
+        # Pilot safety gate: when admin_only is set, the review tick never
+        # autonomously SMSes a user. Every proposal — including state-changing
+        # ones — lands on the admin worklist instead, where the coordinator decides. This
+        # removes the highest carrier-complaint risk (unsolicited proactive
+        # outbound) while OLMo's review-mode behavior is still unproven. Flip
+        # AGENT_REVIEW_ADMIN_ONLY=0 to re-enable user-facing nudges.
+        if admin_only and proposal.target == "user":
+            _create_admin_flag(
+                proposal,
+                override_reason="Review tick in admin-only mode (pilot); not sent to user",
+            )
+            continue
+
         # Admin-targeted proposals always flag, no budget consumed.
         if proposal.target == "admin":
             _create_admin_flag(proposal)
@@ -364,16 +379,11 @@ def _send_review_proposal(
 
     # If the proposal includes an action + token, this is a PENDING_CONFIRMATION.
     # Otherwise it's a plain AGENT_NUDGE (informational, no state change pending).
-    if proposal.action and proposal.confirmation_token:
-        from app.flows.message_dispatch import _is_valid_token, _extract_action_payload
-        # Build a fake AgentOutput-like envelope so we can reuse the same
-        # payload extraction. Avoids touching the agent module's internals here.
-        token = (proposal.confirmation_token or "").upper()
-        if not _is_valid_token(token):
-            _create_admin_flag(
-                proposal, override_reason=f"Invalid token in review proposal: {token!r}",
-            )
-            return False
+    if proposal.action:
+        from app.flows.message_dispatch import _token_for_action, _extract_action_payload
+        # Token is derived deterministically from the action (see
+        # message_dispatch._token_for_action) — never taken from the model.
+        token = _token_for_action(proposal.action.name)
         from app.agent.unified import AgentOutput
         wrapped = AgentOutput(
             mode="confirm", reply_text=body,

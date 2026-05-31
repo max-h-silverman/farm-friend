@@ -321,7 +321,7 @@ def _window_minutes(opp: OpportunityDoc, farm) -> int:
 def run_stale_draft_tick() -> None:
     """Surface drafts older than STALE_DRAFT_AGE_HOURS that never finished
     clarification. We don't auto-cancel — the farmer might come back. We
-    flag for admin so Max can reach out manually.
+    flag for admin so the coordinator can reach out manually.
 
     Idempotent: each call only flags drafts that don't already have an open
     flag tied to their `created_from_message_id`."""

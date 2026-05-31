@@ -26,7 +26,7 @@ farm-friend/
 │   │   ├── llm/                    # LLMClient — Anthropic adapter + OpenAI-compatible adapter
 │   │   ├── messaging/              # MessagingProvider abstraction + Telnyx + fake; safe_send wrapper
 │   │   ├── repos/                  # Firestore data access (the ONLY place that imports firestore directly)
-│   │   ├── agent/                  # hotkeys (deterministic), opportunity parser, reply classifier, ambiguous handler
+│   │   ├── agent/                  # hotkeys (deterministic) + unified agent (one LLM call drafts; dispatch executes) + opportunity parser
 │   │   ├── flows/                  # business logic (message_dispatch, outreach, claim, post_event, confirmations, farmer_ops)
 │   │   ├── prompts/                # LLM system prompts as versioned text files
 │   │   ├── copy/                   # SMS-facing copy templates
@@ -75,7 +75,10 @@ cd functions
 venv/bin/python -m pytest tests/
 ```
 
-Tests are pure-logic only (hotkey parser, copy templates, LLM client schema validation, time formatting) — no Firebase touched. 86 tests, <1 second.
+Tests are pure-logic and repo-stubbed only — no live Firebase touched. They run in
+under a second. Note the coverage gap (documented in `docs/status.md`): the
+Firestore-touching flow/dispatch code is largely untested, so a green suite is not
+proof a Firebase path works end-to-end.
 
 ### Run locally with emulators
 

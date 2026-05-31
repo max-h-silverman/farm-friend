@@ -113,7 +113,7 @@ def latest_outbound_with_intent(
     """Most recent outbound to this user with the given intent_label.
 
     Used by dispatch to find: the live PENDING_CONFIRMATION whose token might
-    match an inbound, the live ACTION_RECEIPT whose UNDO window might be open,
+    match an inbound, the ACTION_RECEIPT that can be undone,
     the prior CLARIFY for clarification-round counting.
     """
     q = (
