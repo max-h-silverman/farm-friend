@@ -153,6 +153,7 @@ class Settings:
     agent_nudge_per_opp_max: int          # lifetime cap on AGENT_NUDGE outbounds per opp
     agent_review_per_tick_max: int        # max user-facing nudges per review tick
     agent_review_admin_only: bool         # pilot safety: force ALL review proposals to admin worklist
+    agent_window_posts_enabled: bool      # pilot safety: when False, strip agent-emitted window_end_at (single-day posts only)
     clarify_round_max: int                # auto-escalate after this many consecutive CLARIFY rounds
     clarify_user_24h_max: int             # soft cap: CLARIFY outbounds per user per 24h
     offer_default_ttl_days: int           # default expires_at for OfferDoc when no latest_at given
@@ -249,6 +250,14 @@ def load_settings() -> Settings:
         # OLMo path is trusted in production. See docs/status.md.
         agent_review_admin_only=_env("AGENT_REVIEW_ADMIN_ONLY", "1").lower()
         not in {"0", "false", "no"},
+        # Pilot safety: window (multi-day) posts are deferred from the agent's
+        # responsibilities for the pilot — a farmer posts one day at a time.
+        # Default OFF. Shrinks the prompt surface the model must get right (the
+        # window subsystem is the flakiest part of the eval) without deleting
+        # the code, which stays for post-pilot. When False, dispatch strips any
+        # window_end_at the agent emits, collapsing it to a single-day post.
+        agent_window_posts_enabled=_env("AGENT_WINDOW_POSTS_ENABLED", "0").lower()
+        in {"1", "true", "yes"},
         clarify_round_max=int(_env("CLARIFY_ROUND_MAX", "2")),
         clarify_user_24h_max=int(_env("CLARIFY_USER_24H_MAX", "5")),
         offer_default_ttl_days=int(_env("OFFER_DEFAULT_TTL_DAYS", "7")),

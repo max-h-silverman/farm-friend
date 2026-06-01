@@ -255,9 +255,20 @@ def simulate_dispatch(
     # Apply the production over-confirm backstop so the eval reflects what the
     # user actually sees, not the raw agent output. See _route_agent_output in
     # app/flows/message_dispatch.py for the production version.
-    from app.flows.message_dispatch import _agent_overconfirm_reason
+    from app.flows.message_dispatch import (
+        _agent_overconfirm_reason,
+        _strip_window_if_disabled,
+    )
     if output.mode == "confirm":
-        reject = _agent_overconfirm_reason(output=output, inbound_text=case.inbound_text)
+        # Mirror production: strip window_end_at when window posts are deferred
+        # (pilot default) BEFORE the backstop / payload extraction run.
+        _strip_window_if_disabled(output)
+        reject = _agent_overconfirm_reason(
+            output=output,
+            inbound_text=case.inbound_text,
+            last_outbound=last_outbound,
+            known_farm_names=tuple(f.name for f in world.farms),
+        )
         if reject is not None:
             # The backstop downgrades to clarify; apply the cap on that path too.
             if clarify_streak >= cap:
@@ -894,6 +905,11 @@ def _eval_settings(
         agent_nudge_per_opp_max=2,
         agent_review_per_tick_max=3,
         agent_review_admin_only=True,
+        # Eval honors the env flag so the suite can exercise the still-present
+        # window code (AGENT_WINDOW_POSTS_ENABLED=1) or the pilot default (off).
+        agent_window_posts_enabled=os.environ.get(
+            "AGENT_WINDOW_POSTS_ENABLED", "0"
+        ).lower() in {"1", "true", "yes"},
         clarify_round_max=2,
         clarify_user_24h_max=5,
         offer_default_ttl_days=7,
@@ -1682,7 +1698,22 @@ def run_all(*, live: bool, category: str | None, case_id: str | None,
     failed: list[CaseResult] = []
     skipped = 0
 
+    # Window posts are deferred from the agent for the pilot (flag off by
+    # default). Cases that ASSERT window_end_at test code that still exists but
+    # is gated off — skip them when the flag is off so the suite reflects the
+    # pilot config without spurious failures. Run with AGENT_WINDOW_POSTS_ENABLED=1
+    # to exercise the full window subsystem.
+    windows_on = os.environ.get(
+        "AGENT_WINDOW_POSTS_ENABLED", "0"
+    ).lower() in {"1", "true", "yes"}
+
     for case in cases_to_run:
+        asserts_window = "window_end_at" in (case.expected.payload_must_include or {})
+        if asserts_window and not windows_on:
+            skipped += 1
+            if verbose:
+                print(f"SKIP {case.id}  (window posts deferred; set AGENT_WINDOW_POSTS_ENABLED=1)")
+            continue
         result = run_one(case, live=live)
         if result.passed:
             passed += 1
@@ -1701,9 +1732,10 @@ def run_all(*, live: bool, category: str | None, case_id: str | None,
                 if result.dispatch_reason:
                     print(f"     dispatch_reason: {result.dispatch_reason}")
 
-    total = len(cases_to_run)
+    total = len(cases_to_run) - skipped
     print()
-    print(f"Eval result: {passed}/{total} passed, {len(failed)} failed")
+    skip_note = f", {skipped} skipped" if skipped else ""
+    print(f"Eval result: {passed}/{total} passed, {len(failed)} failed{skip_note}")
     return 0 if not failed else 1
 
 

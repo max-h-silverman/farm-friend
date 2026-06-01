@@ -37,6 +37,7 @@ def _settings(**overrides) -> Settings:
         agent_nudge_per_opp_max=2,
         agent_review_per_tick_max=3,
         agent_review_admin_only=True,
+        agent_window_posts_enabled=False,
         clarify_round_max=2,
         clarify_user_24h_max=5,
         offer_default_ttl_days=7,

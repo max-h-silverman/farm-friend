@@ -62,8 +62,9 @@ if (document.readyState === "loading") {
 // -- Synchronous Alpine component definition ------------------------------
 window.adminApp = function adminApp() {
   return {
-    // state
-    tab: "worklist",
+    // state. Demo is the default tab so the dashboard opens straight onto the
+    // live conversation stage (used to present Farm Friend to growers).
+    tab: "test",
     ready: false,
     pendingUsers: [],
     openFlags: [],
@@ -439,6 +440,28 @@ window.adminApp = function adminApp() {
       if (this.isPhoneThread(userId)) return `Unapproved phone · ${this.phoneForThread(userId)}`;
       const u = this.users.find((x) => x.id === userId);
       return u ? `${u.name} · ${u.role}` : userId;
+    },
+
+    // Phone-mockup chat header pieces (split from userLabel so the demo can
+    // show the persona name and role on separate lines).
+    userName(userId) {
+      if (this.isPhoneThread(userId)) return this.phoneForThread(userId);
+      const u = this.users.find((x) => x.id === userId);
+      return u ? u.name : userId;
+    },
+    userRole(userId) {
+      if (this.isPhoneThread(userId)) return "not yet approved";
+      const u = this.users.find((x) => x.id === userId);
+      return u ? u.role : "";
+    },
+    // Maps a pinned thread to a role-colored dot class for the chat header.
+    roleClass(userId) {
+      if (this.isPhoneThread(userId)) return "role-unknown";
+      const u = this.users.find((x) => x.id === userId);
+      if (!u) return "role-unknown";
+      if (u.role === "farmer") return "role-farmer";
+      if (u.role === "both") return "role-both";
+      return "role-volunteer";
     },
 
     availableUsersToPin() {

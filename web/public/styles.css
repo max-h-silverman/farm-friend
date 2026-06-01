@@ -458,122 +458,43 @@ h1, h2, h3 { margin: 0; }
 /* =========================================================================
    System Test — conversation transcript
    ========================================================================= */
-.test-form {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-2);
-  box-shadow: var(--shadow-1);
-  padding: var(--s-4);
-  margin-bottom: var(--s-5);
-  display: grid; gap: var(--s-3);
-}
-.test-presets { display: flex; flex-wrap: wrap; gap: 6px; }
-.test-presets .chip { font-size: var(--t-xs); padding: 4px 10px; min-height: 28px; }
-.test-actions { display: flex; gap: var(--s-2); }
+/* =========================================================================
+   DEMO STAGE — phone-mockup conversation wall
+   The demo is the dashboard's hero surface (first tab). Each pinned person is
+   rendered as a smartphone showing a live SMS thread, so the coordinator can
+   present 3–4 simultaneous conversations to an audience.
+   ========================================================================= */
 
-.transcript {
-  display: grid; gap: var(--s-2);
-  margin-top: var(--s-3);
-}
-.transcript .turn {
-  max-width: 80%;
-  padding: 10px 14px;
-  border-radius: var(--r-3);
-  font-size: var(--t-base);
-  line-height: 1.4;
-  box-shadow: var(--shadow-1);
-}
-.transcript .turn.inbound {
-  justify-self: end;
-  background: var(--primary);
-  color: var(--primary-ink);
-  border-bottom-right-radius: 4px;
-}
-.transcript .turn.inbound .caption { color: var(--primary-ink); opacity: 0.75; }
-.transcript .turn.outbound {
-  justify-self: start;
-  background: var(--surface-2);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-bottom-left-radius: 4px;
-}
-.transcript .turn .caption {
-  display: block;
-  font-size: var(--t-xs);
-  opacity: 0.7;
-  margin-top: 4px;
-}
-.transcript .turn.typing {
-  padding: 14px 16px;
-}
-.transcript .typing-dots {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.transcript .typing-dots > span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--fg);
-  opacity: 0.35;
-  animation: typing-bounce 1.2s infinite ease-in-out;
-}
-.transcript .typing-dots > span:nth-child(2) { animation-delay: 0.15s; }
-.transcript .typing-dots > span:nth-child(3) { animation-delay: 0.3s; }
-@keyframes typing-bounce {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
-  30% { transform: translateY(-3px); opacity: 0.85; }
+/* --- Demo-mode chrome collapse -----------------------------------------
+   On the Demo tab the phones are the product. Shrink the header, drop the
+   KPI strip (hidden in markup), and let the stage fill the viewport. */
+.demo-mode .app-header { padding: 6px var(--s-4); }
+.demo-mode .app-header .wordmark { font-size: var(--t-base); }
+.demo-mode main {
+  max-width: none;
+  padding: var(--s-3) var(--s-4) var(--s-4);
 }
 
-.transcript-footer {
-  margin-top: var(--s-3);
-  font-size: var(--t-sm);
-  color: var(--muted);
-}
+.demo-empty { margin-top: var(--s-6); }
 
-/* --- Multi-thread System Test ------------------------------------------- */
-
-/* Pin bar above the grid. Flex-wrap so chips fall to a second row on narrow
-   viewports. */
-.pinbar {
+/* Slim, single-row operator bar. */
+.stage-bar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: var(--s-2);
-  padding: var(--s-2) 0;
-  margin: var(--s-3) 0 var(--s-2) 0;
-}
-.pinbar-label {
-  font-size: var(--t-sm);
-  color: var(--muted);
-  font-weight: 600;
-}
-.pinbar-empty {
-  font-size: var(--t-sm);
-  color: var(--muted);
-  font-style: italic;
-}
-
-/* Clear-DB control. Sits below the pinbar; uses the warn palette so it's
-   visually distinct from the harmless "Clear thread" link. */
-.clear-db-bar {
-  display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s-2);
-  margin: 0 0 var(--s-3) 0;
+  margin-bottom: var(--s-3);
   font-size: var(--t-sm);
 }
+.stage-bar-spacer { flex: 1 1 auto; }
+
 .btn-danger-outline {
   background: transparent;
   color: var(--warn);
   border: 1px solid var(--warn);
   padding: 6px 10px;
 }
-.btn-danger-outline:hover:not(:disabled) {
-  background: var(--warn-soft);
-}
+.btn-danger-outline:hover:not(:disabled) { background: var(--warn-soft); }
 .btn-danger {
   background: var(--warn);
   color: #fff;
@@ -582,19 +503,14 @@ h1, h2, h3 { margin: 0; }
 }
 .btn-danger:hover:not(:disabled) { filter: brightness(1.1); }
 .btn-danger:disabled,
-.btn-danger-outline:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
+.btn-danger-outline:disabled { opacity: 0.45; cursor: not-allowed; }
 .clear-confirm {
   display: inline-flex;
   align-items: center;
   gap: var(--s-2);
   flex-wrap: wrap;
 }
-.clear-confirm-label {
-  color: var(--muted);
-}
+.clear-confirm-label { color: var(--muted); }
 .clear-confirm-label code {
   background: var(--surface-2);
   padding: 1px 6px;
@@ -603,38 +519,25 @@ h1, h2, h3 { margin: 0; }
   font-weight: 600;
 }
 .clear-confirm-input {
-  width: 100px;
+  width: 92px;
   font-family: inherit;
   text-transform: uppercase;
 }
-.clear-result {
-  color: var(--muted);
-  font-style: italic;
-}
-.pin-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px 4px 12px;
-  border-radius: var(--r-pill, 999px);
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  font-size: var(--t-sm);
-}
-.pin-x {
+.clear-result { color: var(--muted); font-style: italic; }
+.btn-link {
   appearance: none;
   background: transparent;
   border: none;
   color: var(--muted);
+  font-size: var(--t-sm);
   cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 4px 6px;
 }
-.pin-x:hover { color: var(--fg); background: var(--surface-3, var(--surface-2)); }
+.btn-link:hover:not(:disabled) { color: var(--fg); text-decoration: underline; }
+.btn-link:disabled { opacity: 0.4; cursor: default; }
+
 .pin-add select {
-  padding: 4px 8px;
+  padding: 6px 10px;
   font-size: var(--t-sm);
   background: var(--surface-2);
   color: var(--fg);
@@ -648,106 +551,291 @@ h1, h2, h3 { margin: 0; }
   flex-wrap: wrap;
 }
 .pin-phone input {
-  width: 150px;
-  padding: 6px 8px;
+  width: 170px;
+  padding: 6px 10px;
   font-size: var(--t-sm);
   background: var(--surface-2);
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: var(--r-2, 6px);
 }
-.pin-phone .btn {
-  min-height: 32px;
-  padding: 5px 10px;
-}
+.pin-phone .btn { min-height: 34px; padding: 6px 12px; }
 
-/* Thread grid: 1 column = full width; 2 columns = side by side; 3+ = wrap.
-   Tight breakpoints so on a typical desktop two panels share the row, three
-   wrap at narrower widths. */
-.thread-grid {
-  display: grid;
-  gap: var(--s-3);
-  margin-top: var(--s-2);
+/* --- Phone wall --------------------------------------------------------- */
+/* A centered row of smartphones. Fixed phone width (300px) and flex-wrap so
+   1 phone centers, 2–4 sit side by side on a laptop/projector, and they wrap
+   to a new row on narrower screens. */
+.phone-wall {
+  display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  align-items: stretch;
+  gap: var(--s-4);
 }
-.thread-grid.grid-1 { grid-template-columns: minmax(0, 1fr); }
-.thread-grid.grid-2 { grid-template-columns: repeat(2, minmax(0, 400px)); }
-.thread-grid.grid-3plus { grid-template-columns: repeat(auto-fit, minmax(320px, 400px)); }
+.phone-wall.wall-1 { justify-content: center; }
 
-@media (min-width: 1280px) {
-  .thread-grid.grid-3plus { grid-template-columns: repeat(4, minmax(0, 400px)); }
-}
+.phone { flex: 0 0 auto; display: flex; }
 
-@media (max-width: 900px) {
-  .thread-grid.grid-2,
-  .thread-grid.grid-3plus { grid-template-columns: minmax(0, 1fr); }
-}
-
-.thread-panel {
+/* Bezel: the physical phone shell. Subtle metallic edge + screen inset.
+   Fills available height so the phones are the dominant element. */
+.phone-bezel {
+  position: relative;
+  width: 380px;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--r-3);
-  background: var(--surface-1, var(--surface-2));
-  padding: var(--s-3);
-  min-width: 0; /* prevents grid blowout when content is wide */
-  min-height: 360px;
+  background: linear-gradient(160deg, #2b3346, #11161f);
+  border-radius: 42px;
+  padding: 13px;
+  box-shadow:
+    0 0 0 2px #000,
+    0 18px 40px rgba(0, 0, 0, 0.55),
+    inset 0 1px 1px rgba(255, 255, 255, 0.08);
 }
-.thread-head {
+/* Notch / speaker pill at the top of the bezel. */
+.phone-notch {
+  position: absolute;
+  top: 17px; left: 50%;
+  transform: translateX(-50%);
+  width: 100px; height: 7px;
+  background: #05070b;
+  border-radius: 999px;
+  z-index: 3;
+}
+/* Screen: the actual chat surface, clipped to rounded glass. Height tracks the
+   viewport minus the (collapsed) chrome above, clamped so it stays phone-like. */
+.phone-screen {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: clamp(720px, calc(100vh - 170px), 900px);
+  min-height: 720px;
+  background: var(--bg);
+  border-radius: 30px;
+  overflow: hidden;
+}
+
+/* Chat app top bar — who is holding this phone. */
+.chat-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--s-2);
-  font-size: var(--t-base);
+  gap: var(--s-2);
+  padding: 22px var(--s-3) 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+  flex: 0 0 auto;
 }
-.thread-head strong {
+.role-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--muted);
+}
+.role-dot.role-farmer { background: var(--attention); }
+.role-dot.role-volunteer { background: var(--primary); }
+.role-dot.role-both { background: var(--info); }
+.role-dot.role-unknown { background: var(--muted); }
+.chat-bar-who {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+  margin-right: auto;
+}
+.chat-name {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--t-base);
+  color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.btn-link {
+.chat-role {
+  font-size: var(--t-xs);
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.chat-clear { padding: 2px 6px; }
+.chat-x {
   appearance: none;
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: var(--t-sm);
   cursor: pointer;
-  padding: 4px 6px;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
-.btn-link:hover:not(:disabled) { color: var(--fg); text-decoration: underline; }
-.btn-link:disabled { opacity: 0.4; cursor: default; }
+.chat-x:hover { color: var(--warn); }
 
-.thread-transcript {
-  flex: 1;
+/* Conversation scroll area. */
+.chat-thread {
+  flex: 1 1 auto;
   overflow-y: auto;
-  max-height: 460px;
-  margin-bottom: var(--s-2);
-  padding-right: 4px;
+  padding: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  scrollbar-width: thin;
+}
+.chat-thread::-webkit-scrollbar { width: 5px; }
+.chat-thread::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+/* Each turn is wrapped in a bare <div> by the x-for template; make it a flex
+   column so the bubble's align-self (left/right) actually takes effect. */
+.chat-thread > div {
+  display: flex;
+  flex-direction: column;
 }
 .thread-empty {
   color: var(--muted);
   font-size: var(--t-sm);
   font-style: italic;
-  margin: var(--s-2) 0;
+  text-align: center;
+  margin: auto 0;
 }
-.thread-input textarea {
-  width: 100%;
-  font-family: inherit;
+
+/* Message bubbles — iMessage-style. inbound = person (right, green);
+   outbound = Farm Friend (left, grey). */
+.bubble {
+  max-width: 78%;
+  width: fit-content;
+  padding: 9px 13px;
+  border-radius: 18px;
   font-size: var(--t-sm);
-  padding: 8px 10px;
+  line-height: 1.38;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bubble.inbound {
+  align-self: flex-end;
+  background: var(--primary);
+  color: var(--primary-ink);
+  border-bottom-right-radius: 5px;
+}
+.bubble.outbound {
+  align-self: flex-start;
   background: var(--surface-2);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: var(--r-2, 6px);
-  resize: vertical;
+  border-bottom-left-radius: 5px;
+}
+.bubble-from {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--primary);
+  opacity: 0.8;
+  margin-bottom: 3px;
+}
+.bubble.typing { padding: 12px 14px; }
+.typing-dots { display: inline-flex; align-items: center; gap: 4px; }
+.typing-dots > span {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--fg);
+  opacity: 0.35;
+  animation: typing-bounce 1.2s infinite ease-in-out;
+}
+.typing-dots > span:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots > span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.35; }
+  30% { transform: translateY(-3px); opacity: 0.85; }
+}
+
+/* System / error rows inside the thread. */
+.chat-system {
+  align-self: center;
+  font-size: var(--t-xs);
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  padding: 2px 8px;
+}
+.chat-error {
+  align-self: stretch;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--r-1);
+  padding: 8px 10px;
+}
+
+/* Compose bar pinned to the bottom of the phone. */
+.chat-compose {
+  flex: 0 0 auto;
+  padding: var(--s-2) var(--s-2) var(--s-3);
+  background: var(--surface);
+  border-top: 1px solid var(--border-soft);
+}
+.quick-replies {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding-bottom: 7px;
+  scrollbar-width: none;
+}
+.quick-replies::-webkit-scrollbar { display: none; }
+.quick-chip {
+  flex: 0 0 auto;
+  appearance: none;
+  background: var(--surface-2);
+  color: var(--fg-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--t-xs);
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.quick-chip:hover { color: var(--fg); border-color: var(--primary-border); }
+.compose-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+}
+.compose-row textarea {
+  flex: 1;
+  font-family: inherit;
+  font-size: var(--t-sm);
+  padding: 8px 12px;
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  resize: none;
+  max-height: 90px;
   box-sizing: border-box;
 }
-.thread-input .test-presets {
-  margin: var(--s-2) 0;
-  flex-wrap: wrap;
+.compose-row textarea:focus {
+  outline: none;
+  border-color: var(--primary-border);
 }
-.thread-input .test-actions { margin-top: 0; }
+.send-btn {
+  flex: 0 0 auto;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: var(--primary);
+  color: var(--primary-ink);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.send-spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(14, 20, 32, 0.35);
+  border-top-color: var(--primary-ink);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .toast-error {
   position: fixed; left: 50%; bottom: 24px;

@@ -124,6 +124,10 @@ class FakeMessage:
     created_at: datetime = NOW
     pending_action: dict | None = None
     executed_action: dict | None = None
+    # On outbound CLARIFY messages: which MVD axis was asked about. Lets the
+    # over-confirm backstop (signal 4) detect a vague-time answer to a prior
+    # "what time?" clarify. Mirrors MessageDoc.clarify_axis.
+    clarify_axis: str | None = None
 
 
 @dataclass
@@ -921,7 +925,8 @@ CASES.append(EvalCase(
                       headcount_needed=2, activity_tags=["weeding"])],
         messages=[FakeMessage(direction="outbound", user_id="u_farmer_a",
                               body="What time should we start?",
-                              intent_label="CLARIFY", opportunity_id="o_draft")],
+                              intent_label="CLARIFY", opportunity_id="o_draft",
+                              clarify_axis="time")],
     ),
     inbound_text="yes",
     inbound_from_user_id="u_farmer_a",
@@ -1235,6 +1240,7 @@ CASES.append(EvalCase(
             FakeMessage(direction="outbound", user_id="u_farmer_a",
                         body="What time should we start?",
                         intent_label="CLARIFY", opportunity_id="o_draft",
+                        clarify_axis="time",
                         created_at=NOW - timedelta(minutes=4)),
         ],
     ),

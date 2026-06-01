@@ -445,6 +445,7 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
         inbound_doc_id=inbound_doc.id or "",
         inbound_text=inbound.body,
         provider=provider,
+        known_farm_names=known_farms,
     )
 
 
@@ -1825,6 +1826,7 @@ def _route_agent_output(
     inbound_doc_id: str,
     inbound_text: str,
     provider,
+    known_farm_names: tuple[str, ...] = (),
 ) -> None:
     """Switch on `output.mode` and dispatch accordingly."""
     if output.mode == "reply":
@@ -1884,6 +1886,12 @@ def _route_agent_output(
         return
 
     if output.mode == "confirm":
+        # Pilot safety: window posts are deferred from the agent. If the flag is
+        # off and the model still emitted a window_end_at, strip it here — before
+        # the confirm prose and the executor see it — so the post collapses to a
+        # single day. Deterministic backstop; the prompt also stops describing
+        # windows, but a small model drifts, so the code is authoritative.
+        _strip_window_if_disabled(output)
         effective_draft = _effective_intake_draft(
             output_draft=output.intake_draft,
             last_outbound=last_outbound,
@@ -1897,7 +1905,10 @@ def _route_agent_output(
         # or "inferred", and (2) inbound text lacking a time/activity marker
         # while parsed shows one. On detection we downgrade to clarify rather
         # than send the bad confirmation prose.
-        reject_reason = _agent_overconfirm_reason(output=output, inbound_text=inbound_text)
+        reject_reason = _agent_overconfirm_reason(
+            output=output, inbound_text=inbound_text, last_outbound=last_outbound,
+            known_farm_names=known_farm_names,
+        )
         if reject_reason is not None:
             # Only flag for signals that indicate genuine model misbehavior
             # (filling required fields from no inbound signal, or self-
@@ -2080,8 +2091,14 @@ def _is_admin_worth_flagging(reason: str) -> bool:
         moving toward completeness. The user sees one more clarify; that's
         the system working. Flagging here creates noise (3+ flags per
         farmer posting in the typical case).
+      - signal 4: vague non-bucket time word after a time clarify
+      - signal 5: crop-only offer below the floor
+        Both are ordinary "one more clarify" refinement turns — the user
+        gave a vague answer and gets re-asked. No admin attention needed.
     """
     if "required fields still missing" in reason:
+        return False
+    if "vague non-bucket time word" in reason or "below the offer" in reason:
         return False
     return True
 
@@ -2102,9 +2119,9 @@ def _axis_from_overconfirm_reason(reason: str) -> str:
       "parse_notes contains 'default'..."
         → "general" (no specific axis implied)
     """
-    if "no clock-time signal" in reason:
+    if "no clock-time signal" in reason or "vague non-bucket time word" in reason:
         return "time"
-    if "no activity word" in reason:
+    if "no activity word" in reason or "below the offer" in reason:
         return "activity"
     if "required fields still missing" in reason:
         # Match in priority order. Date and time are the most common gaps.
@@ -2436,10 +2453,43 @@ def _send_pending_confirmation(
     )
 
 
-def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str | None:
-    """Detect agent over-confirms on create_opportunity.
+def _strip_window_if_disabled(output: AgentOutput) -> None:
+    """Pilot safety: when window posts are disabled, null out any window_end_at
+    the agent emitted on a create/update-draft action, in place.
 
-    Three signals (any one is sufficient to downgrade to clarify):
+    This defers the entire multi-day-window subsystem from the agent's
+    responsibilities for the pilot (farmers post one day at a time) — it shrinks
+    the prompt surface a small model must get right without deleting the
+    window code, which stays for post-pilot. No-op when the flag is on, when
+    there's no action, or when the action isn't an opportunity create/update.
+    """
+    if load_settings().agent_window_posts_enabled:
+        return
+    if output.action is None:
+        return
+    if output.action.name not in ("create_opportunity", "update_draft_opportunity"):
+        return
+    payload = getattr(output.action, output.action.name, None)
+    parsed = getattr(payload, "parsed", None) if payload is not None else None
+    if parsed is not None and getattr(parsed, "window_end_at", None):
+        parsed.window_end_at = None
+
+
+def _agent_overconfirm_reason(
+    *,
+    output: AgentOutput,
+    inbound_text: str,
+    last_outbound: MessageDoc | None = None,
+    known_farm_names: tuple[str, ...] = (),
+) -> str | None:
+    """Detect agent over-confirms — cases where a small model jumps to a
+    confirm on input that gives it nothing to act on, where the right move is
+    one more clarify. The backstop is the in-architecture answer to a weaker
+    model's intermittent judgment lapses (it makes the adversarial behavior
+    model-independent); it is deliberately narrow so it never second-guesses a
+    valid confirm and turns the agent into a phone tree.
+
+    Signals on **`create_opportunity`** (any one downgrades to clarify):
 
     1. **`parse_notes` self-report.** The agent prompt explicitly forbids
        filling required fields from defaults; despite that, smaller models
@@ -2458,15 +2508,82 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
        `headcount`), catch it here instead of letting the executor reject
        after the user has already confirmed with a token.
 
-    Only checks `create_opportunity`. `update_draft_opportunity` legitimately
-    carries fields forward from the existing draft (the prior turn established
-    them), so the current inbound need not restate activity / time markers,
-    and its own executor handles missing-fields via the draft merge.
+    Signals on **other actions** (checked first, before the create-only guard):
+
+    4. **Vague-time answer accepted after a "what time?" clarify.** If the
+       prior outbound was a CLARIFY about the time axis and the inbound is a
+       vague non-bucket word ("anytime", "whenever", "flexible"), the model
+       treated a non-answer as a value. Re-ask as a bucket choice. Fires on
+       `create_opportunity` AND `update_draft_opportunity` — the draft case is
+       the common one (the farmer's first message set the draft, the clarify
+       asked the time), and is exactly why this is keyed on the clarify axis
+       rather than on "no time signal in the draft" (which would wrongly fire
+       on legitimate carry-forward draft updates).
+    5. **Crop-only volunteer offer below the floor.** A `record_offer` whose
+       inbound names a crop but carries no time signal is too vague to be a
+       useful offer ("help with tomatoes this week"). Clarify instead of
+       recording a useless offer. A real offer with a time window ("physical
+       work this weekend, some morning") has a time signal and passes.
+
+    Beyond signals 4–5, `update_draft_opportunity` is NOT policed: it
+    legitimately carries fields forward from the existing draft (the prior turn
+    established them), so the current inbound need not restate activity / time
+    markers, and its own executor handles missing-fields via the draft merge.
 
     Returns None if no issue, or a short reason string for the flag.
     """
     if output.action is None:
         return None
+
+    text_lower_pre = inbound_text.lower()
+    prior_axis = getattr(last_outbound, "clarify_axis", None) if last_outbound else None
+    prior_was_clarify = (
+        last_outbound is not None
+        and getattr(last_outbound, "intent_label", None) == IntentLabel.CLARIFY
+    )
+
+    # Signal 4: a non-answer to a "what time?" clarify, accepted as a value.
+    # Two shapes, both gated on the prior outbound being a time CLARIFY (so a
+    # legitimate affirmative to a PENDING_CONFIRMATION — handled deterministically
+    # before the agent runs — is never in scope here):
+    #   (a) a vague non-bucket time word ("anytime", "whenever", "flexible"), or
+    #   (b) a bare affirmative ("yes", "ok") that answers nothing.
+    # In both cases a small model sometimes invents a clock time from a default.
+    # Applies to create and draft-update (the draft case is the common one).
+    if (
+        output.action.name in ("create_opportunity", "update_draft_opportunity")
+        and prior_was_clarify
+        and prior_axis == "time"
+        and (
+            _inbound_is_vague_time(text_lower_pre)
+            or _inbound_is_bare_affirmative(text_lower_pre)
+        )
+    ):
+        return (
+            "inbound is a vague non-bucket time word after a time CLARIFY "
+            "(not a valid time-of-day bucket); re-ask as morning/afternoon/evening"
+        )
+
+    # Signal 5: crop-only volunteer offer with no time window — below the
+    # offer floor. ("help with tomatoes this week" → clarify; an offer with a
+    # real time window like "this weekend, some morning" passes.)
+    #
+    # A NAMED FARM clears the offer floor on its own (the prompt's rule), so an
+    # offer that mentions a known farm is recordable even with vague timing —
+    # do NOT fire. This also guards the false positive where a farm NAME
+    # contains a crop word ("Plum Forest" → "plum"): the farm-name check runs
+    # first, so a directed offer is never mistaken for a bare-crop offer.
+    if (
+        output.action.name == "record_offer"
+        and _inbound_has_crop_word(text_lower_pre)
+        and not _inbound_has_time_signal(text_lower_pre)
+        and not _inbound_names_known_farm(text_lower_pre, known_farm_names)
+    ):
+        return (
+            "record_offer names a crop with no time window — below the offer "
+            "floor (too vague to record a useful offer)"
+        )
+
     if output.action.name != "create_opportunity":
         return None
     payload = getattr(output.action, output.action.name, None)
@@ -2649,6 +2766,57 @@ def _inbound_has_work_word(text_lower: str) -> bool:
     return any(re.search(rf"\b{re.escape(w)}", text_lower) for w in _WORK_WORDS)
 
 
+def _inbound_names_known_farm(text_lower: str, known_farm_names: tuple[str, ...]) -> bool:
+    """True if the inbound mentions a known farm by name. A named farm clears
+    the volunteer-offer floor, so the crop-only backstop (signal 5) must not
+    fire on a directed offer ("can I help at Plum Forest this week?"). Also
+    prevents a crop word inside a farm name (Plum Forest → "plum") from being
+    mistaken for a bare-crop offer."""
+    return any(name and name.lower() in text_lower for name in known_farm_names)
+
+
+# Vague non-answers to a "what time?" clarify. These are NOT valid time-of-day
+# buckets (the prompt is explicit: "'anytime' / 'whenever' is NOT a valid
+# bucket"). A small model sometimes accepts one as if it resolved the time and
+# jumps to a confirm; the backstop catches that and re-asks as a bucket choice.
+# Real buckets ("morning", "afternoon", "evening") are matched by
+# _TIME_SIGNAL_PATTERN and never reach this list.
+_VAGUE_TIME_WORDS = (
+    "anytime", "any time", "whenever", "whenevs", "no preference",
+    "doesn't matter", "doesnt matter", "don't care", "dont care",
+    "you pick", "you choose", "up to you", "flexible", "open",
+)
+
+
+def _inbound_is_vague_time(text_lower: str) -> bool:
+    """True if the inbound is a vague non-answer to a time question (and has no
+    real clock-time/bucket signal). 'anytime', 'whenever', 'flexible' — words
+    that look like an answer but give the scheduler nothing to act on."""
+    if _inbound_has_time_signal(text_lower):
+        return False
+    stripped = text_lower.strip().strip(".!?")
+    return any(
+        stripped == w or re.search(rf"\b{re.escape(w)}\b", stripped)
+        for w in _VAGUE_TIME_WORDS
+    )
+
+
+# Bare affirmatives. After a content question ("what time?"), one of these
+# answers nothing — a small model sometimes treats it as assent and fills the
+# missing value from a default. Mirrors hotkeys._AFFIRMATIVE.
+_BARE_AFFIRMATIVES = frozenset(
+    {"yes", "ok", "okay", "sure", "confirm", "go", "go ahead", "yep", "yeah", "yup", "y"}
+)
+
+
+def _inbound_is_bare_affirmative(text_lower: str) -> bool:
+    """True if the inbound is ONLY a bare affirmative (no other content). A bare
+    'yes' to a 'what time?' clarify answers nothing; the model must re-ask, not
+    invent a time. (This is distinct from a 'yes' confirming a PENDING_CONFIRMATION
+    — that path is handled deterministically before the agent ever runs.)"""
+    return text_lower.strip().strip(".!?") in _BARE_AFFIRMATIVES
+
+
 _PURPOSE_LABELS = {
     "gleaning": "gleaning / food-access opportunities",
     "farm_help": "general farm help",
@@ -2691,6 +2859,12 @@ def _clarify_for_overconfirm(*, reason: str) -> str:
             joined = ", ".join(questions[:-1]) + f", and {questions[-1]}"
             return f"Almost there — {joined}?"
 
+    # Signal 4: vague non-answer to a time clarify — re-ask as a bucket choice.
+    if "vague non-bucket time word" in reason:
+        return "Got it — roughly when? Morning, afternoon, or evening?"
+    # Signal 5: crop-only offer below the floor — ask for the work + a day.
+    if "below the offer" in reason:
+        return "Happy to help line that up — what kind of work, and which day works?"
     # Signal 2a: starts_at inferred from no time signal.
     if "time" in reason:
         return "What time should it start, and how long?"
