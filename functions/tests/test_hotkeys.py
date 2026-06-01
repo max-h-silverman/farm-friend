@@ -126,19 +126,25 @@ def test_drop_with_args_falls_through_to_llm() -> None:
     assert parse("drop Tuesdays") is None
 
 
-def test_stop_activity_known_slug() -> None:
-    m = parse("STOP weeding")
+def test_stop_purpose_gleaning() -> None:
+    m = parse("STOP gleaning")
     assert m is not None
-    assert m.intent is IntentLabel.STOP_ACTIVITY
-    assert m.payload["activity"] == "weeding"
+    assert m.intent is IntentLabel.STOP_PURPOSE
+    assert m.payload["purpose"] == "gleaning"
 
 
-def test_stop_activity_with_gerund_variant() -> None:
-    # "STOP weed" should still resolve to "weeding".
-    m = parse("STOP weed")
+def test_stop_purpose_food_access_synonym() -> None:
+    m = parse("STOP food access")
     assert m is not None
-    assert m.intent is IntentLabel.STOP_ACTIVITY
-    assert m.payload["activity"] == "weeding"
+    assert m.intent is IntentLabel.STOP_PURPOSE
+    assert m.payload["purpose"] == "gleaning"
+
+
+def test_stop_purpose_farm_help() -> None:
+    m = parse("STOP farm help")
+    assert m is not None
+    assert m.intent is IntentLabel.STOP_PURPOSE
+    assert m.payload["purpose"] == "farm_help"
 
 
 def test_stop_unknown_target_falls_through_to_llm() -> None:

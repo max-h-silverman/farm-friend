@@ -6,8 +6,8 @@ string. Templates are plain Python f-strings for now — Jinja is overkill for
 single-paragraph SMS bodies.
 
 A2P 10DLC compliance: `render_help`, `render_stop_ack`, and `render_join_ack`
-return the exact text Telnyx approved for the campaign. Wording changes there
-require re-registering the campaign. See docs/sms-compliance-requirements.md.
+carry the required HELP/STOP/rates/frequency disclosures. Keep wording aligned
+with the registered campaign and docs/sms-compliance-requirements.md.
 """
 
 from __future__ import annotations
@@ -142,14 +142,14 @@ def render_join_ack() -> str:
     """Compliance-mandated opt-in confirmation. Sent on JOIN/START.
 
     The coordinator-approval note can follow as a SECOND SMS (so the
-    compliance language stays untouched) — handled by the JOIN dispatch path.
-    Do NOT change without re-registering the Telnyx campaign.
+    compliance language stays focused) — handled by the JOIN dispatch path.
+    Keep this aligned with the Telnyx campaign registration.
     """
     return (
-        "Farm Friend Vashon: Thanks for subscribing to local farm volunteer "
-        "shifts and produce pickups. Msg frequency varies, usually 0-6/week. "
-        "Msg&data rates may apply. Consent is not a condition of purchase or "
-        "participation. Reply HELP for help or STOP to opt out."
+        "Farm Friend Vashon: You're signed up for local farm help and surplus "
+        "pickup texts. We'll text only about this program, usually 0-6/week. "
+        "Msg&data rates may apply. Texting is optional. Reply HELP for help "
+        "or STOP to opt out."
     )
 
 
@@ -157,7 +157,7 @@ def render_join_pending_admin_note() -> str:
     """Follow-up SMS sent after the compliance opt-in text when the JOIN
     requester needs admin approval. Kept separate so the compliance copy
     above stays verbatim."""
-    return "Max will review and approve your request shortly."
+    return "The Farm Friend team will review and approve your request shortly."
 
 
 def render_confirmation_reminder_shift(
@@ -368,7 +368,7 @@ def render_proposal_auto_confirmed_to_farmer(
     return (
         f"Farm Friend Vashon: auto-accepted {volunteer_name} for "
         f"{day_human} on your {opp_summary} — you didn't reply in time. "
-        f"Text Max if you need to reverse it."
+        f"Reply here if you need to reverse it."
     )
 
 

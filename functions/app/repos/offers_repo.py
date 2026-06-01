@@ -42,14 +42,15 @@ def list_open_for_volunteer(volunteer_user_id: str) -> list[OfferDoc]:
 
 def list_open_matching(
     *,
-    activity: str | None = None,
+    purpose: str | None = None,
     starts_at: datetime | None = None,
 ) -> list[OfferDoc]:
     """Find open offers that *might* match an opp.
 
-    Activity match is exact on the canonical slug. Time match is loose: we
-    require the offer's window (if set) to contain `starts_at`. Returns
-    candidates; the caller decides whether to actually surface a suggestion.
+    Coarse pre-filter only: by time window, and optionally by purpose. Activity
+    is free text now, so fine-grained activity matching is left to the review
+    tick / coordinator. Time match is loose: the offer's window (if set) must
+    contain `starts_at`. Returns candidates; the caller decides what to surface.
     """
     q = db.collection(COLLECTION).where("status", "==", "open")
     out: list[OfferDoc] = []
@@ -57,7 +58,7 @@ def list_open_matching(
         offer = snapshot_to_model(snap, OfferDoc)
         if offer is None:
             continue
-        if activity and activity not in offer.activity_tags:
+        if purpose and offer.purpose is not None and offer.purpose.value != purpose:
             continue
         if starts_at is not None:
             if offer.earliest_at is not None and starts_at < offer.earliest_at:

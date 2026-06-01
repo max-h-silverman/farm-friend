@@ -38,6 +38,15 @@ class OpportunityKind(StrEnum):
     PICKUP = "pickup"
 
 
+class OpportunityPurpose(StrEnum):
+    """Why the opportunity exists — orthogonal to `kind` (what the volunteer
+    does). A gleaning job can be hands-on (shift) or a pickup; same for farm
+    help. Used for routing/muting and outreach copy, NOT for the pacing/claim
+    behavior that `kind` drives. Defaults to FARM_HELP when unspecified."""
+    GLEANING = "gleaning"     # food-access / waste-reduction (often → food bank)
+    FARM_HELP = "farm_help"   # general support for a farm's work or logistics
+
+
 class OpportunityStatus(StrEnum):
     DRAFT = "draft"
     OPEN = "open"
@@ -65,11 +74,15 @@ class ClaimStatus(StrEnum):
 
 
 class MuteDimension(StrEnum):
-    ACTIVITY = "activity"
+    PURPOSE = "purpose"  # mute gleaning/food-access or general farm help
     FARM = "farm"
     WINDOW = "window"
     OPPORTUNITY = "opportunity"
     AGENT_NUDGE = "agent_nudge"  # PAUSE/RESUME — silences review-tick nudges only
+    # DEPRECATED (activity-model redesign): activity-slug muting replaced by
+    # PURPOSE. No new ACTIVITY rules are created; kept so any legacy rule docs
+    # still deserialize. Remove post-pilot.
+    ACTIVITY = "activity"
 
 
 class MessageDirection(StrEnum):
@@ -86,7 +99,8 @@ class IntentLabel(StrEnum):
     CLAIM = "CLAIM"
     MAYBE = "MAYBE"
     MUTE = "MUTE"
-    STOP_ACTIVITY = "STOP_ACTIVITY"
+    STOP_PURPOSE = "STOP_PURPOSE"   # mute gleaning / farm-help opportunities
+    STOP_ACTIVITY = "STOP_ACTIVITY"  # DEPRECATED (activity-model redesign); legacy only
     STOP_FARM = "STOP_FARM"
     UNAVAILABLE = "UNAVAILABLE"
     FLAG = "FLAG"
@@ -95,7 +109,7 @@ class IntentLabel(StrEnum):
     CANCEL = "CANCEL"          # context-sensitive; see CLAUDE.md §SMS compliance
     DROP = "DROP"              # volunteer-only: drop a claim after reminder context
     # --- Refactor-introduced hotkey intents ---
-    UNDO = "UNDO"              # reverse the last agent-executed action (5-min window)
+    UNDO = "UNDO"              # reverse the last agent-executed action receipt
     PAUSE = "PAUSE"            # 14-day mute on agent-initiated nudges
     RESUME = "RESUME"          # undo PAUSE
     # --- Farmer-approval gate (window opps) ---
@@ -104,16 +118,16 @@ class IntentLabel(StrEnum):
     PROPOSAL_NOTIFICATION = "PROPOSAL_NOTIFICATION"  # outbound: "Alex wants Wed..."
     AUTO_CONFIRM_NOTICE = "AUTO_CONFIRM_NOTICE"      # outbound: "auto-accepted ... reply DROP"
     PROPOSAL_DECLINED = "PROPOSAL_DECLINED"          # outbound to volunteer: farmer declined
-    # --- Volunteer reply intents (formerly classifier output, now agent mode hint) ---
+    # --- Agent reply/escalate intents ---
+    # QUESTION labels a plain mode="reply" outbound (answer / acknowledgement /
+    # small talk). ESCALATE labels the user-facing handoff line on an escalation.
     QUESTION = "QUESTION"
-    DECLINE = "DECLINE"
     ESCALATE = "ESCALATE"
-    # AMBIGUOUS removed with the unified-agent refactor — the new agent emits
-    # mode="clarify" instead.
-    # --- Refactor-introduced agent-output intents ---
-    OFFER = "OFFER"                       # inbound/outbound: volunteer-initiated offer
-    AVAILABILITY = "AVAILABILITY"         # inbound/outbound: standing availability update
-    QUERY = "QUERY"                       # inbound/outbound: status-of-things question
+    # Removed with the unified-agent refactor (no remaining producers): the
+    # classifier-era labels AMBIGUOUS, DECLINE, OFFER, AVAILABILITY, QUERY. The
+    # agent emits mode="clarify"/"reply" and records offers/availability via
+    # ACTION_RECEIPT/PENDING_CONFIRMATION outbounds, so these never get written.
+    # Kept out of the enum so the model isn't tempted to emit a dead label.
     CLARIFY = "CLARIFY"                   # outbound: agent's clarifying question
     PENDING_CONFIRMATION = "PENDING_CONFIRMATION"  # outbound: drafted action awaiting token reply
     ACTION_RECEIPT = "ACTION_RECEIPT"     # outbound: "here's what I did" after execute
@@ -140,25 +154,6 @@ TIME_OF_DAY_BUCKETS = (
     "late_afternoon",  # 3pm–6pm
     "early_evening",   # 5pm–7pm
     "evening",         # 6pm–8pm
-)
-
-
-CANONICAL_ACTIVITIES = (
-    "harvest",
-    "gleaning",
-    "weeding",
-    "planting",
-    "transplanting",
-    "livestock",
-    "infrastructure",
-    "processing",
-    # Side-asymmetric slugs — used to express "no activity constraint" in two
-    # distinct ways. NOT interchangeable: the farmer-side slug describes the
-    # opp ("type TBD until day-of"); the volunteer-side slug describes the
-    # volunteer's openness ("match me to anything"). The agent prompt enforces
-    # which side may use which.
-    "tbd",       # farmer-side: posting where work-type is uncertain
-    "flexible",  # volunteer-side: offer/preference open to any activity
 )
 
 
@@ -243,6 +238,19 @@ class OpportunityDoc(BaseModel):
     # still set (used as the practical broadcast cap) but the opp doesn't
     # close to outreach when seats_filled hits it.
     headcount_open: bool = False
+    # Why the opp exists (food-access vs general farm help). Routing/mute/copy
+    # axis, orthogonal to `kind`. Defaults to FARM_HELP so legacy/unspecified
+    # opps remain valid.
+    purpose: OpportunityPurpose = OpportunityPurpose.FARM_HELP
+    # Free-text, display-cased specifics of the work ("Inoculate Shiitake Logs",
+    # "Harvest leftover apples"). Replaces the old closed-list `activity_tags`
+    # as the source of truth for "what is the work". The agent captures what the
+    # farmer said and returns a cleaned form; never invents one.
+    activity_detail: str = ""
+    # DEPRECATED (activity-model redesign 2026-05-31): no longer the source of
+    # truth and no longer constrained to a canonical list. Retained only so we
+    # don't drop a field mid-flight; nothing should read it for behavior. Remove
+    # post-pilot. See docs/activity-model-redesign.md.
     activity_tags: list[str] = Field(default_factory=list)
     requirements_text: str = ""
     produce_description: str | None = None
@@ -380,7 +388,15 @@ class OfferDoc(BaseModel):
     """
     id: str | None = None
     volunteer_user_id: str
-    activity_tags: list[str] = Field(default_factory=list)  # canonical slugs
+    # Purpose the volunteer is interested in (food-access vs general help).
+    # Optional — None means "no preference stated"; the review-tick matcher
+    # treats it as open. Defaults to None rather than FARM_HELP so we don't
+    # invent a preference the volunteer didn't express.
+    purpose: OpportunityPurpose | None = None
+    activity_detail: str = ""            # cleaned free-text the agent captured
+    # DEPRECATED (activity-model redesign): use activity_detail + purpose. Kept
+    # for legacy deserialization; nothing should read it for behavior.
+    activity_tags: list[str] = Field(default_factory=list)
     earliest_at: datetime | None = None  # earliest the volunteer can help
     latest_at: datetime | None = None    # latest the volunteer can help
     note: str = ""                       # raw text the agent captured
@@ -388,6 +404,35 @@ class OfferDoc(BaseModel):
     matched_opportunity_id: str | None = None
     created_at: datetime
     expires_at: datetime  # default: latest_at or +7 days; set at create time
+
+
+class AgentDecisionDoc(BaseModel):
+    """One audit record per unified-agent inbound call.
+
+    The system's reliability rests on a single open-weight LLM call per inbound
+    message. This is the queryable record of what that model actually decided in
+    production — mode, action, latency, and the model's own rationale — so the
+    coordinator can spot drift (e.g. a spike in `escalate`, or `confirm` on
+    crop-name-only posts) without reading raw logs. Written best-effort after
+    every successful `run_agent`; a write failure never blocks the reply.
+
+    TTL-purged like messages (it can contain message excerpts); not load-bearing
+    for any flow, purely observability.
+    """
+
+    id: str | None = None
+    user_id: str | None = None
+    inbound_message_id: str | None = None
+    sender_role: str = ""
+    inbound_excerpt: str = ""          # first ~200 chars of the inbound
+    mode: str = ""                     # reply | clarify | confirm | execute | escalate
+    action_name: str | None = None     # populated for confirm/execute
+    escalation_urgency: str | None = None
+    rationale: str = ""                # the agent's admin-facing rationale
+    elapsed_ms: int | None = None
+    model: str = ""                    # which model produced this decision
+    created_at: datetime
+    ttl: datetime | None = None        # Firestore TTL; ~90 days after created_at
 
 
 class PendingUserDoc(BaseModel):

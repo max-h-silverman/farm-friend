@@ -28,7 +28,7 @@ Fixes 3 and 4 landed immediately in the original hardening session. Fix 1 got a 
 
 ## The principle the system isn't honoring
 
-Farm Friend's job is to absorb the messiness of human communication so that farmers and volunteers get *more* help with *less* coordination overhead. Today the system is built around the implicit premise that the farmer will eventually answer every required field. When the farmer is fuzzy ("a few people one day next week, prob morning"), the system pushes back with clarifies until either the farmer caves and provides precision, the clarify cap fires and Max gets pinged, or the draft goes stale and gets flagged.
+Farm Friend's job is to absorb the messiness of human communication so that farmers and volunteers get *more* help with *less* coordination overhead. Today the system is built around the implicit premise that the farmer will eventually answer every required field. When the farmer is fuzzy ("a few people one day next week, prob morning"), the system pushes back with clarifies until either the farmer caves and provides precision, the clarify cap fires and the coordinator gets pinged, or the draft goes stale and gets flagged.
 
 That's backwards. **The farmer's fuzziness is the system's problem to solve, not the farmer's.** Most VIGA farmers are a one-person operation who texted from a tractor seat. The system should:
 
@@ -45,14 +45,14 @@ The agent's internal frame is a person, not an assistant. Concretely:
 >
 > You understand farm work as it actually is: shaped by the seasons (prep, plant, tend, harvest, distribute), by weather, by the realities of working with living things on a deadline. You also know the people: farmers running on too little sleep who fire off a text from a tractor seat, volunteers who mean well but flake, the slightly chaotic nature of all of it. You don't begrudge any of that — it's the work. Your job is to absorb that chaos so it doesn't compound into missed harvests or no-shows.
 >
-> You handle inbound and outbound communications between farmers and volunteers, with two simultaneous goals: maximize how much help actually lands, and minimize miscommunications and scheduling mishaps. You report to Max (the coordinator). You bring Max in for the things only Max can handle — injury, money, legal, interpersonal stuff. Everything else, you handle yourself, the way a competent neighbor with farm experience would.
+> You handle inbound and outbound communications between farmers and volunteers, with two simultaneous goals: maximize how much help actually lands, and minimize miscommunications and scheduling mishaps. You report to the coordinator. You bring the coordinator in for the things only they can handle — injury, money, legal, interpersonal stuff. Everything else, you handle yourself, the way a competent neighbor with farm experience would.
 >
 > You send SMS messages on behalf of Farm Friend Vashon, the SMS service. Recipients see messages from "Farm Friend Vashon" — not from Madison. You are not the brand; you are the person doing the work behind the brand.
 
 This is a strict upgrade over the current "neutral coordinator agent" framing in a few ways:
 
 - **Anchors the voice.** "Warm, brief, practical" reads as a style guide. "You are a 40-year-old who's spent a decade on farms" reads as an identity — and identity carries voice without needing 50 lines of prose rules. The agent stops sounding like a form when it knows it's a person sending the text. The backstory also makes domain-specific phrasings *natural* ("the weeding's not going to wait", "Friday's the only dry-looking day this week"), not bolted-on jargon.
-- **Anchors the boundaries.** Madison has a boss (Max). Madison has resources (the system). Madison handles the operational complexity; Max handles the human-judgment-required stuff. This maps 1:1 onto the existing escalation triggers (injury/payment/legal/etc.) but in a way the model can reason about ("would Madison handle this herself, or escalate?") rather than a checklist to match against.
+- **Anchors the boundaries.** Madison has a boss (the coordinator). Madison has resources (the system). Madison handles the operational complexity; the coordinator handles the human-judgment-required stuff. This maps 1:1 onto the existing escalation triggers (injury/payment/legal/etc.) but in a way the model can reason about ("would Madison handle this herself, or escalate?") rather than a checklist to match against.
 - **Anchors the role.** Madison is not the Farm Friend brand — Farm Friend is the SMS service Madison sends from. So the agent CAN say things like "I'll let nearby farms know" or "I'll check with the coordinator" without violating the no-fabrication rule, because Madison being the one doing the legwork is just true. (Compare: today's agent has to either say "we" plurally or attribute action to a vague third party.)
 - **Anchors the agency.** Madison *acts* on behalf of farmers and volunteers. Today's agent prompt says "you have wide latitude" but also "default to asking, not acting" — two principles in tension. A persona resolves the tension because Madison acts the way a smart neighbor-employee would: confidently on the easy stuff, cautiously on the ambiguous stuff, and never on the dangerous stuff.
 - **Anchors domain judgment.** Madison knows weeding can wait a day but harvest at peak ripeness can't. Madison knows weekend availability differs from weekday availability for volunteers but not for the crops. Madison knows that "morning" on a 95° forecast day means "before 10am, really." The current prompt has to teach all of this case by case; the persona lets the model lean on what it already knows about farm work without us having to itemize it.
@@ -175,7 +175,7 @@ Window opps are different — a volunteer claiming a specific day inside a windo
 
 - **Volunteer `YES <day>` on a window opp goes to PROPOSED state, not CONFIRMED.** A new `ClaimStatus.PROPOSED` sits between `interested` and `confirmed`. PROPOSED claims hold a seat (count against `seats_filled`) but don't yet trigger the volunteer's confirmation reminder.
 - **Farmer receives an SMS** describing the proposal with `ACCEPT <token>` / `DECLINE <token>` actions. Token grammar matches existing patterns (4-letter uppercase, action-specific). Farmer's ACCEPT flips the claim to CONFIRMED and sends the volunteer a confirmation receipt. DECLINE flips the claim to DROPPED, decrements `seats_filled`, and sends the volunteer a "the farmer can't host you that day — want to try a different day?" SMS.
-- **Auto-confirm fallback.** If the farmer doesn't respond within a configurable window (default: 4 hours for shifts > 24h out; 1 hour for shifts < 24h out), the proposal auto-confirms and the farmer gets an "auto-accepted Wed proposal from Alex — text Max if you need to reverse it" notification. We don't strand volunteers waiting on a farmer who's busy in a field.
+- **Auto-confirm fallback.** If the farmer doesn't respond within a configurable window (default: 4 hours for shifts > 24h out; 1 hour for shifts < 24h out), the proposal auto-confirms and the farmer gets an "auto-accepted Wed proposal from Alex — reply here if you need to reverse it" notification. We don't strand volunteers waiting on a farmer who's busy in a field.
 - **Single-day opps are unchanged.** Volunteer `YES` still auto-confirms — the farmer already specified the day.
 
 Why the asymmetry: on single-day opps the farmer has already committed to that day, so volunteer claims are filling pre-approved slots. On window opps the farmer committed to a *range*, and each volunteer's day choice is information the farmer can use ("oh, three people want Wed but nobody wants Mon — I'll adjust"). Giving farmers the explicit approval step makes the system feel like a tool that serves them rather than one that books their schedule for them.
@@ -273,7 +273,7 @@ New ADVERSARIAL cases:
 - "I need help soon" — MVD-vacant inbound — produces a focused clarify, not a stab at a confirm
 - "tomato harvest next week" + reply "anytime" + reply "anytime" — three-round MVD push, lands at default `morning` + admin-flagged on round 3
 - Farmer declines a proposal → volunteer gets a non-blaming "the farmer can't host you that day" SMS with the offer to try a different day
-- Window opp with farmer-approval gate: farmer doesn't respond within 4h → auto-confirm fires; farmer gets the after-the-fact notification with a Max handoff for reversal
+- Window opp with farmer-approval gate: farmer doesn't respond within 4h → auto-confirm fires; farmer gets the after-the-fact notification with a coordinator handoff for reversal
 
 ### Migration
 
@@ -313,7 +313,7 @@ Rule 0 says default to asking. The scope section says you have wide latitude to 
 
 The escalation triggers are specific and narrow (injury, payment, etc.). The "what is not an escalation" list is broader and looser ("scheduling complexity, ambiguity, plan changes"). Today the agent sometimes flags ambiguity as escalation anyway, especially after the clarify cap hits.
 
-**Madison framing resolves this:** Madison knows when to bring Max in. The list of triggers is still the hard floor, but the framing changes from "escalate ONLY when one of these triggers" to "escalate when Max is the only person who can help — these triggers are the canonical examples, plus any case where the system's flows genuinely don't have a path forward." That broadens the latitude slightly while keeping the safety net.
+**Madison framing resolves this:** Madison knows when to bring the coordinator in. The list of triggers is still the hard floor, but the framing changes from "escalate ONLY when one of these triggers" to "escalate when the coordinator is the only person who can help — these triggers are the canonical examples, plus any case where the system's flows genuinely don't have a path forward." That broadens the latitude slightly while keeping the safety net.
 
 ### Tension 3: "Never fabricate" vs "you have to fill optional fields"
 

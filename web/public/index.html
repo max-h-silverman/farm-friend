@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0e1420" />
   <title>Farm Friend — Admin</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='85'%3E👩‍🌾%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="/styles.css" />
   <!-- Firebase init + app code must load BEFORE Alpine so window.adminApp is
        defined when Alpine scans the DOM. Both are module scripts so Alpine
@@ -61,7 +62,7 @@
       <button :class="{active: tab === 'test'}" @click="tab = 'test'">System test</button>
     </nav>
 
-    <main>
+    <main :class="{ 'main-wide': tab === 'test' }">
 
       <!-- ================== WORKLIST ================== -->
       <section x-show="tab === 'worklist'">
@@ -366,6 +367,15 @@
               </template>
             </select>
           </span>
+          <form class="pin-phone" @submit.prevent="pinPhone()">
+            <input type="tel" x-model="test.joinPhone"
+              placeholder="+15550109999"
+              aria-label="Phone number for JOIN test" />
+            <button type="submit" class="btn btn-ghost"
+              :disabled="!test.joinPhone.trim()">
+              Pin phone
+            </button>
+          </form>
         </div>
 
         <!-- Clear DB control. Hidden behind a two-click confirm to make

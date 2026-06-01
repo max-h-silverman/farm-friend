@@ -174,6 +174,9 @@ main {
   margin: 0 auto;
   padding: var(--s-5) var(--s-4) var(--s-7);
 }
+main.main-wide {
+  max-width: 1600px;
+}
 
 h1, h2, h3 { margin: 0; }
 .section-title {
@@ -638,6 +641,25 @@ h1, h2, h3 { margin: 0; }
   border: 1px solid var(--border);
   border-radius: var(--r-2, 6px);
 }
+.pin-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.pin-phone input {
+  width: 150px;
+  padding: 6px 8px;
+  font-size: var(--t-sm);
+  background: var(--surface-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-2, 6px);
+}
+.pin-phone .btn {
+  min-height: 32px;
+  padding: 5px 10px;
+}
 
 /* Thread grid: 1 column = full width; 2 columns = side by side; 3+ = wrap.
    Tight breakpoints so on a typical desktop two panels share the row, three
@@ -646,10 +668,15 @@ h1, h2, h3 { margin: 0; }
   display: grid;
   gap: var(--s-3);
   margin-top: var(--s-2);
+  justify-content: center;
 }
 .thread-grid.grid-1 { grid-template-columns: minmax(0, 1fr); }
-.thread-grid.grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.thread-grid.grid-3plus { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.thread-grid.grid-2 { grid-template-columns: repeat(2, minmax(0, 400px)); }
+.thread-grid.grid-3plus { grid-template-columns: repeat(auto-fit, minmax(320px, 400px)); }
+
+@media (min-width: 1280px) {
+  .thread-grid.grid-3plus { grid-template-columns: repeat(4, minmax(0, 400px)); }
+}
 
 @media (max-width: 900px) {
   .thread-grid.grid-2,

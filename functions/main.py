@@ -39,9 +39,27 @@ def inbound_sms(req: https_fn.Request) -> https_fn.Response:
 # ----------------------------------------------------------------------------
 # Health check
 # ----------------------------------------------------------------------------
-@https_fn.on_request()
+@https_fn.on_request(secrets=ALL_SECRETS)
 def health(req: https_fn.Request) -> https_fn.Response:
-    return https_fn.Response("ok", status=200)
+    """Liveness + pilot-readiness check.
+
+    Returns 200 "ok" when no operational-safety config is missing, or 200 with
+    a "degraded" body listing warnings (e.g. COORDINATOR_PHONE unset) so a
+    deploy can be eyeballed without paging through logs. Still 200 so uptime
+    checks don't flap — readiness is advisory, surfaced in the body.
+    """
+    import json as _json
+
+    from app.config import pilot_readiness_warnings
+
+    warnings = pilot_readiness_warnings()
+    if not warnings:
+        return https_fn.Response("ok", status=200)
+    return https_fn.Response(
+        _json.dumps({"status": "degraded", "warnings": warnings}),
+        status=200,
+        content_type="application/json",
+    )
 
 
 # ----------------------------------------------------------------------------

@@ -72,7 +72,7 @@ The system must recognize:
 
 When a user successfully opts in or requests to join, send:
 
-Farm Friend Vashon: Thanks for subscribing to local farm volunteer shifts and produce pickups. Msg frequency varies, usually 0-6/week. Msg&data rates may apply. Consent is not a condition of purchase or participation. Reply HELP for help or STOP to opt out.
+Farm Friend Vashon: You're signed up for local farm help and surplus pickup texts. We'll text only about this program, usually 0-6/week. Msg&data rates may apply. Texting is optional. Reply HELP for help or STOP to opt out.
 
 If the user still requires coordinator approval, the message may be followed by a short approval-status note, but do not remove the compliance language above.
 

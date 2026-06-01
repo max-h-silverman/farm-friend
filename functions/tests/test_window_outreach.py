@@ -27,7 +27,7 @@ def _window_opp(**overrides) -> OpportunityDoc:
         window_end_at=FRI_LAST,
         duration_min=180,
         headcount_needed=2,
-        activity_tags=["weeding"],
+        activity_detail="Weeding",
         created_at=MON_9AM,
     )
     base.update(overrides)
@@ -41,7 +41,7 @@ def test_window_outreach_mentions_day_range():
     # Day range with both ends.
     assert "Mon" in body
     assert "Fri" in body
-    assert "weeding" in body
+    assert "Weeding" in body
 
 
 def test_window_outreach_instructs_yes_day_grammar():

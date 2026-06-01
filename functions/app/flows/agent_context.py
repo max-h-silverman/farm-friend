@@ -13,7 +13,6 @@ from app.flows import farmer_ops
 from app.flows._time import VASHON_TZ
 from app.repos import farms_repo, messages_repo, mutes_repo, opportunities_repo
 from app.repos.models import (
-    CANONICAL_ACTIVITIES,
     ClaimStatus,
     MessageDoc,
     MessageDirection,
@@ -82,7 +81,6 @@ def build_agent_context(
         now_local_iso=now_local.isoformat(),
         sender_role=sender.role.value,
         sender_name=sender.name,
-        sender_phone=sender.phone,
         sender_availability={
             "available_days": sender.available_days,
             "available_start_hour": sender.available_start_hour,
@@ -109,7 +107,6 @@ def build_agent_context(
         executed_action=executed_action,
         cross_cutting_opps=cross_cutting,
         known_farms=[{"id": fid, "name": f.name} for fid, f in all_farms.items()],
-        canonical_activities=list(CANONICAL_ACTIVITIES),
         opp_message_excerpt=_opp_excerpt(target_opp),
         user_recent_excerpt=_user_excerpt(sender),
     )
@@ -174,9 +171,20 @@ def _user_excerpt(sender: UserDoc) -> list[MessageExcerpt]:
 
 def _opp_summary_from(*, opp: OpportunityDoc, farm) -> OppSummary:
     activity_or_produce = (
-        ", ".join(opp.activity_tags)
+        (opp.activity_detail or "volunteer help")
         if opp.kind == OpportunityKind.SHIFT
         else (opp.produce_description or "surplus")
+    )
+    return OppSummary(
+        opp_id=opp.id or "",
+        farm_name=farm.name if farm else "unknown farm",
+        kind=opp.kind.value,
+        status=opp.status.value,
+        when_human=farmer_ops.opp_short_summary(opp),
+        activity_or_produce=activity_or_produce,
+        headcount_needed=opp.headcount_needed,
+        seats_filled=opp.seats_filled,
+        requirements_text=opp.requirements_text or "",
     )
 
 
@@ -213,26 +221,16 @@ def _draft_from_opp(opp: OpportunityDoc) -> dict:
         "duration_min": opp.duration_min,
         "headcount_needed": opp.headcount_needed,
         "headcount_open": opp.headcount_open,
-        "activity_tags": opp.activity_tags,
+        "purpose": opp.purpose.value,
+        "activity_detail": opp.activity_detail,
         "requirements_text": opp.requirements_text,
         "missing_fields": [],
     }
-    return OppSummary(
-        opp_id=opp.id or "",
-        farm_name=farm.name if farm else "unknown farm",
-        kind=opp.kind.value,
-        status=opp.status.value,
-        when_human=farmer_ops.opp_short_summary(opp),
-        activity_or_produce=activity_or_produce,
-        headcount_needed=opp.headcount_needed,
-        seats_filled=opp.seats_filled,
-        requirements_text=opp.requirements_text or "",
-    )
 
 
 def _claim_summary_from(*, opp: OpportunityDoc, claim, farm) -> ClaimSummary:
     activity_or_produce = (
-        ", ".join(opp.activity_tags)
+        (opp.activity_detail or "volunteer help")
         if opp.kind == OpportunityKind.SHIFT
         else (opp.produce_description or "surplus")
     )

@@ -86,6 +86,7 @@ window.adminApp = function adminApp() {
       bodies: {},
       runningByUser: {},
       addPickerId: "",
+      joinPhone: "",
       // Per-persona conversation threads. Key = user.id. Value = array of
       // turns: { kind: "inbound" | "outbound" | "typing" | "error" | "silence",
       //          body, to_phone?, fromLabel? }.
@@ -426,7 +427,16 @@ window.adminApp = function adminApp() {
       return !!this.test.runningByUser[userId];
     },
 
+    isPhoneThread(userId) {
+      return typeof userId === "string" && userId.startsWith("phone:");
+    },
+
+    phoneForThread(userId) {
+      return this.isPhoneThread(userId) ? userId.slice("phone:".length) : "";
+    },
+
     userLabel(userId) {
+      if (this.isPhoneThread(userId)) return `Unapproved phone · ${this.phoneForThread(userId)}`;
       const u = this.users.find((x) => x.id === userId);
       return u ? `${u.name} · ${u.role}` : userId;
     },
@@ -442,6 +452,27 @@ window.adminApp = function adminApp() {
       if (this.test.pinnedUserIds.includes(userId)) return;
       this.test.pinnedUserIds.push(userId);
       this.test.addPickerId = "";
+    },
+
+    normalizeTestPhone(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      if (raw.startsWith("+")) return `+${raw.slice(1).replace(/\D/g, "")}`;
+      const digits = raw.replace(/\D/g, "");
+      if (digits.length === 10) return `+1${digits}`;
+      if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+      return digits ? `+${digits}` : "";
+    },
+
+    pinPhone() {
+      const phone = this.normalizeTestPhone(this.test.joinPhone);
+      if (!phone || phone.length < 8) return;
+      const key = `phone:${phone}`;
+      if (!this.test.pinnedUserIds.includes(key)) {
+        this.test.pinnedUserIds.push(key);
+      }
+      this.test.joinPhone = "";
+      if (!this.test.bodies[key]) this.setBodyFor(key, "JOIN");
     },
 
     unpinUser(userId) {
@@ -463,7 +494,10 @@ window.adminApp = function adminApp() {
       const body = (this.test.bodies[userId] ?? this.test.body ?? "").trim();
       if (!userId || !body) return;
       const user = this.users.find((u) => u.id === userId);
-      const fromLabel = user ? `${user.name} (${user.phone})` : userId;
+      const phone = this.phoneForThread(userId);
+      const fromLabel = user
+        ? `${user.name} (${user.phone})`
+        : phone || userId;
 
       const thread = this.threadFor(userId);
       thread.push({ kind: "inbound", body, fromLabel });
@@ -479,7 +513,8 @@ window.adminApp = function adminApp() {
       };
       try {
         const call = window.__fb.httpsCallable(this._functions, "simulate_inbound_sms");
-        const resp = await call({ user_id: userId, body });
+        const payload = phone ? { phone, body } : { user_id: userId, body };
+        const resp = await call(payload);
         const outbound = resp.data?.outbound || [];
         removeTyping();
         if (outbound.length === 0) {

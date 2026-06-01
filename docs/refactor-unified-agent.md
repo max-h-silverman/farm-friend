@@ -27,7 +27,7 @@ These principles override the rest of the plan if they conflict.
 1. **Reuse before invent.** Every existing repo, flow, prompt, and data field stays unless this plan explicitly removes or amends it. Where a new behavior maps onto an existing flow, call the existing flow.
 2. **The agent has zero write authority.** Its outputs are interpreted by the dispatch layer, which is the only code path that touches Firestore for state changes. This is a hard invariant.
 3. **Tokens are the only confirmation surface.** No tool-use loops, no function-calling, no multi-turn agent reasoning. One LLM call per non-hotkey inbound; one structured JSON output; the dispatch layer takes it from there.
-4. **Inferences are allowed; mis-inferences are recoverable.** Unique-match resolution is fine. Every state change emits a receipt SMS naming what was done. `UNDO` reverses within 5 minutes.
+4. **Inferences are allowed; mis-inferences are recoverable.** Unique-match resolution is fine. Every state change emits a receipt SMS naming what was done. `UNDO` reverses the most recent action receipt.
 5. **No fabrication.** Agent's factual claims must be grounded in its context payload. Enforced by prompt + eval.
 6. **Eval before cutover.** No traffic flips to the new agent until the eval harness passes existing-flow cases at parity.
 
@@ -77,7 +77,7 @@ Minimal additions. Each is justified by a flow that doesn't work without it.
 
 1. **`MessageDoc.pending_action: dict | None`** — set on outbound messages with `intent_label == PENDING_CONFIRMATION`, and also on proposal notifications that need a token-to-claim reference. For agent confirmations it contains: `{"action": "<name>", "token": "YES or <4 uppercase letters>", "payload": {...}, "expires_at": <iso>}`. Used by dispatch to execute the action when a matching reply arrives. No new collection: one pending action per user thread is enough for normal confirmations.
 
-2. **`MessageDoc.executed_action: dict | None`** — set only on outbound receipt messages (`intent_label == ACTION_RECEIPT`). Contains: `{"action": "<name>", "payload": {...}, "executed_at": <iso>, "undo_token": "UNDO"}`. Used to implement the 5-minute UNDO window. Lookup: dispatch reads the most recent outbound for the user; if it's an `ACTION_RECEIPT` within 5 min, an inbound `UNDO` reverses it.
+2. **`MessageDoc.executed_action: dict | None`** — set only on outbound receipt messages (`intent_label == ACTION_RECEIPT`). Contains: `{"action": "<name>", "payload": {...}, "executed_at": <iso>, "undo_token": "UNDO"}`. Used to implement UNDO. Lookup: dispatch reads the most recent outbound for the user; if it's an `ACTION_RECEIPT`, an inbound `UNDO` reverses it.
 
 3. **`UserDoc.activity_preferences: list[str]`** — positive preferences alongside the existing negative `mute_rules`. Empty default. Filled by the agent's `execute` path on availability/preference updates.
 
@@ -140,7 +140,7 @@ Pure data, no callbacks. Keeps the agent deterministic given input.
 - `last_outbound: MessageDoc | None` (the message they may be replying to)
 - `last_outbound_opp: OpportunityDoc | None`
 - `pending_action: dict | None` (from `last_outbound.pending_action` if alive — i.e., not expired)
-- `executed_action: dict | None` (from the most recent `ACTION_RECEIPT` outbound within 5 min)
+- `executed_action: dict | None` (from the most recent `ACTION_RECEIPT` outbound)
 - `cross_cutting_opps: list[OpportunityDoc]` — all OPEN/FILLING opps. With 2-3 farms + ~50 vols this is cheap; revisit if it grows.
 - `known_farms: list[dict]` (id, name) — for resolving farm references
 - `canonical_activities: tuple[str, ...]` — for grounding activity references
@@ -202,7 +202,7 @@ class EscalationSpec(BaseModel):
 7. PRE-AGENT: if last outbound is PENDING_CONFIRMATION and the inbound
    matches its token (literal or affirmative variant), execute the
    action deterministically — no LLM call. Send receipt.
-8. PRE-AGENT: if last outbound is ACTION_RECEIPT within 5 min and inbound
+8. PRE-AGENT: if last outbound is ACTION_RECEIPT and inbound
    is "UNDO" (any case), reverse the executed action. Send undo receipt.
 9. Build AgentContext (one function, ~30 lines).
 10. Call run_agent.
@@ -237,13 +237,13 @@ The receipt rail is what makes the affirmative-variant acceptance safe.
 
 ### UNDO
 
-`UNDO` joins the hotkey parser. It only matches when the last outbound to this user is an `ACTION_RECEIPT` with `executed_at` within 5 min. The dispatch path reverses by action name (each ActionSpec variant has a corresponding `undo_<name>` function in its source flow file, added only where reversal is non-trivial; simple inverses are inlined).
+`UNDO` joins the hotkey parser. It only matches when the last outbound to this user is an `ACTION_RECEIPT` with `executed_action` metadata. The dispatch path reverses by action name (each ActionSpec variant has a corresponding `undo_<name>` function in its source flow file, added only where reversal is non-trivial; simple inverses are inlined).
 
 Reversible actions: `claim_opportunity` (drop), `drop_confirmed_claim` (re-claim if seat still open, else flag), `record_maybe` (delete the INTERESTED record), `set_availability` (revert via stored prior value in the receipt payload), `set_activity_preferences` (revert), `record_offer` (mark cancelled), `add_mute_rule` (remove), `edit_opportunity` (revert via prior values in receipt payload).
 
-Irreversible / best-effort actions: `cancel_opportunity`, `create_opportunity`, and `edit_opportunity` already fan out to volunteers, so production currently replies that they cannot be auto-undone and asks the user to text Max if reversal is needed. `acknowledge_post_event` has no meaningful real-world undo.
+Irreversible / best-effort actions: `cancel_opportunity`, `create_opportunity`, and `edit_opportunity` already fan out to volunteers, so production currently replies that they cannot be auto-undone and asks the user to reply if reversal is needed. `acknowledge_post_event` has no meaningful real-world undo.
 
-Receipts always include enough payload to reverse. If reverse isn't safely possible, the receipt says "UNDO within 5 min" only when it actually is.
+Receipts always include enough payload to reverse. If reverse isn't safely possible, the undo path replies honestly and offers a forward recovery path.
 
 ## Prompt
 
@@ -308,7 +308,7 @@ Adversarial cases (~10 cases):
 - Affirmative variant after PENDING_CONFIRMATION executes.
 - Affirmative variant after CLARIFY (which has no token) does NOT execute anything.
 - Mid-confirmation context switch — user pivots to a different request while a confirmation is pending.
-- UNDO outside the 5-min window → does nothing, sends "too late to undo" reply.
+- UNDO after an ACTION_RECEIPT → reverses the latest receipt if possible, otherwise replies with the recovery path.
 - UNDO with no recent executed action → "nothing to undo" reply.
 - Fabricated claim ("you have a shift Tuesday with Plum Forest" when sender has no such claim) → eval flags as fabrication, case fails.
 - Quiet-hours interaction with a pending confirmation crossing the boundary.

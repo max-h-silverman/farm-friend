@@ -19,7 +19,7 @@ Usage:
 
 This runner does NOT touch Firestore. It constructs an AgentContext from the
 case's `World` directly and calls `run_agent(llm=…, context=…, inbound=…)`.
-The dispatch layer's deterministic branches (token-match, UNDO window,
+The dispatch layer's deterministic branches (token-match, UNDO,
 clarification cap, hotkey routing, budget filters) are simulated in-runner —
 this keeps the eval focused on the agent's behavior and the dispatch logic in
 isolation, not on Firestore round-trips.
@@ -184,40 +184,22 @@ def simulate_dispatch(
             receipt_text=_synth_receipt_for(pending, world),
         )
 
-    # Step 8: PRE-AGENT — if last outbound is ACTION_RECEIPT within UNDO
-    # window and the inbound is "UNDO" (case-insensitive), reverse.
+    # Step 8: PRE-AGENT — if last outbound is ACTION_RECEIPT and the inbound
+    # is "UNDO" (case-insensitive), reverse.
     if (
         last_outbound is not None
         and last_outbound.intent_label == "ACTION_RECEIPT"
         and last_outbound.executed_action is not None
         and case.inbound_text.strip().upper() in {"UNDO", "UNDO!", "UNDO."}
     ):
-        from datetime import timedelta as _td  # local for clarity
-        five_min_ago = datetime.now(UTC) - _td(minutes=5)
-        # Cases set executed_at relative to NOW (a fixed datetime), so we
-        # compare against case.world's NOW analogue. The Fake fixture uses
-        # the cases module's NOW, which is what we compare to.
-        from tests.evals.cases import NOW
-        executed_at_iso = last_outbound.executed_action.get("executed_at")
-        if executed_at_iso:
-            executed_at = datetime.fromisoformat(executed_at_iso)
-            # UNDO window is 5 minutes per CLAUDE.md / refactor plan.
-            if NOW - executed_at <= timedelta(minutes=5):
-                return DispatchResult(
-                    agent_was_called=False,
-                    mode="execute",
-                    action_name="undo_last",
-                    payload={
-                        "reverses": last_outbound.executed_action.get("action"),
-                    },
-                    dispatch_reason="inbound UNDO within 5-min window",
-                )
-        # Stale UNDO — reply that it's too late. Dispatch (not agent) handles.
         return DispatchResult(
             agent_was_called=False,
-            mode="reply",
-            reply_text="That action was too long ago to undo. Reply with what you'd like to change.",
-            dispatch_reason="UNDO outside 5-min window",
+            mode="execute",
+            action_name="undo_last",
+            payload={
+                "reverses": last_outbound.executed_action.get("action"),
+            },
+            dispatch_reason="inbound UNDO after ACTION_RECEIPT",
         )
 
     # Compute the current clarification streak. The cap itself fires AFTER
@@ -243,7 +225,6 @@ def simulate_dispatch(
             now_local_iso=datetime.now(UTC).isoformat(),
             sender_role=(sender.role if sender else "volunteer"),
             sender_name=(sender.name if sender else ""),
-            sender_phone=(sender.phone if sender else ""),
             sender_availability={},
             sender_activity_preferences=(sender.activity_preferences if sender else []),
             sender_mute_summary=[],
@@ -313,12 +294,21 @@ def simulate_dispatch(
             dispatch_reason=f"clarify cap ({cap}) hit on agent's new clarify",
         )
 
+    # The confirmation token is derived deterministically from the action in
+    # production (message_dispatch._token_for_action), NOT taken from the model.
+    # Mirror that here so the eval reflects the token the user actually sees.
+    if output.mode == "confirm" and output.action is not None:
+        from app.flows.message_dispatch import _token_for_action
+        dispatched_token = _token_for_action(output.action.name)
+    else:
+        dispatched_token = output.confirmation_token
+
     return DispatchResult(
         agent_was_called=True,
         mode=output.mode,
         action_name=(output.action.name if output.action else None),
         payload=_extract_payload(output),
-        confirmation_token=output.confirmation_token,
+        confirmation_token=dispatched_token,
         escalation_urgency=(output.escalation.urgency if output.escalation else None),
         reply_text=output.reply_text,
     )
@@ -443,10 +433,13 @@ def _build_board_from_world(world: World):
         if off.status != "open":
             continue
         vol = users_by_id.get(off.volunteer_user_id)
+        offer_detail = (getattr(off, "activity_detail", "") or "").strip() or (
+            ", ".join(off.activity_tags) if off.activity_tags else ""
+        )
         open_offers.append(OfferSummary(
             offer_id=off.id,
             volunteer_name=vol.name if vol else "unknown",
-            activity_tags=off.activity_tags,
+            activity_detail=offer_detail,
             when_human=_format_offer_when(off),
             age_days=max(0, (NOW - off.created_at).days),
         ))
@@ -763,6 +756,12 @@ def _extract_payload(output) -> dict:
         return {}
     raw = payload_obj.model_dump(exclude_none=False) if hasattr(payload_obj, "model_dump") else dict(payload_obj)
     out = dict(raw)
+    # Mirror production: record_offer normalizes vague-openness activity_detail
+    # to empty (app.flows.message_dispatch._normalize_offer_activity_detail), so
+    # eval results reflect what actually gets stored.
+    if output.action.name == "record_offer" and "activity_detail" in out:
+        from app.flows.message_dispatch import _normalize_offer_activity_detail
+        out["activity_detail"] = _normalize_offer_activity_detail(out.get("activity_detail") or "")
     # Lift nested ParsedOpportunity fields.
     if isinstance(raw.get("parsed"), dict):
         for k, v in raw["parsed"].items():
@@ -791,7 +790,7 @@ def _get_live_llm():
     if _LIVE_LLM_CACHE:
         return _LIVE_LLM_CACHE[0]
 
-    provider = os.environ.get("LLM_PROVIDER", "olmo").strip()
+    provider = os.environ.get("LLM_PROVIDER", "mistral-deepinfra").strip()
 
     # Build Settings directly — avoids load_settings() touching
     # firebase_functions.params at import time outside a function.
@@ -818,23 +817,26 @@ def _get_live_llm():
         )
         adapter = AnthropicAdapter(api_key=api_key)
     else:
-        # olmo/openai-compatible (OpenAI wire protocol).
+        # olmo/openai-compatible/mistral-deepinfra (OpenAI wire protocol).
         api_key = os.environ.get("LLM_API_KEY", "no-key").strip() or "no-key"
-        default_base_url = (
-            "https://api.deepinfra.com/v1/openai"
-            if provider == "openai-compatible"
-            else "http://localhost:8000/v1"
-        )
+        deepinfra_url = "https://api.deepinfra.com/v1/openai"
+        if provider in ("openai-compatible", "mistral-deepinfra"):
+            default_base_url = deepinfra_url
+        else:
+            default_base_url = "http://localhost:8000/v1"
         base_url = os.environ.get("LLM_BASE_URL", default_base_url).strip()
         from app.llm.openai_compat_adapter import OpenAICompatibleAdapter
-        default_model = (
-            "meta-llama/Llama-3.3-70B-Instruct"
-            if provider == "openai-compatible"
-            else "allenai/Olmo-3.1-32B-Instruct"
-        )
+        if provider == "mistral-deepinfra":
+            default_model = "mistralai/Mistral-Small-3.2-24B-Instruct-2506"
+        elif provider == "openai-compatible":
+            default_model = "meta-llama/Llama-3.3-70B-Instruct"
+        else:
+            default_model = "allenai/Olmo-3.1-32B-Instruct"
+        # No separate lightweight tier for the Mistral/Llama trials — one model
+        # serves both; OLMo self-host keeps its 7B classifier default.
         default_fast_model = (
-            "meta-llama/Llama-3.3-70B-Instruct"
-            if provider == "openai-compatible"
+            default_model
+            if provider in ("openai-compatible", "mistral-deepinfra")
             else "allenai/Olmo-3-7B-Instruct"
         )
         coordinator_model = os.environ.get("LLM_MODEL", default_model)
@@ -871,7 +873,7 @@ def _eval_settings(
     anthropic_api_key: str,
 ):
     """Minimal Settings for the eval runner. Defaults match production where
-    they matter (agent budgets, undo window) and are zeroed where they don't."""
+    they matter (agent budgets) and are zeroed where they don't."""
     from app.config import Settings
     return Settings(
         llm_provider=llm_provider,
@@ -891,9 +893,9 @@ def _eval_settings(
         agent_nudge_budget_hours=48,
         agent_nudge_per_opp_max=2,
         agent_review_per_tick_max=3,
+        agent_review_admin_only=True,
         clarify_round_max=2,
         clarify_user_24h_max=5,
-        undo_window_min=5,
         offer_default_ttl_days=7,
         proposal_auto_confirm_far_min=240,
         proposal_auto_confirm_close_min=60,
@@ -926,10 +928,20 @@ def _when_human(opp: FakeOpp) -> str:
     return "soon"
 
 
+def _fake_activity_display(opp: FakeOpp) -> str:
+    """Display activity for a fixture opp — prefer free-text activity_detail,
+    fall back to legacy activity_tags so old fixtures still render."""
+    if (getattr(opp, "activity_detail", "") or "").strip():
+        return opp.activity_detail.strip()
+    if opp.activity_tags:
+        return ", ".join(opp.activity_tags)
+    return "shift"
+
+
 def _opp_to_summary_dict(opp: FakeOpp, farm: FakeFarm | None) -> dict:
     """Build the OppSummary-shaped dict the agent expects in CONTEXT."""
     if opp.kind == "shift":
-        activity_or_produce = ", ".join(opp.activity_tags) if opp.activity_tags else "shift"
+        activity_or_produce = _fake_activity_display(opp)
     else:
         activity_or_produce = opp.produce_description or "surplus"
     return {
@@ -981,7 +993,7 @@ def _build_context_from_world(world: World, sender: FakeUser | None, last_outbou
                 opp_kind=opp.kind,
                 farm_name=farm.name if farm else "unknown farm",
                 activity_or_produce=(
-                    ", ".join(opp.activity_tags) if opp.kind == "shift"
+                    _fake_activity_display(opp) if opp.kind == "shift"
                     else (opp.produce_description or "surplus")
                 ),
                 when_human=_when_human(opp),
@@ -1044,14 +1056,7 @@ def _build_context_from_world(world: World, sender: FakeUser | None, last_outbou
             if alive:
                 pending_action = last_outbound.pending_action
         if last_outbound.executed_action and last_outbound.intent_label == "ACTION_RECEIPT":
-            executed_iso = last_outbound.executed_action.get("executed_at")
-            if executed_iso:
-                try:
-                    executed = datetime.fromisoformat(executed_iso)
-                    if NOW - executed <= timedelta(minutes=5):
-                        executed_action = last_outbound.executed_action
-                except ValueError:
-                    pass
+            executed_action = last_outbound.executed_action
         if last_outbound.opportunity_id:
             opp = opps_by_id.get(last_outbound.opportunity_id)
             if opp:
@@ -1102,7 +1107,6 @@ def _build_context_from_world(world: World, sender: FakeUser | None, last_outbou
         now_local_iso=now_local_iso,
         sender_role=sender_role,
         sender_name=(sender.name if sender else ""),
-        sender_phone=(sender.phone if sender else ""),
         sender_availability={
             "available_days": sender.available_days if sender else [],
             "available_start_hour": sender.available_start_hour if sender else None,
@@ -1147,8 +1151,8 @@ def _synth_receipt_for(pending: dict, world: World) -> str:
         farm = next((f for f in world.farms if opp and f.id == opp.farm_id), None)
         farm_name = farm.name if farm else "the farm"
         when = "Friday"  # cases use Friday as the canonical day
-        return f"Farm Friend Vashon: confirmed for harvest at {farm_name} {when}. Reply UNDO within 5 min if wrong."
-    return f"Farm Friend Vashon: done. Reply UNDO within 5 min if wrong."
+        return f"Farm Friend Vashon: confirmed for harvest at {farm_name} {when}. Reply UNDO if wrong."
+    return f"Farm Friend Vashon: done. Reply UNDO if wrong."
 
 
 # ---------------------------------------------------------------------------
@@ -1219,7 +1223,7 @@ def _(c): return _confirm(
         "starts_at": "2026-06-05T16:00:00+00:00",
         "duration_min": 180,
         "headcount_needed": 3,
-        "activity_tags": ["harvest"],
+        "activity_detail": "Harvest",
         "missing_fields": [],
     }},
     token="YES",
@@ -1245,7 +1249,7 @@ def _(c): return _confirm(
         "starts_at": "2026-06-08T16:00:00+00:00",
         "duration_min": 180,
         "headcount_needed": 2,
-        "activity_tags": ["tbd"],
+        "activity_detail": "General farm work (TBD)",
         "missing_fields": [],
     }},
     token="YES",
@@ -1260,7 +1264,7 @@ def _(c): return _confirm(
         "starts_at": "2026-06-04T16:00:00+00:00",
         "duration_min": 180,
         "headcount_needed": 2,
-        "activity_tags": ["weeding"],
+        "activity_detail": "Weeding",
         "missing_fields": [],
     }},
     token="YES",
@@ -1308,13 +1312,13 @@ def _(c): return _execute("acknowledge_post_event", {"opp_id": "o_done", "answer
 @stub_for("reg.escalate.injury_immediate")
 def _(c): return _escalate(
     "immediate", "volunteer reports cut hand at Plum Forest, bleeding",
-    "Sorry to hear that — please call 911 if it's urgent. Max will reach out shortly."
+    "Sorry to hear that — please call 911 if it's urgent. The Farm Friend team will reach out shortly."
 )
 
 @stub_for("reg.escalate.payment_routine")
 def _(c): return _escalate(
     "routine", "volunteer asking about payment for last week",
-    "Good question — Max handles anything around payment and will follow up shortly."
+    "Good question — the Farm Friend team handles anything around payment and will follow up shortly."
 )
 
 # reg.flag.silent_when_flagged is dispatch-only; no stub.
@@ -1324,7 +1328,7 @@ def _(c): return _escalate(
 @stub_for("new.vol.offer.broadcast")
 def _(c): return _confirm(
     "record_offer",
-    {"activity_tags": ["infrastructure"], "earliest_at": None, "latest_at": "2026-06-06T07:00:00+00:00",
+    {"activity_detail": "Tilling", "earliest_at": None, "latest_at": "2026-06-06T07:00:00+00:00",
      "note": "anyone need help with tilling on Friday"},
     token="YES",
     text="I'll let farms know you can help with tilling Friday. Reply YES to record, STOP to opt out.",
@@ -1333,7 +1337,7 @@ def _(c): return _confirm(
 @stub_for("new.vol.offer.directed")
 def _(c): return _confirm(
     "record_offer",
-    {"activity_tags": [], "earliest_at": None, "latest_at": None,
+    {"activity_detail": "", "earliest_at": None, "latest_at": None,
      "note": "wants to help at Plum Forest this week"},
     token="YES",
     text="I'll pass along your offer to Plum Forest. Reply YES to record.",
@@ -1342,7 +1346,7 @@ def _(c): return _confirm(
 @stub_for("new.vol.offer.matches_existing_opp")
 def _(c): return _confirm(
     "record_offer",
-    {"activity_tags": ["infrastructure"], "earliest_at": None, "latest_at": "2026-06-07T07:00:00+00:00",
+    {"activity_detail": "Tilling", "earliest_at": None, "latest_at": "2026-06-07T07:00:00+00:00",
      "note": "wants to help with tilling this weekend"},
     token="YES",
     text="Recording your tilling offer for the weekend. Reply YES to record.",
@@ -1351,7 +1355,7 @@ def _(c): return _confirm(
 @stub_for("new.vol.offer.flexible_phys_work")
 def _(c): return _confirm(
     "record_offer",
-    {"activity_tags": ["flexible"],
+    {"activity_detail": "",
      "earliest_at": "2026-06-06T07:00:00-07:00",
      "latest_at": "2026-06-07T12:00:00-07:00",
      "note": "some physical work this weekend, some morning"},
@@ -1418,7 +1422,7 @@ def _(c): return _clarify(
 @stub_for("new.farmer.passthrough_request")
 def _(c): return _reply(
     "Farm Friend Vashon doesn't pass messages between users in v1, but I can flag this "
-    "for Max to handle directly. STOP to opt out."
+    "for the Farm Friend team to handle directly. STOP to opt out."
 )
 
 @stub_for("new.farmer.general_question")
@@ -1427,7 +1431,7 @@ def _(c): return _reply(
     "Text us when you need volunteers and we'll handle outreach. STOP to opt out."
 )
 
-# new.undo.recent_action — handled by deterministic dispatch (UNDO hotkey + window check).
+# new.undo.recent_action — handled by deterministic dispatch (UNDO hotkey).
 
 
 # === ADVERSARIAL stubs ===
@@ -1455,7 +1459,7 @@ def _(c): return _reply(
     "Saturday: gleaning at Plum Forest 9am-12, 0/4 filled. Your Friday harvest CLAIM is still pending."
 )
 
-# adv.undo_outside_window — deterministic in dispatch (UNDO hotkey, window past).
+# adv.undo_after_delay — deterministic in dispatch (UNDO hotkey).
 
 # adv.clarify_cap.escalates_at_third_round — agent IS now called (so the user's
 # reply gets a chance to land); when it emits clarify, dispatch catches the cap
@@ -1486,8 +1490,18 @@ def _(c): return _reply(
 )
 
 @stub_for("adv.unknown_activity_slug")
-def _(c): return _clarify(
-    "Mushroom foraging isn't in our usual activity list. Should I treat that as 'gleaning' or flag it for Max to add as a new category?"
+def _(c): return _confirm(
+    "create_opportunity",
+    {"parsed": {
+        "kind": "shift",
+        "starts_at": "2026-06-06T10:00:00-07:00",
+        "duration_min": 120,
+        "headcount_needed": 2,
+        "activity_detail": "Mushroom Foraging",
+        "missing_fields": [],
+    }},
+    token="YES",
+    text="Post 2 ppl for Mushroom Foraging, Saturday 10am-12? Reply YES.",
 )
 
 @stub_for("adv.quiet_hours_does_not_block_inbound")
@@ -1509,7 +1523,7 @@ def _(c): return _confirm(
         "time_of_day_bucket": "morning",
         "duration_min": None,
         "headcount_needed": 2,
-        "activity_tags": ["tbd"],
+        "activity_detail": "General farm work (TBD)",
         "requirements_text": "prep work",
         "missing_fields": [],
     }},
@@ -1527,7 +1541,7 @@ def _(c): return _confirm(
         "window_end_at": "2026-06-10T23:59:00-07:00",
         "duration_min": None,
         "headcount_needed": 2,
-        "activity_tags": ["harvest"],
+        "activity_detail": "Harvest",
         "missing_fields": [],
     }},
     token="YES",
@@ -1545,7 +1559,7 @@ def _(c): return _confirm(
         "time_of_day_bucket": "morning",
         "duration_min": None,
         "headcount_needed": 2,
-        "activity_tags": ["gleaning"],
+        "activity_detail": "Gleaning",
         "missing_fields": [],
     }},
     token="YES",
@@ -1561,7 +1575,7 @@ def _(c): return _confirm(
         "starts_at": "2026-06-06T08:00:00-07:00",
         "duration_min": 180,
         "headcount_needed": 3,
-        "activity_tags": ["harvest"],
+        "activity_detail": "Harvest",
         "missing_fields": [],
     }},
     token="YES",
@@ -1611,7 +1625,7 @@ def _(c): return _reply("review-pending")  # placeholder
 # ---------------------------------------------------------------------------
 # Cases that are deterministic-dispatch-only (no agent call expected). Shared
 # between stub and live mode — these are pre-agent dispatch branches that the
-# runner must reproduce verbatim (token match, UNDO window, FLAG).
+# runner must reproduce verbatim (token match, UNDO, FLAG).
 #
 # Note: the clarify-cap case is NOT in this set anymore. The cap moved to
 # AFTER the agent runs so the user's answer to round-2 gets a chance to
@@ -1621,7 +1635,7 @@ DETERMINISTIC_ONLY = {
     "reg.claim.token_confirms_claim",            # token match
     "new.undo.recent_action",                     # UNDO hotkey
     "adv.affirmative_after_pending",              # affirmative variant on token
-    "adv.undo_outside_window",                    # UNDO stale
+    "adv.undo_after_delay",                       # UNDO after delay
 }
 
 

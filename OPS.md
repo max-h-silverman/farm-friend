@@ -40,14 +40,30 @@ Things that aren't code — the manual steps you need to do once before any of t
    Or, simpler, just add it to your `.env` for the emulator and re-deploy with the deploy-time param.
 8. Update `web/public/farmfriend.vcf` — replace the placeholder `+15555550100` in the `TEL` line with your real Telnyx number.
 
-## 3. Anthropic
+## 3. LLM provider
 
-1. Sign up at console.anthropic.com.
-2. Create an API key.
-3. Set as a secret:
-   ```bash
-   firebase functions:secrets:set ANTHROPIC_API_KEY
-   ```
+The active model is configuration, not a product assumption — `LLM_PROVIDER`
+selects the adapter and sensible defaults (see CLAUDE.md → "Project Constitution"
+and "Stack → LLM"; `app/config.py:load_settings` is the source of truth). You only
+need to provision the key for whichever provider you're running.
+
+- **Code default — `mistral-deepinfra`** (Mistral Small 3.2 24B on DeepInfra, a
+  neutral inference provider). Create a DeepInfra API key and set it as the
+  generic LLM key:
+  ```bash
+  firebase functions:secrets:set LLM_API_KEY
+  ```
+- **Real Ai2 OLMo via OpenRouter** (`LLM_PROVIDER=olmo-openrouter`): set
+  `OPENROUTER_API_KEY` (falls back to `LLM_API_KEY` if unset).
+- **Anthropic fallback** (`LLM_PROVIDER=anthropic`, Sonnet 4.6): only a
+  config-switchable fallback, not the default. To use it, create a key at
+  console.anthropic.com and set it:
+  ```bash
+  firebase functions:secrets:set ANTHROPIC_API_KEY
+  ```
+
+> Before pointing the pilot at any provider, run the live eval against it:
+> `LLM_API_KEY=<key> python -m tests.evals.runner --live` from `functions/`.
 
 ## 3a. Coordinator phone (for immediate escalations)
 
@@ -113,11 +129,11 @@ Before onboarding real farms (target: ~July 2026):
 - [ ] `COORDINATOR_PHONE` is set in `.env.<project>` and deployed — without it, urgent escalations don't page you.
 - [ ] vCard is updated with the real number.
 - [ ] You've run through the end-to-end manual test (post a test shift, claim it, confirm post-event check-in, FLAG a message, send a deliberately-escalating message like "someone hurt their hand" and verify it lands as an immediate-urgency flag + texts your phone).
-- [ ] You've verified the confirmation reminder fires: claim a shift whose `starts_at` is within ~24h, wait for `tick_confirmations` (every 15 min) to send the reminder, then reply CANCEL and confirm seat unwinds + farmer gets notified.
+- [ ] You've verified the confirmation reminder fires: claim a shift whose `starts_at` is within ~24h, wait for `tick_confirmations` (every 15 min) to send the reminder, then reply DROP (the keyword the reminder now asks for; legacy CANCEL still works only in this reminder context) and confirm seat unwinds + farmer gets notified.
 - [ ] At least one friendly farmer + 3–5 friendly volunteers are onboarded as a soft pilot.
 - [ ] Cost dashboard shows total spend tracking under the $30/month budget.
 
 ## Recurring ops
 
 - **Check the admin worklist daily** for pending approvals and open flags during the pilot. The system runs autonomously but you're still the trust-and-safety gate.
-- **Telnyx + Anthropic billing**: glance at both monthly. If LLM spend exceeds Telnyx, that's a signal — the LLM is being called too often (likely because too many messages are slipping past the hotkey parser).
+- **Telnyx + LLM-provider billing**: glance at both monthly (the LLM provider is whoever `LLM_PROVIDER` points at — DeepInfra by default, or OpenRouter/Anthropic if switched). If LLM spend exceeds Telnyx, that's a signal — the LLM is being called too often (likely because too many messages are slipping past the hotkey parser).

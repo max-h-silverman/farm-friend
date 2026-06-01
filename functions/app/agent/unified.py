@@ -78,7 +78,7 @@ class OfferSummary(BaseModel):
 
     offer_id: str
     volunteer_name: str
-    activity_tags: list[str]
+    activity_detail: str = ""  # cleaned free text; empty = open to anything
     when_human: str
     age_days: int
 
@@ -102,7 +102,10 @@ class AgentContext(BaseModel):
     now_local_iso: str
     sender_role: Literal["farmer", "volunteer", "both"]
     sender_name: str
-    sender_phone: str
+    # Data minimization: the sender's phone number is deliberately NOT part of
+    # the context we send to the inference provider. The agent coordinates by
+    # name and opaque IDs; dispatch already knows the phone for actually sending
+    # SMS. See CLAUDE.md → "Project Constitution: ... Data dignity".
     sender_availability: dict  # days/hours/max_hours from UserDoc
     sender_activity_preferences: list[str]
     sender_mute_summary: list[str]  # rendered "activity:weeding", "farm:Plum Forest", etc.
@@ -118,10 +121,9 @@ class AgentContext(BaseModel):
     last_outbound_opp_summary: OppSummary | None = None
     current_draft: dict | None = None
     pending_action: dict | None = None  # alive PENDING_CONFIRMATION payload, if any
-    executed_action: dict | None = None  # alive ACTION_RECEIPT payload (within UNDO window), if any
+    executed_action: dict | None = None  # most recent ACTION_RECEIPT payload, if any
     cross_cutting_opps: list[OppSummary] = Field(default_factory=list)
     known_farms: list[dict] = Field(default_factory=list)  # {id, name}
-    canonical_activities: list[str] = Field(default_factory=list)
     opp_message_excerpt: list[MessageExcerpt] = Field(default_factory=list)
     user_recent_excerpt: list[MessageExcerpt] = Field(default_factory=list)
 
@@ -200,7 +202,8 @@ class SetActivityPreferencesPayload(BaseModel):
 
 
 class RecordOfferPayload(BaseModel):
-    activity_tags: list[str] = Field(default_factory=list)
+    activity_detail: str = ""  # cleaned free text; empty = open to anything
+    purpose: Literal["gleaning", "farm_help"] | None = None
     earliest_at: str | None = None  # ISO 8601
     latest_at: str | None = None
     note: str = ""  # short verbatim of what the volunteer said
@@ -284,6 +287,12 @@ class AgentOutput(BaseModel):
 
     mode: Literal["reply", "confirm", "execute", "clarify", "escalate"]
     reply_text: str = ""
+    # NOTE: token *selection* is no longer trusted to the model. Dispatch
+    # derives the confirmation token deterministically from the action
+    # (message_dispatch._token_for_action: YES for everything, UNDO for
+    # undo_last). This field is retained for schema/back-compat and as a hint,
+    # but any value the model emits here is IGNORED. The agent's reply_text
+    # should always ask the user to "Reply YES" (or "Reply UNDO" for undo).
     confirmation_token: str | None = None
     action: ActionSpec | None = None
     escalation: EscalationSpec | None = None
@@ -335,7 +344,6 @@ class BoardState(BaseModel):
     stalled_threads: list[dict]  # {user_id, last_inbound_iso, last_outbound_intent}
     # Budgets remaining. Agent uses these to prioritize, not as authority.
     per_tick_send_budget: int
-    canonical_activities: list[str]
 
 
 # ---------------------------------------------------------------------------
