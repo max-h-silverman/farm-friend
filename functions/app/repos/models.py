@@ -38,6 +38,15 @@ class OpportunityKind(StrEnum):
     PICKUP = "pickup"
 
 
+class OpportunityPurpose(StrEnum):
+    """Why the opportunity exists — orthogonal to `kind` (what the volunteer
+    does). A gleaning job can be hands-on (shift) or a pickup; same for farm
+    help. Used for routing/muting and outreach copy, NOT for the pacing/claim
+    behavior that `kind` drives. Defaults to FARM_HELP when unspecified."""
+    GLEANING = "gleaning"     # food-access / waste-reduction (often → food bank)
+    FARM_HELP = "farm_help"   # general support for a farm's work or logistics
+
+
 class OpportunityStatus(StrEnum):
     DRAFT = "draft"
     OPEN = "open"
@@ -65,11 +74,15 @@ class ClaimStatus(StrEnum):
 
 
 class MuteDimension(StrEnum):
-    ACTIVITY = "activity"
+    PURPOSE = "purpose"  # mute gleaning/food-access or general farm help
     FARM = "farm"
     WINDOW = "window"
     OPPORTUNITY = "opportunity"
     AGENT_NUDGE = "agent_nudge"  # PAUSE/RESUME — silences review-tick nudges only
+    # DEPRECATED (activity-model redesign): activity-slug muting replaced by
+    # PURPOSE. No new ACTIVITY rules are created; kept so any legacy rule docs
+    # still deserialize. Remove post-pilot.
+    ACTIVITY = "activity"
 
 
 class MessageDirection(StrEnum):
@@ -86,7 +99,8 @@ class IntentLabel(StrEnum):
     CLAIM = "CLAIM"
     MAYBE = "MAYBE"
     MUTE = "MUTE"
-    STOP_ACTIVITY = "STOP_ACTIVITY"
+    STOP_PURPOSE = "STOP_PURPOSE"   # mute gleaning / farm-help opportunities
+    STOP_ACTIVITY = "STOP_ACTIVITY"  # DEPRECATED (activity-model redesign); legacy only
     STOP_FARM = "STOP_FARM"
     UNAVAILABLE = "UNAVAILABLE"
     FLAG = "FLAG"
@@ -140,25 +154,6 @@ TIME_OF_DAY_BUCKETS = (
     "late_afternoon",  # 3pm–6pm
     "early_evening",   # 5pm–7pm
     "evening",         # 6pm–8pm
-)
-
-
-CANONICAL_ACTIVITIES = (
-    "harvest",
-    "gleaning",
-    "weeding",
-    "planting",
-    "transplanting",
-    "livestock",
-    "infrastructure",
-    "processing",
-    # Side-asymmetric slugs — used to express "no activity constraint" in two
-    # distinct ways. NOT interchangeable: the farmer-side slug describes the
-    # opp ("type TBD until day-of"); the volunteer-side slug describes the
-    # volunteer's openness ("match me to anything"). The agent prompt enforces
-    # which side may use which.
-    "tbd",       # farmer-side: posting where work-type is uncertain
-    "flexible",  # volunteer-side: offer/preference open to any activity
 )
 
 
@@ -243,6 +238,19 @@ class OpportunityDoc(BaseModel):
     # still set (used as the practical broadcast cap) but the opp doesn't
     # close to outreach when seats_filled hits it.
     headcount_open: bool = False
+    # Why the opp exists (food-access vs general farm help). Routing/mute/copy
+    # axis, orthogonal to `kind`. Defaults to FARM_HELP so legacy/unspecified
+    # opps remain valid.
+    purpose: OpportunityPurpose = OpportunityPurpose.FARM_HELP
+    # Free-text, display-cased specifics of the work ("Inoculate Shiitake Logs",
+    # "Harvest leftover apples"). Replaces the old closed-list `activity_tags`
+    # as the source of truth for "what is the work". The agent captures what the
+    # farmer said and returns a cleaned form; never invents one.
+    activity_detail: str = ""
+    # DEPRECATED (activity-model redesign 2026-05-31): no longer the source of
+    # truth and no longer constrained to a canonical list. Retained only so we
+    # don't drop a field mid-flight; nothing should read it for behavior. Remove
+    # post-pilot. See docs/activity-model-redesign.md.
     activity_tags: list[str] = Field(default_factory=list)
     requirements_text: str = ""
     produce_description: str | None = None
@@ -380,7 +388,15 @@ class OfferDoc(BaseModel):
     """
     id: str | None = None
     volunteer_user_id: str
-    activity_tags: list[str] = Field(default_factory=list)  # canonical slugs
+    # Purpose the volunteer is interested in (food-access vs general help).
+    # Optional — None means "no preference stated"; the review-tick matcher
+    # treats it as open. Defaults to None rather than FARM_HELP so we don't
+    # invent a preference the volunteer didn't express.
+    purpose: OpportunityPurpose | None = None
+    activity_detail: str = ""            # cleaned free-text the agent captured
+    # DEPRECATED (activity-model redesign): use activity_detail + purpose. Kept
+    # for legacy deserialization; nothing should read it for behavior.
+    activity_tags: list[str] = Field(default_factory=list)
     earliest_at: datetime | None = None  # earliest the volunteer can help
     latest_at: datetime | None = None    # latest the volunteer can help
     note: str = ""                       # raw text the agent captured

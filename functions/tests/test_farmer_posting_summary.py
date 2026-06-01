@@ -29,11 +29,11 @@ def test_single_day_with_clock_time():
         starts_at=TUE_9AM,
         duration_min=180,
         headcount_needed=3,
-        activity_tags=["harvest"],
+        activity_detail="Harvest",
     )
     out = _farmer_posting_summary(parsed=parsed)
     assert "3 people" in out
-    assert "harvest" in out
+    assert "Harvest" in out
     # Time helper renders the clock time + day; pin the time portion.
     assert "9a" in out
 
@@ -44,11 +44,11 @@ def test_single_day_with_bucket_only():
         starts_at=TUE_MIDNIGHT,  # date placeholder
         time_of_day_bucket="morning",
         headcount_needed=2,
-        activity_tags=["weeding"],
+        activity_detail="Weeding",
     )
     out = _farmer_posting_summary(parsed=parsed)
     assert "2 people" in out
-    assert "weeding" in out
+    assert "Weeding" in out
     assert "morning" in out
     # Must NOT contain a clock time like "9a" or "12a" — bucket is fuzzy.
     assert "9a" not in out
@@ -62,7 +62,7 @@ def test_window_with_bucket():
         window_end_at=FRI_MIDNIGHT,
         time_of_day_bucket="morning",
         headcount_needed=2,
-        activity_tags=["tbd"],
+        activity_detail="General farm work (TBD)",
         requirements_text="prep work",
     )
     out = _farmer_posting_summary(parsed=parsed)
@@ -80,7 +80,7 @@ def test_window_with_clock_time():
         window_end_at=FRI_MIDNIGHT,
         duration_min=180,
         headcount_needed=2,
-        activity_tags=["weeding"],
+        activity_detail="Weeding",
     )
     out = _format_shift_when(parsed)
     # Both ends of the window appear.
@@ -97,7 +97,7 @@ def test_headcount_open_renders_as_any_number():
         duration_min=180,
         headcount_needed=1,
         headcount_open=True,
-        activity_tags=["harvest"],
+        activity_detail="Harvest",
     )
     out = _farmer_posting_summary(parsed=parsed)
     assert "any number" in out.lower()

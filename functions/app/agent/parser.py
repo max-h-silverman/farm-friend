@@ -34,7 +34,7 @@ from app.repos.models import TIME_OF_DAY_BUCKETS
 #   - "date":      starts_at has a date component
 #   - "time":      starts_at has a clock time OR time_of_day_bucket is set
 #   - "headcount": headcount_needed > 0 OR headcount_open=True
-#   - "activity":  activity_tags is non-empty (including ["tbd"])
+#   - "activity":  activity_detail is non-empty (any free text the farmer gave)
 #
 # Pickup axes (each must be satisfied):
 #   - "deadline":   deadline_at is set
@@ -54,12 +54,19 @@ class ParsedOpportunity(BaseModel):
 
     kind: Literal["shift", "pickup", "other"]
     parse_notes: str = ""
-    unknown_activity: bool = False
 
     # Shift fields (populated when kind=="shift")
     starts_at: str | None = None  # ISO 8601 with offset
     duration_min: int | None = None
     headcount_needed: int | None = None
+    # Why the opp exists. "gleaning" (food-access) or "farm_help" (default).
+    purpose: Literal["gleaning", "farm_help"] = "farm_help"
+    # Free-text, display-cased specifics of the work ("Inoculate Shiitake
+    # Logs"). The agent captures what the farmer said; this is the activity
+    # axis's source of truth. Replaces the old closed-list activity_tags.
+    activity_detail: str = ""
+    # DEPRECATED (activity-model redesign): retained for round-trip back-compat;
+    # no longer the activity axis. Don't read it for behavior.
     activity_tags: list[str] = Field(default_factory=list)
     requirements_text: str = ""
     # Multi-day window post: end of the window (inclusive). None for
@@ -99,7 +106,7 @@ def compute_missing_fields(parsed: ParsedOpportunity) -> list[str]:
       - "time":      starts_at has a non-midnight clock time OR
                      time_of_day_bucket is set.
       - "headcount": headcount_needed > 0 OR headcount_open is True.
-      - "activity":  activity_tags non-empty (["tbd"] is a valid satisfier).
+      - "activity":  activity_detail is non-empty (any free text satisfies it).
 
     Pickup axes:
       - "deadline":    deadline_at is set.
@@ -122,7 +129,7 @@ def compute_missing_fields(parsed: ParsedOpportunity) -> list[str]:
             missing.append("time")
         if not parsed.headcount_open and not (parsed.headcount_needed and parsed.headcount_needed > 0):
             missing.append("headcount")
-        if not parsed.activity_tags:
+        if not parsed.activity_detail.strip():
             missing.append("activity")
         return missing
     if parsed.kind == "pickup":

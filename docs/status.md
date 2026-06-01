@@ -2,6 +2,16 @@
 
 The running narrative of what's been built, what was just fixed, and what's been deferred. Dated entries; newest at top. Companion to `CLAUDE.md` (orientation), `docs/next-steps.md` (punch list), and `docs/architecture.md` (invariants).
 
+## Status (as of 2026-06-01) — activity-model redesign + OLMo settled
+
+Two big things landed this session, plus a critical bug fix and reliability hardening:
+
+- **Critical bug fixed + inbound reliability hardened.** `_opp_summary_from` in `agent_context.py` had an orphaned `return` (committed in `a62b384`) that made it return `None` for every opportunity → `build_agent_context` crashed (unhandled, outside dispatch's try/except) on any inbound while an open opp existed → silent webhook 500. Fixed + regression-tested. Then moved `build_agent_context` inside dispatch's try/except and added a webhook-level backstop so context/repo/routing failures degrade to flag+fallback or a logged 200 instead of a 500 retry storm. (`agent_context.py`, `message_dispatch.py`, `test_agent_context_open_opps.py`, `test_dispatch_reliability.py`)
+
+- **Activity-model redesign (shipped).** Replaced the closed 8-slug `CANONICAL_ACTIVITIES` + `tbd`/`flexible` machinery with: `kind` (unchanged, load-bearing) + new `purpose` (`gleaning`/`farm_help`, default farm_help, the mute/routing axis) + free-text `activity_detail`. This dissolved the over-confirm-on-unknown-activity failure class by construction ("mushroom foraging" is just valid input now). Two product decisions enforced as deterministic guards (the model follows prose unreliably): a bare crop name still clarifies (`_agent_overconfirm_reason` crop-word check), and vague-openness offers normalize to empty `activity_detail`. Full design + the live-eval outcome in `docs/activity-model-redesign.md`. 272 unit tests + 63 stub-eval green; live eval lifted the targeted failures.
+
+- **OLMo self-hosting fully resolved — Mistral is the documented production answer.** Benchmarked both OLMo sizes on scale-to-zero serverless GPU. 32B: smart enough but ~215–255s cold (warm GPU = ~$400–800/mo, indefensible at pilot scale). 7B: scale-to-zero fine (34.5s cold, 2.86s warm, ~$0.0015/req, perfect JSON via vLLM guided decoding) but too weak on coordination judgment (~40/55 eval vs Mistral's 57/63). No provider hosts OLMo. Conclusion: the open-weight + scale-to-zero + quality constraints can't all hold at pilot scale, so production stays `mistral-deepinfra` as a deliberate, evidence-backed constitutional tradeoff. OLMo stays the ethical benchmark; async-ack architecture documented as the path if ever pursued. Evidence: `docs/runpod-olmo-benchmark.md`. Modal experiment apps + cache volumes torn down.
+
 ## Status (as of 2026-05-30) — pilot-hardening pass
 
 A decision-quality architecture review (read-only) concluded the system is "mostly right with targeted fixes" but **not pilot-ready** until the frozen OLMo path is validated and two silent-failure safety paths are closed. The verdict's principle: a 32B open-weight model is reliable at classification/extraction but unreliable at multi-constraint judgment, so move judgment to deterministic code and shrink what the model decides. This session landed the Phase 1 + targeted Phase 2 fixes:

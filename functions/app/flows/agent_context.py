@@ -13,7 +13,6 @@ from app.flows import farmer_ops
 from app.flows._time import VASHON_TZ
 from app.repos import farms_repo, messages_repo, mutes_repo, opportunities_repo
 from app.repos.models import (
-    CANONICAL_ACTIVITIES,
     ClaimStatus,
     MessageDoc,
     MessageDirection,
@@ -108,7 +107,6 @@ def build_agent_context(
         executed_action=executed_action,
         cross_cutting_opps=cross_cutting,
         known_farms=[{"id": fid, "name": f.name} for fid, f in all_farms.items()],
-        canonical_activities=list(CANONICAL_ACTIVITIES),
         opp_message_excerpt=_opp_excerpt(target_opp),
         user_recent_excerpt=_user_excerpt(sender),
     )
@@ -173,7 +171,7 @@ def _user_excerpt(sender: UserDoc) -> list[MessageExcerpt]:
 
 def _opp_summary_from(*, opp: OpportunityDoc, farm) -> OppSummary:
     activity_or_produce = (
-        ", ".join(opp.activity_tags)
+        (opp.activity_detail or "volunteer help")
         if opp.kind == OpportunityKind.SHIFT
         else (opp.produce_description or "surplus")
     )
@@ -223,7 +221,8 @@ def _draft_from_opp(opp: OpportunityDoc) -> dict:
         "duration_min": opp.duration_min,
         "headcount_needed": opp.headcount_needed,
         "headcount_open": opp.headcount_open,
-        "activity_tags": opp.activity_tags,
+        "purpose": opp.purpose.value,
+        "activity_detail": opp.activity_detail,
         "requirements_text": opp.requirements_text,
         "missing_fields": [],
     }
@@ -231,7 +230,7 @@ def _draft_from_opp(opp: OpportunityDoc) -> dict:
 
 def _claim_summary_from(*, opp: OpportunityDoc, claim, farm) -> ClaimSummary:
     activity_or_produce = (
-        ", ".join(opp.activity_tags)
+        (opp.activity_detail or "volunteer help")
         if opp.kind == OpportunityKind.SHIFT
         else (opp.produce_description or "surplus")
     )

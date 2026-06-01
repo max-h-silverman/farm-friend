@@ -15,7 +15,9 @@ def test_timeout_offer_payload_captures_weekend_daytime_offer() -> None:
     payload = _timeout_offer_payload("i'm free this weekend to help during the day")
 
     assert payload is not None
-    assert payload["activity_tags"] == []
+    # Deterministic fallback leaves activity_detail empty (open to anything);
+    # the verbatim text lives in `note` for the coordinator to match.
+    assert payload["activity_detail"] == ""
     assert payload["earliest_at"]
     assert payload["latest_at"]
     assert payload["note"] == "i'm free this weekend to help during the day"
@@ -25,11 +27,12 @@ def test_timeout_offer_payload_rejects_unavailable_text() -> None:
     assert _timeout_offer_payload("I can't help this weekend") is None
 
 
-def test_timeout_offer_payload_marks_explicit_flexible() -> None:
+def test_timeout_offer_payload_leaves_activity_open() -> None:
     payload = _timeout_offer_payload("available Saturday morning for anything")
 
     assert payload is not None
-    assert payload["activity_tags"] == ["flexible"]
+    assert payload["activity_detail"] == ""
+    assert payload["note"] == "available Saturday morning for anything"
 
 
 def test_timeout_offer_fallback_sends_pending_confirmation() -> None:

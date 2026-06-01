@@ -44,7 +44,6 @@ from app.repos import (
     users_repo,
 )
 from app.repos.models import (
-    CANONICAL_ACTIVITIES,
     FlagDoc,
     IntentLabel,
     MessageDirection,
@@ -121,7 +120,7 @@ def _build_board_state() -> BoardState:
         open_offers.append(OfferSummary(
             offer_id=offer.id or "",
             volunteer_name=volunteer.name if volunteer else "unknown",
-            activity_tags=offer.activity_tags,
+            activity_detail=offer.activity_detail,
             when_human=_offer_when_human(offer),
             age_days=age_days,
         ))
@@ -146,13 +145,12 @@ def _build_board_state() -> BoardState:
         upcoming_confirmations=upcoming_confirmations,
         stalled_threads=stalled_threads,
         per_tick_send_budget=load_settings().agent_review_per_tick_max,
-        canonical_activities=list(CANONICAL_ACTIVITIES),
     )
 
 
 def _opp_summary_for_board(*, opp, farm) -> OppSummary:
     activity_or_produce = (
-        ", ".join(opp.activity_tags) if opp.kind == OpportunityKind.SHIFT
+        (opp.activity_detail or "volunteer help") if opp.kind == OpportunityKind.SHIFT
         else (opp.produce_description or "surplus")
     )
     return OppSummary(

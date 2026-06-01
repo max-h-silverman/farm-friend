@@ -78,7 +78,12 @@ class FakeOpp:
     duration_min: int | None = None
     headcount_needed: int = 1
     seats_filled: int = 0
+    # Activity-model redesign: free-text activity + purpose. `activity_tags` is
+    # retained so legacy fixtures keep working; when `activity_detail` is unset,
+    # the runner derives a display string from activity_tags.
     activity_tags: list[str] = field(default_factory=list)
+    activity_detail: str = ""
+    purpose: Literal["gleaning", "farm_help"] = "farm_help"
     requirements_text: str = ""
     produce_description: str | None = None
     destination: str | None = None
@@ -100,7 +105,8 @@ class FakeClaim:
 class FakeOffer:
     id: str
     volunteer_user_id: str
-    activity_tags: list[str]
+    activity_tags: list[str] = field(default_factory=list)  # legacy; prefer activity_detail
+    activity_detail: str = ""
     earliest_at: datetime | None = None
     latest_at: datetime | None = None
     note: str = ""
@@ -332,7 +338,7 @@ CASES.append(EvalCase(
             "kind": "shift",
             "headcount_needed": 3,
             "duration_min": 180,
-            "activity_tags": ["harvest"],
+            "activity_detail": "Harvest",
         },
     ),
 ))
@@ -389,8 +395,8 @@ CASES.append(EvalCase(
     category="REGRESSION",
     description=(
         "Farmer explicitly says they don't know the activity yet ('not sure "
-        "what we'll do — just need extra hands'). Should confirm with "
-        "activity_tags=['tbd'] rather than clarifying or auto-picking a slug."
+        "what we'll do — just need extra hands'). Should confirm with a free-text "
+        "activity_detail capturing the openness, not clarify or invent a task."
     ),
     world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
     inbound_text="not sure what we'll do monday but need 2 extra hands 9am-12",
@@ -400,7 +406,7 @@ CASES.append(EvalCase(
         payload_must_include={
             "kind": "shift",
             "headcount_needed": 2,
-            "activity_tags": ["tbd"],
+            "activity_detail": ANY,
         },
     ),
 ))
@@ -600,7 +606,7 @@ CASES.append(EvalCase(
     inbound_from_user_id="u_vol_a",
     expected=ExpectedOutput(
         mode="confirm", action_name="record_offer",
-        payload_must_include={"activity_tags": ANY},
+        payload_must_include={"activity_detail": "Tilling"},
     ),
 ))
 
@@ -645,14 +651,15 @@ CASES.append(EvalCase(
         "Volunteer offers themselves for any activity within a specific window "
         "('i'd love to get in some physical work this weekend, some morning'). "
         "Has day-range + time-window + explicit openness — clears the offer "
-        "floor. Should confirm record_offer with activity_tags=['flexible']."
+        "floor. Should confirm record_offer with empty activity_detail (open to "
+        "anything); the verbatim text lives in note."
     ),
     world=World(users=[VOL_A], farms=[FARM_THREE_CEDARS]),
     inbound_text="i'd love to get in some physical work this weekend, some morning",
     inbound_from_user_id="u_vol_a",
     expected=ExpectedOutput(
         mode="confirm", action_name="record_offer",
-        payload_must_include={"activity_tags": ["flexible"]},
+        payload_must_include={"activity_detail": ""},
     ),
 ))
 
@@ -1007,13 +1014,18 @@ CASES.append(EvalCase(
     id="adv.unknown_activity_slug",
     category="ADVERSARIAL",
     description=(
-        "Farmer posts a shift for 'mushroom foraging' — not in canonical list. "
-        "Should NOT silently map to an existing slug. Should clarify or flag."
+        "Farmer posts a shift for 'mushroom foraging'. Under the free-text "
+        "activity model this is a complete, valid activity — there is no closed "
+        "list to look it up against. Should confirm a create_opportunity with "
+        "activity_detail capturing the work, NOT clarify or flag."
     ),
     world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
     inbound_text="need 2 people Saturday 10am for mushroom foraging, 2 hours",
     inbound_from_user_id="u_farmer_a",
-    expected=ExpectedOutput(mode="clarify"),
+    expected=ExpectedOutput(
+        mode="confirm", action_name="create_opportunity",
+        payload_must_include={"kind": "shift", "headcount_needed": 2, "activity_detail": ANY},
+    ),
 ))
 
 CASES.append(EvalCase(
@@ -1135,7 +1147,7 @@ CASES.append(EvalCase(
             "window_end_at": ANY,
             "time_of_day_bucket": "morning",
             "headcount_needed": 2,
-            "activity_tags": ["tbd"],
+            "activity_detail": ANY,
         },
     ),
 ))
@@ -1157,7 +1169,7 @@ CASES.append(EvalCase(
             "starts_at": ANY,
             "window_end_at": ANY,
             "headcount_needed": 2,
-            "activity_tags": ["harvest"],
+            "activity_detail": "Harvest",
         },
     ),
 ))
@@ -1178,7 +1190,7 @@ CASES.append(EvalCase(
             "window_end_at": ANY,
             "time_of_day_bucket": "morning",
             "headcount_needed": 2,
-            "activity_tags": ["gleaning"],
+            "activity_detail": "Gleaning",
         },
     ),
 ))
@@ -1199,7 +1211,7 @@ CASES.append(EvalCase(
             "kind": "shift",
             "starts_at": ANY,
             "headcount_needed": 3,
-            "activity_tags": ["harvest"],
+            "activity_detail": "Harvest",
         },
     ),
 ))

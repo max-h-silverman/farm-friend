@@ -78,7 +78,7 @@ class OfferSummary(BaseModel):
 
     offer_id: str
     volunteer_name: str
-    activity_tags: list[str]
+    activity_detail: str = ""  # cleaned free text; empty = open to anything
     when_human: str
     age_days: int
 
@@ -124,7 +124,6 @@ class AgentContext(BaseModel):
     executed_action: dict | None = None  # most recent ACTION_RECEIPT payload, if any
     cross_cutting_opps: list[OppSummary] = Field(default_factory=list)
     known_farms: list[dict] = Field(default_factory=list)  # {id, name}
-    canonical_activities: list[str] = Field(default_factory=list)
     opp_message_excerpt: list[MessageExcerpt] = Field(default_factory=list)
     user_recent_excerpt: list[MessageExcerpt] = Field(default_factory=list)
 
@@ -203,7 +202,8 @@ class SetActivityPreferencesPayload(BaseModel):
 
 
 class RecordOfferPayload(BaseModel):
-    activity_tags: list[str] = Field(default_factory=list)
+    activity_detail: str = ""  # cleaned free text; empty = open to anything
+    purpose: Literal["gleaning", "farm_help"] | None = None
     earliest_at: str | None = None  # ISO 8601
     latest_at: str | None = None
     note: str = ""  # short verbatim of what the volunteer said
@@ -344,7 +344,6 @@ class BoardState(BaseModel):
     stalled_threads: list[dict]  # {user_id, last_inbound_iso, last_outbound_intent}
     # Budgets remaining. Agent uses these to prioritize, not as authority.
     per_tick_send_budget: int
-    canonical_activities: list[str]
 
 
 # ---------------------------------------------------------------------------

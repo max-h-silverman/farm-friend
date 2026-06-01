@@ -18,7 +18,25 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.repos.models import CANONICAL_ACTIVITIES, IntentLabel
+from app.repos.models import IntentLabel
+
+
+# Plain-language phrases that map to an opportunity purpose for STOP muting.
+# Keep user-facing language simple (the coordinator's intent): "gleaning /
+# food access" vs "general farm help / farm work".
+_PURPOSE_SYNONYMS = {
+    "gleaning": ("gleaning", "glean", "food access", "food bank", "food-access"),
+    "farm_help": ("farm help", "farm work", "farm_help", "general help", "general farm help"),
+}
+
+
+def _match_purpose(tail: str) -> str | None:
+    """Map a STOP target phrase to a purpose value, or None if it's not one."""
+    for purpose, phrases in _PURPOSE_SYNONYMS.items():
+        for p in phrases:
+            if tail == p or p in tail:
+                return purpose
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +114,6 @@ def parse(
     *,
     expecting_post_event_reply: bool = False,
     last_outbound_was_clarify: bool = False,
-    known_activity_slugs: tuple[str, ...] = CANONICAL_ACTIVITIES,
     known_farm_names: tuple[str, ...] = (),
 ) -> HotkeyMatch | None:
     """Try to match `body` against a hotkey. Return None if nothing matches.
@@ -207,21 +224,16 @@ def parse(
             {"phone": _normalize_phone(phone_raw), "name": name},
         )
 
-    # STOP <activity|farm>
+    # STOP <purpose|farm>
+    # Purpose muting (gleaning / farm help) replaced the old activity-slug
+    # muting in the 2026-05-31 activity-model redesign. Plain-language phrases
+    # map to one of the two purposes; a farm name maps to a farm mute.
     stop_act = _STOP_ACTIVITY_RE.match(text)
     if stop_act:
         tail = stop_act.group(1).strip().lower()
-        for slug in known_activity_slugs:
-            slug_l = slug.lower()
-            # Exact match, slug-prefix-of-tail ("weeding" in "weeding shifts"),
-            # or tail-as-stem-of-slug ("weed" → "weeding").
-            if (
-                tail == slug_l
-                or tail == slug_l + "ing"
-                or slug_l in tail.split()
-                or slug_l.startswith(tail) and len(tail) >= 4
-            ):
-                return HotkeyMatch(IntentLabel.STOP_ACTIVITY, {"activity": slug})
+        purpose = _match_purpose(tail)
+        if purpose is not None:
+            return HotkeyMatch(IntentLabel.STOP_PURPOSE, {"purpose": purpose})
         for farm in known_farm_names:
             if tail == farm.lower() or farm.lower() in tail:
                 return HotkeyMatch(IntentLabel.STOP_FARM, {"farm_name": farm})

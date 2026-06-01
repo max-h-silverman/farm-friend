@@ -433,10 +433,13 @@ def _build_board_from_world(world: World):
         if off.status != "open":
             continue
         vol = users_by_id.get(off.volunteer_user_id)
+        offer_detail = (getattr(off, "activity_detail", "") or "").strip() or (
+            ", ".join(off.activity_tags) if off.activity_tags else ""
+        )
         open_offers.append(OfferSummary(
             offer_id=off.id,
             volunteer_name=vol.name if vol else "unknown",
-            activity_tags=off.activity_tags,
+            activity_detail=offer_detail,
             when_human=_format_offer_when(off),
             age_days=max(0, (NOW - off.created_at).days),
         ))
@@ -753,6 +756,12 @@ def _extract_payload(output) -> dict:
         return {}
     raw = payload_obj.model_dump(exclude_none=False) if hasattr(payload_obj, "model_dump") else dict(payload_obj)
     out = dict(raw)
+    # Mirror production: record_offer normalizes vague-openness activity_detail
+    # to empty (app.flows.message_dispatch._normalize_offer_activity_detail), so
+    # eval results reflect what actually gets stored.
+    if output.action.name == "record_offer" and "activity_detail" in out:
+        from app.flows.message_dispatch import _normalize_offer_activity_detail
+        out["activity_detail"] = _normalize_offer_activity_detail(out.get("activity_detail") or "")
     # Lift nested ParsedOpportunity fields.
     if isinstance(raw.get("parsed"), dict):
         for k, v in raw["parsed"].items():
@@ -919,10 +928,20 @@ def _when_human(opp: FakeOpp) -> str:
     return "soon"
 
 
+def _fake_activity_display(opp: FakeOpp) -> str:
+    """Display activity for a fixture opp — prefer free-text activity_detail,
+    fall back to legacy activity_tags so old fixtures still render."""
+    if (getattr(opp, "activity_detail", "") or "").strip():
+        return opp.activity_detail.strip()
+    if opp.activity_tags:
+        return ", ".join(opp.activity_tags)
+    return "shift"
+
+
 def _opp_to_summary_dict(opp: FakeOpp, farm: FakeFarm | None) -> dict:
     """Build the OppSummary-shaped dict the agent expects in CONTEXT."""
     if opp.kind == "shift":
-        activity_or_produce = ", ".join(opp.activity_tags) if opp.activity_tags else "shift"
+        activity_or_produce = _fake_activity_display(opp)
     else:
         activity_or_produce = opp.produce_description or "surplus"
     return {
@@ -974,7 +993,7 @@ def _build_context_from_world(world: World, sender: FakeUser | None, last_outbou
                 opp_kind=opp.kind,
                 farm_name=farm.name if farm else "unknown farm",
                 activity_or_produce=(
-                    ", ".join(opp.activity_tags) if opp.kind == "shift"
+                    _fake_activity_display(opp) if opp.kind == "shift"
                     else (opp.produce_description or "surplus")
                 ),
                 when_human=_when_human(opp),
@@ -1204,7 +1223,7 @@ def _(c): return _confirm(
         "starts_at": "2026-06-05T16:00:00+00:00",
         "duration_min": 180,
         "headcount_needed": 3,
-        "activity_tags": ["harvest"],
+        "activity_detail": "Harvest",
         "missing_fields": [],
     }},
     token="YES",
@@ -1230,7 +1249,7 @@ def _(c): return _confirm(
         "starts_at": "2026-06-08T16:00:00+00:00",
         "duration_min": 180,
         "headcount_needed": 2,
-        "activity_tags": ["tbd"],
+        "activity_detail": "General farm work (TBD)",
         "missing_fields": [],
     }},
     token="YES",
@@ -1245,7 +1264,7 @@ def _(c): return _confirm(
         "starts_at": "2026-06-04T16:00:00+00:00",
         "duration_min": 180,
         "headcount_needed": 2,
-        "activity_tags": ["weeding"],
+        "activity_detail": "Weeding",
         "missing_fields": [],
     }},
     token="YES",
@@ -1309,7 +1328,7 @@ def _(c): return _escalate(
 @stub_for("new.vol.offer.broadcast")
 def _(c): return _confirm(
     "record_offer",
-    {"activity_tags": ["infrastructure"], "earliest_at": None, "latest_at": "2026-06-06T07:00:00+00:00",
+    {"activity_detail": "Tilling", "earliest_at": None, "latest_at": "2026-06-06T07:00:00+00:00",
      "note": "anyone need help with tilling on Friday"},
     token="YES",
     text="I'll let farms know you can help with tilling Friday. Reply YES to record, STOP to opt out.",
@@ -1318,7 +1337,7 @@ def _(c): return _confirm(
 @stub_for("new.vol.offer.directed")
 def _(c): return _confirm(
     "record_offer",
-    {"activity_tags": [], "earliest_at": None, "latest_at": None,
+    {"activity_detail": "", "earliest_at": None, "latest_at": None,
      "note": "wants to help at Plum Forest this week"},
     token="YES",
     text="I'll pass along your offer to Plum Forest. Reply YES to record.",
@@ -1327,7 +1346,7 @@ def _(c): return _confirm(
 @stub_for("new.vol.offer.matches_existing_opp")
 def _(c): return _confirm(
     "record_offer",
-    {"activity_tags": ["infrastructure"], "earliest_at": None, "latest_at": "2026-06-07T07:00:00+00:00",
+    {"activity_detail": "Tilling", "earliest_at": None, "latest_at": "2026-06-07T07:00:00+00:00",
      "note": "wants to help with tilling this weekend"},
     token="YES",
     text="Recording your tilling offer for the weekend. Reply YES to record.",
@@ -1336,7 +1355,7 @@ def _(c): return _confirm(
 @stub_for("new.vol.offer.flexible_phys_work")
 def _(c): return _confirm(
     "record_offer",
-    {"activity_tags": ["flexible"],
+    {"activity_detail": "",
      "earliest_at": "2026-06-06T07:00:00-07:00",
      "latest_at": "2026-06-07T12:00:00-07:00",
      "note": "some physical work this weekend, some morning"},
@@ -1471,8 +1490,18 @@ def _(c): return _reply(
 )
 
 @stub_for("adv.unknown_activity_slug")
-def _(c): return _clarify(
-    "Mushroom foraging isn't in our usual activity list. Should I treat that as 'gleaning' or flag it for the coordinator to add as a new category?"
+def _(c): return _confirm(
+    "create_opportunity",
+    {"parsed": {
+        "kind": "shift",
+        "starts_at": "2026-06-06T10:00:00-07:00",
+        "duration_min": 120,
+        "headcount_needed": 2,
+        "activity_detail": "Mushroom Foraging",
+        "missing_fields": [],
+    }},
+    token="YES",
+    text="Post 2 ppl for Mushroom Foraging, Saturday 10am-12? Reply YES.",
 )
 
 @stub_for("adv.quiet_hours_does_not_block_inbound")
@@ -1494,7 +1523,7 @@ def _(c): return _confirm(
         "time_of_day_bucket": "morning",
         "duration_min": None,
         "headcount_needed": 2,
-        "activity_tags": ["tbd"],
+        "activity_detail": "General farm work (TBD)",
         "requirements_text": "prep work",
         "missing_fields": [],
     }},
@@ -1512,7 +1541,7 @@ def _(c): return _confirm(
         "window_end_at": "2026-06-10T23:59:00-07:00",
         "duration_min": None,
         "headcount_needed": 2,
-        "activity_tags": ["harvest"],
+        "activity_detail": "Harvest",
         "missing_fields": [],
     }},
     token="YES",
@@ -1530,7 +1559,7 @@ def _(c): return _confirm(
         "time_of_day_bucket": "morning",
         "duration_min": None,
         "headcount_needed": 2,
-        "activity_tags": ["gleaning"],
+        "activity_detail": "Gleaning",
         "missing_fields": [],
     }},
     token="YES",
@@ -1546,7 +1575,7 @@ def _(c): return _confirm(
         "starts_at": "2026-06-06T08:00:00-07:00",
         "duration_min": 180,
         "headcount_needed": 3,
-        "activity_tags": ["harvest"],
+        "activity_detail": "Harvest",
         "missing_fields": [],
     }},
     token="YES",

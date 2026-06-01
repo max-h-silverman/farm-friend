@@ -29,20 +29,20 @@ def test_shift_missing_only_headcount():
     parsed = ParsedOpportunity(
         kind="shift",
         starts_at="2026-06-01T09:00:00-07:00",
-        activity_tags=["harvest"],
+        activity_detail="Harvest",
     )
     assert compute_missing_fields(parsed) == ["headcount"]
 
 
 def test_shift_missing_only_date_and_time():
     parsed = ParsedOpportunity(
-        kind="shift", headcount_needed=5, activity_tags=["harvest"],
+        kind="shift", headcount_needed=5, activity_detail="Harvest",
     )
     assert sorted(compute_missing_fields(parsed)) == ["date", "time"]
 
 
 def test_shift_missing_only_activity():
-    """activity is required — empty activity_tags counts as missing."""
+    """activity is required — empty activity_detail counts as missing."""
     parsed = ParsedOpportunity(
         kind="shift",
         starts_at="2026-06-01T09:00:00-07:00",
@@ -52,13 +52,13 @@ def test_shift_missing_only_activity():
 
 
 def test_shift_tbd_satisfies_activity_axis():
-    """`tbd` is a canonical farmer-side slug for "work-type intentionally
-    open". A shift with activity_tags=['tbd'] is fully specified."""
+    """Free-text "general farm work (TBD)" satisfies the activity axis — any
+    non-empty activity_detail is a valid activity now."""
     parsed = ParsedOpportunity(
         kind="shift",
         starts_at="2026-06-01T09:00:00-07:00",
         headcount_needed=2,
-        activity_tags=["tbd"],
+        activity_detail="General farm work (TBD)",
     )
     assert compute_missing_fields(parsed) == []
 
@@ -68,7 +68,7 @@ def test_shift_complete_returns_empty():
         kind="shift",
         starts_at="2026-06-01T09:00:00-07:00",
         headcount_needed=5,
-        activity_tags=["harvest"],
+        activity_detail="Harvest",
     )
     assert compute_missing_fields(parsed) == []
 
@@ -81,7 +81,7 @@ def test_shift_bucket_satisfies_time_axis():
         starts_at="2026-06-01T00:00:00-07:00",  # midnight = date-only placeholder
         time_of_day_bucket="morning",
         headcount_needed=2,
-        activity_tags=["harvest"],
+        activity_detail="Harvest",
     )
     assert compute_missing_fields(parsed) == []
 
@@ -93,7 +93,7 @@ def test_shift_midnight_without_bucket_is_missing_time():
         kind="shift",
         starts_at="2026-06-01T00:00:00-07:00",
         headcount_needed=2,
-        activity_tags=["harvest"],
+        activity_detail="Harvest",
     )
     assert compute_missing_fields(parsed) == ["time"]
 
@@ -105,7 +105,7 @@ def test_shift_headcount_open_satisfies_headcount_axis():
         kind="shift",
         starts_at="2026-06-01T09:00:00-07:00",
         headcount_open=True,
-        activity_tags=["harvest"],
+        activity_detail="Harvest",
     )
     assert compute_missing_fields(parsed) == []
 
@@ -119,7 +119,7 @@ def test_shift_window_post_still_passes_mvd():
         window_end_at="2026-06-05T00:00:00-07:00",  # Fri
         time_of_day_bucket="morning",
         headcount_needed=2,
-        activity_tags=["weeding"],
+        activity_detail="Weeding",
     )
     assert compute_missing_fields(parsed) == []
 
@@ -160,7 +160,7 @@ def test_zero_headcount_is_treated_as_missing():
         kind="shift",
         starts_at="2026-06-01T09:00:00-07:00",
         headcount_needed=0,
-        activity_tags=["harvest"],
+        activity_detail="Harvest",
     )
     assert "headcount" in compute_missing_fields(parsed)
 

@@ -32,7 +32,7 @@ def list_for_user(user_id: str) -> list[MuteRuleDoc]:
 def is_muted(
     *,
     user_id: str,
-    activity: str | None = None,
+    purpose: str | None = None,
     farm_id: str | None = None,
     opportunity_id: str | None = None,
     at: datetime | None = None,
@@ -42,7 +42,7 @@ def is_muted(
     for r in rules:
         if r.expires_at is not None and at is not None and r.expires_at < at:
             continue
-        if r.dimension == MuteDimension.ACTIVITY and activity and r.value == activity:
+        if r.dimension == MuteDimension.PURPOSE and purpose and r.value == purpose:
             return True
         if r.dimension == MuteDimension.FARM and farm_id and r.value == farm_id:
             return True

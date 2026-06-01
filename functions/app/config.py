@@ -16,13 +16,14 @@ Three kinds of config, separated deliberately:
    time. To change them, edit `.env.farm-friend-vashon` and re-deploy.
 
 LLM defaults: the code default is `mistral-deepinfra` (Mistral Small 3.2 24B, a
-pragmatic open-weight option). Real Ai2 OLMo — the constitution's ethical
-benchmark — is one env var away via `LLM_PROVIDER=olmo-openrouter`. Anthropic
-Sonnet 4.6 is the fallback (`LLM_PROVIDER=anthropic`). The active model is
-configuration, never a product assumption — see CLAUDE.md → "Project Constitution"
-and "Stack → LLM". The set of selectable providers lives in
-OPENAI_COMPATIBLE_PROVIDERS + the branches in load_settings() below; that is the
-single source of truth for routing.
+pragmatic open-weight option). Real Ai2 OLMo remains the constitution's #1
+ethical benchmark but is NOT currently servable by any hosted provider (no live
+OpenRouter endpoint for the instruct slug; DeepInfra substitutes Gemma) — the
+only way to run it today is self-hosting (`LLM_PROVIDER=olmo`). Anthropic Sonnet
+4.6 is the fallback (`LLM_PROVIDER=anthropic`). The active model is configuration,
+never a product assumption — see CLAUDE.md → "Project Constitution" and "Stack →
+LLM". The set of selectable providers lives in OPENAI_COMPATIBLE_PROVIDERS + the
+branches in load_settings() below; that is the single source of truth for routing.
 """
 
 from __future__ import annotations
@@ -34,8 +35,9 @@ from firebase_functions.params import SecretParam, StringParam
 
 # Secrets — set via `firebase functions:secrets:set`
 # LLM_API_KEY is the generic OSS-provider key (self-hosted / DeepInfra / etc.).
-# OPENROUTER_API_KEY is the key for the olmo-openrouter pilot path; it falls
-# back to LLM_API_KEY if unset so a single key can serve both if desired.
+# OPENROUTER_API_KEY is the key for the olmo-openrouter path (currently
+# non-functional — see the OpenRouter note below); it falls back to LLM_API_KEY
+# if unset so a single key can serve both if desired.
 # ANTHROPIC_API_KEY remains bound for the optional legacy provider.
 LLM_API_KEY = SecretParam("LLM_API_KEY")
 OPENROUTER_API_KEY = SecretParam("OPENROUTER_API_KEY")
@@ -68,14 +70,20 @@ OLMO_SELFHOST_COORDINATOR_MODEL = "allenai/Olmo-3.1-32B-Instruct"
 OLMO_SELFHOST_CLASSIFIER_MODEL = "allenai/Olmo-3-7B-Instruct"
 DEFAULT_OLMO_BASE_URL = "http://localhost:8000/v1"
 
-# --- OpenRouter: the real OLMo path (pilot default) ---
-# IMPORTANT (verified 2026-05-30): DeepInfra's direct endpoint does NOT serve
-# OLMo. Requesting `allenai/Olmo-3.1-32B-Instruct` there returns HTTP 200 but is
-# silently served as `google/gemma-4-31B-it` and billed as Gemma — OLMo never
-# actually runs. OpenRouter lists real OLMo provider(s), so the OLMo commitment
-# is honored by routing through OpenRouter. `LLM_PROVIDER=olmo-openrouter`
-# selects this with no further tuning; key comes from OPENROUTER_API_KEY (falls
-# back to LLM_API_KEY).
+# --- OpenRouter OLMo path — NOT CURRENTLY SERVABLE (verified 2026-05-31) ---
+# OLMo is NOT reachable via any hosted provider right now:
+#   - DeepInfra silently substitutes Gemma for an OLMo id (see DeepInfra note
+#     below) — OLMo never actually runs there.
+#   - OpenRouter lists the `allenai/olmo-3.1-32b-instruct` slug but with ZERO
+#     live provider endpoints: a real call returns HTTP 404 "No endpoints found".
+#     The only OLMo with a live OpenRouter provider is `allenai/olmo-3-32b-think`
+#     (a Think variant — verbose reasoning + latency we deliberately avoid for
+#     concise SMS/JSON coordination; see docs/architecture.md "LLM portability").
+# OLMo remains the constitution's #1 ethical benchmark, but as of now the only
+# way to actually run it is self-hosting (`LLM_PROVIDER=olmo`, below). The
+# `olmo-openrouter` branch is kept wired so it works the moment a provider lists
+# an OLMo *instruct* model again — until then it will 404. Do NOT set it as the
+# pilot default. Key comes from OPENROUTER_API_KEY (falls back to LLM_API_KEY).
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # --- DeepInfra (generic OpenAI-compatible) ---
@@ -168,8 +176,9 @@ def load_settings() -> Settings:
         default_coordinator_model = MISTRAL_DEEPINFRA_MODEL
         default_classifier_model = MISTRAL_DEEPINFRA_MODEL
     elif llm_provider == "olmo-openrouter":
-        # Real OLMo via OpenRouter — lowercase slug. No separate 7B tier on
-        # OpenRouter for now; the 32B serves both tiers.
+        # OLMo via OpenRouter — lowercase slug. CURRENTLY NON-FUNCTIONAL: the
+        # instruct slug has no live OpenRouter endpoint and 404s (see note above).
+        # Branch kept so it works if a provider lists OLMo instruct again.
         default_coordinator_model = OLMO_OPENROUTER_MODEL
         default_classifier_model = OLMO_OPENROUTER_MODEL
     else:
@@ -193,7 +202,8 @@ def load_settings() -> Settings:
     else:
         llm_api_key = _env("LLM_API_KEY") or _secret(LLM_API_KEY)
     if llm_provider == "olmo-openrouter":
-        # Pilot default: real OLMo on OpenRouter, no tuning needed.
+        # OpenRouter base URL. Note: the OLMo instruct slug currently has no live
+        # endpoint here and will 404 (see the OpenRouter note near the top).
         default_base_url = DEFAULT_OPENROUTER_BASE_URL
     elif llm_provider == "olmo":
         default_base_url = DEFAULT_OLMO_BASE_URL
@@ -202,17 +212,14 @@ def load_settings() -> Settings:
     else:
         default_base_url = ""
     return Settings(
-        # Plain env. Defaults select the OLMo path. These intentionally use
-        # non-Think instruct models for concise SMS coordination output:
-        #   LLM_PROVIDER=olmo
-        #   LLM_MODEL=allenai/Olmo-3.1-32B-Instruct
-        #   LLM_CLASSIFIER_MODEL=allenai/Olmo-3-7B-Instruct
-        #
-        # Backward compatibility:
-        # - LLM_MODEL_STRONG overrides LLM_MODEL for the coordinator tier.
-        # - LLM_MODEL_FAST overrides LLM_CLASSIFIER_MODEL for the lightweight tier.
-        # - LLM_PROVIDER=openai-compatible still works for non-OLMo providers.
-        # - LLM_PROVIDER=anthropic still selects the Anthropic adapter.
+        # Plain env. Defaults select the mistral-deepinfra path (set above).
+        # Whatever the provider, we use non-Think instruct models for concise
+        # SMS coordination output. Overrides:
+        # - LLM_MODEL / LLM_MODEL_STRONG override the coordinator (strong) tier.
+        # - LLM_CLASSIFIER_MODEL / LLM_MODEL_FAST override the lightweight tier.
+        # - LLM_PROVIDER=openai-compatible for any other OpenAI-compatible host.
+        # - LLM_PROVIDER=anthropic selects the Anthropic adapter (fallback).
+        # - LLM_PROVIDER=olmo (self-host) is the only way to run real OLMo today.
         llm_provider=llm_provider,
         llm_model_fast=_env(
             "LLM_MODEL_FAST", classifier_model

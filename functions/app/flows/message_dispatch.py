@@ -88,6 +88,7 @@ from app.repos.models import (
     MuteRuleDoc,
     OpportunityDoc,
     OpportunityKind,
+    OpportunityPurpose,
     OpportunityStatus,
     PendingUserDoc,
     UserDoc,
@@ -296,7 +297,6 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
     ):
         return
 
-    known_activities = tuple()
     known_farms = tuple(f.name for f in farms_repo.list_all())
     last_was_clarify = (
         last_outbound is not None
@@ -566,21 +566,21 @@ def _handle_hotkey(
             )
         return
 
-    if intent == IntentLabel.STOP_ACTIVITY:
-        activity = str(match.payload.get("activity", ""))
-        if sender.id and activity:
+    if intent == IntentLabel.STOP_PURPOSE:
+        purpose = str(match.payload.get("purpose", ""))
+        if sender.id and purpose:
             mutes_repo.add(
                 MuteRuleDoc(
                     user_id=sender.id,
-                    dimension=MuteDimension.ACTIVITY,
-                    value=activity,
+                    dimension=MuteDimension.PURPOSE,
+                    value=purpose,
                     created_at=datetime.now(UTC),
                 )
             )
             _reply_and_log(
                 provider=provider,
                 to=sender,
-                body=templates.render_mute_ack(what=activity),
+                body=templates.render_mute_ack(what=_purpose_label(purpose)),
                 opp=target_opp,
                 intent=intent,
             )
@@ -1112,6 +1112,10 @@ def _merge_updates_for_opportunity(*, parsed) -> dict:
             updates["headcount_needed"] = parsed.headcount_needed
         if parsed.duration_min:
             updates["duration_min"] = parsed.duration_min
+        if getattr(parsed, "purpose", None):
+            updates["purpose"] = OpportunityPurpose(parsed.purpose)
+        if (getattr(parsed, "activity_detail", "") or "").strip():
+            updates["activity_detail"] = parsed.activity_detail.strip()
         if parsed.activity_tags:
             updates["activity_tags"] = list(parsed.activity_tags)
         if parsed.requirements_text:
@@ -1349,6 +1353,8 @@ def _opportunity_from_parsed(
         window_end_at=window_end_at,
         time_of_day_bucket=getattr(parsed, "time_of_day_bucket", None),
         headcount_open=getattr(parsed, "headcount_open", False) or False,
+        purpose=OpportunityPurpose(getattr(parsed, "purpose", None) or "farm_help"),
+        activity_detail=(getattr(parsed, "activity_detail", "") or "").strip(),
         activity_tags=parsed.activity_tags or [],
         requirements_text=parsed.requirements_text or "",
         produce_description=parsed.produce_description,
@@ -1409,7 +1415,7 @@ def _farmer_posting_summary(*, parsed) -> str:
         else:
             headcount = parsed.headcount_needed or 1
             people = "1 person" if headcount == 1 else f"{headcount} people"
-        activity = ", ".join(parsed.activity_tags) if parsed.activity_tags else "a shift"
+        activity = (getattr(parsed, "activity_detail", "") or "").strip() or "a shift"
         when_str = _format_shift_when(parsed)
         return f"{people} to help with {activity} {when_str}"
     if parsed.kind == "pickup":
@@ -1715,7 +1721,10 @@ def _timeout_offer_payload(text: str) -> dict | None:
     if window is None:
         return None
     return {
-        "activity_tags": _timeout_offer_activity_tags(lower),
+        # LLM-timeout deterministic fallback: capture the verbatim text in
+        # `note` and leave activity_detail empty (open to anything). The
+        # coordinator/review tick does the matching — no slug guessing needed.
+        "activity_detail": "",
         "earliest_at": window[0].isoformat(),
         "latest_at": window[1].isoformat(),
         "note": text.strip()[:240],
@@ -1781,25 +1790,6 @@ def _timeout_offer_hours(lower: str) -> tuple[int, int]:
         return 9, 17
     return 9, 17
 
-
-def _timeout_offer_activity_tags(lower: str) -> list[str]:
-    if re.search(r"\b(?:anything|whatever|open to any|wherever needed|general)\b", lower):
-        return ["flexible"]
-    tags: list[str] = []
-    patterns = (
-        ("harvest", r"\bharvest(?:ing)?\b"),
-        ("gleaning", r"\bglean(?:ing)?\b"),
-        ("weeding", r"\bweed(?:ing)?\b"),
-        ("planting", r"\bplant(?:ing)?\b"),
-        ("transplanting", r"\btransplant(?:ing)?\b"),
-        ("livestock", r"\blivestock\b"),
-        ("infrastructure", r"\b(?:infrastructure|fenc(?:e|ing)|repair)\b"),
-        ("processing", r"\bprocessing\b"),
-    )
-    for tag, pattern in patterns:
-        if re.search(pattern, lower):
-            tags.append(tag)
-    return tags
 
 
 def _timeout_offer_scope(text: str) -> str:
@@ -2257,36 +2247,11 @@ def _draft_value_empty(value: Any) -> bool:
 def _enrich_farmer_shift_draft(
     *, draft: dict, inbound_text: str, recent_inbound_texts: list[str],
 ) -> None:
-    kind = draft.get("kind")
-    if kind not in (None, "shift"):
-        return
-    if draft.get("activity_tags"):
-        return
-    combined_text = " ".join([*recent_inbound_texts, inbound_text])
-    tag = _explicit_activity_tag_from_text(combined_text)
-    if tag:
-        draft["kind"] = "shift"
-        draft["activity_tags"] = [tag]
-
-
-def _explicit_activity_tag_from_text(text: str) -> str | None:
-    lower = text.lower()
-    patterns = (
-        ("transplanting", r"\btransplant(?:ing)?\b"),
-        ("planting", r"\b(?:plant|planting|seed|seeding)\b"),
-        ("harvest", r"\b(?:harvest|harvesting|pick|picking|picked)\b"),
-        ("gleaning", r"\b(?:glean|gleaning)\b"),
-        ("weeding", r"\b(?:weed|weeding|weeds)\b"),
-        ("livestock", r"\b(?:livestock|animal|animals|chickens|goats|sheep)\b"),
-        ("infrastructure", r"\b(?:infrastructure|fence|fencing|repair|build|fix)\b"),
-        ("processing", r"\b(?:process|processing)\b"),
-    )
-    for tag, pattern in patterns:
-        if re.search(pattern, lower):
-            return tag
-    if re.search(r"\b(?:tbd|general|anything|whatever)\b", lower):
-        return "tbd"
-    return None
+    # Activity-model redesign: activity is free text, so there is no canonical
+    # slug to deterministically backfill. The agent now captures activity_detail
+    # directly; this enrichment is intentionally a no-op for the activity axis.
+    # Kept as a seam in case a future deterministic shift-field repair is needed.
+    return
 
 
 def _missing_axes_for_draft(draft: dict | None) -> list[str] | None:
@@ -2301,7 +2266,7 @@ def _missing_axes_for_draft(draft: dict | None) -> list[str] | None:
             missing.append("time")
         if not draft.get("headcount_open") and not draft.get("headcount_needed"):
             missing.append("headcount")
-        if not draft.get("activity_tags"):
+        if not (draft.get("activity_detail") or "").strip():
             missing.append("activity")
         return missing
     if kind == "pickup":
@@ -2357,7 +2322,7 @@ def _draft_is_complete_post(draft: dict | None) -> bool:
 
 def _question_for_axis(axis: str) -> str:
     if axis == "activity":
-        return "What kind of work — harvest, weeding, transplanting, or something else?"
+        return "What kind of work is it?"
     question = _FIELD_QUESTIONS.get(axis, "what detail is still missing")
     return f"Almost there — {question}?"
 
@@ -2480,14 +2445,13 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
        filling required fields from defaults; despite that, smaller models
        sometimes do it AND write a self-incriminating note like "Start time
        from farm default". Scan for that phrase shape.
-    2. **Inbound text doesn't justify required-field values.** If `starts_at`
-       is set with a clock time but the farmer's inbound has no clock-time
-       signal (digit, "am", "pm", "noon", "morning", etc.) AND no
-       `time_of_day_bucket` was supplied, the agent inferred. Same for
-       `activity_tags` populated when the inbound has no activity word —
-       only a crop name. Catches the "tomatoes 9am" case. A bucket-only
-       resolution ("any day next week, morning") is a valid fuzzy shape
-       and doesn't fire.
+    2. **Inbound text doesn't justify a clock time.** If `starts_at` is set
+       with a clock time but the farmer's inbound has no clock-time signal
+       (digit, "am", "pm", "noon", "morning", etc.) AND no `time_of_day_bucket`
+       was supplied, the agent inferred a time from nothing. A bucket-only
+       resolution ("any day next week, morning") is a valid fuzzy shape and
+       doesn't fire. (Activity is no longer policed here — it's free text now;
+       see the removed Signal 2b note below.)
     3. **Required axes still missing after defaults are applied.** Mirrors
        the executor's `compute_missing_fields` axis check. If the agent
        emitted `create_opportunity` without a required axis (e.g.
@@ -2542,18 +2506,22 @@ def _agent_overconfirm_reason(*, output: AgentOutput, inbound_text: str) -> str 
     # to recognize the phrasing and emit a window post; only single-day
     # collapses without a time signal still fire (signal 2a above).
 
-    # Signal 2b: activity_tags populated with a canonical work-type slug, but
-    # the inbound has no activity word — only a crop name. The "tomatoes 9am"
-    # case. `tbd`/`flexible` are explicit choices and don't trigger this.
+    # Signal 2b (crop-only inference). Activity is free text now, so we no
+    # longer police *which* slug — but a bare crop name still isn't an activity
+    # ("tomatoes" could be harvest, weeding, or transplanting). If the agent
+    # filled `activity_detail` while the inbound names a crop and contains NO
+    # work word, it inferred the work from the crop. Downgrade to clarify so the
+    # farmer says what the work actually is. (Product decision 2026-05-31: keep
+    # clarifying on crops even under the free-text model.)
     if (
         parsed.kind == "shift"
-        and parsed.activity_tags
-        and not any(t in ("tbd", "flexible") for t in parsed.activity_tags)
-        and not _inbound_has_activity_signal(text_lower)
+        and (getattr(parsed, "activity_detail", "") or "").strip()
+        and _inbound_has_crop_word(text_lower)
+        and not _inbound_has_work_word(text_lower)
     ):
         return (
-            f"parsed.activity_tags={parsed.activity_tags!r} but inbound text has "
-            "no activity word (possible crop-name-only inference)"
+            "activity_detail set but inbound names only a crop, no work word "
+            "(possible crop->activity inference)"
         )
 
     # Signal 3: required fields still missing after farm defaults are applied.
@@ -2638,27 +2606,58 @@ def _inbound_has_time_signal(text_lower: str) -> bool:
     return bool(_TIME_SIGNAL_PATTERN.search(text_lower))
 
 
-# Canonical activities + close-enough synonyms the agent prompt accepts. Keep
-# in sync with the activity decision tree in prompts/agent.md.
-_ACTIVITY_WORDS = (
-    "harvest", "harvesting", "pick", "picking", "picked",
-    "glean", "gleaning",
-    "weed", "weeding", "weeds",
-    "plant", "planting", "seed", "seeding",
-    "transplant", "transplanting",
-    "livestock", "animal", "animals", "chickens", "goats", "sheep",
-    "infrastructure", "fence", "fencing", "repair", "build", "fix",
-    "process", "processing",
-    "tbd", "general", "anything", "whatever",
+# Common Vashon-farm crops. A bare crop name is NOT an activity — it could be
+# harvest, weeding, transplanting, or a surplus pickup. Used by the over-confirm
+# backstop to catch "tomatoes Friday 9am" being posted as work.
+#
+# This list is INTENTIONALLY NOT comprehensive, and should not be made so. It's
+# a best-effort backstop, not a crop registry. A crop that's absent just means
+# that one post isn't caught here — the agent's prompt-level "clarify on a bare
+# crop" rule is the first line of defense, and the confirm readback + UNDO rail
+# catch a wrong guess regardless. Chasing completeness would re-create the
+# closed-vocabulary problem the activity-model redesign removed. Add an obvious
+# local crop if it comes up in practice; don't try to enumerate every plant.
+_CROP_WORDS = (
+    "tomato", "tomatoes", "lettuce", "kale", "chard", "spinach", "greens",
+    "potato", "potatoes", "carrot", "carrots", "beet", "beets", "squash",
+    "zucchini", "cucumber", "cucumbers", "pepper", "peppers", "bean", "beans",
+    "pea", "peas", "corn", "garlic", "onion", "onions", "berry", "berries",
+    "strawberr", "blueberr", "raspberr", "apple", "apples", "pear", "pears",
+    "grape", "grapes", "plum", "plums", "cherr", "pumpkin", "pumpkins",
+    "herb", "herbs", "flower", "flowers",
+)
+
+# Words that signal the WORK itself (not the crop). If any is present, the
+# activity is grounded in something the farmer actually said about the task.
+_WORK_WORDS = (
+    "harvest", "harvesting", "pick", "picking", "pull", "pulling",
+    "weed", "weeding", "plant", "planting", "transplant", "transplanting",
+    "seed", "seeding", "prune", "pruning", "till", "tilling", "dig", "digging",
+    "wash", "washing", "pack", "packing", "process", "processing", "sort",
+    "sorting", "build", "fix", "repair", "fence", "fencing", "feed", "feeding",
+    "muck", "haul", "hauling", "load", "loading", "clear", "clearing",
+    "prep", "spread", "mulch", "water", "watering", "forage", "foraging",
+    "glean", "gleaning", "work", "help", "hands",
 )
 
 
-def _inbound_has_activity_signal(text_lower: str) -> bool:
-    """True if the inbound contains any canonical activity word or close synonym."""
-    for word in _ACTIVITY_WORDS:
-        if re.search(rf"\b{re.escape(word)}\b", text_lower):
-            return True
-    return False
+def _inbound_has_crop_word(text_lower: str) -> bool:
+    return any(re.search(rf"\b{re.escape(w)}", text_lower) for w in _CROP_WORDS)
+
+
+def _inbound_has_work_word(text_lower: str) -> bool:
+    return any(re.search(rf"\b{re.escape(w)}", text_lower) for w in _WORK_WORDS)
+
+
+_PURPOSE_LABELS = {
+    "gleaning": "gleaning / food-access opportunities",
+    "farm_help": "general farm help",
+}
+
+
+def _purpose_label(purpose: str) -> str:
+    """User-facing label for a purpose value, used in mute acks."""
+    return _PURPOSE_LABELS.get(purpose, purpose)
 
 
 # Axis name → farmer-facing question fragment. Keys match the axis names
@@ -3233,6 +3232,30 @@ def _execute_farmer_decide_on_proposal(
     return reply, None
 
 
+# Vague-openness phrases that mean "open to anything," not a concrete task.
+# On an offer, these are normalized to an empty activity_detail so the matcher
+# treats the volunteer as flexible (product decision 2026-05-31). The model is
+# told this in the prompt too, but small models sometimes capture the phrase
+# literally ("Physical work"); this is the deterministic backstop.
+_VAGUE_OPENNESS = (
+    "physical work", "any physical", "some work", "any work", "anything",
+    "whatever", "wherever needed", "help out", "helping out", "pitch in",
+    "lend a hand", "general help", "general farm work", "open to anything",
+    "whatever's needed", "whatever is needed", "be useful", "help where",
+)
+
+
+def _normalize_offer_activity_detail(raw: str) -> str:
+    """Collapse vague-openness phrasings to empty; keep concrete tasks as-is."""
+    s = raw.strip()
+    if not s:
+        return ""
+    low = s.lower()
+    if any(phrase in low for phrase in _VAGUE_OPENNESS):
+        return ""
+    return s
+
+
 def _execute_record_offer(*, sender: UserDoc, payload: dict) -> tuple[str | None, str | None]:
     if not sender.id:
         return None, None
@@ -3241,7 +3264,9 @@ def _execute_record_offer(*, sender: UserDoc, payload: dict) -> tuple[str | None
     from datetime import timedelta as _td
 
     settings = load_settings()
-    activity_tags = payload.get("activity_tags") or []
+    activity_detail = _normalize_offer_activity_detail(payload.get("activity_detail") or "")
+    purpose_raw = payload.get("purpose")
+    purpose = OpportunityPurpose(purpose_raw) if purpose_raw else None
     earliest_at = _parse_iso(payload["earliest_at"]) if payload.get("earliest_at") else None
     latest_at = _parse_iso(payload["latest_at"]) if payload.get("latest_at") else None
     note = payload.get("note") or ""
@@ -3249,7 +3274,8 @@ def _execute_record_offer(*, sender: UserDoc, payload: dict) -> tuple[str | None
     expires_at = latest_at or (now + _td(days=settings.offer_default_ttl_days))
     offer = OfferDoc(
         volunteer_user_id=sender.id,
-        activity_tags=activity_tags,
+        purpose=purpose,
+        activity_detail=activity_detail,
         earliest_at=earliest_at,
         latest_at=latest_at,
         note=note,

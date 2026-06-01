@@ -4,6 +4,7 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+.modal-venv/
 
 .env
 .env.*
@@ -26,6 +27,7 @@ dist/
 htmlcov/
 .coverage
 .coverage.*
+functions/tmp/
 
 .DS_Store
 .idea/

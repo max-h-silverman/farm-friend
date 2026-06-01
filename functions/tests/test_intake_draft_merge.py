@@ -16,7 +16,7 @@ def test_merge_preserves_activity_when_headcount_answer_arrives() -> None:
         "kind": "shift",
         "starts_at": "2026-06-07T00:00:00-07:00",
         "time_of_day_bucket": "morning",
-        "activity_tags": ["planting"],
+        "activity_detail": "Planting",
         "headcount_needed": None,
         "missing_fields": ["headcount"],
     }
@@ -24,7 +24,7 @@ def test_merge_preserves_activity_when_headcount_answer_arrives() -> None:
         "kind": "shift",
         "starts_at": "2026-06-07T00:00:00-07:00",
         "time_of_day_bucket": "morning",
-        "activity_tags": [],
+        "activity_detail": "",
         "headcount_needed": 3,
         "missing_fields": ["activity"],
     }
@@ -37,18 +37,24 @@ def test_merge_preserves_activity_when_headcount_answer_arrives() -> None:
         sender_role=UserRole.FARMER,
     )
 
+    # Non-empty previous activity_detail is preserved when the new turn's draft
+    # leaves it empty (the merge never downgrades a filled field).
     assert merged is not None
-    assert merged["activity_tags"] == ["planting"]
+    assert merged["activity_detail"] == "Planting"
     assert merged["headcount_needed"] == 3
     assert merged["missing_fields"] == []
 
 
-def test_merge_recovers_explicit_activity_from_recent_inbound_text() -> None:
+def test_merge_no_longer_recovers_activity_from_raw_text() -> None:
+    # Activity-model redesign: the deterministic crop/slug recovery is gone. The
+    # agent supplies activity_detail directly; if it doesn't, the activity axis
+    # stays missing (the agent will clarify next turn). This documents the
+    # intentional removal of the old text-recovery enrichment.
     model_output = {
         "kind": "shift",
         "starts_at": "2026-06-07T00:00:00-07:00",
         "time_of_day_bucket": "morning",
-        "activity_tags": [],
+        "activity_detail": "",
         "headcount_needed": 3,
         "missing_fields": ["activity"],
     }
@@ -62,10 +68,10 @@ def test_merge_recovers_explicit_activity_from_recent_inbound_text() -> None:
     )
 
     assert merged is not None
-    assert merged["activity_tags"] == ["planting"]
-    assert merged["missing_fields"] == []
-    assert _draft_axis_answered(axis="activity", draft=merged) is True
-    assert _draft_is_complete_post(merged) is True
+    assert (merged.get("activity_detail") or "") == ""
+    assert "activity" in merged["missing_fields"]
+    assert _draft_axis_answered(axis="activity", draft=merged) is False
+    assert _draft_is_complete_post(merged) is False
 
 
 def test_clarify_axis_guard_skips_already_answered_activity() -> None:
@@ -73,7 +79,7 @@ def test_clarify_axis_guard_skips_already_answered_activity() -> None:
         "kind": "shift",
         "starts_at": "2026-06-07T00:00:00-07:00",
         "time_of_day_bucket": "morning",
-        "activity_tags": ["planting"],
+        "activity_detail": "Planting",
         "headcount_needed": None,
     }
 

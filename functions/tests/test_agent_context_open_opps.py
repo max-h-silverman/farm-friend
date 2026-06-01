@@ -63,7 +63,7 @@ def _open_shift(farm_id: str, opp_id: str) -> OpportunityDoc:
         duration_min=180,
         headcount_needed=3,
         seats_filled=1,
-        activity_tags=["weeding"],
+        activity_detail="Weeding",
         requirements_text="bring gloves",
         created_at=_NOW,
     )
@@ -110,7 +110,7 @@ def test_build_context_with_open_opps_returns_real_summaries(_stub_repos) -> Non
     own = context.sender_farm_open_opps[0]
     assert isinstance(own, OppSummary)
     assert own.farm_name == "Plum Forest"
-    assert own.activity_or_produce == "weeding"
+    assert own.activity_or_produce == "Weeding"
     assert own.headcount_needed == 3
     assert own.seats_filled == 1
 

@@ -208,7 +208,6 @@ def _select_recipients(*, opp: OpportunityDoc, tier: OutreachTier):
     claims = opportunities_repo.list_all_claims(opp.id)
     claimed_ids = {c.volunteer_user_id for c in claims}
 
-    activity = opp.activity_tags[0] if opp.activity_tags else None
     recipients = []
     for u in candidates:
         if u.status != UserStatus.ACTIVE:
@@ -217,7 +216,7 @@ def _select_recipients(*, opp: OpportunityDoc, tier: OutreachTier):
             continue
         if u.id and mutes_repo.is_muted(
             user_id=u.id,
-            activity=activity,
+            purpose=opp.purpose.value,
             farm_id=farm_id,
             opportunity_id=opp.id,
             at=now,
@@ -243,7 +242,7 @@ def _render_outreach_body(*, opp: OpportunityDoc, farm_name: str) -> str:
     # instructs the volunteer to reply with a specific day. Outreach pacing
     # is still tier-based; PR 5 doesn't change pacing for windows (the doc
     # flags pacing as a future revisit).
-    activity = ", ".join(opp.activity_tags) if opp.activity_tags else "volunteer help"
+    activity = opp.activity_detail.strip() or "volunteer help"
     # `seats_remaining` for a window opp uses seats_held (PROPOSED + CONFIRMED)
     # so we don't over-advertise capacity while proposals are pending farmer
     # decisions.

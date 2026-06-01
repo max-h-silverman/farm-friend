@@ -30,7 +30,7 @@ def opp_short_summary(opp: OpportunityDoc) -> str:
     """Conversational one-line description of an opportunity. Used in STATUS,
     cancel/change notifications, milestone messages, and clarification options."""
     if opp.kind == OpportunityKind.SHIFT:
-        activity = ", ".join(opp.activity_tags) if opp.activity_tags else "shift"
+        activity = opp.activity_detail.strip() or "shift"
         when = (
             format_day_and_range(opp.starts_at, opp.duration_min)
             if opp.starts_at
