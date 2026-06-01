@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from app.flows.message_dispatch import (
     _agent_overconfirm_reason,
     _inbound_has_crop_word,
+    _inbound_has_time_signal,
     _inbound_has_work_word,
     _inbound_is_vague_time,
     _is_admin_worth_flagging,
@@ -178,10 +179,18 @@ def test_signal4_does_not_fire_for_a_clock_time():
 
 
 def test_signal4_does_not_fire_without_a_prior_time_clarify():
-    # No clarify context: "anytime" in a fresh draft update is the farmer's
-    # business, not an over-confirm. We only police it right after we asked.
+    # Signal 4 is gated on a prior *time* clarify. Isolate it from signal 6 by
+    # giving a draft whose 9am was legitimately stated earlier ("9am" in the
+    # recent inbounds), so signal 6 is satisfied and only signal 4's gating is
+    # under test here.
     out = _draft_update_output(starts_at="2026-06-05T09:00:00-07:00")
-    assert _agent_overconfirm_reason(output=out, inbound_text="anytime", last_outbound=None) is None
+    earlier = ("anytime", "post a harvest sunday 9am")
+    # No clarify context at all: an affirmative-ish word is the farmer's
+    # business, not an over-confirm, when the time was already given.
+    assert _agent_overconfirm_reason(
+        output=out, inbound_text="anytime", last_outbound=None,
+        recent_inbound_texts=earlier,
+    ) is None
     # Prior clarify was about a DIFFERENT axis (headcount), not time.
     headcount_clarify = MessageDoc(
         direction=MessageDirection.OUTBOUND, provider_msg_id="m2",
@@ -189,7 +198,8 @@ def test_signal4_does_not_fire_without_a_prior_time_clarify():
         clarify_axis="headcount", created_at=datetime.now(UTC),
     )
     assert _agent_overconfirm_reason(
-        output=out, inbound_text="anytime", last_outbound=headcount_clarify
+        output=out, inbound_text="anytime", last_outbound=headcount_clarify,
+        recent_inbound_texts=earlier,
     ) is None
 
 
@@ -239,6 +249,46 @@ def test_signal5_does_not_fire_for_a_named_farm():
     ) is not None
 
 
+# --- backstop signal 6: draft finalized with a default-filled time ----------
+def test_overconfirm_fires_on_draft_finalize_with_default_time():
+    # Multi-turn: day clarified, farmer replies "Sun", NO time ever stated.
+    # The model fills starts_at=9am from the farm default and confirms — must
+    # downgrade to clarify. (The screenshot bug.)
+    out = _draft_update_output(starts_at="2026-06-08T09:00:00-07:00")
+    reason = _agent_overconfirm_reason(
+        output=out,
+        inbound_text="Sun",
+        recent_inbound_texts=(
+            "Sun",
+            "need a couple people to pick surpluss tomatoes on sunday",
+        ),
+    )
+    assert reason is not None and "default-filled on draft finalize" in reason
+
+
+def test_signal6_does_not_fire_when_time_given_on_an_earlier_turn():
+    # Farmer DID give "8am" on turn 1; a later turn answered headcount. The
+    # draft carries the real time forward — must NOT fire (anti-phone-tree).
+    out = _draft_update_output(starts_at="2026-06-08T08:00:00-07:00")
+    reason = _agent_overconfirm_reason(
+        output=out,
+        inbound_text="2",
+        recent_inbound_texts=("2", "need people sunday 8am to pick tomatoes"),
+    )
+    assert reason is None
+
+
+def test_signal6_does_not_fire_for_a_midnight_date_placeholder():
+    # starts_at at midnight is a date-only placeholder, not a clock time — the
+    # time axis is still genuinely open, so signal 6 (which is about a FABRICATED
+    # clock time) must not fire; the normal missing-axis path handles it.
+    out = _draft_update_output(starts_at="2026-06-08T00:00:00-07:00")
+    reason = _agent_overconfirm_reason(
+        output=out, inbound_text="Sun", recent_inbound_texts=("Sun",)
+    )
+    assert reason is None
+
+
 # --- signals 4 & 5 are routine refinement, not admin-worthy ----------------
 def test_signals_4_and_5_not_flagged_for_admin():
     assert not _is_admin_worth_flagging(
@@ -246,6 +296,14 @@ def test_signals_4_and_5_not_flagged_for_admin():
     )
     assert not _is_admin_worth_flagging(
         "record_offer names a crop with no time window — below the offer floor ..."
+    )
+
+
+def test_signal6_is_flagged_for_admin():
+    # Signal 6 IS worth flagging — the model fabricated a required value.
+    assert _is_admin_worth_flagging(
+        "parsed.starts_at has a clock time ... (default-filled on draft finalize); "
+        "re-ask the time"
     )
 
 
@@ -258,6 +316,33 @@ def test_inbound_is_vague_time():
     assert not _inbound_is_vague_time("morning")
     assert not _inbound_is_vague_time("9am")
     assert not _inbound_is_vague_time("afternoon is best")
+
+
+# --- _inbound_has_time_signal unit (bare-hour context) ----------------------
+def test_time_signal_recognizes_bare_hour_in_context():
+    # The "around 10 for a couple hours" miss that made signal 6 misfire on a
+    # valid time answer (then the clarify cap turned it into silent escalation).
+    assert _inbound_has_time_signal("around 10 for a couple hours")
+    assert _inbound_has_time_signal("at 9")
+    assert _inbound_has_time_signal("about 7")
+    assert _inbound_has_time_signal("start around 6")
+    assert _inbound_has_time_signal("10ish")
+    assert _inbound_has_time_signal("9 o'clock")
+    # Explicit clock times still match.
+    assert _inbound_has_time_signal("9am")
+    assert _inbound_has_time_signal("noon")
+    assert _inbound_has_time_signal("morning")
+
+
+def test_time_signal_does_not_match_headcount_or_duration():
+    # A bare number that is a headcount/duration/date is NOT a time.
+    assert not _inbound_has_time_signal("need 2 people")
+    assert not _inbound_has_time_signal("for a couple hours")
+    assert not _inbound_has_time_signal("for 3 hours")
+    assert not _inbound_has_time_signal("the 5th")
+    assert not _inbound_has_time_signal("about 2 people")
+    assert not _inbound_has_time_signal("by 3 volunteers")
+    assert not _inbound_has_time_signal("around 5 ppl")
 
 
 # --- offer normalization ----------------------------------------------------

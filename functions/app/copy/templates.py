@@ -216,6 +216,19 @@ def render_fallback_ambiguous() -> str:
     return "Farm Friend Vashon: Coordinator will follow up shortly."
 
 
+def render_stuck_handoff() -> str:
+    """User-facing copy when the system can't make progress on a message and is
+    handing off to a person — agent call failure, the clarification cap, or an
+    unexpected/unknown agent output. Distinct from `render_fallback_ambiguous`
+    (the neutral handoff used for a real ESCALATE like injury/payment, where the
+    agent usually supplies its own contextual reply): this one acknowledges the
+    system is the one that got stuck, so the user isn't left in silence."""
+    return (
+        "Farm Friend Vashon: Sorry, I'm having trouble with this one — a VIGA "
+        "coordinator will be in touch shortly."
+    )
+
+
 def render_orphan_yes() -> str:
     return (
         "Farm Friend Vashon: Got your YES but we're not sure which shift it's "

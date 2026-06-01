@@ -1250,6 +1250,72 @@ CASES.append(EvalCase(
 ))
 
 CASES.append(EvalCase(
+    id="adv.draft_finalize_no_default_time",
+    category="ADVERSARIAL",
+    description=(
+        "Multi-turn: farmer posted a harvest 'on sunday' (day, no time); we "
+        "clarified the DAY; farmer answered 'Sun'. The time was NEVER stated in "
+        "any turn. The agent must NOT finalize the draft with a clock time "
+        "filled from the farm's typical_start_hour default — it must clarify the "
+        "time. (Regression for the screenshot bug where it posted 'Sunday 9am-12pm'.)"
+    ),
+    world=World(
+        users=[FARMER_A], farms=[FARM_THREE_CEDARS],
+        opps=[FakeOpp(id="o_draft", farm_id="f_3c", kind="shift", status="draft",
+                      headcount_needed=2, activity_tags=["harvest"])],
+        messages=[
+            FakeMessage(direction="inbound", user_id="u_farmer_a",
+                        body="need a couple people to pick surpluss tomatoes on sunday",
+                        opportunity_id="o_draft",
+                        created_at=NOW - timedelta(minutes=5)),
+            FakeMessage(direction="outbound", user_id="u_farmer_a",
+                        body="Which day — Saturday or Sunday?",
+                        intent_label="CLARIFY", opportunity_id="o_draft",
+                        clarify_axis="date",
+                        created_at=NOW - timedelta(minutes=4)),
+        ],
+    ),
+    inbound_text="Sun",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(mode="clarify"),
+))
+
+CASES.append(EvalCase(
+    id="new.farmer.draft_finalize_time_given_last_turn",
+    category="NEW_INTENT",
+    description=(
+        "Multi-turn happy path: weekend harvest → day clarify → 'sun' → time "
+        "clarify → 'around 10 for a couple hours'. The farmer FINALLY gives the "
+        "time ('around 10' — a bare-hour time answer). Must CONFIRM the draft, "
+        "NOT misfire signal 6 (which would clarify again and, at the cap, escalate "
+        "to silence). Regression for the 'around 10' time-signal false-negative."
+    ),
+    world=World(
+        users=[FARMER_A], farms=[FARM_THREE_CEDARS],
+        opps=[FakeOpp(id="o_draft", farm_id="f_3c", kind="shift", status="draft",
+                      headcount_needed=2, activity_tags=["harvest"])],
+        messages=[
+            FakeMessage(direction="inbound", user_id="u_farmer_a",
+                        body="need help with tomato harvest this weekend",
+                        opportunity_id="o_draft", created_at=NOW - timedelta(minutes=8)),
+            FakeMessage(direction="outbound", user_id="u_farmer_a",
+                        body="Which day — Saturday or Sunday?", intent_label="CLARIFY",
+                        clarify_axis="date", opportunity_id="o_draft",
+                        created_at=NOW - timedelta(minutes=7)),
+            FakeMessage(direction="inbound", user_id="u_farmer_a", body="sun",
+                        opportunity_id="o_draft", created_at=NOW - timedelta(minutes=6)),
+            FakeMessage(direction="outbound", user_id="u_farmer_a",
+                        body="What time should it start, and how long?",
+                        intent_label="CLARIFY", clarify_axis="time",
+                        opportunity_id="o_draft", created_at=NOW - timedelta(minutes=5)),
+        ],
+    ),
+    inbound_text="around 10 for a couple hours",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(mode="confirm", action_name="update_draft_opportunity"),
+))
+
+CASES.append(EvalCase(
     id="adv.window.mvd_vacant_focused_clarify",
     category="ADVERSARIAL",
     description=(

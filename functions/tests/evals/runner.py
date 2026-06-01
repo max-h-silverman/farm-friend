@@ -268,6 +268,9 @@ def simulate_dispatch(
             inbound_text=case.inbound_text,
             last_outbound=last_outbound,
             known_farm_names=tuple(f.name for f in world.farms),
+            recent_inbound_texts=tuple(
+                m.body for m in world.messages if m.direction == "inbound"
+            ),
         )
         if reject is not None:
             # The backstop downgrades to clarify; apply the cap on that path too.
@@ -1603,6 +1606,50 @@ def _(c): return _confirm(
 def _(c): return _clarify(
     "Morning, afternoon, or evening?"
 )
+
+
+@stub_for("adv.draft_finalize_no_default_time")
+def _(c):
+    # Emit the BAD output the screenshot showed: a draft-update confirm with a
+    # clock-time starts_at filled from the farm default, though no turn gave a
+    # time. The stub exercises signal 6 of the over-confirm backstop, which must
+    # downgrade this to clarify (so the stub mirrors production, not the ideal).
+    return _confirm(
+        "update_draft_opportunity",
+        {
+            "opp_id": "o_draft",
+            "parsed": {
+                "kind": "shift",
+                "starts_at": "2026-06-08T09:00:00-07:00",
+                "headcount_needed": 2,
+                "activity_detail": "Harvest",
+            },
+        },
+        token="YES",
+        text="Post as Sunday for picking surplus tomatoes? Reply YES to confirm.",
+    )
+
+
+@stub_for("new.farmer.draft_finalize_time_given_last_turn")
+def _(c):
+    # Happy path: the farmer gave the time this turn ("around 10"), so the agent
+    # correctly finalizes. Signal 6 must NOT fire (the time was stated), so this
+    # confirm survives to the user.
+    return _confirm(
+        "update_draft_opportunity",
+        {
+            "opp_id": "o_draft",
+            "parsed": {
+                "kind": "shift",
+                "starts_at": "2026-06-08T10:00:00-07:00",
+                "duration_min": 120,
+                "headcount_needed": 2,
+                "activity_detail": "Harvest",
+            },
+        },
+        token="YES",
+        text="Post as Sunday harvest at 10am for 2 hours? Reply YES to confirm.",
+    )
 
 
 @stub_for("adv.window.mvd_vacant_focused_clarify")

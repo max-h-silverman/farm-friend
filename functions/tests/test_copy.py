@@ -220,3 +220,13 @@ def test_fallback_ambiguous_includes_program_name_no_stop() -> None:
     assert "Farm Friend Vashon" in body
     # Direct reply to a user inbound — no STOP line.
     assert "STOP" not in body
+
+
+def test_stuck_handoff_is_warm_and_names_coordinator() -> None:
+    body = templates.render_stuck_handoff()
+    assert "Farm Friend Vashon" in body
+    assert "coordinator" in body.lower()
+    # Direct reply to a user inbound — no STOP line.
+    assert "STOP" not in body
+    # Acknowledges the system is stuck (the whole point — not silent).
+    assert body.strip() != ""

@@ -431,8 +431,8 @@ def _dispatch(*, inbound: InboundMessage, messaging: "MessagingProvider | None" 
         )
         _reply_and_log(
             provider=provider, to=sender,
-            body=templates.render_fallback_ambiguous(),
-            opp=target_opp, intent=IntentLabel.CLARIFY,
+            body=templates.render_stuck_handoff(),
+            opp=target_opp, intent=IntentLabel.ESCALATE,
         )
         return
 
@@ -1661,7 +1661,7 @@ def _escalate_clarify_cap(
     )
     _reply_and_log(
         provider=provider, to=sender,
-        body=templates.render_fallback_ambiguous(),
+        body=templates.render_stuck_handoff(),
         opp=None, intent=IntentLabel.ESCALATE,
     )
 
@@ -1908,6 +1908,7 @@ def _route_agent_output(
         reject_reason = _agent_overconfirm_reason(
             output=output, inbound_text=inbound_text, last_outbound=last_outbound,
             known_farm_names=known_farm_names,
+            recent_inbound_texts=tuple(_recent_inbound_texts(sender)),
         )
         if reject_reason is not None:
             # Only flag for signals that indicate genuine model misbehavior
@@ -2008,8 +2009,8 @@ def _route_agent_output(
     )
     _reply_and_log(
         provider=provider, to=sender,
-        body=templates.render_fallback_ambiguous(),
-        opp=target_opp, intent=IntentLabel.CLARIFY,
+        body=templates.render_stuck_handoff(),
+        opp=target_opp, intent=IntentLabel.ESCALATE,
     )
 
 
@@ -2082,6 +2083,11 @@ def _is_admin_worth_flagging(reason: str) -> bool:
         — the agent literally narrated filling fields from defaults.
       - signal 2a: inbound has no clock-time signal
       - signal 2b: inbound has no activity word
+      - signal 6: draft finalized with a default-filled time the farmer never
+        gave. Like 2a, this is the model fabricating a required value and
+        trying to post it — exactly the misbehavior the flag exists to surface.
+        (It fires at most once per shift post, only when NO turn gave a time,
+        so it is not noisy in the common case where the farmer states a time.)
 
     NOT worth flagging:
       - signal 3: required fields still missing after defaults
@@ -2119,7 +2125,11 @@ def _axis_from_overconfirm_reason(reason: str) -> str:
       "parse_notes contains 'default'..."
         → "general" (no specific axis implied)
     """
-    if "no clock-time signal" in reason or "vague non-bucket time word" in reason:
+    if (
+        "no clock-time signal" in reason
+        or "vague non-bucket time word" in reason
+        or "default-filled on draft finalize" in reason
+    ):
         return "time"
     if "no activity word" in reason or "below the offer" in reason:
         return "activity"
@@ -2186,6 +2196,19 @@ def _sanitize_clarify_reply(*, body: str, sender: UserDoc, axis: str) -> str:
     return body
 
 
+def _recent_inbound_texts(sender: UserDoc, *, limit: int = 8) -> list[str]:
+    """The sender's recent inbound message bodies (newest-first), used to check
+    whether a value (e.g. a clock time) was ever actually stated by the user
+    across a multi-turn draft — vs. invented from a farm default on the turn it
+    appears in the draft."""
+    texts: list[str] = []
+    if sender.id:
+        for msg in messages_repo.list_for_user(sender.id, limit=limit):
+            if msg.direction == MessageDirection.INBOUND:
+                texts.append(msg.body)
+    return texts
+
+
 def _effective_intake_draft(
     *,
     output_draft: dict | None,
@@ -2205,11 +2228,7 @@ def _effective_intake_draft(
         if last_outbound is not None and isinstance(last_outbound.intake_draft, dict)
         else None
     )
-    recent_inbound_texts: list[str] = []
-    if sender.id:
-        for msg in messages_repo.list_for_user(sender.id, limit=8):
-            if msg.direction == MessageDirection.INBOUND:
-                recent_inbound_texts.append(msg.body)
+    recent_inbound_texts = _recent_inbound_texts(sender)
     return _merge_intake_draft_for_turn(
         output_draft=output_draft,
         previous_draft=previous,
@@ -2481,6 +2500,7 @@ def _agent_overconfirm_reason(
     inbound_text: str,
     last_outbound: MessageDoc | None = None,
     known_farm_names: tuple[str, ...] = (),
+    recent_inbound_texts: tuple[str, ...] = (),
 ) -> str | None:
     """Detect agent over-confirms — cases where a small model jumps to a
     confirm on input that gives it nothing to act on, where the right move is
@@ -2524,11 +2544,19 @@ def _agent_overconfirm_reason(
        useful offer ("help with tomatoes this week"). Clarify instead of
        recording a useless offer. A real offer with a time window ("physical
        work this weekend, some morning") has a time signal and passes.
+    6. **Draft-update finalizing a shift with a default-filled time.** An
+       `update_draft_opportunity` that confirms a shift whose clock-time
+       `starts_at` was never stated by the farmer in ANY turn (invented from
+       the farm's typical_start_hour default) → re-ask the time. This is
+       signal 2a generalized across the multi-turn draft: it checks every
+       recent inbound, not just the current one (`recent_inbound_texts`), so a
+       time legitimately given on an earlier turn still passes.
 
-    Beyond signals 4–5, `update_draft_opportunity` is NOT policed: it
-    legitimately carries fields forward from the existing draft (the prior turn
-    established them), so the current inbound need not restate activity / time
-    markers, and its own executor handles missing-fields via the draft merge.
+    `update_draft_opportunity` is otherwise NOT policed (signals 1-3): it
+    legitimately carries fields forward from the existing draft, so the current
+    inbound need not restate activity / time markers, and its executor handles
+    missing-fields via the draft merge. Signals 4 and 6 are the two narrow
+    exceptions — both catch a VALUE the farmer never gave being treated as real.
 
     Returns None if no issue, or a short reason string for the flag.
     """
@@ -2583,6 +2611,33 @@ def _agent_overconfirm_reason(
             "record_offer names a crop with no time window — below the offer "
             "floor (too vague to record a useful offer)"
         )
+
+    # Signal 6: a draft-update that FINALIZES a shift with a clock-time
+    # `starts_at` that the farmer never stated — i.e. invented from the farm's
+    # typical_start_hour default on this turn. Signals 1-2a catch this on
+    # `create_opportunity` by checking the inbound for a time signal, but they
+    # skip `update_draft_opportunity` because a draft legitimately carries
+    # values forward from earlier turns. The fix: check ALL recent inbound turns
+    # of this draft, not just the current one. If no inbound across the whole
+    # conversation has a time signal AND there is no fuzzy bucket, a clock time
+    # in the draft can only have come from a default → re-ask the time.
+    if output.action.name == "update_draft_opportunity":
+        du_payload = getattr(output.action, "update_draft_opportunity", None)
+        du_parsed = getattr(du_payload, "parsed", None) if du_payload else None
+        if (
+            du_parsed is not None
+            and du_parsed.kind == "shift"
+            and _draft_starts_at_has_clock(du_parsed.starts_at)
+            and not getattr(du_parsed, "time_of_day_bucket", None)
+            and not any(
+                _inbound_has_time_signal(t.lower())
+                for t in (inbound_text, *recent_inbound_texts)
+            )
+        ):
+            return (
+                "parsed.starts_at has a clock time but no inbound turn stated a "
+                "time (default-filled on draft finalize); re-ask the time"
+            )
 
     if output.action.name != "create_opportunity":
         return None
@@ -2707,6 +2762,15 @@ _TIME_SIGNAL_PATTERN = re.compile(
     # 9a / 9p / 9 a / 9 p — common shorthand. Anchored on a leading word
     # boundary; trailing must end the run (whitespace, punctuation, EOL).
     r"|\b\d{1,2}\s*[ap](?:\b|[^a-zA-Z])"
+    # Bare hour in a TIME-GIVING context: a time preposition before the number
+    # ("at 9", "around 10", "by 8", "about 7", "~10"), OR "10ish" / "10 o'clock".
+    # Requires the context so a bare headcount/duration/date number ("need 2",
+    # "for 3 hours", "the 5th") does NOT register as a time. Excludes a trailing
+    # unit word (people/ppl/person/hour/hr/min/day/week) to be safe.
+    r"|(?:\b(?:at|around|about|by|near)|~)\s*\d{1,2}(?!\s*(?:am|pm|:|"
+    r"\s*(?:people|ppl|persons?|folks?|volunteers?|helpers?|hands?|"
+    r"hours?|hrs?|mins?|minutes?|days?|weeks?)))\b"
+    r"|\b\d{1,2}\s*ish\b"
     r"|\bnoon\b|\bmidnight\b"
     r"|\b(early\s+|late\s+)?(morning|afternoon|evening|night|midday)\b"
     r"|\bdawn\b|\bdusk\b"
@@ -2865,6 +2929,9 @@ def _clarify_for_overconfirm(*, reason: str) -> str:
     # Signal 5: crop-only offer below the floor — ask for the work + a day.
     if "below the offer" in reason:
         return "Happy to help line that up — what kind of work, and which day works?"
+    # Signal 6: draft finalized with a default-filled time — ask the real time.
+    if "default-filled on draft finalize" in reason:
+        return "What time should it start?"
     # Signal 2a: starts_at inferred from no time signal.
     if "time" in reason:
         return "What time should it start, and how long?"
