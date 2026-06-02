@@ -775,6 +775,25 @@ def _handle_hotkey(
         farm = farms_repo.get_by_id(target_opp.farm_id)
         farmer = users_repo.get_by_id(farm.owner_user_id) if farm else None
         days = list(match.payload.get("days", []) or [])
+        any_day = bool(match.payload.get("any_day"))
+        # Candidate-day VOTING path (docs/preferred-day-voting.md): if the target
+        # opp is collecting day-votes, a day-list (or ANY/BOTH) reply records soft
+        # DAY_VOTEs and acks — it does NOT claim a seat. This runs BEFORE the
+        # window-claim path so a voting opp never falls into PROPOSED/approval.
+        if (
+            load_settings().day_voting_enabled
+            and target_opp.vote_state == "collecting"
+            and (days or any_day)
+        ):
+            reply = claim_flow.handle_day_vote(
+                opportunity=target_opp,
+                volunteer=sender,
+                day_labels=days,
+                any_day=any_day,
+                farm_name=farm.name if farm else "the farm",
+            )
+            _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
+            return
         # Window-opp claim path: when the inbound carried day tokens AND the
         # target opp has a window, route to handle_window_claim (PROPOSED
         # claims, farmer-approval gate). A bare YES on a window opp falls
