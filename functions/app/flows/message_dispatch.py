@@ -52,6 +52,7 @@ from app.agent.unified import (
 from app.config import load_settings
 from app.copy import templates
 from app.flows import claim as claim_flow
+from app.flows import day_voting as day_voting_flow
 from app.flows import farmer_ops
 from app.flows.agent_context import build_agent_context, farm_defaults_dict
 from app.flows import outreach as outreach_flow
@@ -3183,6 +3184,10 @@ def _execute_action(
         receipt_body, receipt_opp_id = _execute_farmer_decide_on_proposal(
             sender=sender, payload=action_payload, provider=provider,
         )
+    elif action_name == "lock_day_vote":
+        receipt_body, receipt_opp_id = _execute_lock_day_vote(
+            sender=sender, payload=action_payload, provider=provider,
+        )
     else:
         # Unknown action — flag and bail. Schema validation should have caught this.
         flags_repo.create(
@@ -3411,6 +3416,32 @@ def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
         f"Reply UNDO if wrong."
     )
     return receipt, created.id
+
+
+def _execute_lock_day_vote(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    """Farmer confirmed locking a candidate-day opp to a specific day. Resolves
+    votes → claims via day_voting.lock_day. payload: {opp_id, locked_day(ISO)}.
+    The locked_day is set by dispatch when the lock nudge is created (Phase 4),
+    not chosen by the model — so a YES executes exactly the day the farmer saw."""
+    opp_id = payload.get("opp_id")
+    locked_day = _parse_iso(payload.get("locked_day")) if payload.get("locked_day") else None
+    if not opp_id or locked_day is None:
+        return None, None
+    opp = opportunities_repo.get_by_id(opp_id)
+    if opp is None or opp.vote_state != "collecting":
+        return None, None
+    farm = farms_repo.get_by_id(opp.farm_id)
+    day_voting_flow.lock_day(
+        opportunity=opp,
+        locked_day=locked_day,
+        messaging=provider,
+        farm_name=farm.name if farm else "the farm",
+    )
+    when_human = day_voting_flow._day_human(locked_day)
+    return (
+        f"Farm Friend Vashon: locked in {when_human}. Volunteers notified. "
+        f"Reply UNDO if wrong."
+    ), opp_id
 
 
 def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
