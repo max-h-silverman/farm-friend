@@ -1749,14 +1749,13 @@ def run_all(*, live: bool, category: str | None, case_id: str | None,
     failed: list[CaseResult] = []
     skipped = 0
 
-    # Window posts are deferred from the agent for the pilot (flag off by
-    # default). Cases that ASSERT window_end_at test code that still exists but
-    # is gated off — skip them when the flag is off so the suite reflects the
-    # pilot config without spurious failures. Run with AGENT_WINDOW_POSTS_ENABLED=1
-    # to exercise the full window subsystem.
+    # Window posts default ON ("full functionality at small scale"). Cases that
+    # ASSERT window_end_at run normally. If the window kill-switch is flipped
+    # (AGENT_WINDOW_POSTS_ENABLED=0), skip them so the suite reflects that config
+    # without spurious failures.
     windows_on = os.environ.get(
-        "AGENT_WINDOW_POSTS_ENABLED", "0"
-    ).lower() in {"1", "true", "yes"}
+        "AGENT_WINDOW_POSTS_ENABLED", "1"
+    ).lower() not in {"0", "false", "no"}
 
     for case in cases_to_run:
         asserts_window = "window_end_at" in (case.expected.payload_must_include or {})

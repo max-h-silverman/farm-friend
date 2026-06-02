@@ -230,6 +230,17 @@ def _select_recipients(*, opp: OpportunityDoc, tier: OutreachTier):
 # Rendering + timing
 # ---------------------------------------------------------------------------
 def _render_outreach_body(*, opp: OpportunityDoc, farm_name: str) -> str:
+    # Candidate-day voting (docs/preferred-day-voting.md): list the workable days
+    # with dates and ask the volunteer to vote. Runs first because a voting opp
+    # also has window_end_at set (the span), which would otherwise hit the window
+    # branch below. The volunteer replies with a day (or ANY/BOTH).
+    if opp.vote_state == "collecting":
+        return templates.render_candidate_day_outreach(
+            farm_name=farm_name,
+            activity=opp.activity_detail.strip() or "volunteer help",
+            days=_candidate_days_for_copy(opp),
+            requirements=opp.requirements_text,
+        )
     if opp.kind == OpportunityKind.PICKUP:
         return templates.render_pickup_outreach(
             farm_name=farm_name,
@@ -283,6 +294,21 @@ _BUCKET_PHRASE = {
     "early_evening": "early evening",
     "evening": "evening",
 }
+
+
+def _candidate_days_for_copy(opp: OpportunityDoc) -> list[str]:
+    """Human day labels for the candidate-day fan-out, e.g. ["Sun 6/7",
+    "Mon 6/8 (farmer's pick)", "Wed 6/10"]. The preferred day (if any) gets a
+    soft hint. Dates are always shown so volunteers vote unambiguously."""
+    from app.flows._time import to_local
+    out: list[str] = []
+    for d in opp.candidate_days:
+        local = to_local(d)
+        label = local.strftime("%a %-m/%-d")
+        if opp.preferred_day is not None and local.weekday() == opp.preferred_day:
+            label += " (farmer's pick)"
+        out.append(label)
+    return out
 
 
 def _format_window_human(opp: OpportunityDoc) -> str:

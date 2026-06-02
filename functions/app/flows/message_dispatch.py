@@ -1351,6 +1351,20 @@ def _opportunity_from_parsed(
         _parse_iso(parsed.window_end_at) if getattr(parsed, "window_end_at", None) else None
     )
     kind = OpportunityKind.SHIFT if parsed.kind == "shift" else OpportunityKind.PICKUP
+
+    # Candidate-day voting (docs/preferred-day-voting.md). When the farmer named
+    # several alternative days for ONE shift, the agent fills `candidate_days`.
+    # We translate to: vote_state="collecting", a window spanning the candidates
+    # (so day-label resolution works), by_date = last candidate, preferred_day.
+    candidate_days, vote_state, by_date, preferred_day = _candidate_day_fields(
+        parsed=parsed, kind=kind, starts_at=starts_at, window_end_at=window_end_at,
+    )
+    if candidate_days:
+        # The voting window spans first→last candidate; the per-day filter in
+        # claim._is_candidate_day enforces the exact (possibly non-contiguous) set.
+        starts_at = candidate_days[0]
+        window_end_at = candidate_days[-1]
+
     # For a window opp, the legacy single-day post-event timer is computed
     # from window_end_at (last day of work) rather than starts_at (first day).
     # PR 5 replaces this with a per-day sidecar collection; until then this
@@ -1384,7 +1398,58 @@ def _opportunity_from_parsed(
         created_from_message_id=source_message_id,
         created_at=datetime.now(UTC),
         post_event_checkin_at=post_event_at,
+        candidate_days=candidate_days,
+        vote_state=vote_state,
+        by_date=by_date,
+        preferred_day=preferred_day,
     )
+
+
+def _candidate_day_fields(
+    *, parsed, kind: OpportunityKind, starts_at, window_end_at,
+) -> tuple[list, str | None, object, int | None]:
+    """Derive (candidate_days, vote_state, by_date, preferred_day) from a parsed
+    opp. Returns empty/None when this isn't a candidate-day voting post:
+      - day-voting must be enabled,
+      - kind must be a shift (pickups are a single-claim race, no voting),
+      - the agent must have supplied 2+ candidate days.
+    """
+    if not load_settings().day_voting_enabled:
+        return [], None, None, None
+    if kind != OpportunityKind.SHIFT:
+        return [], None, None, None
+    raw = getattr(parsed, "candidate_days", None) or []
+    days = sorted({d for d in (_parse_iso(x) for x in raw) if d is not None})
+    if len(days) < 2:
+        return [], None, None, None
+    by_date = days[-1]
+    preferred_day = _resolve_preferred_day(
+        getattr(parsed, "preferred_day", None), candidate_days=days,
+    )
+    return days, "collecting", by_date, preferred_day
+
+
+def _resolve_preferred_day(raw, *, candidate_days: list) -> int | None:
+    """Normalize a parsed preferred_day (ISO datetime matching a candidate, or a
+    weekday int/string) to a weekday int (Mon=0). Returns None if absent/unmatched."""
+    if raw is None or raw == "":
+        return None
+    # Weekday int (or numeric string).
+    try:
+        wd = int(raw)
+        if 0 <= wd <= 6:
+            return wd
+    except (TypeError, ValueError):
+        pass
+    # ISO datetime matching one of the candidate days.
+    dt = _parse_iso(str(raw))
+    if dt is not None:
+        from app.flows._time import to_local
+        target = to_local(dt).date()
+        for d in candidate_days:
+            if to_local(d).date() == target:
+                return to_local(d).weekday()
+    return None
 
 
 def _media_urls_from_message(message_id: str | None) -> list[str]:
