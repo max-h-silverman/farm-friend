@@ -300,6 +300,103 @@ def handle_window_claim(
     return " ".join(parts)
 
 
+def handle_day_vote(
+    *,
+    opportunity: OpportunityDoc,
+    volunteer: UserDoc,
+    day_labels: list[str],
+    any_day: bool = False,
+    farm_name: str,
+) -> str:
+    """Record soft DAY_VOTEs for a candidate-day (COLLECTING) opp and ack.
+
+    This is the dispatch *reflex* half of candidate-day voting: it only writes
+    votes and acknowledges the volunteer. It never claims a seat, never messages
+    the farmer, and never decides anything — the board-review tick owns the
+    farmer nudge / convergence / lock-in (docs/preferred-day-voting.md).
+
+    `any_day` expands to every candidate day. Day labels that don't resolve to a
+    candidate day are reported back so the volunteer knows what was skipped.
+    """
+    assert opportunity.id is not None
+    assert volunteer.id is not None
+    if opportunity.vote_state != "collecting":
+        # Defensive: caller already checks, but never vote on a locked/expired opp.
+        return _stale_opportunity_body(opportunity, farm_name)
+
+    if any_day:
+        resolved = [(_label_for_date(d), d) for d in _candidate_datetimes(opportunity)]
+        unresolved: list[str] = []
+    else:
+        resolved = []
+        unresolved = []
+        for label in day_labels:
+            when = _resolve_day_label(label, opp=opportunity)
+            if when is None or not _is_candidate_day(opportunity, when):
+                unresolved.append(label)
+            else:
+                resolved.append((label, when))
+
+    if not resolved:
+        return (
+            f"Couldn't match those days to {farm_name}'s request — the options "
+            f"are {_candidate_days_human(opportunity)}."
+        )
+
+    for _label, when in resolved:
+        opportunities_repo.add_day_vote(
+            opp_id=opportunity.id,
+            volunteer_user_id=volunteer.id,
+            scheduled_for_at=when,
+        )
+
+    days_human = ", ".join(_label_human(when) for _, when in resolved)
+    ack = (
+        f"Got it — you're down for {days_human} at {farm_name} if it's picked. "
+        f"The farmer will confirm the day soon."
+    )
+    if unresolved:
+        ack += f" (Couldn't match: {', '.join(unresolved)}.)"
+    return ack
+
+
+def _candidate_datetimes(opp: OpportunityDoc) -> list[datetime]:
+    """The opp's candidate days as concrete datetimes (time-of-day from
+    starts_at). Prefers the explicit `candidate_days`; falls back to the
+    contiguous window span if only window_end_at is set."""
+    if opp.candidate_days:
+        return list(opp.candidate_days)
+    if opp.starts_at is None:
+        return []
+    start_local = to_local(opp.starts_at)
+    end_local = to_local(opp.window_end_at) if opp.window_end_at else start_local
+    out: list[datetime] = []
+    cursor = start_local
+    while cursor.date() <= end_local.date():
+        out.append(cursor.astimezone(UTC))
+        cursor = cursor + timedelta(days=1)
+    return out
+
+
+def _is_candidate_day(opp: OpportunityDoc, when: datetime) -> bool:
+    target = to_local(when).date()
+    return any(to_local(d).date() == target for d in _candidate_datetimes(opp))
+
+
+def _label_for_date(when: datetime) -> str:
+    return to_local(when).strftime("%a").upper()[:3]
+
+
+def _label_human(when: datetime) -> str:
+    local = to_local(when)
+    return local.strftime("%a %-m/%-d")
+
+
+def _candidate_days_human(opp: OpportunityDoc) -> str:
+    days = _candidate_datetimes(opp)
+    return ", ".join(_label_human(d) for d in days) if days else "the listed days"
+
+
 _WEEKDAY_INDEX = {
     "MON": 0, "MONDAY": 0,
     "TUE": 1, "TUES": 1, "TUESDAY": 1,

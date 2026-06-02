@@ -73,6 +73,15 @@ class ParsedOpportunity(BaseModel):
     # single-day posts. ISO 8601 with offset. See rethink doc §"Multi-day
     # window posts" and OpportunityDoc.window_end_at.
     window_end_at: str | None = None
+    # Candidate-day voting (docs/preferred-day-voting.md). When the farmer names
+    # several workable days for ONE shift ("Sun, Mon, or Wed work"), the agent
+    # lists them here (ISO 8601 datetimes, time-of-day from starts_at) and
+    # volunteers vote on which to lock. Distinct from window_end_at (a span where
+    # every day is claimable at once); these are alternatives, pick-one.
+    candidate_days: list[str] = Field(default_factory=list)
+    # Soft preference among candidate_days (ISO 8601 datetime matching one entry,
+    # OR a weekday int Mon=0). Biases fan-out copy + farmer nudge; not binding.
+    preferred_day: str | None = None
     # Fuzzy time-of-day bucket. One of TIME_OF_DAY_BUCKETS. Mutually
     # substitutable with starts_at's clock time — see compute_missing_fields.
     time_of_day_bucket: str | None = None

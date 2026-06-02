@@ -52,6 +52,7 @@ from app.agent.unified import (
 from app.config import load_settings
 from app.copy import templates
 from app.flows import claim as claim_flow
+from app.flows import day_voting as day_voting_flow
 from app.flows import farmer_ops
 from app.flows.agent_context import build_agent_context, farm_defaults_dict
 from app.flows import outreach as outreach_flow
@@ -775,6 +776,25 @@ def _handle_hotkey(
         farm = farms_repo.get_by_id(target_opp.farm_id)
         farmer = users_repo.get_by_id(farm.owner_user_id) if farm else None
         days = list(match.payload.get("days", []) or [])
+        any_day = bool(match.payload.get("any_day"))
+        # Candidate-day VOTING path (docs/preferred-day-voting.md): if the target
+        # opp is collecting day-votes, a day-list (or ANY/BOTH) reply records soft
+        # DAY_VOTEs and acks — it does NOT claim a seat. This runs BEFORE the
+        # window-claim path so a voting opp never falls into PROPOSED/approval.
+        if (
+            load_settings().day_voting_enabled
+            and target_opp.vote_state == "collecting"
+            and (days or any_day)
+        ):
+            reply = claim_flow.handle_day_vote(
+                opportunity=target_opp,
+                volunteer=sender,
+                day_labels=days,
+                any_day=any_day,
+                farm_name=farm.name if farm else "the farm",
+            )
+            _reply_and_log(provider=provider, to=sender, body=reply, opp=target_opp, intent=intent)
+            return
         # Window-opp claim path: when the inbound carried day tokens AND the
         # target opp has a window, route to handle_window_claim (PROPOSED
         # claims, farmer-approval gate). A bare YES on a window opp falls
@@ -1332,6 +1352,20 @@ def _opportunity_from_parsed(
         _parse_iso(parsed.window_end_at) if getattr(parsed, "window_end_at", None) else None
     )
     kind = OpportunityKind.SHIFT if parsed.kind == "shift" else OpportunityKind.PICKUP
+
+    # Candidate-day voting (docs/preferred-day-voting.md). When the farmer named
+    # several alternative days for ONE shift, the agent fills `candidate_days`.
+    # We translate to: vote_state="collecting", a window spanning the candidates
+    # (so day-label resolution works), by_date = last candidate, preferred_day.
+    candidate_days, vote_state, by_date, preferred_day = _candidate_day_fields(
+        parsed=parsed, kind=kind, starts_at=starts_at, window_end_at=window_end_at,
+    )
+    if candidate_days:
+        # The voting window spans first→last candidate; the per-day filter in
+        # claim._is_candidate_day enforces the exact (possibly non-contiguous) set.
+        starts_at = candidate_days[0]
+        window_end_at = candidate_days[-1]
+
     # For a window opp, the legacy single-day post-event timer is computed
     # from window_end_at (last day of work) rather than starts_at (first day).
     # PR 5 replaces this with a per-day sidecar collection; until then this
@@ -1365,7 +1399,58 @@ def _opportunity_from_parsed(
         created_from_message_id=source_message_id,
         created_at=datetime.now(UTC),
         post_event_checkin_at=post_event_at,
+        candidate_days=candidate_days,
+        vote_state=vote_state,
+        by_date=by_date,
+        preferred_day=preferred_day,
     )
+
+
+def _candidate_day_fields(
+    *, parsed, kind: OpportunityKind, starts_at, window_end_at,
+) -> tuple[list, str | None, object, int | None]:
+    """Derive (candidate_days, vote_state, by_date, preferred_day) from a parsed
+    opp. Returns empty/None when this isn't a candidate-day voting post:
+      - day-voting must be enabled,
+      - kind must be a shift (pickups are a single-claim race, no voting),
+      - the agent must have supplied 2+ candidate days.
+    """
+    if not load_settings().day_voting_enabled:
+        return [], None, None, None
+    if kind != OpportunityKind.SHIFT:
+        return [], None, None, None
+    raw = getattr(parsed, "candidate_days", None) or []
+    days = sorted({d for d in (_parse_iso(x) for x in raw) if d is not None})
+    if len(days) < 2:
+        return [], None, None, None
+    by_date = days[-1]
+    preferred_day = _resolve_preferred_day(
+        getattr(parsed, "preferred_day", None), candidate_days=days,
+    )
+    return days, "collecting", by_date, preferred_day
+
+
+def _resolve_preferred_day(raw, *, candidate_days: list) -> int | None:
+    """Normalize a parsed preferred_day (ISO datetime matching a candidate, or a
+    weekday int/string) to a weekday int (Mon=0). Returns None if absent/unmatched."""
+    if raw is None or raw == "":
+        return None
+    # Weekday int (or numeric string).
+    try:
+        wd = int(raw)
+        if 0 <= wd <= 6:
+            return wd
+    except (TypeError, ValueError):
+        pass
+    # ISO datetime matching one of the candidate days.
+    dt = _parse_iso(str(raw))
+    if dt is not None:
+        from app.flows._time import to_local
+        target = to_local(dt).date()
+        for d in candidate_days:
+            if to_local(d).date() == target:
+                return to_local(d).weekday()
+    return None
 
 
 def _media_urls_from_message(message_id: str | None) -> list[str]:
@@ -2129,6 +2214,7 @@ def _axis_from_overconfirm_reason(reason: str) -> str:
         "no clock-time signal" in reason
         or "vague non-bucket time word" in reason
         or "default-filled on draft finalize" in reason
+        or "no resolvable time" in reason
     ):
         return "time"
     if "no activity word" in reason or "below the offer" in reason:
@@ -2624,19 +2710,44 @@ def _agent_overconfirm_reason(
     if output.action.name == "update_draft_opportunity":
         du_payload = getattr(output.action, "update_draft_opportunity", None)
         du_parsed = getattr(du_payload, "parsed", None) if du_payload else None
+        # A time was "stated" if any turn has an explicit time signal, OR the
+        # current turn answers a "what time?" clarify with a bare number ("10")
+        # — the prior question disambiguates the bare number as a time.
+        time_was_stated = any(
+            _inbound_has_time_signal(t.lower())
+            for t in (inbound_text, *recent_inbound_texts)
+        ) or (
+            prior_axis == "time"
+            and _inbound_answers_time_with_bare_number(text_lower_pre)
+        )
         if (
             du_parsed is not None
             and du_parsed.kind == "shift"
             and _draft_starts_at_has_clock(du_parsed.starts_at)
             and not getattr(du_parsed, "time_of_day_bucket", None)
-            and not any(
-                _inbound_has_time_signal(t.lower())
-                for t in (inbound_text, *recent_inbound_texts)
-            )
+            and not time_was_stated
         ):
             return (
                 "parsed.starts_at has a clock time but no inbound turn stated a "
                 "time (default-filled on draft finalize); re-ask the time"
+            )
+        # Signal 7: draft-update finalizing a shift with NO resolvable time at
+        # all — starts_at is empty or a midnight date-placeholder AND there's no
+        # time-of-day bucket. The model is confirming a shift whose time axis is
+        # genuinely unfilled (it just didn't fabricate a clock time). Signals 1-3
+        # catch this on create_opportunity; this is the draft-update equivalent.
+        # Not gated on time_was_stated: if a time were stated the model should
+        # have set a clock time or bucket, so an empty time here is a real gap.
+        if (
+            du_parsed is not None
+            and du_parsed.kind == "shift"
+            and not getattr(du_parsed, "candidate_days", None)
+            and not _draft_starts_at_has_clock(du_parsed.starts_at)
+            and not getattr(du_parsed, "time_of_day_bucket", None)
+        ):
+            return (
+                "draft finalize has no resolvable time (midnight/empty starts_at "
+                "and no bucket); re-ask the time"
             )
 
     if output.action.name != "create_opportunity":
@@ -2785,6 +2896,24 @@ def _inbound_has_time_signal(text_lower: str) -> bool:
     reasonably resolve into `starts_at`. Lenient — we'd rather pass through
     a marginal case than block a valid post."""
     return bool(_TIME_SIGNAL_PATTERN.search(text_lower))
+
+
+# A bare 1-2 digit hour ("10", "10 for a couple hours", "9 thanks"). Globally
+# this is ambiguous (could be a headcount), so it is NOT in _TIME_SIGNAL_PATTERN.
+# But when the PRIOR outbound asked "what time?", a leading bare number in the
+# answer is overwhelmingly the time — the question disambiguates it. Used by
+# signal 6 only, gated on prior_axis == "time".
+_LEADING_BARE_HOUR = re.compile(r"^\s*(\d{1,2})\b")
+
+
+def _inbound_answers_time_with_bare_number(text_lower: str) -> bool:
+    """True if the inbound leads with a plausible bare clock hour (0-23). Only
+    meaningful right after a time clarify — see `_inbound_has_time_signal` for
+    the context-free check."""
+    m = _LEADING_BARE_HOUR.match(text_lower)
+    if not m:
+        return False
+    return 0 <= int(m.group(1)) <= 23
 
 
 # Common Vashon-farm crops. A bare crop name is NOT an activity — it could be
@@ -3074,6 +3203,10 @@ def _execute_action(
         receipt_body, receipt_opp_id = _execute_farmer_decide_on_proposal(
             sender=sender, payload=action_payload, provider=provider,
         )
+    elif action_name == "lock_day_vote":
+        receipt_body, receipt_opp_id = _execute_lock_day_vote(
+            sender=sender, payload=action_payload, provider=provider,
+        )
     else:
         # Unknown action — flag and bail. Schema validation should have caught this.
         flags_repo.create(
@@ -3302,6 +3435,32 @@ def _execute_create_opportunity(*, sender: UserDoc, payload: dict, provider) -> 
         f"Reply UNDO if wrong."
     )
     return receipt, created.id
+
+
+def _execute_lock_day_vote(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:
+    """Farmer confirmed locking a candidate-day opp to a specific day. Resolves
+    votes → claims via day_voting.lock_day. payload: {opp_id, locked_day(ISO)}.
+    The locked_day is set by dispatch when the lock nudge is created (Phase 4),
+    not chosen by the model — so a YES executes exactly the day the farmer saw."""
+    opp_id = payload.get("opp_id")
+    locked_day = _parse_iso(payload.get("locked_day")) if payload.get("locked_day") else None
+    if not opp_id or locked_day is None:
+        return None, None
+    opp = opportunities_repo.get_by_id(opp_id)
+    if opp is None or opp.vote_state != "collecting":
+        return None, None
+    farm = farms_repo.get_by_id(opp.farm_id)
+    day_voting_flow.lock_day(
+        opportunity=opp,
+        locked_day=locked_day,
+        messaging=provider,
+        farm_name=farm.name if farm else "the farm",
+    )
+    when_human = day_voting_flow._day_human(locked_day)
+    return (
+        f"Farm Friend Vashon: locked in {when_human}. Volunteers notified. "
+        f"Reply UNDO if wrong."
+    ), opp_id
 
 
 def _execute_update_draft_opportunity(*, sender: UserDoc, payload: dict, provider) -> tuple[str | None, str | None]:

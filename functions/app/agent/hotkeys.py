@@ -67,6 +67,26 @@ _DAY_TOKEN_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
+# Candidate-day voting (docs/preferred-day-voting.md): a volunteer votes for
+# candidate days by naming them WITHOUT a leading YES — e.g. "SUN", "MON, WED",
+# "SUN AND MON", or "ANY"/"BOTH" for all candidate days. Only matches when the
+# WHOLE message is day tokens (or ANY/BOTH): a free-form sentence containing a
+# day word still falls through to the agent. Dispatch confirms the target opp is
+# actually a `collecting` day-vote opp before treating it as a vote; otherwise
+# it's handled like a normal claim.
+_BARE_DAY_LIST_RE = re.compile(
+    r"^\s*(?P<body>(?:mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|"
+    r"fri(?:day)?|sat(?:urday)?|sun(?:day)?|today|tomorrow|"
+    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s*\d{1,2}|\d{1,2}/\d{1,2})"
+    r"(?:\s*(?:,|and|&|/)\s*"
+    r"(?:mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|"
+    r"fri(?:day)?|sat(?:urday)?|sun(?:day)?|today|tomorrow|"
+    r"(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s*\d{1,2}|\d{1,2}/\d{1,2}))*"
+    r")\s*[!\.]?\s*$",
+    re.IGNORECASE,
+)
+_ANY_DAY_RE = re.compile(r"^\s*(any|both|all|whenever|any\s*day)\s*[!\.]?\s*$", re.IGNORECASE)
+
 _MAYBE_RE = re.compile(r"^\s*maybe\s*[!\.\?]?\s*$", re.IGNORECASE)
 _HELP_RE = re.compile(r"^\s*(help|info)\s*[!\.\?]?\s*$", re.IGNORECASE)
 _STATUS_RE = re.compile(r"^\s*status\s*[!\.\?]?\s*$", re.IGNORECASE)
@@ -211,6 +231,19 @@ def parse(
         days = [m.group(0).upper() for m in _DAY_TOKEN_RE.finditer(tail)]
         if days:
             return HotkeyMatch(IntentLabel.CLAIM, {"slots": len(days), "days": days})
+
+    # Bare day-vote (no leading YES) for candidate-day opps: "SUN", "MON, WED",
+    # "ANY"/"BOTH". Emits CLAIM with days; dispatch records DAY_VOTEs only if the
+    # target opp is `collecting`, else handles as a normal claim. Suppressed
+    # right after a clarify (the reply is answering a question, not voting).
+    if not last_outbound_was_clarify:
+        if _ANY_DAY_RE.match(text):
+            return HotkeyMatch(IntentLabel.CLAIM, {"slots": 1, "days": [], "any_day": True})
+        bare_day_match = _BARE_DAY_LIST_RE.match(text)
+        if bare_day_match:
+            days = [m.group(0).upper() for m in _DAY_TOKEN_RE.finditer(bare_day_match.group("body"))]
+            if days:
+                return HotkeyMatch(IntentLabel.CLAIM, {"slots": len(days), "days": days})
 
     if _MAYBE_RE.match(text) and not last_outbound_was_clarify:
         return HotkeyMatch(IntentLabel.MAYBE, {})

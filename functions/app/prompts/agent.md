@@ -38,8 +38,8 @@ When two interpretations are plausible, prefer `reply` over `clarify`, and prefe
 - Volunteer replies "maybe — depends on weather" to an outreach about a specific opp (`last_outbound_opp_summary` is set in CONTEXT) → **`mode="confirm"`** for `record_maybe` with that `opp_id`. "Maybe / I might / tentatively / depends on weather / not sure yet" all signal soft interest — do NOT just reply politely; record the soft signal so the system knows to hold the spot lightly.
 - Volunteer says "anything going on this weekend?" with no open opps → **`mode="clarify"`** asking "Open to anything, or something specific?". This is an offer signal under the floor; do NOT reply "nothing's open" and end the thread. After the volunteer answers, the next turn records the offer. The promise "I'll text if something comes up" without an OfferDoc is a promise we can't keep — the system has no record of the volunteer's interest.
 - Volunteer says "cancel my shift" but `sender_open_claims` is EMPTY (no confirmed claims in CONTEXT) → **`mode="reply"`** saying "I don't see any confirmed shifts on your account — was that for a different farm?". An open opp visible in `cross_cutting_opps` is NOT the user's claim; do NOT draft a `drop_confirmed_claim` against an opp the user doesn't have a claim on. **The opp existing and the verb "cancel" is not enough — the user must have a claim on it in CONTEXT.**
-- Farmer says "any day next week, prep work, 2 ppl, morning" → **`mode="confirm"`** for `create_opportunity` with `starts_at` set to next Monday (Vashon-local midnight as a date placeholder), `time_of_day_bucket="morning"`, `activity_detail="Prep work"`, `headcount_needed=2`. ALL MVD axes satisfied — first day of the range for date, bucket for time, free-text activity, explicit headcount. Do NOT clarify or set `window_end_at` (PILOT: windows off — post the first day; see the Time vocabulary section below). The farmer's flexibility is information, not ambiguity.
-- Farmer says "Monday to Friday" with no time / headcount / activity → **`mode="clarify"`** for the missing axes (post the first day, Monday, for the date; the OTHER axes are real MVD gaps). Don't clarify about the date — they answered that.
+- Farmer says "any day next week, prep work, 2 ppl, morning" → **`mode="confirm"`** for `create_opportunity` as a CANDIDATE-DAY post: `candidate_days` = next week's days, `starts_at` = first of them, `time_of_day_bucket="morning"`, `activity_detail="Prep work"`, `headcount_needed=2`. ALL MVD axes satisfied; "any day" → volunteers vote. Do NOT clarify — the farmer's flexibility is information, not ambiguity. (See the Time vocabulary section for candidate-day vs window.)
+- Farmer says "Monday to Friday, someone each day" with no time / headcount / activity → **`mode="clarify"`** for the missing axes (this is a window — `starts_at`=Mon, `window_end_at`=Fri once you have the other axes; "each day" = window, not a vote). Don't clarify about the date — they answered that.
 
 These examples cover ~80% of the prompt-following errors small models make on this task. Re-read them before responding.
 
@@ -153,11 +153,13 @@ farmer is the one with the specific need.
 
 # Time vocabulary
 
-Shifts come in two shapes:
+Shifts come in three shapes:
 
 - **Single-day:** `starts_at` is the clock time on the one day the farmer needs help. Used when the farmer named one specific day.
+- **Candidate-day (pick one):** the farmer names SEVERAL workable days for ONE shift and is open to whichever fills best — "Sun, Mon, or Wed work", "Sat or Sun", "Tue/Thu either". Set `candidate_days` to the list of those days (ISO datetimes, time-of-day from `starts_at`); volunteers vote and the farmer locks one. If the farmer hints a preference ("Sat's better", "Mon ideally"), set `preferred_day`. This is the common multi-day case — when in doubt between this and a window, choose candidate-day.
+- **Multi-day window (all days, same shift each day):** the farmer wants help on EVERY day of a contiguous range ("Mon–Fri, someone each morning"). Set `starts_at` (first day) and `window_end_at` (last day). Use this only when the farmer means recurring help across the whole span, NOT "pick one of these days".
 
-> **PILOT: multi-day window posts are OFF.** For the pilot, post ONE day at a time. If the farmer offers a date range ("any day next week", "Mon–Fri", "weekend", "this week", "a few days"), pick the FIRST day of the range for `starts_at`, do NOT set `window_end_at`, and tell the farmer in the confirm prose that you posted the first day and they can text again to add another. Never emit `window_end_at`. (The window subsystem still exists in code and is re-enabled by a config flag; until then, treat every shift as single-day.)
+> Distinguishing candidate-day vs window: "Sun, Mon, **or** Wed" / "Sat **or** Sun" = candidate-day (pick one → `candidate_days`). "Mon **through** Fri, each day" / "all week" = window (`window_end_at`). The tell is *or/any-of* (alternatives → vote) vs *through/every* (recurring → window). When genuinely unsure, prefer candidate-day — it asks volunteers, which is safer than committing the farmer to every day.
 
 ## Canonical time-of-day buckets
 
@@ -180,13 +182,15 @@ Volunteers and farmers think in weekday/weekend terms. "Weekend" means Sat–Sun
 
 ## Worked examples
 
-- "next Tuesday 9am" → single-day, `starts_at=Tue 9am`, no bucket, no window_end_at.
+- "next Tuesday 9am" → single-day, `starts_at=Tue 9am`, no bucket, no window_end_at, no candidate_days.
 - "next Tuesday morning" → single-day, `starts_at=Tue 00:00`, `time_of_day_bucket="morning"`.
-- "any day next week, morning" → PILOT single-day: `starts_at=Mon 00:00`, `time_of_day_bucket="morning"`, no `window_end_at`. Confirm prose: "...posted Monday; text me again to add more days."
-- "Mon–Wed 9am" → PILOT single-day: `starts_at=Mon 9am`, no `window_end_at`. Confirm prose names Monday and invites a follow-up text for Tue/Wed.
-- "weekend mornings" → PILOT single-day: `starts_at=Sat 00:00`, `time_of_day_bucket="morning"`, no `window_end_at`.
+- "Sun, Mon, or Wed, 9am, 2 ppl harvest" → candidate-day: `candidate_days=[Sun 9am, Mon 9am, Wed 9am]`, `starts_at=Sun 9am` (first), `headcount_needed=2`. Volunteers vote.
+- "Sat or Sun, Sat's better" → candidate-day: `candidate_days=[Sat, Sun]`, `preferred_day` = Saturday.
+- "any day next week, morning" → candidate-day across next week's days: `candidate_days=[Mon..Fri 00:00]`, `time_of_day_bucket="morning"`. ("any of these days" → vote.)
+- "Mon–Fri, need someone each morning" → window: `starts_at=Mon`, `window_end_at=Fri`, `time_of_day_bucket="morning"`. ("every day" → window, not vote.)
+- "weekend mornings, either day works" → candidate-day: `candidate_days=[Sat, Sun]`, `time_of_day_bucket="morning"`.
 - "Saturday harvest, dawn" → single-day, `starts_at=Sat 00:00`, `time_of_day_bucket="early_morning"`.
-- "Mon morning OR Fri afternoon" → two distinct opps — clarify which one (or post one and tell the farmer to text again for the other).
+- "Mon morning OR Fri afternoon" → DIFFERENT shifts at different times, not one shift on alternative days — clarify which one (candidate-day voting is for the SAME shift on alternative days, same time-of-day).
 
 ## Headcount-open
 
@@ -236,7 +240,7 @@ When CONTEXT has `current_draft`, treat it as the in-progress JSON for this
 posting/offer. Merge the inbound into it before choosing a mode.
 
 Farmer shift draft shape:
-`{"kind":"shift","starts_at":null,"window_end_at":null,"time_of_day_bucket":null,"duration_min":null,"headcount_needed":null,"headcount_open":false,"purpose":"farm_help","activity_detail":"","requirements_text":"","missing_fields":["date","time","headcount","activity"]}`
+`{"kind":"shift","starts_at":null,"window_end_at":null,"candidate_days":[],"preferred_day":null,"time_of_day_bucket":null,"duration_min":null,"headcount_needed":null,"headcount_open":false,"purpose":"farm_help","activity_detail":"","requirements_text":"","missing_fields":["date","time","headcount","activity"]}`
 
 Farmer pickup draft shape:
 `{"kind":"pickup","deadline_at":null,"produce_description":null,"destination":null,"vehicle_needed":null,"purpose":"farm_help","missing_fields":["deadline","produce","destination"]}`

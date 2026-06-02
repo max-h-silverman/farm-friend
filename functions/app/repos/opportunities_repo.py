@@ -192,6 +192,23 @@ def increment_agent_nudges_sent(opp_id: str, *, by: int = 1) -> None:
     db.collection(COLLECTION).document(opp_id).update({"agent_nudges_sent": Increment(by)})
 
 
+def increment_day_vote_nudges_sent(opp_id: str, *, by: int = 1) -> None:
+    """Atomic increment of the per-opp day-vote farmer-nudge counter
+    (docs/preferred-day-voting.md). Separate from agent_nudges_sent so the
+    voting cadence budget is independent of review nudges."""
+    db.collection(COLLECTION).document(opp_id).update({"day_vote_nudges_sent": Increment(by)})
+
+
+def list_collecting(*, now: datetime | None = None) -> list[OpportunityDoc]:
+    """Candidate-day opps currently gathering votes (vote_state='collecting').
+    Status is OPEN/FILLING while collecting; filter by vote_state."""
+    q = (
+        db.collection(COLLECTION)
+        .where("vote_state", "==", "collecting")
+    )
+    return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
 def list_due_for_escalation(*, now: datetime) -> list[OpportunityDoc]:
     """Opportunities whose escalation timer has fired and still need help."""
     q = (
@@ -454,6 +471,56 @@ def list_confirmed_claims(opp_id: str) -> list[ClaimDoc]:
 def list_all_claims(opp_id: str) -> list[ClaimDoc]:
     snaps = db.collection(COLLECTION).document(opp_id).collection(CLAIMS_SUB).stream()
     return [snapshot_to_model(s, ClaimDoc) for s in snaps if s.exists]  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Candidate-day voting (docs/preferred-day-voting.md)
+# ---------------------------------------------------------------------------
+def add_day_vote(
+    *,
+    opp_id: str,
+    volunteer_user_id: str,
+    scheduled_for_at: datetime,
+) -> None:
+    """Record a soft DAY_VOTE for one candidate day. Idempotent per
+    (volunteer, day) via the day-scoped claim doc id; re-voting the same day
+    is a harmless overwrite. Holds no seat — does not touch seats_filled /
+    seats_held. Resolution to CONFIRMED happens at farmer lock-in."""
+    from datetime import UTC
+    upsert_claim(
+        opp_id=opp_id,
+        claim=ClaimDoc(
+            volunteer_user_id=volunteer_user_id,
+            status=ClaimStatus.DAY_VOTE,
+            scheduled_for_at=scheduled_for_at,
+            claimed_at=datetime.now(UTC),
+        ),
+    )
+
+
+def list_day_votes(opp_id: str) -> list[ClaimDoc]:
+    """All DAY_VOTE claims for an opp (across all candidate days)."""
+    q = (
+        db.collection(COLLECTION)
+        .document(opp_id)
+        .collection(CLAIMS_SUB)
+        .where("status", "==", ClaimStatus.DAY_VOTE.value)
+    )
+    return [snapshot_to_model(s, ClaimDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
+def day_vote_tally(opp_id: str) -> dict[str, int]:
+    """Count of DAY_VOTEs per candidate day, keyed by the LOCAL Vashon ISO
+    date (matching `_claim_doc_id`'s day component). Greedy assignment reads
+    this; the highest count (preference breaks ties) is the lock candidate."""
+    from app.flows._time import to_local
+    tally: dict[str, int] = {}
+    for vote in list_day_votes(opp_id):
+        if vote.scheduled_for_at is None:
+            continue
+        day_key = to_local(vote.scheduled_for_at).date().isoformat()
+        tally[day_key] = tally.get(day_key, 0) + 1
+    return tally
 
 
 def mark_confirmation_sent(

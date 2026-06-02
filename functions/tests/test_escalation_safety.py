@@ -38,6 +38,7 @@ def _settings(**overrides) -> Settings:
         agent_review_per_tick_max=3,
         agent_review_admin_only=True,
         agent_window_posts_enabled=False,
+        day_voting_enabled=True,
         clarify_round_max=2,
         clarify_user_24h_max=5,
         offer_default_ttl_days=7,

@@ -154,6 +154,7 @@ class Settings:
     agent_review_per_tick_max: int        # max user-facing nudges per review tick
     agent_review_admin_only: bool         # pilot safety: force ALL review proposals to admin worklist
     agent_window_posts_enabled: bool      # pilot safety: when False, strip agent-emitted window_end_at (single-day posts only)
+    day_voting_enabled: bool              # candidate-day voting (docs/preferred-day-voting.md); kill-switch, default ON
     clarify_round_max: int                # auto-escalate after this many consecutive CLARIFY rounds
     clarify_user_24h_max: int             # soft cap: CLARIFY outbounds per user per 24h
     offer_default_ttl_days: int           # default expires_at for OfferDoc when no latest_at given
@@ -244,20 +245,26 @@ def load_settings() -> Settings:
         agent_nudge_budget_hours=int(_env("AGENT_NUDGE_BUDGET_HOURS", "48")),
         agent_nudge_per_opp_max=int(_env("AGENT_NUDGE_PER_OPP_MAX", "2")),
         agent_review_per_tick_max=int(_env("AGENT_REVIEW_PER_TICK_MAX", "3")),
-        # Pilot safety default: the proactive review tick only writes to the
-        # admin worklist; it does NOT autonomously SMS users. Set
-        # AGENT_REVIEW_ADMIN_ONLY=0 to enable user-facing nudges once the
-        # OLMo path is trusted in production. See docs/status.md.
-        agent_review_admin_only=_env("AGENT_REVIEW_ADMIN_ONLY", "1").lower()
-        not in {"0", "false", "no"},
-        # Pilot safety: window (multi-day) posts are deferred from the agent's
-        # responsibilities for the pilot — a farmer posts one day at a time.
-        # Default OFF. Shrinks the prompt surface the model must get right (the
-        # window subsystem is the flakiest part of the eval) without deleting
-        # the code, which stays for post-pilot. When False, dispatch strips any
-        # window_end_at the agent emits, collapsing it to a single-day post.
-        agent_window_posts_enabled=_env("AGENT_WINDOW_POSTS_ENABLED", "0").lower()
+        # The proactive review tick coordinates autonomously (sends user-facing
+        # nudges), per "full functionality at small scale" (2026-06-01). The
+        # flag is RETAINED as an emergency kill-switch: set
+        # AGENT_REVIEW_ADMIN_ONLY=1 to route every proposal back to the admin
+        # worklist if the coordinator misbehaves in production. The day-voting
+        # carve-out (board_review) lets day-vote farmer nudges go direct even
+        # when this is on. Default OFF (autonomous). See docs/preferred-day-voting.md.
+        agent_review_admin_only=_env("AGENT_REVIEW_ADMIN_ONLY", "0").lower()
         in {"1", "true", "yes"},
+        # Multi-day window posts are ON (full functionality at small scale).
+        # Flag RETAINED as a kill-switch: set AGENT_WINDOW_POSTS_ENABLED=0 to
+        # strip agent-emitted window_end_at (single-day posts only) if the
+        # window subsystem misbehaves. See docs/preferred-day-voting.md.
+        agent_window_posts_enabled=_env("AGENT_WINDOW_POSTS_ENABLED", "1").lower()
+        not in {"0", "false", "no"},
+        # Candidate-day voting (docs/preferred-day-voting.md). ON by default;
+        # kill-switch via DAY_VOTING_ENABLED=0 (agent stops emitting
+        # candidate-day opps; dispatch treats day tokens as today).
+        day_voting_enabled=_env("DAY_VOTING_ENABLED", "1").lower()
+        not in {"0", "false", "no"},
         clarify_round_max=int(_env("CLARIFY_ROUND_MAX", "2")),
         clarify_user_24h_max=int(_env("CLARIFY_USER_24H_MAX", "5")),
         offer_default_ttl_days=int(_env("OFFER_DEFAULT_TTL_DAYS", "7")),

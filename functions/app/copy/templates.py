@@ -412,3 +412,25 @@ def render_window_outreach(
         "skip, or STOP to opt out."
     )
     return " ".join(parts)
+
+
+def render_candidate_day_outreach(
+    *,
+    farm_name: str,
+    activity: str,
+    days: list[str],
+    requirements: str,
+) -> str:
+    """Outreach for a candidate-day VOTING opp (docs/preferred-day-voting.md):
+    list the workable days (with dates, optional "(farmer's pick)" hint) and ask
+    the volunteer to vote with a day. Broadcast outreach → carries the STOP line."""
+    day_list = "; ".join(days) if days else "a few days"
+    head = f"Farm Friend Vashon: {farm_name} needs help with {activity}."
+    parts = [head, f"Possible days: {day_list}."]
+    if requirements:
+        parts.append(requirements)
+    parts.append(
+        "Reply with a day (e.g. WED), ANY for any of them, MAYBE if unsure, "
+        "MUTE to skip, or STOP to opt out."
+    )
+    return " ".join(parts)
