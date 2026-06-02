@@ -1285,8 +1285,8 @@ CASES.append(EvalCase(
     category="NEW_INTENT",
     description=(
         "Multi-turn happy path: weekend harvest → day clarify → 'sun' → time "
-        "clarify → 'around 10 for a couple hours'. The farmer FINALLY gives the "
-        "time ('around 10' — a bare-hour time answer). Must CONFIRM the draft, "
+        "clarify → '10 for a couple hours'. The farmer FINALLY gives the "
+        "time ('10' — a BARE-number time answer to a time clarify). Must CONFIRM, "
         "NOT misfire signal 6 (which would clarify again and, at the cap, escalate "
         "to silence). Regression for the 'around 10' time-signal false-negative."
     ),
@@ -1310,7 +1310,7 @@ CASES.append(EvalCase(
                         opportunity_id="o_draft", created_at=NOW - timedelta(minutes=5)),
         ],
     ),
-    inbound_text="around 10 for a couple hours",
+    inbound_text="10 for a couple hours",
     inbound_from_user_id="u_farmer_a",
     expected=ExpectedOutput(mode="confirm", action_name="update_draft_opportunity"),
 ))

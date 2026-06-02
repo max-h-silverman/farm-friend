@@ -42,6 +42,8 @@ All scheduled functions live in `main.py` (registration only) with logic in `app
 | `tick_stale_drafts` | every 30 min | Flag drafts older than 2h that never completed clarification. |
 | `tick_agent_review` | every 30 min | Run the unified agent in `review` mode against board state; apply budget filters (per-user 48h, per-opp 2-lifetime, per-tick 3-global); send top proposals as `PENDING_CONFIRMATION`s. |
 
+> **Direction (not current state): dispatch writes/acknowledges, the tick coordinates.** A planned reframe (`docs/preferred-day-voting.md`, 2026-06-01) treats inbound dispatch as a transcriber + acknowledger (finalize Firestore docs; sync-reply only to compliance hotkeys, safety escalations, direct acks, and direct factual answers) and the board-review tick as the decision-maker for *all proactive outreach* (fan-out, nudges, convergence, lock-in, chasing stalled requests, expiry). This makes the existing quiet-hours principle ("replies to user actions send anytime; scheduled/broadcast is tick-owned") load-bearing. Today `tick_agent_review` is the embryonic version and is `AGENT_REVIEW_ADMIN_ONLY`; maturing it is prerequisite work for candidate-day voting. Do not treat this as implemented — it's the target shape.
+
 ### State machines
 
 - **Opportunity**: `draft → open → filling → full → completed` (or `cancelled` / `expired` from any state). Edges worth knowing: claim of last seat flips `filling → full`; volunteer drop flips `full → filling` and re-fires outreach; headcount edit up past `seats_filled` flips `full → filling`; headcount edit down below `seats_filled` is rejected (hard rule).

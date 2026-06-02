@@ -2624,15 +2624,22 @@ def _agent_overconfirm_reason(
     if output.action.name == "update_draft_opportunity":
         du_payload = getattr(output.action, "update_draft_opportunity", None)
         du_parsed = getattr(du_payload, "parsed", None) if du_payload else None
+        # A time was "stated" if any turn has an explicit time signal, OR the
+        # current turn answers a "what time?" clarify with a bare number ("10")
+        # — the prior question disambiguates the bare number as a time.
+        time_was_stated = any(
+            _inbound_has_time_signal(t.lower())
+            for t in (inbound_text, *recent_inbound_texts)
+        ) or (
+            prior_axis == "time"
+            and _inbound_answers_time_with_bare_number(text_lower_pre)
+        )
         if (
             du_parsed is not None
             and du_parsed.kind == "shift"
             and _draft_starts_at_has_clock(du_parsed.starts_at)
             and not getattr(du_parsed, "time_of_day_bucket", None)
-            and not any(
-                _inbound_has_time_signal(t.lower())
-                for t in (inbound_text, *recent_inbound_texts)
-            )
+            and not time_was_stated
         ):
             return (
                 "parsed.starts_at has a clock time but no inbound turn stated a "
@@ -2785,6 +2792,24 @@ def _inbound_has_time_signal(text_lower: str) -> bool:
     reasonably resolve into `starts_at`. Lenient — we'd rather pass through
     a marginal case than block a valid post."""
     return bool(_TIME_SIGNAL_PATTERN.search(text_lower))
+
+
+# A bare 1-2 digit hour ("10", "10 for a couple hours", "9 thanks"). Globally
+# this is ambiguous (could be a headcount), so it is NOT in _TIME_SIGNAL_PATTERN.
+# But when the PRIOR outbound asked "what time?", a leading bare number in the
+# answer is overwhelmingly the time — the question disambiguates it. Used by
+# signal 6 only, gated on prior_axis == "time".
+_LEADING_BARE_HOUR = re.compile(r"^\s*(\d{1,2})\b")
+
+
+def _inbound_answers_time_with_bare_number(text_lower: str) -> bool:
+    """True if the inbound leads with a plausible bare clock hour (0-23). Only
+    meaningful right after a time clarify — see `_inbound_has_time_signal` for
+    the context-free check."""
+    m = _LEADING_BARE_HOUR.match(text_lower)
+    if not m:
+        return False
+    return 0 <= int(m.group(1)) <= 23
 
 
 # Common Vashon-farm crops. A bare crop name is NOT an activity — it could be

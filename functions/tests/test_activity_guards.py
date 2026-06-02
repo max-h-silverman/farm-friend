@@ -266,6 +266,48 @@ def test_overconfirm_fires_on_draft_finalize_with_default_time():
     assert reason is not None and "default-filled on draft finalize" in reason
 
 
+def test_signal6_accepts_bare_number_time_after_time_clarify():
+    # The screenshot bug: "10 for a couple hours" answering a "what time?"
+    # clarify. The bare "10" IS the time (the prior question disambiguates it),
+    # so signal 6 must NOT fire and the draft confirms.
+    out = _draft_update_output(starts_at="2026-06-07T10:00:00-07:00")
+    reason = _agent_overconfirm_reason(
+        output=out,
+        inbound_text="10 for a couple hours",
+        last_outbound=_time_clarify_outbound(),
+        recent_inbound_texts=("10 for a couple hours", "sat is better"),
+    )
+    assert reason is None
+
+
+def test_signal6_bare_number_only_counts_after_a_TIME_clarify():
+    # A bare number answering a DATE clarify must NOT be read as a time — the
+    # gating is on prior_axis == "time". Here no time was ever stated, so signal
+    # 6 still fires (the 9am is default-filled).
+    out = _draft_update_output(starts_at="2026-06-08T09:00:00-07:00")
+    date_clarify = MessageDoc(
+        direction=MessageDirection.OUTBOUND, provider_msg_id="m3",
+        body="Which day?", intent_label=IntentLabel.CLARIFY,
+        clarify_axis="date", created_at=datetime.now(UTC),
+    )
+    reason = _agent_overconfirm_reason(
+        output=out, inbound_text="sun", last_outbound=date_clarify,
+        recent_inbound_texts=("sun", "need help sunday"),
+    )
+    assert reason is not None and "default-filled on draft finalize" in reason
+
+
+def test_bare_number_time_detector_bounds():
+    from app.flows.message_dispatch import _inbound_answers_time_with_bare_number as bn
+    assert bn("10 for a couple hours")
+    assert bn("10")
+    assert bn("9 thanks")
+    assert not bn("sat is better")
+    assert not bn("tomatoes")
+    assert not bn("25 people")  # 25 > 23, not a valid hour
+    assert not bn("30")
+
+
 def test_signal6_does_not_fire_when_time_given_on_an_earlier_turn():
     # Farmer DID give "8am" on turn 1; a later turn answered headcount. The
     # draft carries the real time forward — must NOT fire (anti-phone-tree).
