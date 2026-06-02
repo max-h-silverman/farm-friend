@@ -1134,13 +1134,13 @@ CASES.append(EvalCase(
 # === Window opps + MVD (PR 6 Stage 1) ====================================
 
 CASES.append(EvalCase(
-    id="new.farmer.window.any_day_next_week",
+    id="new.farmer.candidate_days.any_day_next_week",
     category="NEW_INTENT",
     description=(
-        "The motivating case: 'any day next week, prep work, 2 ppl, morning'. "
-        "All four MVD axes satisfied via fuzzy shapes — window for date, "
-        "bucket for time, tbd+verbatim for activity, explicit 2 for headcount. "
-        "Should confirm create_opportunity with window_end_at set."
+        "The motivating case under day-voting: 'any day next week, prep work, "
+        "2 ppl, morning'. 'any day' = alternatives -> candidate-day VOTE, not a "
+        "window. Confirm create_opportunity with candidate_days set (volunteers "
+        "vote on which day), bucket for time, explicit 2 headcount."
     ),
     world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
     inbound_text="any day next week, prep work, 2 ppl, morning",
@@ -1149,8 +1149,30 @@ CASES.append(EvalCase(
         mode="confirm", action_name="create_opportunity",
         payload_must_include={
             "kind": "shift",
-            "window_end_at": ANY,
+            "candidate_days": ANY,
             "time_of_day_bucket": "morning",
+            "headcount_needed": 2,
+            "activity_detail": ANY,
+        },
+    ),
+))
+
+CASES.append(EvalCase(
+    id="new.farmer.candidate_days.or_list_with_preference",
+    category="NEW_INTENT",
+    description=(
+        "'Sun, Mon, or Wed work for tomato harvest, 9am, 2 people, Mon's best' "
+        "-> candidate-day post: candidate_days = those 3 days, preferred_day = "
+        "Monday. 'or' among specific days = vote, not a window."
+    ),
+    world=World(users=[FARMER_A], farms=[FARM_THREE_CEDARS]),
+    inbound_text="sun, mon, or wed work for tomato harvest, 9am, 2 people, mon's best",
+    inbound_from_user_id="u_farmer_a",
+    expected=ExpectedOutput(
+        mode="confirm", action_name="create_opportunity",
+        payload_must_include={
+            "kind": "shift",
+            "candidate_days": ANY,
             "headcount_needed": 2,
             "activity_detail": ANY,
         },

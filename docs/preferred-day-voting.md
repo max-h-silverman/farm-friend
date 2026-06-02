@@ -1,6 +1,6 @@
 # Design record: candidate-day voting (scheduling specificity spectrum)
 
-**Status: DESIGN ONLY — not implemented.** This is the shape-it-on-paper step before any code. Companion to `docs/agent-architecture-rethink.md` (window posts) and `docs/activity-model-redesign.md`.
+**Status: IMPLEMENTED 2026-06-02 (branch `feature/coordinator-day-voting`).** Levels 2–3 built behind `DAY_VOTING_ENABLED` (default ON). Phases 0–4 landed; see "Implementation plan" below for the phase map and `docs/status.md` for the build log. Companion to `docs/agent-architecture-rethink.md` (window posts) and `docs/activity-model-redesign.md`.
 
 > Originally scoped as a narrow "preferred-day" feature; reframed 2026-06-01 around a **specificity spectrum** the coordinator handles uniformly. The preferred-day case is now just level 2.
 

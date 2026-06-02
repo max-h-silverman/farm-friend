@@ -320,15 +320,33 @@ def test_signal6_does_not_fire_when_time_given_on_an_earlier_turn():
     assert reason is None
 
 
-def test_signal6_does_not_fire_for_a_midnight_date_placeholder():
-    # starts_at at midnight is a date-only placeholder, not a clock time — the
-    # time axis is still genuinely open, so signal 6 (which is about a FABRICATED
-    # clock time) must not fire; the normal missing-axis path handles it.
+def test_signal7_fires_on_midnight_placeholder_with_no_bucket():
+    # The model finalizes a draft with starts_at at midnight (date placeholder)
+    # and no bucket — the time axis is genuinely unfilled. Must downgrade.
     out = _draft_update_output(starts_at="2026-06-08T00:00:00-07:00")
-    reason = _agent_overconfirm_reason(
-        output=out, inbound_text="Sun", recent_inbound_texts=("Sun",)
-    )
-    assert reason is None
+    reason = _agent_overconfirm_reason(output=out, inbound_text="Sun")
+    assert reason is not None and "no resolvable time" in reason
+
+
+def test_signal7_does_not_fire_with_a_bucket():
+    # Midnight starts_at is fine when a time-of-day bucket carries the time.
+    out = AgentOutput(
+        mode="confirm",
+        action=ActionSpec(
+            name="update_draft_opportunity",
+            update_draft_opportunity=UpdateDraftOpportunityPayload(
+                opp_id="o", parsed=ParsedOpportunity(
+                    kind="shift", starts_at="2026-06-08T00:00:00-07:00",
+                    time_of_day_bucket="morning", headcount_needed=2,
+                    activity_detail="Harvest"))))
+    assert _agent_overconfirm_reason(output=out, inbound_text="morning") is None
+
+
+# (A midnight starts_at with no bucket now fires signal 7 — the time axis is
+# genuinely unfilled on a draft finalize. See test_signal7_* above. The old
+# "signal 6 doesn't fire on midnight" test was removed: signal 6 is about a
+# FABRICATED clock time; signal 7 covers the genuinely-empty time case that
+# Signal 3 only handled for create_opportunity.)
 
 
 # --- signals 4 & 5 are routine refinement, not admin-worthy ----------------

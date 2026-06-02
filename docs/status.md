@@ -2,6 +2,16 @@
 
 The running narrative of what's been built, what was just fixed, and what's been deferred. Dated entries; newest at top. Companion to `CLAUDE.md` (orientation), `docs/next-steps.md` (punch list), and `docs/architecture.md` (invariants).
 
+## Status (as of 2026-06-02) — candidate-day voting + dispatch/tick coordinator model
+
+Branch `feature/coordinator-day-voting`. "Full functionality at small scale" — the pilot runs the fully-featured system, not a reduced one. Windows re-enabled (`AGENT_WINDOW_POSTS_ENABLED` default ON), the review tick graduated to autonomous (`AGENT_REVIEW_ADMIN_ONLY` default OFF), and **candidate-day voting** built end-to-end behind `DAY_VOTING_ENABLED` (default ON). All three flags retained as kill-switches. Built in 5 phases, each green; design + plan in `docs/preferred-day-voting.md`.
+
+- **The architectural outcome: dispatch writes/acknowledges, the tick coordinates.** Inbound dispatch finalizes Firestore docs + acks the user's own action (compliance hotkeys, escalations, claim/drop acks, factual answers); the board-review tick owns proactive outreach (fan-out, farmer nudges, convergence, lock-in, expiry). Documented in `architecture.md`. Day-voting is the first feature built natively on this split; the broader migration (auditing other dispatch-initiated outreach) is future work.
+
+- **Candidate-day voting (levels 2–3).** A farmer naming alternative days ("Sun, Mon, or Wed work") → `candidate_days` post; volunteers vote (`ClaimStatus.DAY_VOTE`, soft, no seat); the tick nudges the farmer to lock the best-supported day (greedy tally, `preferred_day` tiebreak) when fillable or the by-date nears; farmer YES runs `lock_day_vote` (promote→CONFIRMED up to headcount, waitlist overflow, off-day voters notified + offered the locked day, opp collapses to single-day); by-date with no lock → expire + release. Level 4 ("whenever") = agent asks for days (deferred). Fan-out lists days with dates + "(farmer's pick)" hint. Phases: 0 data model/flags, 1 vote intake (dispatch reflex), 2 post recognition + fan-out (agent/prompt), 3 lock-in/deadline/expiry (deterministic), 4 tick coordination (carve-out: day-vote nudges send direct even while review is admin-only), 5 eval + docs.
+
+- **Prompt:** the three shift shapes (single / candidate-day "pick one" / window "every day"), with *or/any-of* → vote vs *through/every* → window as the tell. Replaced the earlier "PILOT: windows off" guidance.
+
 ## Status (as of 2026-06-01) — activity-model redesign + OLMo settled
 
 Two big things landed this session, plus a critical bug fix and reliability hardening:

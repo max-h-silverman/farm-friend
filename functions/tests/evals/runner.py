@@ -1536,22 +1536,45 @@ def _(c): return _confirm(
 
 
 # === Window opps + MVD (PR 6 Stage 1) stubs ===
-@stub_for("new.farmer.window.any_day_next_week")
+@stub_for("new.farmer.candidate_days.any_day_next_week")
 def _(c): return _confirm(
     "create_opportunity",
     {"parsed": {
         "kind": "shift",
         "starts_at": "2026-06-08T00:00:00-07:00",
-        "window_end_at": "2026-06-12T00:00:00-07:00",
+        "candidate_days": [
+            "2026-06-08T00:00:00-07:00", "2026-06-09T00:00:00-07:00",
+            "2026-06-10T00:00:00-07:00", "2026-06-11T00:00:00-07:00",
+            "2026-06-12T00:00:00-07:00",
+        ],
         "time_of_day_bucket": "morning",
         "duration_min": None,
         "headcount_needed": 2,
-        "activity_detail": "General farm work (TBD)",
-        "requirements_text": "prep work",
+        "activity_detail": "Prep work",
         "missing_fields": [],
     }},
     token="YES",
-    text="Post 2 ppl for prep work, any day Mon Jun 8 - Fri Jun 12 morning? Reply YES.",
+    text="Post 2 ppl for prep work, vote among next week's mornings? Reply YES.",
+)
+
+
+@stub_for("new.farmer.candidate_days.or_list_with_preference")
+def _(c): return _confirm(
+    "create_opportunity",
+    {"parsed": {
+        "kind": "shift",
+        "starts_at": "2026-06-07T09:00:00-07:00",
+        "candidate_days": [
+            "2026-06-07T09:00:00-07:00", "2026-06-08T09:00:00-07:00",
+            "2026-06-10T09:00:00-07:00",
+        ],
+        "preferred_day": "2026-06-08T09:00:00-07:00",
+        "headcount_needed": 2,
+        "activity_detail": "Tomato Harvest",
+        "missing_fields": [],
+    }},
+    token="YES",
+    text="Post 2 ppl for tomato harvest, vote Sun/Mon/Wed (Mon preferred)? Reply YES.",
 )
 
 
@@ -1756,13 +1779,21 @@ def run_all(*, live: bool, category: str | None, case_id: str | None,
     windows_on = os.environ.get(
         "AGENT_WINDOW_POSTS_ENABLED", "1"
     ).lower() not in {"0", "false", "no"}
+    voting_on = os.environ.get(
+        "DAY_VOTING_ENABLED", "1"
+    ).lower() not in {"0", "false", "no"}
 
     for case in cases_to_run:
-        asserts_window = "window_end_at" in (case.expected.payload_must_include or {})
-        if asserts_window and not windows_on:
+        must = case.expected.payload_must_include or {}
+        if "window_end_at" in must and not windows_on:
             skipped += 1
             if verbose:
-                print(f"SKIP {case.id}  (window posts deferred; set AGENT_WINDOW_POSTS_ENABLED=1)")
+                print(f"SKIP {case.id}  (window kill-switch on; set AGENT_WINDOW_POSTS_ENABLED=1)")
+            continue
+        if "candidate_days" in must and not voting_on:
+            skipped += 1
+            if verbose:
+                print(f"SKIP {case.id}  (day-voting kill-switch on; set DAY_VOTING_ENABLED=1)")
             continue
         result = run_one(case, live=live)
         if result.passed:

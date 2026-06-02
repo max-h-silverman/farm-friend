@@ -2214,6 +2214,7 @@ def _axis_from_overconfirm_reason(reason: str) -> str:
         "no clock-time signal" in reason
         or "vague non-bucket time word" in reason
         or "default-filled on draft finalize" in reason
+        or "no resolvable time" in reason
     ):
         return "time"
     if "no activity word" in reason or "below the offer" in reason:
@@ -2729,6 +2730,24 @@ def _agent_overconfirm_reason(
             return (
                 "parsed.starts_at has a clock time but no inbound turn stated a "
                 "time (default-filled on draft finalize); re-ask the time"
+            )
+        # Signal 7: draft-update finalizing a shift with NO resolvable time at
+        # all — starts_at is empty or a midnight date-placeholder AND there's no
+        # time-of-day bucket. The model is confirming a shift whose time axis is
+        # genuinely unfilled (it just didn't fabricate a clock time). Signals 1-3
+        # catch this on create_opportunity; this is the draft-update equivalent.
+        # Not gated on time_was_stated: if a time were stated the model should
+        # have set a clock time or bucket, so an empty time here is a real gap.
+        if (
+            du_parsed is not None
+            and du_parsed.kind == "shift"
+            and not getattr(du_parsed, "candidate_days", None)
+            and not _draft_starts_at_has_clock(du_parsed.starts_at)
+            and not getattr(du_parsed, "time_of_day_bucket", None)
+        ):
+            return (
+                "draft finalize has no resolvable time (midnight/empty starts_at "
+                "and no bucket); re-ask the time"
             )
 
     if output.action.name != "create_opportunity":
