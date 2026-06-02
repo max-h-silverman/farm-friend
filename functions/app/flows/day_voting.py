@@ -14,19 +14,29 @@ nudge/lock/expire; the functions here DO the resolution. No LLM.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.copy import templates
 from app.flows._time import to_local
 from app.messaging import MessagingProvider
 from app.messaging._safe_send import safe_send
-from app.repos import opportunities_repo, users_repo
+from app.repos import farms_repo, messages_repo, opportunities_repo, users_repo
 from app.repos.models import (
     ClaimDoc,
     ClaimStatus,
+    IntentLabel,
+    MessageDirection,
+    MessageDoc,
     OpportunityDoc,
     OpportunityStatus,
 )
+
+# Cadence (docs/preferred-day-voting.md). The board-review tick is the pacer; a
+# ~30-min worst-case nudge delay is acceptable, so a frequent tick alone is fine.
+# Nudge the farmer when a day is fillable, OR when the by-date is within this
+# window (deadline-tightening). Per-opp nudge budget caps farmer SMS volume.
+_DEADLINE_NUDGE_WINDOW = timedelta(hours=24)
+_PER_OPP_NUDGE_BUDGET = 4
 
 
 def choose_lock_day(opp: OpportunityDoc) -> datetime | None:
@@ -190,3 +200,132 @@ def _notify(messaging: MessagingProvider, user_id: str, body: str) -> None:
 
 def _day_human(when: datetime) -> str:
     return to_local(when).strftime("%a %-m/%-d")
+
+
+# ---------------------------------------------------------------------------
+# Coordinator pass (called by the board-review tick — the standing process)
+# ---------------------------------------------------------------------------
+def coordinate_collecting_opps(*, messaging: MessagingProvider, now: datetime | None = None) -> None:
+    """Deterministic day-vote coordination, run each board-review tick.
+
+    For every collecting opp: expire it if the by-date has passed; otherwise, if
+    a day is fillable OR the by-date is near, send the farmer a lock nudge (a
+    PENDING_CONFIRMATION for `lock_day_vote` on the best day). The farmer's YES
+    runs the exact day shown. Throttled by a per-opp nudge budget.
+
+    This is the day-vote carve-out: it sends farmer nudges DIRECTLY even while
+    the general review tick is admin-only — the farmer opted into their own
+    multi-day post, so a nudge about it is low-risk. No LLM.
+    """
+    now = now or datetime.now(UTC)
+    for opp in opportunities_repo.list_collecting(now=now):
+        if opp.id is None:
+            continue
+        farm = farms_repo.get_by_id(opp.farm_id)
+        farm_name = farm.name if farm else "the farm"
+
+        # Deadline passed with no lock → expire + release.
+        if opp.by_date is not None and now >= opp.by_date:
+            expire_unlocked(opportunity=opp, messaging=messaging, farm_name=farm_name)
+            continue
+
+        # Nothing to decide until at least one day has votes.
+        best = choose_lock_day(opp)
+        if best is None:
+            continue
+
+        tally = opportunities_repo.day_vote_tally(opp.id)
+        best_count = tally.get(to_local(best).date().isoformat(), 0)
+        fillable = best_count >= opp.headcount_needed
+        deadline_near = (
+            opp.by_date is not None and (opp.by_date - now) <= _DEADLINE_NUDGE_WINDOW
+        )
+        if not (fillable or deadline_near):
+            continue
+        if opp.day_vote_nudges_sent >= _PER_OPP_NUDGE_BUDGET:
+            continue
+        if _already_nudged_this_pass(opp):
+            continue
+
+        _send_lock_nudge(
+            opp=opp, locked_day=best, best_count=best_count,
+            fillable=fillable, farm=farm, farm_name=farm_name, messaging=messaging,
+        )
+
+
+def _already_nudged_this_pass(opp: OpportunityDoc) -> bool:
+    """True if the latest farmer outbound on this opp is already a live lock
+    nudge — avoid stacking duplicate pending confirmations on consecutive ticks."""
+    if not opp.farm_id:
+        return False
+    farm = farms_repo.get_by_id(opp.farm_id)
+    farmer_id = farm.owner_user_id if farm else None
+    if not farmer_id:
+        return False
+    recent = messages_repo.list_for_user(farmer_id, limit=5)
+    for msg in recent:
+        if (
+            msg.direction == MessageDirection.OUTBOUND
+            and msg.opportunity_id == opp.id
+            and msg.intent_label == IntentLabel.PENDING_CONFIRMATION
+            and (msg.pending_action or {}).get("action") == "lock_day_vote"
+        ):
+            return True
+    return False
+
+
+def _send_lock_nudge(
+    *,
+    opp: OpportunityDoc,
+    locked_day: datetime,
+    best_count: int,
+    fillable: bool,
+    farm,
+    farm_name: str,
+    messaging: MessagingProvider,
+) -> None:
+    """Send the farmer a 'lock this day?' nudge as a PENDING_CONFIRMATION for
+    lock_day_vote. Token is YES; the locked day is fixed in the payload so the
+    farmer's YES locks exactly the day named."""
+    farmer = users_repo.get_by_id(farm.owner_user_id) if farm and farm.owner_user_id else None
+    if farmer is None:
+        return
+    day_human = _day_human(locked_day)
+    pref_note = ""
+    if opp.preferred_day is not None and to_local(locked_day).weekday() == opp.preferred_day:
+        pref_note = " (your pick)"
+    if fillable:
+        body = (
+            f"Farm Friend Vashon: {best_count} want {day_human}{pref_note} for your "
+            f"{opp.activity_detail or 'shift'} at {farm_name}. Lock it in? Reply YES, "
+            f"or ignore to wait for more."
+        )
+    else:
+        body = (
+            f"Farm Friend Vashon: so far {best_count} offered {day_human}{pref_note} "
+            f"for your {opp.activity_detail or 'shift'}. Lock it in? Reply YES, or "
+            f"ignore to keep waiting."
+        )
+
+    provider_id = safe_send(messaging, to_phone=farmer.phone, body=body)
+    if provider_id is None:
+        return
+    pending_payload = {
+        "action": "lock_day_vote",
+        "token": "YES",
+        "payload": {"opp_id": opp.id, "locked_day": locked_day.isoformat()},
+        "expires_at": (datetime.now(UTC) + timedelta(hours=12)).isoformat(),
+    }
+    messages_repo.create(
+        MessageDoc(
+            direction=MessageDirection.OUTBOUND,
+            provider_msg_id=provider_id,
+            user_id=farmer.id,
+            opportunity_id=opp.id,
+            body=body,
+            intent_label=IntentLabel.PENDING_CONFIRMATION,
+            pending_action=pending_payload,
+            created_at=datetime.now(UTC),
+        )
+    )
+    opportunities_repo.increment_day_vote_nudges_sent(opp.id)

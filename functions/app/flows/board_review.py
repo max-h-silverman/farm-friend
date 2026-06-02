@@ -69,9 +69,28 @@ def run_board_review_tick() -> None:
     messaging = get_messaging_provider(settings)
     llm = get_llm_client(settings)
 
+    # Candidate-day voting coordination (docs/preferred-day-voting.md) is
+    # DETERMINISTIC and runs before (and independently of) the LLM review: for
+    # each collecting opp it nudges the farmer to lock a fillable/deadline-near
+    # day, or expires it at the by-date. The day-vote carve-out means these
+    # farmer nudges send directly even while the general review is admin-only.
+    if settings.day_voting_enabled:
+        try:
+            from app.flows import day_voting as day_voting_flow
+            day_voting_flow.coordinate_collecting_opps(messaging=messaging)
+        except Exception as e:
+            flags_repo.create(
+                FlagDoc(
+                    message_id=None,
+                    flagged_by_user_id=None,
+                    reason=f"Day-vote coordination failed: {type(e).__name__}: {e}",
+                    created_at=datetime.now(UTC),
+                )
+            )
+
     board = _build_board_state()
     if _is_board_trivially_empty(board):
-        # Nothing to review. Don't burn an LLM call.
+        # Nothing left for the LLM to review. Don't burn an LLM call.
         return
 
     try:
@@ -103,11 +122,15 @@ def run_board_review_tick() -> None:
 def _build_board_state() -> BoardState:
     now = datetime.now(VASHON_TZ)
 
-    # All OPEN/FILLING opps.
+    # All OPEN/FILLING opps. Collecting candidate-day opps are EXCLUDED — they're
+    # coordinated deterministically (coordinate_collecting_opps), so the LLM
+    # review must not also propose nudges about them.
     open_opps: list[OppSummary] = []
     farm_lookup = {f.id: f for f in farms_repo.list_all() if f.id}
     for farm_id, farm in farm_lookup.items():
         for opp in opportunities_repo.list_open_for_farm(farm_id):
+            if opp.vote_state == "collecting":
+                continue
             open_opps.append(_opp_summary_for_board(opp=opp, farm=farm))
 
     # All OPEN offers.

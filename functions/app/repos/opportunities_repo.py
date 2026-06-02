@@ -192,6 +192,23 @@ def increment_agent_nudges_sent(opp_id: str, *, by: int = 1) -> None:
     db.collection(COLLECTION).document(opp_id).update({"agent_nudges_sent": Increment(by)})
 
 
+def increment_day_vote_nudges_sent(opp_id: str, *, by: int = 1) -> None:
+    """Atomic increment of the per-opp day-vote farmer-nudge counter
+    (docs/preferred-day-voting.md). Separate from agent_nudges_sent so the
+    voting cadence budget is independent of review nudges."""
+    db.collection(COLLECTION).document(opp_id).update({"day_vote_nudges_sent": Increment(by)})
+
+
+def list_collecting(*, now: datetime | None = None) -> list[OpportunityDoc]:
+    """Candidate-day opps currently gathering votes (vote_state='collecting').
+    Status is OPEN/FILLING while collecting; filter by vote_state."""
+    q = (
+        db.collection(COLLECTION)
+        .where("vote_state", "==", "collecting")
+    )
+    return [snapshot_to_model(s, OpportunityDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
 def list_due_for_escalation(*, now: datetime) -> list[OpportunityDoc]:
     """Opportunities whose escalation timer has fired and still need help."""
     q = (
