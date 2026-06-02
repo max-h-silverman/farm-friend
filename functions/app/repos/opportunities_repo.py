@@ -456,6 +456,56 @@ def list_all_claims(opp_id: str) -> list[ClaimDoc]:
     return [snapshot_to_model(s, ClaimDoc) for s in snaps if s.exists]  # type: ignore[misc]
 
 
+# ---------------------------------------------------------------------------
+# Candidate-day voting (docs/preferred-day-voting.md)
+# ---------------------------------------------------------------------------
+def add_day_vote(
+    *,
+    opp_id: str,
+    volunteer_user_id: str,
+    scheduled_for_at: datetime,
+) -> None:
+    """Record a soft DAY_VOTE for one candidate day. Idempotent per
+    (volunteer, day) via the day-scoped claim doc id; re-voting the same day
+    is a harmless overwrite. Holds no seat — does not touch seats_filled /
+    seats_held. Resolution to CONFIRMED happens at farmer lock-in."""
+    from datetime import UTC
+    upsert_claim(
+        opp_id=opp_id,
+        claim=ClaimDoc(
+            volunteer_user_id=volunteer_user_id,
+            status=ClaimStatus.DAY_VOTE,
+            scheduled_for_at=scheduled_for_at,
+            claimed_at=datetime.now(UTC),
+        ),
+    )
+
+
+def list_day_votes(opp_id: str) -> list[ClaimDoc]:
+    """All DAY_VOTE claims for an opp (across all candidate days)."""
+    q = (
+        db.collection(COLLECTION)
+        .document(opp_id)
+        .collection(CLAIMS_SUB)
+        .where("status", "==", ClaimStatus.DAY_VOTE.value)
+    )
+    return [snapshot_to_model(s, ClaimDoc) for s in q.stream() if s.exists]  # type: ignore[misc]
+
+
+def day_vote_tally(opp_id: str) -> dict[str, int]:
+    """Count of DAY_VOTEs per candidate day, keyed by the LOCAL Vashon ISO
+    date (matching `_claim_doc_id`'s day component). Greedy assignment reads
+    this; the highest count (preference breaks ties) is the lock candidate."""
+    from app.flows._time import to_local
+    tally: dict[str, int] = {}
+    for vote in list_day_votes(opp_id):
+        if vote.scheduled_for_at is None:
+            continue
+        day_key = to_local(vote.scheduled_for_at).date().isoformat()
+        tally[day_key] = tally.get(day_key, 0) + 1
+    return tally
+
+
 def mark_confirmation_sent(
     *,
     opp_id: str,

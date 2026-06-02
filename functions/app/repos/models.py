@@ -71,6 +71,13 @@ class ClaimStatus(StrEnum):
     # `seats_held` but NOT `seats_filled` — only farmer-confirmed claims
     # gate the opp's FULL transition. See docs/agent-architecture-rethink.md.
     PROPOSED = "proposed"
+    # Candidate-day voting (docs/preferred-day-voting.md): a volunteer's soft
+    # offer to help on a specific candidate day of a COLLECTING opp. Holds NO
+    # seat (excluded from seats_filled AND seats_held) and is distinct from
+    # INTERESTED (MAYBE, which is opp-level soft interest, not day-specific).
+    # Keyed per day via `scheduled_for_at`. Resolves → CONFIRMED for the
+    # chosen day at farmer lock-in; the rest are dropped/released.
+    DAY_VOTE = "day_vote"
 
 
 class MuteDimension(StrEnum):
@@ -281,6 +288,28 @@ class OpportunityDoc(BaseModel):
     # successful safe_send). Per-opp cap is 2; beyond that the review agent
     # can only flag to admin, not message users about this opp.
     agent_nudges_sent: int = 0
+    # --- Candidate-day voting (docs/preferred-day-voting.md) ---
+    # Set when the opp is a candidate-day post: the farmer offered several
+    # workable days and volunteers vote (DAY_VOTE claims) on which to lock.
+    # Distinct from a plain window (which accepts claims on every day at once).
+    # The candidate days are the explicit dates volunteers may vote for; for a
+    # contiguous span they mirror [starts_at.date(), window_end_at.date()].
+    candidate_days: list[datetime] = Field(default_factory=list)
+    # Decision deadline. For levels 2-3 this mirrors the last candidate day;
+    # for level 4 ("whenever") it's the farmer-supplied by-date (<= ~1wk out).
+    # At by_date with no farmer lock: final nudge, then EXPIRE + release.
+    by_date: datetime | None = None
+    # Soft preference (weekday int, Mon=0). Biases fan-out copy ("(farmer's
+    # pick)") and breaks ties in the farmer nudge. Not binding on volunteers.
+    preferred_day: int | None = None
+    # Sub-state of a candidate-day opp's voting lifecycle. None = not a voting
+    # opp. "collecting" = gathering votes; "locked" = farmer chose a day (opp
+    # has collapsed to a normal single-day shift); "expired" = by_date passed
+    # with no lock. Kept off OpportunityStatus to keep that enum stable.
+    vote_state: Literal["collecting", "locked", "expired"] | None = None
+    # Lifetime count of farmer day-vote nudges sent for this opp (cadence
+    # throttle, separate from agent_nudges_sent which counts review nudges).
+    day_vote_nudges_sent: int = 0
 
 
 class OutreachLogDoc(BaseModel):

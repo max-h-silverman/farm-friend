@@ -1,8 +1,10 @@
-"""The pilot-safety admin-only gate on the proactive review tick.
+"""The admin-only kill-switch on the proactive review tick.
 
-When `agent_review_admin_only` is set (the pilot default), the review tick must
-never autonomously SMS a user — every proposal, even a high-priority
-state-changing one, lands on the admin worklist instead.
+When `agent_review_admin_only` is set, the review tick must never autonomously
+SMS a user — every proposal, even a high-priority state-changing one, lands on
+the admin worklist instead. As of "full functionality at small scale"
+(2026-06-01) this defaults OFF (autonomous); the flag is retained as an
+emergency kill-switch. These tests exercise both routings explicitly.
 """
 
 from __future__ import annotations

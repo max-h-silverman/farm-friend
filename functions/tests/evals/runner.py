@@ -907,12 +907,16 @@ def _eval_settings(
         agent_nudge_budget_hours=48,
         agent_nudge_per_opp_max=2,
         agent_review_per_tick_max=3,
-        agent_review_admin_only=True,
-        # Eval honors the env flag so the suite can exercise the still-present
-        # window code (AGENT_WINDOW_POSTS_ENABLED=1) or the pilot default (off).
-        agent_window_posts_enabled=os.environ.get(
-            "AGENT_WINDOW_POSTS_ENABLED", "0"
+        agent_review_admin_only=os.environ.get(
+            "AGENT_REVIEW_ADMIN_ONLY", "0"
         ).lower() in {"1", "true", "yes"},
+        # Eval honors the env flags; defaults now match production (features ON).
+        agent_window_posts_enabled=os.environ.get(
+            "AGENT_WINDOW_POSTS_ENABLED", "1"
+        ).lower() not in {"0", "false", "no"},
+        day_voting_enabled=os.environ.get(
+            "DAY_VOTING_ENABLED", "1"
+        ).lower() not in {"0", "false", "no"},
         clarify_round_max=2,
         clarify_user_24h_max=5,
         offer_default_ttl_days=7,
