@@ -9,7 +9,7 @@ The clean-room MVP has two approved use cases:
 - Farm stand availability: farmers publish current stand inventory; customers ask what is available, find ingredients, and get grounded recipe help.
 - Gleaning volunteer coordination: VIGA staff create Food Bank gleaning opportunities; volunteers opt in, sign up, receive reminders, and VIGA sees a live tally.
 
-This repo is currently in architecture setup. No production code has been written in the clean-room build yet.
+This repo now has the clean-room TypeScript scaffold for F-001. Product flows have not landed yet.
 
 ## Source Of Truth
 
@@ -27,6 +27,7 @@ Read these docs in order:
 ## Current State
 
 - Repo was reset to a hard clean slate from the old proof of concept.
-- Architecture docs are the only live implementation guide.
+- Architecture docs are the live product/architecture guide.
+- F-001 scaffold is in review: TypeScript workspaces, core tests, provider seams, Drizzle schema stub, Next web shell, and Expo native shell.
 - Preferred stack is TypeScript-first: shared core package, Postgres/Drizzle, Next.js web/API app, Expo native app, and SMS transport behind interfaces.
-- TDD is required. The first feature should start from failing tests, not scaffolding-by-demo.
+- TDD is required. New behavior should start from failing tests.

@@ -2,7 +2,7 @@
 
 ## Phase 0 - Architecture And Repo Spine
 
-Status: in progress.
+Status: done.
 
 Deliverables:
 
@@ -13,6 +13,8 @@ Deliverables:
 
 ## Phase 1 - Scaffold And Test Harness
 
+Status: in progress. F-001 scaffold is implemented and in review; auth foundation and admin flag-review UI remain launch blockers for later Phase 1/admin work.
+
 Deliverables:
 
 - TypeScript monorepo scaffold.
@@ -22,8 +24,8 @@ Deliverables:
 - `apps/mobile` Expo shell.
 - SMS simulator transport.
 - Evals harness with stub provider.
-- Email magic-link auth foundation for web/admin/farmer/staff sessions.
-- Admin flag review skeleton sufficient to inspect and resolve paused SMS threads before launch.
+- Email magic-link auth foundation for web/admin/farmer/staff sessions. Not in F-001.
+- Admin flag review skeleton sufficient to inspect and resolve paused SMS threads before launch. Not in F-001.
 
 First tests:
 

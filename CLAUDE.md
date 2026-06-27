@@ -4,7 +4,7 @@ Farm Friend is a clean-room rebuild for VIGA. The product is a dual-channel loca
 
 ## Current Status
 
-Architecture setup only. No clean-room feature code has landed yet.
+Clean-room architecture docs are established. F-001 scaffold is implemented on branch `feature/f-001-scaffold` and is in PM review: TypeScript workspaces, core tests, Drizzle schema stub, SMS/LLM provider seams, Next web shell, Expo native shell, and verification scripts exist. Product flows have not landed yet.
 
 The old Firebase/Python proof of concept was removed from this working tree. It remains only in git history and should not be treated as inherited architecture.
 
