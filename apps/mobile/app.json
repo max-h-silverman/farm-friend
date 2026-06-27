@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "Farm Friend",
+    "slug": "farm-friend",
+    "scheme": "farmfriend",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"]
+  }
+}

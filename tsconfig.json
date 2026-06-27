@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/config" },
+    { "path": "packages/sms" },
+    { "path": "packages/ai" },
+    { "path": "packages/db" },
+    { "path": "apps/web" },
+    { "path": "apps/mobile" }
+  ]
+}
