@@ -1,0 +1,22 @@
+/** ESLint config for the Farm Friend monorepo (ESLint 8, TS). */
+module.exports = {
+  root: true,
+  parser: "@typescript-eslint/parser",
+  parserOptions: { ecmaVersion: 2022, sourceType: "module" },
+  plugins: ["@typescript-eslint"],
+  extends: ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+  env: { node: true, es2022: true },
+  ignorePatterns: [
+    "node_modules/",
+    "dist/",
+    ".next/",
+    "**/*.tsbuildinfo",
+    "apps/mobile/",
+  ],
+  rules: {
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+    ],
+  },
+};

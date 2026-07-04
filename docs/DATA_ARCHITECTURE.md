@@ -1,196 +1,100 @@
-# Farm Friend Data Architecture
+# Farm Friend — Data Architecture
 
-## Storage Choice
+The *data* source of truth: entities (all tenant-scoped), constraints, the two-axis
+freshness/provenance model, privacy/retention, and the `ai_runs` MAY-store list. The concrete
+Drizzle schema lives at `packages/db/src/schema.ts`; this doc is its rationale and the invariants
+the schema + integration tests enforce.
 
-Use Postgres as the source of truth with Drizzle migrations. The domain has natural relational constraints: farms own stands, stands have inventory snapshots and items, people have roles and subscriptions, gleaning opportunities have signups, and messages/audits link across flows.
+## Tenancy
 
-## Core Entities
+Every top-level entity carries `tenant_id`. All typed queries in `packages/db` are tenant-scoped.
+The single VIGA tenant is seeded. Multi-tenant UI is deferred; the column is cheap forward
+insurance, proven once by integration tests.
 
-### People And Roles
+## The two-axis freshness/provenance model (load-bearing)
 
-- `people`
-  - id
-  - display_name
-  - phone_e164 encrypted or access-controlled
-  - phone_hash for lookup/log correlation
-  - email
-  - status: pending, active, suspended, unsubscribed
-  - created_at, updated_at
+Keeping these **two axes separate** is what lets the migrated map look **full** on day one *and*
+stay **honest** about age.
 
-- `person_roles`
-  - person_id
-  - role: admin, viga_staff, farmer, volunteer, customer, food_bank_partner
+- **Axis 1 — lifecycle `status`** (`draft | current | superseded | hidden`) governs **is it shown
+  on the map**. It lives on `inventory_snapshots`. Migrated inventory is `current` → it shows.
+  Publishing a new snapshot sets it `current` and supersedes the prior (`superseded`).
+- **Axis 2 — provenance** (`migrated | farmer_confirmed`) + a real/import date governs **honesty
+  about age**. A `migrated` snapshot renders "**via VIGA's map, updated [date]**", **never**
+  "confirmed today." On activation, provenance flips `migrated → farmer_confirmed` and recency
+  resets to real.
 
-- `subscriptions`
-  - person_id
-  - program: global_sms, farmstand, gleaning
-  - channel: sms, app_push, email
-  - status: opted_in, muted, opted_out
-  - consent_source
-  - consented_at
-  - disclosure_version
+Provenance/claim-state lives at **two grains** — a migrated-unclaimed stand has *no snapshot* on
+day one, so the stand itself must carry the honest label too:
+- **`farm_stands`**: `claim_status` (`migrated | claimed`) + `migrated_at` + `migrated_source`.
+- **`inventory_snapshots`**: `status` + provenance + `confirmed_by_person_id` for per-publish audit.
 
-`global_sms` records whether a person can receive Farm Friend SMS at all. Program rows record which broadcasts or program-specific flows they participate in. `STOP` ends SMS globally; program-level mute/opt-out can be added without weakening carrier opt-out behavior.
+This corrects the "migrated" idea from *suppressing* a pin to *annotating* it.
 
-### Farms And Stands
+## Entities (all tenant-scoped)
 
-- `farms`
-  - id
-  - name
-  - public_description
-  - owner_person_id
-  - status: draft, pending_review, public, hidden, archived
-  - profile_review_status
-  - created_by_person_id nullable
-  - approved_by_person_id nullable
+- **`tenants`** — the tenant registry; VIGA seeded.
+- **`people`** — displayName, `phone_hash` (never raw), email; the person record.
+- **`person_roles`** — role grants (admin / staff / farmer / …), server-checked on every route.
+- **`subscriptions`** — consent state: `global_sms` + per-program opt-in (see SMS_COMPLIANCE).
+- **`farms`** — the farm; **`status`** (visibility/lifecycle of the farm).
+- **`farm_stands`** — a stand under a farm; **`claim_status`** (`migrated | claimed`),
+  **`migrated_at`**, **`migrated_source`**, **`visibility`**, **`lat`/`lng`** (geo, for the
+  inquiry route's proximity/nearest-N strategy), update cadence.
+- **`inventory_snapshots`** — a published inventory version; **`status`**
+  (`draft | current | superseded | hidden`), **provenance** (`migrated | farmer_confirmed`),
+  **`confirmed_by_person_id`** (who published — audit), `published_at`, `updated_at`, optional
+  `expected_fresh_until`.
+- **`inventory_items`** — items in a snapshot; **staple flag** + variable stock; exact quantity +
+  unit + price text, or an **approximate label** (`some | limited | a lot`).
+- **`stockout_reports`** — a customer report; **nullable `inventory_item_id` FK + normalized item
+  text** (report a listed item *or* one not currently listed); `source` (`sms | qr_web`);
+  `status` (`open | acted | dismissed`). **Never mutates inventory.**
+- **`farmer_alert_prefs`** — per-farmer alert routing (`immediate | digest`).
+- **`messages`** — inbound/outbound SMS; **raw body TTL-bounded**, phone stored hashed.
+- **`conversation_states`** — in-flight flow state + **`pending_confirmation_json`** (the pending
+  action a context-bound `YES`/`OUT` commits) + an **expiry** timestamp for GC.
+- **`flags`** — FLAG review items (thread paused, needs human judgment); **retained** (audit).
+- **`ai_runs`** — one row per model seam call for debuggability. **Stores no model input** (see
+  MAY-store list below).
+- **Gleaning tables** (`gleaning_opportunities`, `gleaning_signups`, …) — **designed, migrated,
+  unused** in Phase 0. Present so the generic commitment state machine is validated against
+  gleaning signup (its second consumer) and tenant scoping/migration is proven once. Capacity +
+  waitlist are code-not-model.
 
-- `farm_stands`
-  - id
-  - farm_id
-  - name
-  - address
-  - public_location_note
-  - map_url
-  - hours_text nullable
-  - payment_note nullable
-  - update_cadence_hours nullable
-  - visibility: public, hidden
+## Hard constraints (schema + integration tests)
 
-- `inventory_snapshots`
-  - id
-  - farm_stand_id
-  - source_channel: sms, web, mobile, admin
-  - note
-  - published_at
-  - updated_at
-  - expected_fresh_until nullable
-  - status: draft, current, superseded, hidden
-  - confirmed_by_person_id
+- **A `stockout_report` can never write inventory.** Enforced structurally + tested at the data
+  layer. (Golden Rule #1.)
+- **Tenant scoping on every top-level entity.** Cross-tenant reads/writes rejected.
+- **`phone_hash` only** — no column stores a raw phone number; raw SMS bodies are TTL-bounded.
+- **One current snapshot per stand** — publishing supersedes the prior `current` (the `status`
+  axis is the answer to "which snapshot is current," not a fragile `max(published_at)`).
+- **Importer idempotency** — a re-run seeds/refreshes still-`migrated` stands but never clobbers a
+  stand a farmer has activated (`claim_status = claimed`).
 
-- `inventory_items`
-  - id
-  - snapshot_id
-  - farm_stand_id
-  - normalized_item_name
-  - display_item_name
-  - quantity_value nullable
-  - quantity_unit nullable
-  - quantity_label nullable, e.g. some, a lot, limited
-  - price_text nullable
-  - tags derived by code where useful
+## `ai_runs` — what it MAY store (never the model input)
 
-### Gleaning
+The audit row must be **debuggable without becoming a PII leak**. It stores **no raw or stripped
+model input** and no model output content that could carry PII. It **MAY** store:
+- the **seam** name (e.g. `farmstand-inventory-extract`);
+- the **provider** + **model** id;
+- the **schema version** the output was validated against;
+- the **validation status** (passed / repaired-then-passed / rejected) and repair count;
+- an **opaque id set / hashes** linking to the durable rows involved (not their contents);
+- timing/cost metadata.
 
-- `gleaning_opportunities`
-  - id
-  - title
-  - crop
-  - location_name
-  - address
-  - starts_at
-  - ends_at
-  - volunteer_min
-  - volunteer_max
-  - organizer_person_id
-  - food_bank_partner_id nullable
-  - status: draft, scheduled, open, full_enough, full, completed, cancelled
-  - public_note
-  - reminder_sent_at
+If you need to debug *content*, reproduce from the durable source rows through the assembler — the
+`ai_runs` row is a provenance/telemetry record, not a transcript.
 
-- `gleaning_signups`
-  - id
-  - opportunity_id
-  - person_id
-  - status: confirmed, dropped, waitlisted
-  - waitlist_position nullable
-  - source_channel
-  - signed_up_at
-  - dropped_at
+## Privacy & retention
 
-Database constraints:
-
-- Unique active signup per person per opportunity.
-- `volunteer_min >= 1`.
-- `volunteer_max >= volunteer_min`.
-- Confirmed count cannot exceed `volunteer_max` unless an admin override field is explicitly added later.
-- Waitlisted count may exceed `volunteer_max`, but only one active signup or waitlist row per person per opportunity is allowed.
-
-### Messaging And Conversation
-
-- `messages`
-  - id
-  - person_id nullable for unknown sender
-  - phone_hash
-  - direction: inbound, outbound
-  - channel: sms, web, mobile, push
-  - program nullable
-  - body_redacted or encrypted body depending on retention policy
-  - provider_message_id
-  - intent_label
-  - created_at
-  - ttl_delete_at
-
-- `conversation_states`
-  - id
-  - person_id
-  - program
-  - flow
-  - state_json
-  - pending_confirmation_json
-  - expires_at
-
-- `flags`
-  - id
-  - person_id
-  - message_id nullable
-  - reason
-  - status: open, resolved
-  - created_at, resolved_at
-
-### AI Audit And Evals
-
-- `ai_runs`
-  - id
-  - seam
-  - model_provider
-  - model_name
-  - schema_version
-  - input_summary
-  - output_summary
-  - validation_status
-  - created_at
-
-Do not store full prompts/responses containing sensitive data by default.
-
-## Freshness Policy
-
-Freshness is a first-class product display concern, not a hidden exclusion rule.
-
-- `published_at`: when the farmer first confirmed the inventory snapshot.
-- `updated_at`: when the inventory was last changed or re-confirmed.
-- `expected_fresh_until`: optional timestamp derived from farmer-configured cadence.
-- `update_cadence_hours`: farm stand setting for reminder timing and freshness copy.
-
-MVP behavior:
-
-- Do not hide older inventory by default.
-- Always show or say when inventory was last updated.
-- If `expected_fresh_until` is past, label the listing as older than the farmer's usual update cadence.
-- Farmers should be able to configure their own cadence; staff/admin can set a default during onboarding.
-
-## Query Rules
-
-- Customer availability answers read visible inventory snapshots by default.
-- Older items can be shown only with explicit `updated at` or cadence language.
-- Recipe answers retrieve inventory first, then generate from those records plus general food knowledge.
-- If a requested item is not present in visible inventory, the system says no listing found.
-- Specific quantity requests such as "5 lbs of tomatoes" should prefer exact quantities when available and otherwise explain uncertainty rather than treating approximate labels as guaranteed supply.
-
-## Privacy And Retention
-
-- Normalize and hash phone numbers for lookup.
-- Never log raw phone numbers.
-- Store raw phone numbers only where operationally required. Use encryption before public pilot; access control plus salted hashes is acceptable during early local scaffold work.
-- Keep raw SMS bodies only as long as operationally useful.
-- Use TTL cleanup for routine messages.
-- Preserve flagged messages and audit records until resolved and retention policy allows deletion.
+- **Phones:** normalized + hashed at ingress; the hash is the lookup/log key; **raw is never
+  logged** and **never enters model context** (the assembler strips it — see
+  [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)).
+- **Raw SMS bodies:** TTL-bounded; expired bodies are GC'd. Hashes, flags, and audit rows are
+  retained.
+- **Consent:** `global_sms` gates all SMS; per-program opt-in gates each program; `STOP` clears
+  `global_sms` immediately (SMS_COMPLIANCE).
+- **`conversation_states.pending_confirmation_json`** is GC'd on expiry so a stale `YES` can never
+  commit an old action.

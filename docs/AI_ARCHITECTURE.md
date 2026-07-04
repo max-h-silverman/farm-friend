@@ -1,137 +1,119 @@
-# Farm Friend AI Architecture
+# Farm Friend — AI Architecture
 
-## Core Rule
+The *AI* source of truth: the `LLMProvider` seam, the seam catalog, the line between what the model
+does and what code owns, the **three-layer code-enforced safety boundary**, validation/repair,
+evals, and data minimization. Data shapes are in
+[DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md); routing is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-The model proposes; code commits.
+## The `LLMProvider` seam
 
-The LLM may extract, classify, draft, summarize, and answer with retrieved context. It must not directly write durable state, choose recipients, decide consent, invent farm availability, or override capacity/sign-up rules.
+One narrow interface, `LLMProvider.generateJson(seam, context, schema)`, with:
+- a **stub provider** (deterministic, for tests/evals) and an **open-weight adapter**
+  (config-selected default) — the model is swappable behind the seam;
+- a **validate-and-repair wrapper**: the output is parsed against its Zod schema; on failure, **one
+  repair retry**, then **clarify/flag — never a silent guess**;
+- **`generateJson` accepts only a `ModelSafeContext`** (the branded, assembler-produced type — see
+  the safety boundary below), so a raw record can never reach the model by accident.
 
-## Model Access
+## The model-vs-code line (the model proposes; code commits)
 
-All model calls go through one provider interface:
+The model **extracts, parses, classifies, drafts, and composes grounded answers**. It **never**:
+- writes durable state, chooses recipients, or decides consent;
+- invents availability, farms, items, quantities, or recency;
+- makes a compliance/commitment decision (those are pure code, upstream);
+- owns capacity/waitlist math (code), or the publish/activation commit (code, confirmation-gated).
 
-```ts
-interface LLMProvider {
-  generateJson<T>(request: {
-    seam: string;
-    schemaVersion: string;
-    messages: ModelMessage[];
-    schema: JsonSchema;
-    temperature?: number;
-  }): Promise<T>;
-}
-```
+Retrieval and ranking for the inquiry route are **code**, not a model query: the selection strategy
+is a *parameter*, never a hardcoded intersection.
 
-Providers are swappable. Long term, prefer reliable open-weight models through self-hosting or neutral providers. MVP may use Llama, DeepSeek, Mistral, or another provider if it passes evals. No business logic imports provider SDKs directly.
+## Seam catalog
 
-Define schemas in TypeScript with Zod and generate JSON Schema for provider calls where needed. Zod remains the ergonomic source for shared validation, inferred types, and tests; provider adapters receive the generated schema shape.
+Each is Zod-schema'd, validated, one repair retry, then clarify/flag:
+- **`farmstand-inventory-extract`** — farmer text → a structured inventory draft (items, quantities
+  or approximate labels). Reused by activation's pre-seeded confirm-or-revise.
+- **`stockout-report-parse`** — free text → which item (a listed `inventory_item_id` or normalized
+  text for an unlisted item).
+- **`inquiry-parse`** — question → **open intent**: item(s), optional farm scope, optional origin
+  location, and a **selection/ranking strategy** (proximity / freshness / coverage / any), or an
+  "ambiguous → ask a clarifying question" signal. **Never privileges one reading** of a multi-item
+  ask.
+- **`farmstand-query-answer`** — compose over the **retrieved grounded rows** (whatever the
+  strategy returned), always recency-labeled; empty retrieval → honest "no current listing."
+- **`recipe-grounded-answer`** — recipes grounded in retrieved current inventory; conservative
+  disclaimers, no medical/preservation/foraging/food-safety advice.
+- **`message-classify`** — last-resort intent classification, only after deterministic routing.
+- **`gleaning-opportunity-extract`** — designed, built later (F-004).
 
-## Seams
+## The retrieval + ranking layer (code, before any model call)
 
-### `farmstand-inventory-extract`
+`inquiry-parse` → intent. Code then runs a **general** retrieval/ranking layer: *given items,
+optional farm scope, optional origin, and a strategy → grounded candidate stands with distance +
+recency.* Intersection ("one stand with all"), coverage ("any covering the set"), nearest-N, and
+freshest-N are **strategies chosen at parse time**, never a constant baked into the architecture.
+Only those grounded rows go to the compose step.
 
-Input: farmer free-form inventory text and farm context.
+## The three-layer code-enforced safety boundary
 
-Output: proposed inventory lines, stand note, missing fields, confidence.
+Because we ingest **untrusted public SMS** (a prime prompt-injection vector), **safety is enforced
+by code, never by the system prompt** — across three distinct layers, **none substituting for
+another**. This is Golden Rule #6, stated precisely (the branded-types claim is easy to over-state,
+so read this carefully):
 
-Code responsibilities:
+1. **Compile guard (provenance, not content).** `LLMProvider.generateJson` accepts only a branded
+   **`ModelSafeContext`**; `SmsTransport.send` accepts only a branded **`RedactedOutbound`**. The
+   *only* public constructor of each brand is the stripping **assembler** / the **redaction
+   guard**. So you **cannot call the model or send an SMS without going through them** — there is
+   no value of the right type to pass otherwise. **What this buys:** you can't bypass the
+   assembler/redactor by accident. **What it does NOT buy:** the brand proves the value *came from*
+   the assembler, **not** that its content is clean — `tsc` cannot inspect a runtime string, so if
+   the assembler had a bug and copied a phone into a "safe" field, the brand is still stamped and
+   the build is green. The compile guard is necessary, not sufficient.
+2. **Runtime guard (content).** The assembler **actually strips** PII/secrets and passes only
+   opaque IDs + the minimal grounded rows a seam needs (data minimization). The outbound guard
+   **actually scans** the message and **blocks a raw phone number** even if the model output
+   contains one. This is what proves the *content* is clean — tested directly
+   (`assembly-strips-pii`, `outbound-guard-blocks-number`).
+3. **Eval guard (adversarial proof).** The adversarial/prompt-injection eval group proves an
+   injected SMS **cannot** extract another person's number or force a commit — because the data is
+   **absent from context**, the **guard blocks**, and **validation rejects**, *not* because a
+   prompt refused. This is the end-to-end proof that layers 1–2 hold under attack.
 
-- Validate farmer identity.
-- Normalize item names.
-- Preserve approximate quantities.
-- Ask for confirmation.
-- Publish only after confirmation.
+A system prompt may add defense-in-depth but is **never** the enforcement.
 
-### `farmstand-query-answer`
+## Untrusted-output validation
 
-Input: customer question plus retrieved inventory records.
+Model output is **untrusted input**. Every seam validates against its Zod schema + domain checks in
+code before anything acts on it (one repair retry, then clarify/flag). A durable write, a recipient
+choice, or a consent decision **never** comes from model output.
 
-Output: answer text and referenced inventory ids.
+## `ai_runs` (debuggable, not a leak)
 
-Code responsibilities:
+One telemetry row per seam call. It stores **no model input** and no PII-bearing output — see the
+explicit **MAY-store list** in [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) (seam, provider, model,
+schema version, validation status, opaque id set/hashes, timing). To debug content, reproduce from
+the durable source rows through the assembler.
 
-- Retrieve inventory before the model call.
-- Pass only visible inventory records with explicit `updated at` recency and cadence context where available.
-- Reject answers that reference ids not provided.
-- Require "no listing found" when retrieval has no supporting record.
+## `MapProvider` — offline/deterministic stub
 
-### `recipe-grounded-answer`
-
-Input: customer cooking question, retrieved inventory, and general food constraints.
-
-Output: recipe or meal idea grounded in retrieved inventory.
-
-Code responsibilities:
-
-- Allow general cooking knowledge.
-- Require every availability claim to map to retrieved inventory.
-- Avoid medical/nutrition claims beyond ordinary cooking descriptions.
-- Avoid preservation, canning, fermentation, wild-foraging, food-safety, or medical diet advice beyond conservative high-level disclaimers and pointers to authoritative sources.
-
-### `gleaning-opportunity-extract`
-
-Input: VIGA staff free-form opportunity text and known farm/place context.
-
-Output: proposed crop, location, date/time, volunteer range, organizer, reminders, missing fields.
-
-Code responsibilities:
-
-- Validate required fields.
-- Ask clarifying questions.
-- Confirm before broadcast.
-- Compute signup counts from database.
-
-### `message-classify`
-
-Input: free-form inbound message after deterministic keyword parsing.
-
-Output: likely program, intent, and target entity.
-
-Code responsibilities:
-
-- Run only after compliance keyword bypass.
-- Use active conversation state before classification.
-- Never treat a free-form "yes" as consent unless a pending confirmation or opportunity context exists.
-
-## Validation And Repair
-
-Every model seam uses:
-
-1. JSON schema validation.
-2. Domain validation by code.
-3. One repair retry for malformed output if useful.
-4. Fallback to clarify, flag, or no-answer rather than guessing.
-
-Ambiguous input ends in one of three states:
-
-- filed as a draft with missing fields,
-- questioned with a specific clarification,
-- flagged/parked for human review.
-
-There is no silent confident guess.
+Geocoding is behind the `MapProvider` seam. It ships with an **offline/deterministic stub** so
+tests, evals, and importer runs have **no network dependency** (CI has none). The stub returns
+fixed coordinates for known fixtures; the live adapter is config-selected. Naming the stub strategy
+here (not in F-007a) keeps it from biting the importer.
 
 ## Evals
 
-Evals are required before changing prompts, schemas, or model providers.
+`evals/run.mjs` runs against the **stub provider**, in **critical** and **advisory** groups:
+- **critical** (must pass **100%**): compliance bypass, grounding/no-invention, commitment safety,
+  and the **adversarial/prompt-injection group**.
+- **advisory**: inventory-extract quality, stock-out parse, inquiry-parse strategy selection /
+  clarify, recipe grounding.
 
-Minimum eval groups:
+Any change touching a model seam runs evals; a provider/prompt change must pass the full suite at
+parity or better. Evals are a manual gate (not CI-gated by default) — record the result in the
+session wrap.
 
-- Inventory extraction: item lists, approximate quantities, prices, notes, malformed texts.
-- Inventory grounding: do not invent farms/items; recency handling; no-result answers.
-- Recipe grounding: useful recipes, all availability claims grounded, no unsupported ingredient availability.
-- Gleaning extraction: volunteer ranges, dates, locations, reminders, missing fields.
-- Compliance bypass: STOP/HELP/JOIN/YES/NO/FLAG never route to the LLM.
-- Adversarial: prompt injection inside SMS, fake system instructions, requests to expose private data.
+## Abuse / cost on public LLM surfaces
 
-Critical compliance, grounding, and commitment fixtures must pass 100%. Provider changes must pass the full eval suite at parity or better. A cheaper or more open model is not acceptable if it fails grounding or commitment safety.
-
-Eval fixture groups should label cases as `critical` or `advisory`. Critical failures block launch and provider/prompt changes; advisory failures require review but do not automatically block unless they reveal a product safety issue.
-
-## Data Minimization
-
-Model context should include only what the seam needs:
-
-- Use farm names and inventory rows, not raw histories.
-- Use opaque ids where possible.
-- Avoid phone numbers in model context.
-- Do not persist raw prompts/responses in normal operation.
+The customer inquiry route and the QR stock-out form are **public + unauthenticated**. They route
+through the abuse/cost throttle seam defined in [ARCHITECTURE.md](ARCHITECTURE.md) (built with
+F-003/F-008). Normal public lookup is never artificially capped.

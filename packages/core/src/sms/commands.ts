@@ -1,48 +1,65 @@
-export type SmsCommand =
-  | { kind: "join" }
-  | { kind: "start" }
-  | { kind: "stop" }
-  | { kind: "help" }
-  | { kind: "flag" }
-  | { kind: "yes" }
-  | { kind: "no" }
+// Deterministic compliance + commitment parsing — runs by CODE before any model call.
+// See docs/ARCHITECTURE.md §routing and docs/SMS_COMPLIANCE.md. This is Golden Rule #2:
+// STOP is always global and can never be reinterpreted by conversation state; YES/NO/OUT/IGNORE
+// are context-bound, never global.
+
+export type ComplianceKeyword =
+  | "STOP"
+  | "START"
+  | "JOIN"
+  | "HELP"
+  | "INFO"
+  | "FLAG";
+
+export type CommitmentToken = "YES" | "NO" | "OUT" | "IGNORE";
+
+export type ParsedCommand =
+  | { kind: "compliance"; keyword: ComplianceKeyword; global: boolean }
+  | { kind: "commitment"; token: CommitmentToken; contextBound: true }
   | { kind: "none" };
 
-const OPT_OUT = new Set(["STOP", "UNSUBSCRIBE", "END", "QUIT"]);
-const HELP = new Set(["HELP", "INFO"]);
+// STOP synonyms all map to a single global opt-out (SMS_COMPLIANCE keyword table).
+const STOP_WORDS = new Set(["STOP", "UNSUBSCRIBE", "END", "QUIT", "CANCEL"]);
+const COMPLIANCE_WORDS: Record<string, ComplianceKeyword> = {
+  START: "START",
+  JOIN: "JOIN",
+  HELP: "HELP",
+  INFO: "INFO",
+  FLAG: "FLAG",
+};
+const COMMITMENT_WORDS: Record<string, CommitmentToken> = {
+  YES: "YES",
+  Y: "YES",
+  NO: "NO",
+  N: "NO",
+  OUT: "OUT",
+  IGNORE: "IGNORE",
+};
 
-export function parseSmsCommand(rawBody: string): SmsCommand {
-  const trimmed = normalizeLeadingKeywordInput(rawBody);
-  if (trimmed === "") return { kind: "none" };
+/**
+ * Parse a raw inbound SMS body into a deterministic command, before any model call.
+ * Only the FIRST token is considered a keyword — a message that merely contains "stop" in a
+ * sentence is not an opt-out, but a bare "STOP" always is.
+ */
+export function parseCommand(body: string): ParsedCommand {
+  const first = body.trim().split(/\s+/)[0]?.toUpperCase() ?? "";
 
-  const match = trimmed.match(/^(\S+)(?:\s+.*)?$/s);
-  if (!match) return { kind: "none" };
-
-  const firstToken = stripOuterPunctuation(match[1] ?? "").toUpperCase();
-  if (firstToken === "JOIN") return { kind: "join" };
-  if (firstToken === "START") return { kind: "start" };
-  if (OPT_OUT.has(firstToken)) return { kind: "stop" };
-  if (HELP.has(firstToken)) return { kind: "help" };
-  if (firstToken === "FLAG") return { kind: "flag" };
-  if (firstToken === "YES") return { kind: "yes" };
-  if (firstToken === "NO") return { kind: "no" };
-
+  if (STOP_WORDS.has(first)) {
+    // STOP is ALWAYS global — never context-bound, never overridable by state.
+    return { kind: "compliance", keyword: "STOP", global: true };
+  }
+  const compliance = COMPLIANCE_WORDS[first];
+  if (compliance) {
+    return { kind: "compliance", keyword: compliance, global: false };
+  }
+  const commitment = COMMITMENT_WORDS[first];
+  if (commitment) {
+    return { kind: "commitment", token: commitment, contextBound: true };
+  }
   return { kind: "none" };
 }
 
-export function isDeterministicSmsCommand(rawBody: string): boolean {
-  return parseSmsCommand(rawBody).kind !== "none";
-}
-
-function normalizeLeadingKeywordInput(rawBody: string): string {
-  return rawBody
-    .normalize("NFKC")
-    .replace(/[\u200B-\u200D\uFEFF]/g, "")
-    .trim();
-}
-
-function stripOuterPunctuation(token: string): string {
-  return token
-    .replace(/^[^\p{L}\p{N}]+/u, "")
-    .replace(/[^\p{L}\p{N}]+$/u, "");
+/** True if this message must bypass the LLM (any deterministic keyword/token). */
+export function bypassesModel(body: string): boolean {
+  return parseCommand(body).kind !== "none";
 }

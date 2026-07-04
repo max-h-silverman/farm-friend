@@ -1,29 +1,39 @@
 import { describe, expect, it } from "vitest";
-import { describeInventoryRecency } from "./recency.js";
+import { FixedClock } from "../clock";
+import { labelClaimsConfirmation, recencyLabel } from "./recency";
 
-const now = new Date("2026-06-27T18:00:00.000Z");
+describe("recency labeling — migrated ≠ confirmed (Golden Rule #4)", () => {
+  const now = new Date("2026-07-04T12:00:00Z");
 
-describe("describeInventoryRecency", () => {
-  it("returns updated-at recency without hiding older inventory", () => {
-    const result = describeInventoryRecency({
-      updatedAt: new Date("2026-06-25T18:00:00.000Z"),
-      now,
-    });
-
-    expect(result.visible).toBe(true);
-    expect(result.label).toBe("updated 2 days ago");
-    expect(result.pastCadence).toBe(false);
+  it("a migrated stand NEVER renders as 'confirmed'", () => {
+    const clock = new FixedClock(now);
+    const label = recencyLabel(
+      { provenance: "migrated", updatedAt: new Date("2026-06-01T00:00:00Z") },
+      clock,
+    );
+    expect(label).toBe("via VIGA's map, updated 2026-06-01");
+    expect(labelClaimsConfirmation(label)).toBe(false);
   });
 
-  it("marks listings past a farmer configured cadence", () => {
-    const result = describeInventoryRecency({
-      updatedAt: new Date("2026-06-26T17:00:00.000Z"),
-      now,
-      cadenceHours: 24,
-    });
+  it("a farmer-confirmed stand says 'confirmed X ago'", () => {
+    const clock = new FixedClock(now);
+    expect(
+      recencyLabel({ provenance: "farmer_confirmed", updatedAt: new Date("2026-07-02T12:00:00Z") }, clock),
+    ).toBe("confirmed 2 days ago");
+    expect(
+      recencyLabel({ provenance: "farmer_confirmed", updatedAt: new Date("2026-07-04T10:00:00Z") }, clock),
+    ).toBe("confirmed 2 hours ago");
+    expect(
+      recencyLabel({ provenance: "farmer_confirmed", updatedAt: new Date("2026-07-04T11:59:00Z") }, clock),
+    ).toBe("confirmed just now");
+  });
 
-    expect(result.visible).toBe(true);
-    expect(result.pastCadence).toBe(true);
-    expect(result.label).toBe("updated 25 hours ago, older than this stand's usual update cadence");
+  it("no migrated label ever contains the word 'confirmed'", () => {
+    const clock = new FixedClock(now);
+    for (const daysAgo of [0, 1, 7, 30, 365]) {
+      const updatedAt = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+      const label = recencyLabel({ provenance: "migrated", updatedAt }, clock);
+      expect(labelClaimsConfirmation(label)).toBe(false);
+    }
   });
 });
