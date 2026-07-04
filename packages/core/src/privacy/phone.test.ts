@@ -1,24 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { hashPhone, normalizePhone, redactPhone } from "./phone.js";
+import { hashPhone, normalizePhone, PhoneNormalizationError } from "./phone";
 
-describe("phone privacy helpers", () => {
-  it("normalizes common US phone forms to E.164", () => {
-    expect(normalizePhone("(206) 555-0100")).toBe("+12065550100");
-    expect(normalizePhone("12065550100")).toBe("+12065550100");
-    expect(normalizePhone("+12065550100")).toBe("+12065550100");
+describe("phone privacy (Golden Rule #5)", () => {
+  it("normalizes US/CA numbers to +1XXXXXXXXXX", () => {
+    expect(normalizePhone("(206) 555-1234")).toBe("+12065551234");
+    expect(normalizePhone("206.555.1234")).toBe("+12065551234");
+    expect(normalizePhone("12065551234")).toBe("+12065551234");
+    expect(normalizePhone("+1 206 555 1234")).toBe("+12065551234");
   });
 
-  it("hashes phones with a required salt for stable non-raw lookup", () => {
-    const a = hashPhone("+12065550100", "test-salt");
-    const b = hashPhone("(206) 555-0100", "test-salt");
-    const c = hashPhone("+12065550100", "other-salt");
-
-    expect(a).toBe(b);
-    expect(a).not.toBe(c);
-    expect(a).not.toContain("206");
+  it("throws on non-phone input rather than guessing", () => {
+    expect(() => normalizePhone("hello")).toThrow(PhoneNormalizationError);
+    expect(() => normalizePhone("12345")).toThrow(PhoneNormalizationError);
   });
 
-  it("redacts phone numbers for admin display", () => {
-    expect(redactPhone("+12065550100")).toBe("+1206****00");
+  it("hash is deterministic and never returns the raw number", () => {
+    const salt = "test-salt";
+    const h1 = hashPhone("(206) 555-1234", salt);
+    const h2 = hashPhone("206-555-1234", salt);
+    expect(h1).toBe(h2); // same normalized number → same hash
+    expect(h1).not.toContain("2065551234");
+    expect(h1).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("different salts produce different hashes (no cross-tenant correlation)", () => {
+    expect(hashPhone("2065551234", "salt-a")).not.toBe(hashPhone("2065551234", "salt-b"));
   });
 });

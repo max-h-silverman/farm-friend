@@ -1,10 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
-    "jsx": "react-jsx",
-    "rootDir": ".",
-    "outDir": "dist"
+    "jsx": "react-native",
+    "lib": ["ES2022", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "composite": false,
+    "noEmit": true,
+    "skipLibCheck": true
   },
   "include": ["App.tsx"]
 }

@@ -2,15 +2,19 @@
   "name": "@farm-friend/mobile",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
+  "main": "App.tsx",
   "scripts": {
-    "dev": "expo start",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "start": "expo start"
   },
   "dependencies": {
-    "expo": "^56.0.12",
-    "react": "^19.2.7",
-    "react-native": "^0.84.1"
+    "@farm-friend/contracts": "*",
+    "expo": "^51.0.0",
+    "expo-status-bar": "^1.12.0",
+    "react": "18.2.0",
+    "react-native": "^0.74.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "typescript": "^5.5.0"
   }
 }

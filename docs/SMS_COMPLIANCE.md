@@ -1,80 +1,59 @@
-# Farm Friend SMS Compliance
+# Farm Friend — SMS Compliance
 
-This document is the SMS behavior source of truth until formal A2P 10DLC campaign language is approved.
+Keywords, consent, required behavior, and the FLAG safety rail. SMS is the **critical path** daily
+driver; **A2P 10DLC is assumed approved by launch** (Eat Vashon week). All copy here is
+**provisional** until the campaign is registered. Routing mechanics are in
+[ARCHITECTURE.md](ARCHITECTURE.md); consent data in [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md).
 
-## Program Identity
+## Deterministic keyword handling (code, before any model call)
 
-Public SMS identity: `Farm Friend`.
+Every inbound message is parsed by **code first**, in the fixed order in ARCHITECTURE §routing.
 
-The product should use one phone number if carrier campaign design permits it. Users should be able to save a single Farm Friend contact.
+### Compliance keywords (always handled by code)
 
-## Deterministic Keywords
+| Keyword | Behavior |
+|---|---|
+| `STOP` / `UNSUBSCRIBE` / `END` / `QUIT` | **Global** opt-out of all SMS. Clears `global_sms` immediately. **Can never be reinterpreted by conversation state.** Send the single confirming opt-out reply, then nothing further. |
+| `START` | Re-subscribe (re-set `global_sms`). |
+| `JOIN` | Opt into a program (per-program consent). |
+| `HELP` / `INFO` | Return help text; never suppressed by state. |
 
-These keywords must be parsed before any LLM call:
+### Commitment tokens (context-bound, never global)
 
-- Opt in: `JOIN`, `START`
-- Opt out: `STOP`, `UNSUBSCRIBE`, `END`, `QUIT`
-- Help: `HELP`, `INFO`
-- Safety/admin: `FLAG`
-- Gleaning response: `YES`, `NO`
+| Token | Behavior |
+|---|---|
+| `YES` / `NO` | Commit / decline the **live pending confirmation** (publish, activation, or gleaning signup). **Context-bound** — a `YES` with no pending context does **not** commit. Commits **exactly once**; the pending confirmation **expires** (GC'd). |
+| `OUT` / `IGNORE` | Farmer action on a stock-out alert (`OUT` = mark the item out; `IGNORE` = dismiss). Context-bound to the alert. |
 
-`STOP` always unsubscribes the sender from Farm Friend SMS globally according to compliance rules. Do not let active conversation state reinterpret `STOP`.
+`YES`/`NO`/`OUT`/`IGNORE` are **never global** and never override `STOP`/`HELP`/`FLAG`.
 
-`JOIN` and `START` create global Farm Friend SMS opt-in. They do not automatically enroll the sender in every program broadcast unless the carrier-approved disclosure and the user's state support that enrollment.
+### The FLAG safety rail
 
-`YES` is never global opt-in. It can confirm a pending action or sign up for a specific opportunity only when state proves the target.
+`FLAG` **pauses the thread** and **creates a review item** for VIGA staff (the human-handoff).
+Once public SMS is live (untrusted inbound), the flag-review UI + thread viewer (**F-009**) is a
+**hard pre-launch gate** — compliance requires the rail before public SMS. `FLAG` is handled by
+code, upstream of any model call.
 
-`NO` is not a global command. It can decline, cancel, or release a spot only when pending confirmation or opportunity state proves the target.
+## Consent model
 
-## Consent
+- **`global_sms`** — the top-level SMS consent. `STOP` clears it; `START` re-sets it. No SMS is
+  sent to a person without it.
+- **Per-program opt-in** — each program (inventory publish, stock-out alerts, gleaning) requires
+  its own opt-in via `JOIN` / program enrollment. A farmer opted into publish is not thereby
+  opted into gleaning.
+- Consent lives in `subscriptions`; consent decisions are **pure code, never a model call**.
 
-MVP uses self opt-in for SMS identity and program participation, plus staff/admin-managed onboarding for farmers and VIGA roles. Consent records must store:
+## Required behavior
 
-- phone/person,
-- program,
-- consent source,
-- timestamp,
-- required disclosure version.
+- Honor opt-out **immediately** and durably.
+- Every program message is attributable to a consented recipient (code checks consent before send).
+- Outbound passes the **redaction guard** — no raw phone numbers / private fields, regardless of
+  model output (see [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) §safety boundary).
+- Raw inbound bodies are **TTL-bounded**; the phone is stored **hashed**.
 
-Track one global SMS consent plus separate program subscriptions even with one phone number:
+## Provisional copy
 
-- `global_sms`
-- `farmstand`
-- `gleaning`
-
-Users may participate in one program without the other. Global opt-out overrides every program subscription.
-
-## Required Behavior
-
-- Unknown sender asking farmstand questions can receive public inventory answers without signup. Abuse and infrastructure rate limits may still apply.
-- Unknown sender trying to volunteer must be guided to opt in.
-- Volunteers must opt into gleaning before receiving broadcasts.
-- Farmers must be verified before publishing inventory for a farm.
-- VIGA staff must be verified before broadcasting gleaning opportunities.
-- Every initiating outbound broadcast includes opt-out language.
-- Direct replies, confirmations, and receipts may omit repeated STOP language if campaign rules allow, but STOP must always work.
-- `FLAG` requires an admin review UI before public SMS launch because it pauses automation on that thread.
-
-## Safety Rail
-
-Any user can text `FLAG` to pause automation on that thread and create an admin review item.
-
-Use `FLAG` for:
-
-- wrong or confusing reply,
-- unsafe instructions,
-- bad inventory answer,
-- incorrect signup state,
-- harassment or interpersonal problem,
-- anything requiring human judgment.
-
-## Copy
-
-Exact carrier-approved copy is not settled yet. Once it is approved, it must live in code templates and this doc must point to those templates.
-
-Until then, implementation should keep SMS copy short, plain, and explicit about:
-
-- who the message is from,
-- why the user is receiving it,
-- what reply is expected,
-- how to stop messages.
+Message templates (opt-out confirmation, help text, publish confirm, activation confirm, stock-out
+alert) are drafted provisionally and finalized at A2P registration. Keep them in one place so the
+registered copy is a single swap; none of the copy is a compliance *enforcement* point — the
+enforcement is the deterministic code above.

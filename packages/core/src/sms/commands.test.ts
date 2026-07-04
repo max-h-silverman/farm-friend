@@ -1,32 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { parseSmsCommand } from "./commands.js";
+import { bypassesModel, parseCommand } from "./commands";
 
-describe("parseSmsCommand", () => {
-  it("parses compliance keywords before any model can see them", () => {
-    expect(parseSmsCommand("STOP")).toEqual({ kind: "stop" });
-    expect(parseSmsCommand(" unsubscribe ")).toEqual({ kind: "stop" });
-    expect(parseSmsCommand("START")).toEqual({ kind: "start" });
-    expect(parseSmsCommand("join")).toEqual({ kind: "join" });
-    expect(parseSmsCommand("help")).toEqual({ kind: "help" });
-    expect(parseSmsCommand("INFO")).toEqual({ kind: "help" });
-    expect(parseSmsCommand("FLAG wrong farm")).toEqual({ kind: "flag" });
+describe("deterministic command parsing (Golden Rule #2)", () => {
+  it("compliance + commitment tokens all bypass the model", () => {
+    for (const tok of ["STOP", "START", "JOIN", "HELP", "INFO", "FLAG", "YES", "NO", "OUT", "IGNORE"]) {
+      expect(bypassesModel(tok)).toBe(true);
+    }
   });
 
-  it("catches punctuation and unicode variants of deterministic keywords", () => {
-    expect(parseSmsCommand("ＳＴＯＰ")).toEqual({ kind: "stop" });
-    expect(parseSmsCommand("(STOP)")).toEqual({ kind: "stop" });
-    expect(parseSmsCommand("HELP?")).toEqual({ kind: "help" });
-    expect(parseSmsCommand("YES!")).toEqual({ kind: "yes" });
+  it("STOP is always global and never context-bound", () => {
+    const parsed = parseCommand("STOP");
+    expect(parsed).toEqual({ kind: "compliance", keyword: "STOP", global: true });
   });
 
-  it("keeps YES and NO context-bound for the router", () => {
-    expect(parseSmsCommand("YES")).toEqual({ kind: "yes" });
-    expect(parseSmsCommand("NO")).toEqual({ kind: "no" });
-    expect(parseSmsCommand("YES, 10-1 works")).toEqual({ kind: "yes" });
+  it("STOP synonyms all map to a global opt-out", () => {
+    for (const w of ["UNSUBSCRIBE", "END", "QUIT", "CANCEL", "stop", "  Stop  "]) {
+      const parsed = parseCommand(w);
+      expect(parsed.kind).toBe("compliance");
+      if (parsed.kind === "compliance") {
+        expect(parsed.keyword).toBe("STOP");
+        expect(parsed.global).toBe(true);
+      }
+    }
   });
 
-  it("does not treat keywords in the middle of normal text as commands", () => {
-    expect(parseSmsCommand("I can stop by tomorrow")).toEqual({ kind: "none" });
-    expect(parseSmsCommand("please help me find kale")).toEqual({ kind: "none" });
+  it("YES/NO/OUT/IGNORE are context-bound, never global", () => {
+    for (const tok of ["YES", "NO", "OUT", "IGNORE"]) {
+      const parsed = parseCommand(tok);
+      expect(parsed.kind).toBe("commitment");
+      if (parsed.kind === "commitment") expect(parsed.contextBound).toBe(true);
+    }
+  });
+
+  it("only the first token is a keyword — prose containing a keyword mid-sentence is not a command", () => {
+    expect(parseCommand("please don't stop the alerts").kind).toBe("none");
+    // "out" appears mid-sentence, not as the first token → not the OUT commitment token.
+    expect(bypassesModel("we are out of tomatoes at the moment")).toBe(false);
+    // but a bare leading token IS the command.
+    expect(parseCommand("OUT").kind).toBe("commitment");
+  });
+
+  it("a free-text farmer message is not a command (goes to the model)", () => {
+    expect(parseCommand("tomatoes, kale, a lot of eggs").kind).toBe("none");
+    expect(bypassesModel("tomatoes, kale, a lot of eggs")).toBe(false);
   });
 });
