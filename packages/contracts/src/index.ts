@@ -8,7 +8,6 @@ export const inventoryStatusSchema = z.enum([
   "draft",
   "current",
   "superseded",
-  "hidden",
 ]);
 export type InventoryStatus = z.infer<typeof inventoryStatusSchema>;
 
@@ -16,7 +15,7 @@ export type InventoryStatus = z.infer<typeof inventoryStatusSchema>;
 export const provenanceSchema = z.enum(["migrated", "farmer_confirmed"]);
 export type Provenance = z.infer<typeof provenanceSchema>;
 
-/** Claim state at the stand grain (a migrated-unclaimed stand has no snapshot). */
+/** Claim state at the stand grain (a migrated stand may have no snapshot to carry the label). */
 export const claimStatusSchema = z.enum(["migrated", "claimed"]);
 export type ClaimStatus = z.infer<typeof claimStatusSchema>;
 

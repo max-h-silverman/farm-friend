@@ -31,6 +31,16 @@ When a design question is unclear, ask *"what would a good coordinator at a desk
   guessing; it's honest about what it doesn't know; and it **hands off to a human** (FLAG → the
   review queue) when something needs judgment.
 
+And picture the desk itself: a **minimalist, zen office** — a beautiful walnut desk with a few
+folders stacked neatly, color-coded labels on indexed racks of notebooks, like things grouped
+together — *not* a harried bureaucrat's old metal desk buried in loose paper, backed by filing
+cabinets of unsorted dossiers. The coordinator is trustworthy *because* the office is orderly:
+few files, each in its place, nothing duplicated, nothing kept "just in case." That calm should
+be felt at every surface — a farmer's `YES`, a customer's answer, the admin queue — and it binds
+how the system is built too: simplicity and elegance are architectural requirements
+([ARCHITECTURE.md](ARCHITECTURE.md) "Design stance"; CLAUDE.md "Simplicity and elegance — the
+zen desk").
+
 ## How Vashon farm stands actually work
 
 Nearly all stands are **unattended, honor-system** stands with a stable set of *staple* items but
@@ -65,7 +75,8 @@ rather than hidden — every stand surfaces "updated X ago."
 ## The migration & launch moment (the product's riskiest, most important switchover)
 
 Migration is **not a data-loading chore** — it is a **one-time switchover** coinciding with **Eat
-Vashon week**, a fixed community-event launch VIGA is doing human outreach ahead of.
+Vashon week (August 8–15, 2026)**, a fixed community-event launch VIGA is doing human outreach
+ahead of.
 
 - **Migrate ALL existing Google Map data, shown as `current` on the live map.** Day one, Farm
   Friend's map is a **faithful, full clone** of VIGA's map — at least as good as today from moment
@@ -75,17 +86,20 @@ Vashon week**, a fixed community-event launch VIGA is doing human outreach ahead
   shown*; provenance + a real/import date governs *honesty about age*. A migrated pin renders
   "**via VIGA's map, updated [date]**", **never** "confirmed today." On activation, provenance
   flips to `farmer_confirmed` and recency resets to real.
-- **Activation = one front-door-agnostic "confirm-or-revise" seam, with TWO triggers.** The old
-  Google Form **stays live** as ongoing intake (no forced behavior change). A migrated stand
-  becomes farmer-owned via either trigger, both converging on the *same* seam:
-  - **Trigger 1 — form-submit:** a farmer submits the existing Google Form → Farm Friend sends a
-    quick confirm/claim message ("Provo Farms currently listed: tomatoes, kale, eggs. Still right?
-    Reply YES, or text changes.").
-  - **Trigger 2 — VIGA outreach:** ahead of Eat Vashon week VIGA points farmers at a claim link /
-    QR / SMS keyword → same claim flow.
-  The seam **reuses the publish extract+confirm machinery with a PRE-SEEDED draft**: `YES` confirms
-  the migrated data as-is (no retyping); a text reply runs `farmstand-inventory-extract` on the
-  revision.
+- **Activation = manual, volunteer-driven onboarding.** There are only **~35 stands**, VIGA is
+  doing human outreach ahead of Eat Vashon week anyway, and the coordinators know the farmers —
+  so this one-time process is deliberately a **human process, not machinery**. A VIGA
+  staffer/volunteer records the farmer in the admin — name, phone, and **SMS consent captured in
+  person / by phone and stored with provenance (who recorded it, when, how)** — then triggers the
+  one **pre-seeded confirm-or-revise text**: "Provo Farms currently listed: tomatoes, kale, eggs.
+  Still right? Reply YES, or text changes." `YES` confirms the migrated data as-is (no retyping);
+  a text reply runs `farmstand-inventory-extract` on the revision. This **reuses the publish
+  machinery** — no form-submit automation, no claim links or tokens. **Staff binding the farmer
+  to their stand *is* the identity check**, and staff-recorded consent *is* the consent bootstrap
+  (no proactive SMS is ever sent to a number without recorded consent).
+- **The old Google Form** stays live during the transition; a volunteer keys submissions in via
+  the admin (the same labor as today, now landing on a fresh map) and such farmers get the
+  activation text. It retires when it stops being used.
 - **Non-responders stay `migrated`, honestly labeled, indefinitely** — a useful directory entry
   with an honest age label, not a failure state.
 
@@ -94,21 +108,28 @@ Vashon week**, a fixed community-event launch VIGA is doing human outreach ahead
 - **Farmer** — updates their stand (SMS daily driver; web entry point); owns published state.
 - **Customer** — discovers via the map/feed, asks via the inquiry route, reports stock-outs.
   Anonymous public lookup is allowed without signup.
-- **VIGA staff** — operate daily ops through a guided web admin (approve/claim farmers, migrate
-  data, resolve flags, watch stock-out reports, inspect threads). One tech-comfortable coordinator
-  does heavier triage; Max is escalation.
-- **Volunteer** — (later) signs up for Food Bank gleaning opportunities.
+- **VIGA staff** — operate daily ops through a guided web admin (onboard farmers — record phone +
+  SMS consent, send the activation text —, migrate data, resolve flags, watch stock-out reports,
+  inspect threads). One tech-comfortable coordinator does heavier triage; Max is escalation.
+- **Volunteer** — (later) expresses interest/availability/capability and signs up for volunteer
+  activities (gleaning, food transport, …).
 
 ## MVP scope
 
-**In (launch set, all live by Eat Vashon week):** full migrated-as-current map/feed → two-trigger
-farmer activation → farmer inventory publish → stock-out→alert → open-intent inquiry + recipes →
-admin flag review/thread viewer (a **hard SMS-compliance gate**). SMS is **critical path** (A2P
-10DLC assumed approved by launch).
+**In (launch set, all live by Eat Vashon week, Aug 8–15 2026):** full migrated-as-current
+map/feed → staff-driven farmer onboarding + activation → farmer inventory publish →
+stock-out→alert → open-intent inquiry + recipes → admin flag review/thread viewer (a **hard
+SMS-compliance gate**). SMS is **critical path** (A2P 10DLC assumed approved by launch).
 
-**Later:** gleaning coordination (staff create opportunities, volunteers reply YES/NO, tallies +
-reminders) — designed now (tables in the spine), built after the farmstand loop. A native app
-(Expo, scaffolded). Multiple tenants beyond Vashon. **Out:** for-profit farm volunteer flow;
+**Later: volunteer coordination** — gleaning first; **food transport** and other volunteer
+activities follow the same shape. A farmer states a need via SMS/web form (activity, timeframe,
+headcount, …) → **code matches volunteers** on expressed interest, availability, and capability
+(e.g. vehicle) and notifies the matches via SMS/app notification (matching + recipient selection
+are code, never the model) → volunteers reply YES/NO/MAYBE or with a date/time preference (the
+commitment machine's second consumer; free-text availability goes through a parse seam) → the
+coordinator runs the follow-through: tallies, partial updates, reminders, cancellations.
+Designed now (tables in the spine), built after the farmstand loop. A native app
+(Expo, scaffolded). Multiple tenants beyond Vashon. For-profit farm volunteer flow;
 Food Bank partner-facing visibility/export.
 
 ## Open questions (non-blocking; noted, not resolved)
@@ -117,5 +138,3 @@ Food Bank partner-facing visibility/export.
   (Determines whether migrated pins show real ages or the import date — blocks nothing.)
 - **Non-responder policy:** reminder-nudge cadence + any "hide very-stale migrated pin after N
   days" — defer to F-007 with real response rates.
-- **Cold outreach blast:** whether VIGA later wants a proactive "come claim your stand" broadcast
-  in addition to the two triggers — a GTM call; the activation seam already supports it.

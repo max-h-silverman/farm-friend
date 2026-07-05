@@ -1,7 +1,6 @@
 # Farm Friend
 
-Farm Friend keeps Vashon Island's farm-stand map **fresh**. VIGA's embedded Google Map is the
-island's only guide to what farm stands have, and it runs **2–7 days stale** because a volunteer
+Farm Friend keeps Vashon Island Growers Association (VIGA) farm-stand map **fresh**. VIGA's embedded Google Map is the island's only guide to what farm stands have, and it runs **2–7 days stale** because a volunteer
 hand-enters farmer-submitted forms. Farm Friend lets farmers update their own stand directly —
 mostly by **SMS** — so the map reflects reality, lets customers find and ask about local food,
 and lets customers flag a likely stock-out to the farmer. Nearly all stands are **unattended,
@@ -17,6 +16,23 @@ doesn't change a farmer's listing — it passes the message along); and when uns
 hands off to a human rather than guessing. When a design question is unclear, ask *"what would a
 good coordinator at a desk do?"* — this is the intuitive "why" beneath the Golden Rules below.
 
+**And picture the desk itself: a zen office, not a bureaucracy.** The coordinator to build is the
+one at a clean walnut desk — a few folders stacked neatly, color-coded labels on indexed racks,
+like things grouped together — *not* the harried clerk behind an old metal desk buried in loose
+paper, backed by filing cabinets of unsorted dossiers. Same coordinator, second orientation layer:
+**simplicity and elegance are architectural requirements**, not aesthetics. Few concepts, each
+load-bearing; one general mechanism where two bespoke ones would creep in; a system a newcomer can
+hold in their head. The binding rule is "Simplicity and elegance — the zen desk" below.
+
+**And know what the coordinator is made of: an LLM-brain in a harness.** The brain (the model
+behind `LLMProvider`) does the reading, drafting, and inferring — and it is **swappable by
+design**, so it is never *vouched for*, only *measured* (evals) and *contained* (the harness:
+deterministic routing, confirmation gates, retrieval, the safety boundary — all code). The trust
+contract: the brain is trusted for **quality**, never for **authority**. Evaluate every feature
+and architectural decision against the harness — *"if the brain were swapped for a weaker, or
+hostile, one tomorrow, which properties survive?"* Everything that must survive lives in the
+harness. Full contract: [docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md) "The trust contract."
+
 ## Status: architecture **settled** — implementation underway
 
 The clean-room architecture lives across the settled docs; the build is underway. The repo was
@@ -28,15 +44,15 @@ ontology, file layout, or naming; where it disagrees with these docs, the docs w
 - **[docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md)** — the *product*: north star (a fresh map),
   the three flows + the inquiry route, actors, honor-system reality, the migration/activation
   moment, MVP scope, open questions.
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the *system*: repo layout, runtime surfaces,
-  deterministic program/commitment routing, key flows, provider seams, tenancy, the abuse/cost
-  throttle seam, invariants.
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the *system*: the design stance (the zen
+  desk), repo layout, runtime surfaces, deterministic program/commitment routing, key flows,
+  provider seams, tenancy, the abuse/cost throttle seam, invariants.
 - **[docs/DATA_ARCHITECTURE.md](docs/DATA_ARCHITECTURE.md)** — the *data*: entities (all
   tenant-scoped), constraints, the **two-axis freshness/provenance model** (lifecycle `status`
   vs. provenance), the stock-out-report-never-mutates-inventory rule, privacy/retention, the
   `ai_runs` MAY-store list.
-- **[docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md)** — the *AI*: the `LLMProvider` seam, the
-  seam catalog (extract, stock-out parse, **inquiry-parse → open intent + a code-owned general
+- **[docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md)** — the *AI*: the **trust contract (an
+  LLM-brain in a harness)**, the `LLMProvider` seam, the seam catalog (extract, stock-out parse, **inquiry-parse → open intent + a code-owned general
   retrieval/ranking layer**, grounded query, grounded recipes, classify), the model-vs-code line,
   the **three-layer code-enforced safety boundary** (compile / runtime / eval),
   validation/repair, evals, data minimization.
@@ -67,6 +83,25 @@ Effort is never a reason to pick a lesser design, take a shortcut, skip a test, 
 right. If the best option is large, **surface it and do it** (or plan it deliberately) — never
 quietly substitute an easier one. This rule sits above the Golden Rules because it governs how
 every decision below gets made.
+
+## Simplicity and elegance — the zen desk
+
+The companion rule to the one above, and its guard against misreading: "best regardless of effort"
+is **never a license for complexity**. The best option is the **simplest, most elegant design that
+fully honors the invariants** — and it is often *more* work, not less (generalizing the existing
+mechanism instead of bolting a second one alongside it; deleting what a change made redundant
+instead of leaving it). Effort is no excuse for a lesser design; complexity is no proof of a
+better one. Concretely:
+- **Few concepts, each load-bearing.** One general mechanism with parameters/consumers (the
+  commitment state machine, the retrieval strategy layer, the activation seam) beats a family of
+  near-duplicates. Before adding anything new, ask whether an existing mechanism generalizes.
+- **Every addition earns its place.** A new entity, seam, flag, dependency, or abstraction must
+  pay for itself now. (The designed-unused gleaning tables are the deliberate, documented
+  exception — not a precedent for speculative generality.)
+- **Delete on the way through.** When a change makes code, a concept, or a doc line redundant,
+  remove it in the same change — never leave two ways to do one thing.
+- **Elegance is legibility.** Narrow seams, one small fixed routing order, each fact stated in
+  exactly one place. If explaining a design takes longer than the design, simplify the design.
 
 ## Examples are illustrations, never requirements
 
@@ -122,9 +157,11 @@ desk** would do; violating one reintroduces a failure mode the architecture exis
    X ago" recency. No invented farms/items; empty retrieval → an honest "no current listing,"
    never a guess. **Migrated data is labeled by provenance + real/import date, never as
    "confirmed."**
-5. **Privacy at the data layer.** Phone numbers are normalized + hashed for lookup/logging; raw
-   numbers are never logged; raw SMS bodies are TTL-bounded; flags/audit are retained. Model
-   context never includes phone numbers.
+5. **Privacy at the data layer.** Phone numbers are normalized at ingress; the raw E.164 lives in
+   **exactly one column** (`people.phone`), read only by the outbound send path (SMS can't be
+   sent to a hash); the **hash is the only lookup/log key** — raw numbers are never logged, never
+   enter model context, and are masked in admin; raw SMS bodies are TTL-bounded (flagged threads
+   exempt while under review); flags/audit are retained.
 6. **Safety is enforced by code, never by the system prompt.** Anything that must not fail —
    privacy, consent, compliance, commitment, data minimization — is a **deterministic code
    guarantee the model cannot reach around**, not an LLM instruction (a prompt can be jailbroken
@@ -167,7 +204,9 @@ boundary) are only real if they are *tested invariants*. Suites:
   and that `STOP` is always global; a non-contextual YES/OUT must not commit; a pending confirm
   commits exactly once and expires.
 - **A model seam:** trace it in AI_ARCHITECTURE.md (seam catalog + the model-vs-code line); keep
-  durable writes/recipient/consent out of model output; run evals. **To add a seam or a program,
+  durable writes/recipient/consent out of model output; run the **swap test** — every property
+  that must survive a model swap lives in the harness, not the model (AI_ARCHITECTURE.md "The
+  trust contract"); run evals. **To add a seam or a program,
   or swap a provider, follow docs/RUNBOOK.md "how to extend" — it is not inlined here.**
 - **A new query/list:** add the retrieval in code before any model call; label recency.
 - **Anything privacy-relevant:** phones hashed, never logged raw, never in model context. The
@@ -210,28 +249,39 @@ boundary) are only real if they are *tested invariants*. Suites:
   without code validation + the outbound guard.
 - Do not factor effort into a technical decision, or treat the archived prior scaffold as
   inherited architecture.
+- Do not add speculative entities, seams, flags, or parallel near-duplicate mechanisms, and do not
+  leave two ways to do one thing — every addition earns its place; delete what a change makes
+  redundant ("Simplicity and elegance — the zen desk" above).
 
 ## Current State & Open Items
 
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** architecture settled; **Phase 0 (F-006a + F-006b + F-006c) is BUILT and verified**,
-**not committed**, on branch `feature/f-006-platform-spine` (off `main` = `3f76949`). Detail +
-rationale: [docs/SESSION_LOG.md](docs/SESSION_LOG.md) 2026-07-04.
+**Phase:** architecture settled; **Phase 0 (F-006a/b/c) is merged to `main`** (PR #4, `75bdb85`).
+Detail + rationale: [docs/SESSION_LOG.md](docs/SESSION_LOG.md) 2026-07-04.
 
-- **Live:** the 6-package monorepo (`core`, `db`, `sms`, `ai`, `config`, `contracts`); tenant-scoped
-  Drizzle schema (two-axis migration model; gleaning designed-unused; `ai_runs` no-input); provider
-  seams (`SmsTransport`+sim+Telnyx stub+redaction guard; `LLMProvider`+stub+openweight+
-  `ModelSafeContext` assembler+validate-and-repair; `Clock`; `MapProvider`+offline stub); the
-  branded compile + runtime safety boundary; the generic commitment state machine (two consumers);
-  magic-link auth + server-side `requireRole`; the eval harness + adversarial group.
-- **Skeleton:** `apps/web` (map placeholder + `/api/health` + Telnyx webhook stub + auth callback +
-  one guarded admin route); `apps/mobile` Expo shell; `maps/` scaffold (importer is F-007a).
-- **Verified this session:** `typecheck` PASS (compile guard proven non-vacuous), `lint` PASS,
-  `npm test` **38 passed / 9 files**, `test:integration` 3 skipped (DB-gated — no Postgres run yet),
-  `evals` critical 3/3 + advisory 2/2 + **adversarial 4/4** (proven non-vacuous).
+**This session (2026-07-05), branch `fix/architecture-review`, uncommitted:** an architecture
+review closed holes/contradictions across the docs + schema. The decisions now binding:
+- **Activation redesigned — staff-initiated manual onboarding** (~35 stands; the two-trigger
+  form-submit/claim-link seam is deleted): staff record the farmer + SMS consent (**with
+  provenance** — `subscriptions.source` + `recorded_by_person_id`, new columns) in the admin and
+  trigger the pre-seeded confirm-or-revise text (PRODUCT_BRIEF §migration). Staff binding is the
+  identity check; recorded consent is the consent bootstrap. Farmer web = inventory editor only
+  (no `/claim`).
+- **Raw phone stance:** `people.phone` (new column, plain normalized E.164) is the **one** raw
+  column, read only by the outbound send path; `phone_hash` stays the only lookup/log key (GR5).
+- **Schema pruned** (unused/overlapping): `farms.status`, snapshot `hidden`, `expected_fresh_until`
+  removed; `farm_stands.visibility` is the single hide switch; contracts enum synced. Activation
+  `YES` writes a **new** `farmer_confirmed` snapshot (never mutates provenance in place).
+- **Policies set (provisional):** raw-body TTL 30d + flagged-thread exemption; commitment expiry
+  per-consumer (publish/stock-out 48h, activation 14d); token = entire normalized message, with
+  fixed code-listed variants (`YES` accepts `YEP`/`YEA`/`SURE`); `JOIN <program>`; SMS stock-out
+  parse must resolve the stand or ask. **Eat Vashon week = Aug 8–15, 2026.**
+- **Verified this session (after the schema changes):** `typecheck` PASS, `lint` PASS, `npm test`
+  **38 passed / 9 files**, `evals` critical 3/3 + advisory 2/2 + adversarial 4/4.
+  `test:integration` still DB-gated (no Postgres run yet).
 - **Owed:** commit + PR on the user's go-ahead; run integration vs. real Postgres.
 - **Next (launch set, dependency order):** F-007a → F-007b → F-002 → F-008 → F-003 → F-009 (hard
-  SMS-compliance gate), all by Eat Vashon week (SMS critical path); then F-004, F-005. Start with
-  `/pm show <ID>`, branch off `main`, TDD.
+  SMS-compliance gate), all by Eat Vashon week Aug 8–15 (SMS critical path); then F-004, F-005.
+  Start with `/pm show <ID>`, branch off `main`, TDD.

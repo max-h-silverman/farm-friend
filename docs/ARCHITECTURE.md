@@ -5,6 +5,21 @@ provider seams, tenancy, and the invariants the code enforces. Product rationale
 [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md); data in [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md); AI in
 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md).
 
+## Design stance: the zen desk
+
+Simplicity and elegance are **architectural requirements**, sibling to the invariants — the
+coordinator works in a zen office, not a bureaucracy (CLAUDE.md "Simplicity and elegance — the
+zen desk"). In this system that looks like:
+- **One general mechanism, many consumers** — the commitment state machine (publish, activation
+  confirm, gleaning signup), the retrieval/ranking layer (strategy is a parameter). Extend by
+  generalizing an existing mechanism before adding a parallel one.
+- **Few, narrow seams** — `SmsTransport`, `LLMProvider`, `Clock`, `MapProvider`. A new seam,
+  entity, or package must earn its place.
+- **One small, fixed routing order** — not special cases scattered across handlers.
+- **Each concept lives in exactly one place** — "which snapshot is current" is one status axis, a
+  behavior has one owner, a fact has one doc. When a change makes something redundant, delete it
+  in the same change.
+
 ## Stack
 
 TypeScript **npm-workspace** monorepo (ESM), Postgres source of truth (Drizzle), **Next.js App
@@ -17,9 +32,9 @@ core tables, single VIGA tenant seeded (cheap insurance, no multi-tenant UI yet)
 
 ```
 apps/
-  web/        Next.js App Router: PUBLIC embedded map + stand pages; farmer web onboarding
-              /claim + inventory editor; QR stock-out web form; /api routes + Telnyx webhook;
-              VIGA admin/ops console; auth (email magic links)
+  web/        Next.js App Router: PUBLIC embedded map + stand pages; farmer inventory editor;
+              QR stock-out web form; /api routes + Telnyx webhook; VIGA admin/ops console
+              (incl. farmer onboarding); auth (email magic links)
   mobile/     Expo shell (deferred; shares API contracts + types)
 packages/
   core/       Domain: compliance/commitment parsing, program routing, inventory publish +
@@ -43,9 +58,10 @@ pure logic; providers + `Clock` are injected so unit tests run without I/O.
 
 - **Public web:** the map render + a stable embeddable feed (GeoJSON/JSON) the VIGA site consumes;
   per-stand pages; the QR stock-out web form. Anonymous, no signup.
-- **Farmer web:** magic-link auth → `/claim` (activation) + inventory editor.
-- **Admin web:** magic-link auth → migrate-data, stock-out report queue, flag review + thread
-  viewer, manual send. Server-side role checks on every route.
+- **Farmer web:** magic-link auth → inventory editor.
+- **Admin web:** magic-link auth → migrate-data, farmer onboarding (record phone + consent w/
+  provenance, send the activation text), stock-out report queue, flag review + thread viewer,
+  manual send. Server-side role checks on every route.
 - **API / webhook:** `/api/health`; the Telnyx inbound webhook → core routing.
 - **Cron (Vercel):** digests + reminders (later features).
 
@@ -56,9 +72,13 @@ All inbound SMS is routed by **code, before any model call**, in this fixed orde
 1. **Compliance keywords win** — STOP/START/JOIN/HELP/INFO/UNSUBSCRIBE/END/QUIT. `STOP` always
    unsubscribes **globally**, regardless of conversation state, and can never be reinterpreted.
 2. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail).
-3. **Live pending confirmation wins** — publish/activation `YES`/`NO`, stock-out `OUT`/`IGNORE` —
-   *except* STOP/HELP/FLAG. These are **context-bound, never global**, commit **exactly once**,
-   and their pending confirmation **expires** (GC'd).
+3. **Live pending confirmation wins over everything below** (compliance keywords + FLAG were
+   already consumed above) — publish/activation `YES`/`NO`, stock-out `OUT`/`IGNORE`. These are
+   **context-bound, never global**, commit **exactly once**, and their pending confirmation
+   **expires** (GC'd). Tokens match **deterministically**: normalize (trim, uppercase, strip
+   trailing punctuation), then the token — or one of its fixed, code-listed variants (e.g. `YES`
+   accepts `YEP`/`YEA`/`SURE`) — must be the **entire message**; anything else is free text for
+   the steps below (see SMS_COMPLIANCE §token matching).
 4. **Active conversation state** routes the message to its in-flight flow.
 5. **Role / subscription gates** eligible programs.
 6. **Only then** an LLM `message-classify` seam runs.
@@ -70,7 +90,8 @@ keyword/consent semantics.
 
 Confirmation (a pending action + a context-bound token that commits it exactly once, with expiry)
 is a **single generic mechanism** with **two consumers**, designed generically from the start so
-it isn't over-fit to publish:
+it isn't over-fit to publish. **Expiry is a per-consumer parameter** (provisional defaults:
+publish + stock-out confirms 48h; activation confirms 14 days — farmers reply slowly):
 - **publish / activation confirm** — `YES` commits the pre-seeded or extracted inventory draft.
 - **gleaning signup** — `YES`/`NO` signs up / declines within the context of a specific
   opportunity; capacity/waitlist is **code, not model**.
@@ -82,9 +103,12 @@ Building both consumers on one machine is why gleaning tables land in the spine 
 - **Publish:** inbound farmer text → (deterministic routing) → `farmstand-inventory-extract`
   proposes a draft → echo summary → `YES` commits: writes an `inventory_snapshot`
   (`status=current`, provenance `farmer_confirmed`), supersedes the prior current snapshot.
-- **Activation (confirm-or-revise):** form-submit or VIGA-outreach trigger → a **pre-seeded**
-  draft from the migrated data → `YES` confirms as-is (`migrated → farmer_confirmed`,
-  `claim_status → claimed`); a text reply runs `farmstand-inventory-extract` on the revision.
+- **Activation (staff-initiated confirm-or-revise):** staff/volunteer records the farmer in the
+  admin (name, phone, SMS consent with provenance) and triggers the activation text → a
+  **pre-seeded** draft from the migrated data → `YES` commits a **new** `farmer_confirmed`
+  snapshot carrying the migrated items (the same commit path as publish — it supersedes the
+  migrated snapshot, never mutates it) and sets `claim_status → claimed`; a text reply runs
+  `farmstand-inventory-extract` on the revision.
 - **Inquiry:** question → `inquiry-parse` (item(s) + farm scope + origin + strategy, or clarify) →
   **code-owned general retrieval/ranking** → `farmstand-query-answer` composes over grounded rows,
   recency-labeled. Empty → honest "no current listing."
@@ -99,7 +123,9 @@ Narrow interfaces so I/O is swappable and tests are hermetic:
   that refuses raw phone numbers / private fields regardless of model output.
 - **`LLMProvider.generateJson`** (`packages/ai`) — stub + open-weight adapter (config-selected).
   Accepts only a **`ModelSafeContext`** produced by the stripping assembler; its output is
-  **untrusted** and validated (schema + domain) before anything acts on it.
+  **untrusted** and validated (schema + domain) before anything acts on it. The model behind the
+  seam is never vouched for — only measured (evals) and contained (the harness); see
+  [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) "The trust contract."
 - **`Clock`** — injected time for deterministic recency/expiry tests.
 - **`MapProvider`** — geocode; ships with an **offline/deterministic stub** for tests, evals, and
   importer runs (no network in CI). See [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md).
