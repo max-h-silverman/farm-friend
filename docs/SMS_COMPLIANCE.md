@@ -13,11 +13,13 @@ Every inbound message is parsed by **code first**, in the fixed order in ARCHITE
 
 Normalize the message — trim whitespace, uppercase, strip trailing punctuation — then a keyword or
 token matches only if it (or one of its **fixed, code-listed variants**) is the **entire
-normalized message**. The affirmative accepts `YES` / `YEP` / `YEA` / `SURE`; so `"yes."`,
-`" YES "`, and `"Yep"` match, while `"yes, still right"` does **not** — it routes onward as free
-text (in an active flow that means the revision path, whose echoed draft + confirm protects
-against a garbled read). Matching is deterministic code — a fixed list, never fuzzy — and
-near-misses are never "interpreted" into a commit.
+normalized message**. The affirmative accepts `YES` / `Y` / `YEP` / `YEA` / `SURE`; the decline
+accepts `NO` / `N` / `NOPE` / `NAH` / `NO THANKS` / `NO THANK YOU`. So `"yes."`, `" YES "`,
+`"Yep"`, `"y"`, `"n."`, and `"no thanks"` match, while `"yes, still right"` and
+`"no thanks, but change it"` do **not** — they route onward as free text (in an active flow that
+means the revision path, whose echoed draft + confirm protects against a garbled read). Matching
+is deterministic code — a fixed list, never fuzzy — and near-misses are never "interpreted" into a
+commit or decline.
 
 ### Compliance keywords (always handled by code)
 
@@ -32,7 +34,7 @@ near-misses are never "interpreted" into a commit.
 
 | Token | Behavior |
 |---|---|
-| `YES` / `NO` | Commit / decline the **live pending confirmation** (publish, activation, or gleaning signup). `YES` accepts the fixed variants `YEP` / `YEA` / `SURE`. **Context-bound** — an affirmative with no pending context does **not** commit. Commits **exactly once**; the pending confirmation **expires** (GC'd). |
+| `YES` / `NO` | Commit / decline the **live pending confirmation** (publish, activation, or gleaning signup). `YES` accepts the fixed variants `Y` / `YEP` / `YEA` / `SURE`; `NO` accepts `N` / `NOPE` / `NAH` / `NO THANKS` / `NO THANK YOU`. **Context-bound** — a YES/NO reply with no pending context does **not** commit or decline. Commits **exactly once**; the pending confirmation **expires** (GC'd). |
 | `OUT` / `IGNORE` | Farmer action on a stock-out alert (`OUT` = mark the item out; `IGNORE` = dismiss). Context-bound to the alert. |
 
 Expiry windows are per-consumer (provisional): publish + stock-out confirms **48 hours**;

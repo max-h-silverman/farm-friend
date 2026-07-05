@@ -30,29 +30,40 @@ const COMPLIANCE_WORDS: Record<string, ComplianceKeyword> = {
 const COMMITMENT_WORDS: Record<string, CommitmentToken> = {
   YES: "YES",
   Y: "YES",
+  YEP: "YES",
+  YEA: "YES",
+  SURE: "YES",
   NO: "NO",
   N: "NO",
+  NOPE: "NO",
+  NAH: "NO",
+  "NO THANKS": "NO",
+  "NO THANK YOU": "NO",
   OUT: "OUT",
   IGNORE: "IGNORE",
 };
 
+function normalizeCommandMessage(body: string): string {
+  return body.trim().replace(/[.!?,;:]+$/g, "").trim().toUpperCase();
+}
+
 /**
  * Parse a raw inbound SMS body into a deterministic command, before any model call.
- * Only the FIRST token is considered a keyword — a message that merely contains "stop" in a
- * sentence is not an opt-out, but a bare "STOP" always is.
+ * A command matches only when the entire normalized message is a fixed code-listed keyword,
+ * token, or variant.
  */
 export function parseCommand(body: string): ParsedCommand {
-  const first = body.trim().split(/\s+/)[0]?.toUpperCase() ?? "";
+  const normalized = normalizeCommandMessage(body);
 
-  if (STOP_WORDS.has(first)) {
+  if (STOP_WORDS.has(normalized)) {
     // STOP is ALWAYS global — never context-bound, never overridable by state.
     return { kind: "compliance", keyword: "STOP", global: true };
   }
-  const compliance = COMPLIANCE_WORDS[first];
+  const compliance = COMPLIANCE_WORDS[normalized];
   if (compliance) {
     return { kind: "compliance", keyword: compliance, global: false };
   }
-  const commitment = COMMITMENT_WORDS[first];
+  const commitment = COMMITMENT_WORDS[normalized];
   if (commitment) {
     return { kind: "commitment", token: commitment, contextBound: true };
   }

@@ -77,8 +77,9 @@ All inbound SMS is routed by **code, before any model call**, in this fixed orde
    **context-bound, never global**, commit **exactly once**, and their pending confirmation
    **expires** (GC'd). Tokens match **deterministically**: normalize (trim, uppercase, strip
    trailing punctuation), then the token — or one of its fixed, code-listed variants (e.g. `YES`
-   accepts `YEP`/`YEA`/`SURE`) — must be the **entire message**; anything else is free text for
-   the steps below (see SMS_COMPLIANCE §token matching).
+   accepts `Y`/`YEP`/`YEA`/`SURE`; `NO` accepts `N`/`NOPE`/`NAH`/`NO THANKS`/`NO THANK YOU`) —
+   must be the **entire message**; anything else is free text for the steps below (see
+   SMS_COMPLIANCE §token matching).
 4. **Active conversation state** routes the message to its in-flight flow.
 5. **Role / subscription gates** eligible programs.
 6. **Only then** an LLM `message-classify` seam runs.

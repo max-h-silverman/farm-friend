@@ -32,12 +32,28 @@ describe("deterministic command parsing (Golden Rule #2)", () => {
     }
   });
 
-  it("only the first token is a keyword — prose containing a keyword mid-sentence is not a command", () => {
+  it("commitment tokens use the same trim, case, and trailing-punctuation normalization", () => {
+    expect(parseCommand(" yes. ")).toEqual({ kind: "commitment", token: "YES", contextBound: true });
+    expect(parseCommand("Y")).toEqual({ kind: "commitment", token: "YES", contextBound: true });
+    expect(parseCommand("Yep")).toEqual({ kind: "commitment", token: "YES", contextBound: true });
+    expect(parseCommand("YEA!")).toEqual({ kind: "commitment", token: "YES", contextBound: true });
+    expect(parseCommand("sure")).toEqual({ kind: "commitment", token: "YES", contextBound: true });
+
+    expect(parseCommand(" no. ")).toEqual({ kind: "commitment", token: "NO", contextBound: true });
+    expect(parseCommand("n")).toEqual({ kind: "commitment", token: "NO", contextBound: true });
+    expect(parseCommand("Nope")).toEqual({ kind: "commitment", token: "NO", contextBound: true });
+    expect(parseCommand("NAH!")).toEqual({ kind: "commitment", token: "NO", contextBound: true });
+    expect(parseCommand("no thanks")).toEqual({ kind: "commitment", token: "NO", contextBound: true });
+    expect(parseCommand("No Thank You.")).toEqual({ kind: "commitment", token: "NO", contextBound: true });
+  });
+
+  it("tokens must be the whole normalized message", () => {
     expect(parseCommand("please don't stop the alerts").kind).toBe("none");
-    // "out" appears mid-sentence, not as the first token → not the OUT commitment token.
     expect(bypassesModel("we are out of tomatoes at the moment")).toBe(false);
-    // but a bare leading token IS the command.
-    expect(parseCommand("OUT").kind).toBe("commitment");
+    expect(parseCommand("yes, still right").kind).toBe("none");
+    expect(parseCommand("no thanks, but change it").kind).toBe("none");
+    expect(parseCommand("y still right").kind).toBe("none");
+    expect(parseCommand("n but change it").kind).toBe("none");
   });
 
   it("a free-text farmer message is not a command (goes to the model)", () => {
