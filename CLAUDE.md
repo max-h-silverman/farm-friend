@@ -261,8 +261,9 @@ boundary) are only real if they are *tested invariants*. Suites:
 **Phase:** architecture settled; **Phase 0 (F-006a/b/c) is merged to `main`** (PR #4, `75bdb85`).
 Detail + rationale: [docs/SESSION_LOG.md](docs/SESSION_LOG.md) 2026-07-04.
 
-**This session (2026-07-05), branch `fix/no-decline-variants`, uncommitted:** an architecture
-review closed holes/contradictions across the docs + schema. The decisions now binding:
+**Merged follow-up architecture/SMS cleanup (2026-07-05):** PR #5 (`architecture-review`) and
+PR #6 (`fix/no-decline-variants`, merge `2ca5f86`) closed holes/contradictions across the docs,
+schema, and SMS parser. The decisions now binding:
 - **Activation redesigned — staff-initiated manual onboarding** (~35 stands; the two-trigger
   form-submit/claim-link seam is deleted): staff record the farmer + SMS consent (**with
   provenance** — `subscriptions.source` + `recorded_by_person_id`, new columns) in the admin and
@@ -279,10 +280,10 @@ review closed holes/contradictions across the docs + schema. The decisions now b
   fixed code-listed variants (`YES` accepts `Y`/`YEP`/`YEA`/`SURE`; `NO` accepts `N`/`NOPE`/
   `NAH`/`NO THANKS`/`NO THANK YOU`); `JOIN <program>`; SMS stock-out parse must resolve the stand
   or ask. **Eat Vashon week = Aug 8–15, 2026.**
-- **Verified this session (after the SMS parser changes):** `typecheck` PASS, `lint` PASS,
+- **Verified before merge (after the SMS parser changes):** `typecheck` PASS, `lint` PASS,
   `npm test` **39 passed / 9 files**, `evals` critical 3/3 + advisory 2/2 + adversarial 4/4.
   `test:integration` still DB-gated (no Postgres run yet).
-- **Owed:** commit + PR on the user's go-ahead; run integration vs. real Postgres.
+- **Owed:** run integration vs. real Postgres.
 - **Next (launch set, dependency order):** F-007a → F-007b → F-002 → F-008 → F-003 → F-009 (hard
   SMS-compliance gate), all by Eat Vashon week Aug 8–15 (SMS critical path); then F-004, F-005.
   Start with `/pm show <ID>`, branch off `main`, TDD.
