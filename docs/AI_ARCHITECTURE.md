@@ -5,6 +5,27 @@ does and what code owns, the **three-layer code-enforced safety boundary**, vali
 evals, and data minimization. Data shapes are in
 [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md); routing is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## The trust contract — an LLM-brain in a harness
+
+The coordinator is an **LLM-brain in a harness**. The brain is **swappable by design** (stub,
+open-weight, any future provider behind `LLMProvider`), so the architecture never *vouches for* a
+model — it **measures** one (evals) and **contains** one (the harness: deterministic routing, the
+confirmation gates, code-owned retrieval, the safety boundary, output validation). The contract:
+
+- **Trusted for quality, never for authority.** Competence — extraction accuracy, parse quality,
+  phrasing, composition — is *quality*: it may vary by brain, and evals price it (full suite at
+  parity or better; critical at 100%). Everything on the "never" side of the model-vs-code line
+  below is *authority*: harness-owned, identical under every brain, including a hostile one.
+- **The swap test — apply it to every feature and architectural decision.** *If the model were
+  swapped tomorrow for a weaker or adversarial one, which properties survive unchanged?* Every
+  property that must survive (the Golden Rules: farmer ownership, compliance, grounding, privacy,
+  commitment) must be a harness property. If a guarantee would move with the model, the design is
+  wrong — move it into code.
+- **A model swap is a config change plus an eval run, never a safety review.** That is the seam's
+  point: safety was never in the brain, so changing brains cannot lose it.
+
+The rest of this doc is the harness in detail.
+
 ## The `LLMProvider` seam
 
 One narrow interface, `LLMProvider.generateJson(seam, context, schema)`, with:
@@ -28,11 +49,16 @@ is a *parameter*, never a hardcoded intersection.
 
 ## Seam catalog
 
-Each is Zod-schema'd, validated, one repair retry, then clarify/flag:
+The catalog is **deliberately small** — a new seam must earn its place (CLAUDE.md "Simplicity and
+elegance — the zen desk"); prefer generalizing an existing seam's intent/schema over adding a
+near-duplicate. Each is Zod-schema'd, validated, one repair retry, then clarify/flag:
 - **`farmstand-inventory-extract`** — farmer text → a structured inventory draft (items, quantities
   or approximate labels). Reused by activation's pre-seeded confirm-or-revise.
 - **`stockout-report-parse`** — free text → which item (a listed `inventory_item_id` or normalized
-  text for an unlisted item).
+  text for an unlisted item) **and which stand**: the QR web form carries the stand id itself; an
+  SMS report must parse an optional farm/stand reference from the text — if the stand can't be
+  resolved, **ask a clarifying question**, never guess a recipient (code selects the farmer to
+  alert only from a resolved stand).
 - **`inquiry-parse`** — question → **open intent**: item(s), optional farm scope, optional origin
   location, and a **selection/ranking strategy** (proximity / freshness / coverage / any), or an
   "ambiguous → ask a clarifying question" signal. **Never privileges one reading** of a multi-item
@@ -40,7 +66,10 @@ Each is Zod-schema'd, validated, one repair retry, then clarify/flag:
 - **`farmstand-query-answer`** — compose over the **retrieved grounded rows** (whatever the
   strategy returned), always recency-labeled; empty retrieval → honest "no current listing."
 - **`recipe-grounded-answer`** — recipes grounded in retrieved current inventory; conservative
-  disclaimers, no medical/preservation/foraging/food-safety advice.
+  disclaimers, no medical/preservation/foraging/food-safety advice. *(These content limits are a
+  **quality** property — enforced by prompt + measured by the advisory evals — not a harness
+  guarantee; Golden Rule #6's code-enforcement mandate covers privacy/consent/compliance/
+  commitment, and this isn't one of those.)*
 - **`message-classify`** — last-resort intent classification, only after deterministic routing.
 - **`gleaning-opportunity-extract`** — designed, built later (F-004).
 

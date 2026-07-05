@@ -14,22 +14,23 @@ import {
 //
 // Every top-level entity carries `tenant_id`. The two-axis freshness/provenance model
 // (see docs/DATA_ARCHITECTURE.md) is load-bearing:
-//   - lifecycle `status` (draft|current|superseded|hidden) → is it shown on the map
+//   - lifecycle `status` (draft|current|superseded) → is it shown on the map
 //   - provenance (migrated|farmer_confirmed) + a real/import date → honesty about age
 // A migrated pin shows as `current` but renders honestly ("via VIGA's map, updated [date]"),
 // never "confirmed today". Claim state lives at TWO grains (stand + snapshot) because a
-// migrated-unclaimed stand has no snapshot on day one.
+// migrated stand MAY have no snapshot (its export row listed no goods), so the stand
+// itself must carry the honest label too.
 
 // ---------------------------------------------------------------------------- enums
 
-export const farmStatus = pgEnum("farm_status", ["active", "hidden"]);
+// `farm_stands.visibility` is the ONE hide switch (admin-only) — there is deliberately no
+// farm-level or snapshot-level hide (docs/DATA_ARCHITECTURE.md "two-axis model").
 export const standVisibility = pgEnum("stand_visibility", ["public", "hidden"]);
 export const claimStatus = pgEnum("claim_status", ["migrated", "claimed"]);
 export const inventoryStatus = pgEnum("inventory_status", [
   "draft",
   "current",
   "superseded",
-  "hidden",
 ]);
 export const provenance = pgEnum("provenance", ["migrated", "farmer_confirmed"]);
 export const approxLabel = pgEnum("approx_label", ["some", "limited", "a lot"]);
@@ -66,7 +67,10 @@ export const people = pgTable("people", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   displayName: text("display_name"),
-  // phone is NEVER stored raw — only the normalized hash (privacy at the data layer).
+  // The ONLY column holding a raw phone: normalized E.164, read exclusively by the outbound
+  // send path (SmsTransport needs a real number to dial). Never logged, never in model
+  // context, masked in admin. `phone_hash` is the only lookup/log key.
+  phone: text("phone"),
   phoneHash: text("phone_hash"),
   email: text("email"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -90,6 +94,11 @@ export const subscriptions = pgTable("subscriptions", {
   program: text("program"), // null = the global_sms row; non-null = per-program opt-in
   optedInAt: timestamp("opted_in_at", { withTimezone: true }),
   optedOutAt: timestamp("opted_out_at", { withTimezone: true }),
+  // Consent provenance — HOW consent was captured (e.g. "staff_onboarding", "keyword",
+  // "web") and WHO recorded it when a human did (staff-recorded consent at farmer
+  // onboarding is the launch path; see docs/SMS_COMPLIANCE.md §consent).
+  source: text("source"),
+  recordedByPersonId: uuid("recorded_by_person_id").references(() => people.id),
 });
 
 // --------------------------------------------------------------------------- farms
@@ -98,7 +107,6 @@ export const farms = pgTable("farms", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   name: text("name").notNull(),
-  status: farmStatus("status").notNull().default("active"),
   ownerPersonId: uuid("owner_person_id").references(() => people.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -131,7 +139,6 @@ export const inventorySnapshots = pgTable("inventory_snapshots", {
   confirmedByPersonId: uuid("confirmed_by_person_id").references(() => people.id),
   publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  expectedFreshUntil: timestamp("expected_fresh_until", { withTimezone: true }),
 });
 
 export const inventoryItems = pgTable("inventory_items", {
@@ -174,7 +181,9 @@ export const messages = pgTable("messages", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   personId: uuid("person_id").references(() => people.id),
   direction: messageDirection("direction").notNull(),
-  // raw body is TTL-bounded; phone stored hashed only.
+  // Raw body is TTL-bounded (30 days, provisional). Messages in a FLAGged thread are
+  // exempt while the flag is open and for 30 days after resolution (F-009 review needs
+  // readable threads). Phone is stored hashed only.
   body: text("body"),
   bodyExpiresAt: timestamp("body_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -185,6 +194,8 @@ export const conversationStates = pgTable("conversation_states", {
   tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
   personId: uuid("person_id").notNull().references(() => people.id),
   // The pending action a context-bound YES/OUT commits, plus its expiry (for GC).
+  // Expiry is a PER-CONSUMER parameter of the commitment machine (provisional defaults:
+  // publish + stock-out 48h; activation 14 days — farmers reply slowly).
   pendingConfirmationJson: jsonb("pending_confirmation_json"),
   pendingExpiresAt: timestamp("pending_expires_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
