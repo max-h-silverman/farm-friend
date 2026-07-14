@@ -26,7 +26,7 @@ describe("outbound redaction guard — runtime guard (Golden Rule #6, layer 2)",
   });
 
   it("only a RedactedOutbound can be sent (the simulator records it)", async () => {
-    const sim = new SmsSimulator();
+    const sim = new SmsSimulator(() => {});
     await sim.send({ toPhoneHash: "abc", body: redactOutbound("Reply YES to publish.") });
     expect(sim.sent).toHaveLength(1);
     expect(sim.sent[0]!.toPhoneHash).toBe("abc");

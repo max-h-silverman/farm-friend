@@ -1,0 +1,84 @@
+TELNYX 10DLC FIELD VALUES - VIGA FARM FRIEND
+
+Use these values for the fields shown in the Telnyx campaign form.
+Do not include any old myco.software, web.app, volunteer, gleaning, MUTE, or Plum Forest Farm copy.
+
+CONTENT DETAILS
+
+Campaign Description
+Vashon Island Growers Association (VIGA) operates VIGA Farm Friend to keep the VIGA farm-stand map fresh and useful. VIGA Farm Friend sends operational SMS messages for participating Vashon farmers and community members, including farmer onboarding texts, farm-stand inventory update drafts, publish confirmations, prompts to confirm or revise a listing, customer produce availability inquiry replies, stock-out report alerts to farmers, and related help or opt-out messages. Farmers own their published listings; customer stock-out reports do not change the map directly and are routed to the farmer for review. The public opt-in call to action is published at https://www.vigavashon.org/viga-farm-friend.
+
+Opt In Workflow Description (Message Flow/Call To Action)
+The public mobile opt-in call to action is published on the Vashon Island Growers Association website at this exact path: https://www.vigavashon.org/viga-farm-friend. The page says: "Text JOIN to +1 206-864-5326 (206-86-GLEAN) to receive SMS messages from VIGA Farm Friend about VIGA farm-stand listings, farm-stand inventory updates, produce availability inquiries, and stock-out reports on Vashon Island. Message frequency varies based on farm activity and your use of the service, usually 0-6 messages per week. Message and data rates may apply. Consent is not a condition of purchase or participation. Reply HELP for help. Reply STOP to unsubscribe. Terms: https://www.vigavashon.org/farm-friend-privacy-terms. Privacy: https://www.vigavashon.org/farm-friend-privacy-terms." The same JOIN call to action may also appear on VIGA Farm Friend outreach materials, VIGA website posts, VIGA social media posts, and in-person community or farmer outreach. Users opt in by texting JOIN or START to +1 206-864-5326. Farmers may also opt in during VIGA onboarding in person or by phone; VIGA records how and when SMS consent was received before any proactive SMS is sent. VIGA may review and approve a subscriber before VIGA Farm Friend sends operational messages.
+
+KEYWORDS
+
+Opt in keywords
+JOIN,START
+
+Opt out keywords
+STOP,STOPALL,UNSUBSCRIBE,CANCEL,END,QUIT
+
+Help keywords
+HELP,INFO
+
+AUTO-RESPONSES
+
+Opt in message
+VIGA Farm Friend: Thanks for subscribing to VIGA farm-stand map updates and produce availability SMS. Msg frequency varies, usually 0-6/week. Msg&data rates may apply. Consent is not a condition of purchase or participation. Reply HELP for help or STOP to opt out.
+
+Opt out message
+VIGA Farm Friend: You're unsubscribed and will receive no further messages. Reply JOIN to request to rejoin.
+
+Help message
+VIGA Farm Friend: Please reach out to board@vigavashon.org or visit https://www.vigavashon.org/viga-farm-friend for help. Reply STOP to unsubscribe. Msg&data rates may apply.
+
+SAMPLE MESSAGES
+
+Message 1
+VIGA Farm Friend: Provo Farms currently lists kale, eggs, and tomatoes on the VIGA farm-stand map. Reply YES if still right, or text changes.
+
+Message 2
+VIGA Farm Friend: Draft update for Provo Farms: kale, eggs, tomatoes, and limited strawberries. Reply YES to publish to the VIGA farm-stand map or NO to cancel.
+
+Message 3, if you add another sample
+VIGA Farm Friend: A customer reported Provo Farms may be out of kale. Reply OUT to mark it out, IGNORE to dismiss, or STOP to unsubscribe.
+
+Message 4, if you add another sample
+VIGA Farm Friend: Current VIGA farm-stand map listings show eggs at Provo Farms, last updated Jul 8. Reply HELP for help or STOP to unsubscribe.
+
+COMPLIANCE LINKS
+
+Privacy policy
+https://www.vigavashon.org/farm-friend-privacy-terms
+
+Terms and conditions
+https://www.vigavashon.org/farm-friend-privacy-terms
+
+Embedded link
+https://www.vigavashon.org/viga-farm-friend
+
+CAMPAIGN AND CONTENT ATTRIBUTES
+
+Embedded Link
+Yes
+
+Embedded Phone Number
+No
+
+Number Pooling
+No
+
+Age-Gated Content
+No
+
+Direct Lending or Loan Arrangement
+No
+
+WEBHOOKS
+
+Webhook URL
+Leave blank if optional.
+
+Webhook Failover URL
+Leave blank if optional.

@@ -101,8 +101,10 @@ in-memory simulator (`SMS_PROVIDER=simulator`) to exercise flows without live Te
 ### Swap a provider
 - **LLM:** implement `LLMProvider.generateJson` for the new backend; select via `LLM_PROVIDER`. The
   branded `ModelSafeContext` boundary is unchanged.
-- **SMS:** implement `SmsTransport` (`send` + `verify`); the `RedactedOutbound` guard is unchanged;
-  select via `SMS_PROVIDER`.
+- **SMS:** implement `SmsTransport` (`send` + `verify`); the `RedactedOutbound` guard continues to
+  normalize avoidable Unicode and block raw phones. After the provider accepts a send, call
+  `logOutboundSmsMetrics` to record encoding, character count, and estimated billable segments;
+  select the adapter via `SMS_PROVIDER`.
 - **Map:** implement `MapProvider` (geocode); keep the offline stub for tests/evals/importer.
 
 ## Deploy (only when asked)

@@ -73,6 +73,11 @@ near-duplicate. Each is Zod-schema'd, validated, one repair retry, then clarify/
 - **`message-classify`** — last-resort intent classification, only after deterministic routing.
 - **`gleaning-opportunity-extract`** — designed, built later (F-004).
 
+SMS composition calls use `assembleSmsContext`, which adds quality guidance to prefer concise,
+plain-punctuation, emoji-free replies that fit one GSM-7 segment when practical. This is a cost
+and phrasing preference, never a truncation rule: important content, names, addresses, and meaning
+are preserved. The outbound code guard still performs final normalization and segment estimation.
+
 ## The retrieval + ranking layer (code, before any model call)
 
 `inquiry-parse` → intent. Code then runs a **general** retrieval/ranking layer: *given items,
@@ -90,18 +95,19 @@ so read this carefully):
 
 1. **Compile guard (provenance, not content).** `LLMProvider.generateJson` accepts only a branded
    **`ModelSafeContext`**; `SmsTransport.send` accepts only a branded **`RedactedOutbound`**. The
-   *only* public constructor of each brand is the stripping **assembler** / the **redaction
-   guard**. So you **cannot call the model or send an SMS without going through them** — there is
-   no value of the right type to pass otherwise. **What this buys:** you can't bypass the
-   assembler/redactor by accident. **What it does NOT buy:** the brand proves the value *came from*
-   the assembler, **not** that its content is clean — `tsc` cannot inspect a runtime string, so if
-   the assembler had a bug and copied a phone into a "safe" field, the brand is still stamped and
-   the build is green. The compile guard is necessary, not sufficient.
+   *only* public constructors are the stripping **context assemblers** for `ModelSafeContext` and
+   the **redaction guard** for `RedactedOutbound`. So you **cannot call the model or send an SMS
+   without going through them** — there is no value of the right type to pass otherwise. **What
+   this buys:** you can't bypass the assembler/redactor by accident. **What it does NOT buy:** the
+   brand proves the value *came from* the assembler, **not** that its content is clean — `tsc`
+   cannot inspect a runtime string, so if the assembler had a bug and copied a phone into a "safe"
+   field, the brand is still stamped and the build is green. The compile guard is necessary, not
+   sufficient.
 2. **Runtime guard (content).** The assembler **actually strips** PII/secrets and passes only
    opaque IDs + the minimal grounded rows a seam needs (data minimization). The outbound guard
-   **actually scans** the message and **blocks a raw phone number** even if the model output
-   contains one. This is what proves the *content* is clean — tested directly
-   (`assembly-strips-pii`, `outbound-guard-blocks-number`).
+   **normalizes avoidable typographic Unicode, actually scans** the message, and **blocks a raw
+   phone number** even if the model output contains one. This is what proves the *content* is clean
+   — tested directly (`assembly-strips-pii`, `outbound-guard-blocks-number`).
 3. **Eval guard (adversarial proof).** The adversarial/prompt-injection eval group proves an
    injected SMS **cannot** extract another person's number or force a commit — because the data is
    **absent from context**, the **guard blocks**, and **validation rejects**, *not* because a

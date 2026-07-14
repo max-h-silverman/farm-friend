@@ -31,6 +31,10 @@ archived reference only — where it disagrees with these docs, the docs win.
 - **[ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md)** — the VIGA operator guide: roles, per-feature
   admin surfaces, and runbooks (migrate data, onboard a farmer, watch stock-out reports,
   resolve a flag, inspect a thread).
+- **[VIGA_10DLC_WEBSITE_COPY.md](VIGA_10DLC_WEBSITE_COPY.md)** — source copy for the public VIGA
+  Farm Friend opt-in page, privacy policy, SMS terms, and matching campaign submission.
+- **[TELNYX_10DLC_FIELD_VALUES.txt](TELNYX_10DLC_FIELD_VALUES.txt)** — compact, field-by-field
+  values for pasting into the Telnyx campaign form.
 
 ## Building X → read these
 

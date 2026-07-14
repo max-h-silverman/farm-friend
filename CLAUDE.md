@@ -168,13 +168,14 @@ desk** would do; violating one reintroduces a failure mode the architecture exis
    or prompt-injected, and we ingest untrusted public SMS). This is enforced in **three distinct
    layers, none substituting for another**:
    - **Compile guard** — branded `ModelSafeContext` / `RedactedOutbound` types whose only public
-     constructor is the stripping assembler / redaction guard, so you **cannot call the model or
-     send an SMS without going through them**. This proves *provenance* (the value came from the
-     assembler/redactor), **not** *content* — `tsc` cannot inspect a runtime string, so a brand
-     is not proof the string is clean.
+     constructors are the stripping context assemblers / redaction guard, so you **cannot call the
+     model or send an SMS without going through them**. This proves *provenance* (the value came
+     from the assembler/redactor), **not** *content* — `tsc` cannot inspect a runtime string, so a
+     brand is not proof the string is clean.
    - **Runtime guard** — the assembler actually strips PII/secrets before the call; the outbound
-     guard actually scans and blocks a raw phone number after, regardless of what the model
-     produced. This is what proves the *content* is clean.
+     guard normalizes avoidable typographic Unicode, then actually scans and blocks a raw phone
+     number after, regardless of what the model produced. This is what proves the *content* is
+     clean.
    - **Eval guard** — the adversarial/prompt-injection eval group proves an injected SMS can't
      extract another number or force a commit — blocked by code (data absent + guard +
      validation), not by a prompt refusal.
@@ -258,32 +259,20 @@ boundary) are only real if they are *tested invariants*. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** architecture settled; **Phase 0 (F-006a/b/c) is merged to `main`** (PR #4, `75bdb85`).
-Detail + rationale: [docs/SESSION_LOG.md](docs/SESSION_LOG.md) 2026-07-04.
+**Phase:** architecture settled; Phase 0 and the architecture/SMS follow-ups are merged to `main`.
+History and rationale: [docs/SESSION_LOG.md](docs/SESSION_LOG.md).
 
-**Merged follow-up architecture/SMS cleanup (2026-07-05):** PR #5 (`architecture-review`) and
-PR #6 (`fix/no-decline-variants`, merge `2ca5f86`) closed holes/contradictions across the docs,
-schema, and SMS parser. The decisions now binding:
-- **Activation redesigned — staff-initiated manual onboarding** (~35 stands; the two-trigger
-  form-submit/claim-link seam is deleted): staff record the farmer + SMS consent (**with
-  provenance** — `subscriptions.source` + `recorded_by_person_id`, new columns) in the admin and
-  trigger the pre-seeded confirm-or-revise text (PRODUCT_BRIEF §migration). Staff binding is the
-  identity check; recorded consent is the consent bootstrap. Farmer web = inventory editor only
-  (no `/claim`).
-- **Raw phone stance:** `people.phone` (new column, plain normalized E.164) is the **one** raw
-  column, read only by the outbound send path; `phone_hash` stays the only lookup/log key (GR5).
-- **Schema pruned** (unused/overlapping): `farms.status`, snapshot `hidden`, `expected_fresh_until`
-  removed; `farm_stands.visibility` is the single hide switch; contracts enum synced. Activation
-  `YES` writes a **new** `farmer_confirmed` snapshot (never mutates provenance in place).
-- **Policies set (provisional):** raw-body TTL 30d + flagged-thread exemption; commitment expiry
-  per-consumer (publish/stock-out 48h, activation 14d); token = entire normalized message, with
-  fixed code-listed variants (`YES` accepts `Y`/`YEP`/`YEA`/`SURE`; `NO` accepts `N`/`NOPE`/
-  `NAH`/`NO THANKS`/`NO THANK YOU`); `JOIN <program>`; SMS stock-out parse must resolve the stand
-  or ask. **Eat Vashon week = Aug 8–15, 2026.**
-- **Verified before merge (after the SMS parser changes):** `typecheck` PASS, `lint` PASS,
-  `npm test` **39 passed / 9 files**, `evals` critical 3/3 + advisory 2/2 + adversarial 4/4.
-  `test:integration` still DB-gated (no Postgres run yet).
-- **Owed:** run integration vs. real Postgres.
-- **Next (launch set, dependency order):** F-007a → F-007b → F-002 → F-008 → F-003 → F-009 (hard
-  SMS-compliance gate), all by Eat Vashon week Aug 8–15 (SMS critical path); then F-004, F-005.
-  Start with `/pm show <ID>`, branch off `main`, TDD.
+**Active review (2026-07-13):** PR #7 (`fix/telnyx-sms-costs`) contains VIGA Farm Friend 10DLC
+campaign/Squarespace copy (`752e85d`) and provider-independent SMS segment-cost controls
+(`e88c705`): GSM-7/UCS-2 estimation, conservative Unicode normalization at the mandatory outbound
+guard, content-free cost metrics, and concise/non-destructive SMS composition guidance.
+
+- **Verified:** `npm test` 46/46 across 10 files; typecheck + lint pass; evals critical 3/3,
+  advisory 2/2, adversarial 4/4. Integration command passes but all 3 Postgres tests skip without
+  `DATABASE_URL`; a real-Postgres run remains owed.
+- **Blocking before live SMS:** `TelnyxTransport.send` is still the intentional Phase 0 throwing
+  stub. PM F-010 is in progress and owns the production adapter, outbound-only raw phone lookup,
+  post-acceptance metrics hook, and adapter tests. No deploy is owed by PR #7.
+- **Next (launch dependency order):** F-007a → F-010 → F-007b → F-002 → F-008 → F-003 → F-009
+  (hard SMS-compliance gate), all by Eat Vashon week Aug 8–15; then F-004, F-005. Start with
+  `/pm show <ID>`, branch from `main`, and work test-first.

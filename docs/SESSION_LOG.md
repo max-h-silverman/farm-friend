@@ -7,6 +7,51 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-13 — VIGA 10DLC copy + outbound SMS segment cost controls (PR #7)
+
+Branch `fix/telnyx-sms-costs`; PR #7 is open against `main`. Added paste-ready Squarespace,
+privacy/terms, and Telnyx campaign-field copy for **VIGA Farm Friend** (`752e85d`). It describes
+only the current farm-stand MVP, uses the live VIGA-hosted opt-in/privacy paths, and omits the
+rejected future volunteer/gleaning campaign. Telnyx's keyword field rejects spaces, so the final
+opt-out list uses `STOP,STOPALL,UNSUBSCRIBE,CANCEL,END,QUIT` and does not include `STOP ALL`.
+
+Implemented provider-independent SMS cost controls (`e88c705`). `packages/sms` now estimates
+GSM-7 vs. UCS-2 and billable segments (including two-septet GSM extension characters), normalizes
+only unambiguous typographic variants at the mandatory `redactOutbound` boundary, and preserves
+meaningful Unicode such as names, addresses, accents, and emoji. Outbound metrics contain only the
+recipient hash, encoding, character/encoding-unit counts, and segments — never body text or raw
+phones. `assembleSmsContext` adds a one-GSM-segment preference for coordinator replies while
+explicitly forbidding destructive truncation. A 101-character smart-punctuation sample falls from
+2 UCS-2 segments to 1 GSM-7 segment after normalization.
+
+The repository does **not** yet contain a live Telnyx send: `TelnyxTransport.send` remains the
+intentional Phase 0 throwing stub. PM F-010 was added (`~/pm` commit `1f6b87a`) as a high-priority
+launch dependency; this session completed its provider-independent cost controls, while production
+send, outbound-only raw phone lookup, post-acceptance metric emission, and adapter tests remain
+open. No deploy is required for this library/documentation change.
+
+**Verified:** `npm test` 46/46 (10 files), typecheck PASS, lint PASS, `git diff --check` PASS;
+evals critical 3/3 + advisory 2/2 + adversarial 4/4. `npm run test:integration` completed with all
+3 tests skipped because `DATABASE_URL` is not configured; a real-Postgres run remains owed.
+
+## 2026-07-05 — Architecture and SMS follow-up cleanup merged (PRs #5 + #6)
+
+Closed architecture, schema, and deterministic SMS-parser contradictions after Phase 0. Activation
+became staff-initiated manual onboarding for roughly 35 stands: staff record farmer identity and
+SMS consent provenance, then trigger one pre-seeded confirm-or-revise message; the prior claim-link
+and form-submit automation was deleted. `people.phone` became the one normalized raw-phone column,
+read only by outbound sending, while `phone_hash` remained the lookup/log key.
+
+Pruned overlapping schema state (`farms.status`, snapshot `hidden`, and
+`expected_fresh_until`); `farm_stands.visibility` is the single hide switch. Activation `YES`
+writes a new `farmer_confirmed` snapshot rather than mutating provenance. Set provisional raw-body
+retention (30 days plus flagged-thread exemption), per-consumer commitment expiry (48 hours for
+publish/stock-out, 14 days for activation), whole-message token matching with fixed YES/NO
+variants, `JOIN <program>`, and stand-resolution-before-alert for SMS stock-out reports.
+
+**Verified before merge:** `npm test` 39/39 (9 files), typecheck PASS, lint PASS; evals critical
+3/3 + advisory 2/2 + adversarial 4/4. Integration remained DB-gated.
+
 ## 2026-07-04 — Phase 0 built (F-006a + F-006b + F-006c), verified, not committed
 
 Branch `feature/f-006-platform-spine` (off `main` = `3f76949`, the archived scaffold; the working
