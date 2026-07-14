@@ -1,10 +1,11 @@
 // Context-assembly boundary — layer 1 (compile) + layer 2 (runtime) of the code-enforced
 // safety boundary for model calls. See docs/AI_ARCHITECTURE.md §safety boundary.
 //
-// Layer 1 (compile / provenance): `ModelSafeContext` is branded; its ONLY public constructor
-// is `assembleContext`. `LLMProvider.generateJson` accepts only a `ModelSafeContext`, so a raw
-// record cannot reach the model by accident — there is no value of the right type to pass.
-// The brand proves provenance (it came from the assembler), NOT that its content is clean.
+// Layer 1 (compile / provenance): `ModelSafeContext` is branded; its ONLY public constructors
+// are the assemblers in this module. `LLMProvider.generateJson` accepts only a
+// `ModelSafeContext`, so a raw record cannot reach the model by accident — there is no value of
+// the right type to pass. The brand proves provenance (it came from an assembler), NOT that its
+// content is clean.
 //
 // Layer 2 (runtime / content): `assembleContext` actually STRIPS phone numbers / secrets and
 // passes only the minimal grounded fields a seam needs (data minimization). This is what proves
@@ -12,12 +13,19 @@
 
 declare const modelSafeBrand: unique symbol;
 
-/** A context object that has passed the stripping assembler. Only constructible via
- *  `assembleContext`. Branded so `generateJson` cannot be called with a raw record. */
+/** A context object that has passed a stripping assembler in this module. Branded so
+ *  `generateJson` cannot be called with a raw record. */
 export type ModelSafeContext<T = unknown> = {
   readonly seam: string;
   readonly fields: T;
+  readonly outputInstructions?: string;
 } & { readonly [modelSafeBrand]: true };
+
+export const COORDINATOR_SMS_OUTPUT_INSTRUCTIONS =
+  "Write a concise SMS reply. Prefer one GSM-7 segment (160 septets) when practical. " +
+  "Use plain ASCII punctuation and no emoji unless the content intentionally requires one. " +
+  "Preserve important details and user-provided names, addresses, and meaning; never truncate " +
+  "useful information solely to meet the one-segment preference.";
 
 export class ContextAssemblyError extends Error {
   constructor(message: string) {
@@ -65,4 +73,14 @@ function scrub(value: unknown, keyPath: string): void {
 export function assembleContext<T>(seam: string, fields: T): ModelSafeContext<T> {
   scrub(fields, "");
   return { seam, fields } as ModelSafeContext<T>;
+}
+
+/** Assemble model-safe context for an SMS composition call, including cost-aware style guidance. */
+export function assembleSmsContext<T>(seam: string, fields: T): ModelSafeContext<T> {
+  scrub(fields, "");
+  return {
+    seam,
+    fields,
+    outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
+  } as ModelSafeContext<T>;
 }

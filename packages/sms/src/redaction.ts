@@ -6,8 +6,11 @@
 // you cannot send an SMS without going through the guard — there is no value of the right type
 // to pass otherwise. This proves provenance (it came from the guard), NOT content.
 //
-// Layer 2 (runtime / content): `redactOutbound` actually SCANS the string and blocks a raw
-// phone number even if the model produced one. This is what proves the content is clean.
+// Layer 2 (runtime / content): `redactOutbound` normalizes avoidable Unicode, then SCANS the
+// string and blocks a raw phone number even if the model produced one. This is what proves the
+// content is clean and ensures every sendable body receives cost-safe normalization.
+
+import { normalizeAvoidableSmsUnicode } from "./segments";
 
 declare const redactedBrand: unique symbol;
 
@@ -29,17 +32,19 @@ const RAW_PHONE_RE =
   /(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/;
 
 /**
- * The outbound redaction guard. Runtime-scans `body` for raw phone numbers / private fields;
- * throws if any are present, otherwise stamps the brand. This is the ONLY way to produce a
- * `RedactedOutbound`, so `SmsTransport.send` cannot be reached with an unscanned string.
+ * The outbound redaction guard. Normalizes avoidable Unicode and runtime-scans `body` for raw
+ * phone numbers / private fields; throws if any are present, otherwise stamps the normalized
+ * body with the brand. This is the ONLY way to produce a `RedactedOutbound`, so
+ * `SmsTransport.send` cannot be reached with an unprocessed string.
  */
 export function redactOutbound(body: string): RedactedOutbound {
-  if (RAW_PHONE_RE.test(body)) {
+  const normalizedBody = normalizeAvoidableSmsUnicode(body);
+  if (RAW_PHONE_RE.test(normalizedBody)) {
     throw new OutboundRedactionError(
       "Refusing to send: outbound message contains a raw phone number.",
     );
   }
-  return body as RedactedOutbound;
+  return normalizedBody as RedactedOutbound;
 }
 
 /** Non-throwing probe for tests / callers that want to branch rather than catch. */

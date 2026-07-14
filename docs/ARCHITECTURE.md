@@ -121,7 +121,9 @@ Building both consumers on one machine is why gleaning tables land in the spine 
 Narrow interfaces so I/O is swappable and tests are hermetic:
 - **`SmsTransport`** (`packages/sms`) — `send` + `verify`; Telnyx adapter + in-memory simulator.
   `send` accepts only a **`RedactedOutbound`** and passes a code-level **outbound redaction guard**
-  that refuses raw phone numbers / private fields regardless of model output.
+  that conservatively normalizes avoidable typographic Unicode, then refuses raw phone numbers /
+  private fields regardless of model output. The SMS package estimates GSM-7 vs. UCS-2 and
+  billable segments; transports log cost metrics by recipient hash without logging message text.
 - **`LLMProvider.generateJson`** (`packages/ai`) — stub + open-weight adapter (config-selected).
   Accepts only a **`ModelSafeContext`** produced by the stripping assembler; its output is
   **untrusted** and validated (schema + domain) before anything acts on it. The model behind the

@@ -1,6 +1,8 @@
 import type { RedactedOutbound } from "./redaction";
+import { estimateSmsSegments, type SmsSegmentEstimate } from "./segments";
 
 export * from "./redaction";
+export * from "./segments";
 
 export interface OutboundMessage {
   toPhoneHash: string; // recipient keyed by hash, never raw
@@ -11,6 +13,27 @@ export interface SentMessage {
   toPhoneHash: string;
   body: string;
   sentAt: Date;
+}
+
+export interface OutboundSmsMetrics extends SmsSegmentEstimate {
+  toPhoneHash: string;
+}
+
+export type SmsMetricsLogger = (metrics: OutboundSmsMetrics) => void;
+
+const consoleMetricsLogger: SmsMetricsLogger = (metrics) => {
+  console.info("sms.outbound", metrics);
+};
+
+/** Log only the recipient hash and cost-relevant body measurements, never message content. */
+export function logOutboundSmsMetrics(
+  msg: OutboundMessage,
+  logger: SmsMetricsLogger = consoleMetricsLogger,
+): void {
+  logger({
+    toPhoneHash: msg.toPhoneHash,
+    ...estimateSmsSegments(msg.body),
+  });
 }
 
 /** The SMS provider seam. `send` accepts only a RedactedOutbound (compile guard); the
@@ -25,7 +48,10 @@ export interface SmsTransport {
 export class SmsSimulator implements SmsTransport {
   readonly sent: SentMessage[] = [];
 
+  constructor(private readonly metricsLogger: SmsMetricsLogger = consoleMetricsLogger) {}
+
   async send(msg: OutboundMessage): Promise<void> {
+    logOutboundSmsMetrics(msg, this.metricsLogger);
     this.sent.push({
       toPhoneHash: msg.toPhoneHash,
       body: msg.body,
@@ -43,6 +69,8 @@ export class TelnyxTransport implements SmsTransport {
   constructor(private readonly apiKey: string) {}
 
   async send(_msg: OutboundMessage): Promise<void> {
+    // The live adapter must call logOutboundSmsMetrics only after Telnyx accepts the request.
+    void this.apiKey;
     throw new Error("TelnyxTransport.send not implemented (Phase 0 stub)");
   }
 
