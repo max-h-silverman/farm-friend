@@ -7,6 +7,53 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-24 — Ranked finding 2 decision: concurrent and out-of-order SMS (F-014)
+
+Ranked finding 2 was reviewed against the approved clean-room contract rather than treating the
+independent audit as design authority. Narrowing the marginal promise removes the separate
+stock-out `OUT`/`IGNORE` commitment: a code-bound web/QR stock-out report asks the farmer for
+current inventory, then uses the ordinary inventory proposal and YES/NO publication path. That
+preserves the north star while avoiding a second concurrent confirmation grammar.
+
+The remaining launch invariants need a small Postgres mechanism inside the existing Next.js app:
+
+- verify Telnyx against the raw request bytes, then transactionally insert a minimized inbox row
+  keyed by provider event ID before acknowledging;
+- serialize ordinary stateful work per sender with a short row lock/claim, order it by
+  `(occurred_at, provider_event_id)`, and prevent stale events or stale model results from mutating
+  newer state;
+- keep a separate STOP/START consent watermark where later provider time wins and STOP wins an
+  exact-timestamp tie;
+- allow one live inventory-publication confirmation per sender, with its version, allowed YES/NO
+  replies, expiry, and provider-accepted prompt activation recorded durably;
+- perform model and Telnyx calls outside database transactions, then re-lock and revalidate before
+  applying results;
+- make the outbox dispatch claim the STOP linearization boundary, use bounded retry only for
+  definitive retryable failures, and do not automatically resend after an ambiguous provider
+  result without verified Telnyx idempotency support.
+
+The correction deliberately introduces no Kafka, event bus, event sourcing, workflow engine,
+distributed lock, service, package, general conversation replay, or exactly-once carrier claim.
+It uses only the existing application boundary, Postgres transactions/rows/locks, Telnyx, and the
+one approved model provider. The registered public campaign files still advertise `OUT`/`IGNORE`;
+that external-copy drift remains F-012 rather than being silently changed in an architecture
+decision.
+
+The approved decision was synchronized across the clean-room handoff, product brief,
+`ARCHITECTURE.md`, `DATA_ARCHITECTURE.md`, `SMS_COMPLIANCE.md`, admin operations, runbook, and
+`CLAUDE.md`. No application code, schema, package, provider configuration, or deployment changed.
+F-014 was created as planned, high-priority `compliance-trust` work (`19e0203` in `~/pm`); F-013
+also remains planned and neither item is authorized for implementation.
+
+**Verified during wrap:** `npm test` 46/46 (10 files), typecheck PASS, lint PASS; evals critical
+3/3 + advisory 2/2 + adversarial 4/4. `npm run test:integration` completed with all 3 tests skipped
+because `DATABASE_URL` is unset; a real-Postgres run remains owed. No deploy is required for this
+documentation/PM-only tranche.
+
+**Next:** after this documentation tranche merges, review ranked finding 3 — whether the claimed
+three-layer safety boundary actually has three enforcement layers — exactly one finding at a time.
+Do not implement F-013 or F-014 or change application code/schema before separate authorization.
+
 ## 2026-07-24 — Independent architecture audit + ranked finding 1 decision (F-013)
 
 PR #8 merged the F-011 clean-room baseline reset to `main` (`565187c`). The follow-on independent

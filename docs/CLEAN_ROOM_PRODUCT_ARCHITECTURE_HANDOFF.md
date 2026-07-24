@@ -4,7 +4,7 @@
 **Repository:** `/Users/max/farm-friend`  
 **Audited repository baseline:** clean `main` at `2cb39e4`, including PR #7  
 **PM reset commit:** `da7e223` in `/Users/max/pm`  
-**Current phase:** Phase 4 finding review underway; ranked finding 1 approved
+**Current phase:** Phase 4 finding review underway; ranked findings 1 and 2 approved
 
 > This is the handoff and audit reference for the clean-room design session. The existing
 > architecture documents remain useful evidence of the previous design, but they are not design
@@ -30,10 +30,10 @@
 
 The next conversational step is:
 
-> Review ranked finding 2 from the independent audit handoff.
+> Review ranked finding 3 from the independent audit handoff.
 
-Approved finding 1 is filed in PM as F-013. Each later finding remains review input until explicitly
-approved.
+Approved finding 1 is filed in PM as F-013 and approved finding 2 as F-014. Each later finding
+remains review input until explicitly approved.
 
 ## Session interaction rules
 
@@ -70,6 +70,51 @@ Approved July 24, 2026:
 
 This decision adds no general natural-language claim verifier, extensible query platform, fixed
 semantic strategy catalog, policy engine, package, service, or database.
+
+### Finding 2 — concurrent and out-of-order SMS routing
+
+Approved July 24, 2026:
+
+- Keep the fixed per-message deterministic routing order. Add a minimized durable Postgres inbox
+  because that order alone cannot serialize concurrent messages or reject stale events.
+- Verify the Telnyx signature against the exact raw request bytes before parsing. After verification,
+  store only the permitted inbox projection, uniquely keyed by the provider event ID; do not retain
+  the raw provider envelope or another raw phone value. Acknowledge only after that insert commits.
+- Claim at most one ordinary stateful inbox event per sender. A short Postgres transaction locks the
+  sender, records the claim, and releases before any model or SMS call. The same inbox row is
+  recoverable after an abandoned claim; retry never creates another logical event. Finalization
+  re-locks the sender and applies a consequence only if the claim and relevant state are still
+  current.
+- Order stateful inbound events by Telnyx `occurred_at` plus provider event ID. An event older than
+  the sender's accepted conversation watermark cannot mutate current conversation, confirmation, or
+  publication state; code may ask the sender to resend. This deliberately does not reconstruct an
+  arbitrarily reordered conversation.
+- Order `STOP` and `START` against a separate consent-transition watermark so intervening free text
+  cannot make a consent command stale. The chronologically later command wins; `STOP` wins an exact
+  timestamp tie. Thus an older `START` delivered later cannot undo a newer `STOP`.
+- Narrow stock-out alert behavior: an alert may ask the farmer to send current inventory, which then
+  uses the ordinary inventory proposal and confirmation flow. `OUT` and `IGNORE` are not commitment
+  tokens and there is no separate stock-out pending action.
+- Permit exactly one open inventory-publication confirmation per sender, enforced by a database
+  constraint. It stores the proposal/version, the allowed `YES`/`NO` tokens, expiry, and the prompt
+  that activates it. New inventory text revises that one pending proposal rather than opening a
+  second confirmation.
+- A confirmation becomes live only after Telnyx accepts its current prompt. A token whose provider
+  occurrence time does not follow that prompt cannot consume it. The confirmation transaction locks
+  the sender and pending row, rechecks current farmer authority and VIGA approval, conditionally
+  applies the allowed token once, publishes only for an accepted `YES`, and queues its response in
+  the outbox. `NO` consumes and declines the proposal without publication.
+- The outbox dispatch claim is STOP's honest linearization point. If STOP commits first, all still
+  queued non-required work is suppressed. If dispatch authorization commits first, that request may
+  still reach Telnyx; Farm Friend does not claim it can recall already authorized work.
+- A definitive retryable rejection may follow a bounded retry policy. A timeout, connection reset,
+  or other result that may have been accepted is recorded as ambiguous and is not automatically
+  resent unless Telnyx provides a separately verified outbound idempotency facility. Delivery
+  webhooks update state monotonically so out-of-order events cannot regress a terminal result.
+
+This decision adds no Kafka, event bus, event sourcing, workflow engine, distributed lock, separate
+queueing service, microservice, package, raw-webhook store, second confirmation mechanism, or
+exactly-once carrier-delivery claim. External provider calls remain outside database transactions.
 
 ## Settled product contract
 
@@ -180,9 +225,10 @@ No inventory update is published without farmer confirmation.
 
 1. A customer privately reports from a web/QR surface whose location is bound by code.
 2. The report does not affect the map, answers, or ranking.
-3. Code resolves the authorized farmer from that bound location and may ask them to confirm an
-   update.
-4. Only the farmer's explicit confirmation can change published inventory.
+3. Code resolves the authorized farmer from that bound location and may ask them to send current
+   inventory.
+4. That reply follows the ordinary inventory proposal and `YES`/`NO` confirmation flow. Only the
+   farmer's confirmed inventory revision can change published inventory.
 
 A free-text SMS may direct the customer to the location-bound reporting surface, but it cannot
 select a location or queue a farmer alert.
@@ -405,9 +451,10 @@ verify unrestricted natural-language prose.
 - structured public listing facts;
 - inventory revisions and inventory entries;
 - customer stock-out reports;
-- message records with limited retention;
-- consent events and universal STOP;
-- pending farmer confirmations;
+- minimized provider inbox and message records with limited retention, plus sender processing
+  watermarks;
+- consent events, universal STOP, and an ordered consent-transition watermark;
+- one open inventory-publication confirmation per sender;
 - narrow expiring follow-up interests and scoped MUTE;
 - flags and admin dispositions;
 - transactional outbox;
@@ -536,11 +583,13 @@ Create a clean launch migration containing only the minimum durable records desc
 
 Database constraints must enforce:
 
-- unique provider-message processing;
+- unique provider-event acceptance and processing;
+- one claimed ordinary stateful inbox event per sender;
+- one open inventory-publication confirmation per sender;
 - one currently published inventory revision per sales location;
 - farmer authority over inventory publication;
-- universal STOP before outbound delivery;
-- outbox idempotency;
+- universal STOP before outbox dispatch authorization;
+- unique outbox work and bounded dispatch-attempt states;
 - bounded valid states and transitions;
 - separation between private customer reports and published inventory.
 
@@ -552,15 +601,15 @@ Every workflow has one authoritative core use case and one durable path.
 |---|---|
 | Initial map data | Validate and seed farms, locations, listing facts, and approval state; public and SMS views read the same records |
 | Farmer onboarding | Verify the phone, associate the farm, capture preferences, and record VIGA approval separately |
-| Inventory publishing | Store a proposed revision, obtain explicit confirmation, then atomically publish it and supersede the prior revision |
-| Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally queue a request; free-text SMS cannot queue one; never alter public inventory |
-| Farmer report response | Resolve the pending action and publish only with explicit farmer confirmation |
+| SMS ingress | Verify the raw-body signature, commit a minimized unique inbox event, serialize ordinary stateful work per sender, and fail closed on stale events |
+| Inventory publishing | Maintain one open proposal per sender; after the current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
+| Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally ask for current inventory; a reply uses the ordinary inventory proposal/confirmation flow; free-text customer SMS cannot queue an alert; never alter public inventory |
 | Customer inquiry | Retrieve typed current facts, obtain model interpretation and selected/ordered fact IDs, validate membership in the retrieved set, render the factual reply in code, and queue it |
 | Passive follow-up | Store a disclosed, narrow, expiring interest and enforce MUTE, STOP, frequency, and recipient selection in code |
-| STOP, START, JOIN, HELP, MUTE | Apply consent changes before other interpretation or outbound selection |
+| STOP, START, JOIN, HELP, MUTE | Apply deterministic consent behavior before other interpretation; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
 | FLAG | Store the concern and expose it to the single-level admin queue |
 | Authentication | Issue and consume short-lived credentials once, with replay prevention and rate limiting |
-| Provider delivery | Commit business state and an outbox entry together; send afterward with retry and deduplication |
+| Provider delivery | Commit business state and unique outbox work together; recheck consent when atomically claiming dispatch; retry only definitive retryable rejection, quarantine ambiguous results, and apply delivery webhooks monotonically |
 | Retention | Delete expired raw context while preserving only required consent, safety, and audit records |
 
 External SMS and model calls do not occur inside business database transactions. The transaction
@@ -570,11 +619,17 @@ commits the decision and outbox work; workers perform external operations and re
 
 - Run migrations from an empty Postgres database in CI.
 - Exercise complete use cases with real database constraints and transactions.
-- Prove concurrent and duplicate farmer confirmations publish only once.
+- Prove concurrent and duplicate farmer confirmations publish only once and only while current
+  authority and VIGA approval still hold.
 - Prove customer reports cannot change public availability or ranking.
-- Prove STOP suppresses queued and future non-required messages.
-- Test webhook signature, retry, duplicate, and out-of-order behavior.
-- Test rollback and outbox recovery.
+- Prove stock-out alerts create no `OUT`/`IGNORE` commitment path and instead feed the ordinary
+  inventory update flow.
+- Prove STOP suppresses queued and future non-required messages when it commits before dispatch
+  authorization, and document the inverse race honestly.
+- Test raw-body webhook signature verification, minimized durable acceptance, duplicate no-op,
+  sender-level concurrency, stale-event rejection, and separate STOP/START ordering.
+- Test rollback, abandoned inbox-claim recovery, bounded outbox recovery, ambiguous-send quarantine,
+  and monotonic out-of-order delivery status.
 - Test farmer authorization and VIGA approval.
 - Test authentication expiry, replay prevention, and rate limiting.
 - Test retention and deletion of raw context.
@@ -606,7 +661,8 @@ commits the decision and outbox work; workers perform external operations and re
 Historical item identifiers `F-001` through `F-010` are retired and must not be reused. F-011
 (declared baseline reset) is done and archived after PR #8 merged. Active items are F-012 (10DLC
 campaign alignment, planned) and F-013 (the approved grounded-output and recipient-selection
-correction, planned). The Farm Friend PM product configuration reflects the clean-room contract.
+correction, planned), and F-014 (the approved concurrent/out-of-order SMS routing correction,
+planned). The Farm Friend PM product configuration reflects the clean-room contract.
 
 ## Unresolved launch decisions
 

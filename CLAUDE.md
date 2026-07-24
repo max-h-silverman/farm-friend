@@ -143,8 +143,10 @@ exists to prevent.
 2. **Deterministic parsing before any model call.** Compliance + confirmation tokens
    (STOP/START/JOIN/HELP/MUTE/FLAG, plus the context-bound confirmation tokens) are handled by code
    first. `STOP` always unsubscribes **globally** and can never be reinterpreted by conversation
-   state. Confirmation tokens are **context-bound, never global**, bound to their **specific
-   pending action and kind**, commit **exactly once**, and **expire**.
+   state. Provider events are deduplicated and ordinary stateful work is serialized per sender;
+   STOP/START are ordered on a separate consent watermark, with STOP winning an exact timestamp tie.
+   There is exactly one open inventory-publication confirmation per sender. Its `YES`/`NO` tokens
+   are **context- and version-bound, never global**, commit **exactly once**, and **expire**.
 3. **The LLM proposes; code commits.** The model interprets, extracts, classifies, drafts where a
    seam permits it, and selects or ranks identifiers from retrieved options — it never writes
    durable state, chooses recipients, decides consent, supplies authoritative factual answer text,
@@ -203,9 +205,11 @@ cooperative stubs. Suites:
 
 ## Before you ship a change that touches…
 
-- **Compliance / routing:** test first that keyword + confirmation tokens bypass the model and that
-  `STOP` is always global; a non-contextual affirmative must not commit; a token must not commit an
-  unrelated pending action; a pending confirm commits exactly once and expires.
+- **Compliance / routing:** test first that keyword + confirmation tokens bypass the model; duplicate
+  events are no-ops; concurrent ordinary stateful work is serialized per sender; stale events fail
+  closed; an older START cannot undo a newer STOP; one open inventory confirmation is enforced; a
+  token predating its current prompt cannot commit; confirmation rechecks farmer authority and VIGA
+  approval, commits exactly once, and expires.
 - **A model seam:** trace it in AI_ARCHITECTURE.md; keep durable writes/recipient/consent out of
   model output; run the **swap test**; run evals. **To add a seam or a program, or swap a provider,
   follow docs/RUNBOOK.md "how to extend."**
@@ -214,8 +218,12 @@ cooperative stubs. Suites:
 - **Anything privacy-relevant:** phones hashed, never logged raw, never in model context. The
   guarantee is **code, not the prompt** — assembly strips before, the outbound guard blocks after;
   add the adversarial eval proving injection can't extract it.
-- **SMS ingress:** verify the webhook signature; be idempotent per provider message; tolerate
-  retries, duplicates, and out-of-order delivery.
+- **SMS ingress:** verify the Telnyx signature over the exact raw bytes, persist only the minimized
+  unique inbox projection before acknowledgement, never retain the raw provider envelope, serialize
+  stateful work per sender with Postgres row locks, and fail closed on stale events.
+- **SMS delivery:** commit unique outbox work with business state; recheck consent at the atomic
+  dispatch claim; suppress work when STOP commits first; do not claim recall after dispatch
+  authorization; never automatically retry a possibly accepted ambiguous result.
 - **The public map or feed:** it reads the **same published records** as SMS — web and SMS answers
   must agree. Render recency honestly.
 - **A public unauthenticated model-backed surface:** route it through the abuse/cost throttle;
@@ -260,14 +268,13 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** The clean-room product/architecture baseline is merged to `main` via PR #8. Phase 4
-ranked-finding review is underway; finding 1 is approved and documented on the current branch,
-awaiting its follow-on PR/merge. The application has **not** yet been refactored to the approved
-baseline.
+**Phase:** The clean-room baseline and ranked findings 1–2 are approved. The current
+`f-014-sms-routing-safety` branch records finding 2's documentation-only correction. The
+application has **not** yet been refactored to the approved baseline.
 
-**Verified July 24, 2026 on `f-011-baseline-reset`:** `npm test` 46/46 across 10 files; typecheck +
-lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily prove
-**isolated helpers and structural claims, not launch workflows**. `npm run test:integration`
+**Verified July 24, 2026 on `f-014-sms-routing-safety`:** `npm test` 46/46 across 10 files;
+typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily
+prove **isolated helpers and structural claims, not launch workflows**. `npm run test:integration`
 completed with all 3 Postgres tests **skipped** without `DATABASE_URL`; a real-Postgres run remains
 owed.
 
@@ -284,9 +291,12 @@ property; the grounding eval uses a cooperative canned model.
 recorded in `docs/ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md`; only explicitly approved
 recommendations change the contract. **F-012** remains `planned`: registered 10DLC copy presents
 `FLAG` as a supported keyword and documents `MUTE` nowhere — a hard public-SMS launch gate that
-blocks no architectural finding. **F-013** is `planned` for the approved typed-fact
-selection/code-rendering boundary and code-bound web/QR stock-out recipients.
+also still advertises the removed `OUT`/`IGNORE` stock-out action. It blocks no architectural
+finding. **F-013** is `planned` for the approved typed-fact selection/code-rendering boundary and
+code-bound web/QR stock-out recipients. **F-014** is `planned` for the approved minimized inbox,
+sender serialization, one inventory confirmation, STOP dispatch boundary, and at-most-once-biased
+provider recovery.
 
-**Next:** after the current documentation tranche merges, review ranked finding 2 (SMS concurrency
-and out-of-order events) using the **spiral-staircase constraint**. Do not implement F-013 or change
-application code/schema before separate authorization.
+**Next:** after the current documentation tranche merges, review ranked finding 3 (the claimed
+three-layer safety boundary) using the **spiral-staircase constraint**. Do not implement F-013 or
+F-014 or change application code/schema before separate authorization.

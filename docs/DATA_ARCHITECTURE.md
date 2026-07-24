@@ -42,10 +42,15 @@ render an honest "updated X ago" without a second provenance axis.
 - **customer stock-out reports** — private; each carries a required sales-location identifier bound
   by the web/QR reporting surface, and may reference a listed entry or name an unlisted item. A
   model does not supply the consequential location identifier.
-- **message records** with limited retention.
+- **minimized SMS inbox and message records** with limited retention — unique provider event/message
+  identifiers, event type and `occurred_at`, sender/contact reference, TTL-bound body where needed,
+  processing state, and per-sender conversation watermark/claim. The raw provider envelope is not a
+  durable record.
 - **consent events and universal STOP** — global consent plus per-program enrollment for any future
-  program, with provenance for how consent was captured.
-- **pending farmer confirmations** — the pending action a context-bound token commits, with expiry.
+  program, provenance for how consent was captured, and a separate provider-time STOP/START
+  transition watermark.
+- **one open inventory-publication confirmation per sender** — proposal/version, allowed `YES`/`NO`
+  tokens, provider-accepted prompt activation, expiry, and consumption state.
 - **narrow expiring follow-up interests and scoped MUTE.**
 - **flags and admin dispositions.**
 - **transactional outbox.**
@@ -55,15 +60,26 @@ render an honest "updated X ago" without a second provenance axis.
 
 These are **database-level** requirements, not application conventions:
 
-- **Unique provider-message processing** — an inbound provider message is processed once, even
-  under retry, duplicate delivery, or out-of-order arrival.
+- **Unique provider-event processing** — a provider event ID is accepted once. Retry or duplicate
+  delivery cannot produce another state transition, model call consequence, publication, or outbox
+  entry.
+- **One ordinary stateful claim per sender** — concurrent workers cannot claim overlapping
+  conversation work for one sender. An abandoned claim is recovered on the same inbox row.
+- **One open inventory confirmation per sender** — a partial uniqueness constraint prevents
+  overlapping proposals from making generic `YES`/`NO` ambiguous.
 - **One currently published inventory revision per sales location** — "which revision is current"
   is a constraint, not a fragile `max(published_at)`.
 - **Farmer authority over inventory publication** — only an authorized farmer for that location can
-  publish, and only an approved farm publishes publicly.
-- **Universal STOP before outbound delivery** — a globally stopped recipient cannot be selected for
-  a non-required message, including messages already queued.
-- **Outbox idempotency** — a queued send commits once and delivers at most once per attempt record.
+  publish, and only an approved farm publishes publicly. Both are re-read while the confirmation
+  transaction holds the sender and pending-confirmation locks.
+- **Universal STOP before dispatch authorization** — a globally stopped recipient cannot claim a
+  queued non-required message for dispatch. The atomic outbox claim is the boundary: work claimed
+  before STOP may already be in flight and cannot be recalled.
+- **Outbox uniqueness and bounded attempts** — business state and one logical outbound item commit
+  together. A definitive retryable rejection may create another bounded attempt; a result that may
+  have been provider-accepted becomes `ambiguous` and is not automatically resent.
+- **Monotonic provider delivery state** — duplicate or out-of-order delivery events cannot regress a
+  terminal result.
 - **Bounded valid states and transitions** — states are enumerated and illegal transitions rejected.
 - **Separation between private customer reports and published inventory** — a stock-out report can
   **never** write inventory. This must be structural, and proven end-to-end rather than by checking
@@ -87,9 +103,15 @@ These are **database-level** requirements, not application conventions:
 - **Public listings expose** stand addresses and farmer-selected links. **Direct farmer phone
   numbers and email addresses are never public.**
 - **Consent:** global consent gates all SMS; per-program enrollment gates each future program;
-  `STOP` clears global consent immediately and applies across all Farm Friend messaging.
-- **Pending confirmations are GC'd on expiry**, so a stale affirmative token can never commit an
-  old action.
+  `STOP` clears global consent immediately and applies across all Farm Friend messaging. STOP/START
+  transitions are ordered separately from conversation state by provider occurrence time, with STOP
+  winning an exact timestamp tie.
+- **Pending confirmations are GC'd on expiry.** A confirmation is live only after its current prompt
+  is provider-accepted; a token that predates that activation or names no live proposal commits
+  nothing.
+- **Raw webhook bytes are ephemeral.** They are used to verify the Telnyx signature and then
+  discarded after the minimized inbox projection commits; the raw envelope is never logged or
+  retained.
 - **Flags and audit rows are retained.**
 
 ## Model-run evidence — what it MAY store (never the model input)
