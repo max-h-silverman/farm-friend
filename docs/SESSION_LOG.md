@@ -7,6 +7,51 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-24 — Ranked finding 3 decision: model privacy boundary and proof (F-015)
+
+Ranked finding 3 was reviewed against the approved clean-room contract and the actual assembler,
+provider, redaction, and eval boundaries. The claimed "three-layer code-enforced safety boundary"
+was incorrect: branded types provide a static provenance barrier, runtime projection/validation/
+rendering provides enforcement, and tests/evals verify those barriers but cannot block an unsafe
+production value.
+
+The marginal promise was narrowed from "runtime scanning proves arbitrary content clean" to named
+structural privacy guarantees. Each model seam receives one explicit minimal projection containing
+only the current actor's task text where needed, required public facts, and opaque identifiers. The
+low-level provider call is internal and has no database, repository, arbitrary-record, or
+provider-managed conversation capability. Farm Friend does not claim a general detector for every
+email, address, secret, or sensitive phrase a sender voluntarily includes.
+
+Model-authored prose may return only to the actor whose current task text supplied its private
+context. Cross-actor messages are code-rendered from permitted typed facts and do not relay customer
+free text. The outbound phone refusal remains a named fail-closed backstop rather than proof that
+every private value has been detected.
+
+The single configured model provider must not train on Farm Friend request/response data; calls are
+stateless; request/response logging is disabled where supported; and unavoidable provider retention
+has an approved documented maximum compatible with Farm Friend's raw-context retention. A
+model-version change under the same approved data-handling contract remains config plus evals, while
+a provider or provider-data-handling change re-runs that privacy gate.
+
+The correction deliberately introduces no general DLP, taint tracking, universal email/address
+detector, Kafka, event bus, event sourcing, workflow engine, distributed lock, service, package, or
+additional provider. It was synchronized across the clean-room handoff, AI/system/data architecture,
+runbook, docs index, and `CLAUDE.md`. No application code, schema, package, dependency, provider
+configuration, or deployment changed.
+
+**PM:** F-015 was created as `planned`, high-priority `compliance-trust` work (`5e2c43d` in
+`~/pm`). F-013 and F-014 remain planned; none of the three is authorized for implementation.
+
+**Verified:** `npm test` 46/46 (10 files), typecheck PASS, lint PASS; evals critical 3/3 + advisory
+2/2 + adversarial 4/4. `npm run test:integration` completed with all 3 tests skipped because
+`DATABASE_URL` is unset; a real-Postgres run remains owed. `git diff --check` passed before the
+session-log update and is re-run at handoff. No deploy is required for this documentation/PM-only
+tranche.
+
+**Next:** after this documentation tranche merges, review ranked finding 4 — the conflicting
+consent meanings — exactly one finding at a time. Do not implement F-013, F-014, or F-015 or change
+application code/schema before separate authorization.
+
 ## 2026-07-24 — Ranked finding 2 decision: concurrent and out-of-order SMS (F-014)
 
 Ranked finding 2 was reviewed against the approved clean-room contract rather than treating the

@@ -11,9 +11,10 @@ workflows, provider seams, and the invariants the code must enforce. Product rat
 > **Status: requirements, not claims.** Most of this document describes the **target** the build is
 > working toward. The repository does not yet enforce it — there are no committed migrations, the
 > SMS webhook does not verify signatures or persist, the live SMS and model adapters throw, package
-> dependencies point the wrong way, and there is no composition root. Statements here are
-> **requirements** until executable code and a test prove them. Do not cite this doc as evidence
-> that a guarantee holds.
+> dependencies point the wrong way, there is no composition root, and the generic AI assembler does
+> not implement the approved task-specific privacy projections. Statements here are **requirements**
+> until executable code and a test prove them. Do not cite this doc as evidence that a guarantee
+> holds.
 
 ## Design stance: the zen desk
 
@@ -48,7 +49,7 @@ packages/
   core/      Authoritative workflows, product rules, and narrow ports
   db/        Schema, migrations, repositories, and transaction handling
   sms/       Telnyx adapter, webhook verification, and outbound safeguards
-  ai/        Model adapters, safe context assembly, and typed selection validation
+  ai/        Model adapters, task-specific context assembly, and typed selection validation
 
 evals/       Model and adversarial evaluations
 ```
@@ -205,11 +206,17 @@ Narrow interfaces so I/O is swappable and tests are hermetic:
   normalizes avoidable typographic Unicode and refuses raw phone numbers regardless of model
   output. The package estimates GSM-7 vs. UCS-2 and billable segments, and logs cost metrics by
   recipient hash **without logging message text**.
-- **Model provider** (`packages/ai`) — accepts only a **safe context** produced by the stripping
-  assembler; its output is **untrusted** and schema-validated before anything acts on it. For
-  customer inquiries, code additionally requires selected IDs to belong to the typed retrieved set
-  and renders the factual reply itself. The model is never vouched for — only measured (evals) and
-  contained (the harness). See
+- **Model provider** (`packages/ai`) — exposes task-specific input variants rather than a generic
+  record assembler. Each variant constructs a branded minimal projection; the low-level provider
+  call is internal and has no database, repository, provider-thread, or arbitrary-record capability.
+  Its output is **untrusted** and schema/evidence-validated before anything acts on it. For customer
+  inquiries, code additionally requires selected IDs to belong to the typed retrieved set and
+  renders the factual reply itself. Model-authored prose returns only to the same actor whose current
+  task text supplied its private context; cross-actor messages are code-rendered from permitted
+  typed facts. The model is never vouched for — only measured (evals) and contained (the harness).
+  The configured provider must not train on Farm Friend requests/responses, calls must be stateless,
+  request/response logging must be disabled where supported, and unavoidable retention must have an
+  approved documented maximum. See
   [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) "The trust contract."
 - **Clock** — injected time, so recency and expiry are deterministically testable.
 
@@ -235,7 +242,9 @@ bound abuse and cost.
    authoritative factual text; unrestricted model prose is not treated as deterministically
    verifiable.
 5. Privacy at the data layer — phones hashed, raw never logged, never in model context.
-6. Safety enforced by code in three layers (compile / runtime / eval), never the system prompt.
+6. Safety enforced by a static provenance barrier plus runtime enforcement, never the system
+   prompt; type/workflow/adversarial tests verify those barriers but are not a third enforcement
+   layer.
 
 Full statements and the "why" live in [CLAUDE.md](../CLAUDE.md) Golden Rules. Each invariant is a
 **requirement awaiting executable proof**, not a description of current behavior.

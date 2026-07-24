@@ -1,15 +1,16 @@
 # Farm Friend — AI Architecture
 
 The *AI* source of truth: the trust contract, the model provider seam, the seam catalog, the line
-between what the model does and what code owns, the **three-layer code-enforced safety boundary**,
-validation, evals, and data minimization. Data shapes are in
+between what the model does and what code owns, the **static/runtime safety boundary plus
+verification**, validation, evals, and data minimization. Data shapes are in
 [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md); routing is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: requirements, not claims.** The live model adapter throws; context assembly rejects
-> some detected phone-shaped text but does not implement the broader minimization described here;
+> **Status: requirements, not claims.** The live model adapter throws; the current public generic
+> assembler accepts arbitrary objects and rejects only some detected phone-shaped text and key
+> names rather than implementing the task-specific projections described here;
 > output validation checks structure but does not yet enforce selected-ID membership or feed a
 > code renderer; the grounding eval uses a cooperative canned model rather than one attempting
 > unsupported selection; and the
@@ -32,7 +33,9 @@ output validation). The contract:
   property that must survive (farmer ownership, compliance, grounding, privacy, commitment) must be
   a harness property. If a guarantee would move with the model, the design is wrong — move it into
   code.
-- **A model swap is a config change plus an eval run, never a safety review.**
+- **A model-version swap under the same approved provider data-handling contract is a config change
+  plus an eval run, not a new model-behavior safety design.** Changing provider or changing its
+  logging, training, retention, or stateful-storage behavior must re-pass the provider privacy gate.
 
 **The system must remain safe when the model is weak, mistaken, manipulated, or hostile.**
 
@@ -73,7 +76,9 @@ never a constant baked into the architecture.
 
 The model **may**: interpret language; infer search intent; propose inventory changes; select and
 rank identifiers from relevant retrieved options; draft non-authoritative language where a seam
-permits it; compose recipe ideas; suggest escalation.
+permits it; compose recipe ideas; suggest escalation. Model-authored prose may be returned only to
+the same actor whose current task text supplied its private context. Any cross-actor message is
+code-rendered from permitted typed facts; customer free text is not relayed to a farmer.
 
 **Deterministic code owns**: identity and authority; consent; universal STOP and scoped MUTE;
 recipient selection; commitments; transactions; durable writes; publication; idempotency;
@@ -85,11 +90,40 @@ availability, or makes a compliance or commitment decision.
 
 ## The model provider seam
 
-One narrow interface, with:
+One narrow task interface, with:
 - a **deterministic stub provider** for tests and evals, plus the live adapter (config-selected);
 - **schema validation with one repair retry**, then clarify or flag — **never a silent guess**;
-- **acceptance of only a safe context** produced by the stripping assembler, so a raw record can
-  never reach the model by accident.
+- task-specific input variants whose explicit fields are the only public context constructors;
+- a low-level provider call that accepts only the resulting branded context and remains internal to
+  `packages/ai`, so callers cannot supply an arbitrary record;
+- no repository, database client, record loader, provider-managed thread, or other capability to
+  acquire context outside that projection.
+
+The approved launch projections are:
+
+| Seam | Permitted model input |
+|---|---|
+| inventory extraction | the current farmer message |
+| stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
+| inquiry interpretation | the current customer request and any separately approved transient origin |
+| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
+| recipe suggestion | the current customer's request plus typed public inventory facts |
+| message classification, if retained | the current sender's message only |
+
+No projection contains raw phone/contact data, another actor's message, unrelated thread history,
+authentication or consent state, admin/audit records, internal notes, or secrets. A current sender
+can voluntarily put an email, address, secret, or other sensitive phrase in the text a language
+seam must interpret; Farm Friend does not claim universal detection of such strings. Raw-phone
+matching remains a named fail-closed rule.
+
+### Provider privacy gate
+
+The single configured model provider must contractually not train on Farm Friend requests or
+responses. Calls are stateless: no provider-managed conversations, files, memory, or retrieval
+stores. Provider request/response logging is disabled where supported; any unavoidable provider
+retention has a documented maximum compatible with Farm Friend's approved raw-context retention.
+Farm Friend rejects a provider/configuration that cannot meet those requirements. Its own model-run
+record continues to exclude model input and output content.
 
 ## Seam catalog
 
@@ -132,30 +166,30 @@ the selection step. The model returns only selected and ordered identifiers; cod
 each belongs to the retrieved set, dereferences the authoritative values, and renders the factual
 answer and recency. Model-supplied values or prose are not accepted as evidence.
 
-## The three-layer code-enforced safety boundary
+## The code-enforced safety boundary and its verification
 
 Because we ingest **untrusted public SMS** (a prime prompt-injection vector), **safety is enforced
-by code, never by the system prompt** — across three distinct layers, **none substituting for
-another**. This is Golden Rule #6, stated precisely (the branded-types claim is easy to over-state,
-so read this carefully):
+by code, never by the system prompt**. The boundary has two enforcement barriers and a separate
+verification suite. This is Golden Rule #6, stated precisely:
 
-1. **Compile guard (provenance, not content).** The model call accepts only a branded **safe
-   context**; the SMS send accepts only a branded **redacted outbound**. The *only* public
-   constructors are the stripping **context assembler** and the **redaction guard**. So you
-   **cannot call the model or send an SMS without going through them**. **What this buys:** you
-   can't bypass the assembler or redactor by accident. **What it does NOT buy:** the brand proves
-   the value *came from* the assembler, **not** that its content is clean — `tsc` cannot inspect a
-   runtime string, so if the assembler had a bug and copied a phone into a "safe" field, the brand
-   is still stamped and the build is green. **Necessary, not sufficient.**
-2. **Runtime guard (content).** The assembler **actually strips** PII and secrets and passes only
-   opaque IDs plus the minimal retrieved rows a seam needs (data minimization). The outbound guard
-   **normalizes avoidable typographic Unicode, actually scans** the message, and **blocks a raw
-   phone number** even if the model produced one. This is what proves the *content* is clean.
-3. **Eval guard (adversarial proof).** The adversarial/prompt-injection eval group must prove an
-   injected SMS **cannot** extract another person's number or force a commit — because the data is
-   **absent from context**, the **guard blocks**, and **validation rejects**, *not* because a
-   prompt refused. This is the end-to-end proof that layers 1–2 hold under attack, and it requires
-   a **hostile** model, not a cooperative stub.
+1. **Static provenance barrier.** The low-level model call accepts only a branded **safe context**;
+   the SMS send accepts only a branded **redacted outbound**. The only constructors are the
+   task-specific assemblers and the redaction guard. Ordinary code therefore cannot bypass them by
+   accident. **What this does not buy:** the brand proves where a value came from, not that a
+   runtime string is safe; `tsc` cannot inspect content.
+2. **Runtime enforcement.** Each assembler constructs one explicit minimal projection and the
+   adapter has no capability to load arbitrary records. Other actors' private data is absent from
+   model context. Model output is schema/evidence validated; consequential and cross-actor text is
+   code-rendered. The outbound guard normalizes avoidable typographic Unicode and blocks raw phone
+   numbers. Each claim is specific: the system does **not** claim this proves arbitrary text
+   universally "clean."
+
+**Verification suite — evidence, not enforcement.** Type tests prove ordinary callers cannot bypass
+the static barrier. Workflow tests and the adversarial/prompt-injection eval group must exercise the
+full accepted-ingress → projection → hostile model → validation/code rendering → outbox path and
+prove an injected SMS cannot extract unavailable data or force a commit. This requires a hostile
+model, not a cooperative canned response. A passing finite suite increases confidence in the two
+barriers; it cannot block an unsafe production value and is not a third guard.
 
 A system prompt may add defense-in-depth but is **never** the enforcement.
 
@@ -180,7 +214,9 @@ Required corrections to the eval suite: use **hostile models that select unknown
 attempt to smuggle factual strings, directions, or commitments into output**; reject structurally
 valid selections outside the retrieved set; prove the queued factual response contains only
 code-rendered retrieved values; and prove a free-text SMS stock-out report cannot select a
-location or queue a farmer alert. Any change touching a model seam runs evals; a provider or prompt
+location or queue a farmer alert. Capture and inspect the context at the provider seam, then inspect
+the resulting outbox row through the full authoritative workflow; helper-only fixtures are
+insufficient. Any change touching a model seam runs evals; a provider, prompt, or context-projection
 change must pass the full suite at parity or better.
 
 ## Abuse / cost on public model surfaces

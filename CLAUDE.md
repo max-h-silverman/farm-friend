@@ -57,7 +57,7 @@ guarantee holds — check the code and the test.
   the constraints the database must enforce, privacy/retention, the model-run MAY-store list.
 - **[docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md)** — the *AI*: the trust contract, the
   semantic architecture (meaning is the model's, consequences are code's), the seam catalog, the
-  model-vs-code line, the **three-layer code-enforced safety boundary**, validation, evals.
+  model-vs-code line, the **static/runtime safety boundary plus verification**, validation, evals.
 - **[docs/SMS_COMPLIANCE.md](docs/SMS_COMPLIANCE.md)** — keywords, consent, required behavior, the
   FLAG safety rail.
 
@@ -168,18 +168,22 @@ exists to prevent.
 6. **Safety is enforced by code, never by the system prompt.** Anything that must not fail —
    privacy, consent, compliance, commitment, data minimization — is a **deterministic code
    guarantee the model cannot reach around** (a prompt can be jailbroken or prompt-injected, and we
-   ingest untrusted public SMS). Enforced in **three distinct layers, none substituting for
-   another**:
-   - **Compile guard** — branded safe-context / redacted-outbound types whose only public
-     constructors are the stripping assembler / redaction guard, so you **cannot call the model or
-     send an SMS without going through them**. This proves *provenance*, **not** *content* — `tsc`
-     cannot inspect a runtime string, so a brand is not proof the string is clean.
-   - **Runtime guard** — the assembler actually strips PII/secrets before the call; the outbound
-     guard normalizes avoidable typographic Unicode, then actually scans and blocks a raw phone
-     number after, regardless of what the model produced. This proves the *content* is clean.
-   - **Eval guard** — the adversarial/prompt-injection group proves an injected SMS can't extract
-     another number or force a commit — blocked by code (data absent + guard + validation), not by
-     a prompt refusal. This requires a **hostile** model, not a cooperative stub.
+   ingest untrusted public SMS). The boundary has **two enforcement barriers plus verification**:
+   - **Static provenance barrier** — branded safe-context / redacted-outbound types whose only
+     constructors are the task-specific context assemblers / redaction guard, so ordinary code
+     cannot call the low-level model provider or send an SMS without going through them. This proves
+     *provenance*, **not** *content* — `tsc` cannot inspect a runtime string.
+   - **Runtime enforcement** — each model seam receives an explicit minimal projection, never an
+     arbitrary record or unrelated history; the low-level adapter has no repository capability;
+     consequential and cross-actor output is validated and code-rendered; and the outbound guard
+     normalizes avoidable typographic Unicode and blocks the named raw-phone class. These are
+     specific guarantees, **not** proof that arbitrary text is universally "clean."
+   - **Verification suite** — type tests, workflow tests, and adversarial/prompt-injection evals
+     demonstrate that the two barriers hold under hostile output. They are evidence, **not a third
+     enforcement layer**, and require a hostile model rather than a cooperative stub.
+   Farm Friend does not claim a general detector for every email, address, secret, or sensitive
+   phrase a sender might voluntarily put in the current task text. Model-authored prose may return
+   only to that same actor; cross-actor messages are code-rendered from permitted typed facts.
    A prompt may add defense-in-depth but is **never** the enforcement.
 
 **No business code hard-codes what the model can understand**: no farm names or food vocabulary in
@@ -197,8 +201,8 @@ cooperative stubs. Suites:
 - **Integration** — `npm run test:integration` (vitest, Postgres). Must run migrations **from an
   empty database**, exercise complete use cases with real constraints and transactions, and prove
   the data invariants. **These skip silently without `DATABASE_URL` — a skipped run is not green.**
-- **Typecheck / lint** — `npm run typecheck` / `npm run lint`. The typecheck also **proves the
-  compile layer** of the safety boundary.
+- **Typecheck / lint** — `npm run typecheck` / `npm run lint`. The typecheck proves that ordinary
+  callers cannot bypass the static provenance barrier; it does not prove runtime content safety.
 - **Evals** — `npm run evals`. Required for any change touching a model seam. `critical` fixtures
   must pass **100%**; a provider/prompt change must pass the full suite at parity or better. Use
   **hostile** models that attempt invention, not cooperative canned ones.
@@ -216,8 +220,10 @@ cooperative stubs. Suites:
 - **A new query/list:** add the retrieval in code before any model call; label recency; carry stable
   fact identifiers; accept only selected IDs from the retrieved set; render factual text in code.
 - **Anything privacy-relevant:** phones hashed, never logged raw, never in model context. The
-  guarantee is **code, not the prompt** — assembly strips before, the outbound guard blocks after;
-  add the adversarial eval proving injection can't extract it.
+  guarantee is **code, not the prompt** — task-specific projections make other actors' private data
+  unavailable before the call, the outbound guard blocks raw phones after, and consequential /
+  cross-actor replies are code-rendered; add adversarial workflow proof that injection cannot
+  extract unavailable data.
 - **SMS ingress:** verify the Telnyx signature over the exact raw bytes, persist only the minimized
   unique inbox projection before acknowledgement, never retain the raw provider envelope, serialize
   stateful work per sender with Postgres row locks, and fail closed on stale events.
@@ -254,7 +260,8 @@ cooperative stubs. Suites:
   behavioral branches.
 - Do not log raw phone numbers, raw provider payloads with PII, or put phones in model context (#5).
 - **Do not rely on a system prompt to enforce privacy, consent, compliance, or commitment (#6).**
-  Enforce it in code across all three layers; the prompt is at most defense-in-depth.
+  Enforce it with the static provenance and runtime barriers; tests/evals verify those barriers and
+  the prompt is at most defense-in-depth.
 - Do not add **tenancy**, gleaning/volunteer/Farm Bucks-transaction machinery, native-app state, or
   multi-level roles — all are explicit non-goals at launch.
 - Do not add a **legacy-migration provenance model**: this is a greenfield build; existing map
@@ -268,11 +275,11 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** The clean-room baseline and ranked findings 1–2 are approved. The current
-`f-014-sms-routing-safety` branch records finding 2's documentation-only correction. The
+**Phase:** The clean-room baseline and ranked findings 1–3 are approved. The current
+`f-015-model-safety-boundary` branch records finding 3's documentation-only correction. The
 application has **not** yet been refactored to the approved baseline.
 
-**Verified July 24, 2026 on `f-014-sms-routing-safety`:** `npm test` 46/46 across 10 files;
+**Verified July 24, 2026 on `f-015-model-safety-boundary`:** `npm test` 46/46 across 10 files;
 typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily
 prove **isolated helpers and structural claims, not launch workflows**. `npm run test:integration`
 completed with all 3 Postgres tests **skipped** without `DATABASE_URL`; a real-Postgres run remains
@@ -285,18 +292,16 @@ command with **no signature verification, persistence, idempotency, consent, or 
 returns an empty role list and a synthetic tenant with no durable session; live AI and Telnyx
 adapters throw; **no composition root**; the schema carries tenancy/gleaning/migration-provenance
 structures the contract removes; the stock-out test proves only that a returned object lacks a
-property; the grounding eval uses a cooperative canned model.
+property; the grounding eval uses a cooperative canned model; the generic model-context assembler
+accepts arbitrary objects and its narrow scan plus helper-only evals do not enforce the approved
+task-specific privacy boundary.
 
-**PM / review:** **F-011** is done and archived after PR #8 merged. The independent reset audit is
-recorded in `docs/ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md`; only explicitly approved
-recommendations change the contract. **F-012** remains `planned`: registered 10DLC copy presents
-`FLAG` as a supported keyword and documents `MUTE` nowhere — a hard public-SMS launch gate that
-also still advertises the removed `OUT`/`IGNORE` stock-out action. It blocks no architectural
-finding. **F-013** is `planned` for the approved typed-fact selection/code-rendering boundary and
-code-bound web/QR stock-out recipients. **F-014** is `planned` for the approved minimized inbox,
-sender serialization, one inventory confirmation, STOP dispatch boundary, and at-most-once-biased
-provider recovery.
+**PM / review:** The independent reset audit remains review input; only explicitly approved
+recommendations change the contract. **F-012** is the planned hard public-SMS launch gate for
+registered 10DLC keyword/copy drift. **F-013**, **F-014**, and **F-015** are planned for the three
+approved findings: grounded/code-bound consequential output; concurrent and out-of-order SMS
+routing; and the task-specific model privacy boundary plus full-path hostile verification.
 
-**Next:** after the current documentation tranche merges, review ranked finding 3 (the claimed
-three-layer safety boundary) using the **spiral-staircase constraint**. Do not implement F-013 or
-F-014 or change application code/schema before separate authorization.
+**Next:** after the current documentation tranche merges, review ranked finding 4 (the conflicting
+consent meanings) using the **spiral-staircase constraint**. Do not implement F-013, F-014, or F-015
+or change application code/schema before separate authorization.

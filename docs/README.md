@@ -23,7 +23,7 @@ where any of them disagrees with the handoff, the handoff wins.
    constraints the database must enforce, privacy and retention, the model-run MAY-store list.
 4. **[AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)** — the *AI*. The trust contract, the semantic
    architecture (meaning is the model's, consequences are code's), the seam catalog, the
-   model-vs-code line, the three-layer safety boundary, validation, evals.
+   model-vs-code line, the static/runtime safety boundary plus verification, validation, evals.
 5. **[SMS_COMPLIANCE.md](SMS_COMPLIANCE.md)** — keywords, consent, required behavior, the FLAG
    safety rail.
 
@@ -59,5 +59,5 @@ where any of them disagrees with the handoff, the handoff wins.
 | Inventory publication | ARCHITECTURE §key workflows, DATA §constraints, AI §seam catalog |
 | Stock-out → farmer request | DATA §constraints (never mutates inventory), ARCHITECTURE §key workflows |
 | Customer inquiry / recipes | AI §semantic architecture + retrieval, ARCHITECTURE §abuse throttle |
-| Anything privacy or safety | AI §three-layer safety boundary, DATA §privacy, CLAUDE.md Golden Rule 6 |
+| Anything privacy or safety | AI §safety boundary and verification, DATA §privacy, CLAUDE.md Golden Rule 6 |
 | Admin surfaces / flag review | ADMIN_OPERATIONS, DATA §durable records |

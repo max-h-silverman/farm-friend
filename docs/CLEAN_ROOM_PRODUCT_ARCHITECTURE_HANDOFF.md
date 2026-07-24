@@ -4,7 +4,7 @@
 **Repository:** `/Users/max/farm-friend`  
 **Audited repository baseline:** clean `main` at `2cb39e4`, including PR #7  
 **PM reset commit:** `da7e223` in `/Users/max/pm`  
-**Current phase:** Phase 4 finding review underway; ranked findings 1 and 2 approved
+**Current phase:** Phase 4 finding review underway; ranked findings 1–3 approved
 
 > This is the handoff and audit reference for the clean-room design session. The existing
 > architecture documents remain useful evidence of the previous design, but they are not design
@@ -30,10 +30,10 @@
 
 The next conversational step is:
 
-> Review ranked finding 3 from the independent audit handoff.
+> Review ranked finding 4 from the independent audit handoff.
 
-Approved finding 1 is filed in PM as F-013 and approved finding 2 as F-014. Each later finding
-remains review input until explicitly approved.
+Approved finding 1 is filed in PM as F-013, finding 2 as F-014, and finding 3 as F-015. Each later
+finding remains review input until explicitly approved.
 
 ## Session interaction rules
 
@@ -115,6 +115,40 @@ Approved July 24, 2026:
 This decision adds no Kafka, event bus, event sourcing, workflow engine, distributed lock, separate
 queueing service, microservice, package, raw-webhook store, second confirmation mechanism, or
 exactly-once carrier-delivery claim. External provider calls remain outside database transactions.
+
+### Finding 3 — model privacy boundary and proof terminology
+
+Approved July 24, 2026:
+
+- The safety boundary has two enforcement barriers plus verification, not three enforcement layers:
+  a static provenance barrier, runtime enforcement, and a verification suite.
+- Branded safe-context and redacted-outbound types prove that ordinary callers used an approved
+  constructor. They prove provenance, not runtime content safety.
+- Runtime model safety comes from task-specific minimal input projections, an adapter with no
+  repository/database/provider-thread capability, schema/evidence validation, and code-rendered
+  consequential or cross-actor output. The outbound phone scan remains a named fail-closed
+  backstop; it does not prove arbitrary text universally clean.
+- The public generic `assembleContext<T>(seam, fields)` target is removed. Each launch seam has an
+  explicit permitted projection: the current actor's task text where language interpretation needs
+  it, plus only required public facts and opaque identifiers. It receives no raw contact data,
+  another actor's text, unrelated thread history, authentication/consent/admin/audit records,
+  internal notes, or secrets.
+- Farm Friend does not claim universal detection of every email, address, secret, or sensitive
+  phrase a sender voluntarily puts in their current task text. Model-authored prose may return only
+  to that same actor; cross-actor messages are code-rendered from permitted typed facts and do not
+  relay customer free text.
+- The single configured model provider must not train on Farm Friend requests/responses; calls are
+  stateless with no provider-managed conversation/file/memory/retrieval state; logging is disabled
+  where supported; and unavoidable retention has an approved documented maximum compatible with
+  Farm Friend's raw-context retention. A model-version change under the same contract is config plus
+  evals; changing provider or its data-handling behavior re-runs this privacy gate.
+- Type tests, full authoritative workflow tests, and hostile-model evals verify the barriers but do
+  not enforce production values. Safety-relevant fixtures must cover accepted ingress through
+  projection, hostile output, validation/code rendering, and the resulting outbox work.
+
+This decision adds no general DLP, taint tracking, universal email/address detector, Kafka, event
+bus, event sourcing, workflow engine, distributed lock, service, package, or additional provider.
+It does not implement F-013 or F-014.
 
 ## Settled product contract
 
@@ -395,7 +429,7 @@ packages/
   core/      Authoritative workflows, product rules, and narrow ports
   db/        Schema, migrations, repositories, and transaction handling
   sms/       Telnyx adapter, webhook verification, and outbound safeguards
-  ai/        Model adapters, safe context assembly, and typed selection validation
+  ai/        Model adapters, task-specific context assembly, and typed selection validation
 
 evals/       Model and adversarial evaluations
 ```
@@ -633,7 +667,14 @@ commits the decision and outbox work; workers perform external operations and re
 - Test farmer authorization and VIGA approval.
 - Test authentication expiry, replay prevention, and rate limiting.
 - Test retention and deletion of raw context.
-- Prove raw phones and private context are absent from logs and model inputs.
+- Prove raw phones, other actors' messages, unrelated history, contact/auth/consent/admin/audit
+  data, internal notes, and secrets are absent from model projections and logs.
+- Prove model-authored prose returns only to the actor whose current text supplied its private
+  context; cross-actor outbox work is code-rendered and does not relay customer free text.
+- Capture the provider context and resulting outbox work through full authoritative workflows with
+  hostile outputs; type tests and helper fixtures alone are not enforcement proof.
+- Verify the selected provider's no-training, stateless-call, logging, and bounded-retention
+  configuration before live use and whenever provider data handling changes.
 - Use hostile models that invent farms, inventory, recency, directions, or commitments.
 - Reject structurally valid selections containing identifiers outside the retrieved set.
 - Prove the final factual response is rendered only from the selected authoritative facts.
@@ -662,7 +703,8 @@ Historical item identifiers `F-001` through `F-010` are retired and must not be 
 (declared baseline reset) is done and archived after PR #8 merged. Active items are F-012 (10DLC
 campaign alignment, planned) and F-013 (the approved grounded-output and recipient-selection
 correction, planned), and F-014 (the approved concurrent/out-of-order SMS routing correction,
-planned). The Farm Friend PM product configuration reflects the clean-room contract.
+planned), and F-015 (the approved model privacy-boundary and verification correction, planned).
+The Farm Friend PM product configuration reflects the clean-room contract.
 
 ## Unresolved launch decisions
 

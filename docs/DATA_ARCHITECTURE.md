@@ -100,6 +100,17 @@ These are **database-level** requirements, not application conventions:
 - **Only selected preference and safety records survive raw-context expiration.** Farm Friend may
   retain lightweight facts such as foods requested or preferred stands; it must not accumulate a
   rich personal profile, and **precise durable home addresses are not part of a customer profile**.
+- **Model inputs are task-specific projections, not records or transcripts.** A seam receives only
+  its current task text, permitted public facts, and opaque identifiers as specified in
+  `AI_ARCHITECTURE.md`; it receives no other actor's message, unrelated thread history, raw contact
+  data, authentication/consent state, admin/audit rows, internal notes, or secrets. Model-authored
+  prose may return only to the actor whose current task text supplied that context. Cross-actor
+  messages are code-rendered without relaying customer free text.
+- **The configured model provider passes a privacy gate.** It must not train on Farm Friend
+  requests/responses; calls are stateless with no provider-managed conversation, file, memory, or
+  retrieval store; request/response logging is disabled where supported; and any unavoidable
+  provider retention has an approved documented maximum compatible with Farm Friend's raw-context
+  retention.
 - **Public listings expose** stand addresses and farmer-selected links. **Direct farmer phone
   numbers and email addresses are never public.**
 - **Consent:** global consent gates all SMS; per-program enrollment gates each future program;
