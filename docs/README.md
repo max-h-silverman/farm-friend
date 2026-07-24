@@ -1,54 +1,56 @@
 # Farm Friend — Docs Index
 
-The architecture docs are the **source of truth**. Read them in order for a cold start; jump by
-task with the "building X → read these" map below. The prior scaffold at HEAD `3f76949` is
-archived reference only — where it disagrees with these docs, the docs win.
+**[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md) is the
+design authority.** Read it first. The documents below restate the settled contract for daily use;
+where any of them disagrees with the handoff, the handoff wins.
+
+> **Read these as requirements, not as status.** The repository is mid-rebuild toward the approved
+> baseline. Several guarantees these docs describe are **not yet enforced by executable code** —
+> each doc carries a status note naming its own gaps. The live snapshot of what is actually true is
+> **CLAUDE.md "Current State & Open Items"**.
 
 ## Read in order
 
-1. **[PRODUCT_BRIEF.md](PRODUCT_BRIEF.md)** — the *product*. North star (a fresh map), the three
-   flows + the open-intent inquiry route, actors, the honor-system reality, the
-   migration/activation launch moment, MVP scope, open questions.
-2. **[ARCHITECTURE.md](ARCHITECTURE.md)** — the *system*. The design stance (**the zen desk** —
-   simplicity/elegance as requirements), repo layout, runtime surfaces, the deterministic
-   program/commitment routing, key flows, provider seams, the abuse/cost throttle seam, tenancy,
-   invariants.
-3. **[DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md)** — the *data*. All entities (tenant-scoped),
-   constraints, the **two-axis freshness/provenance model**, the
-   stock-out-report-never-mutates-inventory rule, privacy/retention, the `ai_runs` MAY-store list.
-4. **[AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)** — the *AI*. The **trust contract** (an LLM-brain
-   in a harness — quality vs. authority, the swap test), the `LLMProvider` seam, the seam catalog,
-   the model-vs-code line, the **three-layer code-enforced safety boundary**, validation/repair,
-   evals, data minimization, the offline `MapProvider` stub.
+0. **[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)** —
+   the settled product contract, the approved architecture baseline, the repository audit, and the
+   refactor direction.
+1. **[PRODUCT_BRIEF.md](PRODUCT_BRIEF.md)** — the *product*. North star, canonical launch journeys,
+   actors, the honor-system reality, privacy posture, launch scope and non-goals.
+2. **[ARCHITECTURE.md](ARCHITECTURE.md)** — the *system*. The design stance (the zen desk), the
+   four-package layout and dependency direction, the composition root, runtime surfaces,
+   deterministic routing, workflow and transaction ownership, provider seams, invariants.
+3. **[DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md)** — the *data*. Minimum durable records, the
+   constraints the database must enforce, privacy and retention, the model-run MAY-store list.
+4. **[AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)** — the *AI*. The trust contract, the semantic
+   architecture (meaning is the model's, consequences are code's), the seam catalog, the
+   model-vs-code line, the three-layer safety boundary, validation, evals.
 5. **[SMS_COMPLIANCE.md](SMS_COMPLIANCE.md)** — keywords, consent, required behavior, the FLAG
-   safety rail, provisional copy (A2P 10DLC assumed approved by launch — SMS is critical path).
+   safety rail.
 
 ## Operate / extend
 
-- **[RUNBOOK.md](RUNBOOK.md)** — local dev, env, migrations, evals, deploy, Telnyx webhook config,
-  the importer input contract, and **how to extend** (add a program / add a seam / swap a
-  provider). Cold-start ready.
-- **[ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md)** — the VIGA operator guide: roles, per-feature
-  admin surfaces, and runbooks (migrate data, onboard a farmer, watch stock-out reports,
-  resolve a flag, inspect a thread).
+- **[RUNBOOK.md](RUNBOOK.md)** — local dev, env, migrations, seeding, evals, deploy, Telnyx webhook
+  requirements, and **how to extend** (add a future program / add a seam / swap a provider).
+- **[ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md)** — the VIGA operator guide: the single
+  administrator level, admin surfaces, and runbooks.
 - **[VIGA_10DLC_WEBSITE_COPY.md](VIGA_10DLC_WEBSITE_COPY.md)** — source copy for the public VIGA
-  Farm Friend opt-in page, privacy policy, SMS terms, and matching campaign submission.
-- **[TELNYX_10DLC_FIELD_VALUES.txt](TELNYX_10DLC_FIELD_VALUES.txt)** — compact, field-by-field
-  values for pasting into the Telnyx campaign form.
+  Farm Friend opt-in page, privacy policy, SMS terms, and campaign submission.
+- **[TELNYX_10DLC_FIELD_VALUES.txt](TELNYX_10DLC_FIELD_VALUES.txt)** — field-by-field values for
+  the Telnyx campaign form.
+- **[SESSION_LOG.md](SESSION_LOG.md)** — build history. **Historical record**: it describes
+  decisions that the clean-room contract has since superseded.
 
 ## Building X → read these
 
 | If you're building… | Read |
 |---|---|
-| Compliance / commitment routing | ARCHITECTURE §routing, SMS_COMPLIANCE, DATA §messages/conversation_states |
-| A model seam / prompt | AI_ARCHITECTURE (seam catalog + model-vs-code line), then run evals |
-| The map importer / public feed | PRODUCT_BRIEF §migration, DATA §two-axis model, RUNBOOK §importer contract |
-| Farmer onboarding / activation | PRODUCT_BRIEF §migration, ADMIN_OPERATIONS §onboard, DATA §claim_status + provenance |
-| Inventory publish | DATA §inventory_snapshots + two-axis model, AI §inventory-extract |
-| Stock-out → alert | DATA §stockout_reports (never mutates), ARCHITECTURE §flows |
-| Customer inquiry / recipes | AI §inquiry-parse + retrieval layer, ARCHITECTURE §abuse seam |
-| Anything privacy/safety | AI §three-layer safety boundary, DATA §privacy/retention, CLAUDE.md Golden Rule 6 |
-| Admin surfaces / flag review | ADMIN_OPERATIONS, DATA §flags |
-| Gleaning | DATA §gleaning tables, ARCHITECTURE §commitment state machine (two consumers) |
-
-The live snapshot of what's built vs. skeleton is **CLAUDE.md "Current State & Open Items"**.
+| Compliance / confirmation routing | ARCHITECTURE §routing, SMS_COMPLIANCE, DATA §durable records |
+| A model seam or prompt | AI_ARCHITECTURE (seam catalog + model-vs-code line), then run evals |
+| Package boundaries / the composition root | ARCHITECTURE §package layout |
+| Seeding initial listing data | RUNBOOK §seeding, PRODUCT_BRIEF §relationship to the existing map |
+| Farmer onboarding / VIGA approval | PRODUCT_BRIEF §canonical journeys, ADMIN_OPERATIONS, DATA §durable records |
+| Inventory publication | ARCHITECTURE §key workflows, DATA §constraints, AI §seam catalog |
+| Stock-out → farmer request | DATA §constraints (never mutates inventory), ARCHITECTURE §key workflows |
+| Customer inquiry / recipes | AI §semantic architecture + retrieval, ARCHITECTURE §abuse throttle |
+| Anything privacy or safety | AI §three-layer safety boundary, DATA §privacy, CLAUDE.md Golden Rule 6 |
+| Admin surfaces / flag review | ADMIN_OPERATIONS, DATA §durable records |

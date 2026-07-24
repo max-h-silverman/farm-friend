@@ -7,6 +7,60 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-24 — Clean-room baseline reset: F-011 (Phase 4 finding 1)
+
+Branch `f-011-baseline-reset`. First finding of the Phase 4 audit review defined by
+[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md), which is
+now **tracked in the repo and is the design authority** — previously it existed only as an
+untracked working-tree file.
+
+**Why this was finding 1.** The declared baseline (seven architecture docs, `CLAUDE.md`, PM
+`product.md`) asserted as settled fact a product the clean-room contract had replaced. Because
+`CLAUDE.md` auto-loads into every agent's context and instructs agents to treat those docs as
+source of truth, the stale baseline was actively *manufacturing* the work later findings exist to
+delete: any session starting cold would have built tenancy scoping, two-axis migration provenance,
+and gleaning tables. It also made every later finding's acceptance criteria unverifiable, since
+"correct" was defined by documents that were wrong.
+
+Deleted from the declared baseline: gleaning/volunteer scope and its "tables in the spine" pledge,
+tenancy, the two-axis migration provenance model and claim states, `config`/`contracts` packages,
+Expo, multi-level staff roles, and the permanent `MapProvider` seam (geocoding is now a one-time
+seeding concern, and the coordinate-inventing stub is gone). Declared instead: the four-package
+baseline (`core`/`db`/`sms`/`ai` + `apps/web`), the `core → no other package` dependency rule, the
+single composition root, and one authoritative use case + durable path per workflow.
+
+**Two judgment calls worth recording.** First, the old docs enumerated a closed inquiry-ranking
+strategy set (`proximity | freshness | coverage | any`) — precisely the "fixed semantic strategy
+catalog" the contract forbids. Restated as an **open interpretation the model proposes and code
+validates and executes**, which resolves a contradiction in the contract's own terms rather than
+transcribing it. Second, unproven guarantees were **demoted to requirements**: every architecture
+doc now opens with a status note naming its own gaps, because the Phase 3 audit found documented
+safety claims that executable code does not enforce.
+
+`SESSION_LOG.md` was left unchanged (history may record superseded decisions) and is now labeled as
+such in the docs index. `SMS_COMPLIANCE.md` got narrow edits only — gleaning removed, scoped `MUTE`
+added, `FLAG` marked a product safety feature rather than a carrier-mandated keyword, and
+speculative-schema identifiers (`subscriptions`, `people.phone`, the removed activation flow)
+replaced with durable-record language.
+
+**Review found two defects.** The commit was amended (`6765e29` → `b292bc7`) to fix the stale
+schema names, which the first pass had filtered for gleaning but not for schema references. The
+second was filed as **F-012** rather than fixed: the registered 10DLC campaign copy still presents
+`FLAG` as a supported keyword and documents `MUTE` nowhere, so F-011 wrote the "FLAG is not
+carrier-mandated" rule and left the live violation one file away. Correcting a submitted carrier
+campaign is a real decision with an external dependency and is a listed unresolved launch decision
+— it is a hard SMS-compliance gate before public SMS, but blocks none of the intervening
+architectural findings.
+
+**Scope held:** docs + `CLAUDE.md` only; no file under `apps/`, `packages/`, or any schema path was
+touched. Excluding the added handoff, the rewrite was ~956 insertions against 812 deletions — a
+reset, not an expansion.
+
+**Verified:** `npm test` 46/46 (10 files), typecheck PASS, lint PASS; evals critical 3/3 + advisory
+2/2 + adversarial 4/4 — unchanged from baseline, as expected for a docs-only change. These checks
+prove isolated helpers and structural claims, **not** launch workflows. `DATABASE_URL` remains
+unset, so the 3 Postgres integration tests still skip; a real-Postgres run remains owed.
+
 ## 2026-07-13 — VIGA 10DLC copy + outbound SMS segment cost controls (PR #7)
 
 Branch `fix/telnyx-sms-costs`; PR #7 is open against `main`. Added paste-ready Squarespace,

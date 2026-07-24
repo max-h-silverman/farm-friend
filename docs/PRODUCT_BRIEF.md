@@ -3,138 +3,216 @@
 The *product* source of truth: what Farm Friend is, who it serves, and the flows it must get
 right. System/data/AI mechanics live in their own docs (see [README.md](README.md)).
 
-## North star: a fresh map
+> **Design authority.** The settled product contract is
+> [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md). This
+> brief restates it for daily use; where the two disagree, the handoff wins.
 
-VIGA publishes an embedded Google Map of Vashon Island farm stands and their goods. Today that map
-is the *only* resource, and it runs **2–7 days stale** because a VIGA volunteer hand-enters data
-from farmer-submitted forms. Power-users cope by keeping private lists of which stands usually
-have what. **Farm Friend's core job is to collapse that lag** — let farmers update their own stand
-directly (mostly by SMS), so the map is fresh, and remove the volunteer bottleneck.
+## North star: current information, without VIGA doing data entry
+
+VIGA publishes an embedded Google My Map of Vashon Island farm stands and their goods. Today that
+map is the *only* resource, it carries free-form and largely unfilterable text, and it runs stale
+because a VIGA volunteer hand-enters data from farmer-submitted forms. **Farm Friend's core job is
+to keep farm-stand information current with little or no routine VIGA data management** — farmers
+own and update their own listings (mostly by SMS), and customers discover what they can buy locally
+right now.
+
+Six months after launch, the product has worked if: VIGA board members and volunteers are largely
+relieved of manual map maintenance; a much higher percentage of farm-stand inventory is current;
+farmers respond to proactive SMS prompts; hundreds of unique customers use Farm Friend monthly;
+people have learned to text Farm Friend with natural requests; and the public web experience is
+substantially more useful than the embedded Google My Map.
 
 ## The coordinator at a desk
 
 Design every part of Farm Friend as if it were a single trustworthy **coordinator / customer-
 service agent** at a desk, serving VIGA and the community. On the desk are **files** (the
-source-of-truth data: farm profiles, current inventory + when it was last confirmed,
-subscriptions, gleaning opportunities, the report/flag queue) and **ways to answer** (the
-map/feed, SMS replies, and its own **inference** — reading messy messages, drafting, suggesting).
-When a design question is unclear, ask *"what would a good coordinator at a desk do?"*:
-- It **answers from the files**, and when a file is old it *says so* ("confirmed 3 days ago")
+source-of-truth data: farm listings, current inventory + when it was last confirmed, consent, the
+report/flag queue) and **ways to answer** (the map, SMS replies, and its own **inference** —
+reading messy messages, drafting, suggesting). When a design question is unclear, ask *"what would
+a good coordinator at a desk do?"*:
+- It **answers from the files**, and when a file is old it *says so* ("updated 3 days ago")
   rather than pretending. → grounded, recency-labeled answers.
 - Its **inference reads and drafts, but never rewrites the official files on a hunch.** It drafts;
   the responsible person (farmer, VIGA staff) confirms. → the model proposes, code commits;
-  publish is confirmation-gated.
+  publication is confirmation-gated.
 - It has **professional boundaries.** A customer saying "you're out of bok choy" doesn't let the
   clerk change the farmer's listing — it takes the message and passes it to the farmer. → customer
   reports alert, never mutate. It protects private info; it knows whose authority governs what.
 - Its **customer-service stance**: when unsure it **asks a clarifying question** instead of
   guessing; it's honest about what it doesn't know; and it **hands off to a human** (FLAG → the
   review queue) when something needs judgment.
+- It may **connect recent events** when useful — noticing that customers recently asked for
+  potatoes after a farmer confirms potatoes. Code still decides who may receive a message, whether
+  consent permits it, whether it exceeds frequency limits, and whether the interest has expired.
 
 And picture the desk itself: a **minimalist, zen office** — a beautiful walnut desk with a few
-folders stacked neatly, color-coded labels on indexed racks of notebooks, like things grouped
-together — *not* a harried bureaucrat's old metal desk buried in loose paper, backed by filing
-cabinets of unsorted dossiers. The coordinator is trustworthy *because* the office is orderly:
-few files, each in its place, nothing duplicated, nothing kept "just in case." That calm should
-be felt at every surface — a farmer's `YES`, a customer's answer, the admin queue — and it binds
-how the system is built too: simplicity and elegance are architectural requirements
-([ARCHITECTURE.md](ARCHITECTURE.md) "Design stance"; CLAUDE.md "Simplicity and elegance — the
-zen desk").
+folders stacked neatly, color-coded labels on indexed racks, like things grouped together — *not* a
+harried bureaucrat's old metal desk buried in loose paper. The coordinator is trustworthy *because*
+the office is orderly: few files, each in its place, nothing duplicated, nothing kept "just in
+case." Simplicity and elegance are architectural requirements
+([ARCHITECTURE.md](ARCHITECTURE.md) "Design stance"; CLAUDE.md "Simplicity and elegance").
 
 ## How Vashon farm stands actually work
 
 Nearly all stands are **unattended, honor-system** stands with a stable set of *staple* items but
 *variable* stock. A stand doesn't know it's out of bok choy until the farmer next checks it. So
 "is it in stock right now" is inherently uncertain, and that uncertainty must be shown plainly
-rather than hidden — every stand surfaces "updated X ago."
+rather than hidden — every stand surfaces "updated X ago." **Stale information stays visible with a
+prominent warning rather than disappearing.**
 
-## The three real flows (+ the inquiry route)
+## Canonical launch journeys
 
-1. **Farmer publish** (confirm-to-be-safe). Farmers care about accuracy and their reputation. They
-   text a list → the system echoes a clean summary → the farmer replies `YES` → it goes live on
-   the map. SMS is the ongoing update channel; web is an additional surface.
-2. **Customer discovery — two sub-surfaces:**
-   - **The map (primary).** **Farm Friend serves the map itself** (map render + a stable data feed
-     the VIGA site embeds), freshness fully under our control rather than Google My Maps'. Each
-     stand shows a visible "updated X ago" so customers judge staleness.
-   - **The SMS/web inquiry route (first-class).** Customers ask free-form questions and get
-     grounded answers. The intent space is **open-ended and often ambiguous** — for "where can I
-     get bok choy and green beans?" the customer might want *one stand with both*, the *two
-     closest* each with one, *any* stands covering the set, the *freshest*, etc. The design must
-     not privilege one reading: `inquiry-parse` determines item(s), farm scope, origin, and a
-     **selection/ranking strategy** (proximity / freshness / coverage / any) or an "ambiguous →
-     ask" signal; code owns a **general retrieval + ranking layer**; the model composes only over
-     the retrieved grounded rows. Empty retrieval → honest "no current listing." Also supports
-     farm-scoped listing and farm-/inventory-scoped recipes. *(Example phrasings are illustrations
-     of the intent space, never a spec — see CLAUDE.md "Examples are illustrations.")*
-3. **Customer stock-out report → farmer alert** (VIGA specifically wants this). Customers **never**
-   edit inventory. A customer says "out of bok choy" — via SMS or a **QR code at the stand → web
-   form**. This **does not change the map**. It privately alerts the *farmer*, who decides whether
-   to act. The farmer is the only one who can change published state.
+### Public discovery
 
-## The migration & launch moment (the product's riskiest, most important switchover)
+A customer opens the ungated, VIGA-branded Farm Friend web app — including embedded on VIGA's
+site. The default view centers on **actionable purchase locations**; other farm layers stay
+prominent and easy to view so farms without stands don't feel omitted. The customer sees the same
+listing and inventory facts available through SMS, with directions or a routing link where useful.
 
-Migration is **not a data-loading chore** — it is a **one-time switchover** coinciding with **Eat
-Vashon week (August 8–15, 2026)**, a fixed community-event launch VIGA is doing human outreach
-ahead of.
+### Customer inquiry (SMS and web)
 
-- **Migrate ALL existing Google Map data, shown as `current` on the live map.** Day one, Farm
-  Friend's map is a **faithful, full clone** of VIGA's map — at least as good as today from moment
-  one, *not* a thin "directory-only" downgrade.
-- **`current` means "shown as the current listing," NOT "confirmed today."** Two **separate axes**
-  (detailed in [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md)): lifecycle `status` governs *is it
-  shown*; provenance + a real/import date governs *honesty about age*. A migrated pin renders
-  "**via VIGA's map, updated [date]**", **never** "confirmed today." On activation, provenance
-  flips to `farmer_confirmed` and recency resets to real.
-- **Activation = manual, volunteer-driven onboarding.** There are only **~35 stands**, VIGA is
-  doing human outreach ahead of Eat Vashon week anyway, and the coordinators know the farmers —
-  so this one-time process is deliberately a **human process, not machinery**. A VIGA
-  staffer/volunteer records the farmer in the admin — name, phone, and **SMS consent captured in
-  person / by phone and stored with provenance (who recorded it, when, how)** — then triggers the
-  one **pre-seeded confirm-or-revise text**: "Provo Farms currently listed: tomatoes, kale, eggs.
-  Still right? Reply YES, or text changes." `YES` confirms the migrated data as-is (no retyping);
-  a text reply runs `farmstand-inventory-extract` on the revision. This **reuses the publish
-  machinery** — no form-submit automation, no claim links or tokens. **Staff binding the farmer
-  to their stand *is* the identity check**, and staff-recorded consent *is* the consent bootstrap
-  (no proactive SMS is ever sent to a number without recorded consent).
-- **The old Google Form** stays live during the transition; a volunteer keys submissions in via
-  the admin (the same labor as today, now landing on a fresh map) and such farmers get the
-  activation text. It retires when it stops being used.
-- **Non-responders stay `migrated`, honestly labeled, indefinitely** — a useful directory entry
-  with an honest age label, not a failure state.
+Customers ask free-form questions and get grounded answers. The intent space is **open-ended and
+often ambiguous** — for "where can I get bok choy and green beans?" the customer might want *one
+stand with both*, the *two closest* each with one, *any* stands covering the set, the *freshest*,
+etc. The design must not privilege one reading, and must not reduce the space to a fixed catalog of
+supported request shapes: the model interprets the request, code runs general retrieval and
+geographic operations, and the model composes only over retrieved rows. Ambiguous → ask.
+
+A useful answer may be concise rather than conversational:
+
+```text
+Provo Farms: potatoes, bok choy (updated yesterday)
+Plum Forest: bok choy, strawberry preserves (updated 3 days ago)
+```
+
+Farm Friend may also explain relative usefulness:
+
+```text
+Plum Forest is more likely to have potatoes, but Paxton Farms is a few minutes farther
+and updated its stock today.
+```
+
+Empty retrieval → an honest "no current listing," never a guess. *(Example phrasings are
+illustrations of the intent space, never a spec — see CLAUDE.md "Examples are illustrations.")*
+
+The system may disclose a **narrow, short-lived passive follow-up**:
+
+```text
+I'll let you know if any other stands report potatoes in stock today. MUTE to skip.
+```
+
+It must not spam people, repeatedly send low-value messages, or retain a rich personal profile.
+
+### Farmer onboarding and activation
+
+A farmer completes simple web onboarding, verifies control of their SMS number, provides listing
+details and communication preferences, and **VIGA approves the farm for publication**. From then
+on the farmer is the authority for inventory publication. The process must be at least as easy as
+the current ad-hoc Google Form.
+
+### Farmer inventory update
+
+Farm Friend requests an update at the farmer's preferred cadence, or the farmer initiates one. The
+farmer describes stock naturally by SMS or web; the model interprets it and proposes a structured
+update; **the farmer explicitly confirms**; deterministic code publishes the confirmed revision.
+Farmers can also update communication frequency by SMS, and use the web for profile, preference,
+and broader listing changes.
+
+**No inventory update is published without farmer confirmation.**
+
+### Customer stock-out report
+
+A customer privately reports that a stand appears to be out of an item. The report **does not
+affect the map, answers, or ranking**. Farm Friend may ask the authorized farmer to confirm an
+update. Only the farmer's explicit confirmation can change published inventory.
+
+### Recipe assistance
+
+Farm Friend can suggest what someone might make from currently available ingredients and may link
+to retrieved online recipes. It does not create an authoritative full recipe, transact, reserve
+food, or make commitments on a farmer's behalf.
 
 ## Actors
 
-- **Farmer** — updates their stand (SMS daily driver; web entry point); owns published state.
-- **Customer** — discovers via the map/feed, asks via the inquiry route, reports stock-outs.
-  Anonymous public lookup is allowed without signup.
-- **VIGA staff** — operate daily ops through a guided web admin (onboard farmers — record phone +
-  SMS consent, send the activation text —, migrate data, resolve flags, watch stock-out reports,
-  inspect threads). One tech-comfortable coordinator does heavier triage; Max is escalation.
-- **Volunteer** — (later) expresses interest/availability/capability and signs up for volunteer
-  activities (gleaning, food transport, …).
+- **Farmer** — owns published listings and inventory (SMS daily driver; web entry point).
+- **Customer** — discovers via the map, asks via the inquiry route, reports stock-outs. Anonymous
+  public lookup, no signup. Supplies questions and private reports, **never authoritative
+  inventory**.
+- **VIGA administrator** — verifies and approves participating farms; handles exceptions, flags,
+  and requests the system cannot safely handle. **One administrator level at launch.** Routine
+  inventory maintenance is *not* a VIGA responsibility.
 
-## MVP scope
+## Privacy posture
 
-**In (launch set, all live by Eat Vashon week, Aug 8–15 2026):** full migrated-as-current
-map/feed → staff-driven farmer onboarding + activation → farmer inventory publish →
-stock-out→alert → open-intent inquiry + recipes → admin flag review/thread viewer (a **hard
-SMS-compliance gate**). SMS is **critical path** (A2P 10DLC assumed approved by launch).
+Farm Friend may retain selected lightweight facts (foods requested, preferred stands). It must not
+feel as though it knows the customer's identity in depth. Raw message context is short-lived;
+precise durable home addresses are not part of the customer profile; raw phone numbers and private
+information are tightly contained; only selected preference and safety records survive raw-context
+expiration. Public farm listings expose stand addresses and farmer-selected web or social links —
+**direct farmer phone numbers and email addresses are not public**. A farmer may optionally publish
+a photo or short biography. A farm without a public stand chooses an exact, approximate, or hidden
+map location.
 
-**Later: volunteer coordination** — gleaning first; **food transport** and other volunteer
-activities follow the same shape. A farmer states a need via SMS/web form (activity, timeframe,
-headcount, …) → **code matches volunteers** on expressed interest, availability, and capability
-(e.g. vehicle) and notifies the matches via SMS/app notification (matching + recipient selection
-are code, never the model) → volunteers reply YES/NO/MAYBE or with a date/time preference (the
-commitment machine's second consumer; free-text availability goes through a parse seam) → the
-coordinator runs the follow-through: tallies, partial updates, reminders, cancellations.
-Designed now (tables in the spine), built after the farmstand loop. A native app
-(Expo, scaffolded). Multiple tenants beyond Vashon. For-profit farm volunteer flow;
-Food Bank partner-facing visibility/export.
+## Launch scope
 
-## Open questions (non-blocking; noted, not resolved)
+The full Phase 1 launch is publicly available to all participating farmers and customers for VIGA's
+Eat Vashon Week beginning **August 8, 2026**.
 
-- **VIGA export shape:** does the Google My Map / Form export carry a per-stand last-updated date?
-  (Determines whether migrated pins show real ages or the import date — blocks nothing.)
-- **Non-responder policy:** reminder-nudge cadence + any "hide very-stale migrated pin after N
-  days" — defer to F-007 with real response rates.
+**In:** public embedded web map and listing experience; natural-language customer inquiry by SMS;
+farmer onboarding and VIGA approval; farmer inventory updates by SMS and web; proactive farmer
+prompts and preference management; explicit farmer confirmation before publication; private
+customer stock-out reporting; concise recipe suggestions and optional external recipe links;
+directions; universal STOP, scoped MUTE, JOIN, START, HELP, and safety escalation; minimal
+single-level VIGA administration; read-only payment methods and VIGA Farm Bucks acceptance or
+eligibility facts.
+
+**Explicit non-goals:** native mobile applications; gleaning or volunteer coordination; VIGA Farm
+Bucks claim, redemption, or accounting transactions; reservations, ordering, or payment; direct
+customer-to-farmer contact; speculative support for multiple organizations.
+
+Gleaning, volunteer coordination, and VIGA Farm Bucks transactions are **plausible future
+programs**. Each would require separate enrollment, and universal STOP applies across all Farm
+Friend messaging. The architecture should leave clean room for them **without building their
+tables, states, packages, or UI now**.
+
+Farm Friend is built for VIGA. Similar organizations may benefit later, but launch is a single VIGA
+operation — **do not add speculative tenancy machinery**.
+
+## Relationship to the existing map
+
+The current VIGA page is <https://www.vigavashon.org/farm-stand-map>. It embeds a Google My Map of
+free-form, largely unfilterable text.
+
+This is a **greenfield build with no production-data compatibility or non-destructive migration
+requirement**. Existing content is **reference input, not a schema contract** — initial listing
+data is *seeded*, not migrated under a provenance model.
+
+Legacy legend, retained as reference: blue = stands open seasonally; green = stands open
+year-round; red flower = flower-only stands that cannot accept VIGA Bucks; red = farm with no farm
+stand; purple = VIGA Farmers Market. The underlying facts remain useful; the new product does not
+preserve the legacy icon system. **The VIGA Farmers Market is a distinct destination type**, not
+merely another farm-stand color.
+
+## Observable success
+
+- A substantially higher percentage of published inventory is current.
+- Farmers regularly respond to prompts and can update without VIGA intervention.
+- VIGA performs zero or minimal routine oversight.
+- Hundreds of unique customers use Farm Friend each month.
+- Web and SMS answers agree because they read the same published data.
+- Recency warnings are visible and honest.
+- Customer reports never alter inventory without farmer confirmation.
+- Consent, privacy, authority, and delivery invariants survive hostile model behavior.
+
+## Unresolved launch decisions
+
+Recorded, not resolved; none changes the target architecture:
+
+- exact farmer and admin sign-in experience;
+- raw-message retention period;
+- freshness warning thresholds;
+- prompt and passive-follow-up timing and rate caps;
+- initial listing-data entry process;
+- final model, mapping, geocoding, image, and recipe-link providers;
+- verification that the registered 10DLC campaign and public compliance pages match universal
+  STOP, scoped MUTE, and separate future-program enrollment.
