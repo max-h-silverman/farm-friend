@@ -24,15 +24,17 @@ not inlined there).
 
 ```
 npm install                 # install all workspaces
-npm run typecheck           # tsc across workspaces — also PROVES the safety boundary
+npm run typecheck           # tsc across workspaces — proves the static provenance barrier
 npm run lint                # lint across workspaces
 npm test                    # vitest unit — pure core logic, no DB/SMS/LLM (seams injected)
 npm run test:integration    # vitest against Postgres — data invariants (requires DATABASE_URL)
 npm run evals               # evals (stub provider); critical fixtures must be 100%
 ```
 
-`npm run typecheck` is part of the safety story: a deliberate un-stripped model call or un-redacted
-send **fails `tsc`** (the branded safe-context / redacted-outbound types). See
+`npm run typecheck` is part of the safety story: bypassing the task-specific model-context
+constructors or outbound guard in ordinary code **fails `tsc`** (the branded safe-context /
+redacted-outbound types). This proves provenance, not runtime content safety; workflow tests and
+hostile evals verify the runtime barrier but are not themselves enforcement. See
 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) §safety boundary.
 
 ## Environment
@@ -114,15 +116,26 @@ Do **not** pre-create a future program's tables, states, packages, or UI.
 ### Add a model seam
 
 1. Add the seam to the catalog in [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) and define its schema.
-2. Assemble its context through the **stripping assembler** — never pass a raw record.
-3. Validate the output against **schema and evidence**, one repair retry, then clarify or flag.
+2. Define the seam's explicit minimal input projection. It may contain only the current task text,
+   required public facts, and opaque identifiers; never pass a raw record, transcript, other
+   actor's text, contact/auth/consent/admin/audit data, internal note, or secret.
+3. Add a task-specific context constructor and keep the low-level branded provider call internal to
+   `packages/ai`; do not give the adapter a repository, database client, or provider-managed thread.
+4. Validate the output against **schema and evidence**, one repair retry, then clarify or flag.
    Structural validity is not grounding.
-4. Add eval fixtures (advisory; **critical** if safety-relevant) and run the evals.
+5. Code-render every consequential or cross-actor message. Model-authored prose may return only to
+   the same actor whose current task text supplied its private context.
+6. Add a hostile full-workflow fixture that captures the provider context and resulting outbox row
+   (advisory; **critical** if safety-relevant), then run the evals.
 
 ### Swap a provider
 
-- **Model:** implement the provider interface for the new backend and select it by config. The
-  branded safe-context boundary is unchanged.
+- **Model version, same approved provider contract:** implement/select it by config; the branded
+  context boundary remains unchanged and the full suite must pass at parity or better.
+- **Model provider:** before selection, re-verify that it does not train on Farm Friend
+  requests/responses, calls are stateless, request/response logging is disabled where supported,
+  and unavoidable retention has an approved documented maximum. A provider swap is not exempt from
+  this privacy gate.
 - **SMS:** implement the transport (send + **signature verification**); the redaction guard
   continues to normalize avoidable Unicode and block raw phones. After the provider accepts a send,
   record encoding, character count, and estimated billable segments — **by recipient hash, never
@@ -139,9 +152,10 @@ step. Never deploy unless explicitly asked (CLAUDE.md "Do not").
 
 - **Unit test needs a DB/SMS/model** → a seam isn't injected; pure logic must take the provider and
   `Clock` as arguments.
-- **`tsc` fails on a model call or send** → you're bypassing the assembler or redactor; go through
-  it (that's the compile guard working).
+- **`tsc` fails on a model call or send** → you're bypassing the task-specific constructor or
+  redactor; go through it (that's the static provenance barrier working).
 - **Integration tests "pass" instantly** → `DATABASE_URL` is unset and they skipped. That is not a
   green data layer.
-- **An eval leaks a phone or forces a commit** → the runtime guard or data minimization has a bug;
-  fix the code, not the prompt (Golden Rule #6).
+- **A hostile workflow test/eval exposes unavailable private data or forces a commit** → runtime
+  projection, validation, or deterministic consequence handling has a bug; fix the code, not the
+  prompt (Golden Rule #6). The failing eval detected the bug; it was not the production guard.
