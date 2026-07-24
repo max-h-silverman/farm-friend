@@ -4,7 +4,7 @@
 **Repository:** `/Users/max/farm-friend`  
 **Audited repository baseline:** clean `main` at `2cb39e4`, including PR #7  
 **PM reset commit:** `da7e223` in `/Users/max/pm`  
-**Current phase:** Phase 3 audit proposal presented; awaiting approval to begin Phase 4 finding review
+**Current phase:** Phase 4 finding review underway; ranked finding 1 approved
 
 > This is the handoff and audit reference for the clean-room design session. The existing
 > architecture documents remain useful evidence of the previous design, but they are not design
@@ -15,7 +15,7 @@
 1. Read this document before the existing Farm Friend architecture documents.
 2. Do not repeat the product discovery or clean-room derivation unless the user changes a settled
    product decision.
-3. Confirm whether the user wants to enter Phase 4.
+3. Read "Approved Phase 4 decisions" below, then continue with the next unreviewed finding.
 4. In Phase 4, present exactly one finding at a time:
    - cite concrete evidence;
    - explain the product or safety consequence;
@@ -30,9 +30,10 @@
 
 The next conversational step is:
 
-> Ask whether to begin reviewing the audit findings one at a time.
+> Review ranked finding 2 from the independent audit handoff.
 
-No audit findings have yet been filed in PM.
+Approved finding 1 is filed in PM as F-013. Each later finding remains review input until explicitly
+approved.
 
 ## Session interaction rules
 
@@ -45,6 +46,30 @@ No audit findings have yet been filed in PM.
 - Favor deletion and consolidation over preserving speculative or already-documented machinery.
 - Treat code comments, test names, package names, green checks, abstractions, docs, and PM state as
   claims rather than proof.
+
+## Approved Phase 4 decisions
+
+### Finding 1 — grounded factual output and stock-out recipient selection
+
+Approved July 24, 2026:
+
+- Customer inquiry retrieval returns typed authoritative facts with stable identifiers and `asOf`
+  values.
+- The model may interpret the request and select or order identifiers from that retrieved set. It
+  does not author the factual answer.
+- Code verifies that every selected identifier belongs to the retrieved set, dereferences the
+  authoritative values, and renders names, inventory, recency, stale warnings, and any
+  deterministically derived distance facts. Empty retrieval is also code-rendered.
+- Comparative language is included only when code can derive the stated comparison from typed
+  facts. Farm Friend does not claim that unrestricted model prose is deterministically verifiable.
+- A launch stock-out report that can alert a farmer originates only from a web/QR surface carrying
+  a code-bound sales-location identifier. A free-text SMS may direct the customer to that reporting
+  surface but cannot select a location or queue a farmer alert.
+- Code resolves the authorized farmer recipient from the bound location; farmer contact
+  identifiers never come from model output.
+
+This decision adds no general natural-language claim verifier, extensible query platform, fixed
+semantic strategy catalog, policy engine, package, service, or database.
 
 ## Settled product contract
 
@@ -79,11 +104,11 @@ Provo Farms: potatoes, bok choy (updated yesterday)
 Plum Forest: bok choy, strawberry preserves (updated 3 days ago)
 ```
 
-Farm Friend may also explain relative usefulness:
+Farm Friend may also present deterministically derived comparison facts:
 
 ```text
-Plum Forest is more likely to have potatoes, but Paxton Farms is a few minutes farther
-and updated its stock today.
+Paxton Farms is a few minutes farther and updated its stock today;
+Plum Forest's listing was updated 3 days ago.
 ```
 
 Answers must communicate uncertainty and recency honestly. Stale information remains visible with a
@@ -121,8 +146,9 @@ Routine inventory maintenance is not a VIGA responsibility.
 1. A customer texts a free-form need or question.
 2. The model interprets the meaning of the request.
 3. Deterministic retrieval supplies permitted farm, location, inventory, recency, and routing facts.
-4. The model composes a relevant response.
-5. Code validates factual claims against retrieved evidence and controls delivery.
+4. The model selects or orders identifiers from those retrieved facts.
+5. Code validates the identifiers, renders the authoritative factual response and recency, and
+   controls delivery.
 
 The system may disclose a narrow, short-lived passive follow-up:
 
@@ -152,10 +178,14 @@ No inventory update is published without farmer confirmation.
 
 #### Customer stock-out report
 
-1. A customer privately reports that a stand appears to be out of an item.
+1. A customer privately reports from a web/QR surface whose location is bound by code.
 2. The report does not affect the map, answers, or ranking.
-3. Farm Friend may ask the authorized farmer to confirm an update.
+3. Code resolves the authorized farmer from that bound location and may ask them to confirm an
+   update.
 4. Only the farmer's explicit confirmation can change published inventory.
+
+A free-text SMS may direct the customer to the location-bound reporting surface, but it cannot
+select a location or queue a farmer alert.
 
 #### Recipe assistance
 
@@ -187,7 +217,7 @@ The model may:
 - interpret language;
 - infer search intent;
 - propose inventory changes;
-- rank relevant retrieved options;
+- select and rank identifiers from relevant retrieved options;
 - draft replies;
 - compose recipe ideas;
 - suggest escalation.
@@ -205,7 +235,8 @@ Deterministic code owns:
 - idempotency;
 - retention;
 - provider operations;
-- verification that factual claims are supported by retrieved evidence.
+- validation of model-selected identifiers against the retrieved set;
+- rendering of authoritative customer-facing factual text from retrieved values.
 
 The system must remain safe when the model is weak, mistaken, manipulated, or hostile.
 
@@ -318,7 +349,7 @@ packages/
   core/      Authoritative workflows, product rules, and narrow ports
   db/        Schema, migrations, repositories, and transaction handling
   sms/       Telnyx adapter, webhook verification, and outbound safeguards
-  ai/        Model adapters, safe context assembly, and grounded-output validation
+  ai/        Model adapters, safe context assembly, and typed selection validation
 
 evals/       Model and adversarial evaluations
 ```
@@ -357,11 +388,14 @@ Code provides:
 - general retrieval and geographic operations;
 - authoritative records;
 - constrained action options;
-- evidence identifiers for factual claims;
-- validation before any consequence.
+- typed retrieved facts with stable identifiers and `asOf` values;
+- validation of selected identifiers before any consequence;
+- deterministic rendering of authoritative factual text.
 
-The model may propose a search or ranking interpretation and compose the answer. Code executes only
-permitted operations and rejects claims that cannot be traced to retrieved records.
+The model may propose a search or ranking interpretation and select or order identifiers from the
+retrieved set. Code executes only permitted operations, rejects identifiers outside that set, and
+renders the factual answer from authoritative values. Farm Friend does not attempt to decompose and
+verify unrestricted natural-language prose.
 
 ### Minimum durable data
 
@@ -519,9 +553,9 @@ Every workflow has one authoritative core use case and one durable path.
 | Initial map data | Validate and seed farms, locations, listing facts, and approval state; public and SMS views read the same records |
 | Farmer onboarding | Verify the phone, associate the farm, capture preferences, and record VIGA approval separately |
 | Inventory publishing | Store a proposed revision, obtain explicit confirmation, then atomically publish it and supersede the prior revision |
-| Customer stock-out | Store a private report and optionally queue a farmer request; never alter public inventory |
+| Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally queue a request; free-text SMS cannot queue one; never alter public inventory |
 | Farmer report response | Resolve the pending action and publish only with explicit farmer confirmation |
-| Customer inquiry | Retrieve permitted current records, obtain model interpretation and composition, validate claims, and queue the reply |
+| Customer inquiry | Retrieve typed current facts, obtain model interpretation and selected/ordered fact IDs, validate membership in the retrieved set, render the factual reply in code, and queue it |
 | Passive follow-up | Store a disclosed, narrow, expiring interest and enforce MUTE, STOP, frequency, and recipient selection in code |
 | STOP, START, JOIN, HELP, MUTE | Apply consent changes before other interpretation or outbound selection |
 | FLAG | Store the concern and expose it to the single-level admin queue |
@@ -546,7 +580,9 @@ commits the decision and outbox work; workers perform external operations and re
 - Test retention and deletion of raw context.
 - Prove raw phones and private context are absent from logs and model inputs.
 - Use hostile models that invent farms, inventory, recency, directions, or commitments.
-- Reject unsupported factual claims even when model output is structurally valid.
+- Reject structurally valid selections containing identifiers outside the retrieved set.
+- Prove the final factual response is rendered only from the selected authoritative facts.
+- Prove a free-text SMS stock-out report cannot select a location or queue a farmer alert.
 - Add real provider contract tests.
 - Delete tenancy and gleaning tests.
 - Replace returned-object shape tests with tests of published product state.
@@ -567,18 +603,10 @@ commits the decision and outbox work; workers perform external operations and re
 
 ## PM state
 
-The previous PM backlog was inspected as audit evidence and then cleared with explicit user
-authorization. The synchronized reset was committed in `/Users/max/pm`:
-
-```text
-da7e223 farm-friend: clear legacy backlog
-```
-
-No replacement findings have been filed. Historical item identifiers `F-001` through `F-010` should
-not be reused; new approved findings should begin at `F-011`.
-
-The Farm Friend PM product configuration remains stale and should be corrected as part of the first
-agreed finding.
+Historical item identifiers `F-001` through `F-010` are retired and must not be reused. F-011
+(declared baseline reset) is done and archived after PR #8 merged. Active items are F-012 (10DLC
+campaign alignment, planned) and F-013 (the approved grounded-output and recipient-selection
+correction, planned). The Farm Friend PM product configuration reflects the clean-room contract.
 
 ## Unresolved launch decisions
 

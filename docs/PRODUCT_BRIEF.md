@@ -76,7 +76,8 @@ often ambiguous** — for "where can I get bok choy and green beans?" the custom
 stand with both*, the *two closest* each with one, *any* stands covering the set, the *freshest*,
 etc. The design must not privilege one reading, and must not reduce the space to a fixed catalog of
 supported request shapes: the model interprets the request, code runs general retrieval and
-geographic operations, and the model composes only over retrieved rows. Ambiguous → ask.
+geographic operations, the model selects or orders identifiers from the retrieved facts, and code
+renders the authoritative factual answer and recency. Ambiguous → ask.
 
 A useful answer may be concise rather than conversational:
 
@@ -85,15 +86,17 @@ Provo Farms: potatoes, bok choy (updated yesterday)
 Plum Forest: bok choy, strawberry preserves (updated 3 days ago)
 ```
 
-Farm Friend may also explain relative usefulness:
+Farm Friend may also present deterministically derived comparison facts:
 
 ```text
-Plum Forest is more likely to have potatoes, but Paxton Farms is a few minutes farther
-and updated its stock today.
+Paxton Farms is a few minutes farther and updated its stock today;
+Plum Forest's listing was updated 3 days ago.
 ```
 
-Empty retrieval → an honest "no current listing," never a guess. *(Example phrasings are
-illustrations of the intent space, never a spec — see CLAUDE.md "Examples are illustrations.")*
+The model does not author factual answer text, and Farm Friend does not attempt to verify
+unrestricted natural-language prose claim by claim. Empty retrieval → a code-rendered honest "no
+current listing," never a guess. *(Example phrasings are illustrations of the intent space, never a
+spec — see CLAUDE.md "Examples are illustrations.")*
 
 The system may disclose a **narrow, short-lived passive follow-up**:
 
@@ -122,9 +125,11 @@ and broader listing changes.
 
 ### Customer stock-out report
 
-A customer privately reports that a stand appears to be out of an item. The report **does not
-affect the map, answers, or ranking**. Farm Friend may ask the authorized farmer to confirm an
-update. Only the farmer's explicit confirmation can change published inventory.
+A customer privately reports from a web/QR surface whose sales location is bound by code. The
+report **does not affect the map, answers, or ranking**. Code resolves the authorized farmer from
+that location and may ask them to confirm an update. Only the farmer's explicit confirmation can
+change published inventory. A free-text SMS may direct the customer to the reporting surface but
+cannot select a location or queue a farmer alert.
 
 ### Recipe assistance
 
