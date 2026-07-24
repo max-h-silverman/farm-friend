@@ -261,10 +261,10 @@ cooperative stubs. Suites:
 audit finding review underway. The repository has **not** yet been refactored to the approved
 baseline.
 
-**Verified at `main` `2cb39e4`:** `npm test` 46/46 across 10 files; typecheck + lint pass; evals
-critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily prove **isolated helpers and
-structural claims, not launch workflows**. The 3 Postgres integration tests **skip** without
-`DATABASE_URL`; a real-Postgres run remains owed.
+**Verified on `f-011-baseline-reset` (`b292bc7`):** `npm test` 46/46 across 10 files; typecheck +
+lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily prove
+**isolated helpers and structural claims, not launch workflows**. The 3 Postgres integration tests
+**skip** without `DATABASE_URL`; a real-Postgres run remains owed.
 
 **Known gaps (from the Phase 3 audit, verified):** `packages/core` depends on `ai`/`config`/
 `contracts`/`db`/`sms`, reversing the required dependency direction; **no committed migrations**;
@@ -275,10 +275,13 @@ adapters throw; **no composition root**; the schema carries tenancy/gleaning/mig
 structures the contract removes; the stock-out test proves only that a returned object lacks a
 property; the grounding eval uses a cooperative canned model.
 
-**In progress:** **F-011** — reset the declared product and architecture baseline to the
-clean-room contract (docs + `CLAUDE.md` + PM config only; no code, schema, or package changes).
+**In review:** **F-011** (branch `f-011-baseline-reset`, PR open, **not merged**) — the declared
+baseline reset this snapshot reflects. Held unmerged pending an external model audit of the reset
+baseline. **F-012** is filed (`planned`): the registered 10DLC campaign copy still presents `FLAG`
+as a supported keyword and documents `MUTE` nowhere — a hard SMS-compliance gate before public SMS,
+blocking no architectural finding.
 
 **Next:** continue the Phase 4 finding review one finding at a time, in the handoff's proposed
 sequence — package boundaries and dependency direction, then the launch schema and migrations, then
-transaction/outbox ownership, then SMS ingress. File each as a PM item at `F-012`+ before
+transaction/outbox ownership, then SMS ingress. File each as a PM item at `F-013`+ before
 implementing.
