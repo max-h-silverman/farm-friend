@@ -46,12 +46,12 @@ render an honest "updated X ago" without a second provenance axis.
   identifiers, event type and `occurred_at`, sender/contact reference, TTL-bound body where needed,
   processing state, and per-sender conversation watermark/claim. The raw provider envelope is not a
   durable record.
-- **consent events and universal STOP** — global consent plus per-program enrollment for any future
-  program, provenance for how consent was captured, and a separate provider-time STOP/START
-  transition watermark.
+- **launch-program SMS consent and universal STOP** — one current launch consent state per
+  recipient, provenance for how, when, and where consent was captured, and a separate provider-time
+  STOP/START transition watermark. Launch has no program discriminator or future-program enrollment
+  rows.
 - **one open inventory-publication confirmation per sender** — proposal/version, allowed `YES`/`NO`
   tokens, provider-accepted prompt activation, expiry, and consumption state.
-- **narrow expiring follow-up interests and scoped MUTE.**
 - **flags and admin dispositions.**
 - **transactional outbox.**
 - **minimal audit and model-run evidence.**
@@ -113,10 +113,13 @@ These are **database-level** requirements, not application conventions:
   retention.
 - **Public listings expose** stand addresses and farmer-selected links. **Direct farmer phone
   numbers and email addresses are never public.**
-- **Consent:** global consent gates all SMS; per-program enrollment gates each future program;
-  `STOP` clears global consent immediately and applies across all Farm Friend messaging. STOP/START
-  transitions are ordered separately from conversation state by provider occurrence time, with STOP
-  winning an exact timestamp tie.
+- **Consent:** active launch-program consent gates every proactive non-required SMS. `JOIN`, `START`,
+  and documented farmer onboarding establish it with provenance. A customer-initiated inquiry
+  permits its relevant direct response but creates no durable consent for later proactive
+  notifications. `STOP` clears launch consent immediately and applies across all Farm Friend
+  messaging. STOP/START transitions are ordered separately from conversation state by provider
+  occurrence time, with STOP winning an exact timestamp tie. A future program gets separate
+  enrollment only when built; launch stores no future-program state.
 - **Pending confirmations are GC'd on expiry.** A confirmation is live only after its current prompt
   is provider-accepted; a token that predates that activation or names no live proposal commits
   nothing.

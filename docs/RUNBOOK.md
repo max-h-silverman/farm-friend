@@ -95,6 +95,9 @@ Carrier keyword and confirmation requirements center on opt-in, opt-out, and hel
 <https://support.telnyx.com/en/articles/10645338-10dlc-keywords-and-confirmation-messages> and
 <https://support.telnyx.com/en/articles/9940291-10dlc-campaign-compliance-requirements>. **FLAG is a
 Farm Friend product safety feature and must not be represented as a carrier-mandated keyword.**
+Launch is one registered operational SMS program: `JOIN`, `START`, and documented farmer onboarding
+establish its consent; universal STOP applies across all Farm Friend messaging; a customer inquiry
+permits only its relevant direct reply and creates no passive follow-up subscription or `MUTE` path.
 
 Use the in-memory simulator to exercise flows without live Telnyx.
 
@@ -104,14 +107,17 @@ Use the in-memory simulator to exercise flows without live Telnyx.
 
 Gleaning, volunteer coordination, and Farm Bucks transactions are **plausible future programs**,
 deliberately unbuilt. When one arrives:
-1. Define its **separate enrollment** (per-program opt-in) and wire `JOIN`. Universal STOP applies
-   across all Farm Friend messaging regardless.
-2. Add its branch to the deterministic routing — **before** any model call.
-3. If it needs confirmation, make it a **consumer of the existing confirmation mechanism** by
+1. Define and externally disclose its **separate enrollment**. Extend the deterministic keyword
+   grammar only then; launch `JOIN`/`START` refer only to the launch operational program. Universal
+   STOP continues across all Farm Friend messaging.
+2. Add only the program-specific consent state and UI the approved workflow actually consumes.
+3. Add its branch to the deterministic routing — **before** any model call.
+4. If it needs confirmation, make it a **consumer of the existing confirmation mechanism** by
    parameterizing it — do not fork it.
-4. Test-first: keyword and confirmation bypass, consent gating, the commit path.
+5. Test-first: keyword and confirmation bypass, consent gating, the commit path.
 
-Do **not** pre-create a future program's tables, states, packages, or UI.
+Do **not** pre-create a general program-enrollment platform or a future program's tables, states,
+command arguments, packages, or UI.
 
 ### Add a model seam
 

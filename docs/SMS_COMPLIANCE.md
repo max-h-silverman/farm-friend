@@ -5,6 +5,13 @@ driver; **A2P 10DLC is assumed approved by launch** (Eat Vashon week). All copy 
 **provisional** until the campaign is registered. Routing mechanics are in
 [ARCHITECTURE.md](ARCHITECTURE.md); consent data in [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md).
 
+> **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
+> is the settled contract; where this doc disagrees, the handoff wins.
+>
+> **Status: requirements, not claims.** The current webhook parses and echoes a command but does not
+> persist or enforce consent, and the current schema still contains a speculative nullable program
+> key. The behavior below is the approved F-016 target, not current executable proof.
+
 ## Deterministic keyword handling (code, before any model call)
 
 Every inbound message is parsed by **code first**, in the fixed order in ARCHITECTURE §routing.
@@ -25,9 +32,9 @@ commit or decline.
 
 | Keyword | Behavior |
 |---|---|
-| `STOP` / `UNSUBSCRIBE` / `END` / `QUIT` | **Global** opt-out of all SMS. Clears `global_sms` immediately. **Can never be reinterpreted by conversation state.** Send the single confirming opt-out reply, then nothing further. |
-| `START` | Re-subscribe (re-set `global_sms`). |
-| `JOIN` | Opt into a program (per-program consent): `JOIN <program>` enrolls; a bare `JOIN` replies with the available program keywords. |
+| `STOP` / `UNSUBSCRIBE` / `END` / `QUIT` | **Global** opt-out of all SMS. Clears launch-program consent immediately. **Can never be reinterpreted by conversation state.** Send the single confirming opt-out reply, then nothing further. |
+| `START` | Establish or restore consent to the one VIGA Farm Friend launch SMS program. |
+| `JOIN` | Establish consent to the one VIGA Farm Friend launch SMS program. There is no launch `JOIN <program>` grammar. |
 | `HELP` / `INFO` | Return help text; never suppressed by state. |
 
 ### Commitment tokens (context-bound, never global)
@@ -62,11 +69,6 @@ resend request. `STOP` and `START` use a separate consent-transition watermark: 
 provider-time command wins, and `STOP` wins an exact timestamp tie. An older delayed `START`
 therefore cannot restore consent after a newer `STOP`.
 
-### `MUTE` (scoped, never global)
-
-`MUTE` scopes off a specific disclosed passive follow-up without touching global consent. It is
-**not** a substitute for `STOP` and never suppresses required compliance replies.
-
 ### The FLAG safety rail
 
 `FLAG` **pauses the thread** and **creates a review item** for the VIGA administrator (the
@@ -78,25 +80,28 @@ carrier-mandated keyword in campaign registration or public compliance copy.
 
 ## Consent model
 
-- **`global_sms`** — the top-level SMS consent. `STOP` clears it; `START` re-sets it. No
-  **proactive** SMS is sent to a person without it. Two standard implied-consent exceptions:
-  replying to a message someone just sent us (e.g. a first-time customer inquiry), and the single
-  opt-out confirmation after `STOP`.
-- **How consent is first captured** — farmers: during web onboarding, including **verification that
-  they control the SMS number**, stored with **provenance** (how it was captured, by whom, when) so
-  every proactive send traces to a documented opt-in. Customers: by texting in (implied consent to
-  the reply) or `JOIN`/`START`.
-- **Per-program opt-in** — each program (inventory publication, stock-out alerts) requires its own
-  opt-in via `JOIN` / program enrollment. Any **future** Farm Friend program requires **separate
-  enrollment**; opting into one is never opting into another. Universal `STOP` applies across all
-  Farm Friend messaging regardless of program.
-- Consent is a **durable record** (DATA_ARCHITECTURE §minimum durable data); consent decisions are
-  **pure code, never a model call**.
+- **One launch operational program** — VIGA Farm Friend launch SMS is the one program described by
+  the registered/public opt-in. Inventory prompts, publication confirmations, customer inquiry
+  replies, and stock-out alerts are applicable message categories inside it, not separately enrolled
+  programs.
+- **Launch-program consent** — `JOIN` and `START` establish or restore one durable consent state.
+  `STOP` clears it and applies across all Farm Friend messaging. No **proactive non-required** SMS is
+  sent without active launch consent.
+- **Farmer onboarding** — after verifying control of the SMS number, onboarding may capture consent
+  with provenance: how, when, and where it was captured and who recorded it. Every proactive farmer
+  send must trace to that documented opt-in or a deterministic `JOIN`/`START`.
+- **Customer-initiated inquiry** — the inbound inquiry permits its relevant direct response but does
+  not create durable consent for later proactive notifications. Launch stores no follow-up interest,
+  sends no passive customer follow-up, and has no scoped `MUTE` command.
+- **Future programs** — each requires its own disclosed enrollment when approved and built. Launch
+  pre-creates no program discriminator, enrollment state, command arguments, tables, or UI.
+- Consent decisions are **pure code, never a model call**.
 
 ## Required behavior
 
 - Honor opt-out **immediately** and durably.
-- Every program message is attributable to a consented recipient (code checks consent before send).
+- Every proactive non-required message is attributable to active launch-program consent; code checks
+  it again at dispatch authorization.
 - The atomic outbox dispatch claim is the STOP boundary. STOP committed first suppresses every
   still-queued non-required message; a request dispatch-authorized first may already be in flight.
 - Retry only definitive retryable rejection under a bounded policy. Record a possibly accepted
@@ -116,5 +121,7 @@ alert) are drafted provisionally and finalized at A2P registration. Keep them in
 registered copy is a single swap; none of the copy is a compliance *enforcement* point — the
 enforcement is the deterministic code above.
 
-> *Current drift:* the registered/public 10DLC source copy still advertises `OUT` and `IGNORE` for
-> stock-out alerts. F-012 must align that copy with this approved behavior before public SMS launch.
+> *Current drift:* the registered/public 10DLC source copy still advertises `OUT`/`IGNORE` stock-out
+> actions and FLAG, and its `STOPALL` keyword is absent from the current parser. F-012 owns that
+> registered keyword/sample-copy alignment before public SMS launch; F-016 does not silently absorb
+> it.

@@ -7,6 +7,41 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-24 — Ranked finding 4 decision: one launch SMS program (F-016)
+
+Ranked finding 4 was reviewed against the clean-room contract, data architecture, SMS compliance
+requirements, current schema/parser/webhook, and the registered/public 10DLC source copy. The audit
+correctly found three incompatible consent meanings, but the correction separates a wrong launch
+specification from an optional unresolved product promise.
+
+Launch VIGA Farm Friend is one registered operational SMS program. `JOIN`, `START`, and documented
+farmer onboarding establish or restore its consent with provenance. Inventory prompts, publication
+confirmations, customer inquiry replies, and stock-out alerts are applicable message categories
+inside that program, not separately enrolled programs. Universal STOP remains global and retains the
+approved provider-time ordering and dispatch boundary from finding 2.
+
+The marginal passive customer follow-up was removed. A customer-initiated inquiry permits its
+relevant direct response but creates no durable consent for later proactive notifications. Launch
+therefore has no follow-up-interest state and no scoped `MUTE` command. Future programs require their
+own disclosed enrollment only when approved and built; launch pre-creates no program discriminator,
+future-program rows, command arguments, tables, states, packages, or UI.
+
+The correction deliberately introduces no per-category launch consent, general program-enrollment
+platform, policy engine, reply-window mechanism, second subscription flow, Kafka, event bus, event
+sourcing, workflow engine, distributed lock, service, package, or provider. F-012 remains the owner
+of registered `OUT`/`IGNORE`, `STOPALL`, and FLAG campaign-copy drift. No application code, schema,
+package, dependency, provider configuration, public campaign source copy, or deployment changed.
+
+**PM:** F-016 was created as `planned`, high-priority `compliance-trust` work (`292bd30` in
+`~/pm`). F-013, F-014, F-015, and F-016 remain unauthorized for implementation.
+
+**Verified:** `npm test` 46/46 (10 files), typecheck PASS, lint PASS; evals critical 3/3 + advisory
+2/2 + adversarial 4/4. `npm run test:integration` completed with all 3 tests skipped because
+`DATABASE_URL` is unset; a real-Postgres run remains owed. `git diff --check` passed.
+
+**Next:** after this documentation tranche merges, review ranked finding 5 — runtime geocoding
+versus the launch proximity promise — exactly one finding at a time.
+
 ## 2026-07-24 — Ranked finding 3 decision: model privacy boundary and proof (F-015)
 
 Ranked finding 3 was reviewed against the approved clean-room contract and the actual assembler,
