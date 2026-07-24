@@ -277,7 +277,8 @@ cooperative stubs. Suites:
 
 **Phase:** The clean-room baseline and ranked findings 1–3 are approved. The current
 `f-015-model-safety-boundary` branch records finding 3's documentation-only correction. The
-application has **not** yet been refactored to the approved baseline.
+application has **not** yet been refactored to the approved baseline. PR #11 is open; no deploy is
+required for this documentation-only tranche.
 
 **Verified July 24, 2026 on `f-015-model-safety-boundary`:** `npm test` 46/46 across 10 files;
 typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily

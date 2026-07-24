@@ -39,6 +39,9 @@ additional provider. It was synchronized across the clean-room handoff, AI/syste
 runbook, docs index, and `CLAUDE.md`. No application code, schema, package, dependency, provider
 configuration, or deployment changed.
 
+**Released:** repository commit `572ca43` was pushed on `f-015-model-safety-boundary`; PR #11 is
+open against `main`. No deploy is required for this documentation-only tranche.
+
 **PM:** F-015 was created as `planned`, high-priority `compliance-trust` work (`5e2c43d` in
 `~/pm`). F-013 and F-014 remain planned; none of the three is authorized for implementation.
 
