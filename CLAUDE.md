@@ -282,8 +282,8 @@ cooperative stubs. Suites:
 
 **Phase:** The clean-room baseline and ranked findings 1–4 are approved. PR #11 merged finding 3;
 the current `f-016-sms-consent-boundary` branch records finding 4's documentation-only correction.
-The application has **not** yet been refactored to the approved baseline; no deploy is required for
-this documentation-only tranche.
+The application has **not** yet been refactored to the approved baseline. PR #12 is open; no deploy
+is required for this documentation-only tranche.
 
 **Verified July 24, 2026 on `f-016-sms-consent-boundary`:** `npm test` 46/46 across 10 files;
 typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily

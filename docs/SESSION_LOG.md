@@ -35,6 +35,9 @@ package, dependency, provider configuration, public campaign source copy, or dep
 **PM:** F-016 was created as `planned`, high-priority `compliance-trust` work (`292bd30` in
 `~/pm`). F-013, F-014, F-015, and F-016 remain unauthorized for implementation.
 
+**Released:** repository commit `1a41fb5` was pushed on `f-016-sms-consent-boundary`; PR #12 is open
+against `main`. No deploy is required for this documentation-only tranche.
+
 **Verified:** `npm test` 46/46 (10 files), typecheck PASS, lint PASS; evals critical 3/3 + advisory
 2/2 + adversarial 4/4. `npm run test:integration` completed with all 3 tests skipped because
 `DATABASE_URL` is unset; a real-Postgres run remains owed. `git diff --check` passed.
