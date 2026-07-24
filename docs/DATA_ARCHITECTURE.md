@@ -39,7 +39,9 @@ render an honest "updated X ago" without a second provenance axis.
   or short biography.
 - **inventory revisions and inventory entries** — a revision is a published version of a location's
   inventory; entries are the items in it, with quantity/unit/price text or an approximate label.
-- **customer stock-out reports** — private; may reference a listed entry or name an unlisted item.
+- **customer stock-out reports** — private; each carries a required sales-location identifier bound
+  by the web/QR reporting surface, and may reference a listed entry or name an unlisted item. A
+  model does not supply the consequential location identifier.
 - **message records** with limited retention.
 - **consent events and universal STOP** — global consent plus per-program enrollment for any future
   program, with provenance for how consent was captured.
@@ -66,6 +68,10 @@ These are **database-level** requirements, not application conventions:
 - **Separation between private customer reports and published inventory** — a stock-out report can
   **never** write inventory. This must be structural, and proven end-to-end rather than by checking
   that a returned object lacks a property.
+- **Bound location before stock-out alerting** — a report capable of queuing a farmer alert must
+  reference a valid sales location supplied by the code-bound web/QR surface. Recipient resolution
+  follows that location's current farmer authorization in code; no model-produced location or
+  recipient identifier is accepted.
 
 ## Privacy & retention
 

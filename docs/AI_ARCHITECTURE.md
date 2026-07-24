@@ -10,8 +10,9 @@ validation, evals, and data minimization. Data shapes are in
 >
 > **Status: requirements, not claims.** The live model adapter throws; context assembly rejects
 > some detected phone-shaped text but does not implement the broader minimization described here;
-> output validation checks structure but **does not prove factual grounding**; the grounding eval
-> uses a cooperative canned model rather than one attempting unsupported invention; and the
+> output validation checks structure but does not yet enforce selected-ID membership or feed a
+> code renderer; the grounding eval uses a cooperative canned model rather than one attempting
+> unsupported selection; and the
 > adversarial tests exercise helpers rather than an end-to-end hostile-model boundary. Everything
 > below is a **requirement awaiting executable proof**.
 
@@ -54,10 +55,15 @@ Actual farms, foods, and listing details are **data**. Fixed compliance and auth
 STOP, START, HELP, authentication, confirmation — remain **deterministic**.
 
 Code provides: an allowed task-specific context; general retrieval and geographic operations;
-authoritative records; constrained action options; evidence identifiers for factual claims; and
-validation before any consequence. The model may propose a search or ranking **interpretation** and
-compose the answer; code executes only permitted operations and **rejects claims that cannot be
-traced to retrieved records**.
+authoritative records; constrained action options; typed retrieved facts with stable identifiers
+and `asOf` values; selected-ID validation; and deterministic rendering before any consequence. The
+model may propose a search or ranking **interpretation** and select or order identifiers from the
+retrieved set. Code executes only permitted operations, rejects identifiers outside that set, and
+renders authoritative factual text from the retrieved values.
+
+Farm Friend does not attempt to decompose and deterministically verify unrestricted
+natural-language prose. Comparative text is rendered only when code can derive the stated
+comparison from typed facts.
 
 This is the correction to an earlier design that enumerated a closed set of selection strategies:
 ranking intent is an **open interpretation the model proposes and code validates and executes**,
@@ -65,13 +71,14 @@ never a constant baked into the architecture.
 
 ## The model-vs-code line (the model proposes; code commits)
 
-The model **may**: interpret language; infer search intent; propose inventory changes; rank
-relevant retrieved options; draft replies; compose recipe ideas; suggest escalation.
+The model **may**: interpret language; infer search intent; propose inventory changes; select and
+rank identifiers from relevant retrieved options; draft non-authoritative language where a seam
+permits it; compose recipe ideas; suggest escalation.
 
 **Deterministic code owns**: identity and authority; consent; universal STOP and scoped MUTE;
 recipient selection; commitments; transactions; durable writes; publication; idempotency;
-retention; provider operations; and **verification that factual claims are supported by retrieved
-evidence**.
+retention; provider operations; validation of selected identifiers against retrieved facts; and
+rendering of authoritative customer-facing factual text.
 
 The model **never** writes durable state, chooses recipients, decides consent, invents
 availability, or makes a compliance or commitment decision.
@@ -92,16 +99,17 @@ clarify or flag:
 
 - **inventory extraction** — farmer text → a structured inventory proposal (items, quantities or
   approximate labels). Reused wherever a farmer describes stock naturally.
-- **stock-out report parsing** — free text → which item (a listed entry or normalized text for an
-  unlisted one) **and which location**. The QR web form carries the location itself; an SMS report
-  must resolve the location from the text — if it cannot, **ask a clarifying question**, never
-  guess a recipient.
+- **stock-out item parsing** — on the web/QR reporting surface, free text → which item (a listed
+  entry or normalized text for an unlisted one). The surface supplies the sales-location identifier
+  in code; it is never a model output. A free-text SMS may receive a link to the reporting surface
+  but cannot select a location or queue a farmer alert.
 - **inquiry interpretation** — question → open intent: item(s), optional farm scope, optional
   origin location, and a **proposed selection/ranking interpretation**, or an "ambiguous → ask"
   signal. **Never privileges one reading** of a multi-item request, and is not restricted to a
   fixed strategy enum.
-- **grounded answer composition** — compose over the **retrieved rows only**, always
-  recency-labeled; empty retrieval → an honest "no current listing."
+- **grounded fact selection** — select and order identifiers from the **retrieved facts only**.
+  Code validates membership and renders the authoritative, recency-labeled answer; empty retrieval
+  → a code-rendered honest "no current listing."
 - **recipe suggestion** — grounded in retrieved current inventory, with conservative disclaimers
   and no medical, preservation, foraging, or food-safety advice. *(These content limits are a
   **quality** property, enforced by prompt and measured by advisory evals — not a harness
@@ -120,8 +128,9 @@ Interpretation yields intent. Code then runs a **general** retrieval and geograp
 items, optional farm scope, optional origin, and a proposed ranking interpretation → candidate
 locations with distance and recency.* Intersection, coverage, nearest-N, and freshest-N are
 **expressible interpretations**, not an enumerated architecture constant. Only retrieved rows reach
-the compose step, and each composed claim carries an **evidence identifier** back to the record
-that supports it.
+the selection step. The model returns only selected and ordered identifiers; code verifies that
+each belongs to the retrieved set, dereferences the authoritative values, and renders the factual
+answer and recency. Model-supplied values or prose are not accepted as evidence.
 
 ## The three-layer code-enforced safety boundary
 
@@ -152,10 +161,11 @@ A system prompt may add defense-in-depth but is **never** the enforcement.
 
 ## Untrusted-output validation
 
-Model output is **untrusted input**. Every seam validates against its schema **and its evidence**
-before anything acts on it: structural validity is not grounding. A claim that is well-formed but
-untraceable to a retrieved record must be **rejected**. A durable write, a recipient choice, or a
-consent decision **never** comes from model output.
+Model output is **untrusted input**. Every seam validates against its schema before anything acts
+on it. For customer inquiry, structural validity is not grounding: every selected identifier must
+belong to the retrieved set, and code renders the factual response from the corresponding
+authoritative values. A durable write, a recipient choice, a factual answer value, or a consent
+decision **never** comes from model output.
 
 ## Evals
 
@@ -163,13 +173,15 @@ Evals run against the stub provider in **critical** and **advisory** groups:
 
 - **critical** (must pass **100%**): compliance bypass, grounding and no-invention, commitment
   safety, and the **adversarial/prompt-injection group**.
-- **advisory**: extraction quality, stock-out parsing, inquiry interpretation and clarification,
+- **advisory**: extraction quality, stock-out item parsing, inquiry interpretation and clarification,
   recipe grounding.
 
-Required corrections to the eval suite: use **hostile models that invent farms, inventory, recency,
-directions, or commitments**, and reject unsupported factual claims even when output is
-structurally valid. Any change touching a model seam runs evals; a provider or prompt change must
-pass the full suite at parity or better.
+Required corrections to the eval suite: use **hostile models that select unknown identifiers or
+attempt to smuggle factual strings, directions, or commitments into output**; reject structurally
+valid selections outside the retrieved set; prove the queued factual response contains only
+code-rendered retrieved values; and prove a free-text SMS stock-out report cannot select a
+location or queue a farmer alert. Any change touching a model seam runs evals; a provider or prompt
+change must pass the full suite at parity or better.
 
 ## Abuse / cost on public model surfaces
 

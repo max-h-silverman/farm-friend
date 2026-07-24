@@ -48,7 +48,7 @@ packages/
   core/      Authoritative workflows, product rules, and narrow ports
   db/        Schema, migrations, repositories, and transaction handling
   sms/       Telnyx adapter, webhook verification, and outbound safeguards
-  ai/        Model adapters, safe context assembly, and grounded-output validation
+  ai/        Model adapters, safe context assembly, and typed selection validation
 
 evals/       Model and adversarial evaluations
 ```
@@ -127,9 +127,9 @@ Every workflow has **one authoritative core use case and one durable path**:
 | Initial listing data | Validate and seed farms, locations, listing facts, and approval state; public and SMS views read the same records |
 | Farmer onboarding | Verify the phone, associate the farm, capture preferences, record VIGA approval separately |
 | Inventory publishing | Store a proposed revision, obtain explicit confirmation, then atomically publish it and supersede the prior revision |
-| Customer stock-out | Store a private report and optionally queue a farmer request; never alter public inventory |
+| Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally queue a request; free-text SMS cannot queue one; never alter public inventory |
 | Farmer report response | Resolve the pending action and publish only with explicit farmer confirmation |
-| Customer inquiry | Retrieve permitted current records, obtain model interpretation and composition, validate claims, queue the reply |
+| Customer inquiry | Retrieve typed current facts, obtain model interpretation and selected/ordered fact IDs, validate membership in the retrieved set, render the factual reply in code, and queue it |
 | Passive follow-up | Store a disclosed, narrow, expiring interest; enforce MUTE, STOP, frequency, and recipient selection in code |
 | STOP / START / JOIN / HELP / MUTE | Apply consent changes before any other interpretation or outbound selection |
 | FLAG | Store the concern and expose it to the single-level admin queue |
@@ -153,8 +153,10 @@ Narrow interfaces so I/O is swappable and tests are hermetic:
   output. The package estimates GSM-7 vs. UCS-2 and billable segments, and logs cost metrics by
   recipient hash **without logging message text**.
 - **Model provider** (`packages/ai`) — accepts only a **safe context** produced by the stripping
-  assembler; its output is **untrusted** and validated (schema + evidence) before anything acts on
-  it. The model is never vouched for — only measured (evals) and contained (the harness). See
+  assembler; its output is **untrusted** and schema-validated before anything acts on it. For
+  customer inquiries, code additionally requires selected IDs to belong to the typed retrieved set
+  and renders the factual reply itself. The model is never vouched for — only measured (evals) and
+  contained (the harness). See
   [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) "The trust contract."
 - **Clock** — injected time, so recency and expiry are deterministically testable.
 
@@ -175,7 +177,9 @@ bound abuse and cost.
 2. Deterministic compliance and confirmation before any model call; STOP always global;
    confirmation tokens context-bound, exactly-once, expiring.
 3. The model proposes; code commits. Publication is confirmation-gated.
-4. Grounded, recency-labeled answers; no factual claim survives without retrieved evidence.
+4. Grounded, recency-labeled answers — the model selects/orders retrieved fact IDs and code renders
+   authoritative factual text; unrestricted model prose is not treated as deterministically
+   verifiable.
 5. Privacy at the data layer — phones hashed, raw never logged, never in model context.
 6. Safety enforced by code in three layers (compile / runtime / eval), never the system prompt.
 

@@ -145,16 +145,19 @@ exists to prevent.
    first. `STOP` always unsubscribes **globally** and can never be reinterpreted by conversation
    state. Confirmation tokens are **context-bound, never global**, bound to their **specific
    pending action and kind**, commit **exactly once**, and **expire**.
-3. **The LLM proposes; code commits.** The model interprets, extracts, classifies, drafts, ranks
-   retrieved options, and composes — it never writes durable state, chooses recipients, decides
-   consent, invents availability, or overrides a rule. Publishing and alerting are code-controlled;
+3. **The LLM proposes; code commits.** The model interprets, extracts, classifies, drafts where a
+   seam permits it, and selects or ranks identifiers from retrieved options — it never writes
+   durable state, chooses recipients, decides consent, supplies authoritative factual answer text,
+   invents availability, or overrides a rule. Publishing and alerting are code-controlled;
    publication is confirmation-gated and requires an approved farm.
 4. **Grounded answers only, retrieval-first — with open intent.** Customer intent is open-ended:
    the model interprets the request, **code** runs a **general** retrieval/ranking layer, and the
-   model composes only over retrieved rows, always with explicit "updated X ago" recency. **No
-   fixed semantic strategy catalog** — ranking intent is an interpretation code validates and
-   executes, not an enumerated constant. Every factual claim must trace to **retrieved evidence**;
-   structural validity is not grounding. Empty retrieval → an honest "no current listing."
+   model selects or orders identifiers from typed retrieved facts. Code validates that every ID
+   belongs to the retrieved set and renders the authoritative factual answer with explicit
+   "updated X ago" recency. **No fixed semantic strategy catalog** — ranking intent is an
+   interpretation code validates and executes, not an enumerated constant. Farm Friend does not
+   attempt to verify unrestricted model prose claim by claim. Empty retrieval → a code-rendered
+   honest "no current listing."
 5. **Privacy at the data layer.** Phone numbers are normalized at ingress; the raw E.164 lives in
    **exactly one column**, read only by the outbound send path; the **hash is the only lookup/log
    key** — raw numbers are never logged, never enter model context, and are masked in admin. Raw
@@ -206,8 +209,8 @@ cooperative stubs. Suites:
 - **A model seam:** trace it in AI_ARCHITECTURE.md; keep durable writes/recipient/consent out of
   model output; run the **swap test**; run evals. **To add a seam or a program, or swap a provider,
   follow docs/RUNBOOK.md "how to extend."**
-- **A new query/list:** add the retrieval in code before any model call; label recency; carry
-  evidence identifiers.
+- **A new query/list:** add the retrieval in code before any model call; label recency; carry stable
+  fact identifiers; accept only selected IDs from the retrieved set; render factual text in code.
 - **Anything privacy-relevant:** phones hashed, never logged raw, never in model context. The
   guarantee is **code, not the prompt** — assembly strips before, the outbound guard blocks after;
   add the adversarial eval proving injection can't extract it.
@@ -257,14 +260,16 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** Clean-room product contract and architecture baseline settled (see the handoff). Phase 4
-audit finding review underway. The repository has **not** yet been refactored to the approved
+**Phase:** The clean-room product/architecture baseline is merged to `main` via PR #8. Phase 4
+ranked-finding review is underway; finding 1 is approved and documented on the current branch,
+awaiting its follow-on PR/merge. The application has **not** yet been refactored to the approved
 baseline.
 
-**Verified on `f-011-baseline-reset` (`b292bc7`):** `npm test` 46/46 across 10 files; typecheck +
+**Verified July 24, 2026 on `f-011-baseline-reset`:** `npm test` 46/46 across 10 files; typecheck +
 lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily prove
-**isolated helpers and structural claims, not launch workflows**. The 3 Postgres integration tests
-**skip** without `DATABASE_URL`; a real-Postgres run remains owed.
+**isolated helpers and structural claims, not launch workflows**. `npm run test:integration`
+completed with all 3 Postgres tests **skipped** without `DATABASE_URL`; a real-Postgres run remains
+owed.
 
 **Known gaps (from the Phase 3 audit, verified):** `packages/core` depends on `ai`/`config`/
 `contracts`/`db`/`sms`, reversing the required dependency direction; **no committed migrations**;
@@ -275,13 +280,13 @@ adapters throw; **no composition root**; the schema carries tenancy/gleaning/mig
 structures the contract removes; the stock-out test proves only that a returned object lacks a
 property; the grounding eval uses a cooperative canned model.
 
-**In review:** **F-011** (branch `f-011-baseline-reset`, PR open, **not merged**) — the declared
-baseline reset this snapshot reflects. Held unmerged pending an external model audit of the reset
-baseline. **F-012** is filed (`planned`): the registered 10DLC campaign copy still presents `FLAG`
-as a supported keyword and documents `MUTE` nowhere — a hard SMS-compliance gate before public SMS,
-blocking no architectural finding.
+**PM / review:** **F-011** is done and archived after PR #8 merged. The independent reset audit is
+recorded in `docs/ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md`; only explicitly approved
+recommendations change the contract. **F-012** remains `planned`: registered 10DLC copy presents
+`FLAG` as a supported keyword and documents `MUTE` nowhere — a hard public-SMS launch gate that
+blocks no architectural finding. **F-013** is `planned` for the approved typed-fact
+selection/code-rendering boundary and code-bound web/QR stock-out recipients.
 
-**Next:** continue the Phase 4 finding review one finding at a time, in the handoff's proposed
-sequence — package boundaries and dependency direction, then the launch schema and migrations, then
-transaction/outbox ownership, then SMS ingress. File each as a PM item at `F-013`+ before
-implementing.
+**Next:** after the current documentation tranche merges, review ranked finding 2 (SMS concurrency
+and out-of-order events) using the **spiral-staircase constraint**. Do not implement F-013 or change
+application code/schema before separate authorization.

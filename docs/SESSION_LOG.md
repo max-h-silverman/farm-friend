@@ -7,9 +7,56 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-24 — Clean-room baseline reset: F-011 (Phase 4 finding 1)
+## 2026-07-24 — Independent architecture audit + ranked finding 1 decision (F-013)
 
-Branch `f-011-baseline-reset`. First finding of the Phase 4 audit review defined by
+PR #8 merged the F-011 clean-room baseline reset to `main` (`565187c`). The follow-on independent
+audit is preserved in
+[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md) and indexed
+from the docs README as **review input, not design authority**. Its spiral-staircase constraint is
+now the review rule: first narrow a marginal promise where that preserves the north star; otherwise
+add only the smallest mechanism that closes a named launch invariant inside the existing
+Next.js/Postgres/four-package system.
+
+**Ranked finding 1 was approved.** The prior specification simultaneously allowed arbitrary
+model-composed prose and claimed code could deterministically verify every factual claim; schema
+validation and evidence IDs cannot provide that guarantee. It also let a model-parsed stock-out
+location indirectly choose which farmer received an alert while claiming recipient selection was
+code-owned.
+
+The settled correction keeps natural-language understanding but narrows the consequential outputs:
+
+- inquiry retrieval returns typed authoritative facts with stable identifiers and `asOf` values;
+- the model interprets the request and selects/orders only identifiers from that retrieved set;
+- code checks retrieved-set membership, dereferences authoritative values, and renders names,
+  inventory, recency, stale warnings, and supported deterministic distance/comparison facts;
+- unrestricted model prose is not treated as deterministically verifiable, and unsupported
+  likelihood language such as "more likely" is not a launch promise;
+- only a web/QR report with a code-bound sales-location identifier can queue a farmer stock-out
+  alert; free-text SMS may return the reporting link but cannot select a location or recipient;
+- code resolves the authorized farmer from the bound location.
+
+This deliberately adds no natural-language claim verifier, extensible query platform, fixed
+semantic strategy catalog, policy engine, package, service, event bus, workflow engine, vector
+database, or model provider. The decision was synchronized across the clean-room handoff,
+`PRODUCT_BRIEF.md`, `ARCHITECTURE.md`, `DATA_ARCHITECTURE.md`, `AI_ARCHITECTURE.md`, and
+`CLAUDE.md`. No application code or schema changed.
+
+**PM:** F-013 was created as `planned`, high-priority `compliance-trust` work (`6334373` in
+`~/pm`). After confirming PR #8 had merged, F-011 was marked done and archived (`c5be625`).
+F-012 remains the separate planned 10DLC-copy launch gate.
+
+**Verified during wrap:** `npm test` 46/46 (10 files), typecheck PASS, lint PASS; evals critical
+3/3 + advisory 2/2 + adversarial 4/4. `npm run test:integration` completed with all 3 tests skipped
+because `DATABASE_URL` is unset; a real-Postgres run remains owed. No deploy is required for this
+documentation/PM-only tranche. The branch is pushed for a user-managed follow-on PR/merge.
+
+**Next:** in a fresh session, review ranked finding 2 — SMS concurrency and out-of-order events —
+exactly one finding at a time. Do not implement F-013 or change code/schema until separately
+authorized.
+
+## 2026-07-24 — Clean-room baseline reset: F-011 (original review-sequence finding 1)
+
+Branch `f-011-baseline-reset`. First finding of the original Phase 4 review sequence defined by
 [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md), which is
 now **tracked in the repo and is the design authority** — previously it existed only as an
 untracked working-tree file.

@@ -27,6 +27,13 @@ where any of them disagrees with the handoff, the handoff wins.
 5. **[SMS_COMPLIANCE.md](SMS_COMPLIANCE.md)** — keywords, consent, required behavior, the FLAG
    safety rail.
 
+## Review handoffs
+
+- **[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md)** —
+  independent adversarial review of the clean-room reset, including the ranked trust/buildability
+  findings and the **spiral-staircase constraint** against over-architecting. **Review input, not
+  design authority:** its recommendations change the contract only after explicit agreement.
+
 ## Operate / extend
 
 - **[RUNBOOK.md](RUNBOOK.md)** — local dev, env, migrations, seeding, evals, deploy, Telnyx webhook
