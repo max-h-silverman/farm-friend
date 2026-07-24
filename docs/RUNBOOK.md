@@ -1,20 +1,24 @@
 # Farm Friend — Runbook (operate & extend)
 
-Cold-start ready: with only [../CLAUDE.md](../CLAUDE.md) + this file, a developer can install, run
-tests/evals, run the importer, and start the web app. Also the **how-to-extend** guide (referenced
-from CLAUDE.md, not inlined there).
+Cold-start guide: with only [../CLAUDE.md](../CLAUDE.md) and this file, a developer can install,
+run the suites, and start the web app. Also the **how-to-extend** guide (referenced from CLAUDE.md,
+not inlined there).
 
-> **Phase-0 note.** Some paths/scripts below describe the target spine landed by **F-006b/F-006c**.
-> Where a step names a file that doesn't exist yet, it's the contract that item builds to. This
-> doc is written so it stays correct as those items land.
+> **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
+> is the settled contract.
+>
+> **Status.** The repository is mid-rebuild toward the four-package baseline. There are **no
+> committed migrations**, the SMS webhook does not yet verify signatures or persist, and the live
+> SMS and model adapters throw. Where a step below names a path or script that does not exist yet,
+> it is the **contract the corresponding work builds to**, not a description of today.
 
 ## Prerequisites
 
 - **Node** per `.nvmrc` (`nvm use`). npm workspaces (ESM).
-- **Postgres** for integration tests + migrations: a local Postgres or a **Neon** dev branch. Set
-  `DATABASE_URL` (see `.env.example`).
-- No network is required for unit tests or evals (the `MapProvider` and `LLMProvider` stubs are
-  offline/deterministic).
+- **Postgres** for integration tests and migrations: local Postgres or a **Neon** dev branch. Set
+  `DATABASE_URL` (see `.env.example`). Integration tests **skip silently without it** — a run with
+  no `DATABASE_URL` is not evidence the data invariants hold.
+- No network is required for unit tests or evals (the model stub is offline and deterministic).
 
 ## Local dev — the five commands
 
@@ -23,102 +27,113 @@ npm install                 # install all workspaces
 npm run typecheck           # tsc across workspaces — also PROVES the safety boundary
 npm run lint                # lint across workspaces
 npm test                    # vitest unit — pure core logic, no DB/SMS/LLM (seams injected)
-npm run test:integration    # vitest against Postgres — data invariants + importer idempotency
-npm run evals               # evals/run.mjs (stub provider); critical fixtures must be 100%
+npm run test:integration    # vitest against Postgres — data invariants (requires DATABASE_URL)
+npm run evals               # evals (stub provider); critical fixtures must be 100%
 ```
 
 `npm run typecheck` is part of the safety story: a deliberate un-stripped model call or un-redacted
-send **fails `tsc`** (branded `ModelSafeContext` / `RedactedOutbound`). See
+send **fails `tsc`** (the branded safe-context / redacted-outbound types). See
 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) §safety boundary.
 
 ## Environment
 
 Copy `.env.example` → `.env` and fill:
 - `DATABASE_URL` — Postgres/Neon connection (integration tests + migrations).
-- `LLM_PROVIDER` / model config — selects stub vs. the open-weight adapter (stub is the default in
-  tests/evals).
-- `SMS_PROVIDER` — selects the in-memory simulator vs. Telnyx.
-- Telnyx + magic-link secrets — for live SMS + auth (not needed for unit tests/evals).
+- Model provider selection and model config — stub is the default in tests and evals.
+- SMS provider selection — in-memory simulator vs. Telnyx.
+- Telnyx credentials, the **webhook signing key**, and auth secrets — for live SMS and sign-in
+  (not needed for unit tests or evals).
 
-`.env` is gitignored; only `.env.example` is committed.
+Runtime configuration is parsed and validated in the **single composition root** in `apps/web`;
+there is no `config` package. `.env` is gitignored; only `.env.example` is committed.
 
 ## Migrations
 
-Drizzle schema is `packages/db/src/schema.ts`. Generate + apply migrations per the `packages/db`
-scripts (drizzle-kit). Integration tests apply migrations against `DATABASE_URL` and assert: the
-VIGA tenant seeds, tenant scoping holds, and a stock-out report cannot write inventory.
+The launch schema is a **clean initial migration** containing only the minimum durable records in
+[DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md), with the constraints listed there enforced at the
+database level.
 
-## The map importer (`maps/`)
+**CI must run migrations from an empty Postgres database** — a migration set that only works
+against a hand-evolved local database is not proven.
 
-The importer ingests the existing VIGA map/form data into seed `farms`/`farm_stands`.
+## Seeding initial listing data
 
-- **Input contract (the spec):** the eventual Google My Maps / Sheet export is shaped to match a
-  **documented CSV/JSON input contract** — the input schema *is* the spec, since the real export
-  format isn't finalized. (Fields: stand name, farm, location/address, goods/items, and a per-stand
-  last-updated date **if the export carries one** — else the import date is used. This is the open
-  VIGA data question; it blocks nothing.)
-- **What it does:** seeds ALL stands `status=current`, provenance `migrated`, geocoded via the
-  `MapProvider` seam (offline stub in tests/CI).
-- **Idempotent / re-runnable:** safe to run N times. A re-run refreshes still-`migrated` stands
-  (the old Google Form stays live, so re-imports pull new submissions) but **never clobbers** a
-  stand a farmer has activated (`claim_status = claimed`). Tested.
+This is a **greenfield build**: existing VIGA map content is **reference input, not a schema
+contract**, and there is no non-destructive migration requirement or provenance axis.
 
-Run it per the `maps/` script; inspect results in the migrate-data admin surface
-([ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md)).
+A **one-time seed utility** validates and loads farms, sales locations, listing facts, and approval
+state. Geocoding happens **once, during seeding** — it is not a permanent runtime provider seam,
+and a location that cannot be resolved is an **operator task**, never a fabricated coordinate.
 
 ## Start the web app
 
 ```
-npm run dev -w apps/web     # Next.js App Router — public map placeholder + /api/health
+npm run dev -w apps/web     # Next.js App Router
 ```
-
-`/api/health` returns OK; the Telnyx webhook route accepts a simulated payload through core. The
-public map renders the migrated-as-current feed (honestly aged).
 
 ## Telnyx webhook config
 
-Point the Telnyx number's inbound webhook at `apps/web`'s webhook route. Inbound messages enter the
-deterministic routing in [ARCHITECTURE.md](ARCHITECTURE.md) §routing before any model call. Use the
-in-memory simulator (`SMS_PROVIDER=simulator`) to exercise flows without live Telnyx.
+Point the Telnyx number's inbound webhook at `apps/web`'s webhook route. Requirements that must
+hold before live SMS:
+
+- **Verify the webhook signature** on every inbound request. Telnyx's receiving guidance requires
+  it: <https://developers.telnyx.com/docs/messaging/messages/receiving-webhooks>
+- **Acknowledge promptly**, and tolerate **retries, duplicate events, and out-of-order delivery** —
+  ingress must be idempotent per provider message id.
+- Inbound messages enter the deterministic routing in [ARCHITECTURE.md](ARCHITECTURE.md) **before
+  any model call**.
+
+Carrier keyword and confirmation requirements center on opt-in, opt-out, and help:
+<https://support.telnyx.com/en/articles/10645338-10dlc-keywords-and-confirmation-messages> and
+<https://support.telnyx.com/en/articles/9940291-10dlc-campaign-compliance-requirements>. **FLAG is a
+Farm Friend product safety feature and must not be represented as a carrier-mandated keyword.**
+
+Use the in-memory simulator to exercise flows without live Telnyx.
 
 ## How to extend
 
-### Add a program
-1. Define its consent (per-program opt-in) in `subscriptions`; wire `JOIN`/enrollment.
-2. Add its branch to the deterministic routing (ARCHITECTURE §routing) — **before** any model call.
-3. If it needs confirmation, make it a **consumer of the generic commitment state machine** (don't
-   fork it) — a pending action + a context-bound token that commits exactly once and expires.
-4. Test-first: keyword/commitment bypass, consent gating, the commit path.
+### Add a future program
 
-### Add an LLM seam
-1. Add the seam to the catalog in [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) and define its Zod
-   schema in `packages/ai`.
-2. Assemble its context through the **`ModelSafeContext` assembler** (never pass a raw record).
-3. Validate the output (schema + domain), one repair retry, then clarify/flag — never a silent
-   guess.
-4. Add eval fixtures (advisory; **critical** if it's safety-relevant) and run `npm run evals`.
+Gleaning, volunteer coordination, and Farm Bucks transactions are **plausible future programs**,
+deliberately unbuilt. When one arrives:
+1. Define its **separate enrollment** (per-program opt-in) and wire `JOIN`. Universal STOP applies
+   across all Farm Friend messaging regardless.
+2. Add its branch to the deterministic routing — **before** any model call.
+3. If it needs confirmation, make it a **consumer of the existing confirmation mechanism** by
+   parameterizing it — do not fork it.
+4. Test-first: keyword and confirmation bypass, consent gating, the commit path.
+
+Do **not** pre-create a future program's tables, states, packages, or UI.
+
+### Add a model seam
+
+1. Add the seam to the catalog in [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) and define its schema.
+2. Assemble its context through the **stripping assembler** — never pass a raw record.
+3. Validate the output against **schema and evidence**, one repair retry, then clarify or flag.
+   Structural validity is not grounding.
+4. Add eval fixtures (advisory; **critical** if safety-relevant) and run the evals.
 
 ### Swap a provider
-- **LLM:** implement `LLMProvider.generateJson` for the new backend; select via `LLM_PROVIDER`. The
-  branded `ModelSafeContext` boundary is unchanged.
-- **SMS:** implement `SmsTransport` (`send` + `verify`); the `RedactedOutbound` guard continues to
-  normalize avoidable Unicode and block raw phones. After the provider accepts a send, call
-  `logOutboundSmsMetrics` to record encoding, character count, and estimated billable segments;
-  select the adapter via `SMS_PROVIDER`.
-- **Map:** implement `MapProvider` (geocode); keep the offline stub for tests/evals/importer.
+
+- **Model:** implement the provider interface for the new backend and select it by config. The
+  branded safe-context boundary is unchanged.
+- **SMS:** implement the transport (send + **signature verification**); the redaction guard
+  continues to normalize avoidable Unicode and block raw phones. After the provider accepts a send,
+  record encoding, character count, and estimated billable segments — **by recipient hash, never
+  with message text**.
 
 ## Deploy (only when asked)
 
-Vercel (web + API + Cron) against Neon Postgres. Migrations run as part of the deploy step. Never
-deploy unless explicitly asked (CLAUDE.md "Do not").
+Vercel (web + API + scheduled jobs) against Neon Postgres. Migrations run as part of the deploy
+step. Never deploy unless explicitly asked (CLAUDE.md "Do not").
 
 ## Failure triage
 
-- **Unit test needs a DB/SMS/LLM** → a seam isn't injected; pure logic must take the provider +
+- **Unit test needs a DB/SMS/model** → a seam isn't injected; pure logic must take the provider and
   `Clock` as arguments.
-- **`tsc` fails on a model call / send** → you're bypassing the assembler/redactor; go through it
-  (that's the compile guard working).
-- **An eval leaks a phone / forces a commit** → the runtime guard or data-minimization has a bug;
+- **`tsc` fails on a model call or send** → you're bypassing the assembler or redactor; go through
+  it (that's the compile guard working).
+- **Integration tests "pass" instantly** → `DATABASE_URL` is unset and they skipped. That is not a
+  green data layer.
+- **An eval leaks a phone or forces a commit** → the runtime guard or data minimization has a bug;
   fix the code, not the prompt (Golden Rule #6).
-- **Importer clobbered an activated stand** → the idempotency guard on `claim_status` regressed;
-  re-check before re-running against real data.
