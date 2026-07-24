@@ -127,9 +127,11 @@ and broader listing changes.
 
 A customer privately reports from a web/QR surface whose sales location is bound by code. The
 report **does not affect the map, answers, or ranking**. Code resolves the authorized farmer from
-that location and may ask them to confirm an update. Only the farmer's explicit confirmation can
-change published inventory. A free-text SMS may direct the customer to the reporting surface but
-cannot select a location or queue a farmer alert.
+that location and may ask them to send current inventory. The reply follows the ordinary structured
+inventory proposal and `YES`/`NO` confirmation flow; there is no separate `OUT`/`IGNORE` stock-out
+action. Only the farmer's confirmed inventory revision can change published inventory. A free-text
+SMS may direct the customer to the reporting surface but cannot select a location or queue a farmer
+alert.
 
 ### Recipe assistance
 

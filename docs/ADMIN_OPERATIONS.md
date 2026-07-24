@@ -47,8 +47,9 @@ Each surface ships **incrementally with its workflow**, never as a final phase.
   completed onboarding is authorized to act for it. Approval is **your act**, recorded separately;
   a farmer completing a form does not approve themselves. Only approved farms publish publicly.
 - **Watch stock-out reports:** the queue shows customer reports per farm. Reports **never** change
-  the map, answers, or ranking — only the farmer's explicit confirmation does. Triage and dismiss;
-  do not edit a farmer's inventory on their behalf.
+  the map, answers, or ranking. An alert may ask the farmer to send current inventory; only the
+  farmer's confirmed revision through the ordinary inventory flow changes publication. Triage and
+  dismiss reports; do not edit a farmer's inventory on their behalf.
 - **Resolve a flag:** a `FLAG` pauses the thread. Review it, take the needed action, mark it
   resolved. `FLAG` is a **Farm Friend product safety feature**, not a carrier-mandated keyword.
 - **Inspect a thread:** the thread viewer shows message history under the privacy policy — no raw

@@ -34,17 +34,33 @@ commit or decline.
 
 | Token | Behavior |
 |---|---|
-| `YES` / `NO` | Commit / decline the **live pending confirmation** (inventory publication, or a farmer's response to a stock-out report). `YES` accepts the fixed variants `Y` / `YEP` / `YEA` / `SURE`; `NO` accepts `N` / `NOPE` / `NAH` / `NO THANKS` / `NO THANK YOU`. **Context-bound** — a YES/NO reply with no pending context does **not** commit or decline. Commits **exactly once**; the pending confirmation **expires** (GC'd). |
-| `OUT` / `IGNORE` | Farmer action on a stock-out alert (`OUT` = mark the item out; `IGNORE` = dismiss). Context-bound to the alert. |
+| `YES` / `NO` | Commit / decline the sender's **one live inventory-publication confirmation**. `YES` accepts the fixed variants `Y` / `YEP` / `YEA` / `SURE`; `NO` accepts `N` / `NOPE` / `NAH` / `NO THANKS` / `NO THANK YOU`. **Context-bound** — a YES/NO reply with no live pending inventory proposal does **not** commit or decline. A valid confirmation consumes the current proposal **exactly once** and **expires** (GC'd). |
 
-A confirmation token is bound to **its specific pending action and kind**. An affirmative or
-negative token must never commit an unrelated pending action.
+A database constraint permits at most one open inventory proposal per sender. It carries its allowed
+tokens, proposal version, expiry, and current prompt activation. New inventory text revises that
+proposal and suspends token acceptance until Telnyx accepts the replacement prompt. A token whose
+provider occurrence time does not follow the current prompt cannot consume the proposal.
 
-Expiry windows are a **per-consumer parameter**; exact windows are an unresolved launch decision.
+The exact expiry window is an unresolved launch decision.
 An expired token gets an honest "that request expired — here's how to redo it" reply, never a
 silent no-op.
 
-`YES`/`NO`/`OUT`/`IGNORE` are **never global** and never override `STOP`/`HELP`/`FLAG`.
+`YES`/`NO` are **never global** and never override `STOP`/`HELP`/`FLAG`. `OUT` and `IGNORE` are not
+commitment tokens and can never publish inventory. A stock-out alert may ask the farmer to send
+current inventory; that reply uses the ordinary proposal and `YES`/`NO` flow.
+
+### Concurrent and out-of-order messages
+
+After raw-body signature verification, a minimized inbox event commits before acknowledgement.
+Provider event ID uniqueness makes retries and duplicates no-ops. Postgres claims at most one
+ordinary stateful event per sender; no model or SMS call occurs while its row lock transaction is
+open.
+
+Ordinary stateful events are ordered by provider `occurred_at` plus event ID. An older event cannot
+mutate newer conversation, confirmation, or publication state and may receive a deterministic
+resend request. `STOP` and `START` use a separate consent-transition watermark: the later
+provider-time command wins, and `STOP` wins an exact timestamp tie. An older delayed `START`
+therefore cannot restore consent after a newer `STOP`.
 
 ### `MUTE` (scoped, never global)
 
@@ -81,6 +97,11 @@ carrier-mandated keyword in campaign registration or public compliance copy.
 
 - Honor opt-out **immediately** and durably.
 - Every program message is attributable to a consented recipient (code checks consent before send).
+- The atomic outbox dispatch claim is the STOP boundary. STOP committed first suppresses every
+  still-queued non-required message; a request dispatch-authorized first may already be in flight.
+- Retry only definitive retryable rejection under a bounded policy. Record a possibly accepted
+  result as ambiguous and do not automatically resend it without a verified Telnyx idempotency
+  facility.
 - Outbound passes the **redaction guard** — no raw phone numbers / private fields, regardless of
   model output (see [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) §safety boundary).
 - Raw inbound bodies are **short-lived** (exact retention is an unresolved launch decision; flagged
@@ -94,3 +115,6 @@ Message templates (opt-out confirmation, help text, publish confirm, stock-out
 alert) are drafted provisionally and finalized at A2P registration. Keep them in one place so the
 registered copy is a single swap; none of the copy is a compliance *enforcement* point — the
 enforcement is the deterministic code above.
+
+> *Current drift:* the registered/public 10DLC source copy still advertises `OUT` and `IGNORE` for
+> stock-out alerts. F-012 must align that copy with this approved behavior before public SMS launch.

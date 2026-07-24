@@ -76,10 +76,16 @@ npm run dev -w apps/web     # Next.js App Router
 Point the Telnyx number's inbound webhook at `apps/web`'s webhook route. Requirements that must
 hold before live SMS:
 
-- **Verify the webhook signature** on every inbound request. Telnyx's receiving guidance requires
-  it: <https://developers.telnyx.com/docs/messaging/messages/receiving-webhooks>
-- **Acknowledge promptly**, and tolerate **retries, duplicate events, and out-of-order delivery** —
-  ingress must be idempotent per provider message id.
+- Read the **exact raw request bytes** and verify the webhook signature before parsing. Telnyx's
+  receiving guidance requires it:
+  <https://developers.telnyx.com/docs/messaging/messages/receiving-webhooks>
+- After verification, commit only the minimized inbox projection with a unique provider event ID;
+  do not retain the raw provider envelope or duplicate the raw E.164. **Acknowledge only after that
+  commit**, within Telnyx's response window.
+- Claim at most one ordinary stateful event per sender under a short Postgres row-lock transaction.
+  Release before any model or SMS call, then re-lock and verify the claim/state before finalizing.
+  Reject stale state transitions by provider occurrence order; order STOP/START on their separate
+  consent watermark, with STOP winning an exact timestamp tie.
 - Inbound messages enter the deterministic routing in [ARCHITECTURE.md](ARCHITECTURE.md) **before
   any model call**.
 
@@ -120,7 +126,9 @@ Do **not** pre-create a future program's tables, states, packages, or UI.
 - **SMS:** implement the transport (send + **signature verification**); the redaction guard
   continues to normalize avoidable Unicode and block raw phones. After the provider accepts a send,
   record encoding, character count, and estimated billable segments — **by recipient hash, never
-  with message text**.
+  with message text**. Preserve the outbox dispatch-authorization boundary: retry a definitive
+  retryable rejection only under the bounded policy, and quarantine a possibly accepted result
+  rather than automatically sending it again.
 
 ## Deploy (only when asked)
 
