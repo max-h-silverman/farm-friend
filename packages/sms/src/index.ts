@@ -63,18 +63,3 @@ export class SmsSimulator implements SmsTransport {
     // no-op in the simulator
   }
 }
-
-/** Telnyx adapter stub — the seam is wired; live sending lands with the A2P campaign. */
-export class TelnyxTransport implements SmsTransport {
-  constructor(private readonly apiKey: string) {}
-
-  async send(_msg: OutboundMessage): Promise<void> {
-    // The live adapter must call logOutboundSmsMetrics only after Telnyx accepts the request.
-    void this.apiKey;
-    throw new Error("TelnyxTransport.send not implemented (Phase 0 stub)");
-  }
-
-  async verify(_phoneHash: string): Promise<void> {
-    throw new Error("TelnyxTransport.verify not implemented (Phase 0 stub)");
-  }
-}

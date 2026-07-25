@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/*",
     "apps/web",
-    "apps/mobile"
+    "packages/ai",
+    "packages/core",
+    "packages/db",
+    "packages/sms"
   ],
   "engines": {
     "node": ">=20"

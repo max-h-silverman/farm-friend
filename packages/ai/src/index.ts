@@ -57,13 +57,3 @@ export class StubLLMProvider implements LLMProvider {
     return canned;
   }
 }
-
-/** Open-weight adapter stub — the seam is wired; the live backend lands post-Phase-0. */
-export class OpenWeightLLMProvider implements LLMProvider {
-  readonly name = "openweight";
-  constructor(private readonly model: string) {}
-
-  async generateJson(_ctx: ModelSafeContext, _schemaName: string): Promise<string> {
-    throw new Error("OpenWeightLLMProvider.generateJson not implemented (Phase 0 stub)");
-  }
-}

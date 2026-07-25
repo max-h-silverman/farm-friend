@@ -1,8 +1,8 @@
-import type { ReportSource } from "@farm-friend/contracts";
-
 // Stock-out report → farmer alert. Golden Rule #1: the farmer owns published state — a customer
 // report NEVER mutates inventory. This module produces (a) a report record and (b) an alert
 // intent. It has no code path that writes inventory; that absence is the guarantee, tested.
+
+export type ReportSource = "sms" | "qr_web";
 
 export interface StockoutReportInput {
   farmStandId: string;
