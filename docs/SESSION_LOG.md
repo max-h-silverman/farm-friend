@@ -7,6 +7,53 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-25 — F-022 clean launch schema and initial migration
+
+Starting from clean `main` at `3d89380` (merged PR #16), the database foundation was replaced
+test-first without implementing F-012 through F-019. The first integration run was observed failing
+because there was no committed migration, the schema still declared forbidden launch concepts, and
+`DATABASE_URL` was absent. The implementation then:
+
+- replaced the speculative schema with contacts, one-level administrator authorization, farms,
+  farmer authorization, separate VIGA approval, public farm facts, actionable sales locations,
+  farmer links, payment / Farm Bucks facts, immutable published inventory, minimized SMS state,
+  launch consent, inventory-publication proposals, private stock-out reports, flags, outbox work,
+  dispatch attempts, audit events, and model-run evidence;
+- stored normalized raw E.164 once on `contacts` and used the unique phone hash for every workflow,
+  queue, evidence, and foreign-key path;
+- separated exact / approximate / hidden farm fallback projections from farm-stand and VIGA Farmers
+  Market sales locations, with inventory and reports bound only to sales locations;
+- added foreign keys, bounded checks, coherent-state checks, partial unique indexes, and explicit
+  PostgreSQL guards for fallback projections and immutable published inventory history;
+- generated `0000_clean_launch.sql` with its Drizzle journal/snapshot metadata, adding
+  explicit SQL for constraints the pinned generator does not serialize;
+- replaced the out-of-band / silently skipped integration assumption with a harness that requires
+  `DATABASE_URL`, creates a uniquely named empty database, applies every migration, verifies a
+  second journal run is a no-op, exercises the constraints, and drops the database; and
+- kept initial VIGA content as reference input for a later validated seed utility rather than
+  embedding data or compatibility state in the migration.
+
+This tranche deliberately adds no repository transaction for sender claiming, consent ordering,
+confirmation/publication, STOP-versus-dispatch ordering, delivery monotonicity, or retention. It
+also adds no handler, provider, model seam, UI, campaign behavior, seed data, or deployment behavior
+owned by F-012 through F-019.
+
+**PM:** F-022 moved to `in progress` at PM commit `6cce6c7` on
+`f-022-clean-launch-schema`.
+
+**Verified:** the original red integration run failed 3/3 as intended; the completed
+real-Postgres suite passes 12/12 against an isolated PostgreSQL 16.12 cluster; `npm test` passes
+46/46 across 10 files; typecheck and lint PASS; evals critical 3/3, advisory 2/2, adversarial 4/4;
+the production Next.js build and `git diff --check` PASS.
+
+**Release:** implementation and verification are complete on `f-022-clean-launch-schema`; commit,
+push, PR, and merge are pending the current session wrap. No deployment is owed for this
+schema-only prelaunch tranche.
+
+**Next:** review F-022 as the schema / empty-database migration foundation only. Do not absorb
+F-012 through F-019 or treat the schema records as proof that their transactions and workflows are
+implemented.
+
 ## 2026-07-25 — F-021 four-package boundary reset
 
 The first implementation tranche after the clean-room review reset the repository to the approved

@@ -6,10 +6,14 @@ enforce, privacy/retention, and the model-run audit MAY-store list.
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: requirements, not claims.** There are **no committed migrations** in the repository,
-> and the current schema contains speculative structures this document no longer describes. Every
-> entity and constraint below is a **requirement for the launch schema**, not a description of what
-> exists. Do not cite this doc as evidence that a constraint is enforced.
+> **Status: schema foundation implemented; workflows remain requirements.**
+> `packages/db/src/schema.ts` and `packages/db/drizzle/0000_clean_launch.sql` now contain the clean
+> launch records and database constraints below. The real-Postgres integration harness creates an
+> empty throwaway database, applies every committed migration, reruns the journal as a no-op, and
+> exercises the foundational checks, foreign keys, partial uniqueness, and published-history
+> guards. Repository transactions for sender claiming, consent ordering, confirmation/publication,
+> dispatch, delivery monotonicity, and retention are **not** implemented by this schema tranche;
+> their behavioral statements below remain requirements.
 
 ## Scope discipline
 

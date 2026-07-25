@@ -1,258 +1,1072 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   doublePrecision,
+  foreignKey,
+  index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
+  unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
-// Farm Friend — tenant-scoped Drizzle schema.
-//
-// Every top-level entity carries `tenant_id`. The two-axis freshness/provenance model
-// (see docs/DATA_ARCHITECTURE.md) is load-bearing:
-//   - lifecycle `status` (draft|current|superseded) → is it shown on the map
-//   - provenance (migrated|farmer_confirmed) + a real/import date → honesty about age
-// A migrated pin shows as `current` but renders honestly ("via VIGA's map, updated [date]"),
-// never "confirmed today". Claim state lives at TWO grains (stand + snapshot) because a
-// migrated stand MAY have no snapshot (its export row listed no goods), so the stand
-// itself must carry the honest label too.
-
-// ---------------------------------------------------------------------------- enums
-
-// `farm_stands.visibility` is the ONE hide switch (admin-only) — there is deliberately no
-// farm-level or snapshot-level hide (docs/DATA_ARCHITECTURE.md "two-axis model").
-export const standVisibility = pgEnum("stand_visibility", ["public", "hidden"]);
-export const claimStatus = pgEnum("claim_status", ["migrated", "claimed"]);
-export const inventoryStatus = pgEnum("inventory_status", [
-  "draft",
-  "current",
-  "superseded",
+export const publicMapProjection = pgEnum("public_map_projection", [
+  "exact",
+  "approximate",
+  "hidden",
 ]);
-export const provenance = pgEnum("provenance", ["migrated", "farmer_confirmed"]);
-export const approxLabel = pgEnum("approx_label", ["some", "limited", "a lot"]);
-export const reportSource = pgEnum("report_source", ["sms", "qr_web"]);
-export const reportStatus = pgEnum("report_status", ["open", "acted", "dismissed"]);
-export const alertPref = pgEnum("alert_pref", ["immediate", "digest"]);
-export const messageDirection = pgEnum("message_direction", ["inbound", "outbound"]);
-export const roleName = pgEnum("role_name", ["admin", "staff", "farmer"]);
-export const flagStatus = pgEnum("flag_status", ["open", "resolved"]);
-export const aiValidationStatus = pgEnum("ai_validation_status", [
-  "passed",
-  "repaired",
+export const salesLocationKind = pgEnum("sales_location_kind", [
+  "farm_stand",
+  "farmers_market",
+]);
+export const inventoryApproximation = pgEnum("inventory_approximation", [
+  "some",
+  "limited",
+  "plentiful",
+]);
+export const inboxProcessingState = pgEnum("inbox_processing_state", [
+  "pending",
+  "processing",
+  "processed",
   "rejected",
 ]);
-export const signupStatus = pgEnum("signup_status", [
-  "confirmed",
+export const consentState = pgEnum("consent_state", ["active", "stopped"]);
+export const consentCaptureSource = pgEnum("consent_capture_source", [
+  "join",
+  "start",
+  "farmer_onboarding",
+]);
+export const consentTransition = pgEnum("consent_transition", [
+  "start",
+  "stop",
+]);
+export const proposalState = pgEnum("proposal_state", [
+  "open",
+  "accepted",
   "declined",
-  "waitlisted",
-  "cancelled",
+  "expired",
+]);
+export const proposalToken = pgEnum("proposal_token", ["yes", "no"]);
+export const outboxState = pgEnum("outbox_state", [
+  "queued",
+  "dispatching",
+  "sent",
+  "suppressed",
+  "failed",
+  "ambiguous",
+]);
+export const dispatchAttemptState = pgEnum("dispatch_attempt_state", [
+  "authorized",
+  "accepted",
+  "definitive_rejection",
+  "ambiguous",
+]);
+export const reportStatus = pgEnum("report_status", [
+  "open",
+  "reviewed",
+  "dismissed",
+]);
+export const flagStatus = pgEnum("flag_status", [
+  "open",
+  "resolved",
+  "dismissed",
+]);
+export const modelValidationStatus = pgEnum("model_validation_status", [
+  "passed",
+  "repaired_then_passed",
+  "rejected",
 ]);
 
-// ------------------------------------------------------------------------- tenancy
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    phoneE164: text("phone_e164").notNull(),
+    phoneHash: text("phone_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    phoneHashUnique: unique("contacts_phone_hash_unique").on(table.phoneHash),
+    normalizedPhone: check(
+      "contacts_phone_e164_normalized",
+      sql`${table.phoneE164} ~ '^\\+[1-9][0-9]{7,14}$'`,
+    ),
+    nonemptyHash: check(
+      "contacts_phone_hash_nonempty",
+      sql`length(${table.phoneHash}) >= 32`,
+    ),
+  }),
+);
 
-export const tenants = pgTable("tenants", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  slug: text("slug").notNull().unique(),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const administrators = pgTable(
+  "administrators",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "restrict" }),
+    authorizedAt: timestamp("authorized_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => ({
+    oneActiveAuthorization: uniqueIndex(
+      "administrators_one_active_per_contact",
+    )
+      .on(table.contactId)
+      .where(sql`${table.revokedAt} is null`),
+    validRevocation: check(
+      "administrators_valid_revocation",
+      sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.authorizedAt}`,
+    ),
+  }),
+);
 
-// -------------------------------------------------------------------------- people
+export const farms = pgTable(
+  "farms",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description"),
+    photoUrl: text("photo_url"),
+    mapProjection: publicMapProjection("map_projection"),
+    publicLatitude: doublePrecision("public_latitude"),
+    publicLongitude: doublePrecision("public_longitude"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    nameNotBlank: check("farms_name_not_blank", sql`length(trim(${table.name})) > 0`),
+    projectionCoordinates: check(
+      "farms_projection_coordinates_coherent",
+      sql`
+        (
+          ${table.mapProjection} is null
+          and ${table.publicLatitude} is null
+          and ${table.publicLongitude} is null
+        )
+        or (
+          ${table.mapProjection} = 'hidden'
+          and ${table.publicLatitude} is null
+          and ${table.publicLongitude} is null
+        )
+        or (
+          ${table.mapProjection} in ('exact', 'approximate')
+          and ${table.publicLatitude} is not null
+          and ${table.publicLongitude} is not null
+          and ${table.publicLatitude} between -90 and 90
+          and ${table.publicLongitude} between -180 and 180
+        )
+      `,
+    ),
+  }),
+);
 
-export const people = pgTable("people", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  displayName: text("display_name"),
-  // The ONLY column holding a raw phone: normalized E.164, read exclusively by the outbound
-  // send path (SmsTransport needs a real number to dial). Never logged, never in model
-  // context, masked in admin. `phone_hash` is the only lookup/log key.
-  phone: text("phone"),
-  phoneHash: text("phone_hash"),
-  email: text("email"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const farmerAuthorizations = pgTable(
+  "farmer_authorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    farmId: uuid("farm_id")
+      .notNull()
+      .references(() => farms.id, { onDelete: "restrict" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "restrict" }),
+    phoneVerifiedAt: timestamp("phone_verified_at", {
+      withTimezone: true,
+    }).notNull(),
+    authorizedAt: timestamp("authorized_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => ({
+    idAndFarmUnique: unique("farmer_authorizations_id_farm_unique").on(
+      table.id,
+      table.farmId,
+    ),
+    oneActiveAuthorization: uniqueIndex(
+      "farmer_authorizations_one_active_contact_per_farm",
+    )
+      .on(table.farmId, table.contactId)
+      .where(sql`${table.revokedAt} is null`),
+    verificationPrecedesAuthorization: check(
+      "farmer_authorizations_verification_precedes_authorization",
+      sql`${table.phoneVerifiedAt} <= ${table.authorizedAt}`,
+    ),
+    validRevocation: check(
+      "farmer_authorizations_valid_revocation",
+      sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.authorizedAt}`,
+    ),
+  }),
+);
 
-export const personRoles = pgTable("person_roles", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  personId: uuid("person_id").notNull().references(() => people.id),
-  role: roleName("role").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const farmApprovals = pgTable(
+  "farm_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    farmId: uuid("farm_id")
+      .notNull()
+      .references(() => farms.id, { onDelete: "restrict" }),
+    administratorId: uuid("administrator_id")
+      .notNull()
+      .references(() => administrators.id, { onDelete: "restrict" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => ({
+    idAndFarmUnique: unique("farm_approvals_id_farm_unique").on(
+      table.id,
+      table.farmId,
+    ),
+    oneCurrentApproval: uniqueIndex("farm_approvals_one_current_per_farm")
+      .on(table.farmId)
+      .where(sql`${table.revokedAt} is null`),
+    validRevocation: check(
+      "farm_approvals_valid_revocation",
+      sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.approvedAt}`,
+    ),
+  }),
+);
 
-export const subscriptions = pgTable("subscriptions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  personId: uuid("person_id").notNull().references(() => people.id),
-  // global_sms gates all SMS; STOP clears it. Per-program opt-in is a nullable program key.
-  globalSms: boolean("global_sms").notNull().default(false),
-  program: text("program"), // null = the global_sms row; non-null = per-program opt-in
-  optedInAt: timestamp("opted_in_at", { withTimezone: true }),
-  optedOutAt: timestamp("opted_out_at", { withTimezone: true }),
-  // Consent provenance — HOW consent was captured (e.g. "staff_onboarding", "keyword",
-  // "web") and WHO recorded it when a human did (staff-recorded consent at farmer
-  // onboarding is the launch path; see docs/SMS_COMPLIANCE.md §consent).
-  source: text("source"),
-  recordedByPersonId: uuid("recorded_by_person_id").references(() => people.id),
-});
+export const farmLinks = pgTable(
+  "farm_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    farmId: uuid("farm_id")
+      .notNull()
+      .references(() => farms.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    url: text("url").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => ({
+    farmUrlUnique: unique("farm_links_farm_url_unique").on(
+      table.farmId,
+      table.url,
+    ),
+    labelNotBlank: check(
+      "farm_links_label_not_blank",
+      sql`length(trim(${table.label})) > 0`,
+    ),
+    absoluteHttpUrl: check(
+      "farm_links_absolute_http_url",
+      sql`${table.url} ~ '^https?://[^[:space:]]+$'`,
+    ),
+    nonnegativeSortOrder: check(
+      "farm_links_nonnegative_sort_order",
+      sql`${table.sortOrder} >= 0`,
+    ),
+  }),
+);
 
-// --------------------------------------------------------------------------- farms
+export const salesLocations = pgTable(
+  "sales_locations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    farmId: uuid("farm_id")
+      .notNull()
+      .references(() => farms.id, { onDelete: "restrict" }),
+    kind: salesLocationKind("kind").notNull(),
+    name: text("name").notNull(),
+    publicAddress: text("public_address").notNull(),
+    publicLatitude: doublePrecision("public_latitude").notNull(),
+    publicLongitude: doublePrecision("public_longitude").notNull(),
+    hoursText: text("hours_text"),
+    isPublic: boolean("is_public").notNull().default(true),
+    farmBucksAccepted: boolean("farm_bucks_accepted").notNull(),
+    farmBucksEligible: boolean("farm_bucks_eligible").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    idAndFarmUnique: unique("sales_locations_id_farm_unique").on(
+      table.id,
+      table.farmId,
+    ),
+    nameNotBlank: check(
+      "sales_locations_name_not_blank",
+      sql`length(trim(${table.name})) > 0`,
+    ),
+    addressNotBlank: check(
+      "sales_locations_address_not_blank",
+      sql`length(trim(${table.publicAddress})) > 0`,
+    ),
+    validCoordinates: check(
+      "sales_locations_valid_coordinates",
+      sql`${table.publicLatitude} between -90 and 90 and ${table.publicLongitude} between -180 and 180`,
+    ),
+    acceptanceRequiresEligibility: check(
+      "sales_locations_farm_bucks_acceptance_requires_eligibility",
+      sql`not ${table.farmBucksAccepted} or ${table.farmBucksEligible}`,
+    ),
+  }),
+);
 
-export const farms = pgTable("farms", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  name: text("name").notNull(),
-  ownerPersonId: uuid("owner_person_id").references(() => people.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const salesLocationPaymentMethods = pgTable(
+  "sales_location_payment_methods",
+  {
+    salesLocationId: uuid("sales_location_id").notNull(),
+    method: text("method").notNull(),
+  },
+  (table) => ({
+    salesLocationReference: foreignKey({
+      name: "sales_location_payment_methods_location_fk",
+      columns: [table.salesLocationId],
+      foreignColumns: [salesLocations.id],
+    }).onDelete("cascade"),
+    pk: primaryKey({
+      name: "sales_location_payment_methods_pk",
+      columns: [table.salesLocationId, table.method],
+    }),
+    methodNotBlank: check(
+      "sales_location_payment_methods_method_not_blank",
+      sql`length(trim(${table.method})) > 0`,
+    ),
+  }),
+);
 
-export const farmStands = pgTable("farm_stands", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  farmId: uuid("farm_id").notNull().references(() => farms.id),
-  name: text("name").notNull(),
-  visibility: standVisibility("visibility").notNull().default("public"),
-  // Two-axis model, stand grain: claim state + migration provenance.
-  claimStatus: claimStatus("claim_status").notNull().default("migrated"),
-  migratedAt: timestamp("migrated_at", { withTimezone: true }),
-  migratedSource: text("migrated_source"), // e.g. "viga_google_map"
-  lat: doublePrecision("lat"),
-  lng: doublePrecision("lng"),
-  updateCadenceHours: integer("update_cadence_hours"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const senderStates = pgTable(
+  "sender_states",
+  {
+    senderHash: text("sender_hash")
+      .primaryKey()
+      .references(() => contacts.phoneHash, { onDelete: "restrict" }),
+    conversationOccurredAt: timestamp("conversation_occurred_at", {
+      withTimezone: true,
+    }),
+    conversationProviderEventId: text("conversation_provider_event_id"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    coherentWatermark: check(
+      "sender_states_coherent_conversation_watermark",
+      sql`
+        (${table.conversationOccurredAt} is null) =
+        (${table.conversationProviderEventId} is null)
+      `,
+    ),
+  }),
+);
 
-// ---------------------------------------------------------------------- inventory
+export const smsMessages = pgTable(
+  "sms_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    providerMessageId: text("provider_message_id").notNull(),
+    senderHash: text("sender_hash")
+      .notNull()
+      .references(() => contacts.phoneHash, { onDelete: "restrict" }),
+    body: text("body"),
+    bodyExpiresAt: timestamp("body_expires_at", { withTimezone: true }),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    providerMessageUnique: unique("sms_messages_provider_message_unique").on(
+      table.providerMessageId,
+    ),
+    retainedBodyHasExpiry: check(
+      "sms_messages_retained_body_has_expiry",
+      sql`
+        (
+          ${table.body} is null
+          and ${table.bodyExpiresAt} is null
+        )
+        or (
+          ${table.body} is not null
+          and ${table.bodyExpiresAt} is not null
+          and ${table.bodyExpiresAt} > ${table.receivedAt}
+        )
+      `,
+    ),
+  }),
+);
 
-export const inventorySnapshots = pgTable("inventory_snapshots", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  farmStandId: uuid("farm_stand_id").notNull().references(() => farmStands.id),
-  // Two-axis model, snapshot grain.
-  status: inventoryStatus("status").notNull().default("draft"),
-  provenance: provenance("provenance").notNull().default("migrated"),
-  confirmedByPersonId: uuid("confirmed_by_person_id").references(() => people.id),
-  publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const providerInboxEvents = pgTable(
+  "provider_inbox_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    providerEventId: text("provider_event_id").notNull(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => smsMessages.id, { onDelete: "restrict" }),
+    senderHash: text("sender_hash")
+      .notNull()
+      .references(() => contacts.phoneHash, { onDelete: "restrict" }),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    state: inboxProcessingState("state").notNull().default("pending"),
+    claimToken: uuid("claim_token"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
+    finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+    failureCode: text("failure_code"),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    providerEventUnique: unique(
+      "provider_inbox_events_provider_event_unique",
+    ).on(table.providerEventId),
+    messageUnique: unique("provider_inbox_events_message_unique").on(
+      table.messageId,
+    ),
+    oneProcessingClaimPerSender: uniqueIndex(
+      "provider_inbox_events_one_processing_claim_per_sender",
+    )
+      .on(table.senderHash)
+      .where(sql`${table.state} = 'processing'`),
+    occurredOrder: index("provider_inbox_events_sender_order").on(
+      table.senderHash,
+      table.occurredAt,
+      table.providerEventId,
+    ),
+    coherentClaimState: check(
+      "provider_inbox_events_coherent_claim_state",
+      sql`
+        (
+          ${table.state} = 'pending'
+          and ${table.claimToken} is null
+          and ${table.claimedAt} is null
+          and ${table.claimExpiresAt} is null
+          and ${table.finalizedAt} is null
+          and ${table.failureCode} is null
+        )
+        or (
+          ${table.state} = 'processing'
+          and ${table.claimToken} is not null
+          and ${table.claimedAt} is not null
+          and ${table.claimExpiresAt} > ${table.claimedAt}
+          and ${table.finalizedAt} is null
+          and ${table.failureCode} is null
+        )
+        or (
+          ${table.state} = 'processed'
+          and ${table.claimToken} is null
+          and ${table.claimExpiresAt} is null
+          and ${table.finalizedAt} is not null
+          and ${table.failureCode} is null
+        )
+        or (
+          ${table.state} = 'rejected'
+          and ${table.claimToken} is null
+          and ${table.claimExpiresAt} is null
+          and ${table.finalizedAt} is not null
+          and ${table.failureCode} is not null
+        )
+      `,
+    ),
+  }),
+);
 
-export const inventoryItems = pgTable("inventory_items", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  snapshotId: uuid("snapshot_id").notNull().references(() => inventorySnapshots.id),
-  name: text("name").notNull(),
-  isStaple: boolean("is_staple").notNull().default(false),
-  quantity: doublePrecision("quantity"),
-  unit: text("unit"),
-  priceText: text("price_text"),
-  approxLabel: approxLabel("approx_label"),
-});
+export const smsConsents = pgTable(
+  "sms_consents",
+  {
+    recipientHash: text("recipient_hash")
+      .primaryKey()
+      .references(() => contacts.phoneHash, { onDelete: "restrict" }),
+    state: consentState("state").notNull(),
+    captureSource: consentCaptureSource("capture_source"),
+    capturedAt: timestamp("captured_at", { withTimezone: true }),
+    captureEvidenceRef: text("capture_evidence_ref"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    coherentCapture: check(
+      "sms_consents_coherent_capture",
+      sql`
+        (
+          ${table.captureSource} is null
+          and ${table.capturedAt} is null
+          and ${table.captureEvidenceRef} is null
+        )
+        or (
+          ${table.captureSource} is not null
+          and ${table.capturedAt} is not null
+          and ${table.captureEvidenceRef} is not null
+          and length(trim(${table.captureEvidenceRef})) > 0
+        )
+      `,
+    ),
+    activeHasCapture: check(
+      "sms_consents_active_has_capture",
+      sql`${table.state} <> 'active' or ${table.captureSource} is not null`,
+    ),
+  }),
+);
 
-// ------------------------------------------------------------------- stock-out reports
+export const consentTransitionWatermarks = pgTable(
+  "consent_transition_watermarks",
+  {
+    recipientHash: text("recipient_hash")
+      .primaryKey(),
+    transition: consentTransition("transition").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+  },
+  (table) => ({
+    recipientReference: foreignKey({
+      name: "consent_transition_recipient_fk",
+      columns: [table.recipientHash],
+      foreignColumns: [contacts.phoneHash],
+    }).onDelete("restrict"),
+    providerEventUnique: unique(
+      "consent_transition_watermarks_provider_event_unique",
+    ).on(table.providerEventId),
+  }),
+);
 
-export const stockoutReports = pgTable("stockout_reports", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  farmStandId: uuid("farm_stand_id").notNull().references(() => farmStands.id),
-  // Nullable FK (a listed item) PLUS normalized text (an item not currently listed).
-  inventoryItemId: uuid("inventory_item_id").references(() => inventoryItems.id),
-  itemText: text("item_text").notNull(),
-  source: reportSource("source").notNull(),
-  status: reportStatus("status").notNull().default("open"),
-  reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const outboxWork = pgTable(
+  "outbox_work",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    logicalKey: text("logical_key").notNull(),
+    recipientHash: text("recipient_hash")
+      .notNull()
+      .references(() => contacts.phoneHash, { onDelete: "restrict" }),
+    messageKind: text("message_kind").notNull(),
+    body: text("body").notNull(),
+    bodyExpiresAt: timestamp("body_expires_at", {
+      withTimezone: true,
+    }).notNull(),
+    isRequired: boolean("is_required").notNull().default(false),
+    state: outboxState("state").notNull().default("queued"),
+    availableAt: timestamp("available_at", { withTimezone: true }).notNull(),
+    dispatchAuthorizedAt: timestamp("dispatch_authorized_at", {
+      withTimezone: true,
+    }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    logicalKeyUnique: unique("outbox_work_logical_key_unique").on(
+      table.logicalKey,
+    ),
+    recipientStateQueue: index("outbox_work_recipient_state_queue").on(
+      table.recipientHash,
+      table.state,
+      table.availableAt,
+    ),
+    bodyExpiresAfterCreation: check(
+      "outbox_work_body_expires_after_creation",
+      sql`${table.bodyExpiresAt} > ${table.createdAt}`,
+    ),
+    coherentState: check(
+      "outbox_work_coherent_state",
+      sql`
+        (
+          ${table.state} = 'queued'
+          and ${table.dispatchAuthorizedAt} is null
+          and ${table.completedAt} is null
+        )
+        or (
+          ${table.state} = 'dispatching'
+          and ${table.dispatchAuthorizedAt} is not null
+          and ${table.completedAt} is null
+        )
+        or (
+          ${table.state} in ('sent', 'failed', 'ambiguous')
+          and ${table.dispatchAuthorizedAt} is not null
+          and ${table.completedAt} is not null
+        )
+        or (
+          ${table.state} = 'suppressed'
+          and ${table.dispatchAuthorizedAt} is null
+          and ${table.completedAt} is not null
+        )
+      `,
+    ),
+  }),
+);
 
-export const farmerAlertPrefs = pgTable("farmer_alert_prefs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  personId: uuid("person_id").notNull().references(() => people.id),
-  pref: alertPref("pref").notNull().default("immediate"),
-});
+export const outboxDispatchAttempts = pgTable(
+  "outbox_dispatch_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    outboxWorkId: uuid("outbox_work_id")
+      .notNull()
+      .references(() => outboxWork.id, { onDelete: "restrict" }),
+    attemptNumber: integer("attempt_number").notNull(),
+    state: dispatchAttemptState("state").notNull(),
+    providerMessageId: text("provider_message_id"),
+    errorCode: text("error_code"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    attemptUnique: unique("outbox_dispatch_attempts_number_unique").on(
+      table.outboxWorkId,
+      table.attemptNumber,
+    ),
+    providerMessageUnique: unique(
+      "outbox_dispatch_attempts_provider_message_unique",
+    ).on(table.providerMessageId),
+    boundedAttemptNumber: check(
+      "outbox_dispatch_attempts_bounded_number",
+      sql`${table.attemptNumber} between 1 and 3`,
+    ),
+    coherentResult: check(
+      "outbox_dispatch_attempts_coherent_result",
+      sql`
+        (
+          ${table.state} = 'authorized'
+          and ${table.completedAt} is null
+          and ${table.providerMessageId} is null
+          and ${table.errorCode} is null
+        )
+        or (
+          ${table.state} = 'accepted'
+          and ${table.completedAt} is not null
+          and ${table.providerMessageId} is not null
+          and ${table.errorCode} is null
+        )
+        or (
+          ${table.state} in ('definitive_rejection', 'ambiguous')
+          and ${table.completedAt} is not null
+          and ${table.errorCode} is not null
+        )
+      `,
+    ),
+  }),
+);
 
-// -------------------------------------------------------------- messages & routing
+export const inventoryPublicationProposals = pgTable(
+  "inventory_publication_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    senderHash: text("sender_hash").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    payload: jsonb("payload").notNull(),
+    schemaVersion: text("schema_version").notNull(),
+    proposalVersion: integer("proposal_version").notNull(),
+    yesToken: text("yes_token").notNull(),
+    noToken: text("no_token").notNull(),
+    state: proposalState("state").notNull().default("open"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    activationOutboxId: uuid("activation_outbox_id"),
+    activatedVersion: integer("activated_version"),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    consumedToken: proposalToken("consumed_token"),
+    consumptionProviderEventId: text("consumption_provider_event_id"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    senderReference: foreignKey({
+      name: "inventory_proposals_sender_fk",
+      columns: [table.senderHash],
+      foreignColumns: [contacts.phoneHash],
+    }).onDelete("restrict"),
+    salesLocationReference: foreignKey({
+      name: "inventory_proposals_location_fk",
+      columns: [table.salesLocationId],
+      foreignColumns: [salesLocations.id],
+    }).onDelete("restrict"),
+    activationOutboxReference: foreignKey({
+      name: "inventory_proposals_activation_outbox_fk",
+      columns: [table.activationOutboxId],
+      foreignColumns: [outboxWork.id],
+    }).onDelete("restrict"),
+    oneOpenPerSender: uniqueIndex(
+      "inventory_publication_proposals_one_open_per_sender",
+    )
+      .on(table.senderHash)
+      .where(sql`${table.state} = 'open'`),
+    activationOutboxUnique: unique(
+      "inventory_publication_proposals_activation_outbox_unique",
+    ).on(table.activationOutboxId),
+    consumptionEventUnique: unique(
+      "inventory_publication_proposals_consumption_event_unique",
+    ).on(table.consumptionProviderEventId),
+    positiveVersion: check(
+      "inventory_publication_proposals_positive_version",
+      sql`${table.proposalVersion} > 0`,
+    ),
+    objectPayload: check(
+      "inventory_publication_proposals_object_payload",
+      sql`jsonb_typeof(${table.payload}) = 'object'`,
+    ),
+    distinctTokens: check(
+      "inventory_publication_proposals_distinct_tokens",
+      sql`${table.yesToken} <> ${table.noToken}`,
+    ),
+    activationCoherent: check(
+      "inventory_publication_proposals_activation_coherent",
+      sql`
+        (
+          ${table.activationOutboxId} is null
+          and ${table.activatedVersion} is null
+          and ${table.activatedAt} is null
+        )
+        or (
+          ${table.activationOutboxId} is not null
+          and ${table.activatedVersion} is not null
+          and ${table.activatedVersion} between 1 and ${table.proposalVersion}
+          and ${table.activatedAt} is not null
+        )
+      `,
+    ),
+    stateCoherent: check(
+      "inventory_publication_proposals_state_coherent",
+      sql`
+        (
+          ${table.state} = 'open'
+          and ${table.consumedToken} is null
+          and ${table.consumptionProviderEventId} is null
+          and ${table.closedAt} is null
+        )
+        or (
+          ${table.state} = 'accepted'
+          and ${table.activatedVersion} = ${table.proposalVersion}
+          and ${table.activatedAt} is not null
+          and ${table.consumedToken} = 'yes'
+          and ${table.consumptionProviderEventId} is not null
+          and ${table.closedAt} is not null
+        )
+        or (
+          ${table.state} = 'declined'
+          and ${table.activatedVersion} = ${table.proposalVersion}
+          and ${table.activatedAt} is not null
+          and ${table.consumedToken} = 'no'
+          and ${table.consumptionProviderEventId} is not null
+          and ${table.closedAt} is not null
+        )
+        or (
+          ${table.state} = 'expired'
+          and ${table.consumedToken} is null
+          and ${table.consumptionProviderEventId} is null
+          and ${table.closedAt} is not null
+        )
+      `,
+    ),
+    expiryAfterCreation: check(
+      "inventory_publication_proposals_expiry_after_creation",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+  }),
+);
 
-export const messages = pgTable("messages", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  personId: uuid("person_id").references(() => people.id),
-  direction: messageDirection("direction").notNull(),
-  // Raw body is TTL-bounded (30 days, provisional). Messages in a FLAGged thread are
-  // exempt while the flag is open and for 30 days after resolution (F-009 review needs
-  // readable threads). Phone is stored hashed only.
-  body: text("body"),
-  bodyExpiresAt: timestamp("body_expires_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const inventoryRevisions = pgTable(
+  "inventory_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    farmId: uuid("farm_id").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    proposalId: uuid("proposal_id").notNull(),
+    publishedByAuthorizationId: uuid(
+      "published_by_authorization_id",
+    ).notNull(),
+    farmApprovalId: uuid("farm_approval_id").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+    isCurrent: boolean("is_current").notNull().default(true),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+  },
+  (table) => ({
+    idAndLocationUnique: unique(
+      "inventory_revisions_id_location_unique",
+    ).on(table.id, table.salesLocationId),
+    proposalUnique: unique("inventory_revisions_proposal_unique").on(
+      table.proposalId,
+    ),
+    proposalReference: foreignKey({
+      name: "inventory_revisions_proposal_fk",
+      columns: [table.proposalId],
+      foreignColumns: [inventoryPublicationProposals.id],
+    }).onDelete("restrict"),
+    oneCurrentPerLocation: uniqueIndex(
+      "inventory_revisions_one_current_per_location",
+    )
+      .on(table.salesLocationId)
+      .where(sql`${table.isCurrent}`),
+    locationFarmReference: foreignKey({
+      name: "inventory_revisions_location_farm_fk",
+      columns: [table.salesLocationId, table.farmId],
+      foreignColumns: [salesLocations.id, salesLocations.farmId],
+    }).onDelete("restrict"),
+    authorizationFarmReference: foreignKey({
+      name: "inventory_revisions_authorization_farm_fk",
+      columns: [table.publishedByAuthorizationId, table.farmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("restrict"),
+    approvalFarmReference: foreignKey({
+      name: "inventory_revisions_approval_farm_fk",
+      columns: [table.farmApprovalId, table.farmId],
+      foreignColumns: [farmApprovals.id, farmApprovals.farmId],
+    }).onDelete("restrict"),
+    currentStateCoherent: check(
+      "inventory_revisions_current_state_coherent",
+      sql`
+        (
+          ${table.isCurrent}
+          and ${table.supersededAt} is null
+        )
+        or (
+          not ${table.isCurrent}
+          and ${table.supersededAt} > ${table.publishedAt}
+        )
+      `,
+    ),
+  }),
+);
 
-export const conversationStates = pgTable("conversation_states", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  personId: uuid("person_id").notNull().references(() => people.id),
-  // The pending action a context-bound YES/OUT commits, plus its expiry (for GC).
-  // Expiry is a PER-CONSUMER parameter of the commitment machine (provisional defaults:
-  // publish + stock-out 48h; activation 14 days — farmers reply slowly).
-  pendingConfirmationJson: jsonb("pending_confirmation_json"),
-  pendingExpiresAt: timestamp("pending_expires_at", { withTimezone: true }),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const inventoryEntries = pgTable(
+  "inventory_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    inventoryRevisionId: uuid("inventory_revision_id").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    itemName: text("item_name").notNull(),
+    quantity: doublePrecision("quantity"),
+    unit: text("unit"),
+    priceText: text("price_text"),
+    approximation: inventoryApproximation("approximation"),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => ({
+    idAndLocationUnique: unique(
+      "inventory_entries_id_location_unique",
+    ).on(table.id, table.salesLocationId),
+    revisionLocationReference: foreignKey({
+      name: "inventory_entries_revision_location_fk",
+      columns: [table.inventoryRevisionId, table.salesLocationId],
+      foreignColumns: [
+        inventoryRevisions.id,
+        inventoryRevisions.salesLocationId,
+      ],
+    }).onDelete("restrict"),
+    itemNotBlank: check(
+      "inventory_entries_item_not_blank",
+      sql`length(trim(${table.itemName})) > 0`,
+    ),
+    validQuantity: check(
+      "inventory_entries_valid_quantity",
+      sql`${table.quantity} is null or ${table.quantity} >= 0`,
+    ),
+    nonnegativeSortOrder: check(
+      "inventory_entries_nonnegative_sort_order",
+      sql`${table.sortOrder} >= 0`,
+    ),
+  }),
+);
 
-export const flags = pgTable("flags", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  personId: uuid("person_id").references(() => people.id),
-  reason: text("reason"),
-  status: flagStatus("status").notNull().default("open"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-});
+export const stockOutReports = pgTable(
+  "stock_out_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    salesLocationId: uuid("sales_location_id")
+      .notNull()
+      .references(() => salesLocations.id, { onDelete: "restrict" }),
+    referencedInventoryEntryId: uuid("referenced_inventory_entry_id"),
+    unlistedItemText: text("unlisted_item_text"),
+    status: reportStatus("status").notNull().default("open"),
+    reviewedByAdministratorId: uuid("reviewed_by_administrator_id"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reportedAt: timestamp("reported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    reviewerReference: foreignKey({
+      name: "stock_out_reports_reviewer_fk",
+      columns: [table.reviewedByAdministratorId],
+      foreignColumns: [administrators.id],
+    }).onDelete("restrict"),
+    entryLocationReference: foreignKey({
+      name: "stock_out_reports_entry_location_fk",
+      columns: [table.referencedInventoryEntryId, table.salesLocationId],
+      foreignColumns: [
+        inventoryEntries.id,
+        inventoryEntries.salesLocationId,
+      ],
+    }).onDelete("restrict"),
+    exactlyOneItemReference: check(
+      "stock_out_reports_exactly_one_item_reference",
+      sql`
+        (
+          ${table.referencedInventoryEntryId} is not null
+          and ${table.unlistedItemText} is null
+        )
+        or (
+          ${table.referencedInventoryEntryId} is null
+          and ${table.unlistedItemText} is not null
+          and length(trim(${table.unlistedItemText})) > 0
+        )
+      `,
+    ),
+    coherentReview: check(
+      "stock_out_reports_coherent_review",
+      sql`
+        (
+          ${table.status} = 'open'
+          and ${table.reviewedByAdministratorId} is null
+          and ${table.reviewedAt} is null
+        )
+        or (
+          ${table.status} in ('reviewed', 'dismissed')
+          and ${table.reviewedByAdministratorId} is not null
+          and ${table.reviewedAt} is not null
+        )
+      `,
+    ),
+  }),
+);
 
-// ----------------------------------------------------------------------- ai_runs
-// Telemetry/provenance for one model-seam call. Stores NO model input and no
-// PII-bearing output content — see the MAY-store list in docs/DATA_ARCHITECTURE.md.
+export const flags = pgTable(
+  "flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contactHash: text("contact_hash").references(() => contacts.phoneHash, {
+      onDelete: "restrict",
+    }),
+    inboxEventId: uuid("inbox_event_id").references(
+      () => providerInboxEvents.id,
+      { onDelete: "restrict" },
+    ),
+    reasonCode: text("reason_code").notNull(),
+    status: flagStatus("status").notNull().default("open"),
+    dispositionCode: text("disposition_code"),
+    disposedByAdministratorId: uuid(
+      "disposed_by_administrator_id",
+    ).references(() => administrators.id, { onDelete: "restrict" }),
+    disposedAt: timestamp("disposed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    reasonNotBlank: check(
+      "flags_reason_code_not_blank",
+      sql`length(trim(${table.reasonCode})) > 0`,
+    ),
+    coherentDisposition: check(
+      "flags_coherent_disposition",
+      sql`
+        (
+          ${table.status} = 'open'
+          and ${table.dispositionCode} is null
+          and ${table.disposedByAdministratorId} is null
+          and ${table.disposedAt} is null
+        )
+        or (
+          ${table.status} in ('resolved', 'dismissed')
+          and ${table.dispositionCode} is not null
+          and ${table.disposedByAdministratorId} is not null
+          and ${table.disposedAt} is not null
+        )
+      `,
+    ),
+  }),
+);
 
-export const aiRuns = pgTable("ai_runs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  seam: text("seam").notNull(),
-  provider: text("provider").notNull(),
-  model: text("model"),
-  schemaVersion: text("schema_version"),
-  validationStatus: aiValidationStatus("validation_status").notNull(),
-  repairCount: integer("repair_count").notNull().default(0),
-  // opaque id set / hashes only — never contents.
-  refIds: jsonb("ref_ids"),
-  latencyMs: integer("latency_ms"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    action: text("action").notNull(),
+    actorContactHash: text("actor_contact_hash").references(
+      () => contacts.phoneHash,
+      { onDelete: "restrict" },
+    ),
+    actorAdministratorId: uuid("actor_administrator_id").references(
+      () => administrators.id,
+      { onDelete: "restrict" },
+    ),
+    subjectType: text("subject_type").notNull(),
+    subjectId: uuid("subject_id"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    actionNotBlank: check(
+      "audit_events_action_not_blank",
+      sql`length(trim(${table.action})) > 0`,
+    ),
+    subjectTypeNotBlank: check(
+      "audit_events_subject_type_not_blank",
+      sql`length(trim(${table.subjectType})) > 0`,
+    ),
+    atMostOneActor: check(
+      "audit_events_at_most_one_actor",
+      sql`
+        ${table.actorContactHash} is null
+        or ${table.actorAdministratorId} is null
+      `,
+    ),
+  }),
+);
 
-// -------------------------------------------------------------- gleaning (designed, unused)
-// Present so the generic commitment state machine is validated against a SECOND consumer
-// (gleaning signup) and tenant scoping is proven once. Not wired into any flow in Phase 0.
-
-export const gleaningOpportunities = pgTable("gleaning_opportunities", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  crop: text("crop").notNull(),
-  location: text("location").notNull(),
-  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
-  volunteerMin: integer("volunteer_min"),
-  volunteerMax: integer("volunteer_max"),
-  organizerPersonId: uuid("organizer_person_id").references(() => people.id),
-  publicNote: text("public_note"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-export const gleaningSignups = pgTable("gleaning_signups", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
-  opportunityId: uuid("opportunity_id").notNull().references(() => gleaningOpportunities.id),
-  personId: uuid("person_id").notNull().references(() => people.id),
-  status: signupStatus("status").notNull(),
-  waitlistPosition: integer("waitlist_position"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const modelRuns = pgTable(
+  "model_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    seam: text("seam").notNull(),
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    schemaVersion: text("schema_version").notNull(),
+    validationStatus: modelValidationStatus("validation_status").notNull(),
+    repairCount: integer("repair_count").notNull().default(0),
+    opaqueRefs: jsonb("opaque_refs").notNull().default([]),
+    latencyMs: integer("latency_ms"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    costMicros: integer("cost_micros"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    repairCountValid: check(
+      "model_runs_repair_count_valid",
+      sql`
+        ${table.repairCount} >= 0
+        and (
+          (${table.validationStatus} = 'repaired_then_passed' and ${table.repairCount} > 0)
+          or (${table.validationStatus} <> 'repaired_then_passed' and ${table.repairCount} = 0)
+        )
+      `,
+    ),
+    nonnegativeMetrics: check(
+      "model_runs_nonnegative_metrics",
+      sql`
+        (${table.latencyMs} is null or ${table.latencyMs} >= 0)
+        and (${table.inputTokens} is null or ${table.inputTokens} >= 0)
+        and (${table.outputTokens} is null or ${table.outputTokens} >= 0)
+        and (${table.costMicros} is null or ${table.costMicros} >= 0)
+      `,
+    ),
+    validTiming: check(
+      "model_runs_valid_timing",
+      sql`${table.completedAt} is null or ${table.completedAt} >= ${table.startedAt}`,
+    ),
+    opaqueRefsArray: check(
+      "model_runs_opaque_refs_array",
+      sql`jsonb_typeof(${table.opaqueRefs}) = 'array'`,
+    ),
+  }),
+);

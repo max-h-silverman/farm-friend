@@ -1,8 +1,8 @@
 import { defineConfig } from "vitest/config";
 
-// Integration tests: data-layer invariants against Postgres (tenant scoping, the
-// stock-out-report-never-mutates-inventory rule, importer idempotency, VIGA seed).
-// Requires DATABASE_URL; skips its body when unset (see the suite guards).
+// Integration tests create an empty throwaway Postgres database, apply every
+// committed migration, exercise the launch constraints, then drop that database.
+// DATABASE_URL is required and its role must be allowed to create/drop databases.
 export default defineConfig({
   test: {
     include: ["packages/*/src/**/*.integration.test.ts"],

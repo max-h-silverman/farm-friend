@@ -1,13 +1,9 @@
-# maps/ — VIGA data-migration importer
+# maps/ — initial VIGA listing reference input
 
-Scaffold for the re-runnable/idempotent importer built out in **F-007a**. It ingests the existing
-VIGA map/form data against a documented CSV/JSON **input contract** (the input schema *is* the
-spec, since the real Google My Maps / Sheet export format isn't finalized) and seeds
-`farms`/`farm_stands` with lifecycle `status=current`, provenance `migrated`, geocoded via the
-`MapProvider` seam (offline stub in tests/CI).
+The existing VIGA map/form export is reference input for a later validated, one-time seed utility.
+It is not migration data and establishes no compatibility, lifecycle, claim, or provenance model.
 
-See [../docs/RUNBOOK.md](../docs/RUNBOOK.md) §"The map importer" for the input contract and
-idempotency rules (a re-run never clobbers a farmer who has activated).
-
-Phase 0 lands only this scaffold + the seams it will use (`MapProvider` in `@farm-friend/core`);
-the importer logic itself is F-007a.
+The seed utility is deliberately not part of the initial database migration. When authorized, it
+will validate and load farms, public sales locations, listing facts, and approval state against the
+clean launch schema. One-time location validation belongs to that utility; there is no runtime
+geocoder or permanent mapping-provider seam, and unresolved locations remain operator tasks.

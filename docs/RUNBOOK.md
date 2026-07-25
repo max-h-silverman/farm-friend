@@ -7,18 +7,18 @@ not inlined there).
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract.
 >
-> **Status.** The repository now matches the four-package baseline, but there are **no committed
-> migrations**, the SMS webhook does not yet verify signatures or persist, and live SMS/model
-> implementations and the composition root do not exist. Where a step below names a path or script
-> that does not exist yet, it is the **contract the corresponding work builds to**, not a
-> description of today.
+> **Status.** The repository matches the four-package baseline and contains the clean launch schema
+> plus its initial migration. The SMS webhook does not yet verify signatures or persist, repository
+> workflow transactions are not implemented, and live SMS/model implementations and the composition
+> root do not exist. Where a step below names a path or script that does not exist yet, it is the
+> **contract the corresponding work builds to**, not a description of today.
 
 ## Prerequisites
 
 - **Node** per `.nvmrc` (`nvm use`). npm workspaces (ESM).
-- **Postgres** for integration tests and migrations: local Postgres or a **Neon** dev branch. Set
-  `DATABASE_URL` (see `.env.example`). Integration tests **skip silently without it** — a run with
-  no `DATABASE_URL` is not evidence the data invariants hold.
+- **Postgres** for integration tests and migrations: local Postgres or a disposable CI instance.
+  Set `DATABASE_URL` (see `.env.example`) to a database whose test role may create and drop a
+  throwaway database. The integration suite fails explicitly when the variable is absent.
 - No network is required for unit tests or evals (the model stub is offline and deterministic).
 
 ## Local dev — the five commands
@@ -56,8 +56,11 @@ The launch schema is a **clean initial migration** containing only the minimum d
 [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md), with the constraints listed there enforced at the
 database level.
 
-**CI must run migrations from an empty Postgres database** — a migration set that only works
-against a hand-evolved local database is not proven.
+`npm run test:integration` creates a uniquely named empty database through `DATABASE_URL`, applies
+every file in `packages/db/drizzle/`, runs the migration set again to prove the Drizzle journal is
+a no-op, exercises the launch constraints, and drops the test database. This is destructive only
+to the uniquely named database created by the harness; never point manual migration commands at a
+database whose contents you intend to preserve.
 
 ## Seeding initial listing data
 
