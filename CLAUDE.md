@@ -206,7 +206,8 @@ cooperative stubs. Suites:
 - **Unit** — `npm test` (vitest). Keep pure core logic free of DB/SMS/LLM by injecting seams + `Clock`.
 - **Integration** — `npm run test:integration` (vitest, Postgres). Must run migrations **from an
   empty database**, exercise complete use cases with real constraints and transactions, and prove
-  the data invariants. **These skip silently without `DATABASE_URL` — a skipped run is not green.**
+  the data invariants. The suite requires `DATABASE_URL`, creates and drops a uniquely named
+  throwaway database, and fails explicitly when Postgres is unavailable.
 - **Typecheck / lint** — `npm run typecheck` / `npm run lint`. The typecheck proves that ordinary
   callers cannot bypass the static provenance barrier; it does not prove runtime content safety.
 - **Evals** — `npm run evals`. Required for any change touching a model seam. `critical` fixtures
@@ -286,32 +287,35 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-021 is in review in [PR #16](https://github.com/max-h-silverman/farm-friend/pull/16).
-The repository now contains only `apps/web` plus `packages/core`, `db`, `sms`, and `ai`; an
-architecture test enforces that exact workspace set, permitted dependency direction, and zero
-workspace dependencies/imports from `core`. `apps/mobile`, `packages/config`, and
-`packages/contracts` are deleted. HTTP health validation lives beside its handler; the obsolete
-migration-provenance/claim-state shared types and recency helper are deleted; deterministic AI/SMS
-test doubles remain; throwing live-provider placeholders are removed.
+**Phase:** F-022 is in review in
+[PR #17](https://github.com/max-h-silverman/farm-friend/pull/17) from merged PR #16. The database
+package now declares the clean launch records only and adds
+`packages/db/drizzle/0000_clean_launch.sql` plus its Drizzle journal/snapshot. The schema separates
+farm fallback map projections from actionable farm-stand / VIGA Farmers Market sales locations;
+uses a single normalized raw-E.164 contact column and hashed workflow keys; and supplies constrained
+authorization, approval, published inventory, inbox/message, consent, proposal, private report,
+flag, outbox, audit, and model-evidence records. The integration harness creates an empty throwaway
+Postgres database, migrates it, reruns the journal as a no-op, exercises the launch constraints, and
+drops it. No seed data or repository workflow transaction was added.
 
-**Verified July 25, 2026 for F-021:** `npm test` 46/46 across 10 files; typecheck + lint pass;
-evals critical 3/3, advisory 2/2, adversarial 4/4; the production Next.js build passes. These
-checks primarily prove **isolated helpers and package structure, not launch workflows**.
-`npm run test:integration` completed with all 3 Postgres tests **skipped** without `DATABASE_URL`;
-this is not green Postgres proof.
+**Verified July 25, 2026 for F-022:** `npm test` 46/46 across 10 files; real-Postgres integration
+tests 12/12 against an isolated PostgreSQL 16.12 cluster; typecheck + lint pass; evals critical 3/3,
+advisory 2/2, adversarial 4/4; the production Next.js build and `git diff --check` pass. The
+Postgres suite proves the initial migration and schema constraints from an empty database, **not**
+the later sender-claiming, consent-ordering, publication, dispatch, delivery, or retention
+transactions.
 
-**Known gaps (from the Phase 3 audit, still verified):** **no committed migrations**; the SMS
-webhook parses JSON and echoes a command with **no signature verification, persistence,
-idempotency, consent, or dispatch**; auth returns an empty role list and a synthetic tenant with no
-durable session; **no composition root or live provider implementation**; the legacy schema still
-carries tenancy/gleaning/migration-provenance structures the contract removes; the stock-out test
-proves only that a returned object lacks a property; the grounding eval uses a cooperative canned
-model; the generic model-context assembler and helper-only evals do not enforce the approved
-task-specific privacy boundary.
+**Known gaps (from the Phase 3 audit):** the SMS webhook parses JSON and echoes a command with **no
+signature verification, persistence, idempotency, consent, or dispatch**; auth still returns an
+empty role list and synthetic pre-clean-room scope with no durable session; **no composition root
+or live provider implementation**; the pre-workflow core commitment/role placeholders have no
+authoritative transactional caller; the stock-out core test proves only returned-object shape; the
+grounding eval uses a cooperative canned model; and the generic model-context assembler plus
+helper-only evals do not enforce the approved task-specific privacy boundary.
 
-**PM / authorization:** F-021 is `in review` at implementation commit `bb9bf96`. F-012 through
-F-019 remain planned and unauthorized for implementation.
+**PM / authorization:** F-022 is `in review` at implementation commit `5507d68`. F-012 through
+F-019 remain planned and are not implemented by this tranche.
 
-**Next:** review and merge PR #16. After merge, plan the clean launch schema/migration tranche as
-the next safe-refactor step; do not begin it or F-012 through F-019 without separate authorization,
-and resolve only the location-projection decisions required by its first real schema consumer.
+**Next:** review and merge PR #17 as the F-022 schema / migration foundation. Do not begin the
+F-012 through F-019 handlers, workflows, providers, model boundaries, UI, campaign work, seed
+utility, or deployment without separate authorization.

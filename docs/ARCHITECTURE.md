@@ -9,12 +9,14 @@ workflows, provider seams, and the invariants the code must enforce. Product rat
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
 > **Status: requirements, not claims.** Most of this document describes the **target** the build is
-> working toward. The package boundary and dependency direction are now enforced by an architecture
-> test, but there are no committed migrations, the SMS webhook does not verify signatures or
-> persist, live provider implementations and the composition root do not exist, and the generic AI
-> assembler does not implement the approved task-specific privacy projections. Statements here are
-> **requirements** until executable code and a test prove them. Do not cite this doc as evidence
-> that a guarantee holds.
+> working toward. The package boundary and dependency direction are enforced by an architecture
+> test. The clean launch schema and initial migration are present and verified from an empty
+> throwaway Postgres database, but the repository transactions and workflows described below are
+> not implemented. The SMS webhook does not verify signatures or persist, live provider
+> implementations and the composition root do not exist, and the generic AI assembler does not
+> implement the approved task-specific privacy projections. Statements here are **requirements**
+> until executable code and a test prove them. Do not cite this doc as evidence that a guarantee
+> holds.
 
 ## Design stance: the zen desk
 
