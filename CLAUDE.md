@@ -287,16 +287,13 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-022 is in review in
-[PR #17](https://github.com/max-h-silverman/farm-friend/pull/17) from merged PR #16. The database
-package now declares the clean launch records only and adds
-`packages/db/drizzle/0000_clean_launch.sql` plus its Drizzle journal/snapshot. The schema separates
-farm fallback map projections from actionable farm-stand / VIGA Farmers Market sales locations;
-uses a single normalized raw-E.164 contact column and hashed workflow keys; and supplies constrained
-authorization, approval, published inventory, inbox/message, consent, proposal, private report,
-flag, outbox, audit, and model-evidence records. The integration harness creates an empty throwaway
-Postgres database, migrates it, reruns the journal as a no-op, exercises the launch constraints, and
-drops it. No seed data or repository workflow transaction was added.
+**Phase:** F-022 is complete. The database package declares only the clean launch records and
+contains one executable initial migration plus Drizzle metadata. The schema separates farm fallback
+projections from actionable sales locations; keeps raw E.164 in one contact column and uses hashes
+elsewhere; and supplies constrained authorization, approval, published inventory, inbox/message,
+consent, proposal, report, flag, outbox, audit, and model-evidence records. The integration harness
+creates an empty throwaway Postgres database, migrates it, verifies a journal no-op, exercises the
+foundation constraints, and drops it. No seed data or repository workflow transaction exists yet.
 
 **Verified July 25, 2026 for F-022:** `npm test` 46/46 across 10 files; real-Postgres integration
 tests 12/12 against an isolated PostgreSQL 16.12 cluster; typecheck + lint pass; evals critical 3/3,
@@ -313,9 +310,9 @@ authoritative transactional caller; the stock-out core test proves only returned
 grounding eval uses a cooperative canned model; and the generic model-context assembler plus
 helper-only evals do not enforce the approved task-specific privacy boundary.
 
-**PM / authorization:** F-022 is `in review` at implementation commit `5507d68`. F-012 through
-F-019 remain planned and are not implemented by this tranche.
+**PM / authorization:** F-022 is `done` and archived. F-012 through F-019 remain planned and
+require separate implementation authorization.
 
-**Next:** review and merge PR #17 as the F-022 schema / migration foundation. Do not begin the
-F-012 through F-019 handlers, workflows, providers, model boundaries, UI, campaign work, seed
-utility, or deployment without separate authorization.
+**Next:** select and authorize the next planned tranche. F-014 owns the authoritative sender,
+consent-transition, confirmation/publication, and outbox transaction behavior supported by this
+schema; do not silently absorb F-012 through F-019 while choosing or implementing it.

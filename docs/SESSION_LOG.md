@@ -38,21 +38,22 @@ confirmation/publication, STOP-versus-dispatch ordering, delivery monotonicity, 
 also adds no handler, provider, model seam, UI, campaign behavior, seed data, or deployment behavior
 owned by F-012 through F-019.
 
-**PM:** F-022 moved to `in progress` at PM commit `6cce6c7` and to `in review` at `004126c`;
-implementation commit `5507d68` is recorded as the key commit.
+**PM:** F-022 moved to `in progress` at PM commit `6cce6c7`, to `in review` at `004126c`, and
+to archived `done` at `bd9ee4e` + `9fe9128`. Implementation commit `5507d68`, review-state commit
+`461aa6e`, and merge `fc49e68` are recorded as key commits.
 
 **Verified:** the original red integration run failed 3/3 as intended; the completed
 real-Postgres suite passes 12/12 against an isolated PostgreSQL 16.12 cluster; `npm test` passes
 46/46 across 10 files; typecheck and lint PASS; evals critical 3/3, advisory 2/2, adversarial 4/4;
 the production Next.js build and `git diff --check` PASS.
 
-**Release:** implementation commit `5507d68` is pushed on `f-022-clean-launch-schema`;
-[PR #17](https://github.com/max-h-silverman/farm-friend/pull/17) is open. No deployment is owed for
-this schema-only prelaunch tranche.
+**Release:** implementation commit `5507d68` and review-state commit `461aa6e` merged in
+[PR #17](https://github.com/max-h-silverman/farm-friend/pull/17) at `fc49e68`. The feature branch
+was removed. No deployment was performed or owed for this schema-only prelaunch tranche.
 
-**Next:** review and merge PR #17 as the schema / empty-database migration foundation only. Do not
-absorb F-012 through F-019 or treat the schema records as proof that their transactions and
-workflows are implemented.
+**Next:** select and separately authorize the next planned tranche. F-014 owns the authoritative
+transaction behavior supported by this schema; F-012 through F-019 remain distinct owners and must
+not be absorbed merely because their later workflows use these records.
 
 ## 2026-07-25 — F-021 four-package boundary reset
 
