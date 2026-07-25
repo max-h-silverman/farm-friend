@@ -9,12 +9,12 @@ workflows, provider seams, and the invariants the code must enforce. Product rat
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
 > **Status: requirements, not claims.** Most of this document describes the **target** the build is
-> working toward. The repository does not yet enforce it — there are no committed migrations, the
-> SMS webhook does not verify signatures or persist, the live SMS and model adapters throw, package
-> dependencies point the wrong way, there is no composition root, and the generic AI assembler does
-> not implement the approved task-specific privacy projections. Statements here are **requirements**
-> until executable code and a test prove them. Do not cite this doc as evidence that a guarantee
-> holds.
+> working toward. The package boundary and dependency direction are now enforced by an architecture
+> test, but there are no committed migrations, the SMS webhook does not verify signatures or
+> persist, live provider implementations and the composition root do not exist, and the generic AI
+> assembler does not implement the approved task-specific privacy projections. Statements here are
+> **requirements** until executable code and a test prove them. Do not cite this doc as evidence
+> that a guarantee holds.
 
 ## Design stance: the zen desk
 
@@ -66,8 +66,9 @@ core -> no other package
 `core` defines the ports; `db`, `sms`, and `ai` implement them. **`core` imports no other
 workspace package** — that is what keeps product rules testable without I/O.
 
-> *Current violation:* `packages/core/package.json` depends on `ai`, `config`, `contracts`, `db`,
-> and `sms`, reversing this direction. Correcting it is a separate finding.
+> *Verified current boundary:* `packages/core/package.json` has no workspace dependency, core source
+> imports no workspace adapter, and the architecture test permits workspace edges only in the
+> direction above. The composition root and adapter implementations remain later work.
 
 **One composition root** in `apps/web` constructs the database, model, SMS, and other
 adapters and injects them into the authoritative workflows. Runtime configuration is folded into

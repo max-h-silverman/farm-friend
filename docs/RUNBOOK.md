@@ -7,10 +7,11 @@ not inlined there).
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract.
 >
-> **Status.** The repository is mid-rebuild toward the four-package baseline. There are **no
-> committed migrations**, the SMS webhook does not yet verify signatures or persist, and the live
-> SMS and model adapters throw. Where a step below names a path or script that does not exist yet,
-> it is the **contract the corresponding work builds to**, not a description of today.
+> **Status.** The repository now matches the four-package baseline, but there are **no committed
+> migrations**, the SMS webhook does not yet verify signatures or persist, and live SMS/model
+> implementations and the composition root do not exist. Where a step below names a path or script
+> that does not exist yet, it is the **contract the corresponding work builds to**, not a
+> description of today.
 
 ## Prerequisites
 

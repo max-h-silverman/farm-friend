@@ -7,6 +7,48 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-25 — F-021 four-package boundary reset
+
+The first implementation tranche after the clean-room review reset the repository to the approved
+package boundary. The architecture test was written and observed failing first: it reported
+`apps/mobile`, wildcard/deferred workspaces, all five reversed `core` dependencies, and the
+disallowed web dependency on `contracts`. The implementation then:
+
+- deleted `apps/mobile`, `packages/config`, and `packages/contracts`;
+- made the root workspace list explicit and limited it to `apps/web` plus `core`, `db`, `sms`, and
+  `ai`;
+- removed every deleted workspace reference from manifests, TypeScript project references,
+  Next.js transpilation, ESLint configuration, and `package-lock.json`;
+- made `core` independent of workspace adapters in both its manifest and source imports, with the
+  architecture test enforcing the approved allowed-edge direction;
+- moved the still-used stock-out report-source type beside its authoritative core workflow and
+  moved the health response validator beside its HTTP handler;
+- deleted the obsolete migration-provenance/claim-state shared types and migration-aware recency
+  helper rather than relocating them; and
+- retained the deterministic model/SMS test doubles and target-compatible pure helpers while
+  deleting the throwing open-weight and Telnyx placeholders that could be mistaken for operational
+  adapters.
+
+The tranche deliberately did not alter the legacy database schema, add migrations or workflows,
+change campaign/provider/deployment configuration, resolve deferred product decisions, or absorb
+F-012 through F-019. The schema's obsolete tenancy/gleaning/provenance structures therefore remain
+an explicit later-schema gap rather than being partially reshaped here.
+
+**PM:** F-021 moved to `in progress` at PM commit `caa07f3` and to `in review` at `1d5d284`;
+implementation commit `bb9bf96` is recorded as the key commit.
+
+**Verified:** `npm test` 46/46 across 10 files; typecheck and lint PASS; evals critical 3/3,
+advisory 2/2, adversarial 4/4; production Next.js build PASS; `git diff --check` PASS.
+`npm run test:integration` ran with all 3 Postgres tests skipped because `DATABASE_URL` is unset;
+this is not green Postgres proof.
+
+**Release:** implementation commit `bb9bf96` is pushed on `f-021-package-boundary-reset`;
+[PR #16](https://github.com/max-h-silverman/farm-friend/pull/16) is open. No deployment was
+performed or owed.
+
+**Next:** review and merge PR #16, then separately plan the clean launch schema/migration tranche
+without absorbing F-012 through F-019 or resolving decisions without a real schema consumer.
+
 ## 2026-07-25 — Architecture review closed; F-021 planned
 
 The four-part review-to-build gate was completed against the current repository, the stable

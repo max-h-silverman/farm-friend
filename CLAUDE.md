@@ -286,35 +286,32 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** The clean-room architecture review and review-to-build gate are closed. The settled
-baseline includes ranked findings 1–5 and every follow-on decision named in the handoff. F-021 is
-the planned first build tranche: delete `apps/mobile`, `packages/config`, and `packages/contracts`
-and correct dependency direction. It is **planning-only until separately authorized**; the
-application has not yet been refactored to the approved baseline.
+**Phase:** F-021 is in review in [PR #16](https://github.com/max-h-silverman/farm-friend/pull/16).
+The repository now contains only `apps/web` plus `packages/core`, `db`, `sms`, and `ai`; an
+architecture test enforces that exact workspace set, permitted dependency direction, and zero
+workspace dependencies/imports from `core`. `apps/mobile`, `packages/config`, and
+`packages/contracts` are deleted. HTTP health validation lives beside its handler; the obsolete
+migration-provenance/claim-state shared types and recency helper are deleted; deterministic AI/SMS
+test doubles remain; throwing live-provider placeholders are removed.
 
-**Verified July 25, 2026 during architecture-review closeout:** `npm test` 46/46 across 10
-files; typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks
-primarily prove **isolated helpers and structural claims, not launch workflows**.
-`npm run test:integration`
-completed with all 3 Postgres tests **skipped** without `DATABASE_URL`; a real-Postgres run remains
-owed.
+**Verified July 25, 2026 for F-021:** `npm test` 46/46 across 10 files; typecheck + lint pass;
+evals critical 3/3, advisory 2/2, adversarial 4/4; the production Next.js build passes. These
+checks primarily prove **isolated helpers and package structure, not launch workflows**.
+`npm run test:integration` completed with all 3 Postgres tests **skipped** without `DATABASE_URL`;
+this is not green Postgres proof.
 
-**Known gaps (from the Phase 3 audit, verified):** `packages/core` depends on `ai`/`config`/
-`contracts`/`db`/`sms`, reversing the required dependency direction; **no committed migrations**;
-the SMS webhook (`apps/web/app/api/sms/webhook/route.ts`, 27 lines) parses JSON and echoes a
-command with **no signature verification, persistence, idempotency, consent, or dispatch**; auth
-returns an empty role list and a synthetic tenant with no durable session; live AI and Telnyx
-adapters throw; **no composition root**; the schema carries tenancy/gleaning/migration-provenance
-structures the contract removes; the stock-out test proves only that a returned object lacks a
-property; the grounding eval uses a cooperative canned model; the generic model-context assembler
-accepts arbitrary objects and its narrow scan plus helper-only evals do not enforce the approved
+**Known gaps (from the Phase 3 audit, still verified):** **no committed migrations**; the SMS
+webhook parses JSON and echoes a command with **no signature verification, persistence,
+idempotency, consent, or dispatch**; auth returns an empty role list and a synthetic tenant with no
+durable session; **no composition root or live provider implementation**; the legacy schema still
+carries tenancy/gleaning/migration-provenance structures the contract removes; the stock-out test
+proves only that a returned object lacks a property; the grounding eval uses a cooperative canned
+model; the generic model-context assembler and helper-only evals do not enforce the approved
 task-specific privacy boundary.
 
-**PM / authorization:** PM owns current status. F-012 through F-019 remain planned and unauthorized
-for implementation. F-021 is planned as the smallest first package-boundary tranche, but moving it
-to `in progress`, creating its implementation branch, or changing repository code still requires
-an explicit implementation request.
+**PM / authorization:** F-021 is `in review` at implementation commit `bb9bf96`. F-012 through
+F-019 remain planned and unauthorized for implementation.
 
-**Next:** after the documentation closeout merges, explicitly authorize and implement F-021
-test-first on a branch from clean `main`. Do not absorb F-012–F-019, create the launch schema, or
-resolve later consumer-specific UX/provider parameters in that tranche.
+**Next:** review and merge PR #16. After merge, plan the clean launch schema/migration tranche as
+the next safe-refactor step; do not begin it or F-012 through F-019 without separate authorization,
+and resolve only the location-projection decisions required by its first real schema consumer.
