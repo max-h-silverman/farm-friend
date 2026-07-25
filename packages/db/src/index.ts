@@ -5,10 +5,49 @@ import * as schema from "./schema";
 export * from "./schema";
 export { schema };
 
-export type Db = ReturnType<typeof createDb>;
+export * from "./transactions";
 
-/** Create the raw Drizzle client used by repository adapters. */
-export function createDb(databaseUrl: string) {
-  const client = postgres(databaseUrl, { max: 5 });
-  return drizzle(client, { schema });
+export interface Db {
+  /** Drizzle query builder over the launch schema. */
+  readonly orm: ReturnType<typeof drizzle<typeof schema>>;
+  /** The underlying driver, used for row locks and transactional workflow SQL. */
+  readonly sql: ReturnType<typeof postgres>;
+  close(): Promise<void>;
+}
+
+/**
+ * Total connections per process, unchanged from the single-pool original. The split
+ * below divides this budget rather than adding to it.
+ */
+const TOTAL_POOL_SIZE = 5;
+/** The authoritative transactions are raw SQL and hold row locks, so they get more. */
+const SQL_POOL_SIZE = 3;
+const ORM_POOL_SIZE = TOTAL_POOL_SIZE - SQL_POOL_SIZE;
+
+/**
+ * Create the database handle used by repository adapters and authoritative workflows.
+ *
+ * The Drizzle query builder and the raw transactional client are deliberately backed by
+ * SEPARATE clients. `drizzle()` overwrites the date/time serializers on whatever
+ * postgres.js client it is constructed over (drizzle-orm/postgres-js/driver.js), after
+ * which raw SQL on that same client can no longer bind a `Date` — and the resulting
+ * error names the calling query rather than the cause. The authoritative workflows are
+ * raw transactional SQL, so they get a client Drizzle has never touched.
+ *
+ * The split is structural rather than conventional: nothing downstream has to remember
+ * to convert timestamps by hand.
+ */
+export function createDb(databaseUrl: string): Db {
+  const ormClient = postgres(databaseUrl, { max: ORM_POOL_SIZE });
+  const sqlClient = postgres(databaseUrl, { max: SQL_POOL_SIZE });
+  return {
+    orm: drizzle(ormClient, { schema }),
+    sql: sqlClient,
+    close: async () => {
+      await Promise.all([
+        ormClient.end({ timeout: 5 }),
+        sqlClient.end({ timeout: 5 }),
+      ]);
+    },
+  };
 }

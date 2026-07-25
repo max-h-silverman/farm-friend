@@ -287,32 +287,31 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-022 is complete. The database package declares only the clean launch records and
-contains one executable initial migration plus Drizzle metadata. The schema separates farm fallback
-projections from actionable sales locations; keeps raw E.164 in one contact column and uses hashes
-elsewhere; and supplies constrained authorization, approval, published inventory, inbox/message,
-consent, proposal, report, flag, outbox, audit, and model-evidence records. The integration harness
-creates an empty throwaway Postgres database, migrates it, verifies a journal no-op, exercises the
-foundation constraints, and drops it. No seed data or repository workflow transaction exists yet.
+**Phase:** F-014 is complete on top of F-022's schema. The authoritative SMS transaction path now
+exists in code: raw-body Telnyx ed25519 verification before parsing, one generalized provider inbox
+for `message.received`/`message.sent`/`message.finalized` behind one event-ID dedup path,
+recoverable per-sender claiming with fail-closed stale ordering, a separate STOP/START consent
+watermark, one open base-revision-bound proposal per sender with activation-relative 12-hour expiry,
+exactly-once publication that rechecks farmer authority and VIGA approval under lock, consent-aware
+dispatch as STOP's linearization point, bounded retries, ambiguous quarantine, and monotonic
+delivery. Forward migration `0001_authoritative_transactions` adds this without rewriting `0000`.
+`apps/web` has the single composition root, the real webhook route, and bounded workers.
 
-**Verified July 25, 2026 for F-022:** `npm test` 46/46 across 10 files; real-Postgres integration
-tests 12/12 against an isolated PostgreSQL 16.12 cluster; typecheck + lint pass; evals critical 3/3,
-advisory 2/2, adversarial 4/4; the production Next.js build and `git diff --check` pass. The
-Postgres suite proves the initial migration and schema constraints from an empty database, **not**
-the later sender-claiming, consent-ordering, publication, dispatch, delivery, or retention
-transactions.
+**Verified July 25, 2026 for F-014:** `npm test` 83/83 across 14 files; real-Postgres integration
+53/53 across 5 files against an isolated PostgreSQL 16.12 cluster; typecheck + lint pass; evals
+critical 3/3, advisory 2/2, adversarial 4/4; the production Next.js build and `git diff --check`
+pass. The integration suite proves the transaction, concurrency, ordering, authority, and delivery
+invariants — **not** retention, customer inquiry, or the model privacy boundary.
 
-**Known gaps (from the Phase 3 audit):** the SMS webhook parses JSON and echoes a command with **no
-signature verification, persistence, idempotency, consent, or dispatch**; auth still returns an
-empty role list and synthetic pre-clean-room scope with no durable session; **no composition root
-or live provider implementation**; the pre-workflow core commitment/role placeholders have no
-authoritative transactional caller; the stock-out core test proves only returned-object shape; the
-grounding eval uses a cooperative canned model; and the generic model-context assembler plus
-helper-only evals do not enforce the approved task-specific privacy boundary.
+**Known gaps:** the inventory interpreter is a **typed port tested with deterministic fakes** — no
+live model adapter, context projection, or hostile-model proof (F-015). Auth still returns an empty
+role list with no durable session. The superseded generic commitment machine and its `OUT`/`IGNORE`
+tokens remain because the unchanged eval suite exercises them; removal is F-012's. No seed data, no
+customer inquiry/stock-out path, no retention job, and the grounding eval still uses a cooperative
+canned model.
 
-**PM / authorization:** F-022 is `done` and archived. F-012 through F-019 remain planned and
-require separate implementation authorization.
+**PM / authorization:** F-022 and F-014 are `done`. F-012, F-013, and F-015 through F-019 remain
+planned and require separate implementation authorization.
 
-**Next:** select and authorize the next planned tranche. F-014 owns the authoritative sender,
-consent-transition, confirmation/publication, and outbox transaction behavior supported by this
-schema; do not silently absorb F-012 through F-019 while choosing or implementing it.
+**Next:** select and authorize the next planned tranche. F-015 owns the model privacy boundary that
+would connect the interpreter port to a live model; do not silently absorb other planned items.

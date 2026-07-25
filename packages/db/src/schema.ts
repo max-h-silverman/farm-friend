@@ -37,6 +37,18 @@ export const inboxProcessingState = pgEnum("inbox_processing_state", [
   "processed",
   "rejected",
 ]);
+// One inbox accepts every supported provider event; the per-type minimal projection
+// is enforced by check rather than by a second table or deduplication path.
+export const providerEventType = pgEnum("provider_event_type", [
+  "message_received",
+  "message_sent",
+  "message_finalized",
+]);
+export const deliveryStatus = pgEnum("delivery_status", [
+  "sent",
+  "delivered",
+  "delivery_failed",
+]);
 export const consentState = pgEnum("consent_state", ["active", "stopped"]);
 export const consentCaptureSource = pgEnum("consent_capture_source", [
   "join",
@@ -52,6 +64,9 @@ export const proposalState = pgEnum("proposal_state", [
   "accepted",
   "declined",
   "expired",
+  // A revised or base-conflicted proposal is closed honestly rather than silently
+  // overwritten; it consumes no token and publishes nothing.
+  "invalidated",
 ]);
 export const proposalToken = pgEnum("proposal_token", ["yes", "no"]);
 export const outboxState = pgEnum("outbox_state", [
@@ -406,12 +421,19 @@ export const providerInboxEvents = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     providerEventId: text("provider_event_id").notNull(),
-    messageId: uuid("message_id")
+    eventType: providerEventType("event_type")
       .notNull()
-      .references(() => smsMessages.id, { onDelete: "restrict" }),
-    senderHash: text("sender_hash")
-      .notNull()
-      .references(() => contacts.phoneHash, { onDelete: "restrict" }),
+      .default("message_received"),
+    // Inbound projection: only a received event retains a message and a sender.
+    messageId: uuid("message_id").references(() => smsMessages.id, {
+      onDelete: "restrict",
+    }),
+    senderHash: text("sender_hash").references(() => contacts.phoneHash, {
+      onDelete: "restrict",
+    }),
+    // Delivery projection: only a delivery event correlates to an outbound attempt.
+    dispatchAttemptId: uuid("dispatch_attempt_id"),
+    deliveryStatus: deliveryStatus("delivery_status"),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     state: inboxProcessingState("state").notNull().default("pending"),
     claimToken: uuid("claim_token"),
@@ -430,11 +452,39 @@ export const providerInboxEvents = pgTable(
     messageUnique: unique("provider_inbox_events_message_unique").on(
       table.messageId,
     ),
+    dispatchAttemptReference: foreignKey({
+      name: "provider_inbox_events_dispatch_attempt_fk",
+      columns: [table.dispatchAttemptId],
+      foreignColumns: [outboxDispatchAttempts.id],
+    }).onDelete("restrict"),
+    // Sender claiming and conversation ordering are inbound-only; delivery callbacks
+    // use the same durable event mechanism without entering conversation state.
     oneProcessingClaimPerSender: uniqueIndex(
       "provider_inbox_events_one_processing_claim_per_sender",
     )
       .on(table.senderHash)
-      .where(sql`${table.state} = 'processing'`),
+      .where(
+        sql`${table.state} = 'processing' and ${table.eventType} = 'message_received'`,
+      ),
+    minimalProjectionPerEventType: check(
+      "provider_inbox_events_minimal_projection_per_event_type",
+      sql`
+        (
+          ${table.eventType} = 'message_received'
+          and ${table.messageId} is not null
+          and ${table.senderHash} is not null
+          and ${table.dispatchAttemptId} is null
+          and ${table.deliveryStatus} is null
+        )
+        or (
+          ${table.eventType} in ('message_sent', 'message_finalized')
+          and ${table.messageId} is null
+          and ${table.senderHash} is null
+          and ${table.dispatchAttemptId} is not null
+          and ${table.deliveryStatus} is not null
+        )
+      `,
+    ),
     occurredOrder: index("provider_inbox_events_sender_order").on(
       table.senderHash,
       table.occurredAt,
@@ -555,6 +605,13 @@ export const outboxWork = pgTable(
       withTimezone: true,
     }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    // Carrier delivery outcome, advanced monotonically by provider occurrence time.
+    // This is reported delivery state, never an exactly-once delivery claim.
+    deliveryStatus: deliveryStatus("delivery_status"),
+    deliveryOccurredAt: timestamp("delivery_occurred_at", {
+      withTimezone: true,
+    }),
+    deliveryEventId: text("delivery_event_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -571,6 +628,22 @@ export const outboxWork = pgTable(
     bodyExpiresAfterCreation: check(
       "outbox_work_body_expires_after_creation",
       sql`${table.bodyExpiresAt} > ${table.createdAt}`,
+    ),
+    deliveryWatermarkCoherent: check(
+      "outbox_work_delivery_watermark_coherent",
+      sql`
+        (
+          ${table.deliveryStatus} is null
+          and ${table.deliveryOccurredAt} is null
+          and ${table.deliveryEventId} is null
+        )
+        or (
+          ${table.deliveryStatus} is not null
+          and ${table.deliveryOccurredAt} is not null
+          and ${table.deliveryEventId} is not null
+          and ${table.dispatchAuthorizedAt} is not null
+        )
+      `,
     ),
     coherentState: check(
       "outbox_work_coherent_state",
@@ -663,7 +736,13 @@ export const inventoryPublicationProposals = pgTable(
     yesToken: text("yes_token").notNull(),
     noToken: text("no_token").notNull(),
     state: proposalState("state").notNull().default("open"),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // The complete pending snapshot is bound to the base it was computed from, so a
+    // newer publication invalidates it rather than being silently overwritten.
+    baseRevisionId: uuid("base_revision_id"),
+    baseIsFirstPublication: boolean("base_is_first_publication").notNull(),
+    // Expiry is activation-relative: the 12-hour window starts only when Telnyx
+    // accepts the current prompt, so an unactivated proposal has no live window.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
     activationOutboxId: uuid("activation_outbox_id"),
     activatedVersion: integer("activated_version"),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
@@ -716,6 +795,24 @@ export const inventoryPublicationProposals = pgTable(
       "inventory_publication_proposals_distinct_tokens",
       sql`${table.yesToken} <> ${table.noToken}`,
     ),
+    // The (base_revision_id, sales_location_id) foreign key to inventory_revisions is
+    // declared in SQL by the migration rather than here: inventory_revisions already
+    // references this table through proposal_id, and expressing both edges in Drizzle
+    // creates a circular initializer TypeScript cannot infer.
+    baseBindingCoherent: check(
+      "inventory_publication_proposals_base_binding_coherent",
+      sql`
+        (
+          ${table.baseIsFirstPublication}
+          and ${table.baseRevisionId} is null
+        )
+        or (
+          not ${table.baseIsFirstPublication}
+          and ${table.baseRevisionId} is not null
+        )
+      `,
+    ),
+    // A live confirmation window exists only once its current prompt is accepted.
     activationCoherent: check(
       "inventory_publication_proposals_activation_coherent",
       sql`
@@ -723,12 +820,15 @@ export const inventoryPublicationProposals = pgTable(
           ${table.activationOutboxId} is null
           and ${table.activatedVersion} is null
           and ${table.activatedAt} is null
+          and ${table.expiresAt} is null
         )
         or (
           ${table.activationOutboxId} is not null
           and ${table.activatedVersion} is not null
           and ${table.activatedVersion} between 1 and ${table.proposalVersion}
           and ${table.activatedAt} is not null
+          and ${table.expiresAt} is not null
+          and ${table.expiresAt} > ${table.activatedAt}
         )
       `,
     ),
@@ -758,16 +858,12 @@ export const inventoryPublicationProposals = pgTable(
           and ${table.closedAt} is not null
         )
         or (
-          ${table.state} = 'expired'
+          ${table.state} in ('expired', 'invalidated')
           and ${table.consumedToken} is null
           and ${table.consumptionProviderEventId} is null
           and ${table.closedAt} is not null
         )
       `,
-    ),
-    expiryAfterCreation: check(
-      "inventory_publication_proposals_expiry_after_creation",
-      sql`${table.expiresAt} > ${table.createdAt}`,
     ),
   }),
 );

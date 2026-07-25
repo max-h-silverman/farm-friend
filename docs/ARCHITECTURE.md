@@ -8,15 +8,19 @@ workflows, provider seams, and the invariants the code must enforce. Product rat
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: requirements, not claims.** Most of this document describes the **target** the build is
-> working toward. The package boundary and dependency direction are enforced by an architecture
-> test. The clean launch schema and initial migration are present and verified from an empty
-> throwaway Postgres database, but the repository transactions and workflows described below are
-> not implemented. The SMS webhook does not verify signatures or persist, live provider
-> implementations and the composition root do not exist, and the generic AI assembler does not
-> implement the approved task-specific privacy projections. Statements here are **requirements**
-> until executable code and a test prove them. Do not cite this doc as evidence that a guarantee
-> holds.
+> **Status: partly implemented; the rest are requirements.** The package boundary and dependency
+> direction are enforced by an architecture test. The clean launch schema, its initial migration,
+> and the F-014 forward migration are verified from an empty throwaway Postgres database.
+> **Implemented and proven by real-Postgres tests (F-014):** raw-body webhook signature
+> verification, the minimized provider inbox with one event-ID deduplication path, per-sender
+> claiming and recovery, fail-closed stale ordering, the separate STOP/START consent watermark, one
+> open confirmation-gated proposal, exactly-once publication with authority and approval rechecked
+> under lock, the dispatch-claim STOP boundary, bounded retries, ambiguous quarantine, monotonic
+> delivery, the composition root, and the live Telnyx adapter. **Not implemented:** the customer
+> inquiry and stock-out paths, retention, authentication beyond a token check, and the model
+> privacy boundary — the inventory interpreter is a typed port exercised only with deterministic
+> fakes. Statements about unimplemented areas are **requirements** until executable code and a test
+> prove them; do not cite this doc as evidence that an unproven guarantee holds.
 
 ## Design stance: the zen desk
 

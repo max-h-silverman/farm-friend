@@ -118,12 +118,14 @@ describe("clean launch database foundation (integration)", () => {
     return value;
   }
 
-  it("commits one executable initial migration with Drizzle metadata", () => {
+  it("commits the executable initial migration with Drizzle metadata", () => {
     const migrationFiles = existsSync(migrationsDir)
-      ? readdirSync(migrationsDir).filter((file) => file.endsWith(".sql"))
+      ? readdirSync(migrationsDir).filter((file) => file.endsWith(".sql")).sort()
       : [];
 
-    expect(migrationFiles).toEqual(["0000_clean_launch.sql"]);
+    // The initial migration stays first and is never rewritten; later tranches add
+    // forward migrations beside it.
+    expect(migrationFiles[0]).toBe("0000_clean_launch.sql");
     expect(existsSync(resolve(migrationsDir, "meta/_journal.json"))).toBe(true);
     expect(
       existsSync(resolve(migrationsDir, "meta/0000_snapshot.json")),
@@ -176,6 +178,10 @@ describe("clean launch database foundation (integration)", () => {
     const farmCount = await db()`select count(*)::integer as count from farms`;
     expect(farmCount[0]?.count).toBe(0);
 
+    const journal = JSON.parse(
+      readFileSync(resolve(migrationsDir, "meta/_journal.json"), "utf8"),
+    ) as { entries: unknown[] };
+
     const before = await db()`
       select count(*)::integer as count from drizzle.__drizzle_migrations
     `;
@@ -183,8 +189,9 @@ describe("clean launch database foundation (integration)", () => {
     const after = await db()`
       select count(*)::integer as count from drizzle.__drizzle_migrations
     `;
-    expect(before[0]?.count).toBe(1);
-    expect(after[0]?.count).toBe(1);
+    // Every committed migration applied once, and a second run is a no-op.
+    expect(before[0]?.count).toBe(journal.entries.length);
+    expect(after[0]?.count).toBe(journal.entries.length);
   });
 
   it("stores normalized raw E.164 once and uses the unique hash elsewhere", async () => {
@@ -509,12 +516,12 @@ describe("clean launch database foundation (integration)", () => {
     const proposalRows = await db()`
       insert into inventory_publication_proposals (
         sender_hash, sales_location_id, payload, schema_version,
-        proposal_version, yes_token, no_token, expires_at,
-        activation_outbox_id, activated_version, activated_at
+        proposal_version, yes_token, no_token, base_is_first_publication,
+        expires_at, activation_outbox_id, activated_version, activated_at
       )
       values (
         ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })}, '1',
-        1, 'YES', 'NO', ${tomorrow}, ${storedId("prompt1")}, 1, ${later}
+        1, 'YES', 'NO', true, ${tomorrow}, ${storedId("prompt1")}, 1, ${later}
       )
       returning id
     `;
@@ -524,11 +531,11 @@ describe("clean launch database foundation (integration)", () => {
       db()`
         insert into inventory_publication_proposals (
           sender_hash, sales_location_id, payload, schema_version,
-          proposal_version, yes_token, no_token, expires_at
+          proposal_version, yes_token, no_token, base_is_first_publication
         )
         values (
           ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })}, '1',
-          1, 'YES', 'NO', ${tomorrow}
+          1, 'YES', 'NO', true
         )
       `,
     ).rejects.toThrow();
@@ -596,14 +603,14 @@ describe("clean launch database foundation (integration)", () => {
     const secondProposalRows = await db()`
       insert into inventory_publication_proposals (
         sender_hash, sales_location_id, payload, schema_version,
-        proposal_version, yes_token, no_token, state, expires_at,
-        activation_outbox_id, activated_version, activated_at,
-        consumed_token, consumption_provider_event_id, closed_at
+        proposal_version, yes_token, no_token, base_is_first_publication,
+        state, expires_at, activation_outbox_id, activated_version,
+        activated_at, consumed_token, consumption_provider_event_id, closed_at
       )
       values (
         ${farmerHash}, ${storedId("location")},
         ${db().json({ items: [{ name: "Revised item" }] })}, '1',
-        1, 'YES', 'NO', 'accepted', ${tomorrow},
+        1, 'YES', 'NO', true, 'accepted', ${tomorrow},
         ${secondPromptId}, 1, ${later}, 'yes', 'accept-2', ${later}
       )
       returning id

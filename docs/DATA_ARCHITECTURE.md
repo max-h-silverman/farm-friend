@@ -6,14 +6,16 @@ enforce, privacy/retention, and the model-run audit MAY-store list.
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: schema foundation implemented; workflows remain requirements.**
-> `packages/db/src/schema.ts` and `packages/db/drizzle/0000_clean_launch.sql` now contain the clean
-> launch records and database constraints below. The real-Postgres integration harness creates an
-> empty throwaway database, applies every committed migration, reruns the journal as a no-op, and
-> exercises the foundational checks, foreign keys, partial uniqueness, and published-history
-> guards. Repository transactions for sender claiming, consent ordering, confirmation/publication,
-> dispatch, delivery monotonicity, and retention are **not** implemented by this schema tranche;
-> their behavioral statements below remain requirements.
+> **Status: schema and transaction path implemented; retention remains a requirement.**
+> `packages/db/src/schema.ts`, `drizzle/0000_clean_launch.sql`, and the F-014 forward migration
+> `drizzle/0001_authoritative_transactions.sql` contain the launch records and constraints below.
+> The real-Postgres integration harness creates an empty throwaway database, applies every
+> committed migration, reruns the journal as a no-op, and exercises the checks, foreign keys,
+> partial uniqueness, and published-history guards. **F-014 implements and proves** the repository
+> transactions for sender claiming and recovery, conversation ordering, consent ordering,
+> confirmation/publication with authority and approval rechecks, dispatch authorization, and
+> delivery monotonicity. **Retention is still not implemented**; its statements below remain
+> requirements, as do the private-report and stock-out alerting paths owned by F-013.
 
 ## Scope discipline
 
