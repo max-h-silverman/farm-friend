@@ -48,6 +48,9 @@ F-019 remain planned and require separate implementation authorization.
 `DATABASE_URL` is unset; a real-Postgres run remains owed. No deploy is required for this
 documentation/PM-only tranche.
 
+**Released:** repository commit `e7182c1` was pushed in PR #13. No deployment applies to this
+documentation/PM-only change.
+
 **Next:** review the audit's "Keyword grammar" contradiction exactly one finding at a time.
 
 ## 2026-07-24 — Ranked finding 4 decision: one launch SMS program (F-016)
