@@ -8,20 +8,26 @@ verification**, validation, evals, and data minimization. Data shapes are in
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: requirements, not claims.** The live model adapter throws; the current public generic
-> assembler accepts arbitrary objects and rejects only some detected phone-shaped text and key
-> names rather than implementing the task-specific projections described here;
-> output validation checks structure but does not yet enforce selected-ID membership or feed a
-> code renderer; the grounding eval uses a cooperative canned model rather than one attempting
-> unsupported selection; and the
-> adversarial tests exercise helpers rather than an end-to-end hostile-model boundary. Everything
-> below is a **requirement awaiting executable proof**.
+> **Status: partly enforced, partly requirements.** Read each claim below against the code.
 >
-> F-014 added one piece: a **typed inventory-interpreter port** in `packages/core` whose output is
-> validated in code — permitted shapes only, no consequential fields, and every selected entry ID
-> checked against the retrieved snapshot before it has any effect. It is exercised with
-> **deterministic fakes only** and is not connected to a live model. It is therefore evidence about
-> the *code side* of that seam, and **not** a hostile-model or privacy-boundary claim (F-015).
+> **F-015 made the boundary executable for the one seam that has a real consumer today —
+> inventory extraction.** The public generic assembler is **deleted**; `packages/ai` exposes only
+> `projectInventoryExtraction`, which constructs its minimal record field by field from named
+> arguments, so a wider caller row cannot widen model context. The low-level provider call is not
+> exported, so no caller outside `packages/ai` can reach a model except through a named seam; the
+> type test asserts each bypass is a compile error. The adapter is constructed over the provider
+> alone — no db, repository, or record loader. The provider privacy gate (no training, stateless,
+> logging disabled, bounded retention) is asserted at the composition root and fails closed. The
+> adversarial eval group and a hostile full-path integration group now run a **hostile** model
+> across projection → validation → code rendering → durable state, inspecting both the captured
+> provider context and the resulting rows.
+>
+> **Still requirements awaiting their owning item:** the seams below other than inventory
+> extraction have **no projection and no consumer** — stock-out item parsing and grounded fact
+> selection are F-013's, message classification F-012's. Retrieval/ranking, selected-ID
+> membership for *inquiry*, and the code-rendered customer answer are therefore **unbuilt**
+> (F-013). The configured provider is still the deterministic stub; no live vendor adapter
+> exists, so the gate has been exercised but no real vendor's terms have been approved through it.
 
 ## The trust contract — an LLM-brain in a harness
 
@@ -105,15 +111,18 @@ One narrow task interface, with:
 - no repository, database client, record loader, provider-managed thread, or other capability to
   acquire context outside that projection.
 
-The approved launch projections are:
+The approved launch projections are listed below. A projection is **built only when its seam has
+a real consumer** — the zen-desk rule. Today that is inventory extraction
+(`projectInventoryExtraction`); the rest are approved designs their owning items will construct,
+and there is deliberately no generic assembler standing in for them in the meantime.
 
-| Seam | Permitted model input |
-|---|---|
-| inventory extraction | the current farmer message |
-| stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
-| inquiry interpretation | the current customer SMS request |
-| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
-| message classification, if retained | the current sender's message only |
+| Seam | Permitted model input | Built? |
+|---|---|---|
+| inventory extraction | the current farmer message, plus opaque entry IDs and public item names for the farmer's own location | **yes** |
+| stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location | no — F-013 |
+| inquiry interpretation | the current customer SMS request | no — F-013 |
+| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts | no — F-013 |
+| message classification, if retained | the current sender's message only | no — F-012 |
 
 No projection contains raw phone/contact data, another actor's message, unrelated thread history,
 authentication or consent state, admin/audit records, internal notes, or secrets. A current sender
@@ -216,14 +225,20 @@ Evals run against the stub provider in **critical** and **advisory** groups:
 - **advisory**: extraction quality, stock-out item parsing, inquiry interpretation, and
   clarification.
 
-Required corrections to the eval suite: use **hostile models that select unknown identifiers or
-attempt to smuggle factual strings, directions, or commitments into output**; reject structurally
-valid selections outside the retrieved set; prove the queued factual response contains only
-code-rendered retrieved values; and prove a free-text SMS stock-out report cannot select a
-location or queue a farmer alert. Capture and inspect the context at the provider seam, then inspect
-the resulting outbox row through the full authoritative workflow; helper-only fixtures are
-insufficient. Any change touching a model seam runs evals; a provider, prompt, or context-projection
-change must pass the full suite at parity or better.
+**Done (F-015), for the inventory-extraction seam.** `evals/hostile.ts` and the hostile group in
+`apps/web/lib/interpretation.integration.test.ts` use **hostile models that select unknown
+identifiers, invent stock, demand contact data, and attempt to smuggle a publication or recipient
+decision into output**. They capture the context at the provider seam *and* the resulting durable
+rows, rather than asserting on helpers. Structurally valid selections outside the retrieved set are
+rejected; a smuggled consequential field is a visible refusal rather than a silent strip; and an
+invention reaches at most a code-rendered confirmation the farmer must approve.
+
+**Still required, with its owning item.** Proving the queued *customer* factual response contains
+only code-rendered retrieved values, and that a free-text SMS stock-out report cannot select a
+location or queue a farmer alert, needs those paths to exist first (**F-013**).
+
+Any change touching a model seam runs evals; a provider, prompt, or context-projection change must
+pass the full suite at parity or better.
 
 ## Abuse / cost on public model surfaces
 

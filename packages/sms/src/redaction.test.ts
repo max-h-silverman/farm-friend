@@ -7,7 +7,10 @@ import {
   type OutboundMessage,
 } from "./index";
 
-describe("outbound redaction guard — runtime guard (Golden Rule #6, layer 2)", () => {
+// These tests demonstrate the guard's NARROW behavior: brand provenance and the named
+// raw-phone class. They are not evidence that outbound text is universally clean — see the
+// header of redaction.ts for what is deliberately not claimed.
+describe("outbound guard — runtime enforcement of the named raw-phone class", () => {
   it("blocks a raw phone number even if the model output contains one", () => {
     expect(() => redactOutbound("Reply YES. Or call the farmer at (206) 555-1234")).toThrow(
       OutboundRedactionError,
@@ -23,6 +26,19 @@ describe("outbound redaction guard — runtime guard (Golden Rule #6, layer 2)",
     const msg: OutboundMessage = { toPhoneHash: "abc", body };
     expect(typeof body).toBe("string");
     expect(msg.body).toContain("Provo Farms");
+  });
+
+  it("does not claim to detect private values outside the named class", () => {
+    // Recorded deliberately: these PASS the guard. The boundary keeps them out by
+    // code-rendering cross-actor messages from typed facts and returning model prose only
+    // to its own author — not by scanning outbound text for arbitrary sensitive content.
+    for (const body of [
+      "Email the farmer at grower@example.com",
+      "The stand is at 11 Stand Way, behind the red barn",
+      "Call two oh six, five five five, one two three four",
+    ]) {
+      expect(() => redactOutbound(body)).not.toThrow();
+    }
   });
 
   it("only a RedactedOutbound can be sent (the simulator records it)", async () => {

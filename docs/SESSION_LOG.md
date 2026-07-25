@@ -7,6 +7,71 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-25 — F-015 model privacy boundary and hostile verification
+
+Starting from clean `main` at `b9aaf50`, F-015 connected F-014's typed interpreter port to a live
+model seam behind the approved boundary. Test-first throughout: the projection tests failed with
+`projectInventoryExtraction is not a function`, and the type test's bypass assertions were written
+before the export surface they constrain.
+
+**What replaced what.** `assembleContext<T>(seam, fields)` / `assembleSmsContext<T>` are **deleted**,
+not deprecated. They were the audit's central finding: a public generic entry point accepting an
+arbitrary object, whose runtime scan for phone-shaped text and forbidden key names was doing the
+work that a *projection* should do structurally. In their place `packages/ai/src/projections.ts`
+exposes one named projection per built seam. `projectInventoryExtraction` constructs its record
+field by field from named arguments, so handing it a wider row does not widen model context — the
+guarantee is structural rather than a scanner's best effort. It also copies rather than aliases, so
+mutating the caller's array afterward cannot reach an already-built context.
+
+**Three decisions worth recording.**
+
+*Only one projection was built.* The seam catalog approves five, but stock-out parsing and grounded
+fact selection are F-013's and message classification is F-012's — none has a consumer today.
+Building their projections now would have meant five near-duplicate mechanisms with one real caller,
+against the zen-desk rule. The generic assembler was deleted rather than kept "until the others
+arrive," because keeping it would have preserved exactly the bypass F-015 exists to close.
+AI_ARCHITECTURE's seam table now carries a built? column so the gap is legible rather than implied.
+
+*The low-level provider call became unreachable, not merely branded.* F-014's barrier let any caller
+invoke `generateJson` with a context of its own choosing, as long as it came from *an* assembler.
+Now `generateJson` is not exported from `@farm-friend/ai`; the only public model entry is
+`generateValidated`, reachable only with a `ModelSafeContext` that only a projection constructs. The
+type test asserts each bypass — including reintroducing a generic assembler — is a compile error.
+Both directions were verified by deliberate sabotage: reintroducing `assembleContext` fails `tsc`
+with an unused `@ts-expect-error`, and replacing the field-by-field copy with a spread fails exactly
+the two adversarial fixtures written to catch it.
+
+*Zod strips unknown keys; the seam now refuses them.* The hostile integration test caught this: a
+model returning `publish: true` alongside valid edits had that field silently discarded and its
+proposal accepted. Publication was never at risk — it is code's, gated on the farmer's confirmation,
+and the test's own row assertions confirmed nothing published. But "the model reached for a
+consequence it does not own" must be a *visible refusal*, not an invisible cleanup, so every schema
+member is now `.strict()` at the top level too. This is the one place a real defect was found rather
+than a claim being tightened.
+
+**Claims narrowed to what is demonstrated.** The outbound guard's "proves the content is clean" is
+now "refuses the named raw-phone class," with a test recording the values it deliberately does *not*
+catch (emails, addresses, spelled-out digits) and naming what actually keeps other actors' data out:
+code-rendered cross-actor text and prose returning only to its own author. `docs/SMS_COMPLIANCE.md`'s
+"no raw phone numbers / private fields" line was corrected likewise. The eval suite's cooperative
+canned model is gone; `evals/hostile.ts` plus a hostile group in the interpretation integration test
+run hostile models across projection → validation → code rendering → durable rows, inspecting the
+captured provider context *and* the resulting state.
+
+**The provider privacy gate is executable.** `checkProviderDataHandling` / `assertProviderApproved`
+run at the composition root and throw on training, stateful storage, enabled logging, or retention
+past 30 days. Honest scope: this checks an operator-attested, version-controlled *declaration* — it
+is not a network audit of a vendor's practice, and the configured provider is still the stub, so no
+real vendor's terms have been approved through it yet.
+
+**Deliberately not done:** F-012's commitment machine and OUT/IGNORE tokens remain untouched (the
+critical evals still exercise them, so removal stays a deliberate F-012 decision); no customer
+inquiry, retrieval, or stock-out path (F-013); no live vendor adapter; F-016 through F-019 untouched.
+
+**Verified:** `npm test` 99/99 across 16 files; real-Postgres integration 58/58 across 5 files
+against PostgreSQL 16.12; typecheck and lint PASS; evals critical 5/5, advisory 4/4, adversarial
+7/7; the production Next.js build and `git diff --check` PASS.
+
 ## 2026-07-25 — F-014 authoritative SMS transactions
 
 Starting from clean `main` at `cbf8273`, the authoritative transaction path was built test-first on

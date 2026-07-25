@@ -113,8 +113,12 @@ carrier-mandated keyword in campaign registration or public compliance copy.
 - Retry only definitive retryable rejection under a bounded policy. Record a possibly accepted
   result as ambiguous and do not automatically resend it without a verified Telnyx idempotency
   facility.
-- Outbound passes the **redaction guard** — no raw phone numbers / private fields, regardless of
-  model output (see [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) §safety boundary).
+- Outbound passes the **outbound guard**, which normalizes avoidable typographic Unicode and
+  refuses the **named raw-phone class**, regardless of model output. It is deliberately *not* a
+  general private-value detector: keeping other actors' data out of a message comes from
+  code-rendering cross-actor text from permitted typed facts and returning model prose only to
+  the actor whose own task text produced it (see [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)
+  §"The code-enforced safety boundary and its verification").
 - Raw inbound bodies are **short-lived** (exact retention is an unresolved launch decision; flagged
   threads exempt while the flag is open and for a bounded period after resolution); the phone is
   stored **hashed** for lookup/logging (the raw E.164 lives in **exactly one column**, read only by

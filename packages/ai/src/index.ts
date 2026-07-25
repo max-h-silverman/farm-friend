@@ -1,17 +1,22 @@
 import type { z } from "zod";
-import type { ModelSafeContext } from "./assembler";
+import type { ModelSafeContext } from "./projections";
 
-export * from "./assembler";
+export * from "./projections";
 
 /** Result of a validated model call. `ok=false` carries the reason a seam should clarify/flag. */
 export type GenerateResult<T> =
   | { ok: true; value: T; repairCount: number }
   | { ok: false; reason: "invalid_output" | "provider_error"; repairCount: number };
 
-/** The model provider seam. `generateJson` accepts ONLY a ModelSafeContext (compile guard). */
+/**
+ * The model provider seam. `generateJson` accepts ONLY a `ModelSafeContext`, and the
+ * adapter is deliberately given NO other capability — no database, repository, record
+ * loader, provider-managed conversation, file, memory, or retrieval store. It cannot
+ * acquire context beyond the projection it is handed (docs/AI_ARCHITECTURE.md).
+ */
 export interface LLMProvider {
   readonly name: string;
-  /** Produce a raw JSON string for a seam given a model-safe context. Output is UNTRUSTED —
+  /** Produce a raw JSON string for a seam given a projected context. Output is UNTRUSTED —
    *  the validate-and-repair wrapper below validates it before anything acts on it. */
   generateJson(ctx: ModelSafeContext, schemaName: string): Promise<string>;
 }
@@ -20,6 +25,9 @@ export interface LLMProvider {
  * Validate-and-repair wrapper: parse the provider's output against `schema`; on failure, one
  * repair retry, then give up with `invalid_output` (clarify/flag — never a silent guess).
  * Model output is untrusted input; this is the only sanctioned way to turn it into a value.
+ *
+ * This is the package's public model-call entry point. The low-level `generateJson` is
+ * reachable only through a `ModelSafeContext`, which only a projection can construct.
  */
 export async function generateValidated<T>(
   provider: LLMProvider,
@@ -57,3 +65,6 @@ export class StubLLMProvider implements LLMProvider {
     return canned;
   }
 }
+
+export * from "./inventory-seam";
+export * from "./provider-gate";
