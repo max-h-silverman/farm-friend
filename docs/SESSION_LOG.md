@@ -38,21 +38,21 @@ confirmation/publication, STOP-versus-dispatch ordering, delivery monotonicity, 
 also adds no handler, provider, model seam, UI, campaign behavior, seed data, or deployment behavior
 owned by F-012 through F-019.
 
-**PM:** F-022 moved to `in progress` at PM commit `6cce6c7` on
-`f-022-clean-launch-schema`.
+**PM:** F-022 moved to `in progress` at PM commit `6cce6c7` and to `in review` at `004126c`;
+implementation commit `5507d68` is recorded as the key commit.
 
 **Verified:** the original red integration run failed 3/3 as intended; the completed
 real-Postgres suite passes 12/12 against an isolated PostgreSQL 16.12 cluster; `npm test` passes
 46/46 across 10 files; typecheck and lint PASS; evals critical 3/3, advisory 2/2, adversarial 4/4;
 the production Next.js build and `git diff --check` PASS.
 
-**Release:** implementation and verification are complete on `f-022-clean-launch-schema`; commit,
-push, PR, and merge are pending the current session wrap. No deployment is owed for this
-schema-only prelaunch tranche.
+**Release:** implementation commit `5507d68` is pushed on `f-022-clean-launch-schema`;
+[PR #17](https://github.com/max-h-silverman/farm-friend/pull/17) is open. No deployment is owed for
+this schema-only prelaunch tranche.
 
-**Next:** review F-022 as the schema / empty-database migration foundation only. Do not absorb
-F-012 through F-019 or treat the schema records as proof that their transactions and workflows are
-implemented.
+**Next:** review and merge PR #17 as the schema / empty-database migration foundation only. Do not
+absorb F-012 through F-019 or treat the schema records as proof that their transactions and
+workflows are implemented.
 
 ## 2026-07-25 — F-021 four-package boundary reset
 

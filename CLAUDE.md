@@ -287,7 +287,8 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-022 is in progress on `f-022-clean-launch-schema` from merged PR #16. The database
+**Phase:** F-022 is in review in
+[PR #17](https://github.com/max-h-silverman/farm-friend/pull/17) from merged PR #16. The database
 package now declares the clean launch records only and adds
 `packages/db/drizzle/0000_clean_launch.sql` plus its Drizzle journal/snapshot. The schema separates
 farm fallback map projections from actionable farm-stand / VIGA Farmers Market sales locations;
@@ -312,9 +313,9 @@ authoritative transactional caller; the stock-out core test proves only returned
 grounding eval uses a cooperative canned model; and the generic model-context assembler plus
 helper-only evals do not enforce the approved task-specific privacy boundary.
 
-**PM / authorization:** F-022 is `in progress` on `f-022-clean-launch-schema`. F-012 through F-019
-remain planned and are not implemented by this tranche.
+**PM / authorization:** F-022 is `in review` at implementation commit `5507d68`. F-012 through
+F-019 remain planned and are not implemented by this tranche.
 
-**Next:** review the F-022 schema, migration, constraints, and documentation as one foundation
-tranche. Do not begin the F-012 through F-019 handlers, workflows, providers, model boundaries, UI,
-campaign work, seed utility, or deployment without separate authorization.
+**Next:** review and merge PR #17 as the F-022 schema / migration foundation. Do not begin the
+F-012 through F-019 handlers, workflows, providers, model boundaries, UI, campaign work, seed
+utility, or deployment without separate authorization.
