@@ -111,24 +111,41 @@ arbitrarily reordered conversation.
 wins, and `STOP` wins an exact timestamp tie, so intervening free text cannot make a consent command
 stale and an older delayed `START` cannot undo a newer `STOP`.
 
+## Launch SMS consent
+
+Launch VIGA Farm Friend is one registered operational SMS program. Each recipient has one current
+launch-program consent state with capture provenance. `JOIN` and `START` establish or restore it;
+documented farmer onboarding may establish it only after number-control verification and records
+how, when, and where consent was captured. Inventory prompts, publication confirmations, customer
+inquiry replies, and stock-out alerts are message categories inside that program, not separate
+program enrollments.
+
+A customer-initiated inquiry permits its relevant direct response but creates no durable consent for
+later proactive notifications. Launch stores no follow-up interest and has no scoped `MUTE` command.
+Every proactive non-required dispatch requires active launch consent. Universal `STOP` applies
+across all Farm Friend messaging and uses the ordered transition and dispatch boundary above.
+
+Future programs require their own disclosed enrollment when they are approved and built. Launch has
+no program discriminator, future-program enrollment row, `JOIN <program>` grammar, or general
+program-enrollment mechanism.
+
 ## Deterministic routing (code, before any model call)
 
 Each verified, accepted inbound SMS is routed by **code, before any model call**, in this fixed
 order:
 
-1. **Compliance keywords win** — STOP/START/HELP and their required variants. `STOP` always
+1. **Compliance keywords win** — STOP/START/JOIN/HELP and their required variants. `STOP` always
    unsubscribes **globally**, regardless of conversation state, and can never be reinterpreted.
-   `JOIN` handles per-program enrollment for any future program.
-2. **`MUTE`** scopes off a specific passive follow-up without touching global consent.
-3. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). FLAG is a
+   `JOIN` and `START` establish or restore the one launch-program consent state.
+2. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). FLAG is a
    **Farm Friend product safety feature**, not a carrier-mandated keyword.
-4. **Live inventory confirmation** — a context-bound `YES` or `NO` that applies to the sender's one
+3. **Live inventory confirmation** — a context-bound `YES` or `NO` that applies to the sender's one
    open inventory proposal. It is **never global**, commits **exactly once**, and **expires**. A token
    must match deterministically and be the **entire message**; anything else is free text for the
    steps below.
-5. **Active conversation state** routes the message to its in-flight flow.
-6. **Authority and consent gates** determine what the sender may do.
-7. **Only then** may a model seam run.
+4. **Active conversation state** routes the message to its in-flight flow.
+5. **Authority and consent gates** determine what the sender may do.
+6. **Only then** may a model seam run.
 
 A confirmation token is accepted only for the sender's one open inventory proposal, after the
 current prompt has been accepted by Telnyx, and only when the token's provider occurrence time
@@ -167,9 +184,9 @@ Every workflow has **one authoritative core use case and one durable path**:
 | SMS ingress | Verify the raw-body signature, commit one minimized provider event, serialize ordinary stateful work per sender, and fail closed on stale events |
 | Inventory publishing | Maintain one open proposal per sender; after its current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
 | Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally ask for current inventory; a reply uses the ordinary inventory flow; free-text customer SMS cannot queue an alert; never alter public inventory |
-| Customer inquiry | Retrieve typed current facts, obtain model interpretation and selected/ordered fact IDs, validate membership in the retrieved set, render the factual reply in code, and queue it |
-| Passive follow-up | Store a disclosed, narrow, expiring interest; enforce MUTE, STOP, frequency, and recipient selection in code |
-| STOP / START / JOIN / HELP / MUTE | Apply deterministic consent behavior before any other interpretation; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
+| Customer inquiry | Retrieve typed current facts, obtain model interpretation and selected/ordered fact IDs, validate membership in the retrieved set, render the factual reply in code, and queue it; the direct response creates no later proactive subscription |
+| Launch SMS consent | Maintain one launch-program consent state with provenance; `JOIN`, `START`, and documented farmer onboarding establish it; message categories do not have separate enrollment |
+| STOP / START / JOIN / HELP | Apply deterministic consent behavior before any other interpretation; universal STOP applies across all Farm Friend messaging; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
 | FLAG | Store the concern and expose it to the single-level admin queue |
 | Authentication | Issue and consume short-lived credentials once, with replay prevention and rate limiting |
 | Provider delivery | Commit business state and unique outbox work together; recheck consent when claiming dispatch, retry only definitive retryable rejection, quarantine ambiguous results, and apply delivery events monotonically |
@@ -235,7 +252,8 @@ bound abuse and cost.
 
 1. The farmer owns published state — no customer action mutates published inventory or ranking.
 2. Verified, deduplicated, sender-serialized SMS ingress; deterministic compliance and confirmation
-   before any model call; STOP always global and provider-ordered against START; exactly one open
+   before any model call; one launch operational SMS program; STOP always global and
+   provider-ordered against START; no passive customer follow-up or scoped MUTE; exactly one open
    inventory confirmation per sender, context-bound, version-bound, exactly-once, and expiring.
 3. The model proposes; code commits. Publication is confirmation-gated.
 4. Grounded, recency-labeled answers — the model selects/orders retrieved fact IDs and code renders

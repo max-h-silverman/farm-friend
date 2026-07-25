@@ -141,10 +141,15 @@ exists to prevent.
    ranking. A customer stock-out report is a *separate private signal* that only prompts the
    farmer; only the farmer's confirmed action changes what a stand shows.
 2. **Deterministic parsing before any model call.** Compliance + confirmation tokens
-   (STOP/START/JOIN/HELP/MUTE/FLAG, plus the context-bound confirmation tokens) are handled by code
+   (STOP/START/JOIN/HELP/FLAG, plus the context-bound confirmation tokens) are handled by code
    first. `STOP` always unsubscribes **globally** and can never be reinterpreted by conversation
    state. Provider events are deduplicated and ordinary stateful work is serialized per sender;
    STOP/START are ordered on a separate consent watermark, with STOP winning an exact timestamp tie.
+   Launch has one registered operational SMS program: `JOIN`, `START`, and documented farmer
+   onboarding establish that consent; launch message types are categories, not separate programs.
+   A customer-initiated inquiry permits its relevant direct reply but creates no later proactive
+   follow-up, follow-up-interest state, or `MUTE` path. Future programs get separate enrollment only
+   when built, never speculative launch state.
    There is exactly one open inventory-publication confirmation per sender. Its `YES`/`NO` tokens
    are **context- and version-bound, never global**, commit **exactly once**, and **expire**.
 3. **The LLM proposes; code commits.** The model interprets, extracts, classifies, drafts where a
@@ -275,12 +280,12 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** The clean-room baseline and ranked findings 1–3 are approved. The current
-`f-015-model-safety-boundary` branch records finding 3's documentation-only correction. The
-application has **not** yet been refactored to the approved baseline. PR #11 is open; no deploy is
-required for this documentation-only tranche.
+**Phase:** The clean-room baseline and ranked findings 1–4 are approved. PR #11 merged finding 3;
+the current `f-016-sms-consent-boundary` branch records finding 4's documentation-only correction.
+The application has **not** yet been refactored to the approved baseline. PR #12 is open; no deploy
+is required for this documentation-only tranche.
 
-**Verified July 24, 2026 on `f-015-model-safety-boundary`:** `npm test` 46/46 across 10 files;
+**Verified July 24, 2026 on `f-016-sms-consent-boundary`:** `npm test` 46/46 across 10 files;
 typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily
 prove **isolated helpers and structural claims, not launch workflows**. `npm run test:integration`
 completed with all 3 Postgres tests **skipped** without `DATABASE_URL`; a real-Postgres run remains
@@ -299,10 +304,12 @@ task-specific privacy boundary.
 
 **PM / review:** The independent reset audit remains review input; only explicitly approved
 recommendations change the contract. **F-012** is the planned hard public-SMS launch gate for
-registered 10DLC keyword/copy drift. **F-013**, **F-014**, and **F-015** are planned for the three
-approved findings: grounded/code-bound consequential output; concurrent and out-of-order SMS
-routing; and the task-specific model privacy boundary plus full-path hostile verification.
+registered 10DLC keyword/copy drift. **F-013** through **F-016** are planned for the four approved
+findings: grounded/code-bound consequential output; concurrent and out-of-order SMS routing; the
+task-specific model privacy boundary plus full-path hostile verification; and one launch SMS
+program with no passive customer follow-up or scoped `MUTE`.
 
-**Next:** after the current documentation tranche merges, review ranked finding 4 (the conflicting
-consent meanings) using the **spiral-staircase constraint**. Do not implement F-013, F-014, or F-015
-or change application code/schema before separate authorization.
+**Next:** after the current documentation tranche merges, review ranked finding 5 (runtime
+geocoding versus the launch proximity promise) using the **spiral-staircase constraint**. Do not
+implement F-013, F-014, F-015, or F-016 or change application code/schema before separate
+authorization.

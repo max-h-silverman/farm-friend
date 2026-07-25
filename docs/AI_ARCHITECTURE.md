@@ -80,10 +80,10 @@ permits it; compose recipe ideas; suggest escalation. Model-authored prose may b
 the same actor whose current task text supplied its private context. Any cross-actor message is
 code-rendered from permitted typed facts; customer free text is not relayed to a farmer.
 
-**Deterministic code owns**: identity and authority; consent; universal STOP and scoped MUTE;
-recipient selection; commitments; transactions; durable writes; publication; idempotency;
-retention; provider operations; validation of selected identifiers against retrieved facts; and
-rendering of authoritative customer-facing factual text.
+**Deterministic code owns**: identity and authority; launch-program consent and universal STOP;
+recipient selection; commitments; transactions; durable writes; publication; idempotency; retention;
+provider operations; validation of selected identifiers against retrieved facts; and rendering of
+authoritative customer-facing factual text.
 
 The model **never** writes durable state, chooses recipients, decides consent, invents
 availability, or makes a compliance or commitment decision.

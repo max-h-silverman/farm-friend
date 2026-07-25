@@ -4,7 +4,7 @@
 **Repository:** `/Users/max/farm-friend`  
 **Audited repository baseline:** clean `main` at `2cb39e4`, including PR #7  
 **PM reset commit:** `da7e223` in `/Users/max/pm`  
-**Current phase:** Phase 4 finding review underway; ranked findings 1–3 approved
+**Current phase:** Phase 4 finding review underway; ranked findings 1–4 approved
 
 > This is the handoff and audit reference for the clean-room design session. The existing
 > architecture documents remain useful evidence of the previous design, but they are not design
@@ -30,10 +30,10 @@
 
 The next conversational step is:
 
-> Review ranked finding 4 from the independent audit handoff.
+> Review ranked finding 5 from the independent audit handoff.
 
-Approved finding 1 is filed in PM as F-013, finding 2 as F-014, and finding 3 as F-015. Each later
-finding remains review input until explicitly approved.
+Approved finding 1 is filed in PM as F-013, finding 2 as F-014, finding 3 as F-015, and finding 4
+as F-016. Each later finding remains review input until explicitly approved.
 
 ## Session interaction rules
 
@@ -150,6 +150,32 @@ This decision adds no general DLP, taint tracking, universal email/address detec
 bus, event sourcing, workflow engine, distributed lock, service, package, or additional provider.
 It does not implement F-013 or F-014.
 
+### Finding 4 — one launch SMS program; no passive customer follow-up
+
+Approved July 24, 2026:
+
+- Launch VIGA Farm Friend is one registered operational SMS program, matching the public opt-in and
+  campaign description. Inventory prompts, publication confirmations, customer inquiry replies, and
+  stock-out alerts are applicable message categories inside that program, not separate consent
+  programs.
+- `JOIN`, `START`, and documented farmer onboarding establish or restore launch-program consent.
+  Farmer onboarding records how, when, and where consent was captured before proactive farmer SMS.
+- A customer-initiated inquiry permits its relevant direct reply but does not create durable consent
+  for later proactive notifications.
+- Remove the optional passive customer follow-up from launch. Consequently, launch has no
+  follow-up-interest record and no scoped `MUTE` command.
+- Universal `STOP` remains global across all Farm Friend messaging and keeps the approved separate
+  provider-time STOP/START ordering and dispatch boundary.
+- Any future Farm Friend program requires its own disclosed enrollment when it is approved and built.
+  Launch does not pre-create a program discriminator, enrollment rows, command arguments, tables,
+  states, packages, or UI for hypothetical future programs.
+- F-012 remains the owner of registered `OUT`/`IGNORE`, `STOPALL`, and FLAG campaign-copy drift.
+
+This decision adds no per-category launch consent, general program-enrollment platform, policy
+engine, passive-follow-up reply window, second subscription mechanism, Kafka, event bus, event
+sourcing, workflow engine, distributed lock, service, package, or additional provider. It does not
+implement F-012, F-013, F-014, or F-015.
+
 ## Settled product contract
 
 ### 1. Purpose
@@ -229,13 +255,8 @@ Routine inventory maintenance is not a VIGA responsibility.
 5. Code validates the identifiers, renders the authoritative factual response and recency, and
    controls delivery.
 
-The system may disclose a narrow, short-lived passive follow-up:
-
-```text
-I'll let you know if any other stands report potatoes in stock today. MUTE to skip.
-```
-
-It must not spam people, repeatedly send low-value messages, or retain a rich personal profile.
+A customer-initiated inquiry permits its relevant direct response but does not create durable
+consent for later proactive notifications. Launch sends no passive customer follow-up.
 
 #### Farmer onboarding and activation
 
@@ -285,10 +306,8 @@ current, historical, and operational information.
 - Customers supply questions and private reports, never authoritative inventory.
 - The public web app and SMS read from the same published truth.
 
-The coordinator may connect recent events when useful, such as noticing that customers recently asked
-for potatoes after a farmer confirms potatoes are available. Deterministic code still decides who may
-receive a message, whether consent permits it, whether it exceeds frequency limits, and whether the
-follow-up interest has expired.
+Deterministic code decides who may receive a message, whether launch-program consent permits it, and
+whether it exceeds frequency limits.
 
 ### 5. Trust and authority boundaries
 
@@ -306,7 +325,7 @@ Deterministic code owns:
 
 - identity and authority;
 - consent;
-- universal STOP and scoped MUTE;
+- one launch-program consent state and universal STOP;
 - recipient selection;
 - commitments;
 - transactions;
@@ -362,7 +381,7 @@ Launch includes:
 - private customer stock-out reporting;
 - concise recipe suggestions and optional external recipe links;
 - directions;
-- universal STOP, scoped MUTE, JOIN, START, HELP, and safety escalation;
+- one launch operational SMS program, universal STOP, JOIN, START, HELP, and safety escalation;
 - minimal single-level VIGA administration;
 - read-only payment methods and VIGA Farm Bucks acceptance or eligibility facts.
 
@@ -487,9 +506,9 @@ verify unrestricted natural-language prose.
 - customer stock-out reports;
 - minimized provider inbox and message records with limited retention, plus sender processing
   watermarks;
-- consent events, universal STOP, and an ordered consent-transition watermark;
+- one current launch-program consent state per recipient, capture provenance, universal STOP, and an
+  ordered consent-transition watermark; no program discriminator or future-program enrollment state;
 - one open inventory-publication confirmation per sender;
-- narrow expiring follow-up interests and scoped MUTE;
 - flags and admin dispositions;
 - transactional outbox;
 - minimal audit and model-run evidence.
@@ -639,8 +658,8 @@ Every workflow has one authoritative core use case and one durable path.
 | Inventory publishing | Maintain one open proposal per sender; after the current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
 | Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally ask for current inventory; a reply uses the ordinary inventory proposal/confirmation flow; free-text customer SMS cannot queue an alert; never alter public inventory |
 | Customer inquiry | Retrieve typed current facts, obtain model interpretation and selected/ordered fact IDs, validate membership in the retrieved set, render the factual reply in code, and queue it |
-| Passive follow-up | Store a disclosed, narrow, expiring interest and enforce MUTE, STOP, frequency, and recipient selection in code |
-| STOP, START, JOIN, HELP, MUTE | Apply deterministic consent behavior before other interpretation; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
+| Launch SMS consent | Maintain one launch-program consent state with capture provenance; `JOIN`, `START`, and documented farmer onboarding establish it; a customer-initiated inquiry permits only its relevant direct reply and creates no proactive subscription |
+| STOP, START, JOIN, HELP | Apply deterministic consent behavior before other interpretation; universal STOP applies across all Farm Friend messaging; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
 | FLAG | Store the concern and expose it to the single-level admin queue |
 | Authentication | Issue and consume short-lived credentials once, with replay prevention and rate limiting |
 | Provider delivery | Commit business state and unique outbox work together; recheck consent when atomically claiming dispatch; retry only definitive retryable rejection, quarantine ambiguous results, and apply delivery webhooks monotonically |
@@ -660,6 +679,9 @@ commits the decision and outbox work; workers perform external operations and re
   inventory update flow.
 - Prove STOP suppresses queued and future non-required messages when it commits before dispatch
   authorization, and document the inverse race honestly.
+- Prove launch message categories share one consent enrollment; farmer onboarding records consent
+  provenance before proactive SMS; a customer inquiry permits its relevant direct response without
+  creating a later proactive subscription; and no follow-up-interest or `MUTE` path exists.
 - Test raw-body webhook signature verification, minimized durable acceptance, duplicate no-op,
   sender-level concurrency, stale-event rejection, and separate STOP/START ordering.
 - Test rollback, abandoned inbox-claim recovery, bounded outbox recovery, ambiguous-send quarantine,
@@ -694,17 +716,18 @@ commits the decision and outbox work; workers perform external operations and re
 6. Build the shared inventory proposal and confirmation workflow for web and SMS.
 7. Build the public map and listing experience from the same source of truth.
 8. Add grounded customer inquiry and recipe suggestions.
-9. Add private stock-out reports, disclosed passive follow-ups, FLAG, and retention.
+9. Add private stock-out reports, FLAG, and retention.
 10. Complete provider, adversarial, operational, and launch-readiness testing.
 
 ## PM state
 
 Historical item identifiers `F-001` through `F-010` are retired and must not be reused. F-011
 (declared baseline reset) is done and archived after PR #8 merged. Active items are F-012 (10DLC
-campaign alignment, planned) and F-013 (the approved grounded-output and recipient-selection
-correction, planned), and F-014 (the approved concurrent/out-of-order SMS routing correction,
-planned), and F-015 (the approved model privacy-boundary and verification correction, planned).
-The Farm Friend PM product configuration reflects the clean-room contract.
+campaign alignment, planned), F-013 (the approved grounded-output and recipient-selection
+correction, planned), F-014 (the approved concurrent/out-of-order SMS routing correction, planned),
+F-015 (the approved model privacy-boundary and verification correction, planned), and F-016 (the
+approved one-program consent boundary and passive-follow-up removal, planned). The Farm Friend PM
+product configuration reflects the clean-room contract.
 
 ## Unresolved launch decisions
 
@@ -714,11 +737,11 @@ them:
 - exact farmer and admin sign-in experience;
 - raw-message retention period;
 - freshness warning thresholds;
-- prompt and passive-follow-up timing and rate caps;
+- proactive farmer-prompt timing and rate caps;
 - initial listing-data entry process;
 - final model, mapping, geocoding, image, and recipe-link providers;
-- verification that the registered 10DLC campaign and public compliance pages match universal STOP,
-  scoped MUTE, and separate future-program enrollment.
+- verification that the registered 10DLC campaign and public compliance pages match the one launch
+  operational program, universal STOP, and the approved launch keyword set.
 
 ## Proposed finding-review sequence
 
@@ -732,7 +755,7 @@ This ordering is a guide, not prior approval of any finding:
 6. Establish farmer verification, authorization, onboarding, and VIGA approval.
 7. Make inventory publication and the public map one farmer-controlled source of truth.
 8. Establish the model-semantic and grounded-answer boundary.
-9. Add private reports, passive follow-up, FLAG, administration, and retention.
+9. Add private reports, FLAG, administration, and retention.
 10. Replace overstated tests and evals with launch-invariant proof.
 
 Do not combine findings merely because they affect the same package. Combine only work that forms one

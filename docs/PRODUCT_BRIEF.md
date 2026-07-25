@@ -41,9 +41,6 @@ a good coordinator at a desk do?"*:
 - Its **customer-service stance**: when unsure it **asks a clarifying question** instead of
   guessing; it's honest about what it doesn't know; and it **hands off to a human** (FLAG → the
   review queue) when something needs judgment.
-- It may **connect recent events** when useful — noticing that customers recently asked for
-  potatoes after a farmer confirms potatoes. Code still decides who may receive a message, whether
-  consent permits it, whether it exceeds frequency limits, and whether the interest has expired.
 
 And picture the desk itself: a **minimalist, zen office** — a beautiful walnut desk with a few
 folders stacked neatly, color-coded labels on indexed racks, like things grouped together — *not* a
@@ -98,13 +95,9 @@ unrestricted natural-language prose claim by claim. Empty retrieval → a code-r
 current listing," never a guess. *(Example phrasings are illustrations of the intent space, never a
 spec — see CLAUDE.md "Examples are illustrations.")*
 
-The system may disclose a **narrow, short-lived passive follow-up**:
-
-```text
-I'll let you know if any other stands report potatoes in stock today. MUTE to skip.
-```
-
-It must not spam people, repeatedly send low-value messages, or retain a rich personal profile.
+A customer-initiated inquiry permits its relevant direct response but does not enroll the customer
+in later proactive notifications. Launch sends no passive customer follow-up and stores no
+follow-up interest.
 
 ### Farmer onboarding and activation
 
@@ -169,9 +162,9 @@ Eat Vashon Week beginning **August 8, 2026**.
 farmer onboarding and VIGA approval; farmer inventory updates by SMS and web; proactive farmer
 prompts and preference management; explicit farmer confirmation before publication; private
 customer stock-out reporting; concise recipe suggestions and optional external recipe links;
-directions; universal STOP, scoped MUTE, JOIN, START, HELP, and safety escalation; minimal
-single-level VIGA administration; read-only payment methods and VIGA Farm Bucks acceptance or
-eligibility facts.
+directions; one launch operational SMS program, universal STOP, JOIN, START, HELP, and safety
+escalation; minimal single-level VIGA administration; read-only payment methods and VIGA Farm Bucks
+acceptance or eligibility facts.
 
 **Explicit non-goals:** native mobile applications; gleaning or volunteer coordination; VIGA Farm
 Bucks claim, redemption, or accounting transactions; reservations, ordering, or payment; direct
@@ -218,8 +211,8 @@ Recorded, not resolved; none changes the target architecture:
 - exact farmer and admin sign-in experience;
 - raw-message retention period;
 - freshness warning thresholds;
-- prompt and passive-follow-up timing and rate caps;
+- proactive farmer-prompt timing and rate caps;
 - initial listing-data entry process;
 - final model, mapping, geocoding, image, and recipe-link providers;
-- verification that the registered 10DLC campaign and public compliance pages match universal
-  STOP, scoped MUTE, and separate future-program enrollment.
+- verification that the registered 10DLC campaign and public compliance pages match the one launch
+  operational program, universal STOP, and the approved launch keyword set.
