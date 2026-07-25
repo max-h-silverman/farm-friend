@@ -7,6 +7,40 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-25 — Keyword grammar and review-state ownership (F-012 / F-020)
+
+Two follow-on contradictions from the independent audit were reviewed separately against the
+approved one-program consent boundary and the repository's existing documentation roles.
+
+- **Keyword grammar:** F-016 already removed the audit's reason for a command-plus-argument grammar.
+  Launch uses one fixed whole-normalized-message matcher; bare `JOIN` / `START` affect the one
+  launch program, and extra text cannot become a program argument. Remaining registered/public
+  copy, Telnyx profile/autoresponse, parser-variant, `STOPALL`, FLAG, and obsolete `OUT` / `IGNORE`
+  alignment remains F-012 work. No new grammar or PM item was added.
+- **Design authority versus stale session state:** the audit's original claim that Phase 4 had not
+  begun was obsolete, but mutable next-step and PM-status text inside the handoff had gone stale.
+  F-020 keeps the clean-room handoff as the single stable design authority, `CLAUDE.md` as the sole
+  repository-local live snapshot, PM as item-status authority, and this log as dated history. No
+  second authority document or status registry was added.
+
+The handoff now records both approved decisions and stable ownership without a mutable current-phase,
+exact-next-step, or live-PM-status section. `CLAUDE.md` names the four-part review-to-build gate.
+No application code, schema, package, dependency, provider configuration, external campaign copy,
+or deployment changed.
+
+**PM:** F-012 was corrected at `a254e7d`; F-020 was created at `db1d92f` and moved to in progress
+on `f-020-review-state-consolidation` at `5afac6b`.
+
+**Verified:** `npm test` 46/46 across 10 files; typecheck and lint PASS; evals critical 3/3,
+advisory 2/2, adversarial 4/4. `npm run test:integration` completed with all 3 Postgres tests
+skipped because `DATABASE_URL` is unset; a real-Postgres run remains owed.
+
+**Release:** documentation-only branch `f-020-review-state-consolidation`; no deployment applies.
+
+**Next:** in a fresh session, close the four remaining review-to-build gates exactly one finding or
+decision at a time: executable-proof claims, doc/code drift, genuinely unresolved-decision triage,
+then the deletion/buildability verdict and phase-transition approval.
+
 ## 2026-07-24 — Finding 5 and follow-on architecture decisions (F-017–F-019)
 
 Ranked finding 5 and the next four contradictions from the independent audit were reviewed one at
