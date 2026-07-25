@@ -58,6 +58,7 @@ where any of them disagrees with the handoff, the handoff wins.
 | Farmer onboarding / VIGA approval | PRODUCT_BRIEF §canonical journeys, ADMIN_OPERATIONS, DATA §durable records |
 | Inventory publication | ARCHITECTURE §key workflows, DATA §constraints, AI §seam catalog |
 | Stock-out → farmer request | DATA §constraints (never mutates inventory), ARCHITECTURE §key workflows |
-| Customer inquiry / recipes | AI §semantic architecture + retrieval, ARCHITECTURE §abuse throttle |
+| SMS customer inquiry / out-of-scope recipe requests | AI §semantic architecture + retrieval, ARCHITECTURE §key workflows |
+| Public map proximity / directions | PRODUCT_BRIEF §public discovery, ARCHITECTURE §provider seams, RUNBOOK §seeding |
 | Anything privacy or safety | AI §safety boundary and verification, DATA §privacy, CLAUDE.md Golden Rule 6 |
 | Admin surfaces / flag review | ADMIN_OPERATIONS, DATA §durable records |

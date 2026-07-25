@@ -37,8 +37,9 @@ render an honest "updated X ago" without a second provenance axis.
 - **structured public listing facts** — including payment methods and VIGA Farm Bucks acceptance or
   eligibility as **read-only facts**, plus farmer-selected web/social links and an optional photo
   or short biography.
-- **inventory revisions and inventory entries** — a revision is a published version of a location's
-  inventory; entries are the items in it, with quantity/unit/price text or an approximate label.
+- **inventory revisions and inventory entries** — a revision is an immutable published version of a
+  location's inventory; entries are the items in it, with quantity/unit/price text or an
+  approximate label. Revisions have no draft state and are created only by successful confirmation.
 - **customer stock-out reports** — private; each carries a required sales-location identifier bound
   by the web/QR reporting surface, and may reference a listed entry or name an unlisted item. A
   model does not supply the consequential location identifier.
@@ -50,8 +51,9 @@ render an honest "updated X ago" without a second provenance axis.
   recipient, provenance for how, when, and where consent was captured, and a separate provider-time
   STOP/START transition watermark. Launch has no program discriminator or future-program enrollment
   rows.
-- **one open inventory-publication confirmation per sender** — proposal/version, allowed `YES`/`NO`
-  tokens, provider-accepted prompt activation, expiry, and consumption state.
+- **one open inventory-publication confirmation per sender** — target sales location, distinct
+  structured pending proposal payload/version, allowed `YES`/`NO` tokens, provider-accepted prompt
+  activation, expiry, and consumption state. This is not an inventory revision.
 - **flags and admin dispositions.**
 - **transactional outbox.**
 - **minimal audit and model-run evidence.**
@@ -66,7 +68,9 @@ These are **database-level** requirements, not application conventions:
 - **One ordinary stateful claim per sender** — concurrent workers cannot claim overlapping
   conversation work for one sender. An abandoned claim is recovered on the same inbox row.
 - **One open inventory confirmation per sender** — a partial uniqueness constraint prevents
-  overlapping proposals from making generic `YES`/`NO` ambiguous.
+  overlapping proposals from making generic `YES`/`NO` ambiguous. `NO` and expiry create no
+  revision; `YES` creates the immutable revision and entries only after the transaction rechecks
+  the current prompt/version, farmer authority, and VIGA approval.
 - **One currently published inventory revision per sales location** — "which revision is current"
   is a constraint, not a fragile `max(published_at)`.
 - **Farmer authority over inventory publication** — only an authorized farmer for that location can
@@ -100,6 +104,9 @@ These are **database-level** requirements, not application conventions:
 - **Only selected preference and safety records survive raw-context expiration.** Farm Friend may
   retain lightweight facts such as foods requested or preferred stands; it must not accumulate a
   rich personal profile, and **precise durable home addresses are not part of a customer profile**.
+- **Browser origins are transient.** Optional browser geolocation may be used to calculate
+  approximate proximity to validated public sales-location coordinates; it is not stored, logged,
+  sent to the model, or retained as a customer preference.
 - **Model inputs are task-specific projections, not records or transcripts.** A seam receives only
   its current task text, permitted public facts, and opaque identifiers as specified in
   `AI_ARCHITECTURE.md`; it receives no other actor's message, unrelated thread history, raw contact

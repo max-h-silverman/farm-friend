@@ -24,7 +24,7 @@ normalized message**. The affirmative accepts `YES` / `Y` / `YEP` / `YEA` / `SUR
 accepts `NO` / `N` / `NOPE` / `NAH` / `NO THANKS` / `NO THANK YOU`. So `"yes."`, `" YES "`,
 `"Yep"`, `"y"`, `"n."`, and `"no thanks"` match, while `"yes, still right"` and
 `"no thanks, but change it"` do **not** — they route onward as free text (in an active flow that
-means the revision path, whose echoed draft + confirm protects against a garbled read). Matching
+means the revision path, whose echoed proposal + confirm protects against a garbled read). Matching
 is deterministic code — a fixed list, never fuzzy — and near-misses are never "interpreted" into a
 commit or decline.
 
@@ -47,6 +47,8 @@ A database constraint permits at most one open inventory proposal per sender. It
 tokens, proposal version, expiry, and current prompt activation. New inventory text revises that
 proposal and suspends token acceptance until Telnyx accepts the replacement prompt. A token whose
 provider occurrence time does not follow the current prompt cannot consume the proposal.
+The proposal is a distinct pending payload, not a draft inventory revision. `YES` creates the
+immutable published revision; `NO` and expiry create no revision.
 
 The exact expiry window is an unresolved launch decision.
 An expired token gets an honest "that request expired — here's how to redo it" reply, never a

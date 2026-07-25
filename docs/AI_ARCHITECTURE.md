@@ -57,7 +57,7 @@ strategies**.
 Actual farms, foods, and listing details are **data**. Fixed compliance and authority controls —
 STOP, START, HELP, authentication, confirmation — remain **deterministic**.
 
-Code provides: an allowed task-specific context; general retrieval and geographic operations;
+Code provides: an allowed task-specific context; general retrieval operations;
 authoritative records; constrained action options; typed retrieved facts with stable identifiers
 and `asOf` values; selected-ID validation; and deterministic rendering before any consequence. The
 model may propose a search or ranking **interpretation** and select or order identifiers from the
@@ -76,9 +76,9 @@ never a constant baked into the architecture.
 
 The model **may**: interpret language; infer search intent; propose inventory changes; select and
 rank identifiers from relevant retrieved options; draft non-authoritative language where a seam
-permits it; compose recipe ideas; suggest escalation. Model-authored prose may be returned only to
-the same actor whose current task text supplied its private context. Any cross-actor message is
-code-rendered from permitted typed facts; customer free text is not relayed to a farmer.
+permits it; suggest escalation. Model-authored prose may be returned only to the same actor whose
+current task text supplied its private context. Any cross-actor message is code-rendered from
+permitted typed facts; customer free text is not relayed to a farmer.
 
 **Deterministic code owns**: identity and authority; launch-program consent and universal STOP;
 recipient selection; commitments; transactions; durable writes; publication; idempotency; retention;
@@ -105,9 +105,8 @@ The approved launch projections are:
 |---|---|
 | inventory extraction | the current farmer message |
 | stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
-| inquiry interpretation | the current customer request and any separately approved transient origin |
+| inquiry interpretation | the current customer SMS request |
 | grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
-| recipe suggestion | the current customer's request plus typed public inventory facts |
 | message classification, if retained | the current sender's message only |
 
 No projection contains raw phone/contact data, another actor's message, unrelated thread history,
@@ -137,34 +136,35 @@ clarify or flag:
   entry or normalized text for an unlisted one). The surface supplies the sales-location identifier
   in code; it is never a model output. A free-text SMS may receive a link to the reporting surface
   but cannot select a location or queue a farmer alert.
-- **inquiry interpretation** — question → open intent: item(s), optional farm scope, optional
-  origin location, and a **proposed selection/ranking interpretation**, or an "ambiguous → ask"
-  signal. **Never privileges one reading** of a multi-item request, and is not restricted to a
-  fixed strategy enum.
+- **inquiry interpretation** — question → open intent: item(s), optional farm scope, a
+  **proposed selection/ranking interpretation**, or an "ambiguous → ask" signal. **Never
+  privileges one reading** of a multi-item request, and is not restricted to a fixed strategy
+  enum. Launch does not resolve an arbitrary SMS origin.
 - **grounded fact selection** — select and order identifiers from the **retrieved facts only**.
   Code validates membership and renders the authoritative, recency-labeled answer; empty retrieval
   → a code-rendered honest "no current listing."
-- **recipe suggestion** — grounded in retrieved current inventory, with conservative disclaimers
-  and no medical, preservation, foraging, or food-safety advice. *(These content limits are a
-  **quality** property, enforced by prompt and measured by advisory evals — not a harness
-  guarantee. Golden Rule #6's code-enforcement mandate covers privacy, consent, compliance, and
-  commitment; this is not one of those.)*
 - **message classification** — last-resort intent classification, only after deterministic routing.
+
+Recipe requests have no model composition seam. Code may render authoritative availability for
+named ingredients through the ordinary grounded inquiry path, followed by a code-rendered statement
+that launch does not provide recipes or food-safety guidance.
 
 SMS composition adds quality guidance to prefer concise, plain-punctuation, emoji-free replies that
 fit one GSM-7 segment when practical. This is a **cost and phrasing preference, never a truncation
 rule**: important content, names, addresses, and meaning are preserved. The outbound code guard
 still performs final normalization and segment estimation.
 
-## Retrieval and ranking (code, before any model call)
+## Retrieval and ranking (after interpretation, before grounded fact selection)
 
-Interpretation yields intent. Code then runs a **general** retrieval and geographic layer: *given
-items, optional farm scope, optional origin, and a proposed ranking interpretation → candidate
-locations with distance and recency.* Intersection, coverage, nearest-N, and freshest-N are
-**expressible interpretations**, not an enumerated architecture constant. Only retrieved rows reach
-the selection step. The model returns only selected and ordered identifiers; code verifies that
-each belongs to the retrieved set, dereferences the authoritative values, and renders the factual
-answer and recency. Model-supplied values or prose are not accepted as evidence.
+Deterministic SMS routing runs before every model call. The first inquiry call interprets the
+current request. Code validates that interpretation and then runs a **general** retrieval layer:
+*given items, optional farm scope, and a proposed ranking interpretation → candidate locations with
+recency.* Intersection, coverage, and freshest-N are **expressible interpretations**, not an
+enumerated architecture constant. Only retrieved rows reach the grounded-selection call. The model
+returns only selected and ordered identifiers; code verifies that each belongs to the retrieved set,
+dereferences the authoritative values, and renders the factual answer and recency. Empty retrieval
+is code-rendered without a grounded-selection call.
+Model-supplied values or prose are not accepted as evidence.
 
 ## The code-enforced safety boundary and its verification
 
@@ -207,8 +207,8 @@ Evals run against the stub provider in **critical** and **advisory** groups:
 
 - **critical** (must pass **100%**): compliance bypass, grounding and no-invention, commitment
   safety, and the **adversarial/prompt-injection group**.
-- **advisory**: extraction quality, stock-out item parsing, inquiry interpretation and clarification,
-  recipe grounding.
+- **advisory**: extraction quality, stock-out item parsing, inquiry interpretation, and
+  clarification.
 
 Required corrections to the eval suite: use **hostile models that select unknown identifiers or
 attempt to smuggle factual strings, directions, or commitments into output**; reject structurally
@@ -221,6 +221,7 @@ change must pass the full suite at parity or better.
 
 ## Abuse / cost on public model surfaces
 
-The customer inquiry route and the QR stock-out form are **public and unauthenticated**. They route
-through the abuse/cost throttle defined in [ARCHITECTURE.md](ARCHITECTURE.md). Normal public lookup
-is never artificially capped.
+The QR stock-out form is **public and unauthenticated** and routes through the abuse/cost throttle
+defined in [ARCHITECTURE.md](ARCHITECTURE.md). Normal public map/listing lookup is model-free and
+never artificially capped. Natural-language customer inquiry is SMS-only at launch and uses the
+SMS sender/frequency controls.

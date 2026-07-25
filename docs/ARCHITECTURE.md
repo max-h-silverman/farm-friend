@@ -69,7 +69,7 @@ workspace package** — that is what keeps product rules testable without I/O.
 > *Current violation:* `packages/core/package.json` depends on `ai`, `config`, `contracts`, `db`,
 > and `sms`, reversing this direction. Correcting it is a separate finding.
 
-**One composition root** in `apps/web` constructs the database, model, SMS, mapping, and other
+**One composition root** in `apps/web` constructs the database, model, SMS, and other
 adapters and injects them into the authoritative workflows. Runtime configuration is folded into
 that root — there is no `config` package. Workflow types live in `core`; HTTP validation lives
 beside its handler — there is no `contracts` package.
@@ -79,8 +79,10 @@ permanent map package, gleaning artifacts, or tenancy machinery.
 
 ## Runtime surfaces
 
-- **Public web:** the map render + listing experience, ungated and embeddable in VIGA's site;
-  per-stand pages; the QR stock-out web form. Anonymous, no signup.
+- **Public web:** the model-free map render + listing/filter experience, ungated and embeddable in
+  VIGA's site; optional transient browser-origin proximity; per-stand pages; destination routing
+  links; and the QR stock-out web form. Anonymous, no signup. There is no launch natural-language
+  web inquiry.
 - **Farmer account:** sign-in → onboarding, inventory updates, profile, and preferences.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
@@ -161,8 +163,14 @@ follows that activation. It must never commit an earlier proposal version.
 Launch has one confirmation mechanism and one consumer: **inventory publication**. A database
 constraint permits at most one open inventory proposal per sender. It records the proposal/version,
 allowed `YES`/`NO` tokens, expiry, and the outbox prompt that activates it. New farmer inventory
-text revises that same pending proposal rather than creating a second one; revision suspends token
-acceptance until Telnyx accepts the new prompt.
+text revises that same pending proposal rather than creating a second one; the proposal-version
+change suspends token acceptance until Telnyx accepts the new prompt.
+
+The structured proposal is a distinct pending payload, not a draft inventory revision. Inventory
+revisions are immutable published history. `NO` or expiry creates no revision. A successful `YES`
+transaction creates the new revision and entries, makes it current, and supersedes the prior
+current revision. Full-snapshot versus patch proposal semantics remain a separate unresolved
+decision; either must produce one complete published revision at confirmation.
 
 The confirmation transaction locks the sender and pending row, verifies the prompt/version and
 expiry, rechecks current farmer authority and VIGA approval, conditionally consumes the pending row
@@ -184,7 +192,7 @@ Every workflow has **one authoritative core use case and one durable path**:
 | SMS ingress | Verify the raw-body signature, commit one minimized provider event, serialize ordinary stateful work per sender, and fail closed on stale events |
 | Inventory publishing | Maintain one open proposal per sender; after its current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
 | Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally ask for current inventory; a reply uses the ordinary inventory flow; free-text customer SMS cannot queue an alert; never alter public inventory |
-| Customer inquiry | Retrieve typed current facts, obtain model interpretation and selected/ordered fact IDs, validate membership in the retrieved set, render the factual reply in code, and queue it; the direct response creates no later proactive subscription |
+| Customer inquiry | After deterministic SMS routing, obtain model interpretation of the current request; code validates it and retrieves typed current facts; for non-empty retrieval the model selects/orders fact IDs; code validates membership, renders the factual reply, and queues it; the direct response creates no later proactive subscription |
 | Launch SMS consent | Maintain one launch-program consent state with provenance; `JOIN`, `START`, and documented farmer onboarding establish it; message categories do not have separate enrollment |
 | STOP / START / JOIN / HELP | Apply deterministic consent behavior before any other interpretation; universal STOP applies across all Farm Friend messaging; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
 | FLAG | Store the concern and expose it to the single-level admin queue |
@@ -239,14 +247,19 @@ Narrow interfaces so I/O is swappable and tests are hermetic:
 
 Geocoding is a **one-time seeding concern**, not a permanent provider seam. There is no map
 package and no coordinate-inventing stub; a seed utility resolves locations once, and unresolved
-locations are an operator task rather than a fabricated coordinate.
+locations are an operator task rather than a fabricated coordinate. Optional browser geolocation
+is transient and used only for deterministic approximate proximity to those validated public
+coordinates; it is not persisted, logged, or sent to the model. Destination-only Google Maps links
+delegate origin resolution and routing to the customer's mapping application. SMS does not resolve
+arbitrary customer origins at launch.
 
 ## Abuse / cost throttle
 
-The customer inquiry route and the QR stock-out form ingest free text into a model with **no
-auth**. A code-level rate/cost guard fronts any public model-backed handler, keyed by a coarse
-client signal. Normal public lookup is **never artificially capped**; the guard exists only to
-bound abuse and cost.
+The QR stock-out form ingests free text into a model with **no auth**. A code-level rate/cost guard
+fronts that public model-backed handler, keyed by a coarse client signal. Normal public map,
+listing, filter, and proximity lookup is model-free and **never artificially capped**. SMS inquiry
+uses the SMS sender, consent, frequency, and delivery controls rather than a coarse web-client
+signal.
 
 ## Invariants (must be enforced in code and proven by tests)
 

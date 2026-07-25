@@ -110,11 +110,11 @@ Treat code comments, test names, package names, green checks, abstractions, docs
 ## Examples are illustrations, never requirements
 
 Specific items, farm names, and question phrasings in these docs and in conversation (e.g. "bok
-choy and green beans", "recipes from Provo Farms") are **illustrations of mechanisms and intent —
-not a spec**. Build to the general, open-ended design; the customer intent space is broad and often
-ambiguous. Don't harden a stray example into a fixed interpretation — let the model interpret and a
-code-owned general retrieval layer handle the variation, and ask a clarifying question rather than
-guessing.
+choy and green beans", "what is current at Provo Farms?") are **illustrations of mechanisms and
+intent — not a spec**. Build to the general, open-ended design; the customer intent space is broad
+and often ambiguous. Don't harden a stray example into a fixed interpretation — let the model
+interpret and a code-owned general retrieval layer handle the variation, and ask a clarifying
+question rather than guessing.
 
 ## Working a task (session workflow)
 
@@ -157,14 +157,15 @@ exists to prevent.
    durable state, chooses recipients, decides consent, supplies authoritative factual answer text,
    invents availability, or overrides a rule. Publishing and alerting are code-controlled;
    publication is confirmation-gated and requires an approved farm.
-4. **Grounded answers only, retrieval-first — with open intent.** Customer intent is open-ended:
-   the model interprets the request, **code** runs a **general** retrieval/ranking layer, and the
-   model selects or orders identifiers from typed retrieved facts. Code validates that every ID
-   belongs to the retrieved set and renders the authoritative factual answer with explicit
-   "updated X ago" recency. **No fixed semantic strategy catalog** — ranking intent is an
-   interpretation code validates and executes, not an enumerated constant. Farm Friend does not
-   attempt to verify unrestricted model prose claim by claim. Empty retrieval → a code-rendered
-   honest "no current listing."
+4. **Grounded answers only, retrieval before fact selection — with open intent.** Customer intent
+   is open-ended: after deterministic routing, the model interprets the request, **code** runs a
+   **general** retrieval/ranking layer, and the model selects or orders identifiers from typed
+   retrieved facts. Code validates that every ID belongs to the retrieved set and renders the
+   authoritative factual answer with explicit "updated X ago" recency. **No fixed semantic
+   strategy catalog** — ranking intent is an interpretation code validates and executes, not an
+   enumerated constant. Farm Friend does not attempt to verify unrestricted model prose claim by
+   claim. Empty retrieval → a code-rendered honest "no current listing" without a fact-selection
+   model call.
 5. **Privacy at the data layer.** Phone numbers are normalized at ingress; the raw E.164 lives in
    **exactly one column**, read only by the outbound send path; the **hash is the only lookup/log
    key** — raw numbers are never logged, never enter model context, and are masked in admin. Raw
@@ -222,8 +223,9 @@ cooperative stubs. Suites:
 - **A model seam:** trace it in AI_ARCHITECTURE.md; keep durable writes/recipient/consent out of
   model output; run the **swap test**; run evals. **To add a seam or a program, or swap a provider,
   follow docs/RUNBOOK.md "how to extend."**
-- **A new query/list:** add the retrieval in code before any model call; label recency; carry stable
-  fact identifiers; accept only selected IDs from the retrieved set; render factual text in code.
+- **A new query/list:** after any approved semantic interpretation, run retrieval in code before
+  grounded fact selection; label recency; carry stable fact identifiers; accept only selected IDs
+  from the retrieved set; render factual text in code.
 - **Anything privacy-relevant:** phones hashed, never logged raw, never in model context. The
   guarantee is **code, not the prompt** — task-specific projections make other actors' private data
   unavailable before the call, the outbound guard blocks raw phones after, and consequential /
@@ -269,6 +271,10 @@ cooperative stubs. Suites:
   the prompt is at most defense-in-depth.
 - Do not add **tenancy**, gleaning/volunteer/Farm Bucks-transaction machinery, native-app state, or
   multi-level roles — all are explicit non-goals at launch.
+- Do not add arbitrary-origin SMS geocoding, a runtime geocoder/map package, model-backed
+  natural-language web inquiry, or generated recipe/food-safety content at launch. Public proximity
+  uses transient browser geolocation against seeded public coordinates; recipe requests receive
+  grounded ingredient availability plus a code-rendered scope response.
 - Do not add a **legacy-migration provenance model**: this is a greenfield build; existing map
   content is **reference input** that gets **seeded**, with no non-destructive migration
   requirement.
@@ -280,14 +286,15 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** The clean-room baseline and ranked findings 1–4 are approved. PR #11 merged finding 3;
-the current `f-016-sms-consent-boundary` branch records finding 4's documentation-only correction.
-The application has **not** yet been refactored to the approved baseline. PR #12 is open; no deploy
-is required for this documentation-only tranche.
+**Phase:** The clean-room baseline, ranked findings 1–5, recipe-safety removal, SMS-only
+natural-language inquiry, retrieval ordering, and the distinct pending inventory-proposal
+lifecycle are approved. The application has **not** yet been refactored to the approved baseline.
+The review is paused immediately before the audit's "Keyword grammar" finding.
 
-**Verified July 24, 2026 on `f-016-sms-consent-boundary`:** `npm test` 46/46 across 10 files;
-typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks primarily
-prove **isolated helpers and structural claims, not launch workflows**. `npm run test:integration`
+**Verified July 24, 2026 for this documentation-only decision sync:** `npm test` 46/46 across 10
+files; typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks
+primarily prove **isolated helpers and structural claims, not launch workflows**.
+`npm run test:integration`
 completed with all 3 Postgres tests **skipped** without `DATABASE_URL`; a real-Postgres run remains
 owed.
 
@@ -303,13 +310,11 @@ accepts arbitrary objects and its narrow scan plus helper-only evals do not enfo
 task-specific privacy boundary.
 
 **PM / review:** The independent reset audit remains review input; only explicitly approved
-recommendations change the contract. **F-012** is the planned hard public-SMS launch gate for
-registered 10DLC keyword/copy drift. **F-013** through **F-016** are planned for the four approved
-findings: grounded/code-bound consequential output; concurrent and out-of-order SMS routing; the
-task-specific model privacy boundary plus full-path hostile verification; and one launch SMS
-program with no passive customer follow-up or scoped `MUTE`.
+recommendations change the contract. **F-012** through **F-019** are planned. F-013 includes the
+approved interpretation → retrieval → grounded-selection order; F-014 includes the distinct
+pending proposal → immutable confirmed revision lifecycle; F-017 narrows proximity to transient
+browser origin plus destination links; F-018 removes generative recipe assistance; and F-019 keeps
+natural-language inquiry SMS-only. None is authorized for implementation.
 
-**Next:** after the current documentation tranche merges, review ranked finding 5 (runtime
-geocoding versus the launch proximity promise) using the **spiral-staircase constraint**. Do not
-implement F-013, F-014, F-015, or F-016 or change application code/schema before separate
-authorization.
+**Next:** review the audit's **"Keyword grammar"** finding exactly one finding at a time. Do not
+implement F-012 through F-019 or change application code/schema before separate authorization.
