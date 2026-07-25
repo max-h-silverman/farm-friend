@@ -64,17 +64,19 @@ prominent warning rather than disappearing.**
 A customer opens the ungated, VIGA-branded Farm Friend web app — including embedded on VIGA's
 site. The default view centers on **actionable purchase locations**; other farm layers stay
 prominent and easy to view so farms without stands don't feel omitted. The customer sees the same
-listing and inventory facts available through SMS, with directions or a routing link where useful.
+listing and inventory facts available through SMS. With permission, transient browser geolocation
+may show approximate straight-line proximity. Destination-only Google Maps links may be offered;
+the mapping application resolves the customer's origin and route. Public discovery is model-free.
 
-### Customer inquiry (SMS and web)
+### Customer inquiry (SMS)
 
 Customers ask free-form questions and get grounded answers. The intent space is **open-ended and
 often ambiguous** — for "where can I get bok choy and green beans?" the customer might want *one
-stand with both*, the *two closest* each with one, *any* stands covering the set, the *freshest*,
-etc. The design must not privilege one reading, and must not reduce the space to a fixed catalog of
-supported request shapes: the model interprets the request, code runs general retrieval and
-geographic operations, the model selects or orders identifiers from the retrieved facts, and code
-renders the authoritative factual answer and recency. Ambiguous → ask.
+stand with both*, *different stands covering the set*, *any* stands with either item, the
+*freshest*, etc. The design must not privilege one reading, and must not reduce the space to a
+fixed catalog of supported request shapes: the model interprets the request, code runs general
+retrieval, the model selects or orders identifiers from the retrieved facts, and code renders the
+authoritative factual answer and recency. Ambiguous → ask.
 
 A useful answer may be concise rather than conversational:
 
@@ -86,8 +88,8 @@ Plum Forest: bok choy, strawberry preserves (updated 3 days ago)
 Farm Friend may also present deterministically derived comparison facts:
 
 ```text
-Paxton Farms is a few minutes farther and updated its stock today;
-Plum Forest's listing was updated 3 days ago.
+Paxton Farms lists both items and updated its stock today;
+Plum Forest lists bok choy and updated its stock 3 days ago.
 ```
 
 The model does not author factual answer text, and Farm Friend does not attempt to verify
@@ -98,6 +100,9 @@ spec — see CLAUDE.md "Examples are illustrations.")*
 A customer-initiated inquiry permits its relevant direct response but does not enroll the customer
 in later proactive notifications. Launch sends no passive customer follow-up and stores no
 follow-up interest.
+
+Launch does not resolve an arbitrary address or current location supplied by SMS. An
+origin-dependent request receives a code-rendered limitation and public-map link.
 
 ### Farmer onboarding and activation
 
@@ -126,18 +131,19 @@ action. Only the farmer's confirmed inventory revision can change published inve
 SMS may direct the customer to the reporting surface but cannot select a location or queue a farmer
 alert.
 
-### Recipe assistance
+### Recipe requests
 
-Farm Friend can suggest what someone might make from currently available ingredients and may link
-to retrieved online recipes. It does not create an authoritative full recipe, transact, reserve
-food, or make commitments on a farmer's behalf.
+Phase 1 does not generate meal ideas, recipes, preparation instructions, food-safety guidance, or
+external recipe links. A recipe request may still receive code-rendered authoritative availability
+and recency for named ingredients, followed by a code-rendered statement that launch does not
+provide recipes or food-safety guidance.
 
 ## Actors
 
 - **Farmer** — owns published listings and inventory (SMS daily driver; web entry point).
-- **Customer** — discovers via the map, asks via the inquiry route, reports stock-outs. Anonymous
-  public lookup, no signup. Supplies questions and private reports, **never authoritative
-  inventory**.
+- **Customer** — discovers via the map, asks natural-language questions by SMS, and reports
+  stock-outs. Anonymous public lookup, no signup. Supplies questions and private reports,
+  **never authoritative inventory**.
 - **VIGA administrator** — verifies and approves participating farms; handles exceptions, flags,
   and requests the system cannot safely handle. **One administrator level at launch.** Routine
   inventory maintenance is *not* a VIGA responsibility.
@@ -151,7 +157,8 @@ information are tightly contained; only selected preference and safety records s
 expiration. Public farm listings expose stand addresses and farmer-selected web or social links —
 **direct farmer phone numbers and email addresses are not public**. A farmer may optionally publish
 a photo or short biography. A farm without a public stand chooses an exact, approximate, or hidden
-map location.
+map location. A browser origin used for proximity is transient and is not stored, logged, put in
+model context, or retained as a preference.
 
 ## Launch scope
 
@@ -161,10 +168,10 @@ Eat Vashon Week beginning **August 8, 2026**.
 **In:** public embedded web map and listing experience; natural-language customer inquiry by SMS;
 farmer onboarding and VIGA approval; farmer inventory updates by SMS and web; proactive farmer
 prompts and preference management; explicit farmer confirmation before publication; private
-customer stock-out reporting; concise recipe suggestions and optional external recipe links;
-directions; one launch operational SMS program, universal STOP, JOIN, START, HELP, and safety
-escalation; minimal single-level VIGA administration; read-only payment methods and VIGA Farm Bucks
-acceptance or eligibility facts.
+customer stock-out reporting; optional browser-origin approximate proximity and destination routing
+links; one launch operational SMS program, universal STOP, JOIN, START, HELP, and safety escalation;
+minimal single-level VIGA administration; read-only payment methods and VIGA Farm Bucks acceptance
+or eligibility facts.
 
 **Explicit non-goals:** native mobile applications; gleaning or volunteer coordination; VIGA Farm
 Bucks claim, redemption, or accounting transactions; reservations, ordering, or payment; direct
@@ -213,6 +220,7 @@ Recorded, not resolved; none changes the target architecture:
 - freshness warning thresholds;
 - proactive farmer-prompt timing and rate caps;
 - initial listing-data entry process;
-- final model, mapping, geocoding, image, and recipe-link providers;
+- full-snapshot versus patch semantics for farmer inventory proposals;
+- final model, one-time seed-geocoding, and image providers;
 - verification that the registered 10DLC campaign and public compliance pages match the one launch
   operational program, universal STOP, and the approved launch keyword set.

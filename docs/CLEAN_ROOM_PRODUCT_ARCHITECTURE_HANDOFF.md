@@ -4,7 +4,8 @@
 **Repository:** `/Users/max/farm-friend`  
 **Audited repository baseline:** clean `main` at `2cb39e4`, including PR #7  
 **PM reset commit:** `da7e223` in `/Users/max/pm`  
-**Current phase:** Phase 4 finding review underway; ranked findings 1–4 approved
+**Current phase:** Phase 4 finding review underway; ranked findings 1–5 and the first four
+follow-on contradictions approved
 
 > This is the handoff and audit reference for the clean-room design session. The existing
 > architecture documents remain useful evidence of the previous design, but they are not design
@@ -30,10 +31,12 @@
 
 The next conversational step is:
 
-> Review ranked finding 5 from the independent audit handoff.
+> Review "Keyword grammar" from the independent audit handoff.
 
 Approved finding 1 is filed in PM as F-013, finding 2 as F-014, finding 3 as F-015, and finding 4
-as F-016. Each later finding remains review input until explicitly approved.
+as F-016. Ranked finding 5 is F-017; recipe safety is F-018; and the natural-language web-inquiry
+boundary is F-019. Retrieval ordering clarifies F-013, and inventory-proposal lifecycle clarifies
+F-014. Each later finding remains review input until explicitly approved.
 
 ## Session interaction rules
 
@@ -58,8 +61,8 @@ Approved July 24, 2026:
 - The model may interpret the request and select or order identifiers from that retrieved set. It
   does not author the factual answer.
 - Code verifies that every selected identifier belongs to the retrieved set, dereferences the
-  authoritative values, and renders names, inventory, recency, stale warnings, and any
-  deterministically derived distance facts. Empty retrieval is also code-rendered.
+  authoritative values, and renders names, inventory, recency, and stale warnings. Empty retrieval
+  is also code-rendered.
 - Comparative language is included only when code can derive the stated comparison from typed
   facts. Farm Friend does not claim that unrestricted model prose is deterministically verifiable.
 - A launch stock-out report that can alert a farmer originates only from a web/QR surface carrying
@@ -176,6 +179,89 @@ engine, passive-follow-up reply window, second subscription mechanism, Kafka, ev
 sourcing, workflow engine, distributed lock, service, package, or additional provider. It does not
 implement F-012, F-013, F-014, or F-015.
 
+### Finding 5 — browser-origin proximity; no arbitrary-origin SMS geocoding
+
+Approved July 24, 2026:
+
+- Launch proximity uses optional transient browser geolocation on the public web experience,
+  compared deterministically with validated, seeded public sales-location coordinates.
+- Directions use destination-only Google Maps links; the customer's mapping application resolves
+  its origin and performs routing.
+- SMS does not resolve an arbitrary address or current location. An origin-dependent SMS request
+  receives an honest code-rendered limitation and a link to the public web map.
+- Precise customer origins are not stored, logged, put in model context, or retained as a customer
+  preference.
+- Sales-location geocoding remains a validated one-time seed/operator concern; unresolved
+  locations become operator tasks and never receive invented coordinates.
+
+This decision adds no runtime geocoder, permanent map package, coordinate-inventing stub, mapping
+platform, routing engine, travel-time estimator, customer-location record, service, or package.
+It is filed as F-017.
+
+### Recipe safety — remove generative recipe assistance
+
+Approved July 24, 2026:
+
+- Phase 1 does not generate meal ideas, recipes, preparation instructions, or food-safety content,
+  and it does not retrieve external recipe links.
+- A recipe request may still receive code-rendered authoritative availability and recency for
+  named ingredients, followed by a code-rendered statement that launch does not provide recipes or
+  food-safety guidance.
+- The recipe model projection/seam, model permission, launch promise, provider decision, and
+  misleading advisory-eval claim are removed.
+
+This decision adds no content-moderation service, safety classifier, policy engine, recipe
+database, editorial workflow, runtime search provider, model, service, or package. It is filed as
+F-018.
+
+### Natural-language web inquiry — SMS only at launch
+
+Approved July 24, 2026:
+
+- Phase 1 natural-language customer inquiry is SMS-only.
+- Public web remains an ungated, model-free map/listing surface with deterministic browsing,
+  filtering/search, recency, location facts, and the F-017 browser-origin proximity behavior.
+- Web and SMS share authoritative published facts and recency; fact parity does not require
+  identical interaction mechanics.
+- The anonymous public-model abuse/cost throttle remains for the QR stock-out form, not normal
+  public lookup.
+
+This decision adds no model-backed web query field, chat surface, inquiry endpoint, web session,
+conversation state, transport framework, service, package, provider, or durable record. It is
+filed as F-019.
+
+### Retrieval-ordering clarification — F-013
+
+Approved July 24, 2026:
+
+1. Deterministic SMS routing runs before every model call.
+2. The model interprets the current customer request.
+3. Code validates the interpretation and retrieves authoritative facts.
+4. If retrieval is non-empty, the model selects/orders identifiers from that exact fact set.
+5. Code validates membership, renders the factual response, and queues delivery.
+
+`Retrieval-first` means retrieval before grounded fact selection and factual rendering, not before
+semantic interpretation. Empty retrieval is code-rendered without a grounded-selection call. This
+adds no new seam or model call and is recorded in F-013 rather than a separate item.
+
+### Inventory-proposal lifecycle clarification — F-014
+
+Approved July 24, 2026:
+
+- Unconfirmed structured inventory is a distinct pending proposal payload, not a draft inventory
+  revision.
+- New inventory text updates the one pending proposal and increments its version.
+- `YES` locks and validates the current proposal, rechecks authority and approval, and atomically
+  creates one immutable published revision plus entries while superseding the prior current
+  revision.
+- `NO` and expiry create no inventory revision.
+- Full-snapshot versus patch proposal semantics remain a separate unresolved decision; either must
+  produce one complete immutable published revision at confirmation.
+
+This adds no draft-revision lifecycle, proposal-history table, second confirmation representation,
+generic commitment framework, service, or package. It is recorded in F-014 rather than a separate
+item.
+
 ## Settled product contract
 
 ### 1. Purpose
@@ -190,17 +276,16 @@ Six months after launch:
 - A much higher percentage of farm-stand inventory is current.
 - Farmers respond to proactive SMS prompts.
 - Hundreds of unique customers use Farm Friend monthly.
-- People have learned to text Farm Friend with natural requests such as foods, meal ideas, distance,
-  or preferred stands.
+- People have learned to text Farm Friend with natural requests about foods or preferred stands.
 - The public web experience is substantially more useful than the existing embedded Google My Map.
 
 ### 2. Primary actors and outcomes
 
 #### Customers
 
-Customers can use the public web map or SMS to get the same underlying information. They can ask
-natural-language questions, receive useful matches and directions, understand recency, and get
-lightweight recipe assistance.
+Customers use the public web map or SMS to get the same authoritative published facts. The web
+offers model-free map/listing discovery, browser-origin proximity, and destination routing links;
+SMS accepts natural-language questions and returns useful grounded matches with honest recency.
 
 A useful answer may be concise rather than conversational:
 
@@ -212,8 +297,8 @@ Plum Forest: bok choy, strawberry preserves (updated 3 days ago)
 Farm Friend may also present deterministically derived comparison facts:
 
 ```text
-Paxton Farms is a few minutes farther and updated its stock today;
-Plum Forest's listing was updated 3 days ago.
+Paxton Farms lists both items and updated its stock today;
+Plum Forest lists bok choy and updated its stock 3 days ago.
 ```
 
 Answers must communicate uncertainty and recency honestly. Stale information remains visible with a
@@ -244,16 +329,21 @@ Routine inventory maintenance is not a VIGA responsibility.
 2. The default view centers on actionable purchase locations.
 3. Other farm layers remain prominent and easy to view so farms without stands do not feel omitted.
 4. The customer can inspect the same listing and inventory facts available through SMS.
-5. Directions or a Google Maps routing link may be offered where useful.
+5. With permission, transient browser geolocation may provide approximate straight-line proximity.
+6. A destination-only Google Maps link may be offered; Google Maps resolves the origin and route.
 
 #### SMS inquiry
 
 1. A customer texts a free-form need or question.
 2. The model interprets the meaning of the request.
-3. Deterministic retrieval supplies permitted farm, location, inventory, recency, and routing facts.
+3. Deterministic retrieval supplies permitted farm, location, inventory, and recency facts.
 4. The model selects or orders identifiers from those retrieved facts.
 5. Code validates the identifiers, renders the authoritative factual response and recency, and
    controls delivery.
+
+A request that requires arbitrary-origin proximity receives a code-rendered limitation and public
+map link. A recipe request may receive grounded ingredient availability plus a code-rendered scope
+statement, but no generated recipe, preparation guidance, or external recipe link.
 
 A customer-initiated inquiry permits its relevant direct response but does not create durable
 consent for later proactive notifications. Launch sends no passive customer follow-up.
@@ -288,11 +378,11 @@ No inventory update is published without farmer confirmation.
 A free-text SMS may direct the customer to the location-bound reporting surface, but it cannot
 select a location or queue a farmer alert.
 
-#### Recipe assistance
+#### Recipe requests
 
-Farm Friend can suggest what someone might make from currently available ingredients and may link to
-retrieved online recipes. It does not create an authoritative full recipe, transact, reserve food,
-or make commitments on a farmer's behalf.
+Phase 1 does not generate meal ideas, recipes, preparation instructions, food-safety guidance, or
+external recipe links. Farm Friend may answer the grounded ingredient-availability portion of the
+request and then states the launch boundary in code-rendered text.
 
 ### 4. Operating model and ownership
 
@@ -318,7 +408,6 @@ The model may:
 - propose inventory changes;
 - select and rank identifiers from relevant retrieved options;
 - draft replies;
-- compose recipe ideas;
 - suggest escalation.
 
 Deterministic code owns:
@@ -379,8 +468,7 @@ Launch includes:
 - proactive farmer prompts and preference management;
 - explicit farmer confirmation before publication;
 - private customer stock-out reporting;
-- concise recipe suggestions and optional external recipe links;
-- directions;
+- optional browser-origin approximate proximity and destination routing links;
 - one launch operational SMS program, universal STOP, JOIN, START, HELP, and safety escalation;
 - minimal single-level VIGA administration;
 - read-only payment methods and VIGA Farm Bucks acceptance or eligibility facts.
@@ -462,7 +550,7 @@ db, sms, ai -> core
 core -> no other package
 ```
 
-One composition root in `apps/web` constructs the database, model, SMS, mapping, and other adapters
+One composition root in `apps/web` constructs the database, model, SMS, and other adapters
 and injects them into authoritative workflows.
 
 Runtime surfaces:
@@ -484,7 +572,8 @@ hard-coded foods, farm names, semantic categories, or a brittle catalog of reque
 Code provides:
 
 - an allowed task-specific context;
-- general retrieval and geographic operations;
+- general retrieval operations for SMS inquiry and deterministic geographic operations for the
+  model-free public web;
 - authoritative records;
 - constrained action options;
 - typed retrieved facts with stable identifiers and `asOf` values;
@@ -508,7 +597,8 @@ verify unrestricted natural-language prose.
   watermarks;
 - one current launch-program consent state per recipient, capture provenance, universal STOP, and an
   ordered consent-transition watermark; no program discriminator or future-program enrollment state;
-- one open inventory-publication confirmation per sender;
+- one open inventory-publication confirmation per sender, carrying the distinct pending proposal
+  payload/version; inventory revisions are created only after confirmation;
 - flags and admin dispositions;
 - transactional outbox;
 - minimal audit and model-run evidence.
@@ -657,7 +747,7 @@ Every workflow has one authoritative core use case and one durable path.
 | SMS ingress | Verify the raw-body signature, commit a minimized unique inbox event, serialize ordinary stateful work per sender, and fail closed on stale events |
 | Inventory publishing | Maintain one open proposal per sender; after the current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
 | Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally ask for current inventory; a reply uses the ordinary inventory proposal/confirmation flow; free-text customer SMS cannot queue an alert; never alter public inventory |
-| Customer inquiry | Retrieve typed current facts, obtain model interpretation and selected/ordered fact IDs, validate membership in the retrieved set, render the factual reply in code, and queue it |
+| Customer inquiry | After deterministic SMS routing, obtain model interpretation of the current request; code validates it and retrieves typed current facts; for non-empty retrieval the model selects/orders fact IDs; code validates membership, renders the factual reply, and queues it |
 | Launch SMS consent | Maintain one launch-program consent state with capture provenance; `JOIN`, `START`, and documented farmer onboarding establish it; a customer-initiated inquiry permits only its relevant direct reply and creates no proactive subscription |
 | STOP, START, JOIN, HELP | Apply deterministic consent behavior before other interpretation; universal STOP applies across all Farm Friend messaging; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
 | FLAG | Store the concern and expose it to the single-level admin queue |
@@ -715,19 +805,20 @@ commits the decision and outbox work; workers perform external operations and re
 5. Build farmer verification, onboarding, VIGA approval, and minimal admin.
 6. Build the shared inventory proposal and confirmation workflow for web and SMS.
 7. Build the public map and listing experience from the same source of truth.
-8. Add grounded customer inquiry and recipe suggestions.
+8. Add grounded SMS customer inquiry.
 9. Add private stock-out reports, FLAG, and retention.
 10. Complete provider, adversarial, operational, and launch-readiness testing.
 
 ## PM state
 
 Historical item identifiers `F-001` through `F-010` are retired and must not be reused. F-011
-(declared baseline reset) is done and archived after PR #8 merged. Active items are F-012 (10DLC
-campaign alignment, planned), F-013 (the approved grounded-output and recipient-selection
-correction, planned), F-014 (the approved concurrent/out-of-order SMS routing correction, planned),
-F-015 (the approved model privacy-boundary and verification correction, planned), and F-016 (the
-approved one-program consent boundary and passive-follow-up removal, planned). The Farm Friend PM
-product configuration reflects the clean-room contract.
+(declared baseline reset) is done and archived after PR #8 merged. Active planned work is F-012
+(10DLC campaign alignment), F-013 (grounded output/recipient selection plus retrieval ordering),
+F-014 (safe SMS routing plus the distinct pending-proposal lifecycle), F-015 (model privacy
+boundary and verification), F-016 (one-program consent and passive-follow-up removal), F-017
+(browser-origin proximity with no arbitrary-origin SMS geocoding), F-018 (remove generative recipe
+assistance), and F-019 (SMS-only natural-language inquiry). None is authorized for implementation
+without a separate request.
 
 ## Unresolved launch decisions
 
@@ -739,7 +830,8 @@ them:
 - freshness warning thresholds;
 - proactive farmer-prompt timing and rate caps;
 - initial listing-data entry process;
-- final model, mapping, geocoding, image, and recipe-link providers;
+- full-snapshot versus patch semantics for farmer inventory proposals;
+- final model, one-time seed-geocoding, and image providers;
 - verification that the registered 10DLC campaign and public compliance pages match the one launch
   operational program, universal STOP, and the approved launch keyword set.
 

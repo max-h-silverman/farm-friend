@@ -7,6 +7,52 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-24 — Finding 5 and follow-on architecture decisions (F-017–F-019)
+
+Ranked finding 5 and the next four contradictions from the independent audit were reviewed one at
+a time against the clean-room contract and spiral-staircase constraint:
+
+- **Proximity (F-017):** launch uses optional transient browser geolocation for deterministic
+  approximate proximity to validated seeded public coordinates. Destination-only Google Maps
+  links delegate origin resolution/routing. SMS does not resolve arbitrary origins and returns a
+  code-rendered limitation plus public-map link. No runtime geocoder, map package, invented
+  coordinate, customer-location record, routing engine, service, or package was added.
+- **Recipe safety (F-018):** Phase 1 removes generated meal ideas, recipes, preparation/food-safety
+  guidance, and runtime recipe-link retrieval. A recipe request may receive grounded ingredient
+  availability plus a code-rendered scope statement. No moderation system, classifier, policy
+  engine, recipe catalog, provider, service, or package was added.
+- **Natural-language web inquiry (F-019):** Phase 1 inquiry is SMS-only. Public web remains a
+  model-free map/listing/filter/proximity surface over the same authoritative facts. The QR
+  stock-out form keeps the public model abuse/cost throttle; ordinary lookup is uncapped. No web
+  chat, inquiry endpoint, session, conversation state, or transport framework was added.
+- **Retrieval ordering (F-013 clarification):** deterministic routing precedes every model call;
+  model interpretation precedes code retrieval; grounded model selection sees only the retrieved
+  facts; code validates/renders/queues. Empty retrieval skips grounded selection. The correction
+  was folded into F-013 rather than creating another item.
+- **Inventory proposal lifecycle (F-014 clarification):** unconfirmed inventory is a distinct
+  pending proposal payload. `YES` creates the immutable published revision; `NO` and expiry create
+  none. Full-snapshot versus patch semantics remain separately unresolved. The clarification was
+  folded into F-014 rather than creating another item.
+
+The design authority and companion product/system/data/AI/runbook/index guidance were synchronized.
+No application code, schema, package, dependency, provider configuration, external campaign copy,
+or deployment changed.
+
+**PM:** F-017 was added in `~/pm` at `cf74275`, F-018 at `7edfaf8`, and F-019 at `5785436`.
+Retrieval ordering was added to F-013 at `0cdc70b`; the pending-proposal lifecycle was added to
+F-014 at `1806f46`; and F-013/F-017 channel ownership was aligned at `97d6e39`. F-012 through
+F-019 remain planned and require separate implementation authorization.
+
+**Verified:** `npm test` 46/46 (10 files), typecheck PASS, lint PASS; evals critical 3/3 + advisory
+2/2 + adversarial 4/4. `npm run test:integration` completed with all 3 tests skipped because
+`DATABASE_URL` is unset; a real-Postgres run remains owed. No deploy is required for this
+documentation/PM-only tranche.
+
+**Released:** repository commit `e7182c1` was pushed in PR #13. No deployment applies to this
+documentation/PM-only change.
+
+**Next:** review the audit's "Keyword grammar" contradiction exactly one finding at a time.
+
 ## 2026-07-24 — Ranked finding 4 decision: one launch SMS program (F-016)
 
 Ranked finding 4 was reviewed against the clean-room contract, data architecture, SMS compliance

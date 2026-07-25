@@ -66,6 +66,9 @@ contract**, and there is no non-destructive migration requirement or provenance 
 A **one-time seed utility** validates and loads farms, sales locations, listing facts, and approval
 state. Geocoding happens **once, during seeding** — it is not a permanent runtime provider seam,
 and a location that cannot be resolved is an **operator task**, never a fabricated coordinate.
+Optional public-web browser geolocation is transient and used only for approximate proximity to
+those validated coordinates; it is not persisted or sent to the model. Destination-only Google
+Maps links delegate origin resolution and routing. SMS does not resolve arbitrary customer origins.
 
 ## Start the web app
 
@@ -90,6 +93,10 @@ hold before live SMS:
   consent watermark, with STOP winning an exact timestamp tie.
 - Inbound messages enter the deterministic routing in [ARCHITECTURE.md](ARCHITECTURE.md) **before
   any model call**.
+- For customer inquiry, deterministic routing is followed by model interpretation, code retrieval,
+  grounded model selection from the retrieved IDs, then code validation/rendering/outbox.
+- Unconfirmed inventory lives only in the one pending proposal record. `YES` creates the immutable
+  published revision in the confirmation transaction; `NO` and expiry create no revision.
 
 Carrier keyword and confirmation requirements center on opt-in, opt-out, and help:
 <https://support.telnyx.com/en/articles/10645338-10dlc-keywords-and-confirmation-messages> and
@@ -100,6 +107,10 @@ establish its consent; universal STOP applies across all Farm Friend messaging; 
 permits only its relevant direct reply and creates no passive follow-up subscription or `MUTE` path.
 
 Use the in-memory simulator to exercise flows without live Telnyx.
+
+Natural-language customer inquiry is SMS-only at launch. Ordinary public map/listing/filter lookup
+is model-free and uncapped. The public QR stock-out form remains model-backed and must use the
+abuse/cost throttle.
 
 ## How to extend
 
