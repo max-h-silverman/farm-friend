@@ -7,6 +7,48 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-25 — Architecture review closed; F-021 planned
+
+The four-part review-to-build gate was completed against the current repository, the stable
+clean-room handoff, the independent audit, the executable tests/evals, and current PM ownership:
+
+- **Executable-proof claims:** the SMS requirements banner and runbook typecheck language were
+  already corrected. Remaining false cleanliness, structural-proof, stock-out-shape, and helper-eval
+  language was consolidated into F-013 and F-015 rather than becoming a cleanup framework.
+- **Doc/code drift:** acknowledged foundation drift remains implementation backlog. F-014 now owns
+  the narrow last-mile raw-E.164 delivery boundary and fail-closed Telnyx verification
+  configuration; F-012 and F-017 retain campaign and map drift. No catch-all refactor item was
+  created.
+- **Unresolved decisions:** none blocks the first package-boundary tranche. Inventory snapshot
+  semantics, contact/reassignment behavior, public-location projections, UX parameters, retention
+  values, and provider/campaign choices remain just-in-time decisions for their first real
+  consumers.
+- **Deletion/buildability:** no deleted capability needs restoration. The consumerless
+  message-classification seam should be removed through F-015. Runtime SMS-origin geocoding,
+  speculative packages/state, and generic future-program machinery stay deleted. The approved
+  product and four-package baseline are settled enough to build.
+
+The architecture review was explicitly closed and planning of the first build tranche was
+authorized. F-021 now specifies a test-first package-boundary reset: delete `apps/mobile`,
+`packages/config`, and `packages/contracts`; move only still-valid types to their owners; and make
+`core` independent of workspace adapters. F-021 is planning-only until a separate implementation
+request; no Farm Friend application code, schema, campaign/provider configuration, implementation
+branch, or deployment changed during the review.
+
+**PM:** proof-language scope was committed at `b0fbdd9`; the delivery boundary at `3826ff1`;
+just-in-time inventory semantics at `ab9de7c`; and planned F-021 at `552418b`.
+
+**Verified during closeout:** `npm test` 46/46 across 10 files; typecheck and lint PASS; evals
+critical 3/3, advisory 2/2, adversarial 4/4. `npm run test:integration` completed with all 3
+Postgres tests skipped because `DATABASE_URL` is unset; real-Postgres verification remains owed for
+the later schema/workflow tranche.
+
+**Release:** documentation-only closeout branch `docs/architecture-review-closeout`; no deployment
+applies.
+
+**Next:** after this closeout merges, start F-021 from clean `main` only when the fresh-session
+request explicitly authorizes implementation. Do not absorb F-012–F-019 or begin the launch schema.
+
 ## 2026-07-25 — Keyword grammar and review-state ownership (F-012 / F-020)
 
 Two follow-on contradictions from the independent audit were reviewed separately against the
