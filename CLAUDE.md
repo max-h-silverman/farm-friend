@@ -286,13 +286,13 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** The architecture review is in its closing audit tail. The clean-room baseline, ranked
-findings 1–5, recipe-safety removal, SMS-only natural-language inquiry, retrieval ordering, the
-distinct pending inventory-proposal lifecycle, fixed bare-keyword grammar, and design-authority /
-live-state ownership are approved. The application has **not** yet been refactored to the approved
-baseline.
+**Phase:** The clean-room architecture review and review-to-build gate are closed. The settled
+baseline includes ranked findings 1–5 and every follow-on decision named in the handoff. F-021 is
+the planned first build tranche: delete `apps/mobile`, `packages/config`, and `packages/contracts`
+and correct dependency direction. It is **planning-only until separately authorized**; the
+application has not yet been refactored to the approved baseline.
 
-**Verified July 25, 2026 for this documentation-only decision sync:** `npm test` 46/46 across 10
+**Verified July 25, 2026 during architecture-review closeout:** `npm test` 46/46 across 10
 files; typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks
 primarily prove **isolated helpers and structural claims, not launch workflows**.
 `npm run test:integration`
@@ -310,12 +310,11 @@ property; the grounding eval uses a cooperative canned model; the generic model-
 accepts arbitrary objects and its narrow scan plus helper-only evals do not enforce the approved
 task-specific privacy boundary.
 
-**PM / review:** The independent reset audit remains review input; only explicitly approved
-recommendations change the contract. Current item status lives in the Farm Friend PM backlog.
-F-012 through F-019 remain unauthorized for implementation.
+**PM / authorization:** PM owns current status. F-012 through F-019 remain planned and unauthorized
+for implementation. F-021 is planned as the smallest first package-boundary tranche, but moving it
+to `in progress`, creating its implementation branch, or changing repository code still requires
+an explicit implementation request.
 
-**Next:** close the review-to-build gate one finding at a time: (1) "Guarantees still asserted as
-executable fact"; (2) "Doc-versus-code drift"; (3) triage the audit's "Genuinely unresolved
-decisions" into already-settled, just-in-time, and first-build blockers; then (4) adjudicate the
-deletion/buildability verdict and seek explicit approval for the phase transition and first build
-item. Do not implement F-012 through F-019 or change application code/schema before that approval.
+**Next:** after the documentation closeout merges, explicitly authorize and implement F-021
+test-first on a branch from clean `main`. Do not absorb F-012–F-019, create the launch schema, or
+resolve later consumer-specific UX/provider parameters in that tranche.
