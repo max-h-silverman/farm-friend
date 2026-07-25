@@ -13,7 +13,9 @@
     "next": "^14.2.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "@farm-friend/db": "*",
+    "@farm-friend/sms": "*"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

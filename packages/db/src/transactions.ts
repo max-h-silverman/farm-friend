@@ -1,0 +1,964 @@
+import type { Clock } from "@farm-friend/core";
+import { confirmationEligibility } from "@farm-friend/core";
+import type postgres from "postgres";
+import type { Db } from "./index";
+
+// The authoritative SMS transactions (F-014).
+//
+// One verified provider event produces at most one current, authorized durable
+// consequence and one safely dispatched response. Every guarantee here is a database
+// transaction with real locks and constraints — not an application convention:
+//
+//   - durable acceptance before acknowledgement, deduplicated by provider event ID;
+//   - at most one claimed inbound event per sender, recoverable after an abandoned claim;
+//   - conversation ordering that fails closed on stale events;
+//   - consent ordered on its own watermark, so an older START cannot undo a newer STOP;
+//   - one open proposal per sender, published exactly once after rechecking authority;
+//   - a dispatch claim that is STOP's honest linearization point.
+//
+// External SMS and model calls never happen inside these transactions: they commit the
+// decision and the outbox work, and workers perform the I/O and record the outcome.
+
+/** How long a confirmation stays live after Telnyx accepts its current prompt. */
+export const CONFIRMATION_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+/** How long a worker may hold an inbound claim before it is recoverable. */
+export const DEFAULT_CLAIM_TTL_MS = 5 * 60 * 1000;
+
+/** Telnyx dispatch attempts are bounded by the schema; keep the policy in one place. */
+export const MAX_DISPATCH_ATTEMPTS = 3;
+
+type Sql = ReturnType<typeof postgres>;
+type Tx = postgres.TransactionSql<Record<string, unknown>>;
+
+function driver(db: Db): Sql {
+  return db.sql;
+}
+
+export type ProviderEventInput =
+  | {
+      providerEventId: string;
+      eventType: "message_received";
+      providerMessageId: string;
+      senderHash: string;
+      body: string | null;
+      occurredAt: Date;
+      /** How long the minimized body may be retained. */
+      bodyExpiresAt?: Date;
+    }
+  | {
+      providerEventId: string;
+      eventType: "message_sent" | "message_finalized";
+      dispatchAttemptId: string;
+      deliveryStatus: "sent" | "delivered" | "delivery_failed";
+      occurredAt: Date;
+    };
+
+export interface AcceptedProviderEvent {
+  /** False when this event was already accepted — a duplicate is a successful no-op. */
+  accepted: boolean;
+  inboxEventId: string;
+}
+
+const DEFAULT_BODY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Commit the minimized inbox projection for a verified provider event. The caller has
+ * already verified the Telnyx signature over the raw bytes; the raw envelope is never
+ * stored. Acknowledgement happens only after this commits.
+ */
+export async function acceptProviderEvent(
+  db: Db,
+  event: ProviderEventInput,
+): Promise<AcceptedProviderEvent> {
+  return driver(db).begin(async (tx) => {
+    const existing = await tx`
+      select id from provider_inbox_events
+      where provider_event_id = ${event.providerEventId}
+    `;
+    if (existing.length > 0) {
+      return { accepted: false, inboxEventId: existing[0]?.id as string };
+    }
+
+    if (event.eventType === "message_received") {
+      const bodyExpiresAt =
+        event.bodyExpiresAt ??
+        new Date(event.occurredAt.getTime() + DEFAULT_BODY_TTL_MS);
+
+      // The message is minimized and deduplicated on the provider message ID, so a
+      // retried event reuses the same durable row rather than storing it twice.
+      const message = await tx`
+        insert into sms_messages (
+          provider_message_id, sender_hash, body, body_expires_at, received_at
+        )
+        values (
+          ${event.providerMessageId}, ${event.senderHash}, ${event.body},
+          ${event.body === null ? null : bodyExpiresAt}, ${event.occurredAt}
+        )
+        on conflict (provider_message_id) do update
+          set provider_message_id = excluded.provider_message_id
+        returning id
+      `;
+
+      const inserted = await tx`
+        insert into provider_inbox_events (
+          provider_event_id, event_type, message_id, sender_hash, occurred_at
+        )
+        values (
+          ${event.providerEventId}, 'message_received', ${message[0]?.id as string},
+          ${event.senderHash}, ${event.occurredAt}
+        )
+        on conflict (provider_event_id) do nothing
+        returning id
+      `;
+      if (inserted.length === 0) {
+        const raced = await tx`
+          select id from provider_inbox_events
+          where provider_event_id = ${event.providerEventId}
+        `;
+        return { accepted: false, inboxEventId: raced[0]?.id as string };
+      }
+      return { accepted: true, inboxEventId: inserted[0]?.id as string };
+    }
+
+    const inserted = await tx`
+      insert into provider_inbox_events (
+        provider_event_id, event_type, dispatch_attempt_id, delivery_status, occurred_at
+      )
+      values (
+        ${event.providerEventId}, ${event.eventType}, ${event.dispatchAttemptId},
+        ${event.deliveryStatus}, ${event.occurredAt}
+      )
+      on conflict (provider_event_id) do nothing
+      returning id
+    `;
+    if (inserted.length === 0) {
+      const raced = await tx`
+        select id from provider_inbox_events
+        where provider_event_id = ${event.providerEventId}
+      `;
+      return { accepted: false, inboxEventId: raced[0]?.id as string };
+    }
+    return { accepted: true, inboxEventId: inserted[0]?.id as string };
+  }) as Promise<AcceptedProviderEvent>;
+}
+
+export interface ClaimedInboundEvent {
+  inboxEventId: string;
+  senderHash: string;
+  messageId: string;
+  body: string | null;
+  occurredAt: Date;
+  /**
+   * True when this event predates the sender's accepted conversation watermark. The
+   * caller must not mutate conversation, confirmation, or publication state; it may
+   * send a deterministic clarification asking the sender to resend.
+   */
+  isStale: boolean;
+  finalize(input: {
+    outcome: "processed" | "rejected";
+    now: Date;
+    failureCode?: string;
+  }): Promise<void>;
+}
+
+export interface ClaimInboundInput {
+  senderHash: string;
+  now: Date;
+  claimTtlMs?: number;
+}
+
+/**
+ * Claim the sender's next pending inbound event. A short transaction locks the sender,
+ * claims at most one row, and commits — it never spans a model or SMS call. Delivery
+ * callbacks are processed by their own path and never enter conversation state.
+ */
+export async function claimNextInboundEvent(
+  db: Db,
+  input: ClaimInboundInput,
+): Promise<ClaimedInboundEvent | null> {
+  const sql = driver(db);
+  const ttl = input.claimTtlMs ?? DEFAULT_CLAIM_TTL_MS;
+
+  const claimed = await sql.begin(async (tx) => {
+    // Serialize this sender's stateful work. The row lock is the whole point: two
+    // workers cannot both hold conversation work for one sender.
+    const senderRows = await tx`
+      insert into sender_states (sender_hash, updated_at)
+      values (${input.senderHash}, ${input.now})
+      on conflict (sender_hash) do update set sender_hash = excluded.sender_hash
+      returning sender_hash, conversation_occurred_at, conversation_provider_event_id
+    `;
+    await tx`
+      select sender_hash from sender_states
+      where sender_hash = ${input.senderHash}
+      for update
+    `;
+
+    const alreadyProcessing = await tx`
+      select id from provider_inbox_events
+      where sender_hash = ${input.senderHash}
+        and event_type = 'message_received'
+        and state = 'processing'
+    `;
+    if (alreadyProcessing.length > 0) return null;
+
+    const next = await tx`
+      select event.id, event.message_id, event.occurred_at, event.provider_event_id,
+             message.body
+      from provider_inbox_events as event
+      join sms_messages as message on message.id = event.message_id
+      where event.sender_hash = ${input.senderHash}
+        and event.event_type = 'message_received'
+        and event.state = 'pending'
+      order by event.occurred_at asc, event.provider_event_id asc
+      limit 1
+    `;
+    if (next.length === 0) return null;
+
+    const row = next[0] as Record<string, unknown>;
+    const claimToken = randomClaimToken();
+    await tx`
+      update provider_inbox_events
+      set state = 'processing', claim_token = ${claimToken},
+          claimed_at = ${input.now},
+          claim_expires_at = ${new Date(input.now.getTime() + ttl)}
+      where id = ${row.id as string}
+    `;
+
+    const watermark = senderRows[0]?.conversation_occurred_at as Date | null;
+    const watermarkEventId = senderRows[0]
+      ?.conversation_provider_event_id as string | null;
+    const occurredAt = row.occurred_at as Date;
+    const providerEventId = row.provider_event_id as string;
+
+    // Fail closed: an event at or before the accepted watermark cannot mutate newer
+    // state. Ties break on provider event ID so ordering is total.
+    const isStale =
+      watermark !== null &&
+      (occurredAt < watermark ||
+        (occurredAt.getTime() === watermark.getTime() &&
+          watermarkEventId !== null &&
+          providerEventId <= watermarkEventId));
+
+    return {
+      inboxEventId: row.id as string,
+      messageId: row.message_id as string,
+      body: (row.body as string | null) ?? null,
+      occurredAt,
+      providerEventId,
+      isStale,
+    };
+  });
+
+  if (!claimed) return null;
+  const result = claimed as {
+    inboxEventId: string;
+    messageId: string;
+    body: string | null;
+    occurredAt: Date;
+    providerEventId: string;
+    isStale: boolean;
+  };
+
+  return {
+    inboxEventId: result.inboxEventId,
+    senderHash: input.senderHash,
+    messageId: result.messageId,
+    body: result.body,
+    occurredAt: result.occurredAt,
+    isStale: result.isStale,
+    async finalize({ outcome, now, failureCode }) {
+      await sql.begin(async (tx) => {
+        // Re-lock the sender: a consequence applies only if the claim is still current.
+        await tx`
+          select sender_hash from sender_states
+          where sender_hash = ${input.senderHash} for update
+        `;
+        await tx`
+          update provider_inbox_events
+          set state = ${outcome}, claim_token = null, claim_expires_at = null,
+              finalized_at = ${now},
+              failure_code = ${outcome === "rejected" ? (failureCode ?? "unspecified") : null}
+          where id = ${result.inboxEventId} and state = 'processing'
+        `;
+        // Only a successfully processed, non-stale event advances the watermark.
+        if (outcome === "processed" && !result.isStale) {
+          await tx`
+            update sender_states
+            set conversation_occurred_at = ${result.occurredAt},
+                conversation_provider_event_id = ${result.providerEventId},
+                updated_at = ${now}
+            where sender_hash = ${input.senderHash}
+          `;
+        }
+      });
+    },
+  };
+}
+
+function randomClaimToken(): string {
+  return globalThis.crypto.randomUUID();
+}
+
+/** Release claims whose TTL lapsed so an abandoned inbound event is retried. */
+export async function releaseAbandonedClaims(
+  db: Db,
+  input: { now: Date },
+): Promise<number> {
+  const released = await driver(db)`
+    update provider_inbox_events
+    set state = 'pending', claim_token = null, claimed_at = null,
+        claim_expires_at = null
+    where state = 'processing' and claim_expires_at <= ${input.now}
+    returning id
+  `;
+  return released.length;
+}
+
+export interface ConsentTransitionInput {
+  recipientHash: string;
+  transition: "start" | "stop";
+  occurredAt: Date;
+  providerEventId: string;
+  captureEvidenceRef?: string;
+}
+
+export interface ConsentTransitionResult {
+  applied: boolean;
+  state: "active" | "stopped";
+}
+
+/**
+ * Apply STOP/START on their own provider-time watermark, independent of conversation
+ * state. The chronologically later command wins and STOP wins an exact tie, so an older
+ * START delivered after a newer STOP can never restore consent.
+ */
+export async function applyConsentTransition(
+  db: Db,
+  input: ConsentTransitionInput,
+): Promise<ConsentTransitionResult> {
+  return driver(db).begin(async (tx) => {
+    const current = await tx`
+      select transition, occurred_at from consent_transition_watermarks
+      where recipient_hash = ${input.recipientHash}
+      for update
+    `;
+
+    if (current.length > 0) {
+      const previousAt = current[0]?.occurred_at as Date;
+      const previous = current[0]?.transition as "start" | "stop";
+      const older = input.occurredAt < previousAt;
+      // On an exact tie STOP wins: a start can never displace a stop at the same instant.
+      const losesTie =
+        input.occurredAt.getTime() === previousAt.getTime() &&
+        (input.transition === previous || previous === "stop");
+
+      if (older || losesTie) {
+        const state = await tx`
+          select state from sms_consents where recipient_hash = ${input.recipientHash}
+        `;
+        return {
+          applied: false,
+          state: (state[0]?.state as "active" | "stopped") ?? "stopped",
+        };
+      }
+    }
+
+    await tx`
+      insert into consent_transition_watermarks (
+        recipient_hash, transition, occurred_at, provider_event_id
+      )
+      values (
+        ${input.recipientHash}, ${input.transition}, ${input.occurredAt},
+        ${input.providerEventId}
+      )
+      on conflict (recipient_hash) do update
+        set transition = excluded.transition,
+            occurred_at = excluded.occurred_at,
+            provider_event_id = excluded.provider_event_id
+    `;
+
+    const state = input.transition === "start" ? "active" : "stopped";
+    if (state === "active") {
+      await tx`
+        insert into sms_consents (
+          recipient_hash, state, capture_source, captured_at, capture_evidence_ref,
+          updated_at
+        )
+        values (
+          ${input.recipientHash}, 'active', 'start', ${input.occurredAt},
+          ${input.captureEvidenceRef ?? input.providerEventId}, ${input.occurredAt}
+        )
+        on conflict (recipient_hash) do update
+          set state = 'active', capture_source = 'start',
+              captured_at = excluded.captured_at,
+              capture_evidence_ref = excluded.capture_evidence_ref,
+              updated_at = excluded.updated_at
+      `;
+    } else {
+      // STOP clears consent immediately and applies across all Farm Friend messaging.
+      await tx`
+        insert into sms_consents (recipient_hash, state, updated_at)
+        values (${input.recipientHash}, 'stopped', ${input.occurredAt})
+        on conflict (recipient_hash) do update
+          set state = 'stopped', updated_at = excluded.updated_at
+      `;
+    }
+
+    return { applied: true, state };
+  }) as Promise<ConsentTransitionResult>;
+}
+
+export interface ProposalEntryInput {
+  itemName: string;
+  quantity?: number;
+  unit?: string;
+  priceText?: string;
+  approximation?: "some" | "limited" | "plentiful";
+}
+
+export interface OpenProposalInput {
+  senderHash: string;
+  salesLocationId: string;
+  entries: ProposalEntryInput[];
+  now: Date;
+  /** Defaults to the location's current published revision. */
+  baseRevisionId?: string | null;
+  baseIsFirstPublication?: boolean;
+  schemaVersion?: string;
+}
+
+export interface OpenProposalResult {
+  proposalId: string;
+  proposalVersion: number;
+  /**
+   * Record that Telnyx accepted the current confirmation prompt. This starts the
+   * 12-hour window; before it, no token can consume the proposal.
+   */
+  activate(input: {
+    providerAcceptedAt: Date;
+    outboxLogicalKey: string;
+  }): Promise<void>;
+}
+
+/**
+ * Open the sender's one proposal, or revise it in place. New inventory text always
+ * revises the single pending proposal and increments its version, which suspends token
+ * acceptance until the replacement prompt is provider-accepted.
+ */
+export async function openOrReviseProposal(
+  db: Db,
+  input: OpenProposalInput,
+): Promise<OpenProposalResult> {
+  const sql = driver(db);
+
+  const opened = (await sql.begin(async (tx) => {
+    await tx`
+      insert into sender_states (sender_hash, updated_at)
+      values (${input.senderHash}, ${input.now})
+      on conflict (sender_hash) do update set sender_hash = excluded.sender_hash
+    `;
+    await tx`
+      select sender_hash from sender_states
+      where sender_hash = ${input.senderHash} for update
+    `;
+
+    let baseRevisionId: string | null;
+    let isFirstPublication: boolean;
+    if (input.baseIsFirstPublication !== undefined) {
+      baseRevisionId = input.baseRevisionId ?? null;
+      isFirstPublication = input.baseIsFirstPublication;
+    } else {
+      const current = await tx`
+        select id from inventory_revisions
+        where sales_location_id = ${input.salesLocationId} and is_current
+      `;
+      baseRevisionId = (current[0]?.id as string | undefined) ?? null;
+      isFirstPublication = baseRevisionId === null;
+    }
+
+    // The pending payload is the complete resulting snapshot, stored as opaque JSON.
+    const payload = { entries: input.entries } as unknown as Parameters<
+      Tx["json"]
+    >[0];
+    const existing = await tx`
+      select id, proposal_version from inventory_publication_proposals
+      where sender_hash = ${input.senderHash} and state = 'open'
+      for update
+    `;
+
+    if (existing.length > 0) {
+      const id = existing[0]?.id as string;
+      const nextVersion = (existing[0]?.proposal_version as number) + 1;
+      // Revising invalidates the prior activation: the window restarts only once the
+      // replacement prompt is accepted.
+      await tx`
+        update inventory_publication_proposals
+        set payload = ${tx.json(payload)},
+            proposal_version = ${nextVersion},
+            sales_location_id = ${input.salesLocationId},
+            base_revision_id = ${baseRevisionId},
+            base_is_first_publication = ${isFirstPublication},
+            activation_outbox_id = null,
+            activated_version = null,
+            activated_at = null,
+            expires_at = null,
+            updated_at = ${input.now}
+        where id = ${id}
+      `;
+      return { proposalId: id, proposalVersion: nextVersion };
+    }
+
+    const inserted = await tx`
+      insert into inventory_publication_proposals (
+        sender_hash, sales_location_id, payload, schema_version, proposal_version,
+        yes_token, no_token, base_revision_id, base_is_first_publication,
+        created_at, updated_at
+      )
+      values (
+        ${input.senderHash}, ${input.salesLocationId}, ${tx.json(payload)},
+        ${input.schemaVersion ?? "1"}, 1, 'YES', 'NO', ${baseRevisionId},
+        ${isFirstPublication}, ${input.now}, ${input.now}
+      )
+      returning id
+    `;
+    return { proposalId: inserted[0]?.id as string, proposalVersion: 1 };
+  })) as { proposalId: string; proposalVersion: number };
+
+  return {
+    ...opened,
+    async activate({ providerAcceptedAt, outboxLogicalKey }) {
+      await sql.begin(async (tx) => {
+        const prompt = await tx`
+          insert into outbox_work (
+            logical_key, recipient_hash, message_kind, body, body_expires_at,
+            available_at, state, dispatch_authorized_at, completed_at, created_at
+          )
+          values (
+            ${outboxLogicalKey}, ${input.senderHash}, 'inventory_confirmation',
+            'Confirm this inventory', ${new Date(providerAcceptedAt.getTime() + DEFAULT_BODY_TTL_MS)},
+            ${providerAcceptedAt}, 'sent', ${providerAcceptedAt}, ${providerAcceptedAt},
+            ${providerAcceptedAt}
+          )
+          on conflict (logical_key) do update set logical_key = excluded.logical_key
+          returning id
+        `;
+        const version = await tx`
+          select proposal_version from inventory_publication_proposals
+          where id = ${opened.proposalId}
+        `;
+        await tx`
+          update inventory_publication_proposals
+          set activation_outbox_id = ${prompt[0]?.id as string},
+              activated_version = ${version[0]?.proposal_version as number},
+              activated_at = ${providerAcceptedAt},
+              expires_at = ${new Date(providerAcceptedAt.getTime() + CONFIRMATION_WINDOW_MS)},
+              updated_at = ${providerAcceptedAt}
+          where id = ${opened.proposalId}
+        `;
+      });
+    },
+  };
+}
+
+export interface ConfirmPublicationInput {
+  proposalId: string;
+  senderHash: string;
+  token: "yes" | "no";
+  occurredAt: Date;
+  providerEventId: string;
+  clock: Clock;
+}
+
+export type ConfirmPublicationResult =
+  | { status: "published"; revisionId: string }
+  | { status: "declined" }
+  | { status: "not_activated" }
+  | { status: "awaiting_new_prompt" }
+  | { status: "predates_activation" }
+  | { status: "expired" }
+  | { status: "base_conflict" }
+  | { status: "not_authorized" }
+  | { status: "not_approved" }
+  | { status: "already_consumed" }
+  | { status: "no_open_proposal" };
+
+/**
+ * Consume the sender's one open proposal exactly once. The transaction locks the sender
+ * and the pending row, rechecks the prompt/version, expiry, base revision, current
+ * farmer authority and VIGA approval, then publishes and queues the response together.
+ *
+ * `YES` publishes exactly the stored complete snapshot — never a replayed delta.
+ */
+export async function confirmInventoryPublication(
+  db: Db,
+  input: ConfirmPublicationInput,
+): Promise<ConfirmPublicationResult> {
+  return driver(db).begin(async (tx) => {
+    await tx`
+      insert into sender_states (sender_hash, updated_at)
+      values (${input.senderHash}, ${input.occurredAt})
+      on conflict (sender_hash) do update set sender_hash = excluded.sender_hash
+    `;
+    await tx`
+      select sender_hash from sender_states
+      where sender_hash = ${input.senderHash} for update
+    `;
+
+    const rows = await tx`
+      select * from inventory_publication_proposals
+      where id = ${input.proposalId} and sender_hash = ${input.senderHash}
+      for update
+    `;
+    if (rows.length === 0) return { status: "no_open_proposal" };
+    const proposal = rows[0] as Record<string, unknown>;
+    if (proposal.state !== "open") return { status: "already_consumed" };
+
+    const salesLocationId = proposal.sales_location_id as string;
+    const currentRevision = await tx`
+      select id from inventory_revisions
+      where sales_location_id = ${salesLocationId} and is_current
+    `;
+    const currentRevisionId = (currentRevision[0]?.id as string | undefined) ?? null;
+
+    const eligibility = confirmationEligibility(
+      {
+        proposalVersion: proposal.proposal_version as number,
+        activatedVersion: (proposal.activated_version as number | null) ?? null,
+        activatedAt: (proposal.activated_at as Date | null) ?? null,
+        expiresAt: (proposal.expires_at as Date | null) ?? null,
+        baseRevisionId: (proposal.base_revision_id as string | null) ?? null,
+      },
+      {
+        occurredAt: input.occurredAt,
+        currentRevisionId,
+        clock: input.clock,
+      },
+    );
+
+    if (eligibility.status === "expired") {
+      // An expired proposal is garbage-collected without changing published inventory.
+      await tx`
+        update inventory_publication_proposals
+        set state = 'expired', closed_at = ${input.occurredAt}, updated_at = ${input.occurredAt}
+        where id = ${input.proposalId}
+      `;
+      return { status: "expired" };
+    }
+    if (eligibility.status === "base_conflict") {
+      // Published state moved: invalidate honestly and require regeneration.
+      await tx`
+        update inventory_publication_proposals
+        set state = 'invalidated', closed_at = ${input.occurredAt}, updated_at = ${input.occurredAt}
+        where id = ${input.proposalId}
+      `;
+      return { status: "base_conflict" };
+    }
+    if (eligibility.status !== "eligible") {
+      return { status: eligibility.status };
+    }
+
+    if (input.token === "no") {
+      await tx`
+        update inventory_publication_proposals
+        set state = 'declined', consumed_token = 'no',
+            consumption_provider_event_id = ${input.providerEventId},
+            closed_at = ${input.occurredAt}, updated_at = ${input.occurredAt}
+        where id = ${input.proposalId}
+      `;
+      await queueOutbox(tx, {
+        logicalKey: `proposal-declined-${input.proposalId}-${proposal.proposal_version as number}`,
+        recipientHash: input.senderHash,
+        messageKind: "inventory_declined",
+        body: "No problem — your listing is unchanged.",
+        now: input.occurredAt,
+      });
+      return { status: "declined" };
+    }
+
+    // Authority and approval are re-read while the locks are held: a revocation that
+    // committed after the prompt was sent must prevent publication.
+    const location = await tx`
+      select farm_id from sales_locations where id = ${salesLocationId}
+    `;
+    const farmId = location[0]?.farm_id as string;
+
+    const authorization = await tx`
+      select farmer.id from farmer_authorizations as farmer
+      join contacts on contacts.id = farmer.contact_id
+      where farmer.farm_id = ${farmId}
+        and contacts.phone_hash = ${input.senderHash}
+        and farmer.revoked_at is null
+    `;
+    if (authorization.length === 0) return { status: "not_authorized" };
+
+    const approval = await tx`
+      select id from farm_approvals
+      where farm_id = ${farmId} and revoked_at is null
+    `;
+    if (approval.length === 0) return { status: "not_approved" };
+
+    await tx`
+      update inventory_publication_proposals
+      set state = 'accepted', consumed_token = 'yes',
+          consumption_provider_event_id = ${input.providerEventId},
+          closed_at = ${input.occurredAt}, updated_at = ${input.occurredAt}
+      where id = ${input.proposalId}
+    `;
+
+    if (currentRevisionId !== null) {
+      await tx`
+        update inventory_revisions
+        set is_current = false, superseded_at = ${input.occurredAt}
+        where id = ${currentRevisionId}
+      `;
+    }
+
+    const revision = await tx`
+      insert into inventory_revisions (
+        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_approval_id, published_at
+      )
+      values (
+        ${farmId}, ${salesLocationId}, ${input.proposalId},
+        ${authorization[0]?.id as string}, ${approval[0]?.id as string},
+        ${input.occurredAt}
+      )
+      returning id
+    `;
+    const revisionId = revision[0]?.id as string;
+
+    const payload = proposal.payload as { entries?: ProposalEntryInput[] };
+    const entries = payload.entries ?? [];
+    for (const [index, entry] of entries.entries()) {
+      await tx`
+        insert into inventory_entries (
+          inventory_revision_id, sales_location_id, item_name, quantity, unit,
+          price_text, approximation, sort_order
+        )
+        values (
+          ${revisionId}, ${salesLocationId}, ${entry.itemName},
+          ${entry.quantity ?? null}, ${entry.unit ?? null}, ${entry.priceText ?? null},
+          ${entry.approximation ?? null}, ${index}
+        )
+      `;
+    }
+
+    await queueOutbox(tx, {
+      logicalKey: `inventory-published-${revisionId}`,
+      recipientHash: input.senderHash,
+      messageKind: "inventory_published",
+      body: "Your listing is updated. Thank you!",
+      now: input.occurredAt,
+    });
+
+    return { status: "published", revisionId };
+  }) as Promise<ConfirmPublicationResult>;
+}
+
+async function queueOutbox(
+  tx: Tx,
+  input: {
+    logicalKey: string;
+    recipientHash: string;
+    messageKind: string;
+    body: string;
+    now: Date;
+    isRequired?: boolean;
+  },
+): Promise<void> {
+  await tx`
+    insert into outbox_work (
+      logical_key, recipient_hash, message_kind, body, body_expires_at,
+      available_at, is_required, created_at
+    )
+    values (
+      ${input.logicalKey}, ${input.recipientHash}, ${input.messageKind}, ${input.body},
+      ${new Date(input.now.getTime() + DEFAULT_BODY_TTL_MS)}, ${input.now},
+      ${input.isRequired ?? false}, ${input.now}
+    )
+    on conflict (logical_key) do nothing
+  `;
+}
+
+export type DispatchAuthorization =
+  | { status: "authorized"; dispatchAttemptId: string; attemptNumber: number }
+  | { status: "suppressed" }
+  | { status: "unavailable" };
+
+/**
+ * Atomically claim one queued outbox row for dispatch. This commit is STOP's honest
+ * linearization point: STOP committed first suppresses still-queued non-required work,
+ * while work authorized first may already be in flight and is never recalled.
+ */
+export async function authorizeDispatch(
+  db: Db,
+  input: { outboxWorkId: string; now: Date },
+): Promise<DispatchAuthorization> {
+  return driver(db).begin(async (tx) => {
+    const rows = await tx`
+      select id, recipient_hash, state, is_required from outbox_work
+      where id = ${input.outboxWorkId}
+      for update
+    `;
+    if (rows.length === 0) return { status: "unavailable" };
+    const work = rows[0] as Record<string, unknown>;
+    if (work.state !== "queued") return { status: "unavailable" };
+
+    const consent = await tx`
+      select state from sms_consents
+      where recipient_hash = ${work.recipient_hash as string}
+    `;
+    const stopped = consent[0]?.state === "stopped";
+    if (stopped && !(work.is_required as boolean)) {
+      await tx`
+        update outbox_work
+        set state = 'suppressed', completed_at = ${input.now}
+        where id = ${input.outboxWorkId}
+      `;
+      return { status: "suppressed" };
+    }
+
+    const prior = await tx`
+      select coalesce(max(attempt_number), 0)::integer as attempts
+      from outbox_dispatch_attempts where outbox_work_id = ${input.outboxWorkId}
+    `;
+    const attemptNumber = ((prior[0]?.attempts as number) ?? 0) + 1;
+    if (attemptNumber > MAX_DISPATCH_ATTEMPTS) {
+      await tx`
+        update outbox_work
+        set state = 'failed', completed_at = ${input.now}
+        where id = ${input.outboxWorkId}
+      `;
+      return { status: "unavailable" };
+    }
+
+    await tx`
+      update outbox_work
+      set state = 'dispatching', dispatch_authorized_at = ${input.now}
+      where id = ${input.outboxWorkId}
+    `;
+    const attempt = await tx`
+      insert into outbox_dispatch_attempts (
+        outbox_work_id, attempt_number, state, started_at
+      )
+      values (${input.outboxWorkId}, ${attemptNumber}, 'authorized', ${input.now})
+      returning id
+    `;
+
+    return {
+      status: "authorized",
+      dispatchAttemptId: attempt[0]?.id as string,
+      attemptNumber,
+    };
+  }) as Promise<DispatchAuthorization>;
+}
+
+export interface DispatchResultInput {
+  dispatchAttemptId: string;
+  outcome: "accepted" | "definitive_rejection" | "ambiguous";
+  providerMessageId?: string;
+  errorCode?: string;
+  now: Date;
+}
+
+/**
+ * Record what the provider said. A definitive retryable rejection may return the work to
+ * the queue within the bounded attempt policy; a result that may have been accepted is
+ * quarantined as ambiguous and never automatically resent.
+ */
+export async function recordDispatchResult(
+  db: Db,
+  input: DispatchResultInput,
+): Promise<{ retryable: boolean }> {
+  return driver(db).begin(async (tx) => {
+    const attempts = await tx`
+      select outbox_work_id, attempt_number from outbox_dispatch_attempts
+      where id = ${input.dispatchAttemptId} for update
+    `;
+    const workId = attempts[0]?.outbox_work_id as string;
+    const attemptNumber = attempts[0]?.attempt_number as number;
+
+    await tx`
+      update outbox_dispatch_attempts
+      set state = ${input.outcome}, completed_at = ${input.now},
+          provider_message_id = ${input.providerMessageId ?? null},
+          error_code = ${input.errorCode ?? null}
+      where id = ${input.dispatchAttemptId}
+    `;
+
+    if (input.outcome === "accepted") {
+      await tx`
+        update outbox_work set state = 'sent', completed_at = ${input.now}
+        where id = ${workId}
+      `;
+      return { retryable: false };
+    }
+
+    if (input.outcome === "ambiguous") {
+      // The provider may have accepted it. Resending could duplicate a real SMS.
+      await tx`
+        update outbox_work set state = 'ambiguous', completed_at = ${input.now}
+        where id = ${workId}
+      `;
+      return { retryable: false };
+    }
+
+    const retryable = attemptNumber < MAX_DISPATCH_ATTEMPTS;
+    if (retryable) {
+      await tx`
+        update outbox_work
+        set state = 'queued', dispatch_authorized_at = null, completed_at = null
+        where id = ${workId}
+      `;
+    } else {
+      await tx`
+        update outbox_work set state = 'failed', completed_at = ${input.now}
+        where id = ${workId}
+      `;
+    }
+    return { retryable };
+  }) as Promise<{ retryable: boolean }>;
+}
+
+/**
+ * Apply a delivery webhook to its outbound work. State advances by provider occurrence
+ * time only; a duplicate is a no-op and a late event never regresses a terminal result.
+ */
+export async function applyDeliveryEvent(
+  db: Db,
+  input: {
+    dispatchAttemptId: string;
+    deliveryStatus: "sent" | "delivered" | "delivery_failed";
+    occurredAt: Date;
+    providerEventId: string;
+  },
+): Promise<void> {
+  await driver(db).begin(async (tx) => {
+    const attempts = await tx`
+      select outbox_work_id from outbox_dispatch_attempts
+      where id = ${input.dispatchAttemptId}
+    `;
+    if (attempts.length === 0) return;
+    const workId = attempts[0]?.outbox_work_id as string;
+
+    const rows = await tx`
+      select delivery_occurred_at, delivery_event_id from outbox_work
+      where id = ${workId} for update
+    `;
+    const previousAt = rows[0]?.delivery_occurred_at as Date | null;
+    const previousEvent = rows[0]?.delivery_event_id as string | null;
+
+    if (previousEvent === input.providerEventId) return;
+    if (previousAt !== null && input.occurredAt <= previousAt) return;
+
+    await tx`
+      update outbox_work
+      set delivery_status = ${input.deliveryStatus},
+          delivery_occurred_at = ${input.occurredAt},
+          delivery_event_id = ${input.providerEventId}
+      where id = ${workId}
+    `;
+  });
+}

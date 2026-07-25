@@ -8,9 +8,13 @@ driver; **A2P 10DLC is assumed approved by launch** (Eat Vashon week). All copy 
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: requirements, not claims.** The current webhook parses and echoes a command but does not
-> persist or enforce consent, and the current schema still contains a speculative nullable program
-> key. The behavior below is the approved F-016 target, not current executable proof.
+> **Status: partly implemented; keyword grammar remains a requirement.** F-014 implements verified
+> ingress, durable minimized persistence, per-sender serialization, the separate provider-time
+> STOP/START consent watermark, and the dispatch-claim consent boundary, all proven by
+> real-Postgres tests; the speculative program key is gone from the schema. **Not yet aligned:** the
+> deterministic parser still accepts the obsolete `OUT`/`IGNORE` tokens and the registered campaign
+> copy has not been reconciled with the approved fixed keyword set. That alignment is F-012/F-016
+> and the keyword behavior below remains the target, not current executable proof.
 
 ## Deterministic keyword handling (code, before any model call)
 

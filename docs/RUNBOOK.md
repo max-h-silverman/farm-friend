@@ -42,13 +42,18 @@ hostile evals verify the runtime barrier but are not themselves enforcement. See
 
 Copy `.env.example` → `.env` and fill:
 - `DATABASE_URL` — Postgres/Neon connection (integration tests + migrations).
+- `PHONE_HASH_SALT` — required; the phone hash is the only lookup/log key.
+- `SMS_PROVIDER` — `simulator` or `telnyx`. There is **no default**; an unset or unknown value is a
+  configuration error rather than a silent fallback.
+- With `SMS_PROVIDER=telnyx`, all four are required: `TELNYX_API_KEY`,
+  `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, and `TELNYX_PUBLIC_KEY` — the ed25519
+  webhook verification key, without which inbound webhooks cannot be verified at all.
 - Model provider selection and model config — stub is the default in tests and evals.
-- SMS provider selection — in-memory simulator vs. Telnyx.
-- Telnyx credentials, the **webhook signing key**, and auth secrets — for live SMS and sign-in
-  (not needed for unit tests or evals).
 
-Runtime configuration is parsed and validated in the **single composition root** in `apps/web`;
-there is no `config` package. `.env` is gitignored; only `.env.example` is committed.
+Runtime configuration is parsed and validated in the **single composition root**
+(`apps/web/lib/composition.ts`); there is no `config` package. It **fails closed**: selecting live
+Telnyx without the verification key or delivery credentials throws at startup, and the simulator
+never inherits live secrets. `.env` is gitignored; only `.env.example` is committed.
 
 ## Migrations
 
@@ -82,8 +87,11 @@ npm run dev -w apps/web     # Next.js App Router
 
 ## Telnyx webhook config
 
-Point the Telnyx number's inbound webhook at `apps/web`'s webhook route. Requirements that must
-hold before live SMS:
+Point the Telnyx number's inbound webhook at `apps/web`'s webhook route
+(`apps/web/app/api/sms/webhook/route.ts`). The signature, minimized-persistence, sender-claiming,
+ordering, consent, dispatch, and delivery-monotonicity requirements below are **implemented and
+proven by real-Postgres tests** as of F-014; the customer-inquiry retrieval step is not. Requirements
+that must hold before live SMS:
 
 - Read the **exact raw request bytes** and verify the webhook signature before parsing. Telnyx's
   receiving guidance requires it:

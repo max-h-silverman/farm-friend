@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.31.0",
-    "postgres": "^3.4.0"
+    "postgres": "^3.4.0",
+    "@farm-friend/core": "*"
   },
   "devDependencies": {
     "drizzle-kit": "^0.22.0"

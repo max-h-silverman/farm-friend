@@ -3,6 +3,8 @@ import { estimateSmsSegments, type SmsSegmentEstimate } from "./segments";
 
 export * from "./redaction";
 export * from "./segments";
+export * from "./telnyx";
+export * from "./delivery";
 
 export interface OutboundMessage {
   toPhoneHash: string; // recipient keyed by hash, never raw

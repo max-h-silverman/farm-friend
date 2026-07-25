@@ -7,6 +7,70 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-25 — F-014 authoritative SMS transactions
+
+Starting from clean `main` at `cbf8273`, the authoritative transaction path was built test-first on
+top of F-022's schema. Every suite was observed failing before implementation: the six new
+migration-surface tests failed for the right reasons (no `provider_event_type`, no
+`base_revision_id`, no `invalidated` state, no delivery columns, one migration file), and the 27
+workflow tests failed wholesale before the transactions existed. The implementation then:
+
+- added forward migration `0001_authoritative_transactions` without touching `0000` (verified
+  byte-identical to `main`): the generalized inbox with a per-event-type minimal-projection check,
+  inbound-only sender claiming, base-revision binding, activation-relative expiry, the honest
+  `invalidated` proposal state, and the delivery status/watermark plus its monotonicity trigger;
+- replaced the speculative generic commitment placeholder with inventory-specific core ports —
+  patch application over stable entry IDs where omission preserves, complete-snapshot rendering,
+  confirmation eligibility, and a validated interpreter port;
+- implemented the authoritative Postgres transactions: durable acceptance/dedup, recoverable
+  per-sender claiming under row locks, fail-closed stale ordering, the separate consent watermark,
+  one open proposal, exactly-once confirmation/publication with authority + approval rechecked while
+  locks are held, consent-aware dispatch, bounded retries, ambiguous quarantine, monotonic delivery;
+- implemented raw-body Telnyx ed25519 verification before parsing, minimized event parsing,
+  fail-closed configuration, the last-mile raw-phone capability, the single `apps/web` composition
+  root, the real webhook route replacing the echo stub, and bounded workers; and
+- wired the interpreter port to the one pending proposal, so typed edits revise it and a
+  clarification queues a question without creating one.
+
+**Three decisions worth recording.**
+
+*Enum recreation over `ALTER TYPE`.* Drizzle's migrator runs all pending migrations inside one
+transaction (`pg-core/dialect.js:54`) and PostgreSQL forbids using a newly added enum value in the
+transaction that added it. Splitting the migration into two files does not help. Migration `0001`
+therefore recreates `proposal_state` with all five values and swaps the column over, keeping
+`invalidated` a first-class state in a single `migrate()` run. Approved by max during implementation
+after the alternatives (a separate `closed_reason` column, or reusing `expired` and losing the
+distinction) were weighed.
+
+*The generic commitment machine was kept, not deleted.* It is superseded by the inventory ports and
+has no authoritative caller, but the unchanged eval suite still exercises it and its `OUT`/`IGNORE`
+tokens belong to F-012's parser/campaign alignment. Deleting it here would have broken the evals and
+crossed an ownership boundary. `packages/core/src/index.ts` records why it remains.
+
+*Two connection pools, same total budget.* Constructing a Drizzle instance overwrites the date/time
+serializers on whatever postgres.js client it is built over
+(`drizzle-orm/postgres-js/driver.js:10-14`), after which raw SQL on that client cannot bind a `Date`
+— and the resulting error names the calling query rather than the cause. This cost several debugging
+rounds and was isolated with throwaway probe tests. `createDb` now backs the query builder and the
+raw transactional client with separate clients. The first fix incidentally doubled the connection
+ceiling from 5 to 10; max caught that in review, and the split was capped to 3 (raw SQL) / 2
+(Drizzle) so the total is unchanged. The fix is structural rather than conventional: no future
+caller has to remember to convert timestamps by hand. Whether 5 total is correct is an inherited,
+never load-tested number and remains a deployment-sizing question outside F-014.
+
+**Deliberately not done:** no live model adapter, context projection, or hostile-model proof
+(F-015); no keyword/parser or campaign changes (F-012); no customer inquiry or stock-out
+consequences (F-013); no proximity, recipe, or channel-surface work (F-017 through F-019). The
+interpreter port is tested only with deterministic fakes and F-014 makes no hostile-model claim.
+
+**Verified:** `npm test` 83/83 across 14 files; real-Postgres integration 53/53 across 5 files
+against an isolated PostgreSQL 16.12 cluster; typecheck and lint PASS; the unchanged eval suite
+passes critical 3/3, advisory 2/2, adversarial 4/4; the production Next.js build and
+`git diff --check` PASS.
+
+**PM:** F-014 moved to `in progress` at PM commit `382a98f`, with implementation state recorded at
+`4991333` and the connection-pool decision at `a77bda6`.
+
 ## 2026-07-25 — F-022 clean launch schema and initial migration
 
 Starting from clean `main` at `3d89380` (merged PR #16), the database foundation was replaced

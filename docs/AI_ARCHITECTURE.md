@@ -16,6 +16,12 @@ verification**, validation, evals, and data minimization. Data shapes are in
 > unsupported selection; and the
 > adversarial tests exercise helpers rather than an end-to-end hostile-model boundary. Everything
 > below is a **requirement awaiting executable proof**.
+>
+> F-014 added one piece: a **typed inventory-interpreter port** in `packages/core` whose output is
+> validated in code — permitted shapes only, no consequential fields, and every selected entry ID
+> checked against the retrieved snapshot before it has any effect. It is exercised with
+> **deterministic fakes only** and is not connected to a live model. It is therefore evidence about
+> the *code side* of that seam, and **not** a hostile-model or privacy-boundary claim (F-015).
 
 ## The trust contract — an LLM-brain in a harness
 
