@@ -11,7 +11,6 @@ module.exports = {
     "dist/",
     ".next/",
     "**/*.tsbuildinfo",
-    "apps/mobile/",
   ],
   rules: {
     "@typescript-eslint/no-unused-vars": [

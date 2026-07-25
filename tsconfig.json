@@ -1,11 +1,9 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/contracts" },
-    { "path": "packages/config" },
+    { "path": "packages/core" },
     { "path": "packages/db" },
     { "path": "packages/sms" },
-    { "path": "packages/ai" },
-    { "path": "packages/core" }
+    { "path": "packages/ai" }
   ]
 }

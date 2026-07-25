@@ -9,8 +9,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@farm-friend/config": "*",
-    "@farm-friend/contracts": "*",
     "zod": "^3.23.0"
   }
 }

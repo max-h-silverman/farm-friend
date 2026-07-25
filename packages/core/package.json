@@ -7,12 +7,5 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
-  },
-  "dependencies": {
-    "@farm-friend/ai": "*",
-    "@farm-friend/config": "*",
-    "@farm-friend/contracts": "*",
-    "@farm-friend/db": "*",
-    "@farm-friend/sms": "*"
   }
 }
