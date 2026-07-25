@@ -286,12 +286,13 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** The clean-room baseline, ranked findings 1–5, recipe-safety removal, SMS-only
-natural-language inquiry, retrieval ordering, and the distinct pending inventory-proposal
-lifecycle are approved. The application has **not** yet been refactored to the approved baseline.
-The review is paused immediately before the audit's "Keyword grammar" finding.
+**Phase:** The architecture review is in its closing audit tail. The clean-room baseline, ranked
+findings 1–5, recipe-safety removal, SMS-only natural-language inquiry, retrieval ordering, the
+distinct pending inventory-proposal lifecycle, fixed bare-keyword grammar, and design-authority /
+live-state ownership are approved. The application has **not** yet been refactored to the approved
+baseline.
 
-**Verified July 24, 2026 for this documentation-only decision sync:** `npm test` 46/46 across 10
+**Verified July 25, 2026 for this documentation-only decision sync:** `npm test` 46/46 across 10
 files; typecheck + lint pass; evals critical 3/3, advisory 2/2, adversarial 4/4. These checks
 primarily prove **isolated helpers and structural claims, not launch workflows**.
 `npm run test:integration`
@@ -310,11 +311,11 @@ accepts arbitrary objects and its narrow scan plus helper-only evals do not enfo
 task-specific privacy boundary.
 
 **PM / review:** The independent reset audit remains review input; only explicitly approved
-recommendations change the contract. **F-012** through **F-019** are planned. F-013 includes the
-approved interpretation → retrieval → grounded-selection order; F-014 includes the distinct
-pending proposal → immutable confirmed revision lifecycle; F-017 narrows proximity to transient
-browser origin plus destination links; F-018 removes generative recipe assistance; and F-019 keeps
-natural-language inquiry SMS-only. None is authorized for implementation.
+recommendations change the contract. Current item status lives in the Farm Friend PM backlog.
+F-012 through F-019 remain unauthorized for implementation.
 
-**Next:** review the audit's **"Keyword grammar"** finding exactly one finding at a time. Do not
-implement F-012 through F-019 or change application code/schema before separate authorization.
+**Next:** close the review-to-build gate one finding at a time: (1) "Guarantees still asserted as
+executable fact"; (2) "Doc-versus-code drift"; (3) triage the audit's "Genuinely unresolved
+decisions" into already-settled, just-in-time, and first-build blockers; then (4) adjudicate the
+deletion/buildability verdict and seek explicit approval for the phase transition and first build
+item. Do not implement F-012 through F-019 or change application code/schema before that approval.

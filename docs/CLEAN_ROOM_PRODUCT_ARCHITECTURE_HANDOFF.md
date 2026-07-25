@@ -3,9 +3,7 @@
 **Reference date:** July 24, 2026  
 **Repository:** `/Users/max/farm-friend`  
 **Audited repository baseline:** clean `main` at `2cb39e4`, including PR #7  
-**PM reset commit:** `da7e223` in `/Users/max/pm`  
-**Current phase:** Phase 4 finding review underway; ranked findings 1–5 and the first four
-follow-on contradictions approved
+**PM reset commit:** `da7e223` in `/Users/max/pm`
 
 > This is the handoff and audit reference for the clean-room design session. The existing
 > architecture documents remain useful evidence of the previous design, but they are not design
@@ -16,7 +14,8 @@ follow-on contradictions approved
 1. Read this document before the existing Farm Friend architecture documents.
 2. Do not repeat the product discovery or clean-room derivation unless the user changes a settled
    product decision.
-3. Read "Approved Phase 4 decisions" below, then continue with the next unreviewed finding.
+3. Read "Approved Phase 4 decisions" below. Use `CLAUDE.md` "Current State & Open Items" for the
+   live review boundary and the Farm Friend PM backlog for current item status.
 4. In Phase 4, present exactly one finding at a time:
    - cite concrete evidence;
    - explain the product or safety consequence;
@@ -29,14 +28,11 @@ follow-on contradictions approved
 5. Do not modify application code, schemas, architecture documents, branches, or PRs unless the
    user separately authorizes implementation.
 
-The next conversational step is:
-
-> Review "Keyword grammar" from the independent audit handoff.
-
-Approved finding 1 is filed in PM as F-013, finding 2 as F-014, finding 3 as F-015, and finding 4
-as F-016. Ranked finding 5 is F-017; recipe safety is F-018; and the natural-language web-inquiry
-boundary is F-019. Retrieval ordering clarifies F-013, and inventory-proposal lifecycle clarifies
-F-014. Each later finding remains review input until explicitly approved.
+Stable decision ownership: finding 1 is F-013, finding 2 is F-014, finding 3 is F-015, finding 4
+is F-016, and finding 5 is F-017. Recipe safety is F-018; the natural-language web-inquiry boundary
+is F-019; retrieval ordering clarifies F-013; the inventory-proposal lifecycle clarifies F-014;
+keyword grammar clarifies F-012/F-016; and review-state ownership is F-020. Current status lives in
+PM rather than this design authority.
 
 ## Session interaction rules
 
@@ -261,6 +257,39 @@ Approved July 24, 2026:
 This adds no draft-revision lifecycle, proposal-history table, second confirmation representation,
 generic commitment framework, service, or package. It is recorded in F-014 rather than a separate
 item.
+
+### Keyword grammar clarification — F-012 / F-016
+
+Approved July 25, 2026:
+
+- Launch has one fixed whole-normalized-message matcher for deterministic keywords and confirmation
+  tokens.
+- Bare `JOIN` and `START` establish or restore consent to the one launch operational SMS program.
+- Launch has no `JOIN <program>` or other command-plus-argument grammar. Extra text does not become
+  an argument and cannot change consent or commit an action.
+- F-012 owns alignment of the registered/public campaign copy, Telnyx messaging-profile behavior,
+  provider autoresponse handling, parser variants, and tests with the approved fixed keyword set.
+- Obsolete `OUT` / `IGNORE` behavior is removed through the already planned campaign/confirmation
+  work rather than preserved as another command family.
+
+This adds no command DSL, fuzzy parser, program identifier, program discriminator, future-program
+enrollment state, scoped `MUTE`, service, or package.
+
+### Design-authority and live-state ownership — F-020
+
+Approved July 25, 2026:
+
+- This handoff remains the single stable design authority. It contains the settled contract,
+  approved decisions, dated audit provenance, and stable decision ownership.
+- `CLAUDE.md` "Current State & Open Items" is the sole repository-local live snapshot and names the
+  current review/build boundary.
+- The Farm Friend PM backlog owns current item status.
+- `docs/SESSION_LOG.md` remains dated history; earlier "Next" entries are not rewritten as current
+  instructions.
+- Mutable current-phase, exact-next-step, and live-PM-status claims do not live in this handoff.
+
+This adds no second authority document, live appendix, status registry, generated-doc system,
+service, or package and changes no product or runtime architecture.
 
 ## Settled product contract
 
@@ -808,17 +837,6 @@ commits the decision and outbox work; workers perform external operations and re
 8. Add grounded SMS customer inquiry.
 9. Add private stock-out reports, FLAG, and retention.
 10. Complete provider, adversarial, operational, and launch-readiness testing.
-
-## PM state
-
-Historical item identifiers `F-001` through `F-010` are retired and must not be reused. F-011
-(declared baseline reset) is done and archived after PR #8 merged. Active planned work is F-012
-(10DLC campaign alignment), F-013 (grounded output/recipient selection plus retrieval ordering),
-F-014 (safe SMS routing plus the distinct pending-proposal lifecycle), F-015 (model privacy
-boundary and verification), F-016 (one-program consent and passive-follow-up removal), F-017
-(browser-origin proximity with no arbitrary-origin SMS geocoding), F-018 (remove generative recipe
-assistance), and F-019 (SMS-only natural-language inquiry). None is authorized for implementation
-without a separate request.
 
 ## Unresolved launch decisions
 
