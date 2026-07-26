@@ -176,7 +176,7 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     // activation it implies are what a real confirmation would have created.
     const prompt = await client()`
       insert into outbox_work (
-        logical_key, recipient_hash, message_kind, body, body_expires_at,
+        logical_key, recipient_hash, message_category, body, body_expires_at,
         available_at, state, dispatch_authorized_at, completed_at
       )
       values ('seed-prompt', ${farmerHash}, 'inventory_confirmation', 'Confirm',

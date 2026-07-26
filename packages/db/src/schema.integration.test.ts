@@ -155,6 +155,12 @@ describe("clean launch database foundation (integration)", () => {
       /['"]draft['"]/i,
       /\bfollow_up\b/i,
       /\bMUTE\b/,
+      // F-016 — launch is ONE registered operational program. No enrollment table, no
+      // per-category consent, and no passive follow-up subscription may appear.
+      /\bfollow_up_interest\b/i,
+      /\bprogram_enrollment/i,
+      /\bconsent_program/i,
+      /\bsubscriptions?\b/i,
     ];
 
     for (const pattern of forbidden) {
@@ -499,10 +505,86 @@ describe("clean launch database foundation (integration)", () => {
     `;
   });
 
+  it("keeps launch consent to one program with no future-program key (F-016)", async () => {
+    // The consent record carries state and provenance only. A program/category/topic
+    // column here would BE the speculative future-program enrollment the contract
+    // forbids, so its absence is the structural claim worth pinning.
+    const consentColumns = await db()`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'sms_consents'
+      order by ordinal_position
+    `;
+    expect(consentColumns.map((row) => row.column_name)).toEqual([
+      "recipient_hash",
+      "state",
+      "capture_source",
+      "captured_at",
+      "capture_evidence_ref",
+      "updated_at",
+    ]);
+
+    // Only the two registered opt-in spellings plus documented onboarding may establish
+    // consent — all of them establishing the SAME one program.
+    const sources = await db()`
+      select enumlabel
+      from pg_enum
+      join pg_type on pg_type.oid = pg_enum.enumtypid
+      where pg_type.typname = 'consent_capture_source'
+      order by enumsortorder
+    `;
+    expect(sources.map((row) => row.enumlabel)).toEqual([
+      "join",
+      "start",
+      "farmer_onboarding",
+    ]);
+
+    // Launch message categories are bounded and live inside that one program. A new
+    // category is a deliberate edit here, never an implicit new enrollment.
+    const categories = await db()`
+      select enumlabel
+      from pg_enum
+      join pg_type on pg_type.oid = pg_enum.enumtypid
+      where pg_type.typname = 'message_category'
+      order by enumsortorder
+    `;
+    expect(categories.map((row) => row.enumlabel)).toEqual([
+      "required_reply",
+      "inquiry_reply",
+      "inventory_prompt",
+      "inventory_confirmation",
+      "stock_out_alert",
+    ]);
+
+    // The superseded pair is gone from the migrated database. This is asserted against
+    // the live schema rather than the migration text, because 0000 and 0002 must keep
+    // naming the old columns in order to create and then drop them.
+    const supersededColumns = await db()`
+      select column_name
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'outbox_work'
+        and column_name in ('message_kind', 'is_required')
+    `;
+    expect(supersededColumns).toHaveLength(0);
+
+    // No table anywhere models a customer's interest in being notified later.
+    const followUpTables = await db()`
+      select table_name
+      from information_schema.tables
+      where table_schema = 'public'
+        and (
+          table_name ilike '%follow%'
+          or table_name ilike '%subscription%'
+          or table_name ilike '%enrollment%'
+        )
+    `;
+    expect(followUpTables).toHaveLength(0);
+  });
+
   it("enforces one activated, versioned open publication proposal per sender", async () => {
     const promptRows = await db()`
       insert into outbox_work (
-        logical_key, recipient_hash, message_kind, body, body_expires_at,
+        logical_key, recipient_hash, message_category, body, body_expires_at,
         available_at
       )
       values (
@@ -590,7 +672,7 @@ describe("clean launch database foundation (integration)", () => {
 
     const secondPromptRows = await db()`
       insert into outbox_work (
-        logical_key, recipient_hash, message_kind, body, body_expires_at,
+        logical_key, recipient_hash, message_category, body, body_expires_at,
         available_at
       )
       values (
@@ -706,7 +788,7 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into outbox_work (
-          logical_key, recipient_hash, message_kind, body, body_expires_at,
+          logical_key, recipient_hash, message_category, body, body_expires_at,
           available_at
         )
         values (

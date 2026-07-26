@@ -8,7 +8,10 @@ driver; **A2P 10DLC is assumed approved by launch** (Eat Vashon week). All copy 
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: keyword set aligned and executable; one external question open.** F-014 implements
+> **Status: consent model executable (F-016); one external question open.** The launch-program
+> consent decision is now a pure predicate in `packages/core/src/sms/consent.ts` enforced at the
+> outbox dispatch claim, and it requires **active** consent rather than merely "not stopped."
+> F-014 implements
 > verified ingress, durable minimized persistence, per-sender serialization, the separate
 > provider-time STOP/START consent watermark, and the dispatch-claim consent boundary, all proven
 > by real-Postgres tests. F-012 aligned the keyword set: the parser derives its tables from the
@@ -101,7 +104,15 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   send must trace to that documented opt-in or a deterministic `JOIN`/`START`.
 - **Customer-initiated inquiry** — the inbound inquiry permits its relevant direct response but does
   not create durable consent for later proactive notifications. Launch stores no follow-up interest,
-  sends no passive customer follow-up, and has no scoped `MUTE` command.
+  sends no passive customer follow-up, and has no scoped `MUTE` command. `MUTE` and follow-up
+  interest were never implemented in executable code; F-016 verified their absence and added the
+  schema and workflow guards that keep them out.
+- **Message categories, not enrollments** — `outbox_work.message_category` is a bounded enum
+  (`required_reply`, `inquiry_reply`, `inventory_prompt`, `inventory_confirmation`,
+  `stock_out_alert`). A `required_reply` is the carrier-required answer to the recipient's own
+  message and is never suppressed — otherwise `STOP` could not acknowledge itself. An
+  `inquiry_reply` rides on the customer's own inbound message and needs no durable consent, but
+  `STOP` still suppresses it. Every other category is proactive and requires **active** consent.
 - **Future programs** — each requires its own disclosed enrollment when approved and built. Launch
   pre-creates no program discriminator, enrollment state, command arguments, tables, or UI.
 - Consent decisions are **pure code, never a model call**.

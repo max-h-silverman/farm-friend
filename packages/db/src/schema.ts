@@ -69,6 +69,16 @@ export const proposalState = pgEnum("proposal_state", [
   "invalidated",
 ]);
 export const proposalToken = pgEnum("proposal_token", ["yes", "no"]);
+// The launch message categories (F-016). These are categories INSIDE the one registered
+// operational SMS program — deliberately not separate enrollments and not a program
+// discriminator. The consent meaning of each lives in packages/core/src/sms/consent.ts.
+export const messageCategory = pgEnum("message_category", [
+  "required_reply",
+  "inquiry_reply",
+  "inventory_prompt",
+  "inventory_confirmation",
+  "stock_out_alert",
+]);
 export const outboxState = pgEnum("outbox_state", [
   "queued",
   "dispatching",
@@ -593,12 +603,14 @@ export const outboxWork = pgTable(
     recipientHash: text("recipient_hash")
       .notNull()
       .references(() => contacts.phoneHash, { onDelete: "restrict" }),
-    messageKind: text("message_kind").notNull(),
+    // One bounded category replaces the old free-text `message_kind` plus the
+    // `is_required` boolean: two overlapping ways to say the same thing, neither of
+    // which the consent gate could read as a type. The dispatch claim reads this.
+    messageCategory: messageCategory("message_category").notNull(),
     body: text("body").notNull(),
     bodyExpiresAt: timestamp("body_expires_at", {
       withTimezone: true,
     }).notNull(),
-    isRequired: boolean("is_required").notNull().default(false),
     state: outboxState("state").notNull().default("queued"),
     availableAt: timestamp("available_at", { withTimezone: true }).notNull(),
     dispatchAuthorizedAt: timestamp("dispatch_authorized_at", {

@@ -296,9 +296,21 @@ assembler, and the low-level provider call is unexported. The **public web surfa
 `GET /api/public/stands` has no model seam in its dependency set, and `POST /api/public/stock-out`
 is the single public model-backed handler, fronted by the abuse/cost throttle.
 
-**Verified July 26, 2026:** `npm test` 159/159 across 18 files; real-Postgres integration 92/92
-across 7 files (8 consecutive clean runs) against PostgreSQL 16.12; typecheck + lint pass; evals
-critical 7/7, advisory 4/4, adversarial 14/14; production Next.js build passes.
+**Verified July 26, 2026:** `npm test` 171/171 across 19 files; real-Postgres integration 98/98
+across 7 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 10/10, advisory 4/4,
+adversarial 14/14; production Next.js build passes.
+
+**Launch consent is one program, and it is executable (F-016).** The consent decision is one pure
+predicate — `isProactiveSendPermitted` in `packages/core/src/sms/consent.ts` — consulted by
+`authorizeDispatch`, so the rule lives in exactly one place and takes no database or model. It
+requires **active** consent for a proactive send; the previous gate asked only whether the recipient
+had `STOP`ped, so a recipient who had **never opted in** was authorized. That was a live Golden Rule
+#2 defect, reproduced before the fix and now pinned by unit, integration, and critical-eval tests.
+`outbox_work` carries one bounded `message_category` (migration `0002`); the former free-text
+`message_kind` plus `is_required` boolean are **deleted**. `consentTransitionFor` maps `JOIN` and
+`START` onto that one program, differing only in recorded provenance. **`MUTE` and
+follow-up-interest state never existed in executable code** — verified by grep, and now held out by
+schema and workflow guards rather than by inspection alone.
 
 **Keyword set is aligned and self-checking.** The registered opt-out/opt-in/help lists are stated
 once in `packages/core/src/sms/commands.ts` (`REGISTERED_*_KEYWORDS`) and the parser derives its
@@ -328,5 +340,11 @@ sequentially — that is what finally caught this one.
 **PM / authorization:** F-013, F-014, F-015, F-019, F-020, F-021, F-022 are done and merged to
 `main`. **F-012 is in review and cannot close yet** — all in-repo work is done, but it is blocked on
 one external decision only max can make: *does amending registered Sample Message 3 require carrier
-resubmission, or is it console-editable?* F-016, F-017, and F-018 remain planned and each requires
-separate implementation authorization. Do not silently absorb other planned items into a tranche.
+resubmission, or is it console-editable?* **F-016 is done and merged.** F-017 and F-018 remain
+planned and each requires separate implementation authorization. Do not silently absorb other
+planned items into a tranche.
+
+**Owed by F-016 (not absorbed):** there is still **no inbound routing layer** — nothing in
+production code calls `parseCommand`, `runInboundPass`, or `answerInquiry`, so `consentTransitionFor`
+has no runtime caller yet. F-016 built and proved the consent *decision*; wiring a router that
+consumes it is downstream work, and the seam is deliberately shaped for it.

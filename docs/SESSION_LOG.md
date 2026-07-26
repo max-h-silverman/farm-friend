@@ -7,6 +7,69 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-26 — F-016 one launch SMS program, and a live consent defect
+
+Built from clean `main` at `d93ece5` on `f-016-launch-consent-boundary`. Test-first throughout.
+
+**The headline: F-016 was not a deletion item, it was a defect.** The item is written as "remove
+passive customer follow-up, follow-up-interest state, and scoped `MUTE`." Grep found **none of the
+three in executable code** — F-012's inspection was right, and it extends past `MUTE` to follow-up
+state as well. Every hit was documentation. Had the item been taken at face value there would have
+been nothing to build.
+
+What was actually wrong was the other half of the item — *"every proactive non-required outbox claim
+rechecks **active** launch consent."* It did not. `authorizeDispatch` asked
+`consent[0]?.state === "stopped"`, so a recipient with **no consent row at all** — never onboarded,
+never texted `JOIN`, never opted in by any route — was **authorized** for a proactive send. Absent
+consent read as permission. Proven with a throwaway probe before any code changed:
+`CONSENT ROWS: 0` → `CLAIM STATUS: authorized`. That is a live Golden Rule #2 violation on the
+launch critical path, not a documentation gap.
+
+**The fix puts the meaning in one place.** `isProactiveSendPermitted` in
+`packages/core/src/sms/consent.ts` is a pure predicate over a consent record — no database, no
+model, no conversation state — and `authorizeDispatch` consults it rather than reimplementing the
+rule in SQL. It asks for `state === "active"`, so silence is no longer permission.
+
+**One bounded category replaced two overlapping flags.** The outbox carried a free-text
+`message_kind` *and* an `is_required` boolean. Neither could express the case the consent model
+actually needs: a direct reply permitted by the recipient's own inbound message that is *not*
+carrier-required. Rather than add a third flag, both were deleted in migration `0002` in favor of
+one `message_category` enum. Three tiers now exist and each has a reason: `required_reply` survives
+everything (otherwise `STOP` could not acknowledge itself), `inquiry_reply` rides on the customer's
+own message but is still suppressed by `STOP` (universal STOP outranks an owed reply), and the rest
+are proactive and need active consent.
+
+**`JOIN` had no consumer.** It parsed as a compliance keyword and then nothing read it —
+`applyConsentTransition` accepted only `"start" | "stop"`. `consentTransitionFor` now maps both
+registered opt-in spellings onto the one program, differing only in recorded provenance, and the
+transaction persists that provenance.
+
+**Sabotage-tested, six ways — and one test was too weak.** Reverting the gate to `!== "stopped"`
+(1 unit + 2 critical evals + 2 integration); making `JOIN` establish nothing (1 unit + 1 eval);
+reordering so `STOP` no longer outranks a reply (1 unit + 1 eval); deleting the `required_reply`
+exemption; disabling the dispatch gate entirely (4 integration, including a pre-existing F-014 STOP
+test); and dropping `JOIN` provenance (1 integration). Each failed as expected and was restored.
+
+The fourth one is worth recording: deleting the `required_reply` exemption failed the unit test but
+**the integration suite stayed green (32/32)**. The test asserted that a recipient with *no consent
+row* still gets a required reply — which passes under either rule, so it could not fail. Rewritten
+to use a recipient who has just **`STOP`ped**, which is the case that actually distinguishes them.
+This is the same failure mode as F-012's tautological eval, in a different disguise: a test that
+cannot fail proves nothing. The literal category lists in the new eval and unit test are spelled out
+rather than iterated from `LAUNCH_MESSAGE_CATEGORIES` for the same reason.
+
+**Deliberately not done:** F-012's registered `OUT`/`IGNORE`, `STOPALL`, and FLAG copy scope
+(done and merged, not reopened); F-017 and F-018 untouched.
+
+**Owed, and named rather than quietly absorbed:** there is still **no inbound routing layer**.
+Nothing in production code calls `parseCommand`, `runInboundPass`, or `answerInquiry`, so
+`consentTransitionFor` has no runtime caller. F-016 owns the consent *decision* and proves it;
+building the router that consumes it is downstream work.
+
+**Verified:** `npm test` 171/171 across 19 files; real-Postgres integration 98/98 across 7 files;
+typecheck, lint, `git diff --check` PASS; evals critical 10/10 (was 7/7), advisory 4/4, adversarial
+14/14; production Next.js build passes.
+
 ## 2026-07-26 — F-012 keyword-set alignment, and B-001 finally caught with a name
 
 Built from clean `main` at `fc6c77d` on `f-012-keyword-set-alignment`. Test-first throughout: the

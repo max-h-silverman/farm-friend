@@ -136,6 +136,16 @@ later proactive notifications. Launch stores no follow-up interest and has no sc
 Every proactive non-required dispatch requires active launch consent. Universal `STOP` applies
 across all Farm Friend messaging and uses the ordered transition and dispatch boundary above.
 
+**Executable (F-016).** The consent meaning is one pure predicate,
+`isProactiveSendPermitted` in `packages/core/src/sms/consent.ts`, which the dispatch claim in
+`authorizeDispatch` consults — so the rule lives in one place and takes no database or model. It
+requires **active** consent for a proactive send: an absent consent row means the recipient never
+opted in, and silence is not permission. (Before F-016 the gate asked only whether the recipient had
+`STOP`ped, so a never-enrolled recipient was authorized.) `outbox_work` carries one bounded
+`message_category` — the former free-text `message_kind` plus `is_required` boolean are deleted —
+and `consentTransitionFor` maps `JOIN`/`START` onto that one program, differing only in recorded
+provenance.
+
 Future programs require their own disclosed enrollment when they are approved and built. Launch has
 no program discriminator, future-program enrollment row, `JOIN <program>` grammar, or general
 program-enrollment mechanism.

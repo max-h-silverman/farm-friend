@@ -4,6 +4,7 @@ export * from "./clock";
 export * from "./map";
 export * from "./privacy/phone";
 export * from "./sms/commands";
+export * from "./sms/consent";
 export * from "./inventory/proposal";
 export * from "./inquiry/retrieval";
 export * from "./inquiry/answer";

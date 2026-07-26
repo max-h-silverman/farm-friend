@@ -15,6 +15,13 @@
       "when": 1785015812246,
       "tag": "0001_authoritative_transactions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785100000000,
+      "tag": "0002_launch_message_category",
+      "breakpoints": true
     }
   ]
 }

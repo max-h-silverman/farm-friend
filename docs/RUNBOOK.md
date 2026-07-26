@@ -117,6 +117,9 @@ Farm Friend product safety feature and must not be represented as a carrier-mand
 Launch is one registered operational SMS program: `JOIN`, `START`, and documented farmer onboarding
 establish its consent; universal STOP applies across all Farm Friend messaging; a customer inquiry
 permits only its relevant direct reply and creates no passive follow-up subscription or `MUTE` path.
+Adding an outbound message type means adding a `message_category` enum value and deciding its
+consent meaning in `packages/core/src/sms/consent.ts` — never adding a second consent state or
+enrollment. A new category defaults to nothing: the predicate must be extended deliberately.
 
 Use the in-memory simulator to exercise flows without live Telnyx.
 
