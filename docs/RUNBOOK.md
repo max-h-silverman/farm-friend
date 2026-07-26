@@ -9,9 +9,10 @@ not inlined there).
 >
 > **Status (2026-07-26).** The four-package baseline, the launch schema and its migrations, the
 > composition root, verified+persisting SMS ingress, the authoritative workflow transactions, the
-> retention purge, the public map, and the admin sign-in/farm-approval surface all exist. Still
-> **not** built: the seed utility (B-002), a real model provider (F-024 — the stub is configured),
-> the flag/stock-out queues (F-030), sign-in link delivery by email (F-031), and go-live (F-029).
+> retention purge, the public map, the admin sign-in/farm-approval surface, and the flag/stock-out
+> review queues (F-030) all exist. Still **not** built: the seed utility (B-002), a real model
+> provider (F-024 — the stub is configured), sign-in link delivery by email (F-031), and go-live
+> (F-029).
 > Where a step below names a path or script that does not exist yet, it is the **contract the
 > corresponding work builds to**, not a description of today; CLAUDE.md "Current State" is the live
 > snapshot.
@@ -167,9 +168,9 @@ retention is selective, and the record that a message existed is what keeps the 
 Three properties are worth knowing when operating it:
 
 - **Flagged threads are exempt.** A body whose inbox event carries an **open** flag is retained;
-  flag review needs a readable thread. The exemption ends when the flag is resolved or dismissed.
-  **F-030 builds that resolution path** — until it ships, nothing can move a flag out of `open`, so
-  a flagged body retains indefinitely. That is the exemption working as designed, not a leak.
+  flag review needs a readable thread. The exemption ends when the flag is resolved or dismissed at
+  `/admin/flags` (F-030) — either disposition, with no grace period, so the next pass clears it.
+  The exemption fails safe: a body is purged only where the absence of an open flag can be shown.
 - **It never touches outbound work the dispatcher is still using.** Only `sent`/`failed`/
   `ambiguous`/`suppressed` rows are cleared, so a purge can never race the dispatcher into sending
   an empty SMS.
@@ -268,6 +269,22 @@ deliberately unbuilt. When one arrives:
 
 Do **not** pre-create a general program-enrollment platform or a future program's tables, states,
 command arguments, packages, or UI.
+
+### Add an admin route or surface
+
+1. Guard it with the shared `requireAdministrator` from `apps/web/lib/admin-guard.ts`. Do not write
+   a second guard — one mechanism, several consumers, so an authorization check has one place to
+   drift rather than four.
+2. Take the acting administrator from the **session**, never the request body. A caller who names
+   someone else must not be able to act as them.
+3. Re-read the administrator's authority **inside the transaction that writes**, and commit the
+   audit event in that same transaction. `packages/db/src/review.ts` and `admin.ts` are the pattern.
+4. Project the minimum: no phone material unless the surface genuinely needs it, and mask it at the
+   **query** (`right(phone_e164, 4)`) rather than in the renderer, so the raw number never leaves
+   the database.
+5. Test-first, in `apps/web/lib/admin-routes.integration.test.ts`: add the refusal assertion for
+   **every method** on the new route to the unauthorized-caller block, and grep the whole serialized
+   response for an E.164 and for any 64-hex run.
 
 ### Add a model seam
 

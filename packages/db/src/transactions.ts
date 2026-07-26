@@ -1030,9 +1030,9 @@ const DEFAULT_RETENTION_BATCH = 500;
  * retained — flag review needs a readable thread, and purging evidence out from under an
  * open safety review is irreversible in a way that over-retention is not. The exemption is
  * therefore written to fail SAFE: the purge only touches a row it can positively show has
- * no open flag. F-030 builds the resolution path; until it exists nothing moves a flag out
- * of `open`, so an exempted row retains indefinitely. That is the exemption working, not a
- * leak.
+ * no open flag. `disposeFlag` (F-030, packages/db/src/review.ts) is what ends the exemption —
+ * resolution and dismissal both do, since the predicate is `status = 'open'`. There is no
+ * grace period after disposal: the very next pass clears the body.
  *
  * **Nothing here is logged.** A purge that reported what it deleted would defeat its own
  * purpose, so the result is counts only — never a body, an ID, or a phone.

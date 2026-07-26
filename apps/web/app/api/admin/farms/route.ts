@@ -1,55 +1,24 @@
 import {
-  AuthorizationError,
-  requireRole,
-  type Principal,
-} from "@farm-friend/core";
-import {
   approveFarm,
-  findAdministratorByEmail,
   listFarmsForApproval,
   revokeFarmApproval,
 } from "@farm-friend/db";
-import { resolvePrincipal } from "../../../../lib/auth";
+import { requireAdministrator } from "../../../../lib/admin-guard";
 import { publicReadContext } from "../../../../lib/public-context";
 
 // The farm approval surface (F-025a) — the write nothing in the product could previously
 // perform. Publication refuses with `not_approved` unless a live `farm_approvals` row
 // exists, and until this route the only way to create one was hand-written SQL.
 //
-// Both handlers resolve the principal server-side and then `requireRole`. The role is never
-// read from the request; see lib/auth.ts.
+// Both handlers resolve the principal server-side through the shared `requireAdministrator`
+// guard (lib/admin-guard.ts), which every admin route uses. The role is never read from the
+// request; see lib/auth.ts.
 //
 // Note what this route does NOT do: it never touches inventory, ranking, or any published
 // listing. Approval gates whether a farm may publish; the farmer still owns what it says
 // (Golden Rule #1).
 
 export const dynamic = "force-dynamic";
-
-/** Resolve the caller to a live administrator, or the Response that refuses them. */
-async function requireAdministrator(
-  req: Request,
-): Promise<{ administratorId: string } | Response> {
-  let principal: Principal | null;
-  try {
-    principal = await resolvePrincipal(req);
-    requireRole(principal, "admin");
-  } catch (error) {
-    if (error instanceof AuthorizationError) {
-      return Response.json({ error: "forbidden" }, { status: 403 });
-    }
-    throw error;
-  }
-
-  // The principal names the administrator by email; the write needs their row. Re-reading it
-  // here is also a second liveness check, and `approveFarm` performs a third inside its
-  // transaction — the one that actually matters, because only it holds the lock.
-  const { db } = publicReadContext();
-  const administrator = await findAdministratorByEmail(db, principal.personId);
-  if (administrator === null) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
-  }
-  return { administratorId: administrator.administratorId };
-}
 
 /** The approval queue: every farm and its current approval state. */
 export async function GET(req: Request): Promise<Response> {

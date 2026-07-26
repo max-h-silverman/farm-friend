@@ -95,8 +95,13 @@ therefore cannot restore consent after a newer `STOP`.
 ### The FLAG safety rail
 
 `FLAG` **pauses the thread** and **creates a review item** for the VIGA administrator (the
-human-handoff). Once public SMS is live (untrusted inbound), the flag-review UI + thread viewer is
-a **hard pre-launch gate**. `FLAG` is handled by code, upstream of any model call.
+human-handoff). `FLAG` is handled by code, upstream of any model call.
+
+**The review half is built (F-030).** `/admin/flags` lists open flags and resolves or dismisses
+them, and its thread viewer shows the flagged sender's retained messages with the phone masked — so
+the pre-launch gate this rail represents is satisfied. Both dispositions record the acting
+administrator and, because the retention exemption is keyed on `flags.status = 'open'`, both release
+the thread's expired bodies to the next purge pass.
 
 `FLAG` is a **Farm Friend product safety feature**. It must **not** be represented as a
 carrier-mandated keyword in campaign registration or public compliance copy.
