@@ -308,6 +308,15 @@ Auth returns an empty role list with no durable session. F-012's superseded comm
 `OUT`/`IGNORE` tokens remain because the critical evals exercise them. No seed data, no retention
 job. SMS inquiry has no HTTP route **by design** — it is reached from the Telnyx webhook worker.
 
+**Open: an undiagnosed integration flake.** Two runs on 2026-07-25 failed `1 failed | 91 passed`
+among 17 clean 92/92 runs; both were inside a *chained* `npm test && npm run test:integration`
+invocation. The failing test name was **never captured**, so there is no diagnosis — only a weak
+resource-pressure hypothesis (per-suite databases are uniquely named, so data interference is ruled
+out). **If an integration run fails: capture the test name and assertion BEFORE rerunning**
+(`npm run test:integration 2>&1 | tee /tmp/itest.log`), and run the suites sequentially rather than
+chained. Treat a named test as a real defect — F-013 hit a genuine ~1-in-4 bug that first looked
+exactly like this. Do not close this by collecting more green runs.
+
 **PM / authorization:** F-013, F-014, F-015, F-019, F-020, F-021, F-022 are done and merged to
 `main`. F-012, F-016, F-017, and F-018 remain planned and each requires separate implementation
 authorization. F-012 additionally needs a decision only max can make — whether aligning the live

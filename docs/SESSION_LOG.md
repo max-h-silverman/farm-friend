@@ -76,13 +76,36 @@ advisory 4/4, adversarial 14/14; production Next.js build with both public route
 `vitest.config.ts` now collects `apps/*/lib/**/*.test.ts` so the composition root's pure logic is
 unit-tested beside it. Merged to `main` as PR #22 (`2aff3eb`), re-verified after merge.
 
-**One flake observed and NOT explained away.** A post-merge run showed `1 failed | 91 passed`,
-followed by **11 consecutive clean 92/92 runs**. Both this failure and an earlier one in the same
-session occurred inside a chained `npm test && npm run test:integration && …` invocation, where two
-vitest processes contend for the same Postgres server; isolated runs have not reproduced it. That
-is a plausible cause, not a diagnosis — the failing test name was not captured before the rerun
-passed. **If it recurs, capture the test name first.** Worth watching: F-013's session log records a
-genuine ~1-in-4 bug that first presented as "a different test each time."
+**One flake observed, UNDIAGNOSED — see CLAUDE.md "Known gaps" for the live warning.**
+
+*What was observed, exactly:* two failures this session, each `1 failed | 91 passed`, each inside a
+chained `npm test && npm run test:integration && …` invocation. Around them, **17 clean 92/92 runs**
+(5 + 6 immediately after the second failure, 6 more during the wrap). Isolated runs have never
+reproduced it.
+
+*What was NOT captured — the mistake to avoid repeating:* **the failing test name.** Both times the
+output was grepped down to the `Tests` summary line, and by the time a rerun was launched the detail
+was gone. Everything below is therefore inference from run *shape*, not evidence about a specific
+test.
+
+*The contention hypothesis, and why it is weak.* The initial guess was that two concurrent vitest
+processes interfere through the shared Postgres server. **Data interference is ruled out:** every
+suite creates its own database named `farm_friend_<tag>_${process.pid}_${randomUUID()}`, so two runs
+cannot collide on rows. That leaves only server-level resource pressure — `max_connections` is 100,
+in-use was 6, and 7 suites at ~6 connections each means two full concurrent runs peak near 84. Under
+the limit, but not comfortably. That is the entire remaining mechanism, and it does not explain why
+exactly one test failed rather than a connection error surfacing.
+
+*Why this is worth real suspicion rather than a shrug.* F-013's entry below records a bug that
+presented as "~1 in 4 runs, a different test each time" and turned out to be a genuine defect —
+`assertNoRawPhone` matching UUID digit runs by chance — which in production would have randomly
+refused legitimate customer inquiries. A flake that only appears under load is exactly what a
+latent nondeterminism looks like. **Do not close this by observing more green runs.**
+
+*If it recurs, do this first:* capture the failing test name and full assertion **before** rerunning
+— `npm run test:integration 2>&1 | tee /tmp/itest.log`, then read the log. Run the suites
+sequentially rather than chained (`npm test; npm run test:integration`) to test the contention
+hypothesis directly. If a specific test is named, treat it as a real defect until proven otherwise.
 
 ## 2026-07-25 — F-013 grounded answers and code-bound stock-out recipients
 
