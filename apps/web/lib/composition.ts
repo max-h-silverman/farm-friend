@@ -8,7 +8,13 @@ import {
   type ProviderDataHandling,
   type StockOutModel,
 } from "@farm-friend/ai";
-import type { InventoryInterpreter } from "@farm-friend/core";
+import {
+  createModelCallThrottle,
+  SystemClock,
+  type Clock,
+  type InventoryInterpreter,
+  type ModelCallThrottle,
+} from "@farm-friend/core";
 import {
   createDb,
   type Db,
@@ -122,6 +128,13 @@ export interface AppContext {
   inquiry: InquiryModel;
   /** The stock-out item parser, used only by the code-bound web/QR surface. */
   stockOut: StockOutModel;
+  clock: Clock;
+  /**
+   * The abuse/cost throttle fronting the ONE public unauthenticated model surface — the QR
+   * stock-out form. Model-free map/listing lookup does not pass through it and is never
+   * capped; SMS uses its own sender/consent/frequency controls (F-019).
+   */
+  publicModelThrottle: ModelCallThrottle;
   close(): Promise<void>;
 }
 
@@ -202,10 +215,19 @@ export function createAppContext(env: NodeJS.ProcessEnv = process.env): AppConte
   // The provider receives no database or repository capability — only what a projection
   // hands it at call time.
   const provider = new StubLLMProvider({});
+  const clock = new SystemClock();
 
   return {
     config,
     db,
+    clock,
+    // Deliberately generous: a real reporter standing at a stand submits once, maybe twice
+    // after a typo. This bites a script, not a customer.
+    publicModelThrottle: createModelCallThrottle({
+      clock,
+      limit: 5,
+      windowMs: 60_000,
+    }),
     sendSms: createLastMileSender({
       resolver: createPhoneResolver(db),
       transport,

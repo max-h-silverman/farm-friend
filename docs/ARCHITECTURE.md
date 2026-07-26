@@ -89,7 +89,9 @@ permanent map package, gleaning artifacts, or tenancy machinery.
 - **Public web:** the model-free map render + listing/filter experience, ungated and embeddable in
   VIGA's site; optional transient browser-origin proximity; per-stand pages; destination routing
   links; and the QR stock-out web form. Anonymous, no signup. There is no launch natural-language
-  web inquiry.
+  web inquiry. *Built (F-019):* `GET /api/public/stands` serves discovery with **no model seam in
+  its dependency set**, and `POST /api/public/stock-out` is the one public model-backed handler,
+  behind the throttle. The map UI itself is not built.
 - **Farmer account:** sign-in → onboarding, inventory updates, profile, and preferences.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
@@ -267,6 +269,20 @@ fronts that public model-backed handler, keyed by a coarse client signal. Normal
 listing, filter, and proximity lookup is model-free and **never artificially capped**. SMS inquiry
 uses the SMS sender, consent, frequency, and delivery controls rather than a coarse web-client
 signal.
+
+**Built (F-019).** `createModelCallThrottle` in `packages/core/src/public/throttle.ts` is a sliding
+per-client window over the injected `Clock`; the composition root constructs the single instance
+(5 calls / 60s). `apps/web/lib/client-signal.ts` derives the bucket key by hashing the **leftmost**
+`x-forwarded-for` hop with the deployment salt — so no raw address reaches the throttle map, and
+appending a hop cannot buy a fresh budget. The key is a **cost bucket, never identity**: it is not
+durable, not an authorization input, and not a customer profile.
+
+Two orderings are load-bearing and tested: the throttle is consulted **before** the model call (a
+refused report costs nothing), and a **malformed body is rejected before the throttle** so junk
+cannot spend a genuine reporter's budget. An absent signal collapses to one shared bucket rather
+than an exemption. The public routes are `GET /api/public/stands` (model-free, unthrottled) and
+`POST /api/public/stock-out` (throttled); handlers live in `apps/web/lib/` because Next.js permits
+only its own fields as route exports.
 
 ## Invariants (must be enforced in code and proven by tests)
 

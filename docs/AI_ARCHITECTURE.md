@@ -267,3 +267,10 @@ The QR stock-out form is **public and unauthenticated** and routes through the a
 defined in [ARCHITECTURE.md](ARCHITECTURE.md). Normal public map/listing lookup is model-free and
 never artificially capped. Natural-language customer inquiry is SMS-only at launch and uses the
 SMS sender/frequency controls.
+
+**Built (F-019).** It is the *only* public model surface, and that is enforced by the public
+route's dependency set rather than promised: `handleStandsRequest` takes `db` + `clock` and has no
+seam to hand a model to. The integration suite invokes it with a provider that **throws on any
+call**, so "model-free" means the surface works with no model available — not that a cooperative
+stub happened to go untouched. The throttle is consulted before the model call, and the tests
+assert the provider was never reached on a refusal.

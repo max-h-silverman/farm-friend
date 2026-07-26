@@ -4,7 +4,12 @@ import { defineConfig } from "vitest/config";
 // Clock are injected. Integration tests (Postgres) live in vitest.integration.config.ts.
 export default defineConfig({
   test: {
-    include: ["packages/*/src/**/*.test.ts"],
+    include: [
+      "packages/*/src/**/*.test.ts",
+      // apps/web holds the composition root and the public surface helpers; their pure
+      // logic (no DB/SMS/LLM) is unit-tested beside them.
+      "apps/*/lib/**/*.test.ts",
+    ],
     exclude: ["**/*.integration.test.ts", "**/node_modules/**"],
     environment: "node",
   },

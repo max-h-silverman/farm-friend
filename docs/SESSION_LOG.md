@@ -7,6 +7,75 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-25 — F-019 SMS-only inquiry boundary and the public abuse/cost throttle
+
+Built from clean `main` at `d5ad2f1`. Test-first: the throttle tests failed with
+`Failed to load url ./throttle`, and the public-surface tests failed on missing modules, before
+either existed.
+
+**The item was mostly already documented, and that was the trap.** F-019's decision session (July
+24) wrote the doc language and explicitly recorded "No application code … changed." Reading the
+docs alone would suggest the item was done. What remained was the entire executable half — which is
+exactly the failure mode CLAUDE.md warns about: *do not cite a doc as evidence that a guarantee
+holds*.
+
+**A misattribution worth recording.** The starting prompt said the missing public HTTP route "needs
+F-017's abuse throttle." It does not: F-017 is proximity and destination links and contains no
+throttle. **F-019** owns it ("scope the public unauthenticated model abuse/cost throttle to the QR
+stock-out form"). CLAUDE.md's gap line carried the same error and is now corrected. Wiring the
+public route therefore belonged to this item.
+
+**The boundary is a dependency set, not a promise.** `handleStandsRequest` takes `db` + `clock` and
+has **no seam to hand a model to**, so "public discovery is model-free" is a compile-time fact
+rather than an intention. The integration test drives it with a provider that **throws on any
+call** — the surface works with no model available, which is the only version of that claim worth
+asserting. A cooperative stub going untouched would prove nothing.
+
+**Three decisions worth recording.**
+
+*A refused call does not consume budget.* Recording the rejection would let a client that is
+already over its limit extend its own lockout by retrying — punishing the impatient rather than the
+abusive. Pinned by a test that refuses at t=30s and expects admission at t=61s.
+
+*The signal hashes the leftmost forwarded hop, not the chain.* Proxies append, so hashing the whole
+`x-forwarded-for` value lets an attacker append one random hop per request and buy a fresh budget
+every time. This was written as a test first ("uses only the first hop of a forwarded chain") and
+sabotage-confirmed. The key is salted and hashed so no raw address reaches the throttle map, and it
+is a **cost bucket, never identity** — not durable, not an authorization input, no customer profile.
+
+*Two orderings are load-bearing.* The throttle runs **before** the model call, so a refusal costs
+nothing; and a **malformed body is rejected before the throttle**, so junk cannot spend a genuine
+reporter's budget. Both are tested by asserting the provider call count, not just the status code.
+
+**Structure forced by the framework, kept because it is better.** Next.js rejects non-route exports
+from a `route.ts`, so the handlers live in `apps/web/lib/` with the route files as thin bindings
+from the composition root. That is what makes them injectable and testable with real `Request`
+objects and a scripted provider.
+
+**Two things the environment taught us.** `inventory_revisions` is immutable, so the stale-listing
+test publishes a *superseding older* revision rather than editing `published_at` — the database
+correctly refused the shortcut, which is Golden Rule #1 enforced by a constraint. And drizzle
+leaves prepared-statement type state on the connection it migrates over, which mis-binds later
+`timestamptz` parameters; the existing suites already dodge this with a throw-away migration
+client, and this one now matches.
+
+**Sabotage-tested, five ways.** Disabling the throttle (6 unit + 5 integration fail); calling the
+model before the throttle (3 fail); hiding stale listings instead of flagging them (1 fail);
+hashing the full forwarded chain (1 fail); drifting the web's recency wording from SMS (3 fail).
+The parity test is real: web and SMS share one `renderRecency`/`isStale`, so a fact cannot read
+fresh on one channel and stale on the other — **fact parity without interaction parity**, which is
+F-019's whole claim.
+
+**Deliberately not done:** the public **map UI** (F-019 built the JSON routes and the boundary, not
+the render — F-017 is its natural home); a `destinationLink` helper was started and **deleted**
+because routing links are F-017's scope; F-012, F-016, F-017, F-018 untouched.
+
+**Verified:** `npm test` 154/154 across 19 files; real-Postgres integration 92/92 across 7 files
+against PostgreSQL 16.12; typecheck, lint, and `git diff --check` PASS; evals critical 5/5,
+advisory 4/4, adversarial 14/14; production Next.js build with both public routes registered.
+`vitest.config.ts` now collects `apps/*/lib/**/*.test.ts` so the composition root's pure logic is
+unit-tested beside it.
+
 ## 2026-07-25 — F-013 grounded answers and code-bound stock-out recipients
 
 Built on the F-015 branch (the projection pattern it establishes is exactly what this item

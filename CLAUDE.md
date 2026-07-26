@@ -287,32 +287,29 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-014 (authoritative SMS transactions), F-015 (model privacy boundary), and F-013
-(grounded customer answers + code-bound stock-out) are built. Live capability: farmers publish
-inventory by SMS behind a confirmation gate; customers get code-rendered grounded answers with
-recency and stale warnings; the web/QR stock-out path records a private report and resolves the
-farmer in code. **The model never authors customer-facing factual text or writes durable state** —
-it interprets and selects identifiers; code retrieves, validates membership, and renders.
-Four model seams have explicit disjoint projections; there is no generic assembler, and the
-low-level provider call is unexported. See docs/SESSION_LOG.md for how each was built.
+**Live capability.** Farmers publish inventory by SMS behind a confirmation gate. Customers get
+code-rendered grounded answers with recency and stale warnings. The web/QR stock-out path records a
+private report and resolves the farmer in code. **The model never authors customer-facing factual
+text or writes durable state** — it interprets and selects identifiers; code retrieves, validates
+membership, and renders. Four model seams have explicit disjoint projections; there is no generic
+assembler, and the low-level provider call is unexported. The **public web surface is model-free**:
+`GET /api/public/stands` has no model seam in its dependency set, and `POST /api/public/stock-out`
+is the single public model-backed handler, fronted by the abuse/cost throttle.
 
-**Verified July 25, 2026:** `npm test` 137/137 across 17 files; real-Postgres integration 72/72
-across 6 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 5/5, advisory 4/4,
-adversarial 14/14; production Next.js build and `git diff --check` pass.
+**Verified July 25, 2026:** `npm test` 154/154 across 19 files; real-Postgres integration 92/92
+across 7 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 5/5, advisory 4/4,
+adversarial 14/14; production Next.js build passes.
 
-**Known gaps / owed.** No HTTP route yet wires the inquiry or stock-out workflows to a public
-surface (needs F-017's abuse throttle). Message classification has no projection and no consumer
-(F-012). The configured provider is the **stub** — the privacy gate is executable and fails closed,
-but no real vendor's terms have passed it, and it checks an operator-attested declaration rather
-than vendor practice. Auth returns an empty role list with no durable session. F-012's superseded
-commitment machine and `OUT`/`IGNORE` tokens remain because the critical evals exercise them. No
-seed data, no retention job.
+**Known gaps / owed.** No public **web UI** — the map render is still a placeholder page (F-017's
+natural home). Message classification has no projection and no consumer (F-012). The configured
+provider is the **stub** — the privacy gate is executable and fails closed, but no real vendor's
+terms have passed it, and it checks an operator-attested declaration rather than vendor practice.
+Auth returns an empty role list with no durable session. F-012's superseded commitment machine and
+`OUT`/`IGNORE` tokens remain because the critical evals exercise them. No seed data, no retention
+job. SMS inquiry has no HTTP route **by design** — it is reached from the Telnyx webhook worker.
 
-**PM / authorization:** F-013, F-014, F-015, F-020, F-021, F-022 are done and merged to `main`
-(F-015 = PR #20, F-013 = PR #21). Working tree clean, nothing owed on deploy. F-012 and F-016
-through F-019 remain planned and require separate implementation authorization.
-
-**Next:** select and authorize the next planned tranche. F-012 needs a decision only max can make —
-whether aligning the live Telnyx campaign requires resubmission — so its code/copy work can start
-but the item cannot close without that. F-016 through F-019 are self-contained. Do not silently
-absorb other planned items.
+**PM / authorization:** F-013, F-014, F-015, F-019, F-020, F-021, F-022 are done and merged to
+`main`. F-012, F-016, F-017, and F-018 remain planned and each requires separate implementation
+authorization. F-012 additionally needs a decision only max can make — whether aligning the live
+Telnyx campaign requires resubmission — so its code/copy work can start but the item cannot close
+without that. Do not silently absorb other planned items into a tranche.
