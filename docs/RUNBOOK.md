@@ -72,8 +72,18 @@ database whose contents you intend to preserve.
 This is a **greenfield build**: existing VIGA map content is **reference input, not a schema
 contract**, and there is no non-destructive migration requirement or provenance axis.
 
-A **one-time seed utility** validates and loads farms, sales locations, listing facts, and approval
-state. Geocoding happens **once, during seeding** — it is not a permanent runtime provider seam,
+A **one-time seed utility** validates and loads farms, sales locations, and approval state.
+**It does not seed inventory** (decided 2026-07-26, B-002): a seeded listing fact would fabricate a
+confirmation no farmer made, and the honor-system product's core promise is showing *when* inventory
+was last confirmed. Stands seed empty and render the honest "no current listing" until a farmer texts.
+It also seeds **no phone numbers** — `farmer_authorizations` requires captured SMS consent, so phones
+arrive through onboarding, never a bulk roster load.
+
+**Status: the utility does not exist yet** (B-002). VIGA's ~30 stands will be transcribed by hand
+rather than imported from the map's KML; the existing free-form map text is the unfilterable content
+Farm Friend replaces, not data to carry forward.
+
+Geocoding happens **once, during seeding** — it is not a permanent runtime provider seam,
 and a location that cannot be resolved is an **operator task**, never a fabricated coordinate.
 Optional public-web browser geolocation is transient and used only for approximate proximity to
 those validated coordinates; it is not persisted or sent to the model. Destination-only Google
