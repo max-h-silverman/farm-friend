@@ -7,6 +7,78 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-26 (latest) — B-004: the webhook kicks the workers, and three tests that could not fail
+
+One item (B-004), one PR. Inbound reply latency went from a ~60s worst case to a **measured 47ms**
+end to end against real Postgres. The production diff is 41 lines in one route plus a new 95-line
+module; no worker, transaction, or handler changed, which was the explicit scope boundary.
+
+**The fix is smaller than the problem sounded.** `runInboundPass` and `runOutboundPass` already
+accepted an optional ID list — added during F-023 so tests could drive one sender — so a per-sender
+kick needed no new plumbing at all. The webhook builds its 200 first, starts both passes with `void`
+and a `.catch`, and returns. Everything durable stays where it was: the claim is still
+`claimNextInboundEvent`'s row lock, dedup is still the inbox's unique provider event ID, the consent
+recheck is still `authorizeDispatch`'s.
+
+**The kick owns no guarantee, deliberately.** Next 14.2.35 has neither `unstable_after` nor
+`@vercel/functions`' `waitUntil`, so work started after the response can be frozen or killed by the
+runtime. That is not a problem to solve — it is the design. B-004's own acceptance criteria require
+that a kick which "crashes, times out, or never runs loses nothing," so the kick is best-effort by
+construction: every failure swallowed, each pass budgeted at 10s, cron unchanged as the recovery net
+and still the only trigger for F-026's retention purge. Awaiting the kick would satisfy the latency
+criterion and violate the acknowledgement one.
+
+### The sabotage log, which is where the real work went
+
+**"Suppressing the kick loses nothing" — proven by deleting it.** With the kick removed from the
+route entirely, exactly the two latency tests fail and all four durability tests still pass,
+including the reply going out on the next cron pass and both race tests. That asymmetry is the
+proof; a suite where removing the feature fails everything would prove nothing about recoverability.
+
+**The race tests could not fail, and finding that took four attempts.** First version used two
+`Promise.all` branches. With the claim's `alreadyProcessing` check disabled — then the explicit
+`for update` — then the `state = 'pending'` filter — the suite stayed green every time. Two branches
+in one event loop do not race: the first claim transaction resolves before the second starts.
+Instrumenting concurrent claims directly showed 1 of 3 succeeding even with guards removed, which
+identified the actual load-bearing primitive: the **`sender_states` upsert**, whose `on conflict do
+update` takes the row lock that serializes the whole claim transaction. The other three guards are
+defense-in-depth over it. Only removing the upsert's lock produced genuine triple-claiming — and
+only then did the race tests fail. They now use 8 contenders instead of 2.
+
+**F-023's suite assumed an inert webhook, and 9 of its tests broke.** Not a defect in the kick: the
+suite delivered a message through the real route and then ran its *own* pass with a controlled clock
+and a `ForbiddenProvider`, which now raced a second real processor. Two fixes, deliberately
+different. Tests that must own the model interaction (scripted-provider free-text cases) use a new
+`deliverInboundOnly` that persists exactly what the route persists without kicking. Compliance tests
+keep the original `ForbiddenProvider` proof on a no-kick delivery, and separately assert the kick
+carried the message end to end.
+
+**An honest limit, recorded rather than papered over.** `expectKickProcessedIt` was initially
+commented as proving "no model on the compliance path" via the composition root's response-less stub
+provider. Sabotage disproved that: moving the `freeText` call ahead of `parseCommand` still passed,
+because these fixtures leave the database empty, empty retrieval short-circuits in code before any
+seam (Golden Rule #4), and the stub is therefore never reached. The comment now says what the helper
+does and does not prove, and the guarantee stays owned by `routing.test.ts`, whose throwing seam
+fails 8 tests on that sabotage. The compliance path's `ForbiddenProvider` proof was re-verified as
+still falsifiable after the restructure.
+
+### Findings reported rather than absorbed
+
+- **`sharedDb` caches on first call and ignores the URL thereafter.** So `createAppContext` cannot be
+  bound to a second database in-process, and calling `close()` on a context tears down the pool other
+  suites share. The latency suite assembles the two capabilities `runOutboundPass` actually reads
+  (`db`, `sendSms`) instead. Worth knowing before anything else tries to build a second context.
+- **Provider selection couples the webhook verification key to the delivery transport.** The route
+  requires `SMS_PROVIDER=telnyx` to trust an inbound webhook, which also selects the live Telnyx
+  transport — the test suite hit a real 401 against `api.telnyx.com` with a fake key. That coupling
+  is a safety property (the simulator never inherits live secrets), so the suite stubs the one
+  `fetch` at the network boundary rather than splitting the config axis.
+
+**Verified on the branch:** unit 279/279 (28 files), integration 144/144 (10 files, PostgreSQL
+16.12), typecheck, lint, evals critical 10/10 + advisory 4/4 + adversarial 25/25, production build.
+
+---
+
 ## 2026-07-26 (later) — F-023 inbound routing, F-026 retention, F-027/F-028 cleanups, and a latency defect the specification caused
 
 Four items merged (PRs #30, #31, #35, #33) plus a docs sync (#32). Ended on `main` at `5fb13b8`,
