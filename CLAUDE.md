@@ -345,11 +345,12 @@ if an integration run fails, capture the test name and assertion BEFORE rerunnin
 (`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites **sequentially, never chained**
 — that is what finally caught it. Treat a named failing test as a real defect until shown otherwise.
 
-**PM / authorization:** F-013–F-022 are done and merged to `main`, except **F-012, which is in
-review and cannot close yet** — all in-repo work is done, but it is blocked on one external decision
-only max can make: *does amending registered Sample Message 3 require carrier resubmission, or is it
-console-editable?* **The clean-room finding backlog is now complete**; any new work needs a new PM
-item and separate implementation authorization.
+**PM / authorization:** F-013–F-022 are done and merged to `main` (F-017 in PR #26 / `c1dfe09`),
+except **F-012, which is in review and cannot close yet** — all in-repo work is done, but it is
+blocked on one external decision only max can make: *does amending registered Sample Message 3
+require carrier resubmission, or is it console-editable?* **The clean-room finding backlog is now
+complete.** Open: **B-002** (no seed utility) and B-001 (fixed, in review). Any other new work needs
+a new PM item and separate implementation authorization.
 
 **Owed, not absorbed by any closed item:** there is still **no inbound routing layer** — nothing in
 production code calls `parseCommand`, `runInboundPass`, or `answerInquiry`, so `consentTransitionFor`
