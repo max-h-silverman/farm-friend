@@ -67,4 +67,5 @@ export class StubLLMProvider implements LLMProvider {
 }
 
 export * from "./inventory-seam";
+export * from "./inquiry-seam";
 export * from "./provider-gate";

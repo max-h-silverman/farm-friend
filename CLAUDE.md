@@ -287,46 +287,45 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-015 is complete on top of F-014. The authoritative SMS transaction path (F-014) stands
-unchanged: raw-body Telnyx ed25519 verification before parsing, one generalized provider inbox behind
-one event-ID dedup path, recoverable per-sender claiming with fail-closed stale ordering, a separate
-STOP/START consent watermark, one open base-revision-bound proposal per sender, exactly-once
-publication rechecking farmer authority and VIGA approval under lock, consent-aware dispatch as
-STOP's linearization point, bounded retries, ambiguous quarantine, monotonic delivery.
+**Phase:** F-013 is complete on top of F-015. The F-014 authoritative transaction path and F-015
+model privacy boundary stand unchanged.
 
-**F-015 made the model boundary executable for the one seam with a real consumer.** The public
-generic assembler is **deleted**; `packages/ai/src/projections.ts` exposes `projectInventoryExtraction`,
-which builds its minimal record field by field from named arguments (a wider caller row cannot widen
-model context, and it copies rather than aliases). The low-level `generateJson` is **not exported**,
-so no caller outside `packages/ai` can reach a model except through a named seam. The live seam
-(`inventory-seam.ts`) is constructed over the provider alone — no db, repository, or record loader —
-with every schema member `.strict()`, so a smuggled `publish`/`recipientHash` is a visible refusal
-rather than a silent strip, and a provider error or unrepairable output asks the farmer rather than
-reading as "no items." The provider privacy gate throws at the composition root.
+**F-013 built the customer-facing half.** Customer inquiry runs a fixed code-owned sequence:
+deterministic routing → model interprets the question → **code** retrieves and ranks → model selects
+and orders identifiers from exactly those facts → **code** validates membership, dereferences, and
+renders. The model never authors customer-facing factual text — the selection schema has no field
+capable of carrying prose, and `packages/core/src/inquiry/answer.ts` renders names, items, recency,
+and stale warnings from typed values. Empty retrieval is code-rendered **without** a selection call.
+The two inquiry projections are deliberately disjoint: interpretation sees the question and no
+facts; selection sees the facts and not the raw question. Both splits are compile errors to violate.
+The web/QR stock-out path binds the sales location in code and resolves the farmer recipient in code
+from that location; a report never mutates published inventory or ranking.
 
-**Verified July 25, 2026 for F-015:** `npm test` 99/99 across 16 files; real-Postgres integration
-58/58 across 5 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 5/5, advisory
-4/4, adversarial 7/7; the production Next.js build and `git diff --check` pass. Both barriers were
-verified by deliberate sabotage, not just by observing green: reintroducing a generic assembler
-fails `tsc`, and replacing the field-by-field copy with a spread fails exactly the two adversarial
-fixtures written to catch it. The hostile group (`evals/hostile.ts` + the hostile tests in
-`apps/web/lib/interpretation.integration.test.ts`) runs hostile models across projection →
-validation → code rendering → durable rows, inspecting the captured provider context **and** the
-resulting state — this replaced the cooperative canned model.
+**Verified July 25, 2026 for F-013:** `npm test` 137/137 across 17 files; real-Postgres integration
+72/72 across 6 files against PostgreSQL 16.12, run **six consecutive times**; typecheck + lint pass;
+evals critical 5/5, advisory 4/4, adversarial 14/14; production build and `git diff --check` pass.
+New adversarial fixtures were sabotage-tested (relaxing the selection validator fails the smuggling
+fixture).
 
-**Known gaps.** Only the `inventory-extraction` projection exists; stock-out parsing and grounded
-fact selection (F-013) and message classification (F-012) have **no projection and no consumer** —
-deliberate, so five near-duplicates with one real caller were not built. The configured provider is
-still the **stub**: the gate has been exercised but no real vendor's terms have been approved
-through it, and there is no live vendor adapter. The gate checks an operator-attested declaration,
-not the vendor's actual practice. Auth still returns an empty role list with no durable session. The
-superseded generic commitment machine and its `OUT`/`IGNORE` tokens remain because the critical evals
-exercise them; removal is F-012's. No seed data, no customer inquiry/stock-out path, no retention job.
+**Two F-013 findings worth carrying forward.** A smuggled `answerText` initially arrived as a polite
+clarification because the seam collapsed "refused shape" and "provider error"; those are now
+distinct, so an attack is observable while a transient failure still asks the customer rather than
+claiming "nobody has kale." And a ~1-in-4 flaky integration failure was a real bug: `assertNoRawPhone`
+was applied to UUIDs, whose digit runs match the phone pattern by chance, which would have randomly
+refused legitimate inquiries in production. Identifiers now get a shape check
+(`assertOpaqueId`); the content rule applies only to human-readable retrieved text.
 
-**PM / authorization:** F-022, F-014, and F-015 are `done`. F-012, F-013, and F-016 through F-019
-remain planned and require separate implementation authorization.
+**Known gaps.** Message classification has no projection and no consumer (F-012). The configured
+provider is still the **stub**: the privacy gate has been exercised but no real vendor's terms have
+been approved through it, and it checks an operator-attested declaration rather than vendor practice.
+Auth still returns an empty role list with no durable session. F-012's superseded commitment machine
+and its `OUT`/`IGNORE` tokens remain because the critical evals exercise them. No seed data, no
+retention job, and no HTTP route yet wires the inquiry/stock-out workflows to a public surface.
 
-**Next:** select and authorize the next planned tranche. F-013 owns the customer inquiry path —
-retrieval, grounded fact selection, and the code-rendered factual answer — and would add the next
-projections following the worked example in docs/RUNBOOK.md "Add a model seam". Do not silently
+**PM / authorization:** F-022, F-014, F-015, and F-013 are `done`/`in review`. F-012 and F-016
+through F-019 remain planned and require separate implementation authorization.
+
+**Next:** select and authorize the next planned tranche. F-012 needs a decision only max can make —
+whether aligning the live Telnyx campaign requires a resubmission — so its code/copy work can start
+but the item cannot close without that. F-016 through F-019 are self-contained. Do not silently
 absorb other planned items.

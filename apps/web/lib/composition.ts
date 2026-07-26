@@ -1,8 +1,12 @@
 import {
   assertProviderApproved,
+  createInquiryModel,
   createInventoryInterpreter,
+  createStockOutModel,
   StubLLMProvider,
+  type InquiryModel,
   type ProviderDataHandling,
+  type StockOutModel,
 } from "@farm-friend/ai";
 import type { InventoryInterpreter } from "@farm-friend/core";
 import {
@@ -114,6 +118,10 @@ export interface AppContext {
    * workflow hands it (docs/AI_ARCHITECTURE.md §"The model provider seam").
    */
   interpreter: InventoryInterpreter;
+  /** The customer inquiry seams. Constructed over the provider alone, like every seam. */
+  inquiry: InquiryModel;
+  /** The stock-out item parser, used only by the code-bound web/QR surface. */
+  stockOut: StockOutModel;
   close(): Promise<void>;
 }
 
@@ -203,6 +211,8 @@ export function createAppContext(env: NodeJS.ProcessEnv = process.env): AppConte
       transport,
     }),
     interpreter: createInventoryInterpreter(provider),
+    inquiry: createInquiryModel(provider),
+    stockOut: createStockOutModel(provider),
     close: () => db.close(),
   };
 }
