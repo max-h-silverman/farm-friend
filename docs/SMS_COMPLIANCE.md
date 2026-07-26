@@ -23,8 +23,13 @@ driver; **A2P 10DLC is assumed approved by launch** (Eat Vashon week). All copy 
 > That file is now a transcript of live console state — **change the console first, then transcribe.**
 > The HELP auto-response was also corrected to route to `board@vigavashon.org`, so the campaign's
 > declared `Embedded Phone Number: No` is truthful.
-> **Still owed (F-023):** none of this keyword handling has a production caller — nothing routes a
-> persisted inbound event to `parseCommand`, so a registered `STOP` does not yet unsubscribe anyone.
+> **Routed as of F-023.** Persisted inbound events now reach `parseCommand` through
+> `runInboundPass` → `apps/web/lib/routing.ts`, driven by the scheduled worker route
+> (`/api/internal/cron`, docs/RUNBOOK.md §"Scheduled work"). A verified `STOP` unsubscribes end to
+> end, and `apps/web/lib/routing.integration.test.ts` proves it from a signed webhook POST to the
+> durable consent row with a model that throws if it is ever reached. The registered opt-in,
+> opt-out, and help auto-responses live in `packages/core/src/sms/auto-responses.ts`, transcribed
+> from the console record and drift-tested against it in both directions.
 
 ## Deterministic keyword handling (code, before any model call)
 

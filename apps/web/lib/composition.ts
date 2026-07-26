@@ -41,6 +41,12 @@ export class ConfigurationError extends Error {
 export interface AppConfig {
   databaseUrl: string;
   phoneSalt: string;
+  /**
+   * Shared secret guarding the internal scheduled-worker route. Required with no default:
+   * the workers apply consent transitions and send SMS, so an unauthenticated trigger is a
+   * remote way to drive real messaging. There is deliberately no development bypass.
+   */
+  cronSecret: string;
   sms: SmsConfig;
   model: ModelConfig;
 }
@@ -105,6 +111,8 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl: required(env, "DATABASE_URL"),
     // The phone hash is the only lookup/log key, so its salt is mandatory.
     phoneSalt: required(env, "PHONE_HASH_SALT"),
+    // The scheduled-worker trigger drives consent and outbound SMS; it never runs open.
+    cronSecret: required(env, "CRON_SECRET"),
     sms: sms.config,
     model,
   };

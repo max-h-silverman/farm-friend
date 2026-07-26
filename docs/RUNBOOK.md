@@ -43,6 +43,8 @@ hostile evals verify the runtime barrier but are not themselves enforcement. See
 Copy `.env.example` → `.env` and fill:
 - `DATABASE_URL` — Postgres/Neon connection (integration tests + migrations).
 - `PHONE_HASH_SALT` — required; the phone hash is the only lookup/log key.
+- `CRON_SECRET` — shared secret guarding the scheduled-worker route. **Required, no default, no
+  local-only bypass** (see "Scheduled work" below).
 - `SMS_PROVIDER` — `simulator` or `telnyx`. There is **no default**; an unset or unknown value is a
   configuration error rather than a silent fallback.
 - With `SMS_PROVIDER=telnyx`, all four are required: `TELNYX_API_KEY`,
@@ -94,6 +96,38 @@ Maps links delegate origin resolution and routing. SMS does not resolve arbitrar
 ```
 npm run dev -w apps/web     # Next.js App Router
 ```
+
+## Scheduled work (the worker trigger)
+
+The webhook only **persists** an inbound event; routing and delivery happen in workers. **One**
+authenticated internal route runs every scheduled pass:
+
+```
+GET|POST /api/internal/cron      Authorization: Bearer $CRON_SECRET
+```
+
+It runs the inbound pass (deterministic routing → consent/confirmation/free-text) and then the
+outbound pass (dispatch claim → provider → result). Each pass **enumerates its own work** — pending
+sender hashes and due outbox rows — so the trigger passes no IDs and needs no knowledge of state.
+
+Run it locally, or by hand against a deployment:
+
+```
+curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/internal/cron
+```
+
+On Vercel, schedule it with Vercel Cron (`vercel.json` → `crons`, path `/api/internal/cron`); Vercel
+sends the `Authorization: Bearer` header from the project's `CRON_SECRET` environment variable.
+Choose the interval against the SMS latency you are willing to accept — a farmer's `STOP` is not
+honored until a pass runs, so a multi-minute interval is a multi-minute delay in an opt-out.
+
+**Authentication fails closed.** `CRON_SECRET` is required at startup with no default, the route
+compares it in constant time, and there is deliberately **no** environment-conditional bypass —
+`apps/web/lib/cron-auth.test.ts` reads the route source and fails if one appears. An unauthenticated
+worker trigger would be a remote way to drive consent changes and real outbound SMS.
+
+**Adding a scheduled job** (e.g. F-026's retention purge) means adding its call inside
+`runScheduledWork` in that one route — never a second cron surface.
 
 ## Telnyx webhook config
 
