@@ -7,10 +7,10 @@ admin.
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract.
 >
-> **Status: partly built (F-025a).** Sign-in, durable sessions, server-side role lookup, and
-> **farm approval/revocation** are built and tested. The **flag queue and the stock-out report
-> queue are not** — they are F-030, and the sections describing them below remain requirements
-> rather than descriptions. Each surface says which it is.
+> **Status: built (F-025a + F-030).** Sign-in, durable sessions, server-side role lookup,
+> **farm approval/revocation**, the **flag review queue with its thread viewer**, and the
+> **stock-out report queue** are built and tested. What remains unbuilt is the exceptions
+> surface and a way to *send* a sign-in link (F-031) — each is marked below.
 
 ## The administrator role
 
@@ -51,15 +51,21 @@ daily data entry, the product has failed its north star.
 | Surface | Status | What the administrator does |
 |---|---|---|
 | Farm approval | **Built** (F-025a) — `/admin` | Verify a farm and **approve it for publication** — recorded separately from the farmer completing onboarding |
-| Flag review + thread viewer | **Not built** (F-030) | Resolve flags and inspect a paused thread. **Hard pre-launch gate** — this rail must be live before public SMS |
-| Stock-out report queue | **Not built** (F-030) | See what customers reported, per farm; mark open, acted, or dismissed |
+| Flag review + thread viewer | **Built** (F-030) — `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
+| Stock-out report queue | **Built** (F-030) — `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
 | Exceptions | **Not built** | Handle requests the system cannot safely handle, with audit |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
 
-`/api/admin/flags` currently returns an empty list behind a working role check. Do **not** read that
-as "there are no flags" — nothing yet reads the `flags` table. Until F-030 ships, an arriving flag is
-durable and unreviewable, and F-026's retention exemption therefore retains its thread indefinitely.
+**Every one of these routes enforces the role server-side** through one shared guard
+(`apps/web/lib/admin-guard.ts`), and the acting administrator always comes from the **session**,
+never the request body. The integration suite asserts the refusal per route and per method, so a
+new handler that forgets its guard fails there rather than in production.
+
+**Disposing a flag is what lets retention terminate.** F-026's purge exempts a message body whose
+thread carries an **open** flag, and the exemption fails safe. Resolving *or* dismissing a flag ends
+it, and the next purge pass clears that thread's expired bodies — proven end to end in
+`packages/db/src/review.integration.test.ts`. Review the thread **before** you close the flag.
 
 ## Operator runbooks
 
@@ -76,18 +82,38 @@ durable and unreviewable, and F-026's retention exemption therefore retains its 
 - **Add an administrator:** the first one per environment comes from the bootstrap script in
   [RUNBOOK.md](RUNBOOK.md); afterwards administrators live in the database. Authorization is
   deliberately **data, not configuration** — an env-var allowlist could not record who granted it.
-- **Watch stock-out reports:** the queue shows customer reports per farm. Reports **never** change
-  the map, answers, or ranking. An alert may ask the farmer to send current inventory; only the
-  farmer's confirmed revision through the ordinary inventory flow changes publication. Triage and
-  dismiss reports; do not edit a farmer's inventory on their behalf.
-- **Resolve a flag:** a `FLAG` pauses the thread. Review it, take the needed action, mark it
-  resolved. `FLAG` is a **Farm Friend product safety feature**, not a carrier-mandated keyword.
-- **Inspect a thread:** the thread viewer shows message history under the privacy policy — no raw
-  phone numbers surfaced.
+- **Watch stock-out reports:** open `/admin/reports`. The queue shows customer reports per farm and
+  stand, with the item named — including when the report pointed at a published entry rather than
+  free text. Reports **never** change the map, answers, or ranking, and the surface offers no action
+  that could: the only two are **mark reviewed** and **dismiss**, both of which record that a human
+  looked and change nothing a customer sees. Only the farmer's confirmed revision through the
+  ordinary inventory flow changes publication. If reports pile up for one stand, chase the farmer;
+  do not edit their inventory on their behalf.
+- **Resolve a flag:** open `/admin/flags`. A `FLAG` creates a review item. Read the thread, take the
+  needed action, then record **resolved** or **dismissed** with a short reason — the reason is
+  required, because an audit record that does not say why is not much of one. Both dispositions
+  record who acted and when, in `flags` and the audit trail, and both are **final**: a flag is
+  disposed of exactly once, so a second operator gets a conflict rather than silently overwriting
+  the first one's decision. `FLAG` is a **Farm Friend product safety feature**, not a
+  carrier-mandated keyword.
+- **Inspect a thread:** the thread viewer shows that sender's retained inbound messages, oldest
+  first, with the flagged one marked. The sender appears **masked** — `(•••) •••-0701` — and the raw
+  number never leaves the database: the query selects only the last four digits. A message whose body
+  has already been deleted on its retention schedule is shown as such, rather than as a blank
+  message. Text the **sender** chose to type is shown verbatim; that text is the thing under review.
 
 ## Privacy in the admin
 
 Admin surfaces honor the same data-layer privacy as everything else: phones are shown **masked**
 (never full raw numbers), raw message context is short-lived and deleted on expiry (flagged threads
-stay readable while the flag is open and for a bounded period after resolution), and flags and
-audit records are retained. See [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) §privacy.
+stay readable while the flag is open, and become eligible for deletion the moment it is disposed
+of — there is no grace period, because no consumer needs one), and flags and audit records are
+retained. See [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) §privacy.
+
+The masking is a **query-level** guarantee, not a rendering convention: `listFlagsForReview` and
+`readFlaggedThread` select `right(phone_e164, 4)`, so the full number is never materialized in
+application memory and the admin surface never becomes a second reader of the send path's one
+column. `maskPhoneSuffix` **refuses** anything longer than four digits rather than truncating it, so
+a caller that accidentally passes a whole number fails closed instead of leaking. The approval queue
+and the stock-out queue carry no phone material at all — asserted by tests that grep the whole
+serialized response for an E.164 and for any 64-hex run.

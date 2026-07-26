@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import Link from "next/link";
 import { hasRole } from "@farm-friend/core";
 import { listFarmsForApproval } from "@farm-friend/db";
 import { resolvePrincipal } from "../../lib/auth";
@@ -12,8 +13,9 @@ import { ApprovalQueue } from "./approval-queue";
 // administrator session sees the signed-out page and no farm data, because the data is never
 // fetched for them in the first place.
 //
-// Deliberately not a general admin console. One screen, one decision: may this farm publish?
-// The flag queue and stock-out reports are F-030.
+// Deliberately not a general admin console. Three screens, each one decision: may this farm
+// publish (here), what happened with this flag (/admin/flags), did anyone look at this report
+// (/admin/reports).
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,11 @@ export default async function AdminPage() {
         <h1>Farm approval</h1>
         <p className="admin-note">Signed in as {principal.personId}</p>
       </header>
+
+      <nav className="admin-nav">
+        <Link href="/admin/flags">Flag review</Link>
+        <Link href="/admin/reports">Stock-out reports</Link>
+      </nav>
 
       <p className="admin-note">
         Only approved farms publish publicly. Approval is <strong>your act</strong>, recorded

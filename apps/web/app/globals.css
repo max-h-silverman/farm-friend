@@ -398,3 +398,48 @@ body {
   opacity: 0.65;
   cursor: default;
 }
+
+/* The review queues (F-030). Same card idiom as the approval queue — one visual system for
+   one operator surface, not a second one per screen. */
+.admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0.9rem 0 0.4rem;
+  font-size: 0.94rem;
+}
+
+.admin-nav a {
+  color: var(--ink-soft);
+}
+
+.admin-flag {
+  align-items: flex-start;
+}
+
+.admin-flag-main {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.admin-flag-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-thread {
+  margin: 0.8rem 0 0;
+  padding: 0.7rem 0.9rem 0.7rem 1.6rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  /* A long unbroken string a sender pasted must not push the layout sideways. */
+  overflow-wrap: anywhere;
+}
+
+.admin-thread-flagged {
+  font-weight: 600;
+}

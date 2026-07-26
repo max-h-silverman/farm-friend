@@ -297,16 +297,21 @@ model on the compliance path" is structural, proven by a seam that throws. Repli
 sender's inbound+outbound passes with `void`/`.catch` and never awaits them. The public map UI is
 built (F-017) and is model-free in its **module graph**, not just its handler.
 
-**VIGA can now approve farms, so a farmer can actually publish (F-025a).** Administrator identity is
-**email** (migration 0003; `contact_id` is now optional and not the identity), sign-in is a magic
-link whose verification proves an address and whose `administrators` lookup — not the link — confers
-authority, so login is **not** first-user-wins. A session is a durable row storing only the token's
-**hash**; `resolvePrincipal` re-looks-up roles per request, so revoking an administrator or session
-takes effect on the **next request**. `/admin` lists farms and approves/revokes through
-`packages/db/src/admin.ts`, which re-reads administrator authority **inside** each transaction and
-writes an audit event in the same commit. The acting administrator comes from the session, never the
-request body. The role lookup returns a **constant** `["admin"]` — an operator can never acquire
-farmer capability (Golden Rule #1), proven by sabotage. Bootstrap is
+**The operator surface is built: approval, flag review, stock-out triage (F-025a + F-030).**
+Administrator identity is **email** (migration 0003; `contact_id` is optional and not the identity),
+sign-in is a magic link whose verification proves an address and whose `administrators` lookup — not
+the link — confers authority, so login is **not** first-user-wins. A session is a durable row storing
+only the token's **hash**; `resolvePrincipal` re-looks-up roles per request, so revoking an
+administrator or session takes effect on the **next request**. Three screens: `/admin` approves farms,
+`/admin/flags` resolves or dismisses flags and shows the flagged thread, `/admin/reports` triages
+stock-out reports. All four API routes share **one** guard (`apps/web/lib/admin-guard.ts`); the writes
+live in `packages/db/src/admin.ts` and `review.ts`, which re-read administrator authority **inside**
+each transaction and write the audit event in the same commit. The acting administrator comes from the
+session, never the request body. Flags and reports dispose **exactly once** under a row lock — a
+second operator gets 409, not a silent overwrite. Triage offers no action that could change a listing
+(Golden Rule #1), proven by a byte-equality snapshot of every published revision, entry, and approval
+across every operator action. The role lookup returns a **constant** `["admin"]` — an operator can
+never acquire farmer capability, proven by sabotage. Bootstrap is
 `packages/db/scripts/bootstrap-administrator.ts`.
 
 **The model never authors customer-facing factual text or writes durable state.** It interprets and
@@ -319,11 +324,14 @@ code renders the text. A ranking operation needing an origin is refused, never d
 by the send path. `purgeExpiredBodies` (F-026) clears expired bodies from `sms_messages` and
 `outbox_work` as the third pass on the one cron trigger; rows, projections, flags, and audit events
 survive. The flagged-thread exemption **fails safe** — purge only where the absence of an `open` flag
-can be shown — so **until F-030 ships flag resolution, a flagged body retains indefinitely** (the
-exemption working, not a leak). Outbound bodies clear only in a terminal state, so the purge cannot
-race the dispatcher into an empty SMS. The admin surface carries no phone number at all: the approval
-queue selects farm, approval, and administrator email only, asserted by a test that greps the
-response for an E.164 and for any 64-hex run.
+can be shown — and **F-030 makes it terminate**: resolving *or* dismissing a flag releases the thread
+with no grace period, proven end to end through the real purge (the dismissal case asserted
+separately, since a drift to `<> 'resolved'` would exempt it forever). Outbound bodies clear only in a
+terminal state, so the purge cannot race the dispatcher into an empty SMS. The admin surface carries
+no raw phone: the approval and stock-out queues carry none at all, and the flag queue and thread
+viewer mask at the **query** (`right(phone_e164, 4)`), so the full number never leaves the database.
+`maskPhoneSuffix` **throws** on anything longer rather than truncating. Asserted by tests that grep
+whole serialized responses for an E.164 and for any 64-hex run.
 
 **One worker mechanism, two triggers; one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
 is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` required, no default, no
@@ -343,20 +351,16 @@ console first, then transcribe.
 reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
 fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Verified July 26, 2026 (`main` at `0f2f44d`, F-025a merged):** `npm test` 292/292 across 30 files; real-Postgres
-integration 176/176 across 13 files; typecheck + lint pass; evals critical 10/10,
-advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin` renders, all routes dynamic).
+**Verified July 26, 2026 (`main`, F-030 merged):** `npm test` 298/298 across 31 files; real-Postgres
+integration 210/210 across 14 files; typecheck + lint pass; evals critical 10/10,
+advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin`, `/admin/flags`,
+`/admin/reports` render; all routes dynamic). Newest session-log entry: F-030.
 
 ### Open work — each needs separate implementation authorization
 
 Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
 supply what production never creates.
 
-- **F-030 (was F-025b) — the flag queue and stock-out visibility are not built.**
-  `/api/admin/flags` returns an empty list behind a *working* role check and reads nothing; an
-  arriving flag is durable and unreviewable, which is also why the retention exemption above never
-  terminates. Stock-out reports accumulate with no reader. F-025a landed the identity half it
-  depends on.
 - **F-024 — the configured provider is the stub.** **Decided:** DeepInfra on a mid-size instruct model;
   the attested terms are **DeepInfra's** as inference host. The attestation is a **blocking TODO until
   max reads their data-processing terms** — never infer those values. An adversarial eval failure
@@ -365,12 +369,14 @@ supply what production never creates.
   **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
   seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
 - **F-029 — go-live** (deploy, Telnyx console, first verified live `STOP`/`JOIN`). **Decided:** only
-  after everything else including F-030. Max holds all credentials. Deploying now also needs
-  `MAGIC_LINK_SECRET` set and the bootstrap script run once per environment.
+  after everything else. Max holds all credentials. Deploying now also needs `MAGIC_LINK_SECRET` set
+  and the bootstrap script run once per environment. The FLAG rail's pre-launch gate is now
+  **satisfied** (F-030).
 - **F-031 — no way to *send* a sign-in link.** F-025a built link verification and the session it
   mints, not email delivery — that needs a mail provider, credentials, and an attestation no decision
   has authorized, so it was left out rather than improvised. Today a link must be minted out of band
-  with `issueMagicToken`, so a non-technical VIGA operator cannot yet sign in unaided.
+  with `issueMagicToken`, so a non-technical VIGA operator cannot yet sign in unaided — **including
+  to the F-030 queues**, which is what makes this the next real blocker.
 - **B-001** stays open pending its caveat below. `model_runs` has **no production writer** — its only
   insert is in a test; unowned. No per-stand pages or filter/search UI. Message classification has no
   consumer. SMS inquiry has no HTTP route **by design** — reached from the Telnyx webhook worker.

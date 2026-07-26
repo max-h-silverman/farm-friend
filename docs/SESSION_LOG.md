@@ -7,7 +7,84 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-26 (latest) — F-025a: the operator gets an identity, and farms can finally be approved
+## 2026-07-26 (latest) — F-030: the flag rail gets its human half, and retention learns to terminate
+
+One item, one PR, merged. `FLAG` is a **registered 10DLC compliance commitment** and no human
+could act on one: `/api/admin/flags` returned `{ flags: [] }` behind a *working* role check and
+read nothing from the `flags` table. Customer stock-out reports accumulated with no reader at all.
+Two consequences, and the second is the one that made this urgent — F-026's retention exemption
+**never terminated**, because nothing in the product could move a flag out of `open`, so a flagged
+body retained indefinitely.
+
+### The decisions worth keeping
+
+**Dismissal ends the exemption exactly as resolution does.** The purge predicate is
+`flags.status = 'open'`, so both dispositions release the thread. That is asserted as its own test
+rather than folded into the resolution case, because the drift this project has already been bitten
+by once — `= 'open'` → `<> 'resolved'` — keeps a *dismissed* thread exempt forever while passing a
+resolution-only suite. Sabotaging the predicate now fails with "expected +0 to be 1".
+
+**No grace period after disposal, deliberately.** DATA_ARCHITECTURE already said no consumer needs
+one; building a bounded post-resolution window would have been speculative state with no owner. The
+very next purge pass clears the body, and the operator copy says to read the thread *before*
+closing the flag.
+
+**Masking is a query-level guarantee, not a rendering convention.** `listFlagsForReview` and
+`readFlaggedThread` select `right(phone_e164, 4)`, so the full number is never materialized in
+application memory and the admin surface never becomes a second reader of the send path's one
+column. `maskPhoneSuffix` **refuses** anything longer than four digits rather than truncating —
+a caller that passes a whole number fails closed instead of leaking, and the sabotage that selects
+the full column now throws at the boundary rather than reaching a response.
+
+**The thread viewer shows what the sender typed, verbatim.** That text is the thing under review;
+redacting it would defeat the rail. The guarantee is over *our* identifiers — no hash, no E.164 —
+not over prose a sender chose to send (Golden Rule #6). A body retention already cleared is
+reported as `bodyPurged`, so an operator can tell "deleted on schedule" from "they sent nothing."
+
+**Triage has no action that could change a listing.** Reviewed and dismissed, nothing else. The
+temptation this forecloses is specific — "the customer said it is out, so remove the item" — and it
+is the exact failure the private-signal design exists to prevent. Golden Rule #1 is proven by
+snapshotting every published revision, entry, and approval across every operator action and
+asserting **byte equality**, not "still one revision."
+
+**One guard, four consumers.** `requireAdministrator` moved out of `farms/route.ts` into
+`apps/web/lib/admin-guard.ts`. Four copies of an authorization check would have been four places
+for one to drift. RUNBOOK's "how to extend" gained an *Add an admin route* subsection recording the
+pattern.
+
+### The sabotage log
+
+Eleven sabotages, each verified to fail the suite before the claim was believed: disposition and
+triage status written as constants; the administrator liveness re-read removed; both exactly-once
+guards removed; full `phone_e164` selected in the queue and in the thread viewer; a sender hash
+added to a queue row; the exemption predicate drifted to `<> 'resolved'`; the route guard swallowing
+`AuthorizationError`; the acting administrator read from the request body; triage superseding the
+current revision.
+
+**Two of them passed, and that was the point.** Writing `'resolved'` when the operator chose
+`dismissed` passed all 26 tests — the dismissal test asserted only that the body got purged, never
+that the *recorded decision matched the one made*. Same hole on the triage side. Both suites now
+assert the recorded disposition directly, which is a defect class independent of retention: an
+operator's audit record differing from their decision. A third finding worth keeping: sabotaging
+`delete from inventory_entries` was caught by a **database trigger** ("published inventory entries
+are immutable"), not by the test — so the Golden Rule #1 claim was re-proven with a supersession
+sabotage the trigger does not block, which the snapshot test does catch.
+
+### Verified
+
+`npm test` 298/298 across 31 files; real-Postgres integration 210/210 across 14 files; typecheck +
+lint clean; evals critical 10/10, advisory 4/4, adversarial 25/25; production Next.js build passes
+with `/admin/flags` and `/admin/reports` rendering and every route dynamic. Merged to `main`.
+
+### Owed
+
+`model_runs` still has no production writer. F-031 (sending a sign-in link) remains the reason a
+non-technical VIGA operator cannot yet sign in unaided — the queues built here are reachable only
+by a link minted out of band with `issueMagicToken`.
+
+---
+
+## 2026-07-26 — F-025a: the operator gets an identity, and farms can finally be approved
 
 One item, one PR. Farm Friend could not approve a farm. Publication refuses with `not_approved`
 unless a live `farm_approvals` row exists, and **no code path created one** — every test that

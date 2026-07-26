@@ -51,6 +51,8 @@ describe("admin routes (integration)", () => {
   // `publicReadContext` caches its pool on first use.
   let farmsRoute: typeof import("../app/api/admin/farms/route");
   let flagsRoute: typeof import("../app/api/admin/flags/route");
+  let threadRoute: typeof import("../app/api/admin/flags/[flagId]/thread/route");
+  let reportsRoute: typeof import("../app/api/admin/stock-out-reports/route");
   let callbackRoute: typeof import("../app/api/auth/callback/route");
   let logoutRoute: typeof import("../app/api/auth/logout/route");
 
@@ -107,6 +109,8 @@ describe("admin routes (integration)", () => {
 
     farmsRoute = await import("../app/api/admin/farms/route");
     flagsRoute = await import("../app/api/admin/flags/route");
+    threadRoute = await import("../app/api/admin/flags/[flagId]/thread/route");
+    reportsRoute = await import("../app/api/admin/stock-out-reports/route");
     callbackRoute = await import("../app/api/auth/callback/route");
     logoutRoute = await import("../app/api/auth/logout/route");
   }, 30_000);
@@ -140,6 +144,48 @@ describe("admin routes (integration)", () => {
       ).toBe(403);
       expect(
         (await flagsRoute.GET(request("https://ff.example/api/admin/flags"))).status,
+      ).toBe(403);
+
+      // F-030's routes. Every method on every one of them, so a new handler that forgets its
+      // guard fails here rather than in production.
+      expect(
+        (
+          await flagsRoute.POST(
+            request("https://ff.example/api/admin/flags", {
+              method: "POST",
+              body: JSON.stringify({
+                flagId: randomUUID(),
+                action: "resolve",
+                dispositionCode: "handled",
+              }),
+            }),
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await threadRoute.GET(
+            request(`https://ff.example/api/admin/flags/${randomUUID()}/thread`),
+            { params: { flagId: randomUUID() } },
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await reportsRoute.GET(
+            request("https://ff.example/api/admin/stock-out-reports"),
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await reportsRoute.POST(
+            request("https://ff.example/api/admin/stock-out-reports", {
+              method: "POST",
+              body: JSON.stringify({ reportId: randomUUID(), action: "review" }),
+            }),
+          )
+        ).status,
       ).toBe(403);
     });
 
@@ -380,6 +426,225 @@ describe("admin routes (integration)", () => {
       // No raw E.164 and no phone hash: approving a farm needs neither.
       expect(body).not.toMatch(/\+1\d{10}/);
       expect(body).not.toMatch(/[0-9a-f]{64}/);
+    });
+  });
+
+  describe("the review queues through their routes (F-030)", () => {
+    /** A flagged inbound message on a real contact, the way routing writes one. */
+    async function flaggedMessage(body: string): Promise<{ flagId: string }> {
+      const senderHash = "d".repeat(64);
+      const existing = await sql()`
+        select phone_hash from contacts where phone_hash = ${senderHash}
+      `;
+      if (existing.length === 0) {
+        await sql()`
+          insert into contacts (phone_e164, phone_hash)
+          values ('+12065550801', ${senderHash})
+        `;
+      }
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const messages = await sql()`
+        insert into sms_messages (
+          provider_message_id, sender_hash, body, body_expires_at, received_at
+        )
+        values (
+          ${`msg-${randomUUID()}`}, ${senderHash}, ${body},
+          ${expiresAt.toISOString()}, ${at(1).toISOString()}
+        )
+        returning id
+      `;
+      const events = await sql()`
+        insert into provider_inbox_events (
+          provider_event_id, event_type, message_id, sender_hash, occurred_at,
+          state, finalized_at
+        )
+        values (
+          ${`evt-${randomUUID()}`}, 'message_received', ${messages[0]?.id as string},
+          ${senderHash}, ${at(1).toISOString()}, 'processed', ${at(1).toISOString()}
+        )
+        returning id
+      `;
+      const flags = await sql()`
+        insert into flags (contact_hash, inbox_event_id, reason_code, status, created_at)
+        values (
+          ${senderHash}, ${events[0]?.id as string}, 'sender_flagged', 'open',
+          ${at(1).toISOString()}
+        )
+        returning id
+      `;
+      return { flagId: flags[0]?.id as string };
+    }
+
+    it("lists open flags and resolves one, recording the SESSION's administrator", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { flagId } = await flaggedMessage("something is wrong here");
+
+      const listed = await flagsRoute.GET(
+        request("https://ff.example/api/admin/flags", { token }),
+      );
+      expect(listed.status).toBe(200);
+      const payload = (await listed.json()) as { flags: { flagId: string }[] };
+      expect(payload.flags.map((flag) => flag.flagId)).toContain(flagId);
+
+      const impostor = await sql()`
+        insert into administrators (email, authorized_at)
+        values (${`flag-impostor-${randomUUID()}@viga.example`}, ${at(0).toISOString()})
+        returning id
+      `;
+      const resolved = await flagsRoute.POST(
+        request("https://ff.example/api/admin/flags", {
+          method: "POST",
+          token,
+          // Naming someone else must not make them the actor.
+          body: JSON.stringify({
+            flagId,
+            action: "resolve",
+            dispositionCode: "spoke_with_sender",
+            administratorId: impostor[0]?.id,
+          }),
+        }),
+      );
+      expect(resolved.status).toBe(200);
+
+      const rows = await sql()`
+        select status, disposed_by_administrator_id from flags where id = ${flagId}
+      `;
+      expect(rows[0]?.status).toBe("resolved");
+      expect(rows[0]?.disposed_by_administrator_id).toBe(ids.administrator);
+      expect(rows[0]?.disposed_by_administrator_id).not.toBe(impostor[0]?.id);
+    });
+
+    it("shows the flagged thread with the sender masked and no phone material", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { flagId } = await flaggedMessage("please have someone call me");
+
+      const response = await threadRoute.GET(
+        request(`https://ff.example/api/admin/flags/${flagId}/thread`, { token }),
+        { params: { flagId } },
+      );
+      expect(response.status).toBe(200);
+      const body = await response.text();
+
+      // The masked form is present and the raw material is not — asserted on the whole
+      // serialized response, so a future field carrying either fails here.
+      expect(body).toContain("0801");
+      expect(body).not.toMatch(/\+1\d{10}/);
+      expect(body).not.toMatch(/[0-9a-f]{64}/);
+      expect(body).toContain("please have someone call me");
+    });
+
+    it("refuses a malformed flag decision without disposing anything", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { flagId } = await flaggedMessage("leave me open");
+
+      for (const payload of [
+        {},
+        { flagId },
+        { action: "resolve" },
+        { flagId, action: "delete", dispositionCode: "x" },
+        { flagId: 42, action: "resolve", dispositionCode: "x" },
+        { flagId, action: "resolve", dispositionCode: "" },
+      ]) {
+        const response = await flagsRoute.POST(
+          request("https://ff.example/api/admin/flags", {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          }),
+        );
+        expect(response.status, JSON.stringify(payload)).toBe(400);
+      }
+
+      const rows = await sql()`select status from flags where id = ${flagId}`;
+      expect(rows[0]?.status).toBe("open");
+    });
+
+    it("lists stock-out reports and triages one", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const locations = await sql()`
+        insert into sales_locations (
+          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (
+          ${ids.farm as string}, 'farm_stand', 'Route Stand', '1 Vashon Hwy',
+          47.4, -122.4, false, false
+        )
+        returning id
+      `;
+      const reports = await sql()`
+        insert into stock_out_reports (
+          sales_location_id, unlisted_item_text, status, reported_at
+        )
+        values (${locations[0]?.id as string}, 'green beans', 'open', ${at(1).toISOString()})
+        returning id
+      `;
+      const reportId = reports[0]?.id as string;
+
+      const listed = await reportsRoute.GET(
+        request("https://ff.example/api/admin/stock-out-reports", { token }),
+      );
+      expect(listed.status).toBe(200);
+      const listedBody = await listed.text();
+      expect(listedBody).toContain("green beans");
+      // A report has no reporter; the queue must not acquire one.
+      expect(listedBody).not.toMatch(/\+1\d{10}/);
+      expect(listedBody).not.toMatch(/[0-9a-f]{64}/);
+
+      const triaged = await reportsRoute.POST(
+        request("https://ff.example/api/admin/stock-out-reports", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ reportId, action: "review" }),
+        }),
+      );
+      expect(triaged.status).toBe(200);
+
+      const rows = await sql()`
+        select status, reviewed_by_administrator_id from stock_out_reports
+        where id = ${reportId}
+      `;
+      expect(rows[0]?.status).toBe("reviewed");
+      expect(rows[0]?.reviewed_by_administrator_id).toBe(ids.administrator);
+    });
+
+    it("refuses a malformed triage without touching the report", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const before = await sql()`
+        select count(*)::int as n from stock_out_reports where status <> 'open'
+      `;
+
+      for (const payload of [
+        {},
+        { reportId: randomUUID() },
+        { action: "review" },
+        { reportId: randomUUID(), action: "delete" },
+        { reportId: 42, action: "review" },
+      ]) {
+        const response = await reportsRoute.POST(
+          request("https://ff.example/api/admin/stock-out-reports", {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          }),
+        );
+        expect(response.status, JSON.stringify(payload)).toBe(400);
+      }
+
+      const after = await sql()`
+        select count(*)::int as n from stock_out_reports where status <> 'open'
+      `;
+      expect(after[0]?.n).toBe(before[0]?.n);
+    });
+
+    it("returns 404 for a thread whose flag does not exist", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const flagId = randomUUID();
+      const response = await threadRoute.GET(
+        request(`https://ff.example/api/admin/flags/${flagId}/thread`, { token }),
+        { params: { flagId } },
+      );
+      expect(response.status).toBe(404);
     });
   });
 

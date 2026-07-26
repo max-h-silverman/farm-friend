@@ -140,8 +140,10 @@ These are **database-level** requirements, not application conventions:
   because over-retention is recoverable and destroying evidence under an open safety review is not.
   Resolution makes the body immediately eligible; there is **no** bounded grace period after
   resolution, since no consumer needs one and an unowned window would be speculative state.
-  **F-030 owns the resolution path** (split out of F-025, whose identity half shipped); until it
-  flagged body retains indefinitely — the exemption working, not a leak.
+  **F-030 built the resolution path**: `disposeFlag` moves a flag to `resolved` or `dismissed`, and
+  either one ends the exemption, so the next purge pass clears that thread's expired bodies. Proven
+  end to end in `packages/db/src/review.integration.test.ts` — including that a *dismissed* thread
+  purges, which is what a drift from `= 'open'` to `<> 'resolved'` would break.
 - **The purge never races live delivery.** Outbound bodies are cleared only in a terminal state
   (`sent`/`failed`/`ambiguous`/`suppressed`), because the dispatcher reads `outbox_work.body` to
   send it. It reports **counts only** — never a body, an identifier, or a phone.
