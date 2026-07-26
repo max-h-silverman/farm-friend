@@ -169,9 +169,10 @@ clarify or flag:
   in code; it is never a model output. A free-text SMS may receive a link to the reporting surface
   but cannot select a location or queue a farmer alert.
 - **inquiry interpretation** — question → open intent: item(s), optional farm scope, a
-  **proposed selection/ranking interpretation**, an `outOfScopeRequest` **boolean**, or a bare
-  "ambiguous → ask" signal. **Never privileges one reading** of a multi-item request, and is not
-  restricted to a fixed strategy enum. Launch does not resolve an arbitrary SMS origin.
+  **proposed selection/ranking interpretation**, an `outOfScopeRequest` **boolean**, an
+  `originDependent` **boolean**, or a bare "ambiguous → ask" signal. **Never privileges one
+  reading** of a multi-item request, and is not restricted to a fixed strategy enum. Launch does
+  not resolve an arbitrary SMS origin.
 - **grounded fact selection** — select and order identifiers from the **retrieved facts only**.
   Code validates membership and renders the authoritative, recency-labeled answer; empty retrieval
   → a code-rendered honest "no current listing."
@@ -192,6 +193,16 @@ A request with no available ingredients receives the code-rendered "no current l
 statement — never a model-authored substitute. Because the model's entire vocabulary here is one
 boolean and a set of opaque identifiers, a hostile model asked for canning instructions has **no
 field to answer through**. There is no content scanner and no food taxonomy in business logic.
+
+**Arbitrary-origin proximity uses the same mechanism (F-017).** Launch resolves no customer address
+or device location over SMS. Recognizing that "which stand is closest to me?" needs an origin is
+meaning, so the interpretation seam sets `originDependent`, a **second boolean that carries no
+geography**; code answers the grounded availability half and appends `ORIGIN_LIMITATION_STATEMENT`,
+a code constant naming the public web map. The intent allowlist has **no member that can carry a
+coordinate, distance, bearing, or travel time**, and a ranking operation requiring an origin
+(`nearest`, `closest`) is **refused rather than silently downgraded** to recency — an unranked list
+presented as "closest" is a wrong answer that looks like a right one. Browser-origin proximity lives
+on the public web surface, where it is arithmetic over seeded coordinates and touches no model.
 
 SMS composition adds quality guidance to prefer concise, plain-punctuation, emoji-free replies that
 fit one GSM-7 segment when practical. This is a **cost and phrasing preference, never a truncation

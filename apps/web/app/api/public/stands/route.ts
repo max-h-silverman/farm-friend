@@ -1,4 +1,4 @@
-import { appContext } from "../../../../lib/composition";
+import { publicReadContext } from "../../../../lib/public-context";
 import { handleStandsRequest } from "../../../../lib/public-listing";
 
 // Public discovery — ungated, anonymous, MODEL-FREE, and deliberately NOT throttled.
@@ -14,10 +14,13 @@ import { handleStandsRequest } from "../../../../lib/public-listing";
 //
 // The handler lives in lib/ because Next.js permits only its own fields as route exports;
 // this file is the thin binding from the composition root to that handler.
+//
+// It imports `publicReadContext` rather than the full `appContext`: that context carries the
+// model seams, and importing it would put the model package in this route's module graph
+// even though the handler never calls one. See lib/public-context.ts.
 
 export const dynamic = "force-dynamic";
 
 export async function GET(): Promise<Response> {
-  const context = appContext();
-  return handleStandsRequest({ db: context.db, clock: context.clock });
+  return handleStandsRequest(publicReadContext());
 }

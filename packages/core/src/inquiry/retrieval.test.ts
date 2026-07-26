@@ -134,6 +134,78 @@ describe("interpreted-intent validation — an open interpretation code can exec
     expect(result.ok).toBe(false);
   });
 
+  // F-017 — the origin-dependent request. Same shape as F-018's scope flag, deliberately:
+  // recognizing that "what's closest to me?" needs an origin is MEANING, so the model sets a
+  // boolean; the limitation sentence is code's. One mechanism, two consumers.
+
+  it("accepts a lookup flagged as needing an arbitrary origin", () => {
+    const result = validateInterpretedIntent({
+      kind: "lookup",
+      items: ["kale"],
+      ranking: "any",
+      originDependent: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value.kind !== "lookup") return;
+    expect(result.value.originDependent).toBe(true);
+  });
+
+  it("defaults the origin-dependent flag to false when absent", () => {
+    const result = validateInterpretedIntent({
+      kind: "lookup",
+      items: ["kale"],
+      ranking: "any",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value.kind !== "lookup") return;
+    expect(result.value.originDependent).toBe(false);
+  });
+
+  it("refuses a non-boolean origin-dependent flag", () => {
+    // A string here would be model-authored geography wearing a flag's name.
+    const result = validateInterpretedIntent({
+      kind: "lookup",
+      items: ["kale"],
+      ranking: "any",
+      originDependent: "you are 2.3 miles from Provo Farms, head north",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses an intent carrying coordinates or a distance", () => {
+    // SMS resolves no arbitrary origin at launch, so the model has no field for one. A
+    // model that supplies geography anyway is refused rather than partially honoured.
+    for (const geography of [
+      { latitude: 47.4, longitude: -122.4 },
+      { origin: "47.4,-122.4" },
+      { distanceMiles: 2.3 },
+      { nearest: "Provo Farms" },
+      { customerLocation: "Burton" },
+    ]) {
+      const result = validateInterpretedIntent({
+        kind: "lookup",
+        items: ["kale"],
+        ranking: "any",
+        ...geography,
+      });
+      expect(result.ok, JSON.stringify(geography)).toBe(false);
+    }
+  });
+
+  it("has no ranking operation that would require an origin", () => {
+    // "nearest" is not an operation code can execute, because code has no origin to
+    // measure from over SMS. It must be REFUSED, not silently downgraded to "any" —
+    // an unexecutable intent must never masquerade as an executed one.
+    for (const ranking of ["nearest", "closest", "distance", "proximity"]) {
+      const result = validateInterpretedIntent({
+        kind: "lookup",
+        items: ["kale"],
+        ranking,
+      });
+      expect(result.ok, ranking).toBe(false);
+    }
+  });
+
   it("rejects an intent carrying a deliverable factual claim", () => {
     const result = validateInterpretedIntent({
       kind: "lookup",

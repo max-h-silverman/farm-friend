@@ -3,6 +3,8 @@ import { FixedClock } from "../clock";
 import {
   AnswerRenderError,
   isStale,
+  ORIGIN_LIMITATION_STATEMENT,
+  PUBLIC_MAP_URL,
   renderGroundedAnswer,
   renderNoCurrentListing,
   renderRecency,
@@ -158,5 +160,28 @@ describe("grounded answer rendering — every value comes from typed facts", () 
   it("throws rather than rendering a gap for an unretrieved identifier", () => {
     // Unreachable through validateFactSelection; a loud failure beats a silent hole.
     expect(() => renderGroundedAnswer(["f-unknown"], facts, clock)).toThrow(AnswerRenderError);
+  });
+});
+
+describe("the origin limitation statement (F-017)", () => {
+  it("says plainly that SMS cannot rank by distance, and points at the web map", () => {
+    // The acceptance criterion: an origin-dependent SMS request gets an HONEST code-rendered
+    // limitation plus a public-map link — never a fabricated distance and never a silently
+    // origin-free ranking presented as if it answered the question.
+    expect(ORIGIN_LIMITATION_STATEMENT).toMatch(/text|sms/i);
+    expect(ORIGIN_LIMITATION_STATEMENT).toContain(PUBLIC_MAP_URL);
+  });
+
+  it("promises no distance, direction, or travel time", () => {
+    // Written to fail if someone later softens this into an implied capability. If the
+    // constant ever claims to measure or route, these fail.
+    expect(ORIGIN_LIMITATION_STATEMENT).not.toMatch(/\d+(\.\d+)?\s*(mi|mile|km|min)/i);
+    expect(ORIGIN_LIMITATION_STATEMENT).not.toMatch(/turn|head (north|south|east|west)/i);
+  });
+
+  it("is a real https URL rather than a placeholder", () => {
+    const url = new URL(PUBLIC_MAP_URL);
+    expect(url.protocol).toBe("https:");
+    expect(url.hostname).not.toMatch(/example|localhost|todo/i);
   });
 });

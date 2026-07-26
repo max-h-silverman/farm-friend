@@ -91,7 +91,13 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   links; and the QR stock-out web form. Anonymous, no signup. There is no launch natural-language
   web inquiry. *Built (F-019):* `GET /api/public/stands` serves discovery with **no model seam in
   its dependency set**, and `POST /api/public/stock-out` is the one public model-backed handler,
-  behind the throttle. The map UI itself is not built.
+  behind the throttle. *Built (F-017):* the map UI at `apps/web/app/page.tsx` renders those same
+  published records — every card carries code-rendered recency, and a stale listing stays visible
+  with a warning. Optional browser geolocation sorts by approximate straight-line distance in the
+  browser; destination-only Google Maps links delegate routing. The public read path imports
+  `lib/public-context.ts` (db + clock) rather than the full composition root, so **no model seam is
+  reachable from its module graph** — asserted by `lib/public-surface-model-free.test.ts`, which
+  walks the transitive imports of both public entry points.
 - **Farmer account:** sign-in → onboarding, inventory updates, profile, and preferences.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
@@ -264,13 +270,22 @@ Narrow interfaces so I/O is swappable and tests are hermetic:
   [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) "The trust contract."
 - **Clock** — injected time, so recency and expiry are deterministically testable.
 
-Geocoding is a **one-time seeding concern**, not a permanent provider seam. There is no map
-package and no coordinate-inventing stub; a seed utility resolves locations once, and unresolved
-locations are an operator task rather than a fabricated coordinate. Optional browser geolocation
-is transient and used only for deterministic approximate proximity to those validated public
-coordinates; it is not persisted, logged, or sent to the model. Destination-only Google Maps links
-delegate origin resolution and routing to the customer's mapping application. SMS does not resolve
-arbitrary customer origins at launch.
+Geocoding is a **one-time seeding concern**, not a permanent provider seam. *Executable as of
+F-017:* the `MapProvider` interface and its coordinate-inventing `StubMapProvider` — which
+fabricated deterministic pseudo-coordinates near Vashon for **any** address string — are deleted,
+and `packages/core/src/architecture.test.ts` fails if either name, a `geocode(` call, or a mapping
+/geocoding/routing dependency reappears in any workspace.
+
+Their replacement is arithmetic, not a provider: `packages/core/src/public/proximity.ts` is a pure
+module (haversine distance, coordinate validation, destination-link construction) with no network
+call, no client, and no injected adapter. It is exported on the browser-safe `@farm-friend/core/
+proximity` subpath so the client bundle gets the arithmetic without the barrel's server-side
+privacy code. Optional browser geolocation is transient, held only in React state in the customer's
+own tab: it is **never persisted, logged, sent in a request, or placed in model context**, because
+sorting happens in the browser over a list already delivered. Destination-only Google Maps links
+carry the validated coordinate and **no origin parameter**, delegating routing to the customer's
+own mapping application. An unresolved location remains an operator task, never a fabricated
+coordinate. SMS resolves no arbitrary customer origin at launch.
 
 ## Abuse / cost throttle
 

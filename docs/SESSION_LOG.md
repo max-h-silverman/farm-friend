@@ -7,6 +7,88 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-26 — F-017 public map, browser proximity, and a model reachable from the public graph
+
+Built from clean `main` at `dc2973c` on `f-017-public-map-proximity`. Test-first throughout.
+
+**The headline: F-019's model-free claim was true of the HANDLER and false of the MODULE GRAPH.**
+F-019 proved `handleStandsRequest` works with a throwing provider, and that is real evidence. But
+the public route and the map page both imported `appContext()` from `lib/composition.ts` — which
+constructs `inquiry`, `stockOut`, and `interpreter`. So `@farm-friend/ai` **was** in the public read
+surface's transitive import graph. Nothing was called, so no test could fail; but making the public
+map "smarter" with `context.inquiry` was a one-word diff with nothing structural in its way, and
+that is precisely the anonymous model-backed web surface F-019 exists to keep out of launch.
+
+The fix splits the shared infrastructure into `apps/web/lib/public-context.ts` (db + clock, reading
+`DATABASE_URL` directly) which `composition.ts` now builds on top of — one pool, one clock, two
+consumers. The public route and page import the narrow context, so **the public read path cannot
+name a seam it was never handed.** `apps/web/lib/public-surface-model-free.test.ts` walks the
+transitive local imports of both public entry points and fails if a model package or any seam
+constructor appears anywhere in them. It carries an explicit anti-vacuity guard — if the crawler
+ever stops resolving imports, that guard fails rather than letting every assertion pass silently.
+
+**`MapProvider` existed, had zero consumers, and invented coordinates for any address.**
+`StubMapProvider.geocode()` returned a deterministic pseudo-coordinate near Vashon derived from a
+string hash of *any* input. Nothing imported it but the barrel. Deleted, with a tripwire in
+`architecture.test.ts` that fails if `MapProvider`, `StubMapProvider`, a `geocode(` call, or a
+mapping/geocoding/routing dependency reappears in any workspace. A stand pinned at a fabricated
+point is worse than one with no point: it sends a real customer somewhere real and wrong.
+
+**Proximity is arithmetic, not a provider.** `packages/core/src/public/proximity.ts` is pure —
+haversine distance, coordinate validation, destination-link construction, no network and no
+adapter. Haversine rather than flat subtraction because a degree of longitude is ~46.7 miles at
+Vashon's latitude and ~69 at the equator, and a customer told the wrong stand is nearest has a wrong
+answer, not an imprecise one; a unit test asserts exactly that, so "simplifying" to Pythagoras
+fails. Routing links carry the **validated coordinate and no origin parameter** — the address string
+is deliberately absent so a click-time geocoder cannot land someone at a different "Provo Farms".
+
+**The browser origin is transient because of WHERE it lives, not because of a promise.** It is React
+state in the customer's own tab; sorting happens client-side over a list already delivered. There is
+no code path that could send it anywhere, so "not stored, not logged, not in model context" is
+structural. `@farm-friend/core/proximity` is a new browser-safe subpath export — the barrel pulls
+`node:crypto` (phone hashing) into the client bundle and broke the production build, which was a
+useful signal that the client should not reach server-side privacy code at all.
+
+**The SMS origin boundary reuses F-018's mechanism rather than inventing a second one.** Recognizing
+that "which stand is closest to me?" needs a position is *meaning*, so the model sets
+`originDependent: boolean` and code appends `ORIGIN_LIMITATION_STATEMENT`. The subtle failure this
+prevents is not invented geography — it is returning an ordinary recency-ranked list as though it had
+answered "which is closest?". So a ranking operation of `nearest`/`closest` is **refused rather than
+silently downgraded**, and the intent allowlist has no member that can carry a coordinate, distance,
+bearing, or travel time.
+
+**The map UI shows staleness three ways.** A left border, an amber recency line, and the words "May
+be out of date" — colour alone fails for a colourblind customer and in bright sun, and this is the
+one signal the product cannot afford to have missed. A stale listing is never hidden; a
+confirmed-empty stand reads "The farmer confirmed this stand is empty right now" rather than showing
+a gap. Verified against real seeded data in a running dev server: 4 stands, the 9-day-old listing
+present and marked, 4 destination-only links, zero origin leakage in the HTML.
+
+**Sabotage-tested, seven ways.** Reintroducing a `MapProvider` file (architecture tripwire fails);
+importing `appContext` on the public page (2 model-free tests fail); importing a seam two levels
+deep in the graph (transitive crawl catches it); breaking the crawler itself (anti-vacuity guard
+fails); hiding stale listings (5 map-view tests fail); replacing the limitation constant with
+fabricated geography (1 adversarial eval + 2 unit fail); disabling the intent allowlist (3
+adversarial fail); downgrading an unexecutable ranking to `any` (3 adversarial fail); and dropping
+the limitation from the reply (1 integration fails). Each was restored after confirming.
+
+**H22 was the tautology risk and was checked deliberately.** It asserts on `ORIGIN_LIMITATION_
+STATEMENT` — a constant checked against itself is the failure mode F-012, F-016, and F-018 each
+caught in their own work. It was written from the start to assert the constant does **not** match a
+distance or direction pattern, so swapping in fabricated geography fails it; the unit tests catch
+the same swap independently. **No test in this tranche could pass under a broken implementation** —
+verified by the sabotage runs above, not assumed.
+
+**Deliberately not done:** no seed utility was built (F-017's scope names "validated one-time
+seeding", but there is still no seed script in the repo and none was in scope to invent here — the
+*constraints* it must satisfy are enforced by the schema, which already rejects out-of-range
+coordinates). No per-stand pages, no filter/search UI. F-012's external decision untouched.
+
+**Verified:** `npm test` 219/219 across 22 files; real-Postgres integration 106/106 across 7 files
+(suites run sequentially, `tee` captured); typecheck, lint, `git diff --check` PASS; evals critical
+10/10, advisory 4/4, adversarial **25/25** (was 19); production Next.js build passes. No integration
+failure occurred; B-001 did not recur.
+
 ## 2026-07-26 — F-018 recipe scope boundary: the seam never existed, the prose channel did
 
 Built from clean `main` at `fad267c` on `f-018-recipe-scope-boundary`. Test-first throughout.
