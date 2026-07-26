@@ -109,6 +109,83 @@ describe("workspace architecture", () => {
   });
 });
 
+describe("the retired config and contracts packages stay deleted (F-028)", () => {
+  // The handoff approves a FOUR-package baseline and directs `packages/config` and
+  // `packages/contracts` be deleted. F-021 deleted their tracked sources, but the
+  // directories survived on disk holding gitignored `tsconfig.tsbuildinfo` build output —
+  // so the repository still showed six package directories to anyone reading it, and the
+  // "approved workspaces" test above could not see them: `workspaceDirectories` skips any
+  // directory without a `package.json`, which is exactly the shape an orphan leaves.
+  //
+  // Their content was superseded, not relocated: `config` carried a `mapProviderSchema`
+  // for the seam F-017 deleted, and `contracts` carried a `migrated` provenance from the
+  // legacy-migration model CLAUDE.md now forbids.
+
+  const retiredPackages = ["config", "contracts"];
+
+  it("leaves no directory for either retired package, not even build output", () => {
+    const present = readdirSync(new URL("packages", repositoryRoot), {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+
+    // Guard against a vacuous pass: the four approved packages must actually be found,
+    // so an unreadable directory cannot make this assertion trivially true.
+    expect(present.slice().sort()).toEqual(["ai", "core", "db", "sms"]);
+
+    const revived = retiredPackages.filter((name) => present.includes(name));
+    expect(revived, "packages/config and packages/contracts are deleted").toEqual([]);
+  });
+
+  it("declares neither retired package as a workspace or a dependency", () => {
+    const retiredSpecifiers = retiredPackages.map((name) => `@farm-friend/${name}`);
+    const rootManifest = readManifest(".");
+
+    expect(
+      (rootManifest.workspaces ?? []).filter((entry) =>
+        retiredPackages.some((name) => entry === `packages/${name}`),
+      ),
+    ).toEqual([]);
+
+    for (const workspace of approvedWorkspaces) {
+      const manifest = readManifest(workspace);
+      const declared = workspaceDependencies(manifest).filter((dependency) =>
+        retiredSpecifiers.includes(dependency),
+      );
+      expect(declared, workspace).toEqual([]);
+    }
+  });
+
+  it("imports neither retired package from any workspace source", () => {
+    const offenders = approvedWorkspaces.flatMap((workspace) => {
+      const directory = workspace.startsWith("apps/") ? `${workspace}/lib` : `${workspace}/src`;
+      return workspaceImports(directory)
+        .filter((specifier) =>
+          retiredPackages.some(
+            (name) =>
+              specifier === `@farm-friend/${name}` ||
+              specifier.startsWith(`@farm-friend/${name}/`),
+          ),
+        )
+        .map((specifier) => `${workspace}: ${specifier}`);
+    });
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("references neither retired package from the root TypeScript project", () => {
+    const source = readFileSync(new URL("tsconfig.json", repositoryRoot), "utf8");
+    expect(source.length).toBeGreaterThan(0);
+
+    for (const name of retiredPackages) {
+      expect(source, `tsconfig.json must not reference packages/${name}`).not.toContain(
+        `packages/${name}`,
+      );
+    }
+  });
+});
+
 describe("no runtime geocoder or map provider (F-017)", () => {
   // Geocoding is a ONE-TIME SEEDING concern. The approved boundary adds "no runtime
   // geocoder, permanent map package, coordinate-inventing stub, mapping platform, routing
