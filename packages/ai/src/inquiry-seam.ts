@@ -29,15 +29,21 @@ const intentSchema = z.discriminatedUnion("kind", [
       items: z.array(z.string().min(1)).min(1),
       farmScope: z.string().min(1).optional(),
       ranking: z.string().min(1),
+      // A boolean, never a message. The model may recognize a recipe/food-safety request;
+      // code renders the scope statement (F-018).
+      outOfScopeRequest: z.boolean().optional(),
     })
     .strict(),
-  z.object({ kind: z.literal("ambiguous"), question: z.string().min(1) }).strict(),
+  // A bare signal. `question` was removed in F-018: it was the one field through which
+  // model prose reached a customer verbatim. Code renders the clarification.
+  z.object({ kind: z.literal("ambiguous") }).strict(),
 ]);
 
 const selectionSchema = z.discriminatedUnion("kind", [
   // Identifiers only. There is deliberately no field here that could carry prose.
   z.object({ kind: z.literal("selection"), factIds: z.array(z.string()) }).strict(),
-  z.object({ kind: z.literal("clarification"), question: z.string().min(1) }).strict(),
+  // Likewise a bare signal (F-018) — code renders the question.
+  z.object({ kind: z.literal("clarification") }).strict(),
 ]);
 
 const stockOutSchema = z.discriminatedUnion("kind", [
@@ -82,10 +88,9 @@ export function createInquiryModel(provider: LLMProvider): InquiryModel {
         intentSchema,
       );
       if (!result.ok) {
-        return {
-          kind: "ambiguous" as const,
-          question: "Sorry, I did not catch that. What are you looking for?",
-        };
+        // Fail toward asking rather than guessing. The words are code's, rendered by the
+        // caller from this signal.
+        return { kind: "ambiguous" as const };
       }
       return result.value;
     },

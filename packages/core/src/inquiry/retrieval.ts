@@ -20,15 +20,35 @@ export type RankingOperation = "freshest" | "coverage" | "any";
 
 const RANKING_OPERATIONS = new Set<string>(["freshest", "coverage", "any"]);
 
-/** What the interpretation seam may conclude. */
+/**
+ * What the interpretation seam may conclude.
+ *
+ * `ambiguous` is a SIGNAL, not a message (F-018). It carried a model-authored `question`
+ * that was delivered to the customer verbatim — the one channel through which model prose
+ * became customer-facing text in this path. A model asked for a recipe answered with the
+ * recipe in that field, canning instructions and links included, and every check passed.
+ * The field is gone rather than scanned: code renders what the customer reads, so there is
+ * no content to police and nothing to defeat by rewording.
+ */
 export type InterpretedIntent =
   | {
       kind: "lookup";
       items: string[];
       farmScope?: string;
       ranking: RankingOperation;
+      /**
+       * The model's read that the request also asked for something launch does not answer:
+       * a recipe, cooking or preservation instructions, food-safety guidance (F-018).
+       *
+       * A BOOLEAN, deliberately. Understanding that "what can I make with kale?" is a
+       * recipe request is meaning, which is the model's job — hard-coding a food or
+       * request vocabulary here would be exactly the taxonomy-as-policy the architecture
+       * forbids. But a flag carries no words: code renders the scope statement, so the
+       * model can classify the request without composing a syllable of the reply.
+       */
+      outOfScopeRequest: boolean;
     }
-  | { kind: "ambiguous"; question: string };
+  | { kind: "ambiguous" };
 
 export type IntentValidation =
   | { ok: true; value: InterpretedIntent }
@@ -50,13 +70,12 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
   const keys = new Set(Object.keys(record));
 
   if (record.kind === "ambiguous") {
-    if (keys.size !== 2 || typeof record.question !== "string") {
-      return { ok: false, reason: "ambiguous carries only a question" };
+    // Exactly `kind` and nothing else. A model with no permitted field to write into
+    // cannot smuggle prose past this, whatever it names the field.
+    if (keys.size !== 1) {
+      return { ok: false, reason: "ambiguous is a signal and carries no other field" };
     }
-    if (record.question.trim() === "") {
-      return { ok: false, reason: "ambiguous requires a question" };
-    }
-    return { ok: true, value: { kind: "ambiguous", question: record.question } };
+    return { ok: true, value: { kind: "ambiguous" } };
   }
 
   if (record.kind !== "lookup") {
@@ -64,7 +83,7 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
   }
 
   // Any field beyond these would be the model supplying content or a consequence.
-  const allowed = new Set(["kind", "items", "farmScope", "ranking"]);
+  const allowed = new Set(["kind", "items", "farmScope", "ranking", "outOfScopeRequest"]);
   for (const key of keys) {
     if (!allowed.has(key)) {
       return { ok: false, reason: `intent carries no field "${key}"` };
@@ -82,6 +101,10 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
     // pretend to have executed.
     return { ok: false, reason: "ranking names an operation code cannot execute" };
   }
+  if (record.outOfScopeRequest !== undefined && typeof record.outOfScopeRequest !== "boolean") {
+    // A string here would be prose wearing a flag's name.
+    return { ok: false, reason: "outOfScopeRequest must be a boolean when present" };
+  }
 
   return {
     ok: true,
@@ -90,6 +113,7 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
       items: record.items,
       ...(record.farmScope !== undefined ? { farmScope: record.farmScope } : {}),
       ranking: record.ranking as RankingOperation,
+      outOfScopeRequest: record.outOfScopeRequest === true,
     },
   };
 }

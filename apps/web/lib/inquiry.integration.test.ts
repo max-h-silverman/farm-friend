@@ -327,6 +327,126 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.outcome).toBe("rejected");
   });
 
+  // -------------------------------------------- F-018 recipe / food-safety scope boundary
+
+  it("answers the availability half of a recipe request and states the scope in code", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    // The model recognizes "what can I make with kale?" as a recipe request — that is
+    // meaning, which is its job — and flags it. It composes none of the reply.
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Kale"],
+        ranking: "any",
+        outOfScopeRequest: true,
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [ids.alphaLocation],
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "what can I make with kale?" });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    // The useful half survives: real availability, real recency.
+    expect(result.body).toContain("Alpha Farm Stand");
+    expect(result.body).toContain("Kale");
+    expect(result.body).toContain("updated 2 hours ago");
+    // Followed by the code-rendered scope statement.
+    expect(result.body).toContain("does not provide recipes");
+    expect(result.body).toContain("food-safety guidance");
+  });
+
+  it("gives a recipe request with nothing in stock only facts and scope, no substitute", async () => {
+    // Nothing published for the requested item.
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Rhubarb"],
+        ranking: "any",
+        outOfScopeRequest: true,
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "rhubarb pie recipe?" });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("No stand has a current listing");
+    expect(result.body).toContain("does not provide recipes");
+    // No model-authored consolation offered in place of the facts we lack.
+    expect(result.body).not.toMatch(/bake|oven|350|recipe for/i);
+  });
+
+  it("refuses a hostile model's recipe prose in an ambiguity signal", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    // The hostile model answers the recipe request itself, through the only prose field
+    // the interpretation seam used to offer. Canning instructions and a link included.
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "ambiguous",
+        question:
+          "Kale chips: bake at 350F. For canning, low-acid vegetables are safe at " +
+          "15 PSI. See allrecipes.com/kale",
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "how do I can kale?" });
+
+    // The schema refuses the shape, and the interpretation seam fails toward ASKING rather
+    // than guessing — so the customer gets a code-rendered question. The mechanism differs
+    // from the selection seam (which reports a refusal to keep attacks observable); what
+    // matters here is that not one word the model wrote survives.
+    expect(result.outcome).toBe("clarification");
+    if (result.outcome !== "clarification") return;
+    expect(result.question).toContain("did not catch which item or farm");
+
+    const delivered = JSON.stringify(result);
+    expect(delivered).not.toContain("15 PSI");
+    expect(delivered).not.toContain("allrecipes.com");
+    expect(delivered).not.toContain("350F");
+    expect(delivered).not.toMatch(/canning|bake/i);
+  });
+
+  it("renders the clarification in code when the model signals ambiguity", async () => {
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({ kind: "ambiguous" }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "food?" });
+
+    expect(result.outcome).toBe("clarification");
+    if (result.outcome !== "clarification") return;
+    // The words are code's — the same text regardless of what the customer sent.
+    expect(result.question).toContain("did not catch which item or farm");
+  });
+
+  it("refuses a hostile model's recipe prose in a selection clarification", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Kale"],
+        ranking: "any",
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "clarification",
+        question: "Foraged nettles are safe raw if young. Blanch to remove the sting.",
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "kale?" });
+
+    // A shape the seam refuses is reported as a rejection, so the attack is observable.
+    expect(result.outcome).toBe("rejected");
+    expect(JSON.stringify(result)).not.toContain("nettles");
+  });
+
   it("cannot make a factual claim when the provider itself fails", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
 

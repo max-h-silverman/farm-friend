@@ -296,29 +296,33 @@ assembler, and the low-level provider call is unexported. The **public web surfa
 `GET /api/public/stands` has no model seam in its dependency set, and `POST /api/public/stock-out`
 is the single public model-backed handler, fronted by the abuse/cost throttle.
 
-**Verified July 26, 2026:** `npm test` 171/171 across 19 files; real-Postgres integration 98/98
+**Verified July 26, 2026:** `npm test` 177/177 across 19 files; real-Postgres integration 103/103
 across 7 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 10/10, advisory 4/4,
-adversarial 14/14; production Next.js build passes.
+adversarial 19/19; production Next.js build passes.
+
+**Neither inquiry seam may return prose (F-018).** The interpretation seam's `ambiguous` and the
+selection seam's `clarification` are **bare signals carrying no field but `kind`**; validation
+refuses any other, and code renders the words (`renderClarificationRequest`). They previously carried
+a model-authored `question` delivered to the customer verbatim — the only path by which model prose
+reached a customer in the inquiry flow, and a live one: a hostile model answered a recipe request
+with canning pressures and a link, and every check passed. **There is no recipe seam and never was**
+(verified by grep across all packages). Recipe/food-safety scope is a model-set `outOfScopeRequest`
+**boolean** — meaning stays the model's, words stay code's — and code appends the
+`RECIPE_SCOPE_STATEMENT` constant to the ordinary grounded answer. No content scanner, classifier, or
+food taxonomy in business logic.
 
 **Launch consent is one program, and it is executable (F-016).** The consent decision is one pure
 predicate — `isProactiveSendPermitted` in `packages/core/src/sms/consent.ts` — consulted by
 `authorizeDispatch`, so the rule lives in exactly one place and takes no database or model. It
-requires **active** consent for a proactive send; the previous gate asked only whether the recipient
-had `STOP`ped, so a recipient who had **never opted in** was authorized. That was a live Golden Rule
-#2 defect, reproduced before the fix and now pinned by unit, integration, and critical-eval tests.
-`outbox_work` carries one bounded `message_category` (migration `0002`); the former free-text
-`message_kind` plus `is_required` boolean are **deleted**. `consentTransitionFor` maps `JOIN` and
-`START` onto that one program, differing only in recorded provenance. **`MUTE` and
-follow-up-interest state never existed in executable code** — verified by grep, and now held out by
-schema and workflow guards rather than by inspection alone.
+requires **active** consent for a proactive send; silence is not permission. `outbox_work` carries
+one bounded `message_category` (migration `0002`). `MUTE` and follow-up-interest state never existed
+in executable code.
 
 **Keyword set is aligned and self-checking.** The registered opt-out/opt-in/help lists are stated
 once in `packages/core/src/sms/commands.ts` (`REGISTERED_*_KEYWORDS`) and the parser derives its
 tables from them; `commands.test.ts` reads `docs/TELNYX_10DLC_FIELD_VALUES.txt` and fails if the
-registered artifact and the parser disagree **in either direction**. `STOPALL` now opts out
-globally. The superseded generic commitment machine and its `OUT`/`IGNORE` tokens are **deleted**;
-`YES`/`NO` are the only commitment tokens, and the two critical evals that covered the old machine
-now assert the same invariants against the live `confirmationEligibility` path.
+registered artifact and the parser disagree **in either direction**. `YES`/`NO` are the only
+commitment tokens; the superseded generic commitment machine and `OUT`/`IGNORE` are deleted.
 
 **Known gaps / owed.** No public **web UI** — the map render is still a placeholder page (F-017's
 natural home). Message classification has no projection and no consumer. The configured provider is
@@ -327,22 +331,17 @@ passed it, and it checks an operator-attested declaration rather than vendor pra
 an empty role list with no durable session. No seed data, no retention job. SMS inquiry has no HTTP
 route **by design** — it is reached from the Telnyx webhook worker.
 
-**B-001 is diagnosed and fixed** (was the "undiagnosed integration flake"). Root cause was a real
-product defect, not resource pressure: `RAW_PHONE_RE` in `packages/sms/src/redaction.ts` had no
-boundary anchors, so it matched *any* ten-digit run — including the hex digits inside ~3.1% of
-random UUIDs. `redactOutbound` shares that regex and throws, so production sends carrying an
-identifier could be refused at random. Fixed with `(?<![0-9A-Za-z_])…(?![0-9A-Za-z_])`; 0 false
-positives in 200k UUIDs, all real phone formats still refused, pinned by a deterministic regression
-test. **The standing lesson holds:** if an integration run fails, capture the test name and
-assertion BEFORE rerunning (`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites
-sequentially — that is what finally caught this one.
+**B-001 is diagnosed and fixed** — an unanchored `RAW_PHONE_RE` matched hex digits in ~3.1% of
+UUIDs, so `redactOutbound` could refuse legitimate sends at random. **The standing lesson holds:**
+if an integration run fails, capture the test name and assertion BEFORE rerunning
+(`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites **sequentially, never chained**
+— that is what finally caught it. Treat a named failing test as a real defect until shown otherwise.
 
-**PM / authorization:** F-013, F-014, F-015, F-019, F-020, F-021, F-022 are done and merged to
-`main`. **F-012 is in review and cannot close yet** — all in-repo work is done, but it is blocked on
-one external decision only max can make: *does amending registered Sample Message 3 require carrier
-resubmission, or is it console-editable?* **F-016 is done and merged.** F-017 and F-018 remain
-planned and each requires separate implementation authorization. Do not silently absorb other
-planned items into a tranche.
+**PM / authorization:** F-013–F-016 and F-018–F-022 are done and merged to `main`, except **F-012,
+which is in review and cannot close yet** — all in-repo work is done, but it is blocked on one
+external decision only max can make: *does amending registered Sample Message 3 require carrier
+resubmission, or is it console-editable?* **F-017 is the only remaining planned item** and requires
+separate implementation authorization. Do not silently absorb other planned items into a tranche.
 
 **Owed by F-016 (not absorbed):** there is still **no inbound routing layer** — nothing in
 production code calls `parseCommand`, `runInboundPass`, or `answerInquiry`, so `consentTransitionFor`

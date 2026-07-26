@@ -51,10 +51,16 @@ export class AnswerRenderError extends Error {
   }
 }
 
-/** The model's selection: ordered opaque IDs, or an explicit request to clarify. */
+/**
+ * The model's selection: ordered opaque IDs, or a bare signal that it cannot choose.
+ *
+ * `clarification` carries no `question` (F-018). Like the interpretation seam's ambiguity
+ * signal, it was a field model prose travelled through to the customer; code renders the
+ * words via `renderClarificationRequest`.
+ */
 export type FactSelection =
   | { kind: "selection"; factIds: string[] }
-  | { kind: "clarification"; question: string };
+  | { kind: "clarification" };
 
 export type SelectionValidation =
   | { ok: true; value: FactSelection }
@@ -76,13 +82,11 @@ export function validateFactSelection(
   const keys = Object.keys(record);
 
   if (record.kind === "clarification") {
-    if (keys.length !== 2 || typeof record.question !== "string") {
-      return { ok: false, reason: "clarification carries only a question" };
+    // Exactly `kind`. No permitted field means no prose channel to smuggle through.
+    if (keys.length !== 1) {
+      return { ok: false, reason: "clarification is a signal and carries no other field" };
     }
-    if (record.question.trim() === "") {
-      return { ok: false, reason: "clarification requires a question" };
-    }
-    return { ok: true, value: { kind: "clarification", question: record.question } };
+    return { ok: true, value: { kind: "clarification" } };
   }
 
   if (record.kind !== "selection") {
@@ -162,6 +166,34 @@ export function renderNoCurrentListing(itemsRequested: string[]): string {
     `Listings show what farmers last confirmed, so something may still be available.`
   );
 }
+
+/**
+ * The code-rendered question asked when the model signals it could not pin down what the
+ * customer wants. The model contributes the SIGNAL; this supplies the words (F-018).
+ *
+ * Model-authored prose used to travel here in an `ambiguous.question` field, which made
+ * this the one path where a model could put arbitrary text — a recipe, canning advice, a
+ * link — in front of a customer with every check passing. Rendering it in code removes the
+ * channel rather than inspecting what flows through it.
+ */
+export function renderClarificationRequest(): string {
+  return (
+    "Sorry, I did not catch which item or farm you meant. " +
+    "Reply with what you are looking for and I will check what stands have it."
+  );
+}
+
+/**
+ * The code-rendered response to a request outside what launch answers — recipes, cooking
+ * or preservation instructions, and food-safety guidance (F-018).
+ *
+ * Farm Friend answers the grounded availability half of such a request from typed facts and
+ * then states this boundary. It is a scope statement, not a disclaimer attached to generated
+ * content: no recipe or safety text is produced anywhere for it to qualify.
+ */
+export const RECIPE_SCOPE_STATEMENT =
+  "Farm Friend does not provide recipes, cooking or preservation instructions, " +
+  "or food-safety guidance.";
 
 /**
  * Render the authoritative answer from the selected facts, in the model's chosen order.

@@ -62,12 +62,76 @@ describe("interpreted-intent validation — an open interpretation code can exec
     expect(result.ok).toBe(false);
   });
 
-  it("accepts an explicit ambiguity signal", () => {
+  it("accepts an explicit ambiguity signal as a signal, carrying no prose", () => {
+    const result = validateInterpretedIntent({ kind: "ambiguous" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The signal is a KIND, not a message. Code renders what the customer reads.
+    expect(result.value).toEqual({ kind: "ambiguous" });
+  });
+
+  it("refuses an ambiguity signal that carries a model-authored question", () => {
+    // F-018. `question` was the one field through which model prose reached a customer
+    // verbatim. A hostile model asked for a recipe put the recipe here — canning
+    // instructions and a URL included — and every blocking check passed.
     const result = validateInterpretedIntent({
       kind: "ambiguous",
-      question: "Which farm did you mean?",
+      question:
+        "Kale chips: bake at 350F. For canning, low-acid vegetables are safe at 15 PSI. " +
+        "See allrecipes.com/kale",
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses an ambiguity signal carrying any extra field at all", () => {
+    // Not a content check: ANY field beyond `kind` is refused, so this cannot be defeated
+    // by renaming the field or rewording the prose.
+    for (const extra of [
+      { question: "Which farm?" },
+      { message: "Try kale chips!" },
+      { suggestion: "see example.com/recipes" },
+      { note: "" },
+    ]) {
+      const result = validateInterpretedIntent({ kind: "ambiguous", ...extra });
+      expect(result.ok).toBe(false);
+    }
+  });
+
+  it("accepts a lookup flagged as an out-of-scope request", () => {
+    // F-018. A recipe request often still names ingredients, so it stays a lookup: the
+    // customer gets real availability. The flag is a BOOLEAN the model sets — a signal it
+    // cannot write prose into. Code owns every word the scope statement contains.
+    const result = validateInterpretedIntent({
+      kind: "lookup",
+      items: ["kale"],
+      ranking: "any",
+      outOfScopeRequest: true,
     });
     expect(result.ok).toBe(true);
+    if (!result.ok || result.value.kind !== "lookup") return;
+    expect(result.value.outOfScopeRequest).toBe(true);
+  });
+
+  it("defaults the out-of-scope flag to false when absent", () => {
+    const result = validateInterpretedIntent({
+      kind: "lookup",
+      items: ["kale"],
+      ranking: "any",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.value.kind !== "lookup") return;
+    expect(result.value.outOfScopeRequest).toBe(false);
+  });
+
+  it("refuses a non-boolean out-of-scope flag", () => {
+    // A string here would be prose wearing a flag's name.
+    const result = validateInterpretedIntent({
+      kind: "lookup",
+      items: ["kale"],
+      ranking: "any",
+      outOfScopeRequest: "here is how to can kale safely at 15 PSI",
+    });
+    expect(result.ok).toBe(false);
   });
 
   it("rejects an intent carrying a deliverable factual claim", () => {

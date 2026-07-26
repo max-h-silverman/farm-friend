@@ -1,9 +1,11 @@
 import {
   rankCandidates,
+  renderClarificationRequest,
   renderGroundedAnswer,
   renderNoCurrentListing,
   validateFactSelection,
   validateInterpretedIntent,
+  RECIPE_SCOPE_STATEMENT,
   type Clock,
   type InquiryCandidate,
   type RetrievedFact,
@@ -129,8 +131,17 @@ export async function answerInquiry(
     return { outcome: "rejected", reason: intent.reason };
   }
   if (intent.value.kind === "ambiguous") {
-    return { outcome: "clarification", question: intent.value.question };
+    // The model signalled; the words are code's.
+    return { outcome: "clarification", question: renderClarificationRequest() };
   }
+
+  // F-018. The model may recognize that the request also asked for a recipe, cooking or
+  // preservation instructions, or food-safety guidance. Farm Friend still answers the
+  // grounded availability half from typed facts, then states the launch boundary — in
+  // code-rendered text appended below, never anything the model composed.
+  const scopeNote = intent.value.outOfScopeRequest ? RECIPE_SCOPE_STATEMENT : undefined;
+  const withScope = (body: string): string =>
+    scopeNote === undefined ? body : `${body}\n\n${scopeNote}`;
 
   // Step 3 — CODE retrieves, then ranks by the validated interpretation.
   const listings = await retrieveCurrentListings(deps.db);
@@ -153,9 +164,13 @@ export async function answerInquiry(
   if (ranked.length === 0) {
     // No grounded-selection call: there is nothing to select from, so asking a model could
     // only produce invention. The honest answer is code's.
+    //
+    // A recipe request with nothing available still lands here, and still gets only the
+    // code-rendered "no current listing" plus the scope statement — never a model-authored
+    // substitute offered in place of the facts we do not have.
     return {
       outcome: "answered",
-      body: renderNoCurrentListing(intent.value.items),
+      body: withScope(renderNoCurrentListing(intent.value.items)),
       selectedFactIds: [],
     };
   }
@@ -204,7 +219,7 @@ export async function answerInquiry(
       ? { outcome: "rejected", reason: "selection carries only ordered fact identifiers" }
       : {
           outcome: "clarification",
-          question: "Sorry, I could not look that up just now. Please try again.",
+          question: renderClarificationRequest(),
         };
   }
 
@@ -213,19 +228,19 @@ export async function answerInquiry(
     return { outcome: "rejected", reason: selection.reason };
   }
   if (selection.value.kind === "clarification") {
-    return { outcome: "clarification", question: selection.value.question };
+    return { outcome: "clarification", question: renderClarificationRequest() };
   }
   if (selection.value.factIds.length === 0) {
     return {
       outcome: "answered",
-      body: renderNoCurrentListing(intent.value.items),
+      body: withScope(renderNoCurrentListing(intent.value.items)),
       selectedFactIds: [],
     };
   }
 
   return {
     outcome: "answered",
-    body: renderGroundedAnswer(selection.value.factIds, retrieved, deps.clock),
+    body: withScope(renderGroundedAnswer(selection.value.factIds, retrieved, deps.clock)),
     selectedFactIds: selection.value.factIds,
   };
 }
