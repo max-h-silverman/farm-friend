@@ -144,6 +144,12 @@ sends the `Authorization: Bearer` header from the project's `CRON_SECRET` enviro
 Choose the interval against the SMS latency you are willing to accept — a farmer's `STOP` is not
 honored until a pass runs, so a multi-minute interval is a multi-minute delay in an opt-out.
 
+**Known defect: B-004.** Vercel Cron's finest granularity is one minute, so polling alone cannot get
+inbound replies under the ~10s an SMS exchange needs. The decided fix is for the webhook to kick the
+inbound pass **after** it acknowledges Telnyx, leaving this route as the recovery net for work a kick
+missed and as the only trigger for the retention purge. Until B-004 lands, expect up to a
+one-minute reply latency.
+
 **Authentication fails closed.** `CRON_SECRET` is required at startup with no default, the route
 compares it in constant time, and there is deliberately **no** environment-conditional bypass —
 `apps/web/lib/cron-auth.test.ts` reads the route source and fails if one appears. An unauthenticated

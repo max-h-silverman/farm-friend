@@ -7,6 +7,110 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-26 (later) — F-023 inbound routing, F-026 retention, F-027/F-028 cleanups, and a latency defect the specification caused
+
+Four items merged (PRs #30, #31, #35, #33) plus a docs sync (#32). Ended on `main` at `5fb13b8`,
+everything merged, no open PRs. The session began as a question about demoing to the VIGA board and
+became the largest single day of go-live progress.
+
+**F-023 closed the biggest gap between a green suite and a working product.** The webhook persisted
+inbound events correctly and `runInboundPass` claimed and finalized them *without routing* —
+`parseCommand`, `consentTransitionFor`, and `answerInquiry` had zero production callers, so a farmer
+who texted `STOP` was never unsubscribed on a registered 10DLC campaign. `apps/web/lib/routing.ts`
+is the composition that was missing.
+
+The design decision worth keeping: the model seams are reached only through a `freeText` callback
+invoked *after* `parseCommand` returns `none`. That makes "no model call on the compliance path" a
+**structural property of the function** rather than a convention a future edit could quietly break,
+and `routing.test.ts` proves it with a seam that throws on any call.
+
+**The registered auto-response copy existed in no TypeScript file.** Opt-in, opt-out, and help
+responses were registered with the carrier and transcribed in `TELNYX_10DLC_FIELD_VALUES.txt`, but
+`HELP` could not have returned the registered text because the text was not in the codebase. Now in
+`packages/core/src/sms/auto-responses.ts`, verified character-for-character against the transcript
+by a test that fails on drift in either direction — the same pattern `commands.test.ts` already used
+for keywords. The console stays the authority.
+
+**F-026 made the retention promise executable.** Every body carried a `body_expires_at` 30 days out
+and nothing ever acted on it. `purgeExpiredBodies` clears expired text from `sms_messages` and
+`outbox_work` while retaining rows, projections, flags, and audit events. The flagged-thread
+exemption is deliberately written as "purge only what can positively be shown to have no open flag"
+— purging evidence out from under an open safety review is irreversible in a way over-retention is
+not. **F-025 is a real dependency**: until flag resolution exists, nothing moves a flag out of
+`open`, so a flagged body retains indefinitely. That is the exemption working, not a leak.
+
+**F-026's agent found a race outside its own scope.** `runOutboundPass` reads `outbox_work.body` to
+send it, so purging a `queued` row whose expiry had passed would have **delivered an empty SMS to a
+real person**. The outbound purge is now restricted to terminal states.
+
+**F-027 exposed a live privilege-escalation gap while removing a cosmetic vestige.** The tenancy
+field was speculative and harmless; the *missing test coverage* was not. The old role suite tested
+`farmer → staff/admin` but never the reverse, so granting `staff` the `farmer` role — an operator
+silently gaining farmer capability, against Golden Rule #1 — **passed the pre-change suite**.
+Verified directly by running the old assertions against that escalation. The suite grew 6 → 13 tests
+and now fails three on it.
+
+Also: the new tripwire is deliberately **unanchored**. The borrowed `/\btenant/i` pattern matches
+`tenantId` but *not* `targetTenantId`, the exact parameter name removed — an anchored pattern would
+have let the concept walk back in. Both tripwire files assemble the term from fragments so the scan
+needs zero path exclusions; exclusions are how tripwires die.
+
+**F-028's history was not what the item assumed, and the real finding is about test blindness.**
+F-021's completion claim was *correct* — it deleted all six tracked files. Two directories survived
+holding only a gitignored `tsconfig.tsbuildinfo`, so the repo looked like six packages while git
+tracked four. The `workspaceDirectories()` helper skips any directory lacking a readable
+`package.json` — **exactly an orphan's shape** — so the "only the approved four packages" test was
+structurally blind to it. A green test that could not fail for this case.
+
+### B-004: a latency defect the specification caused
+
+Filed this session. Inbound SMS waits up to ~60s for a reply because the cron trigger polls at
+Vercel Cron's one-minute floor, against a target of ~10s. Every durable property F-023 and F-026
+proved still holds — they just hold slowly.
+
+**The root cause was the brief, not the implementation.** F-023's specification asked for "the
+smallest thing that works" as a *trigger* and framed the decision as a scheduling-mechanism choice.
+Nobody asked what response latency the product needs, so the agent built exactly what was specified
+and built it well. Batch polling suits background work; an SMS exchange is request/response and the
+person is holding a phone. Decided fix: the webhook kicks the inbound pass *after* acknowledging
+Telnyx, with cron demoted to a recovery net. An inline kick was rejected during F-023 planning for
+risking the prompt-ack requirement — that objection applies to work before the 200, not after it.
+
+### Process finding: parallel agents shared one working tree
+
+F-027 and F-028 were dispatched in parallel without worktree isolation. They overwrote each other
+repeatedly; one committed against instructions purely to stop losing work, and both spent real
+effort on recovery rather than building. Both branches were rebuilt from `main` and re-verified from
+scratch, and neither shipped the other's content — but that is remediation, not a defense. **Use
+isolated worktrees for any future parallel dispatch.**
+
+A related lesson about trusting agent reports: the F-023 agent reported completion with no
+verification numbers and no sabotage log, having marked the PM item "in review" while the code sat
+uncommitted with zero commits on the branch. Independent sabotage-testing of every merged item found
+one real gap the agents missed — an exemption predicate drift from `f.status = 'open'` to
+`f.status <> 'resolved'` passed F-026's entire suite, because no fixture isolated a *dismissed-only*
+thread. Closed with the missing fixture before merge.
+
+### Decisions recorded for the remaining items
+
+Walked through the four items needing max's input; all decisions are in their PM item files.
+**F-025** splits into a/b (auth + approval first, then flag queue), admin identity becomes **email**
+(`administrators.contact_id` points at a phone while magic-link auth uses email — nothing connected
+them), bootstrap is a seed script. **F-024** targets DeepInfra on a mid-size instruct model; the
+attested terms are *DeepInfra's* as inference host, and the attestation stays a blocking TODO until
+max reads their data-processing terms — an agent must never infer those values. An adversarial eval
+failure **stops and reports**; no fixture edits to go green. **B-002** uses a typed TypeScript data
+file with seed-time coordinate lookup, and waits for max's stand list rather than being built
+speculatively. **F-029** goes live only after everything else, B-004 included.
+
+### Verified on `main` at `5fb13b8`
+
+`npm test` 269/269 across 26 files; integration 138/138 across 9 files; typecheck, lint, evals
+(critical 10/10, advisory 4/4, adversarial 25/25); production Next.js build. Every merged item was
+independently sabotage-tested rather than accepted on its agent's report.
+
+---
+
 ## 2026-07-26 — F-012 closed on live console state, B-003 date-dependence, and the go-live path logged
 
 Three merged branches earlier in the day (F-016, F-018, F-017 — see their entries below) plus this
