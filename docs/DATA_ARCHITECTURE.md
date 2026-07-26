@@ -56,7 +56,14 @@ render an honest "updated X ago" without a second provenance axis.
 - **launch-program SMS consent and universal STOP** — one current launch consent state per
   recipient, provenance for how, when, and where consent was captured, and a separate provider-time
   STOP/START transition watermark. Launch has no program discriminator or future-program enrollment
-  rows.
+  rows. `sms_consents` is keyed by `recipient_hash` alone, so a second enrollment for the same
+  recipient is not representable; `consent_capture_source` is bounded to `join` / `start` /
+  `farmer_onboarding`, all of which establish the same one program (F-016).
+- **outbox message category** — `outbox_work.message_category` is a bounded enum naming which
+  launch category a queued message is, and it is the typed input to the dispatch consent gate. It
+  replaces the former free-text `message_kind` plus `is_required` boolean, which were two
+  overlapping ways to say one thing and could not express a direct reply that is permitted by the
+  recipient's own message without being carrier-required.
 - **one open inventory-publication confirmation per sender** — target sales location, distinct
   structured pending proposal payload/version, allowed `YES`/`NO` tokens, provider-accepted prompt
   activation, expiry, and consumption state. This is not an inventory revision.
@@ -132,7 +139,9 @@ These are **database-level** requirements, not application conventions:
   notifications. `STOP` clears launch consent immediately and applies across all Farm Friend
   messaging. STOP/START transitions are ordered separately from conversation state by provider
   occurrence time, with STOP winning an exact timestamp tie. A future program gets separate
-  enrollment only when built; launch stores no future-program state.
+  enrollment only when built; launch stores no future-program state. **Active** consent is
+  required — an absent consent row is not permission, and the gate that once asked only "has this
+  recipient STOPped?" was a real defect fixed in F-016.
 - **Pending confirmations are GC'd on expiry.** A confirmation is live only after its current prompt
   is provider-accepted; a token that predates that activation or names no live proposal commits
   nothing.

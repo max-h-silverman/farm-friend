@@ -291,10 +291,10 @@ describe("authoritative SMS transactions (integration)", () => {
       // A delivery event is durable and deduplicated, but claims no sender.
       const outbox = await client()`
         insert into outbox_work (
-          logical_key, recipient_hash, message_kind, body, body_expires_at,
+          logical_key, recipient_hash, message_category, body, body_expires_at,
           available_at, state, dispatch_authorized_at
         )
-        values ('wf-delivery-1', ${farmerHash}, 'reply', 'hi',
+        values ('wf-delivery-1', ${farmerHash}, 'inquiry_reply', 'hi',
                 ${t("2026-07-26T12:00:00Z")}, ${T0}, 'dispatching', ${T0})
         returning id
       `;
@@ -645,21 +645,24 @@ describe("authoritative SMS transactions (integration)", () => {
 
       const queued = await client()`
         select count(*)::integer as count from outbox_work
-        where message_kind = 'inventory_published'
+        where message_category = 'inquiry_reply'
       `;
       expect(queued[0]?.count).toBe(1);
     });
   });
 
   describe("dispatch, STOP ordering, and delivery", () => {
-    async function queueWork(logicalKey: string, isRequired = false) {
+    async function queueWork(
+      logicalKey: string,
+      category: "required_reply" | "inventory_prompt" = "inventory_prompt",
+    ) {
       const rows = await client()`
         insert into outbox_work (
-          logical_key, recipient_hash, message_kind, body, body_expires_at,
-          available_at, is_required
+          logical_key, recipient_hash, message_category, body, body_expires_at,
+          available_at
         )
-        values (${logicalKey}, ${farmerHash}, 'reply', 'hello',
-                ${t("2026-07-26T12:00:00Z")}, ${T0}, ${isRequired})
+        values (${logicalKey}, ${farmerHash}, ${category}, 'hello',
+                ${t("2026-07-26T12:00:00Z")}, ${T0})
         returning id
       `;
       return rows[0]?.id as string;
@@ -829,6 +832,194 @@ describe("authoritative SMS transactions (integration)", () => {
       `;
       expect(JSON.stringify(row[0])).not.toMatch(/\+1\d{10}/);
       expect(row[0]?.recipient_hash).toBe(farmerHash);
+    });
+  });
+
+  // F-016 — one launch operational SMS program. The dispatch claim is where the consent
+  // MEANING defined in packages/core/src/sms/consent.ts becomes a durable consequence.
+  describe("one launch program consent at the dispatch boundary", () => {
+    // A recipient who has never opted in: no sms_consents row at all.
+    const neverOptedIn = "3".repeat(64);
+
+    async function queueFor(
+      recipientHash: string,
+      logicalKey: string,
+      category: string,
+    ) {
+      const rows = await client()`
+        insert into outbox_work (
+          logical_key, recipient_hash, message_category, body, body_expires_at,
+          available_at
+        )
+        values (${logicalKey}, ${recipientHash}, ${category}, 'hello',
+                ${t("2026-07-26T12:00:00Z")}, ${T0})
+        returning id
+      `;
+      return rows[0]?.id as string;
+    }
+
+    beforeEach(async () => {
+      await client()`
+        insert into contacts (phone_e164, phone_hash)
+        values ('+12065550399', ${neverOptedIn})
+        on conflict (phone_hash) do nothing
+      `;
+    });
+
+    it("refuses proactive work for a recipient who never opted in", async () => {
+      // Absent consent is NOT permission. Before F-016 the gate asked only whether the
+      // recipient had STOPped, so silence read as consent and this was authorized.
+      const workId = await queueFor(
+        neverOptedIn,
+        "wf-consent-absent",
+        "inventory_prompt",
+      );
+
+      const claim = await authorizeDispatch(database(), {
+        outboxWorkId: workId,
+        now: T0,
+      });
+
+      expect(claim.status).toBe("suppressed");
+      const row = await client()`select state from outbox_work where id = ${workId}`;
+      expect(row[0]?.state).toBe("suppressed");
+    });
+
+    it("still delivers the required reply to a recipient who just STOPped", async () => {
+      // The carrier-required answer to the recipient's own message must survive, or STOP
+      // could not acknowledge itself. The STOPPED recipient is the case that matters:
+      // an absent consent row would pass even if this exemption were deleted.
+      await applyConsentTransition(database(), {
+        recipientHash: neverOptedIn,
+        transition: "stop",
+        occurredAt: t("2026-07-25T12:01:00Z"),
+        providerEventId: "consent-stop-required",
+      });
+
+      const workId = await queueFor(
+        neverOptedIn,
+        "wf-consent-required",
+        "required_reply",
+      );
+      const claim = await authorizeDispatch(database(), {
+        outboxWorkId: workId,
+        now: t("2026-07-25T12:02:00Z"),
+      });
+      expect(claim.status).toBe("authorized");
+
+      // ...while ordinary proactive work to that same stopped recipient is suppressed.
+      const proactiveId = await queueFor(
+        neverOptedIn,
+        "wf-consent-required-proactive",
+        "inventory_prompt",
+      );
+      const proactive = await authorizeDispatch(database(), {
+        outboxWorkId: proactiveId,
+        now: t("2026-07-25T12:03:00Z"),
+      });
+      expect(proactive.status).toBe("suppressed");
+    });
+
+    it("carries every launch message category on the one active consent", async () => {
+      // The core of finding 4: these are categories, not enrollments. The farmer holds
+      // ONE consent captured at onboarding, and all three proactive kinds ride on it —
+      // none of them needs its own opt-in.
+      for (const kind of [
+        "inventory_prompt",
+        "inventory_confirmation",
+        "stock_out_alert",
+      ]) {
+        const workId = await queueFor(farmerHash, `wf-category-${kind}`, kind);
+        const claim = await authorizeDispatch(database(), {
+          outboxWorkId: workId,
+          now: T0,
+        });
+        expect(claim.status, `${kind} should ride the one launch consent`).toBe(
+          "authorized",
+        );
+      }
+
+      // And exactly one consent row backs all of them — no per-category enrollment.
+      const consents = await client()`
+        select count(*)::integer as count from sms_consents
+        where recipient_hash = ${farmerHash}
+      `;
+      expect(consents[0]?.count).toBe(1);
+    });
+
+    it("restores the one consent state on JOIN and on START alike", async () => {
+      // JOIN and START are two spellings of one enrollment, differing only in recorded
+      // provenance. Neither creates a second program.
+      await applyConsentTransition(database(), {
+        recipientHash: neverOptedIn,
+        transition: "stop",
+        occurredAt: t("2026-07-25T12:01:00Z"),
+        providerEventId: "consent-stop-a",
+      });
+
+      const restored = await applyConsentTransition(database(), {
+        recipientHash: neverOptedIn,
+        transition: "start",
+        occurredAt: t("2026-07-25T12:02:00Z"),
+        providerEventId: "consent-join-a",
+        captureSource: "join",
+      });
+      expect(restored.state).toBe("active");
+
+      const rows = await client()`
+        select state, capture_source from sms_consents
+        where recipient_hash = ${neverOptedIn}
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.state).toBe("active");
+      expect(rows[0]?.capture_source).toBe("join");
+
+      // Now proactive work to that recipient is permitted — by the one program.
+      const workId = await queueFor(
+        neverOptedIn,
+        "wf-consent-after-join",
+        "inventory_prompt",
+      );
+      const claim = await authorizeDispatch(database(), {
+        outboxWorkId: workId,
+        now: t("2026-07-25T12:03:00Z"),
+      });
+      expect(claim.status).toBe("authorized");
+    });
+
+    it("stores no follow-up interest and no second subscription for an answered inquiry", async () => {
+      // A customer-initiated inquiry earns its direct reply and nothing durable. This is
+      // the removed passive follow-up: answering must not enroll anyone.
+      const workId = await queueFor(
+        neverOptedIn,
+        "wf-inquiry-reply",
+        "inquiry_reply",
+      );
+      const claim = await authorizeDispatch(database(), {
+        outboxWorkId: workId,
+        now: T0,
+      });
+      expect(claim.status).toBe("authorized");
+
+      // Answering created no consent record, so no later proactive message can claim
+      // this customer as a subscriber.
+      const consents = await client()`
+        select count(*)::integer as count from sms_consents
+        where recipient_hash = ${neverOptedIn}
+      `;
+      expect(consents[0]?.count).toBe(0);
+
+      // And a proactive follow-up to that same customer is refused.
+      const followUpId = await queueFor(
+        neverOptedIn,
+        "wf-inquiry-followup",
+        "inventory_prompt",
+      );
+      const followUp = await authorizeDispatch(database(), {
+        outboxWorkId: followUpId,
+        now: t("2026-07-25T13:00:00Z"),
+      });
+      expect(followUp.status).toBe("suppressed");
     });
   });
 });

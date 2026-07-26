@@ -1,5 +1,11 @@
-import type { Clock } from "@farm-friend/core";
-import { confirmationEligibility } from "@farm-friend/core";
+import type {
+  Clock,
+  ConsentCaptureSource,
+  ConsentState,
+  LaunchConsentRecord,
+  LaunchMessageCategory,
+} from "@farm-friend/core";
+import { confirmationEligibility, isProactiveSendPermitted } from "@farm-friend/core";
 import type postgres from "postgres";
 import type { Db } from "./index";
 
@@ -322,6 +328,12 @@ export interface ConsentTransitionInput {
   occurredAt: Date;
   providerEventId: string;
   captureEvidenceRef?: string;
+  /**
+   * Which registered opt-in keyword established consent (F-016). `JOIN` and `START` are
+   * two spellings of the ONE launch program and differ only in recorded provenance —
+   * never in what they enroll. Ignored for a `stop` transition, which records none.
+   */
+  captureSource?: ConsentCaptureSource;
 }
 
 export interface ConsentTransitionResult {
@@ -381,17 +393,20 @@ export async function applyConsentTransition(
 
     const state = input.transition === "start" ? "active" : "stopped";
     if (state === "active") {
+      // Both registered opt-in keywords establish the same one launch-program consent;
+      // only the provenance differs, so there is one row and no program discriminator.
+      const captureSource = input.captureSource ?? "start";
       await tx`
         insert into sms_consents (
           recipient_hash, state, capture_source, captured_at, capture_evidence_ref,
           updated_at
         )
         values (
-          ${input.recipientHash}, 'active', 'start', ${input.occurredAt},
+          ${input.recipientHash}, 'active', ${captureSource}, ${input.occurredAt},
           ${input.captureEvidenceRef ?? input.providerEventId}, ${input.occurredAt}
         )
         on conflict (recipient_hash) do update
-          set state = 'active', capture_source = 'start',
+          set state = 'active', capture_source = excluded.capture_source,
               captured_at = excluded.captured_at,
               capture_evidence_ref = excluded.capture_evidence_ref,
               updated_at = excluded.updated_at
@@ -532,7 +547,7 @@ export async function openOrReviseProposal(
       await sql.begin(async (tx) => {
         const prompt = await tx`
           insert into outbox_work (
-            logical_key, recipient_hash, message_kind, body, body_expires_at,
+            logical_key, recipient_hash, message_category, body, body_expires_at,
             available_at, state, dispatch_authorized_at, completed_at, created_at
           )
           values (
@@ -670,7 +685,7 @@ export async function confirmInventoryPublication(
       await queueOutbox(tx, {
         logicalKey: `proposal-declined-${input.proposalId}-${proposal.proposal_version as number}`,
         recipientHash: input.senderHash,
-        messageKind: "inventory_declined",
+        messageCategory: "inquiry_reply",
         body: "No problem — your listing is unchanged.",
         now: input.occurredAt,
       });
@@ -748,7 +763,7 @@ export async function confirmInventoryPublication(
     await queueOutbox(tx, {
       logicalKey: `inventory-published-${revisionId}`,
       recipientHash: input.senderHash,
-      messageKind: "inventory_published",
+      messageCategory: "inquiry_reply",
       body: "Your listing is updated. Thank you!",
       now: input.occurredAt,
     });
@@ -762,21 +777,22 @@ async function queueOutbox(
   input: {
     logicalKey: string;
     recipientHash: string;
-    messageKind: string;
+    /** Which launch category this is; the dispatch claim reads it for consent. */
+    messageCategory: LaunchMessageCategory;
     body: string;
     now: Date;
-    isRequired?: boolean;
   },
 ): Promise<void> {
   await tx`
     insert into outbox_work (
-      logical_key, recipient_hash, message_kind, body, body_expires_at,
-      available_at, is_required, created_at
+      logical_key, recipient_hash, message_category, body, body_expires_at,
+      available_at, created_at
     )
     values (
-      ${input.logicalKey}, ${input.recipientHash}, ${input.messageKind}, ${input.body},
+      ${input.logicalKey}, ${input.recipientHash}, ${input.messageCategory},
+      ${input.body},
       ${new Date(input.now.getTime() + DEFAULT_BODY_TTL_MS)}, ${input.now},
-      ${input.isRequired ?? false}, ${input.now}
+      ${input.now}
     )
     on conflict (logical_key) do nothing
   `;
@@ -798,7 +814,7 @@ export async function authorizeDispatch(
 ): Promise<DispatchAuthorization> {
   return driver(db).begin(async (tx) => {
     const rows = await tx`
-      select id, recipient_hash, state, is_required from outbox_work
+      select id, recipient_hash, state, message_category from outbox_work
       where id = ${input.outboxWorkId}
       for update
     `;
@@ -806,12 +822,25 @@ export async function authorizeDispatch(
     const work = rows[0] as Record<string, unknown>;
     if (work.state !== "queued") return { status: "unavailable" };
 
+    // F-016 — the one launch program decides this, and the decision itself is the pure
+    // predicate in core. Note it asks for ACTIVE consent, not merely "not stopped":
+    // a recipient with no consent row never opted in, and silence is not permission.
     const consent = await tx`
-      select state from sms_consents
+      select state, capture_source from sms_consents
       where recipient_hash = ${work.recipient_hash as string}
     `;
-    const stopped = consent[0]?.state === "stopped";
-    if (stopped && !(work.is_required as boolean)) {
+    const record = consent[0]
+      ? ({
+          state: consent[0].state as ConsentState,
+          ...(consent[0].capture_source
+            ? { captureSource: consent[0].capture_source as ConsentCaptureSource }
+            : {}),
+        } satisfies LaunchConsentRecord)
+      : null;
+
+    const category = work.message_category as LaunchMessageCategory;
+
+    if (!isProactiveSendPermitted({ consent: record, category })) {
       await tx`
         update outbox_work
         set state = 'suppressed', completed_at = ${input.now}

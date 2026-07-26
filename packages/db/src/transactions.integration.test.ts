@@ -223,7 +223,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
     // Delivery events carry only their delivery projection and outbound correlation.
     const outbox = await db()`
       insert into outbox_work (
-        logical_key, recipient_hash, message_kind, body, body_expires_at,
+        logical_key, recipient_hash, message_category, body, body_expires_at,
         available_at
       )
       values (
@@ -385,7 +385,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
     // Activation stamps a 12-hour window measured from provider acceptance.
     await db()`
       insert into outbox_work (
-        logical_key, recipient_hash, message_kind, body, body_expires_at,
+        logical_key, recipient_hash, message_category, body, body_expires_at,
         available_at
       )
       values (

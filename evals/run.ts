@@ -23,7 +23,9 @@ import {
 import {
   bypassesModel,
   confirmationEligibility,
+  consentTransitionFor,
   FixedClock,
+  isProactiveSendPermitted,
   parseCommand,
   type ProposalConfirmationState,
   validateInterpretation,
@@ -64,6 +66,61 @@ fx("critical", "compliance-bypass: every registered opt-out keyword opts out glo
     const parsed = parseCommand(word);
     return parsed.kind === "compliance" && parsed.keyword === "STOP" && parsed.global;
   });
+});
+
+// ---------------------------------------------------------------- critical: launch consent
+// F-016 — one registered operational SMS program. Consent must be a deterministic code
+// decision, so these assert the predicate directly rather than any model behavior.
+
+fx("critical", "consent: absent consent never authorizes a proactive send", () => {
+  // The defect F-016 fixed: the gate asked only whether the recipient had STOPped, so a
+  // recipient who had NEVER opted in read as permitted. Silence is not consent.
+  //
+  // The categories are spelled out literally rather than iterated from
+  // LAUNCH_MESSAGE_CATEGORIES: deriving them would make this fixture agree with the
+  // implementation even if a proactive category were dropped from both at once.
+  const proactive = ["inventory_prompt", "inventory_confirmation", "stock_out_alert"] as const;
+  return proactive.every(
+    (category) =>
+      !isProactiveSendPermitted({ consent: null, category }) &&
+      !isProactiveSendPermitted({ consent: { state: "stopped" }, category }) &&
+      isProactiveSendPermitted({
+        consent: { state: "active", captureSource: "join" },
+        category,
+      }),
+  );
+});
+
+fx("critical", "consent: JOIN and START establish the one launch program", () => {
+  // Two registered spellings, ONE enrollment. They may differ only in provenance; if
+  // either stopped establishing consent, or a third program appeared, this fails.
+  const join = consentTransitionFor("JOIN");
+  const start = consentTransitionFor("START");
+  const stop = consentTransitionFor("STOP");
+  return (
+    join?.transition === "start" &&
+    join.captureSource === "join" &&
+    start?.transition === "start" &&
+    start.captureSource === "start" &&
+    stop?.transition === "stop" &&
+    // Help and safety keywords carry no consent consequence in either direction.
+    consentTransitionFor("HELP") === null &&
+    consentTransitionFor("FLAG") === null
+  );
+});
+
+fx("critical", "consent: answering a customer inquiry creates no subscription", () => {
+  // A customer-initiated inquiry earns its direct reply and nothing durable. The reply is
+  // permitted with NO consent record, and a later proactive message to that same customer
+  // is still refused — which is the removed passive follow-up, expressed as a predicate.
+  return (
+    isProactiveSendPermitted({ consent: null, category: "inquiry_reply" }) &&
+    !isProactiveSendPermitted({ consent: null, category: "inventory_prompt" }) &&
+    // STOP is global: it outranks even an owed direct reply.
+    !isProactiveSendPermitted({ consent: { state: "stopped" }, category: "inquiry_reply" }) &&
+    // ...but never the carrier-required acknowledgement of the STOP itself.
+    isProactiveSendPermitted({ consent: { state: "stopped" }, category: "required_reply" })
+  );
 });
 
 // ---------------------------------------------------------------- critical: commitment safety
