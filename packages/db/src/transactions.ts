@@ -156,6 +156,14 @@ export interface ClaimedInboundEvent {
   body: string | null;
   occurredAt: Date;
   /**
+   * The PROVIDER's event ID, distinct from `inboxEventId` (our row's UUID). Routing needs
+   * it because the consent watermark and the confirmation audit trail record provenance by
+   * provider event ID; substituting our own row ID would record a value that corresponds to
+   * nothing at the provider and would break the STOP/START tie-break ordering, which
+   * compares provider event IDs.
+   */
+  providerEventId: string;
+  /**
    * True when this event predates the sender's accepted conversation watermark. The
    * caller must not mutate conversation, confirmation, or publication state; it may
    * send a deterministic clarification asking the sender to resend.
@@ -273,6 +281,7 @@ export async function claimNextInboundEvent(
     messageId: result.messageId,
     body: result.body,
     occurredAt: result.occurredAt,
+    providerEventId: result.providerEventId,
     isStale: result.isStale,
     async finalize({ outcome, now, failureCode }) {
       await sql.begin(async (tx) => {

@@ -177,6 +177,7 @@ describe("no runtime geocoder or map provider (F-017)", () => {
       "apps/web/lib/inquiry.integration.test.ts",
       "apps/web/lib/interpretation.integration.test.ts",
       "apps/web/lib/public-surface.integration.test.ts",
+      "apps/web/lib/routing.integration.test.ts",
     ];
 
     // Guard against a vacuous pass: if a path stops existing the test must fail loudly
