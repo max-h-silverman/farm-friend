@@ -155,4 +155,33 @@ describe("registered 10DLC keywords match the parser (both directions)", () => {
       expect(registeredField(label)).not.toContain("FLAG");
     }
   });
+
+  // Every sample message is copy a carrier reviewer reads as representative of live traffic.
+  // A sample that omits opt-out language understates what the service actually sends, so the
+  // recorded artifact must not drift below the compliant form now live in the console.
+  it("every sample message carries opt-out language", () => {
+    const samples = registered.match(/^VIGA Farm Friend: .+$/gm) ?? [];
+    const sampleBlock = registered.slice(registered.indexOf("SAMPLE MESSAGES"));
+    const sampleLines = sampleBlock.match(/^VIGA Farm Friend: .+$/gm) ?? [];
+
+    expect(samples.length).toBeGreaterThan(0);
+    expect(sampleLines.length).toBeGreaterThan(0);
+    for (const line of sampleLines) {
+      expect(line).toMatch(/\bSTOP\b/);
+    }
+  });
+
+  // The declared campaign attributes must stay true of the recorded copy. `Embedded Phone
+  // Number: No` was contradicted by a HELP auto-response containing a support number; the
+  // console now directs help to email, so the declaration and the copy agree.
+  it("declares no embedded phone number and contains none in its auto-responses", () => {
+    expect(registered).toMatch(/^Embedded Phone Number\nNo$/m);
+
+    const autoResponses = registered.slice(
+      registered.indexOf("AUTO-RESPONSES"),
+      registered.indexOf("SAMPLE MESSAGES"),
+    );
+    // Any North-American style number in copy a carrier reads as an embedded phone number.
+    expect(autoResponses).not.toMatch(/(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/);
+  });
 });

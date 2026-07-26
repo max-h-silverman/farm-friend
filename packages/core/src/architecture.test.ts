@@ -162,6 +162,43 @@ describe("no runtime geocoder or map provider (F-017)", () => {
     }
   });
 
+  // B-003: the integration suite was green on 2026-07-25 and 54 tests failed at midnight,
+  // with no code change. Fixtures hard-coded calendar dates while `outbox_work.created_at`
+  // defaults to `now()`, and the schema enforces `body_expires_at > created_at` — so a
+  // fixture expiry written as "tomorrow" became "yesterday" when the wall clock passed it.
+  //
+  // A date-dependent suite is not a suite: it reports the calendar, not the code. Fixture
+  // instants must be OFFSETS from a clock-derived anchor, never literals.
+  it("integration fixtures carry no hard-coded calendar dates", () => {
+    const suites = [
+      "packages/db/src/workflow.integration.test.ts",
+      "packages/db/src/transactions.integration.test.ts",
+      "packages/db/src/schema.integration.test.ts",
+      "apps/web/lib/inquiry.integration.test.ts",
+      "apps/web/lib/interpretation.integration.test.ts",
+      "apps/web/lib/public-surface.integration.test.ts",
+    ];
+
+    // Guard against a vacuous pass: if a path stops existing the test must fail loudly
+    // rather than silently checking nothing.
+    expect(suites.length).toBeGreaterThan(0);
+
+    for (const path of suites) {
+      const source = readFileSync(new URL(path, repositoryRoot), "utf8");
+      expect(source.length, path).toBeGreaterThan(0);
+
+      // A literal instant inside a fixture value. Comments are stripped first: the notes
+      // explaining this very defect legitimately name the date it surfaced.
+      const withoutComments = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      const literalDates = withoutComments.match(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g) ?? [];
+      expect(literalDates, `${path} must derive fixture instants from a clock anchor`).toEqual(
+        [],
+      );
+    }
+  });
+
   it("computes proximity in core rather than delegating it to a service", () => {
     // The replacement for the deleted seam is arithmetic, not a provider: a pure function
     // with no network, no client, and no injected adapter.

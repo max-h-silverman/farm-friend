@@ -68,9 +68,17 @@ describe("clean launch database foundation (integration)", () => {
   const adminHash = "a".repeat(64);
   const farmerHash = "b".repeat(64);
   const customerHash = "c".repeat(64);
-  const now = "2026-07-25T16:00:00.000Z";
-  const later = "2026-07-25T17:00:00.000Z";
-  const tomorrow = "2026-07-26T16:00:00.000Z";
+  // Anchored to the real clock, not a calendar date: `outbox_work` enforces
+  // `body_expires_at > created_at` against a `now()` default, so a literal date silently
+  // expires. See the header note in workflow.integration.test.ts.
+  //
+  // The guard test "integration fixtures carry no hard-coded calendar dates" below keeps
+  // this from creeping back in.
+  const anchor = Date.now() - 24 * 60 * 60 * 1000;
+  const offset = (hours: number) => new Date(anchor + hours * 60 * 60 * 1000).toISOString();
+  const now = offset(0);
+  const later = offset(1);
+  const tomorrow = offset(48);
 
   beforeAll(async () => {
     const baseUrl = requiredDatabaseUrl();

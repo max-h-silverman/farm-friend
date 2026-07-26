@@ -44,8 +44,25 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 
 const farmerHash = "1".repeat(64);
 const customerHash = "2".repeat(64);
-const t = (iso: string) => new Date(iso);
-const T0 = t("2026-07-25T12:00:00Z");
+
+// The fixture timeline is ANCHORED TO THE REAL CLOCK, not to a calendar date.
+//
+// `outbox_work.created_at` defaults to `now()`, and the schema enforces
+// `body_expires_at > created_at` (the retention rule: a body must outlive its own row).
+// Hard-coded calendar fixtures satisfied that only until the wall clock passed them — the
+// suite was green on 2026-07-25 and 54 tests failed at midnight, because a fixture expiry
+// written as "tomorrow" became "yesterday" without a line of code changing.
+//
+// So T0 is a fixed point a day in the past and every other instant is expressed as an
+// OFFSET from it. Offsets preserve every ordering and duration the tests assert; only the
+// absolute position of the timeline moves. Never reintroduce a literal date here.
+const T0 = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+/** An instant relative to the fixture anchor. `at(0)` is T0; minutes may be fractional. */
+const at = (minutesFromT0: number) => new Date(T0.getTime() + minutesFromT0 * 60 * 1000);
+
+/** Far enough ahead of any row's `created_at` to satisfy the retention constraint. */
+const BODY_EXPIRES_AT = at(48 * 60);
 
 describe("authoritative SMS transactions (integration)", () => {
   let adminClient: ReturnType<typeof postgres> | undefined;
@@ -221,8 +238,8 @@ describe("authoritative SMS transactions (integration)", () => {
 
   describe("sender claiming and conversation ordering", () => {
     it("lets only one worker claim work for a sender at a time", async () => {
-      await acceptProviderEvent(database(), inbound({ occurredAt: t("2026-07-25T12:00:00Z") }));
-      await acceptProviderEvent(database(), inbound({ occurredAt: t("2026-07-25T12:05:00Z") }));
+      await acceptProviderEvent(database(), inbound({ occurredAt: at(0) }));
+      await acceptProviderEvent(database(), inbound({ occurredAt: at(5) }));
 
       const claims = await Promise.all([
         claimNextInboundEvent(database(), { senderHash: farmerHash, now: T0 }),
@@ -245,13 +262,13 @@ describe("authoritative SMS transactions (integration)", () => {
 
       // The worker dies. After the claim lapses the same row becomes claimable again.
       const released = await releaseAbandonedClaims(database(), {
-        now: t("2026-07-25T12:02:00Z"),
+        now: at(2),
       });
       expect(released).toBe(1);
 
       const second = await claimNextInboundEvent(database(), {
         senderHash: farmerHash,
-        now: t("2026-07-25T12:02:00Z"),
+        now: at(2),
       });
       expect(second?.inboxEventId).toBe(first?.inboxEventId);
 
@@ -262,7 +279,7 @@ describe("authoritative SMS transactions (integration)", () => {
     });
 
     it("fails closed on an event older than the sender's conversation watermark", async () => {
-      const newer = inbound({ occurredAt: t("2026-07-25T12:10:00Z") });
+      const newer = inbound({ occurredAt: at(10) });
       await acceptProviderEvent(database(), newer);
       const claimed = await claimNextInboundEvent(database(), {
         senderHash: farmerHash,
@@ -270,7 +287,7 @@ describe("authoritative SMS transactions (integration)", () => {
       });
       await claimed?.finalize({ outcome: "processed", now: T0 });
 
-      const older = inbound({ occurredAt: t("2026-07-25T12:01:00Z") });
+      const older = inbound({ occurredAt: at(1) });
       await acceptProviderEvent(database(), older);
 
       const stale = await claimNextInboundEvent(database(), {
@@ -295,7 +312,7 @@ describe("authoritative SMS transactions (integration)", () => {
           available_at, state, dispatch_authorized_at
         )
         values ('wf-delivery-1', ${farmerHash}, 'inquiry_reply', 'hi',
-                ${t("2026-07-26T12:00:00Z")}, ${T0}, 'dispatching', ${T0})
+                ${BODY_EXPIRES_AT}, ${T0}, 'dispatching', ${T0})
         returning id
       `;
       const attempt = await client()`
@@ -329,14 +346,14 @@ describe("authoritative SMS transactions (integration)", () => {
       await applyConsentTransition(database(), {
         recipientHash: farmerHash,
         transition: "stop",
-        occurredAt: t("2026-07-25T12:10:00Z"),
+        occurredAt: at(10),
         providerEventId: "consent-stop",
       });
 
       const late = await applyConsentTransition(database(), {
         recipientHash: farmerHash,
         transition: "start",
-        occurredAt: t("2026-07-25T12:05:00Z"),
+        occurredAt: at(5),
         providerEventId: "consent-start-late",
       });
 
@@ -348,7 +365,7 @@ describe("authoritative SMS transactions (integration)", () => {
     });
 
     it("lets STOP win an exact timestamp tie", async () => {
-      const tie = t("2026-07-25T12:10:00Z");
+      const tie = at(10);
       await applyConsentTransition(database(), {
         recipientHash: farmerHash,
         transition: "start",
@@ -372,12 +389,12 @@ describe("authoritative SMS transactions (integration)", () => {
       await applyConsentTransition(database(), {
         recipientHash: farmerHash,
         transition: "stop",
-        occurredAt: t("2026-07-25T12:10:00Z"),
+        occurredAt: at(10),
         providerEventId: "consent-stop-2",
       });
 
       // Ordinary inbound traffic advances the conversation watermark, not consent.
-      await acceptProviderEvent(database(), inbound({ occurredAt: t("2026-07-25T12:20:00Z") }));
+      await acceptProviderEvent(database(), inbound({ occurredAt: at(20) }));
       const claimed = await claimNextInboundEvent(database(), {
         senderHash: farmerHash,
         now: T0,
@@ -387,7 +404,7 @@ describe("authoritative SMS transactions (integration)", () => {
       const restored = await applyConsentTransition(database(), {
         recipientHash: farmerHash,
         transition: "start",
-        occurredAt: t("2026-07-25T12:30:00Z"),
+        occurredAt: at(30),
         providerEventId: "consent-start-2",
       });
       expect(restored.applied).toBe(true);
@@ -441,7 +458,7 @@ describe("authoritative SMS transactions (integration)", () => {
     it("publishes exactly once under concurrent YES tokens", async () => {
       const proposal = await openProposal();
       await proposal.activate({
-        providerAcceptedAt: t("2026-07-25T12:05:00Z"),
+        providerAcceptedAt: at(5),
         outboxLogicalKey: "wf-prompt-1",
       });
 
@@ -450,9 +467,9 @@ describe("authoritative SMS transactions (integration)", () => {
           proposalId: proposal.proposalId,
           senderHash: farmerHash,
           token: "yes" as const,
-          occurredAt: t("2026-07-25T12:06:00Z"),
+          occurredAt: at(6),
           providerEventId: eventId,
-          clock: new FixedClock(t("2026-07-25T12:06:00Z")),
+          clock: new FixedClock(at(6)),
         });
 
       const results = await Promise.all([
@@ -470,7 +487,7 @@ describe("authoritative SMS transactions (integration)", () => {
     it("expires 12 hours after the prompt was accepted", async () => {
       const proposal = await openProposal();
       await proposal.activate({
-        providerAcceptedAt: t("2026-07-25T12:00:00Z"),
+        providerAcceptedAt: at(0),
         outboxLogicalKey: "wf-prompt-2",
       });
 
@@ -478,24 +495,24 @@ describe("authoritative SMS transactions (integration)", () => {
         proposalId: proposal.proposalId,
         senderHash: farmerHash,
         token: "yes",
-        occurredAt: t("2026-07-25T23:59:00Z"),
+        occurredAt: at(719),
         providerEventId: "confirm-inside",
-        clock: new FixedClock(t("2026-07-25T23:59:00Z")),
+        clock: new FixedClock(at(719)),
       });
       expect(justInside.status).toBe("published");
 
       const second = await openProposal({ entries: [{ itemName: "Bok choy" }] });
       await second.activate({
-        providerAcceptedAt: t("2026-07-26T00:00:00Z"),
+        providerAcceptedAt: at(720),
         outboxLogicalKey: "wf-prompt-3",
       });
       const past = await confirmInventoryPublication(database(), {
         proposalId: second.proposalId,
         senderHash: farmerHash,
         token: "yes",
-        occurredAt: t("2026-07-26T12:00:01Z"),
+        occurredAt: at(1440.0166666666667),
         providerEventId: "confirm-expired",
-        clock: new FixedClock(t("2026-07-26T12:00:01Z")),
+        clock: new FixedClock(at(1440.0166666666667)),
       });
       expect(past.status).toBe("expired");
     });
@@ -503,11 +520,11 @@ describe("authoritative SMS transactions (integration)", () => {
     it("refuses to publish when farmer authority was revoked", async () => {
       const proposal = await openProposal();
       await proposal.activate({
-        providerAcceptedAt: t("2026-07-25T12:05:00Z"),
+        providerAcceptedAt: at(5),
         outboxLogicalKey: "wf-prompt-4",
       });
       await client()`
-        update farmer_authorizations set revoked_at = ${t("2026-07-25T12:05:30Z")}
+        update farmer_authorizations set revoked_at = ${at(5.5)}
         where id = ${ids.authorization as string}
       `;
 
@@ -515,9 +532,9 @@ describe("authoritative SMS transactions (integration)", () => {
         proposalId: proposal.proposalId,
         senderHash: farmerHash,
         token: "yes",
-        occurredAt: t("2026-07-25T12:06:00Z"),
+        occurredAt: at(6),
         providerEventId: "confirm-unauthorized",
-        clock: new FixedClock(t("2026-07-25T12:06:00Z")),
+        clock: new FixedClock(at(6)),
       });
 
       expect(result.status).toBe("not_authorized");
@@ -530,11 +547,11 @@ describe("authoritative SMS transactions (integration)", () => {
     it("refuses to publish when VIGA approval was revoked", async () => {
       const proposal = await openProposal();
       await proposal.activate({
-        providerAcceptedAt: t("2026-07-25T12:05:00Z"),
+        providerAcceptedAt: at(5),
         outboxLogicalKey: "wf-prompt-5",
       });
       await client()`
-        update farm_approvals set revoked_at = ${t("2026-07-25T12:05:30Z")}
+        update farm_approvals set revoked_at = ${at(5.5)}
         where id = ${ids.approval as string}
       `;
 
@@ -542,9 +559,9 @@ describe("authoritative SMS transactions (integration)", () => {
         proposalId: proposal.proposalId,
         senderHash: farmerHash,
         token: "yes",
-        occurredAt: t("2026-07-25T12:06:00Z"),
+        occurredAt: at(6),
         providerEventId: "confirm-unapproved",
-        clock: new FixedClock(t("2026-07-25T12:06:00Z")),
+        clock: new FixedClock(at(6)),
       });
 
       expect(result.status).toBe("not_approved");
@@ -553,7 +570,7 @@ describe("authoritative SMS transactions (integration)", () => {
     it("NO consumes the proposal and creates no revision", async () => {
       const proposal = await openProposal();
       await proposal.activate({
-        providerAcceptedAt: t("2026-07-25T12:05:00Z"),
+        providerAcceptedAt: at(5),
         outboxLogicalKey: "wf-prompt-6",
       });
 
@@ -561,9 +578,9 @@ describe("authoritative SMS transactions (integration)", () => {
         proposalId: proposal.proposalId,
         senderHash: farmerHash,
         token: "no",
-        occurredAt: t("2026-07-25T12:06:00Z"),
+        occurredAt: at(6),
         providerEventId: "confirm-no",
-        clock: new FixedClock(t("2026-07-25T12:06:00Z")),
+        clock: new FixedClock(at(6)),
       });
 
       expect(result.status).toBe("declined");
@@ -580,16 +597,16 @@ describe("authoritative SMS transactions (integration)", () => {
     it("invalidates a proposal whose base revision is no longer current", async () => {
       const first = await openProposal();
       await first.activate({
-        providerAcceptedAt: t("2026-07-25T12:05:00Z"),
+        providerAcceptedAt: at(5),
         outboxLogicalKey: "wf-prompt-7",
       });
       await confirmInventoryPublication(database(), {
         proposalId: first.proposalId,
         senderHash: farmerHash,
         token: "yes",
-        occurredAt: t("2026-07-25T12:06:00Z"),
+        occurredAt: at(6),
         providerEventId: "confirm-base-1",
-        clock: new FixedClock(t("2026-07-25T12:06:00Z")),
+        clock: new FixedClock(at(6)),
       });
 
       // A proposal computed against the now-superseded base must not publish.
@@ -597,12 +614,12 @@ describe("authoritative SMS transactions (integration)", () => {
         senderHash: farmerHash,
         salesLocationId: ids.location as string,
         entries: [{ itemName: "Green beans" }],
-        now: t("2026-07-25T12:07:00Z"),
+        now: at(7),
         baseRevisionId: null,
         baseIsFirstPublication: true,
       });
       await stale.activate({
-        providerAcceptedAt: t("2026-07-25T12:08:00Z"),
+        providerAcceptedAt: at(8),
         outboxLogicalKey: "wf-prompt-8",
       });
 
@@ -610,9 +627,9 @@ describe("authoritative SMS transactions (integration)", () => {
         proposalId: stale.proposalId,
         senderHash: farmerHash,
         token: "yes",
-        occurredAt: t("2026-07-25T12:09:00Z"),
+        occurredAt: at(9),
         providerEventId: "confirm-base-conflict",
-        clock: new FixedClock(t("2026-07-25T12:09:00Z")),
+        clock: new FixedClock(at(9)),
       });
 
       expect(result.status).toBe("base_conflict");
@@ -625,16 +642,16 @@ describe("authoritative SMS transactions (integration)", () => {
     it("supersedes the prior current revision and queues its response atomically", async () => {
       const proposal = await openProposal();
       await proposal.activate({
-        providerAcceptedAt: t("2026-07-25T12:05:00Z"),
+        providerAcceptedAt: at(5),
         outboxLogicalKey: "wf-prompt-9",
       });
       const published = await confirmInventoryPublication(database(), {
         proposalId: proposal.proposalId,
         senderHash: farmerHash,
         token: "yes",
-        occurredAt: t("2026-07-25T12:06:00Z"),
+        occurredAt: at(6),
         providerEventId: "confirm-supersede-1",
-        clock: new FixedClock(t("2026-07-25T12:06:00Z")),
+        clock: new FixedClock(at(6)),
       });
       expect(published.status).toBe("published");
 
@@ -662,7 +679,7 @@ describe("authoritative SMS transactions (integration)", () => {
           available_at
         )
         values (${logicalKey}, ${farmerHash}, ${category}, 'hello',
-                ${t("2026-07-26T12:00:00Z")}, ${T0})
+                ${BODY_EXPIRES_AT}, ${T0})
         returning id
       `;
       return rows[0]?.id as string;
@@ -673,13 +690,13 @@ describe("authoritative SMS transactions (integration)", () => {
       await applyConsentTransition(database(), {
         recipientHash: farmerHash,
         transition: "stop",
-        occurredAt: t("2026-07-25T12:01:00Z"),
+        occurredAt: at(1),
         providerEventId: "stop-before-dispatch",
       });
 
       const claim = await authorizeDispatch(database(), {
         outboxWorkId: workId,
-        now: t("2026-07-25T12:02:00Z"),
+        now: at(2),
       });
 
       expect(claim.status).toBe("suppressed");
@@ -691,14 +708,14 @@ describe("authoritative SMS transactions (integration)", () => {
       const workId = await queueWork("wf-stop-2");
       const claim = await authorizeDispatch(database(), {
         outboxWorkId: workId,
-        now: t("2026-07-25T12:01:00Z"),
+        now: at(1),
       });
       expect(claim.status).toBe("authorized");
 
       await applyConsentTransition(database(), {
         recipientHash: farmerHash,
         transition: "stop",
-        occurredAt: t("2026-07-25T12:02:00Z"),
+        occurredAt: at(2),
         providerEventId: "stop-after-dispatch",
       });
 
@@ -758,7 +775,7 @@ describe("authoritative SMS transactions (integration)", () => {
 
       const reclaim = await authorizeDispatch(database(), {
         outboxWorkId: workId,
-        now: t("2026-07-25T13:00:00Z"),
+        now: at(60),
       });
       expect(reclaim.status).not.toBe("authorized");
     });
@@ -778,13 +795,13 @@ describe("authoritative SMS transactions (integration)", () => {
       await applyDeliveryEvent(database(), {
         dispatchAttemptId: claim.dispatchAttemptId,
         deliveryStatus: "delivered",
-        occurredAt: t("2026-07-25T12:10:00Z"),
+        occurredAt: at(10),
         providerEventId: "delivery-finalized",
       });
       await applyDeliveryEvent(database(), {
         dispatchAttemptId: claim.dispatchAttemptId,
         deliveryStatus: "sent",
-        occurredAt: t("2026-07-25T12:05:00Z"),
+        occurredAt: at(5),
         providerEventId: "delivery-sent",
       });
 
@@ -808,7 +825,7 @@ describe("authoritative SMS transactions (integration)", () => {
       const event = {
         dispatchAttemptId: claim.dispatchAttemptId,
         deliveryStatus: "delivered" as const,
-        occurredAt: t("2026-07-25T12:10:00Z"),
+        occurredAt: at(10),
         providerEventId: "delivery-dup",
       };
       await applyDeliveryEvent(database(), event);
@@ -852,7 +869,7 @@ describe("authoritative SMS transactions (integration)", () => {
           available_at
         )
         values (${logicalKey}, ${recipientHash}, ${category}, 'hello',
-                ${t("2026-07-26T12:00:00Z")}, ${T0})
+                ${BODY_EXPIRES_AT}, ${T0})
         returning id
       `;
       return rows[0]?.id as string;
@@ -892,7 +909,7 @@ describe("authoritative SMS transactions (integration)", () => {
       await applyConsentTransition(database(), {
         recipientHash: neverOptedIn,
         transition: "stop",
-        occurredAt: t("2026-07-25T12:01:00Z"),
+        occurredAt: at(1),
         providerEventId: "consent-stop-required",
       });
 
@@ -903,7 +920,7 @@ describe("authoritative SMS transactions (integration)", () => {
       );
       const claim = await authorizeDispatch(database(), {
         outboxWorkId: workId,
-        now: t("2026-07-25T12:02:00Z"),
+        now: at(2),
       });
       expect(claim.status).toBe("authorized");
 
@@ -915,7 +932,7 @@ describe("authoritative SMS transactions (integration)", () => {
       );
       const proactive = await authorizeDispatch(database(), {
         outboxWorkId: proactiveId,
-        now: t("2026-07-25T12:03:00Z"),
+        now: at(3),
       });
       expect(proactive.status).toBe("suppressed");
     });
@@ -953,14 +970,14 @@ describe("authoritative SMS transactions (integration)", () => {
       await applyConsentTransition(database(), {
         recipientHash: neverOptedIn,
         transition: "stop",
-        occurredAt: t("2026-07-25T12:01:00Z"),
+        occurredAt: at(1),
         providerEventId: "consent-stop-a",
       });
 
       const restored = await applyConsentTransition(database(), {
         recipientHash: neverOptedIn,
         transition: "start",
-        occurredAt: t("2026-07-25T12:02:00Z"),
+        occurredAt: at(2),
         providerEventId: "consent-join-a",
         captureSource: "join",
       });
@@ -982,7 +999,7 @@ describe("authoritative SMS transactions (integration)", () => {
       );
       const claim = await authorizeDispatch(database(), {
         outboxWorkId: workId,
-        now: t("2026-07-25T12:03:00Z"),
+        now: at(3),
       });
       expect(claim.status).toBe("authorized");
     });
@@ -1017,7 +1034,7 @@ describe("authoritative SMS transactions (integration)", () => {
       );
       const followUp = await authorizeDispatch(database(), {
         outboxWorkId: followUpId,
-        now: t("2026-07-25T13:00:00Z"),
+        now: at(60),
       });
       expect(followUp.status).toBe("suppressed");
     });
