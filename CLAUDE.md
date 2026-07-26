@@ -287,123 +287,84 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Live capability.** Farmers publish inventory by SMS behind a confirmation gate. Customers get
-code-rendered grounded answers with recency and stale warnings. The web/QR stock-out path records a
-private report and resolves the farmer in code. **The model never authors customer-facing factual
-text or writes durable state** — it interprets and selects identifiers; code retrieves, validates
-membership, and renders. Four model seams have explicit disjoint projections; there is no generic
-assembler, and the low-level provider call is unexported. **The public map UI is built** (F-017):
-`apps/web/app/page.tsx` renders the same published records SMS answers from, with code-rendered
-recency on every card and stale listings visible-and-warned, plus optional browser-origin distance
-sorting and destination-only routing links.
+**Live capability.** Farmers publish inventory by SMS behind a confirmation gate; customers get
+code-rendered grounded answers with recency and stale warnings; the web/QR stock-out path records a
+private report and resolves the farmer in code. Inbound SMS **routes** (F-023): `apps/web/lib/routing.ts`
+runs compliance keywords → `FLAG` → context-bound `YES`/`NO` → free text, and the model seams are
+reachable only through a `freeText` callback invoked after `parseCommand` returns `none` — so "no
+model on the compliance path" is structural, proven by a seam that throws. The public map UI is built
+(F-017) and is model-free in its **module graph**, not just its handler.
 
-**The public read surface is model-free in its MODULE GRAPH, not just its handler (F-017).** The
-public route and page import `apps/web/lib/public-context.ts` (db + clock) rather than the full
-composition root, which constructs the model seams — so no seam is *reachable* from the public read
-path, and `lib/public-surface-model-free.test.ts` walks the transitive imports of both entry points
-and fails if one appears. `POST /api/public/stock-out` remains the single public model-backed
-handler, fronted by the abuse/cost throttle.
+**The model never authors customer-facing factual text or writes durable state.** It interprets and
+selects identifiers; code retrieves, validates membership, and renders. Four seams have explicit
+disjoint projections; the low-level provider call is unexported. `ambiguous`/`clarification` and the
+two scope boundaries (`outOfScopeRequest`, `originDependent`) are **bare signals carrying no words** —
+code renders the text. A ranking operation needing an origin is refused, never downgraded.
 
-**Verified July 26, 2026 (post-F-026, on `main` at `97fb965`):** `npm test` 255/255 across 26 files;
-real-Postgres integration 138/138 across 9 files against PostgreSQL 16.12; typecheck + lint pass;
-evals critical 10/10, advisory 4/4, adversarial 25/25; production Next.js build passes.
+**Privacy and retention are mechanisms, not claims.** Phones hashed, raw E.164 in one column read only
+by the send path. `purgeExpiredBodies` (F-026) clears expired bodies from `sms_messages` and
+`outbox_work` as the third pass on the one cron trigger; rows, projections, flags, and audit events
+survive. The flagged-thread exemption **fails safe** — purge only where the absence of an `open` flag
+can be shown — so **until F-025 ships flag resolution, a flagged body retains indefinitely** (the
+exemption working, not a leak). Outbound bodies clear only in a terminal state, so the purge cannot
+race the dispatcher into an empty SMS.
 
-**Model prose never reaches a customer, and boundaries are booleans.** The inquiry seams' `ambiguous`
-and `clarification` are **bare signals carrying no field but `kind`**; code renders the words. The
-two launch scope boundaries use one mechanism: the model sets `outOfScopeRequest` (recipe/food-safety,
-F-018) and `originDependent` (needs the customer's position, F-017) as **booleans that carry no
-words**, and code appends `RECIPE_SCOPE_STATEMENT` / `ORIGIN_LIMITATION_STATEMENT`. A ranking
-operation requiring an origin (`nearest`) is **refused, never silently downgraded** to recency. No
-content scanner, classifier, or food taxonomy in business logic; there is no recipe seam and no
-runtime geocoder.
+**One scheduling mechanism, one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
+is the single authenticated trigger for every scheduled pass (`CRON_SECRET` required, no default, no
+dev bypass). `isProactiveSendPermitted` is the single consent predicate; **active** consent is required
+for a proactive send. Registered keywords and auto-response copy are stated once in
+`packages/core/src/sms/` and tested character-for-character against
+`docs/TELNYX_10DLC_FIELD_VALUES.txt`, which is a **transcript of live console state** — change the
+console first, then transcribe.
 
-**Geocoding is seed-time only, and proximity is arithmetic.** `MapProvider` and its
-coordinate-inventing `StubMapProvider` are deleted; `packages/core/src/architecture.test.ts` fails if
-either name, a `geocode(` call, or a mapping/routing dependency reappears.
-`packages/core/src/public/proximity.ts` is pure (haversine, validation, destination-link building),
-exported on the browser-safe `@farm-friend/core/proximity` subpath. The browser origin lives only in
-React state in the customer's tab — never stored, logged, requested, or put in model context.
+**Architecture tripwires that must keep failing.** `packages/core/src/architecture.test.ts` fails if:
+`MapProvider`/`StubMapProvider`/a `geocode(` call returns (F-017); `packages/config` or
+`packages/contracts` returns as a directory, workspace entry, dependency, import, or tsconfig
+reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
+fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Inbound SMS routes, and the workers have a trigger (F-023).** `apps/web/lib/routing.ts` decides in
-one fixed order which existing handler owns a claimed event: compliance keywords → `FLAG` → the
-context-bound `YES`/`NO` → free text. The model seams are reached **only** through a `freeText`
-callback invoked after `parseCommand` returns `none`, so "no model call on the compliance path" is a
-structural property of the function rather than a convention — `routing.test.ts` proves it with a
-seam that throws on any call. The registered 10DLC auto-response copy now lives in
-`packages/core/src/sms/auto-responses.ts`, verified character-for-character against
-`docs/TELNYX_10DLC_FIELD_VALUES.txt` by a test that fails on drift in either direction; the console
-stays the authority. `apps/web/app/api/internal/cron/route.ts` is the **single** authenticated
-trigger for every scheduled pass, guarded by a required `CRON_SECRET` with no default and no
-development bypass (`cron-auth.test.ts` fails if such a branch appears); each pass enumerates its own
-work. `claimNextInboundEvent` exposes `providerEventId` because the consent watermark and
-confirmation audit record provenance by it — our row UUID would break STOP/START tie-break ordering.
+**Verified July 26, 2026 (on `main` at `5fb13b8`):** `npm test` 269/269 across 26 files; real-Postgres
+integration 138/138 across 9 files (PostgreSQL 16.12); typecheck + lint pass; evals critical 10/10,
+advisory 4/4, adversarial 25/25; production Next.js build passes.
 
-**Raw-context retention is a mechanism, not a claim (F-026).** `purgeExpiredBodies`
-(`packages/db/src/transactions.ts`) clears expired bodies in `sms_messages` and `outbox_work` and
-runs as the third pass on the one cron trigger, beside inbound and outbound — no second scheduling
-mechanism. Only body text goes; the message row, its inbox projection, dispatch attempts, flags, and
-audit events survive. The **flagged-thread exemption fails safe**: a body is purged only where the
-absence of an `open` flag on its inbox event can be shown. **F-025 owns flag resolution**, so until
-it ships a flagged body retains indefinitely — the exemption working, not a leak. Outbound bodies
-clear only in a terminal state, so the purge can never race the dispatcher into an empty SMS. It
-reports counts only, and `retention-wiring.test.ts` fails if it ever gains a `console.` call, a
-`select` naming a body, or loses its call in the cron route. The `model_runs` MAY-store list was
-**verified to already match the schema** — no content-bearing column exists, so the purge has
-nothing to reach there.
+### Open work — each needs separate implementation authorization
 
-**Launch consent is one program and executable.** `isProactiveSendPermitted`
-(`packages/core/src/sms/consent.ts`) is the single pure predicate `authorizeDispatch` consults;
-**active** consent is required for a proactive send. `outbox_work` carries one bounded
-`message_category` (migration `0002`). The registered keyword lists are stated once in
-`packages/core/src/sms/commands.ts` and `commands.test.ts` fails if the registered artifact and the
-parser disagree in either direction. `YES`/`NO` are the only commitment tokens.
+Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
+supply what production never creates.
 
-**The go-live gap is a WIRING gap, not a correctness gap.** Launch guarantees are proven at the
-function boundary and mostly unreachable at the system boundary. Do not read a passing suite as a
-working product — several of these gaps hide behind green tests whose fixtures supply what production
-never creates:
+- **B-004 — inbound SMS waits up to ~60s for a reply.** Cron polls at Vercel's one-minute floor
+  against a ~10s target. Correctness is intact; it is slow. Decided fix: the webhook kicks the inbound
+  pass **after** acknowledging Telnyx, cron demoted to a recovery net. Should land before F-029.
+- **F-025 — nothing can approve a farm**, yet publication refuses without a live `farm_approvals` row;
+  its tests pass only because fixtures insert one. No admin UI, flag route is a stub, auth returns an
+  empty role list. **Decided:** split a (sessions + role lookup + approval) / b (flag queue +
+  stock-out visibility); admin identity is **email** (needs a migration — `administrators.contact_id`
+  points at a phone while magic-link auth uses email); bootstrap is a seed script.
+- **F-024 — the configured provider is the stub.** **Decided:** DeepInfra on a mid-size instruct model;
+  the attested terms are **DeepInfra's** as inference host. The attestation is a **blocking TODO until
+  max reads their data-processing terms** — never infer those values. An adversarial eval failure
+  **stops and reports**; no fixture edits to go green.
+- **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
+  **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
+  seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
+- **F-029 — go-live** (deploy, Telnyx console, first verified live `STOP`/`JOIN`). **Decided:** only
+  after everything else including F-025. Max holds all credentials.
+- **B-001** stays open pending its caveat below. `model_runs` has **no production writer** — its only
+  insert is in a test; unowned. No per-stand pages or filter/search UI. Message classification has no
+  consumer. SMS inquiry has no HTTP route **by design** — reached from the Telnyx webhook worker.
 
-- **F-025 — nothing can approve a farm**, yet `transactions.ts:711-715` refuses publication without a
-  live `farm_approvals` row. The publication tests pass only because their fixtures insert it. Also: no
-  admin UI (one page exists, the public map), the flag route is a `{ flags: [] }` stub, auth returns an
-  empty role list.
-- **F-024 — the configured provider is the stub.** The privacy gate is executable and fails closed, but
-  no real vendor's terms have passed it, and it attests a declaration, not vendor practice.
-- **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing. Decided
-  2026-07-26: ~30 stands transcribed **by hand** (no KML import), seeded with **zero inventory** (a
-  seeded listing fact fabricates a confirmation) and **no phone numbers** (a seeded phone fabricates
-  consent). Awaiting max's list; deferred to a later session.
+### Standing rules learned from real defects
 
-**The four-package baseline is now enforced, not just documented (F-028).** F-021 did delete the
-sources of `packages/config` and `packages/contracts`; what survived was two directories holding a
-gitignored `tsconfig.tsbuildinfo` each — untracked build residue that made the repo *look* like six
-packages while git tracked four. The pre-existing `workspaceDirectories` helper could not see them
-(it skips any directory lacking a `package.json`, exactly an orphan's shape). Both directories are
-gone, and `architecture.test.ts` now fails if either name returns as a **directory** (build output
-included), a workspace entry, a dependency, a source import, or a tsconfig reference.
+**Run suites sequentially, never chained**; capture a failing test name before rerunning
+(`npm run test:integration 2>&1 | tee /tmp/itest.log`). Treat a named failing test as a real defect
+until shown otherwise. **B-001 is not proof the intermittent-failure class is closed** — its original
+failing test name was never captured, and a date boundary produces the same signature.
 
-**Also open, each now owned:** F-027 (vestigial `tenantId` contradicting the tenancy non-goal), F-029
-(go-live: deploy, Telnyx console wiring, first verified live `JOIN`). No per-stand pages or
-filter/search UI. Message classification has no projection or consumer. `model_runs` has **no
-production writer** — its only insert is in a test. SMS inquiry has no HTTP route **by design** —
-reached from the Telnyx webhook worker.
+**Sabotage-test every claim: a test that cannot fail proves nothing.** This has caught real gaps
+repeatedly — most recently an exemption predicate drift (`= 'open'` → `<> 'resolved'`) that passed an
+entire suite because no fixture isolated a dismissed-only thread, and a role suite that passed an
+operator→farmer privilege escalation. **Verify agent reports rather than relaying them**; agents have
+reported completion with uncommitted work and marked PM items "in review" ahead of reality.
 
-**Standing test-suite rules, learned from two real defects (B-001 unanchored regex, B-003
-date-dependence — see SESSION_LOG).** If an integration run fails: capture the test name and
-assertion BEFORE rerunning (`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites
-**sequentially, never chained**. Treat a named failing test as a real defect until shown otherwise.
-**A suite whose result depends on the calendar is not a suite** — fixture instants must be offsets
-from a clock-derived anchor, never literals (`architecture.test.ts` enforces this). **B-001 is not
-proof the intermittent-failure class is closed**: its original failing test name was never captured,
-and a date boundary produces the same `1 failed | N passed` signature.
-
-**Registered 10DLC copy: the console is the authority.** `docs/TELNYX_10DLC_FIELD_VALUES.txt` is a
-**transcript** of live console state, not a draft — a candidate sample message once living only there
-was misread as registered copy and cost a cycle. Change the console first, then transcribe.
-`commands.test.ts` reads that file and fails if code and registration disagree either way.
-
-**PM / authorization.** F-011–F-022 are done and merged; the clean-room finding backlog is complete.
-**Open, each needing separate implementation authorization:** **F-024** (real provider), **F-025**
-(operator surface — now also gates the end of the retention exemption), **B-002** (seed utility —
-awaiting max's hand-written stand list), **F-027** (tenancy cleanup, not blocking). B-001 stays open
-pending the caveat above. Any other new work needs a new PM item.
+**Use isolated worktrees for parallel agents.** Two agents dispatched into one shared tree overwrote
+each other repeatedly and spent more effort recovering than building.
