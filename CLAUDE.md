@@ -348,7 +348,10 @@ never creates:
   delete; the retention promise is a claim, not a mechanism.
 - **F-024 — the configured provider is the stub.** The privacy gate is executable and fails closed, but
   no real vendor's terms have passed it, and it attests a declaration, not vendor practice.
-- **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
+- **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing. Decided
+  2026-07-26: ~30 stands transcribed **by hand** (no KML import), seeded with **zero inventory** (a
+  seeded listing fact fabricates a confirmation) and **no phone numbers** (a seeded phone fabricates
+  consent). Awaiting max's list; deferred to a later session.
 
 **Also open / unowned:** F-027 (vestigial `tenantId` contradicting the tenancy non-goal).
 `packages/config` and `packages/contracts` still exist despite the handoff's "Delete" — **no item owns
@@ -372,5 +375,5 @@ was misread as registered copy and cost a cycle. Change the console first, then 
 **PM / authorization.** F-011–F-022 are done and merged; the clean-room finding backlog is complete.
 **Open, each needing separate implementation authorization:** **F-023** (inbound routing — largest),
 **F-024** (real provider), **F-025** (operator surface), **F-026** (retention purge), **B-002** (seed
-utility — blocked on max for the VIGA map export), **F-027** (tenancy cleanup, not blocking). B-001
+utility — awaiting max's hand-written stand list), **F-027** (tenancy cleanup, not blocking). B-001
 stays open pending the caveat above. Any other new work needs a new PM item.

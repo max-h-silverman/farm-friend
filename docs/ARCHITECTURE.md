@@ -212,7 +212,7 @@ Every workflow has **one authoritative core use case and one durable path**:
 
 | Workflow | Authoritative behavior |
 |---|---|
-| Initial listing data | Validate and seed farms, locations, listing facts, and approval state; public and SMS views read the same records |
+| Initial listing data | Validate and seed farms, locations, and approval state — **never inventory or phone numbers** (B-002: a seeded listing fact fabricates a confirmation, and a seeded phone fabricates consent); public and SMS views read the same records |
 | Farmer onboarding | Verify the phone, associate the farm, capture preferences, record VIGA approval separately |
 | SMS ingress | Verify the raw-body signature, commit one minimized provider event, serialize ordinary stateful work per sender, and fail closed on stale events |
 | Inventory publishing | Maintain one open proposal per sender; after its current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
