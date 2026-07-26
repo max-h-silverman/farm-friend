@@ -327,6 +327,91 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.outcome).toBe("rejected");
   });
 
+  // -------------------------------------------- F-017 arbitrary-origin proximity boundary
+  //
+  // Launch resolves no arbitrary origin over SMS. The consequence prevented is a customer
+  // asking "which stand is closest?" and receiving either invented geography or — subtler
+  // and likelier — an ordinary unranked list presented as though it had answered the
+  // question. Both are dishonest; only one looks it.
+
+  it("answers the availability half and states the origin limitation in code", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    // The model recognizes that "closest to me" needs a position — meaning, its job — and
+    // flags it. It composes none of the reply.
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Kale"],
+        ranking: "any",
+        originDependent: true,
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [ids.alphaLocation],
+      }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "which stand closest to me has kale?",
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    // The useful half survives: real availability, real recency.
+    expect(result.body).toContain("Alpha Farm Stand");
+    expect(result.body).toContain("updated 2 hours ago");
+    // Plus the honest code-rendered limitation and the public-map link.
+    expect(result.body).toContain("cannot work out which stand is closest");
+    expect(result.body).toContain("vigavashon.org/farm-stand-map");
+    // And NO fabricated geography anywhere.
+    expect(result.body).not.toMatch(/\d+(\.\d+)?\s*(miles?|km|minutes?)\b/i);
+    expect(result.body).not.toMatch(/turn|head (north|south|east|west)|drive/i);
+  });
+
+  it("refuses a hostile model's invented distance rather than delivering it", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    // The hostile model tries to answer the proximity question itself. There is no
+    // permitted field for geography, so the whole interpretation is refused — and because
+    // the interpretation seam fails toward asking, nothing it wrote can be delivered.
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Kale"],
+        ranking: "any",
+        distanceMiles: 2.3,
+        nearest: "Alpha Farm Stand, 2.3 miles north of you",
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "nearest kale?" });
+
+    const delivered = result.outcome === "answered" ? result.body : "";
+    expect(delivered).not.toContain("2.3");
+    expect(delivered).not.toContain("north of you");
+  });
+
+  it("refuses a ranking operation that would require an origin", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    // "nearest" is not an operation code can execute over SMS: there is no origin to
+    // measure from. It must be REFUSED rather than silently downgraded to "any", which
+    // would present an unranked list as though it had answered "which is closest?".
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Kale"],
+        ranking: "nearest",
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "closest kale?" });
+
+    // Never an answer claiming to be distance-ranked.
+    expect(result.outcome).not.toBe("answered");
+  });
+
   // -------------------------------------------- F-018 recipe / food-safety scope boundary
 
   it("answers the availability half of a recipe request and states the scope in code", async () => {

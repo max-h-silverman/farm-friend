@@ -1,0 +1,318 @@
+/* Farm Friend public map (F-017).
+ *
+ * Mobile-first: island customers check this on a phone, often outdoors, often one-handed.
+ * So: a single column, large type, generous tap targets, and no layout that needs a wide
+ * viewport to make sense.
+ *
+ * The palette carries meaning rather than decoration. Green is "confirmed recently"; amber
+ * is "confirmed a while ago". Staleness is signalled THREE ways — a left border, an amber
+ * label, and the words "May be out of date" — because colour alone fails for a colourblind
+ * customer and in bright sun, and this is the one signal the product cannot afford to have
+ * missed. */
+
+:root {
+  --ink: #1c2321;
+  --ink-soft: #55605c;
+  --ink-faint: #7c8783;
+  --paper: #fbfaf7;
+  --card: #ffffff;
+  --line: #e3e2dc;
+  --green: #2f6b46;
+  --green-soft: #eaf3ed;
+  --amber: #8a5a10;
+  --amber-soft: #fdf3e2;
+  --amber-line: #d9a24a;
+  --radius: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+.page {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.15rem 3rem;
+}
+
+/* ---------------------------------------------------------------- masthead */
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--green);
+}
+
+.masthead h1 {
+  margin: 0.3rem 0 0.5rem;
+  font-size: 1.9rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.lede {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 1rem;
+}
+
+.lede strong {
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------- location */
+
+.locate {
+  margin: 1.5rem 0 1.25rem;
+  padding: 1rem;
+  background: var(--green-soft);
+  border-radius: var(--radius);
+}
+
+.locate-button {
+  /* 48px min target: this is pressed outdoors, one-handed. */
+  min-height: 48px;
+  width: 100%;
+  padding: 0 1.1rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--green);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.locate-button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.locate-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+}
+
+.locate-active {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.basis {
+  display: block;
+  margin-top: 0.25rem;
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.locate-clear {
+  min-height: 44px;
+  margin-top: 0.6rem;
+  padding: 0;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--green);
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------- staleness notice */
+
+.stale-summary {
+  margin: 0 0 1.25rem;
+  padding: 0.8rem 1rem;
+  font-size: 0.92rem;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-left: 4px solid var(--amber-line);
+  border-radius: 0 10px 10px 0;
+}
+
+/* ---------------------------------------------------------------- stands */
+
+.stands {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.stand {
+  padding: 1.1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
+  border-radius: var(--radius);
+}
+
+/* Staleness, signal one of three. */
+.stand-stale {
+  border-left-color: var(--amber-line);
+}
+
+.stand-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.stand-head h2 {
+  margin: 0;
+  font-size: 1.18rem;
+  letter-spacing: -0.01em;
+}
+
+.distance {
+  flex: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+.farm {
+  margin: 0.15rem 0 0.8rem;
+  font-size: 0.92rem;
+  color: var(--ink-faint);
+}
+
+.items {
+  list-style: none;
+  margin: 0 0 0.8rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.items li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  background: var(--green-soft);
+  border-radius: 999px;
+  font-size: 0.9rem;
+}
+
+.item-name {
+  font-weight: 600;
+}
+
+.item-detail,
+.item-price {
+  color: var(--ink-soft);
+  font-size: 0.83rem;
+}
+
+.items-empty {
+  margin: 0 0 0.8rem;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+/* Staleness, signal two of three: the recency line itself. */
+.recency {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+}
+
+.recency-stale {
+  color: var(--amber);
+  font-weight: 500;
+}
+
+.address {
+  margin: 0.5rem 0 0.8rem;
+  font-size: 0.88rem;
+  color: var(--ink-faint);
+}
+
+.directions {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 1rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--green);
+  text-decoration: none;
+  background: var(--green-soft);
+  border-radius: 10px;
+}
+
+/* ---------------------------------------------------------------- states */
+
+.empty {
+  margin: 0;
+  padding: 1.5rem 1.25rem;
+  background: var(--card);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-soft);
+}
+
+.foot {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.88rem;
+  color: var(--ink-faint);
+}
+
+.foot p {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .locate-button,
+  .directions {
+    transition: opacity 120ms ease;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #eceee9;
+    --ink-soft: #a9b2ad;
+    --ink-faint: #8a938e;
+    --paper: #141816;
+    --card: #1c2220;
+    --line: #2e3634;
+    --green: #6fbf8d;
+    --green-soft: #1e2f26;
+    --amber: #e0ab5f;
+    --amber-soft: #2d2415;
+    --amber-line: #b8862f;
+  }
+
+  .locate-button {
+    color: #10201a;
+  }
+}

@@ -5,6 +5,7 @@ import {
   renderNoCurrentListing,
   validateFactSelection,
   validateInterpretedIntent,
+  ORIGIN_LIMITATION_STATEMENT,
   RECIPE_SCOPE_STATEMENT,
   type Clock,
   type InquiryCandidate,
@@ -135,13 +136,24 @@ export async function answerInquiry(
     return { outcome: "clarification", question: renderClarificationRequest() };
   }
 
-  // F-018. The model may recognize that the request also asked for a recipe, cooking or
-  // preservation instructions, or food-safety guidance. Farm Friend still answers the
-  // grounded availability half from typed facts, then states the launch boundary — in
-  // code-rendered text appended below, never anything the model composed.
-  const scopeNote = intent.value.outOfScopeRequest ? RECIPE_SCOPE_STATEMENT : undefined;
+  // The two launch boundaries a request can cross, handled by one mechanism.
+  //
+  // F-018 — the request also asked for a recipe, cooking/preservation instructions, or
+  // food-safety guidance.
+  // F-017 — the request needs the customer's own position ("which stand is closest?"), which
+  // launch does not resolve over SMS.
+  //
+  // In both cases the model contributes a BOOLEAN and code contributes every word. Farm
+  // Friend still answers the grounded availability half from typed facts and then states the
+  // boundary; it never fabricates the part it cannot support, and never returns an unranked
+  // list as though it had answered "which is closest?".
+  const notes = [
+    intent.value.outOfScopeRequest ? RECIPE_SCOPE_STATEMENT : undefined,
+    intent.value.originDependent ? ORIGIN_LIMITATION_STATEMENT : undefined,
+  ].filter((note): note is string => note !== undefined);
+
   const withScope = (body: string): string =>
-    scopeNote === undefined ? body : `${body}\n\n${scopeNote}`;
+    notes.length === 0 ? body : [body, ...notes].join("\n\n");
 
   // Step 3 — CODE retrieves, then ranks by the validated interpretation.
   const listings = await retrieveCurrentListings(deps.db);

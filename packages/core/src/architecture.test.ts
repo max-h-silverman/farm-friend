@@ -108,3 +108,69 @@ describe("workspace architecture", () => {
     }
   });
 });
+
+describe("no runtime geocoder or map provider (F-017)", () => {
+  // Geocoding is a ONE-TIME SEEDING concern. The approved boundary adds "no runtime
+  // geocoder, permanent map package, coordinate-inventing stub, mapping platform, routing
+  // engine, or travel-time estimator" — so this is the tripwire that makes reintroducing one
+  // fail rather than merely being noticed in review.
+  //
+  // `StubMapProvider` previously invented deterministic pseudo-coordinates near Vashon for
+  // ANY address string. A stand placed at a fabricated point is worse than a stand with no
+  // point: it sends a customer somewhere real and wrong.
+
+  const productionSources = [
+    ...sourceFiles("packages/core/src"),
+    ...sourceFiles("packages/ai/src"),
+    ...sourceFiles("packages/db/src"),
+    ...sourceFiles("packages/sms/src"),
+    ...sourceFiles("apps/web/lib"),
+  ].filter((path) => !path.endsWith(".test.ts") && !path.endsWith(".type-test.ts"));
+
+  it("declares no MapProvider seam or coordinate-inventing stub anywhere", () => {
+    const offenders = productionSources.filter((path) => {
+      const source = readFileSync(new URL(path, repositoryRoot), "utf8");
+      return /\bMapProvider\b|\bStubMapProvider\b|\bgeocode\s*\(/.test(source);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("takes no mapping, geocoding, or routing dependency in any workspace", () => {
+    // A runtime map/geocoding package would be the "permanent map package" the decision
+    // forbids. Listed literally rather than pattern-matched on "map", which would false-
+    // positive on ordinary libraries.
+    const forbidden = [
+      "@googlemaps/google-maps-services-js",
+      "leaflet",
+      "react-leaflet",
+      "mapbox-gl",
+      "react-map-gl",
+      "maplibre-gl",
+      "@mapbox/mapbox-sdk",
+      "node-geocoder",
+      "geolib",
+    ];
+
+    for (const workspace of approvedWorkspaces) {
+      const manifest = readManifest(workspace);
+      const declared = Object.keys({
+        ...manifest.dependencies,
+        ...manifest.devDependencies,
+      });
+      const found = declared.filter((name) => forbidden.includes(name));
+      expect(found, workspace).toEqual([]);
+    }
+  });
+
+  it("computes proximity in core rather than delegating it to a service", () => {
+    // The replacement for the deleted seam is arithmetic, not a provider: a pure function
+    // with no network, no client, and no injected adapter.
+    const source = readFileSync(
+      new URL("packages/core/src/public/proximity.ts", repositoryRoot),
+      "utf8",
+    );
+    expect(source).not.toMatch(/\bfetch\s*\(|axios|XMLHttpRequest|https?:\/\/(?!www\.google)/);
+    // The one URL it may produce is a destination-only Google Maps link.
+    expect(source).toContain("https://www.google.com/maps/dir/");
+  });
+});

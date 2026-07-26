@@ -47,6 +47,21 @@ export type InterpretedIntent =
        * model can classify the request without composing a syllable of the reply.
        */
       outOfScopeRequest: boolean;
+      /**
+       * The model's read that the request needs the customer's own position to answer —
+       * "what's closest to me?", "the nearest stand to Burton" (F-017).
+       *
+       * A BOOLEAN, for exactly F-018's reason. Recognizing that a request is
+       * origin-dependent is meaning, which is the model's job; but launch resolves no
+       * arbitrary origin over SMS, so the reply is a code-rendered limitation plus the
+       * public-map link. A flag carries no geography, so a model cannot answer "you are 2.3
+       * miles from Provo Farms" through it — there is no field for a distance, a
+       * coordinate, or a direction anywhere in this type.
+       *
+       * The customer still gets the grounded availability half of their question. Only the
+       * proximity claim we cannot support is replaced by an honest statement.
+       */
+      originDependent: boolean;
     }
   | { kind: "ambiguous" };
 
@@ -82,8 +97,18 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
     return { ok: false, reason: "unsupported intent kind" };
   }
 
-  // Any field beyond these would be the model supplying content or a consequence.
-  const allowed = new Set(["kind", "items", "farmScope", "ranking", "outOfScopeRequest"]);
+  // Any field beyond these would be the model supplying content or a consequence. Note what
+  // is absent and stays absent: `latitude`, `origin`, `distanceMiles`, `nearest`. SMS
+  // resolves no arbitrary origin at launch, so model-supplied geography has nowhere to land
+  // and is refused here rather than partially honoured (F-017).
+  const allowed = new Set([
+    "kind",
+    "items",
+    "farmScope",
+    "ranking",
+    "outOfScopeRequest",
+    "originDependent",
+  ]);
   for (const key of keys) {
     if (!allowed.has(key)) {
       return { ok: false, reason: `intent carries no field "${key}"` };
@@ -105,6 +130,10 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
     // A string here would be prose wearing a flag's name.
     return { ok: false, reason: "outOfScopeRequest must be a boolean when present" };
   }
+  if (record.originDependent !== undefined && typeof record.originDependent !== "boolean") {
+    // A string here would be model-authored geography wearing a flag's name (F-017).
+    return { ok: false, reason: "originDependent must be a boolean when present" };
+  }
 
   return {
     ok: true,
@@ -114,6 +143,7 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
       ...(record.farmScope !== undefined ? { farmScope: record.farmScope } : {}),
       ranking: record.ranking as RankingOperation,
       outOfScopeRequest: record.outOfScopeRequest === true,
+      originDependent: record.originDependent === true,
     },
   };
 }

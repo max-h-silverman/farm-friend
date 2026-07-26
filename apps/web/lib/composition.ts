@@ -10,15 +10,12 @@ import {
 } from "@farm-friend/ai";
 import {
   createModelCallThrottle,
-  SystemClock,
   type Clock,
   type InventoryInterpreter,
   type ModelCallThrottle,
 } from "@farm-friend/core";
-import {
-  createDb,
-  type Db,
-} from "@farm-friend/db";
+import { type Db } from "@farm-friend/db";
+import { sharedClock, sharedDb } from "./public-context";
 import {
   createLastMileSender,
   resolveSmsConfig,
@@ -205,7 +202,8 @@ function createSimulatorTransport(): ProviderTransport {
 /** Construct the application context. Throws if configuration is incomplete. */
 export function createAppContext(env: NodeJS.ProcessEnv = process.env): AppContext {
   const config = resolveConfig(env);
-  const db = createDb(config.databaseUrl);
+  // The same pool and clock the public read surface uses — one mechanism, two consumers.
+  const db = sharedDb(config.databaseUrl);
 
   const transport =
     config.sms.provider === "telnyx"
@@ -215,7 +213,7 @@ export function createAppContext(env: NodeJS.ProcessEnv = process.env): AppConte
   // The provider receives no database or repository capability — only what a projection
   // hands it at call time.
   const provider = new StubLLMProvider({});
-  const clock = new SystemClock();
+  const clock = sharedClock();
 
   return {
     config,

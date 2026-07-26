@@ -196,6 +196,33 @@ export const RECIPE_SCOPE_STATEMENT =
   "or food-safety guidance.";
 
 /**
+ * The public web map. The one place a customer is sent for anything needing their position.
+ *
+ * It is a constant rather than configuration because it is a product fact stated in customer
+ * copy, and a wrong or empty value would be delivered as an SMS to a real person.
+ */
+export const PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map";
+
+/**
+ * The code-rendered response to a request that needs the customer's own position (F-017).
+ *
+ * Launch resolves no arbitrary origin over SMS — no geocoder, no address lookup, no
+ * device location in a text message. The approved boundary keeps origin-aware proximity on
+ * the public web, where the browser can offer a transient position with permission.
+ *
+ * So this says what Farm Friend cannot do and where the customer can do it, and it claims
+ * NO distance, direction, or travel time. The alternative failure modes this exists to
+ * prevent are both dishonest: inventing a proximity answer, or silently returning an
+ * unranked list as though it had answered "which is closest?".
+ *
+ * Like the recipe scope statement, the model contributes only a boolean signal; every word
+ * here is code's.
+ */
+export const ORIGIN_LIMITATION_STATEMENT =
+  "Farm Friend cannot work out which stand is closest to you over text. " +
+  `The map at ${PUBLIC_MAP_URL} can sort stands by distance if you allow location access.`;
+
+/**
  * Render the authoritative answer from the selected facts, in the model's chosen order.
  * Every value comes from the typed retrieved projection; nothing is model-authored.
  */

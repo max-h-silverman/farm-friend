@@ -32,6 +32,12 @@ const intentSchema = z.discriminatedUnion("kind", [
       // A boolean, never a message. The model may recognize a recipe/food-safety request;
       // code renders the scope statement (F-018).
       outOfScopeRequest: z.boolean().optional(),
+      // Likewise a boolean (F-017). The model may recognize that the request needs the
+      // customer's position; launch resolves no arbitrary origin over SMS, so code renders
+      // the limitation and the public-map link. `.strict()` below is what makes a smuggled
+      // `latitude`, `distanceMiles`, or `nearest` a visible refusal rather than a stripped
+      // field — the model has no way to supply geography at all.
+      originDependent: z.boolean().optional(),
     })
     .strict(),
   // A bare signal. `question` was removed in F-018: it was the one field through which

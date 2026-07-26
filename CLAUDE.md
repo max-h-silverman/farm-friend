@@ -292,44 +292,52 @@ code-rendered grounded answers with recency and stale warnings. The web/QR stock
 private report and resolves the farmer in code. **The model never authors customer-facing factual
 text or writes durable state** — it interprets and selects identifiers; code retrieves, validates
 membership, and renders. Four model seams have explicit disjoint projections; there is no generic
-assembler, and the low-level provider call is unexported. The **public web surface is model-free**:
-`GET /api/public/stands` has no model seam in its dependency set, and `POST /api/public/stock-out`
-is the single public model-backed handler, fronted by the abuse/cost throttle.
+assembler, and the low-level provider call is unexported. **The public map UI is built** (F-017):
+`apps/web/app/page.tsx` renders the same published records SMS answers from, with code-rendered
+recency on every card and stale listings visible-and-warned, plus optional browser-origin distance
+sorting and destination-only routing links.
 
-**Verified July 26, 2026:** `npm test` 177/177 across 19 files; real-Postgres integration 103/103
+**The public read surface is model-free in its MODULE GRAPH, not just its handler (F-017).** The
+public route and page import `apps/web/lib/public-context.ts` (db + clock) rather than the full
+composition root, which constructs the model seams — so no seam is *reachable* from the public read
+path, and `lib/public-surface-model-free.test.ts` walks the transitive imports of both entry points
+and fails if one appears. `POST /api/public/stock-out` remains the single public model-backed
+handler, fronted by the abuse/cost throttle.
+
+**Verified July 26, 2026:** `npm test` 219/219 across 22 files; real-Postgres integration 106/106
 across 7 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 10/10, advisory 4/4,
-adversarial 19/19; production Next.js build passes.
+adversarial 25/25; production Next.js build passes.
 
-**Neither inquiry seam may return prose (F-018).** The interpretation seam's `ambiguous` and the
-selection seam's `clarification` are **bare signals carrying no field but `kind`**; validation
-refuses any other, and code renders the words (`renderClarificationRequest`). They previously carried
-a model-authored `question` delivered to the customer verbatim — the only path by which model prose
-reached a customer in the inquiry flow, and a live one: a hostile model answered a recipe request
-with canning pressures and a link, and every check passed. **There is no recipe seam and never was**
-(verified by grep across all packages). Recipe/food-safety scope is a model-set `outOfScopeRequest`
-**boolean** — meaning stays the model's, words stay code's — and code appends the
-`RECIPE_SCOPE_STATEMENT` constant to the ordinary grounded answer. No content scanner, classifier, or
-food taxonomy in business logic.
+**Model prose never reaches a customer, and boundaries are booleans.** The inquiry seams' `ambiguous`
+and `clarification` are **bare signals carrying no field but `kind`**; code renders the words. The
+two launch scope boundaries use one mechanism: the model sets `outOfScopeRequest` (recipe/food-safety,
+F-018) and `originDependent` (needs the customer's position, F-017) as **booleans that carry no
+words**, and code appends `RECIPE_SCOPE_STATEMENT` / `ORIGIN_LIMITATION_STATEMENT`. A ranking
+operation requiring an origin (`nearest`) is **refused, never silently downgraded** to recency. No
+content scanner, classifier, or food taxonomy in business logic; there is no recipe seam and no
+runtime geocoder.
 
-**Launch consent is one program, and it is executable (F-016).** The consent decision is one pure
-predicate — `isProactiveSendPermitted` in `packages/core/src/sms/consent.ts` — consulted by
-`authorizeDispatch`, so the rule lives in exactly one place and takes no database or model. It
-requires **active** consent for a proactive send; silence is not permission. `outbox_work` carries
-one bounded `message_category` (migration `0002`). `MUTE` and follow-up-interest state never existed
-in executable code.
+**Geocoding is seed-time only, and proximity is arithmetic.** `MapProvider` and its
+coordinate-inventing `StubMapProvider` are deleted; `packages/core/src/architecture.test.ts` fails if
+either name, a `geocode(` call, or a mapping/routing dependency reappears.
+`packages/core/src/public/proximity.ts` is pure (haversine, validation, destination-link building),
+exported on the browser-safe `@farm-friend/core/proximity` subpath. The browser origin lives only in
+React state in the customer's tab — never stored, logged, requested, or put in model context.
 
-**Keyword set is aligned and self-checking.** The registered opt-out/opt-in/help lists are stated
-once in `packages/core/src/sms/commands.ts` (`REGISTERED_*_KEYWORDS`) and the parser derives its
-tables from them; `commands.test.ts` reads `docs/TELNYX_10DLC_FIELD_VALUES.txt` and fails if the
-registered artifact and the parser disagree **in either direction**. `YES`/`NO` are the only
-commitment tokens; the superseded generic commitment machine and `OUT`/`IGNORE` are deleted.
+**Launch consent is one program and executable.** `isProactiveSendPermitted`
+(`packages/core/src/sms/consent.ts`) is the single pure predicate `authorizeDispatch` consults;
+**active** consent is required for a proactive send. `outbox_work` carries one bounded
+`message_category` (migration `0002`). The registered keyword lists are stated once in
+`packages/core/src/sms/commands.ts` and `commands.test.ts` fails if the registered artifact and the
+parser disagree in either direction. `YES`/`NO` are the only commitment tokens.
 
-**Known gaps / owed.** No public **web UI** — the map render is still a placeholder page (F-017's
-natural home). Message classification has no projection and no consumer. The configured provider is
-the **stub** — the privacy gate is executable and fails closed, but no real vendor's terms have
-passed it, and it checks an operator-attested declaration rather than vendor practice. Auth returns
-an empty role list with no durable session. No seed data, no retention job. SMS inquiry has no HTTP
-route **by design** — it is reached from the Telnyx webhook worker.
+**Known gaps / owed.** **No seed utility (B-002)** — the schema rejects out-of-range coordinates and
+nothing can invent them, but nothing *loads* farms/locations/approval state, so the map renders empty
+on a fresh database. No per-stand pages and no filter/search UI. Message classification has no projection and no consumer. The
+configured provider is the **stub** — the privacy gate is executable and fails closed, but no real
+vendor's terms have passed it, and it checks an operator-attested declaration rather than vendor
+practice. Auth returns an empty role list with no durable session. No retention job. SMS inquiry has
+no HTTP route **by design** — it is reached from the Telnyx webhook worker.
 
 **B-001 is diagnosed and fixed** — an unanchored `RAW_PHONE_RE` matched hex digits in ~3.1% of
 UUIDs, so `redactOutbound` could refuse legitimate sends at random. **The standing lesson holds:**
@@ -337,13 +345,14 @@ if an integration run fails, capture the test name and assertion BEFORE rerunnin
 (`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites **sequentially, never chained**
 — that is what finally caught it. Treat a named failing test as a real defect until shown otherwise.
 
-**PM / authorization:** F-013–F-016 and F-018–F-022 are done and merged to `main`, except **F-012,
-which is in review and cannot close yet** — all in-repo work is done, but it is blocked on one
-external decision only max can make: *does amending registered Sample Message 3 require carrier
-resubmission, or is it console-editable?* **F-017 is the only remaining planned item** and requires
-separate implementation authorization. Do not silently absorb other planned items into a tranche.
+**PM / authorization:** F-013–F-022 are done and merged to `main`, except **F-012, which is in
+review and cannot close yet** — all in-repo work is done, but it is blocked on one external decision
+only max can make: *does amending registered Sample Message 3 require carrier resubmission, or is it
+console-editable?* **The clean-room finding backlog is now complete**; any new work needs a new PM
+item and separate implementation authorization.
 
-**Owed by F-016 (not absorbed):** there is still **no inbound routing layer** — nothing in
+**Owed, not absorbed by any closed item:** there is still **no inbound routing layer** — nothing in
 production code calls `parseCommand`, `runInboundPass`, or `answerInquiry`, so `consentTransitionFor`
-has no runtime caller yet. F-016 built and proved the consent *decision*; wiring a router that
-consumes it is downstream work, and the seam is deliberately shaped for it.
+and the inquiry seams have no runtime caller. The consent *decision* and the inquiry *workflow* are
+built and proven; wiring the Telnyx webhook worker to them is downstream work. Paired with the
+missing seed utility, these are the two gaps between "proven in tests" and "usable at launch."
