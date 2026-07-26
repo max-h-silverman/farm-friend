@@ -99,8 +99,28 @@ npm run dev -w apps/web     # Next.js App Router
 
 ## Scheduled work (the worker trigger)
 
-The webhook only **persists** an inbound event; routing and delivery happen in workers. **One**
-authenticated internal route runs every scheduled pass:
+Inbound work has **two triggers, one mechanism**. The webhook only ever **persists** an inbound
+event before acknowledging; routing and delivery happen in the workers, and both triggers call the
+same passes:
+
+- **The kick (B-004) — the low-latency path.** After the webhook acknowledges Telnyx, it starts the
+  inbound and outbound passes *for that one sender*. This is what makes a reply arrive in
+  milliseconds instead of up to a minute. It is started and deliberately **not awaited**, so it can
+  neither delay nor fail the 200, and it owns **no guarantee**: every failure is swallowed and the
+  work is left for the recovery net. It is scoped to one sender and budgeted, so a wedged pass is
+  abandoned rather than running until the invocation is killed.
+- **Cron — the durable recovery net.** The authenticated route below still runs the full unscoped
+  passes, recovering anything a kick missed because an invocation crashed, a claim lapsed, or the
+  process died mid-pass. It remains the **only** trigger for F-026's retention purge, which is never
+  latency-sensitive and must not run on every inbound message.
+
+Suppressing the kick entirely loses nothing — cron still carries the message to a dispatched reply.
+That is proven directly in `apps/web/lib/latency.integration.test.ts`, which also measures the end
+to end reply and proves a kick racing a concurrent cron pass cannot double-process or double-send.
+Exclusion is the existing per-sender row lock in `claimNextInboundEvent`; the kick adds no new
+concurrency control, it just arrives at the same lock from a second direction.
+
+**One** authenticated internal route runs every scheduled pass:
 
 ```
 GET|POST /api/internal/cron      Authorization: Bearer $CRON_SECRET
@@ -141,14 +161,10 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/internal/
 
 On Vercel, schedule it with Vercel Cron (`vercel.json` → `crons`, path `/api/internal/cron`); Vercel
 sends the `Authorization: Bearer` header from the project's `CRON_SECRET` environment variable.
-Choose the interval against the SMS latency you are willing to accept — a farmer's `STOP` is not
-honored until a pass runs, so a multi-minute interval is a multi-minute delay in an opt-out.
-
-**Known defect: B-004.** Vercel Cron's finest granularity is one minute, so polling alone cannot get
-inbound replies under the ~10s an SMS exchange needs. The decided fix is for the webhook to kick the
-inbound pass **after** it acknowledges Telnyx, leaving this route as the recovery net for work a kick
-missed and as the only trigger for the retention purge. Until B-004 lands, expect up to a
-one-minute reply latency.
+Choose the interval as a **recovery** budget, not a reply-latency one: since B-004 the kick front-runs
+this route for live traffic, so the interval decides only how long work a kick *missed* waits. One
+minute — Vercel Cron's floor — is fine. It is also the floor that made polling alone unable to meet
+the ~10s an SMS exchange needs, which is why the kick exists.
 
 **Authentication fails closed.** `CRON_SECRET` is required at startup with no default, the route
 compares it in constant time, and there is deliberately **no** environment-conditional bypass —
