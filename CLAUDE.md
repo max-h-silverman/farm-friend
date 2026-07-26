@@ -304,8 +304,8 @@ path, and `lib/public-surface-model-free.test.ts` walks the transitive imports o
 and fails if one appears. `POST /api/public/stock-out` remains the single public model-backed
 handler, fronted by the abuse/cost throttle.
 
-**Verified July 26, 2026 (post-B-003, on `main` at `ca06926`):** `npm test` 222/222 across 22 files;
-real-Postgres integration 106/106 across 7 files against PostgreSQL 16.12; typecheck + lint pass;
+**Verified July 26, 2026 (post-F-026, on `main` at `97fb965`):** `npm test` 255/255 across 26 files;
+real-Postgres integration 138/138 across 9 files against PostgreSQL 16.12; typecheck + lint pass;
 evals critical 10/10, advisory 4/4, adversarial 25/25; production Next.js build passes.
 
 **Model prose never reaches a customer, and boundaries are booleans.** The inquiry seams' `ambiguous`
@@ -323,6 +323,20 @@ either name, a `geocode(` call, or a mapping/routing dependency reappears.
 `packages/core/src/public/proximity.ts` is pure (haversine, validation, destination-link building),
 exported on the browser-safe `@farm-friend/core/proximity` subpath. The browser origin lives only in
 React state in the customer's tab — never stored, logged, requested, or put in model context.
+
+**Inbound SMS routes, and the workers have a trigger (F-023).** `apps/web/lib/routing.ts` decides in
+one fixed order which existing handler owns a claimed event: compliance keywords → `FLAG` → the
+context-bound `YES`/`NO` → free text. The model seams are reached **only** through a `freeText`
+callback invoked after `parseCommand` returns `none`, so "no model call on the compliance path" is a
+structural property of the function rather than a convention — `routing.test.ts` proves it with a
+seam that throws on any call. The registered 10DLC auto-response copy now lives in
+`packages/core/src/sms/auto-responses.ts`, verified character-for-character against
+`docs/TELNYX_10DLC_FIELD_VALUES.txt` by a test that fails on drift in either direction; the console
+stays the authority. `apps/web/app/api/internal/cron/route.ts` is the **single** authenticated
+trigger for every scheduled pass, guarded by a required `CRON_SECRET` with no default and no
+development bypass (`cron-auth.test.ts` fails if such a branch appears); each pass enumerates its own
+work. `claimNextInboundEvent` exposes `providerEventId` because the consent watermark and
+confirmation audit record provenance by it — our row UUID would break STOP/START tie-break ordering.
 
 **Raw-context retention is a mechanism, not a claim (F-026).** `purgeExpiredBodies`
 (`packages/db/src/transactions.ts`) clears expired bodies in `sms_messages` and `outbox_work` and
@@ -349,10 +363,6 @@ function boundary and mostly unreachable at the system boundary. Do not read a p
 working product — several of these gaps hide behind green tests whose fixtures supply what production
 never creates:
 
-- **F-023 — nothing routes inbound SMS.** The webhook verifies and persists correctly; `runInboundPass`
-  (`apps/web/lib/workers.ts:38`) then claims, fails stale closed, and finalizes **without routing**.
-  Production callers of `parseCommand`, `consentTransitionFor`, `answerInquiry`: **none** — a farmer
-  texts `STOP` and nothing unsubscribes them. Nothing invokes the workers at all (no scheduler).
 - **F-025 — nothing can approve a farm**, yet `transactions.ts:711-715` refuses publication without a
   live `farm_approvals` row. The publication tests pass only because their fixtures insert it. Also: no
   admin UI (one page exists, the public map), the flag route is a `{ flags: [] }` stub, auth returns an
@@ -364,10 +374,12 @@ never creates:
   seeded listing fact fabricates a confirmation) and **no phone numbers** (a seeded phone fabricates
   consent). Awaiting max's list; deferred to a later session.
 
-**Also open / unowned:** F-027 (vestigial `tenantId` contradicting the tenancy non-goal).
-`packages/config` and `packages/contracts` still exist despite the handoff's "Delete" — **no item owns
-this.** No per-stand pages or filter/search UI. Message classification has no projection or consumer.
-SMS inquiry has no HTTP route **by design** — reached from the Telnyx webhook worker.
+**Also open, each now owned:** F-027 (vestigial `tenantId` contradicting the tenancy non-goal), F-028
+(`packages/config` and `packages/contracts` still exist despite the handoff's "Delete"), F-029
+(go-live: deploy, Telnyx console wiring, first verified live `JOIN`). No per-stand pages or
+filter/search UI. Message classification has no projection or consumer. `model_runs` has **no
+production writer** — its only insert is in a test. SMS inquiry has no HTTP route **by design** —
+reached from the Telnyx webhook worker.
 
 **Standing test-suite rules, learned from two real defects (B-001 unanchored regex, B-003
 date-dependence — see SESSION_LOG).** If an integration run fails: capture the test name and
