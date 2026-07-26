@@ -7,6 +7,91 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-26 — F-012 closed on live console state, B-003 date-dependence, and the go-live path logged
+
+Three merged branches earlier in the day (F-016, F-018, F-017 — see their entries below) plus this
+wrap. Ended on `main` at `06e120c`, everything merged, no open PRs.
+
+**F-012's blocking carrier question was moot, and the reason matters more than the answer.** The item
+had stayed open on: *does amending registered Sample Message 3 require carrier resubmission?* max
+supplied the live Telnyx console state, which registers **two** sample messages, both using
+`YES`/`NO` — neither advertising the retired `OUT`/`IGNORE` tokens. Nothing needed resubmission.
+
+The false alarm's root cause: `docs/TELNYX_10DLC_FIELD_VALUES.txt` was a **wish list of candidate
+field values**, and its "Message 3" was labelled *"if you add another sample"* — a draft never
+submitted. Both the PM item's decision brief and the F-012 implementation agent read that file as a
+record of what was registered and inferred a problem that did not exist. **A doc that looks
+authoritative and isn't is worse than a missing doc.** The file now opens with a STATUS header
+declaring it a transcript of live console state, and the rule is written down: change the console
+first, then transcribe.
+
+**A real compliance defect surfaced from the comparison.** The registered HELP auto-response
+contained the support number `+15163178228` while the campaign declares `Embedded Phone Number: No` —
+the copy contradicted the declared attribute, the kind of mismatch that draws a carrier review flag.
+max edited the console so help routes to `board@vigavashon.org`; the declaration is now truthful.
+Console-vs-repo drift was corrected **toward the console** (it is the authority), and two tests now
+read the artifact: every sample message must carry opt-out language, and the auto-responses must
+contain no phone number while the campaign declares none.
+
+**B-003 — the integration suite was date-dependent, and it broke mid-session.** Verified 106/106 at
+00:06; at 08:32 the same suite failed **54 of 106** with no code change. Fixtures hard-coded
+`2026-07-25` while `outbox_work.created_at` defaults to `now()` and the schema enforces
+`body_expires_at > created_at` (the retention rule that a body outlives its row). A fixture expiry
+written as "tomorrow" became "yesterday" once the wall clock passed it. **The constraint was right;
+the fixtures were wrong.**
+
+Method note worth keeping: the failure appeared while verifying an unrelated two-file *documentation*
+change. Stashing that change and re-running proved 54/106 failed on clean `main` — establishing the
+edit was innocent *before* investigating is what kept the diagnosis honest.
+
+Fixture instants across all six suites are now offsets from a clock-derived anchor, which preserves
+every ordering and duration asserted while letting the timeline move with the clock. Rows whose expiry
+must clear `created_at = now()` use a 48h horizon; the previous 24h landed exactly on "now" once the
+anchor became relative. A tripwire in `architecture.test.ts` fails if a literal instant returns, and
+fails **loudly** (ENOENT) rather than vacuously if a listed suite path goes missing — the obvious
+failure mode for a test that reads files by path.
+
+**The sabotage that mattered most:** fixture expiry is 48h and `STALE_AFTER_HOURS` is 48, so raising
+the threshold to 100000 was necessary to confirm the stale-listing test still *discriminates* rather
+than passing vacuously under the new anchor. Also sabotage-verified: the conversation-watermark
+staleness guard, consent START/STOP ordering, a reintroduced literal date, and the missing-path case.
+
+**B-003 reframes B-001, and B-001 was left open deliberately.** B-001 was an undiagnosed
+`1 failed | 91 passed` flake; F-012's first tranche found a genuine unanchored-regex defect (~3.1% of
+random UUIDs) and closed B-001 against it. That fix stands on its own merits. But a date-boundary
+failure produces the *same* signature, the original failing test name was never captured, and B-003
+proves the suite held more than one time bomb. So the regex is *a* candidate cause, not a demonstrated
+one. **Do not cite B-001 as closing the intermittent-failure class.**
+
+**The go-live path was logged as owned PM items (F-023–F-027).** It had been described in prose across
+several sessions and existed nowhere in PM — the backlog was entirely closed clean-room findings plus
+B-002. Derived from reading the code, not from prior summaries. Two findings from that audit:
+
+- **Nothing routes inbound SMS.** The webhook verifies signatures over raw bytes and persists the
+  minimized projection correctly, but `runInboundPass` claims an event, fails stale ones closed, and
+  finalizes it **without routing**. Production callers of `parseCommand`, `consentTransitionFor`,
+  `answerInquiry`: none. So a farmer texts `STOP` and nothing unsubscribes them — a carrier-compliance
+  exposure, not merely a missing feature, since `parseCommand` being well-tested is irrelevant if
+  nothing calls it. (F-023)
+- **Nothing can approve a farm, and publication requires approval.** `transactions.ts:711-715` returns
+  `not_approved` without a live `farm_approvals` row, and no code path creates one. **The publication
+  tests pass because their fixtures insert the row themselves** — green tests over an unreachable
+  production path, the same pattern F-017 and F-018 each hit. (F-025)
+
+Also filed: F-024 (the configured provider is still the stub), F-026 (bodies get a 30-day
+`body_expires_at` and nothing ever deletes them — the retention promise is a claim, not a mechanism),
+F-027 (vestigial `tenantId` carrying a hard-coded `"viga"` plus a tenant comparison that can only
+succeed, contradicting the tenancy non-goal; no table has a `tenant_id`, so nothing to migrate).
+
+F-023 and F-026 both need a scheduler and neither has one; the item files record that whichever lands
+first owns the choice, so one mechanism serves both.
+
+**Verified at wrap** (sequentially, never chained): unit 222/222 across 22 files; integration 106/106
+across 7 files vs PostgreSQL 16.12; typecheck; lint; evals critical 10/10, advisory 4/4, adversarial
+25/25.
+
+---
+
 ## 2026-07-26 — F-017 public map, browser proximity, and a model reachable from the public graph
 
 Built from clean `main` at `dc2973c` on `f-017-public-map-proximity`. Test-first throughout.
