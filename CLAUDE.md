@@ -308,8 +308,9 @@ than vendor practice. Auth returns an empty role list with no durable session. F
 commitment machine and `OUT`/`IGNORE` tokens remain because the critical evals exercise them. No
 seed data, no retention job.
 
-**PM / authorization:** F-013, F-014, F-015, F-020, F-021, F-022 are done. F-012 and F-016 through
-F-019 remain planned and require separate implementation authorization.
+**PM / authorization:** F-013, F-014, F-015, F-020, F-021, F-022 are done and merged to `main`
+(F-015 = PR #20, F-013 = PR #21). Working tree clean, nothing owed on deploy. F-012 and F-016
+through F-019 remain planned and require separate implementation authorization.
 
 **Next:** select and authorize the next planned tranche. F-012 needs a decision only max can make —
 whether aligning the live Telnyx campaign requires resubmission — so its code/copy work can start

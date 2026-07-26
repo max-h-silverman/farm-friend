@@ -61,6 +61,11 @@ than reshuffled; typecheck and lint PASS; evals critical 5/5, advisory 4/4, adve
 production Next.js build and `git diff --check` PASS. The new adversarial fixtures were
 sabotage-tested: relaxing the selection validator's extra-key check fails the smuggling fixture.
 
+**Merged.** F-015 as PR #20 and F-013 as PR #21, both into `main` (`bb192f5`), each re-verified
+green after rebase and after merge. CLAUDE.md's live snapshot was compressed in the same wrap: the
+build narratives live here, and the snapshot keeps phase, capability, verified counts, and gaps.
+There is no deploy owed — no route, migration, or provider config changed.
+
 ## 2026-07-25 — F-015 model privacy boundary and hostile verification
 
 Starting from clean `main` at `b9aaf50`, F-015 connected F-014's typed interpreter port to a live
