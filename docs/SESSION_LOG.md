@@ -113,9 +113,10 @@ role check over an empty list and reads nothing. Its retired-F-009 comment is go
 saying what it does and does not do. Until F-030 ships, an arriving flag is durable and unreviewable
 — which is also why F-026's retention exemption never terminates.
 
-**Verified on the branch:** unit 292/292 (30 files), integration 176/176 (13 files, real Postgres),
-typecheck, lint, evals critical 10/10 + advisory 4/4 + adversarial 25/25, production build with
-`/admin` rendering.
+**Verified, then merged to `main` as `0f2f44d` (PR #38):** unit 292/292 (30 files), integration
+176/176 (13 files, real Postgres), typecheck, lint, evals critical 10/10 + advisory 4/4 +
+adversarial 25/25, production build with `/admin` rendering. Re-verified green on merged `main`.
+No deploy owed — nothing is deployed until F-029, and migrations run as part of that step.
 
 ---
 

@@ -343,7 +343,7 @@ console first, then transcribe.
 reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
 fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Verified July 26, 2026 (F-025a branch):** `npm test` 292/292 across 30 files; real-Postgres
+**Verified July 26, 2026 (`main` at `0f2f44d`, F-025a merged):** `npm test` 292/292 across 30 files; real-Postgres
 integration 176/176 across 13 files; typecheck + lint pass; evals critical 10/10,
 advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin` renders, all routes dynamic).
 
