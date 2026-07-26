@@ -287,45 +287,31 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-013 is complete on top of F-015. The F-014 authoritative transaction path and F-015
-model privacy boundary stand unchanged.
+**Phase:** F-014 (authoritative SMS transactions), F-015 (model privacy boundary), and F-013
+(grounded customer answers + code-bound stock-out) are built. Live capability: farmers publish
+inventory by SMS behind a confirmation gate; customers get code-rendered grounded answers with
+recency and stale warnings; the web/QR stock-out path records a private report and resolves the
+farmer in code. **The model never authors customer-facing factual text or writes durable state** —
+it interprets and selects identifiers; code retrieves, validates membership, and renders.
+Four model seams have explicit disjoint projections; there is no generic assembler, and the
+low-level provider call is unexported. See docs/SESSION_LOG.md for how each was built.
 
-**F-013 built the customer-facing half.** Customer inquiry runs a fixed code-owned sequence:
-deterministic routing → model interprets the question → **code** retrieves and ranks → model selects
-and orders identifiers from exactly those facts → **code** validates membership, dereferences, and
-renders. The model never authors customer-facing factual text — the selection schema has no field
-capable of carrying prose, and `packages/core/src/inquiry/answer.ts` renders names, items, recency,
-and stale warnings from typed values. Empty retrieval is code-rendered **without** a selection call.
-The two inquiry projections are deliberately disjoint: interpretation sees the question and no
-facts; selection sees the facts and not the raw question. Both splits are compile errors to violate.
-The web/QR stock-out path binds the sales location in code and resolves the farmer recipient in code
-from that location; a report never mutates published inventory or ranking.
+**Verified July 25, 2026:** `npm test` 137/137 across 17 files; real-Postgres integration 72/72
+across 6 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 5/5, advisory 4/4,
+adversarial 14/14; production Next.js build and `git diff --check` pass.
 
-**Verified July 25, 2026 for F-013:** `npm test` 137/137 across 17 files; real-Postgres integration
-72/72 across 6 files against PostgreSQL 16.12, run **six consecutive times**; typecheck + lint pass;
-evals critical 5/5, advisory 4/4, adversarial 14/14; production build and `git diff --check` pass.
-New adversarial fixtures were sabotage-tested (relaxing the selection validator fails the smuggling
-fixture).
+**Known gaps / owed.** No HTTP route yet wires the inquiry or stock-out workflows to a public
+surface (needs F-017's abuse throttle). Message classification has no projection and no consumer
+(F-012). The configured provider is the **stub** — the privacy gate is executable and fails closed,
+but no real vendor's terms have passed it, and it checks an operator-attested declaration rather
+than vendor practice. Auth returns an empty role list with no durable session. F-012's superseded
+commitment machine and `OUT`/`IGNORE` tokens remain because the critical evals exercise them. No
+seed data, no retention job.
 
-**Two F-013 findings worth carrying forward.** A smuggled `answerText` initially arrived as a polite
-clarification because the seam collapsed "refused shape" and "provider error"; those are now
-distinct, so an attack is observable while a transient failure still asks the customer rather than
-claiming "nobody has kale." And a ~1-in-4 flaky integration failure was a real bug: `assertNoRawPhone`
-was applied to UUIDs, whose digit runs match the phone pattern by chance, which would have randomly
-refused legitimate inquiries in production. Identifiers now get a shape check
-(`assertOpaqueId`); the content rule applies only to human-readable retrieved text.
-
-**Known gaps.** Message classification has no projection and no consumer (F-012). The configured
-provider is still the **stub**: the privacy gate has been exercised but no real vendor's terms have
-been approved through it, and it checks an operator-attested declaration rather than vendor practice.
-Auth still returns an empty role list with no durable session. F-012's superseded commitment machine
-and its `OUT`/`IGNORE` tokens remain because the critical evals exercise them. No seed data, no
-retention job, and no HTTP route yet wires the inquiry/stock-out workflows to a public surface.
-
-**PM / authorization:** F-022, F-014, F-015, and F-013 are `done`/`in review`. F-012 and F-016
-through F-019 remain planned and require separate implementation authorization.
+**PM / authorization:** F-013, F-014, F-015, F-020, F-021, F-022 are done. F-012 and F-016 through
+F-019 remain planned and require separate implementation authorization.
 
 **Next:** select and authorize the next planned tranche. F-012 needs a decision only max can make —
-whether aligning the live Telnyx campaign requires a resubmission — so its code/copy work can start
+whether aligning the live Telnyx campaign requires resubmission — so its code/copy work can start
 but the item cannot close without that. F-016 through F-019 are self-contained. Do not silently
 absorb other planned items.
