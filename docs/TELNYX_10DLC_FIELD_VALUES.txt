@@ -42,7 +42,7 @@ Message 2
 VIGA Farm Friend: Draft update for Provo Farms: kale, eggs, tomatoes, and limited strawberries. Reply YES to publish to the VIGA farm-stand map or NO to cancel.
 
 Message 3, if you add another sample
-VIGA Farm Friend: A customer reported Provo Farms may be out of kale. Reply OUT to mark it out, IGNORE to dismiss, or STOP to unsubscribe.
+VIGA Farm Friend: A customer reported Provo Farms may be out of kale. Reply with your current farm-stand items to update the map, or STOP to unsubscribe.
 
 Message 4, if you add another sample
 VIGA Farm Friend: Current VIGA farm-stand map listings show eggs at Provo Farms, last updated Jul 8. Reply HELP for help or STOP to unsubscribe.

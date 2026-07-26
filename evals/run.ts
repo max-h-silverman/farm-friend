@@ -21,11 +21,11 @@ import {
   StubLLMProvider,
 } from "@farm-friend/ai";
 import {
-  applyCommitment,
   bypassesModel,
-  createPending,
+  confirmationEligibility,
   FixedClock,
   parseCommand,
+  type ProposalConfirmationState,
   validateInterpretation,
 } from "@farm-friend/core";
 import { hostileFixtures, HostileLLMProvider, BASE } from "./hostile";
@@ -52,20 +52,63 @@ fx("critical", "compliance-bypass: STOP/YES bypass the model", () => {
   );
 });
 
+fx("critical", "compliance-bypass: every registered opt-out keyword opts out globally", () => {
+  // A keyword VIGA registered with the carrier and promised publicly must unsubscribe, not
+  // reach the model as free text. STOPALL failed this before F-012.
+  //
+  // The literal list is spelled out rather than derived from REGISTERED_OPT_OUT_KEYWORDS on
+  // purpose: iterating the same constant the parser is built from would pass even if a
+  // keyword were dropped from both at once, which is exactly the defect this guards.
+  const registered = ["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"];
+  return registered.every((word) => {
+    const parsed = parseCommand(word);
+    return parsed.kind === "compliance" && parsed.keyword === "STOP" && parsed.global;
+  });
+});
+
 // ---------------------------------------------------------------- critical: commitment safety
-// These exercise the superseded generic commitment machine, which F-012 owns and will remove
-// with its OUT/IGNORE tokens. Kept here so that removal is a deliberate F-012 decision rather
-// than a silent coverage loss in this change.
+// F-012 removed the superseded generic commitment machine (its only "second consumer" was
+// gleaning, an explicit non-goal). These fixtures now assert the SAME invariants against the
+// live inventory-confirmation path, so the coverage moved onto real code rather than lapsing.
+const ACTIVATED: ProposalConfirmationState = {
+  proposalVersion: 1,
+  activatedVersion: 1,
+  activatedAt: new Date(clock.now().getTime() - 1_000),
+  expiresAt: new Date(clock.now().getTime() + 60_000),
+  baseRevisionId: "rev-1",
+};
+
 fx("critical", "commitment: a non-contextual YES never commits", () => {
-  const { outcome } = applyCommitment("YES", null, clock);
-  return outcome.status === "no_pending";
+  // No live proposal at all: `YES` parses as a context-bound token and there is nothing for
+  // it to consume. The parser never reports it as global, so it cannot act on its own.
+  const parsed = parseCommand("YES");
+  if (parsed.kind !== "commitment" || parsed.contextBound !== true) return false;
+
+  // A proposal whose prompt the provider has not accepted is not consumable either.
+  const notActivated = confirmationEligibility(
+    { ...ACTIVATED, activatedVersion: null, activatedAt: null, expiresAt: null },
+    { occurredAt: clock.now(), currentRevisionId: "rev-1", clock },
+  );
+  return notActivated.status === "not_activated";
 });
 
 fx("critical", "commitment: an expired pending cannot be revived by a late YES", () => {
-  const pending = createPending("publish", { snapshotId: "s1" }, clock, 1);
   const late = new FixedClock(new Date(clock.now().getTime() + 10_000));
-  const { outcome } = applyCommitment("YES", pending, late);
+  const outcome = confirmationEligibility(ACTIVATED, {
+    occurredAt: late.now(),
+    currentRevisionId: "rev-1",
+    clock: new FixedClock(new Date(ACTIVATED.expiresAt!.getTime() + 1)),
+  });
   return outcome.status === "expired";
+});
+
+fx("critical", "commitment: a token predating its current prompt cannot commit", () => {
+  const outcome = confirmationEligibility(ACTIVATED, {
+    occurredAt: new Date(ACTIVATED.activatedAt!.getTime() - 5_000),
+    currentRevisionId: "rev-1",
+    clock,
+  });
+  return outcome.status === "predates_activation";
 });
 
 // -------------------------------------------------------------- critical: grounding/no-invention

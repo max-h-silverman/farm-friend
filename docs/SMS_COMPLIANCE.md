@@ -8,13 +8,14 @@ driver; **A2P 10DLC is assumed approved by launch** (Eat Vashon week). All copy 
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: partly implemented; keyword grammar remains a requirement.** F-014 implements verified
-> ingress, durable minimized persistence, per-sender serialization, the separate provider-time
-> STOP/START consent watermark, and the dispatch-claim consent boundary, all proven by
-> real-Postgres tests; the speculative program key is gone from the schema. **Not yet aligned:** the
-> deterministic parser still accepts the obsolete `OUT`/`IGNORE` tokens and the registered campaign
-> copy has not been reconciled with the approved fixed keyword set. That alignment is F-012/F-016
-> and the keyword behavior below remains the target, not current executable proof.
+> **Status: keyword set aligned and executable; one external question open.** F-014 implements
+> verified ingress, durable minimized persistence, per-sender serialization, the separate
+> provider-time STOP/START consent watermark, and the dispatch-claim consent boundary, all proven
+> by real-Postgres tests. F-012 aligned the keyword set: the parser derives its tables from the
+> registered opt-out/opt-in/help lists, `STOPALL` now opts out globally, and the obsolete
+> `OUT`/`IGNORE` tokens are gone from the parser, the registered artifact, and public copy.
+> **Still open:** whether amending registered Sample Message 3 requires carrier resubmission —
+> a Telnyx-console question only max can answer.
 
 ## Deterministic keyword handling (code, before any model call)
 
@@ -36,7 +37,7 @@ commit or decline.
 
 | Keyword | Behavior |
 |---|---|
-| `STOP` / `UNSUBSCRIBE` / `END` / `QUIT` | **Global** opt-out of all SMS. Clears launch-program consent immediately. **Can never be reinterpreted by conversation state.** Send the single confirming opt-out reply, then nothing further. |
+| `STOP` / `STOPALL` / `UNSUBSCRIBE` / `CANCEL` / `END` / `QUIT` | **Global** opt-out of all SMS — the exact registered opt-out list. Clears launch-program consent immediately. **Can never be reinterpreted by conversation state.** Send the single confirming opt-out reply, then nothing further. |
 | `START` | Establish or restore consent to the one VIGA Farm Friend launch SMS program. |
 | `JOIN` | Establish consent to the one VIGA Farm Friend launch SMS program. There is no launch `JOIN <program>` grammar. |
 | `HELP` / `INFO` | Return help text; never suppressed by state. |
@@ -58,9 +59,11 @@ The exact expiry window is an unresolved launch decision.
 An expired token gets an honest "that request expired — here's how to redo it" reply, never a
 silent no-op.
 
-`YES`/`NO` are **never global** and never override `STOP`/`HELP`/`FLAG`. `OUT` and `IGNORE` are not
-commitment tokens and can never publish inventory. A stock-out alert may ask the farmer to send
-current inventory; that reply uses the ordinary proposal and `YES`/`NO` flow.
+`YES`/`NO` are **never global** and never override `STOP`/`HELP`/`FLAG`. They are the only two
+commitment tokens: `OUT` and `IGNORE` are not tokens at all and parse as ordinary free text, so a
+farmer who texts "out" reaches the interpreter rather than publishing something unreviewed. A
+stock-out alert may ask the farmer to send current inventory; that reply uses the ordinary proposal
+and `YES`/`NO` flow.
 
 ### Concurrent and out-of-order messages
 
@@ -131,7 +134,8 @@ alert) are drafted provisionally and finalized at A2P registration. Keep them in
 registered copy is a single swap; none of the copy is a compliance *enforcement* point — the
 enforcement is the deterministic code above.
 
-> *Current drift:* the registered/public 10DLC source copy still advertises `OUT`/`IGNORE` stock-out
-> actions and FLAG, and its `STOPALL` keyword is absent from the current parser. F-012 owns that
-> registered keyword/sample-copy alignment before public SMS launch; F-016 does not silently absorb
-> it.
+The registered opt-out, opt-in, and help keyword lists are stated once in
+`packages/core/src/sms/commands.ts` (`REGISTERED_*_KEYWORDS`), and the parser's tables are derived
+from them, so a keyword cannot be advertised without being honored. `commands.test.ts` reads
+`docs/TELNYX_10DLC_FIELD_VALUES.txt` and fails if the registered artifact and the parser disagree
+in either direction.

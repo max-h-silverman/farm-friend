@@ -7,6 +7,90 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-26 — F-012 keyword-set alignment, and B-001 finally caught with a name
+
+Built from clean `main` at `fc6c77d` on `f-012-keyword-set-alignment`. Test-first throughout: the
+new `commands.test.ts` block failed 8/15 before the parser changed.
+
+**The STOPALL finding held exactly as briefed.** `STOP_WORDS` was
+`{STOP, UNSUBSCRIBE, END, QUIT, CANCEL}` while `docs/TELNYX_10DLC_FIELD_VALUES.txt:20` registered
+`STOP,STOPALL,UNSUBSCRIBE,CANCEL,END,QUIT` and the public pages promised the same six. A subscriber
+texting `STOPALL` — registered with the carrier, promised publicly — fell through to
+`{ kind: "none" }` and reached the model as free text. A live Golden Rule #2 violation.
+
+**The fix is structural, not a list edit.** Adding one string would have left the two lists free to
+drift again tomorrow. Instead the registered lists are now stated **once**
+(`REGISTERED_OPT_OUT_KEYWORDS` / `_OPT_IN_` / `_HELP_`) and the parser tables are *derived* from
+them, so a keyword cannot be advertised without being honored. A test then reads the registered
+`.txt` artifact itself and asserts agreement **in both directions** — registered-but-unparsed is a
+broken public promise, parsed-but-unregistered means live behavior exceeds what was disclosed.
+
+**Drift checked both ways, as instructed.** Registered→code found only `STOPALL`. Code→registered
+found `OUT`/`IGNORE`, which were parsed but *not* in any registered KEYWORDS field — the item's
+claim that the keyword registration was already correct is confirmed. Their drift lives in
+**Sample Message 3** and the public "Supported Commands" copy.
+
+**The superseded commitment machine is deleted, and that was in scope.** `packages/core/src/index.ts`
+said so in a comment, the handoff assigns it to F-012, and its only "second consumer" was
+`gleaning_signup` — an explicit non-goal. It had no transactional caller. The two **critical** evals
+that exercised it were not dropped: they were re-pointed at the live `confirmationEligibility` path
+and assert the same invariants (non-contextual YES cannot commit; expiry cannot be revived), plus a
+third for `predates_activation`. Critical evals went 5/5 → 7/7 — coverage moved onto real code
+rather than lapsing.
+
+**A tautology caught during sabotage testing.** The new eval originally iterated
+`REGISTERED_OPT_OUT_KEYWORDS`, so deleting `STOPALL` from that constant made the parser *and* the
+eval agree — 3 unit tests failed but evals stayed green. Rewritten to spell the six keywords out
+literally. This is the difference between a test that checks behavior and one that checks a
+constant against itself.
+
+**B-001 reproduced during verification — and this time the log was captured.**
+
+```
+FAIL apps/web/lib/inquiry.integration.test.ts >
+  keeps every other farm's data out of both inquiry model contexts
+  expect(containsRawPhone(context)).toBe(false);   // expected true to be false
+```
+
+*Root cause, and it is a real product defect.* `RAW_PHONE_RE` had no boundary anchors, so it matched
+**any** run of ten digits. A UUID's hex digits form one about **3.1% of the time** (measured: 6,174
+of 200,000). That test puts two location UUIDs into the model context → ~6% per-run failure for that
+single test, which reproduces the observed `1 failed | 91 passed` shape and its rough 1-in-8
+frequency. **The resource-pressure hypothesis was wrong**; chaining was a coincidence, which is why
+the flake seemed to prefer chained runs and never reproduced in isolation.
+
+*Why it mattered beyond the suite.* `redactOutbound` shares the regex and **throws**. Any legitimate
+outbound SMS whose text carried an identifier with an unlucky digit run would be refused at random —
+an intermittent failure on the delivery critical path.
+
+*The F-013 echo.* F-013 fixed this same bug class in `assertNoRawPhone` but left the sibling
+`RAW_PHONE_RE` unanchored. The SESSION_LOG warning "treat a named test as a real defect — F-013 hit
+a genuine bug that first looked exactly like this" was correct, and following it is what solved this.
+
+*Fix and proof.* `(?<![0-9A-Za-z_])…(?![0-9A-Za-z_])` — the digits must stand on their own. Measured
+after: **0 false positives in 200,000 UUIDs**, and `(206) 555-1234`, `2065551234`, `206-555-1234`,
+`206.555.1234`, `+1 206 555 1234`, `+12065551234`, `1-206-555-1234` all still refused. The
+regression test pins **five specific UUIDs** known to match the old pattern, so this cannot decay
+back into a probabilistic flake.
+
+**Sabotage-tested, six ways.** Dropping `STOPALL` from the registered list (3 unit tests + 1 eval
+fail); re-adding `OUT`/`IGNORE` as tokens (1); restoring `OUT`/`IGNORE` to registered Sample Message
+3 (1); registering `FLAG` as a carrier help keyword (2); deleting the `expired` guard in
+`confirmationEligibility` (1 critical eval); deleting the `predates_activation` guard (1 critical
+eval); and reverting the phone-regex boundaries (1). Each failed as expected and was restored.
+
+**Deliberately not done:** F-016's passive-follow-up / follow-up-interest / scoped `MUTE` removal
+(separate item, not absorbed); F-017 and F-018 untouched. No `MUTE` exists in code or copy today, so
+F-012's `MUTE` acceptance criterion is satisfied by inspection rather than by an edit.
+
+**Verified:** `npm test` 159/159 across 18 files; real-Postgres integration 92/92 across 7 files,
+**8 consecutive clean runs** after the B-001 fix; typecheck, lint, `git diff --check` PASS; evals
+critical 7/7, advisory 4/4, adversarial 14/14; production Next.js build passes.
+
+**Open, and it is the whole reason F-012 stays in review:** *does amending registered Sample Message
+3 require carrier resubmission, or is it editable in the Telnyx console?* Everything else is in-repo
+or VIGA-website work needing no carrier action.
+
 ## 2026-07-25 — F-019 SMS-only inquiry boundary and the public abuse/cost throttle
 
 Built from clean `main` at `d5ad2f1`. Test-first: the throttle tests failed with

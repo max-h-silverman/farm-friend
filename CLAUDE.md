@@ -296,29 +296,37 @@ assembler, and the low-level provider call is unexported. The **public web surfa
 `GET /api/public/stands` has no model seam in its dependency set, and `POST /api/public/stock-out`
 is the single public model-backed handler, fronted by the abuse/cost throttle.
 
-**Verified July 25, 2026:** `npm test` 154/154 across 19 files; real-Postgres integration 92/92
-across 7 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 5/5, advisory 4/4,
-adversarial 14/14; production Next.js build passes.
+**Verified July 26, 2026:** `npm test` 159/159 across 18 files; real-Postgres integration 92/92
+across 7 files (8 consecutive clean runs) against PostgreSQL 16.12; typecheck + lint pass; evals
+critical 7/7, advisory 4/4, adversarial 14/14; production Next.js build passes.
+
+**Keyword set is aligned and self-checking.** The registered opt-out/opt-in/help lists are stated
+once in `packages/core/src/sms/commands.ts` (`REGISTERED_*_KEYWORDS`) and the parser derives its
+tables from them; `commands.test.ts` reads `docs/TELNYX_10DLC_FIELD_VALUES.txt` and fails if the
+registered artifact and the parser disagree **in either direction**. `STOPALL` now opts out
+globally. The superseded generic commitment machine and its `OUT`/`IGNORE` tokens are **deleted**;
+`YES`/`NO` are the only commitment tokens, and the two critical evals that covered the old machine
+now assert the same invariants against the live `confirmationEligibility` path.
 
 **Known gaps / owed.** No public **web UI** — the map render is still a placeholder page (F-017's
-natural home). Message classification has no projection and no consumer (F-012). The configured
-provider is the **stub** — the privacy gate is executable and fails closed, but no real vendor's
-terms have passed it, and it checks an operator-attested declaration rather than vendor practice.
-Auth returns an empty role list with no durable session. F-012's superseded commitment machine and
-`OUT`/`IGNORE` tokens remain because the critical evals exercise them. No seed data, no retention
-job. SMS inquiry has no HTTP route **by design** — it is reached from the Telnyx webhook worker.
+natural home). Message classification has no projection and no consumer. The configured provider is
+the **stub** — the privacy gate is executable and fails closed, but no real vendor's terms have
+passed it, and it checks an operator-attested declaration rather than vendor practice. Auth returns
+an empty role list with no durable session. No seed data, no retention job. SMS inquiry has no HTTP
+route **by design** — it is reached from the Telnyx webhook worker.
 
-**Open: an undiagnosed integration flake.** Two runs on 2026-07-25 failed `1 failed | 91 passed`
-among 17 clean 92/92 runs; both were inside a *chained* `npm test && npm run test:integration`
-invocation. The failing test name was **never captured**, so there is no diagnosis — only a weak
-resource-pressure hypothesis (per-suite databases are uniquely named, so data interference is ruled
-out). **If an integration run fails: capture the test name and assertion BEFORE rerunning**
-(`npm run test:integration 2>&1 | tee /tmp/itest.log`), and run the suites sequentially rather than
-chained. Treat a named test as a real defect — F-013 hit a genuine ~1-in-4 bug that first looked
-exactly like this. Do not close this by collecting more green runs.
+**B-001 is diagnosed and fixed** (was the "undiagnosed integration flake"). Root cause was a real
+product defect, not resource pressure: `RAW_PHONE_RE` in `packages/sms/src/redaction.ts` had no
+boundary anchors, so it matched *any* ten-digit run — including the hex digits inside ~3.1% of
+random UUIDs. `redactOutbound` shares that regex and throws, so production sends carrying an
+identifier could be refused at random. Fixed with `(?<![0-9A-Za-z_])…(?![0-9A-Za-z_])`; 0 false
+positives in 200k UUIDs, all real phone formats still refused, pinned by a deterministic regression
+test. **The standing lesson holds:** if an integration run fails, capture the test name and
+assertion BEFORE rerunning (`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites
+sequentially — that is what finally caught this one.
 
 **PM / authorization:** F-013, F-014, F-015, F-019, F-020, F-021, F-022 are done and merged to
-`main`. F-012, F-016, F-017, and F-018 remain planned and each requires separate implementation
-authorization. F-012 additionally needs a decision only max can make — whether aligning the live
-Telnyx campaign requires resubmission — so its code/copy work can start but the item cannot close
-without that. Do not silently absorb other planned items into a tranche.
+`main`. **F-012 is in review and cannot close yet** — all in-repo work is done, but it is blocked on
+one external decision only max can make: *does amending registered Sample Message 3 require carrier
+resubmission, or is it console-editable?* F-016, F-017, and F-018 remain planned and each requires
+separate implementation authorization. Do not silently absorb other planned items into a tranche.
