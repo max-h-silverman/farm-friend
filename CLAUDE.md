@@ -374,8 +374,15 @@ never creates:
   seeded listing fact fabricates a confirmation) and **no phone numbers** (a seeded phone fabricates
   consent). Awaiting max's list; deferred to a later session.
 
-**Also open, each now owned:** F-027 (vestigial `tenantId` contradicting the tenancy non-goal), F-028
-(`packages/config` and `packages/contracts` still exist despite the handoff's "Delete"), F-029
+**The four-package baseline is now enforced, not just documented (F-028).** F-021 did delete the
+sources of `packages/config` and `packages/contracts`; what survived was two directories holding a
+gitignored `tsconfig.tsbuildinfo` each — untracked build residue that made the repo *look* like six
+packages while git tracked four. The pre-existing `workspaceDirectories` helper could not see them
+(it skips any directory lacking a `package.json`, exactly an orphan's shape). Both directories are
+gone, and `architecture.test.ts` now fails if either name returns as a **directory** (build output
+included), a workspace entry, a dependency, a source import, or a tsconfig reference.
+
+**Also open, each now owned:** F-027 (vestigial `tenantId` contradicting the tenancy non-goal), F-029
 (go-live: deploy, Telnyx console wiring, first verified live `JOIN`). No per-stand pages or
 filter/search UI. Message classification has no projection or consumer. `model_runs` has **no
 production writer** — its only insert is in a test. SMS inquiry has no HTTP route **by design** —
