@@ -130,8 +130,8 @@ describe("raw-context retention purge (integration)", () => {
     for (const row of contacts) ids[row.phone_hash as string] = row.id as string;
 
     const admins = await client()`
-      insert into administrators (contact_id, authorized_at)
-      values (${id(adminHash)}, ${T0}) returning id
+      insert into administrators (email, contact_id, authorized_at)
+      values ('retention-admin@viga.example', ${id(adminHash)}, ${T0}) returning id
     `;
     ids.administrator = admins[0]?.id as string;
   });

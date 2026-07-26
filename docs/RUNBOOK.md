@@ -45,6 +45,9 @@ Copy `.env.example` → `.env` and fill:
 - `PHONE_HASH_SALT` — required; the phone hash is the only lookup/log key.
 - `CRON_SECRET` — shared secret guarding the scheduled-worker route. **Required, no default, no
   local-only bypass** (see "Scheduled work" below).
+- `MAGIC_LINK_SECRET` — signs admin sign-in links. **No default**: the callback returns 503 rather
+  than verifying signatures against a guessable value, because that would be an open door to the
+  farm-approval surface.
 - `SMS_PROVIDER` — `simulator` or `telnyx`. There is **no default**; an unset or unknown value is a
   configuration error rather than a silent fallback.
 - With `SMS_PROVIDER=telnyx`, all four are required: `TELNYX_API_KEY`,
@@ -68,6 +71,28 @@ every file in `packages/db/drizzle/`, runs the migration set again to prove the 
 a no-op, exercises the launch constraints, and drops the test database. This is destructive only
 to the uniquely named database created by the harness; never point manual migration commands at a
 database whose contents you intend to preserve.
+
+## Bootstrap the first administrator
+
+Authorization has a chicken-and-egg problem: only an administrator can grant authority, so the first
+one comes from outside the application. Run once per environment, against a database you intend to
+change:
+
+```
+DATABASE_URL=… npx tsx packages/db/scripts/bootstrap-administrator.ts you@example.org
+```
+
+Idempotent — an address that is already a live administrator is reported and left alone. Afterwards
+administrators are managed in the database.
+
+**Why a script and not the alternatives** (decided 2026-07-26, F-025a): *first-user-wins* on a public
+login URL is an open door to every farm's published state, and an *env-var allowlist* puts
+authorization in configuration, where the audit trail cannot record who granted it or when. A row has
+an `authorized_at` and the same revocation path as every other grant.
+
+Sign-in itself is a magic link signed with `MAGIC_LINK_SECRET`; verifying it proves control of an
+email address, and the administrator lookup — not the link — is what confers authority. See
+[ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md) §the administrator role.
 
 ## Seeding initial listing data
 

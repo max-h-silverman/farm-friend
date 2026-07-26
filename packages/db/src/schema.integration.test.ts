@@ -34,6 +34,7 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 }
 
 const expectedTables = [
+  "admin_sessions",
   "administrators",
   "audit_events",
   "consent_transition_watermarks",
@@ -259,8 +260,8 @@ describe("clean launch database foundation (integration)", () => {
 
   it("separates administrator authority, farmer authority, and VIGA approval", async () => {
     const adminRows = await db()`
-      insert into administrators (contact_id, authorized_at)
-      values (${storedId(adminHash)}, ${now})
+      insert into administrators (email, contact_id, authorized_at)
+      values ('schema-admin@viga.example', ${storedId(adminHash)}, ${now})
       returning id
     `;
     ids.administrator = adminRows[0]?.id as string;

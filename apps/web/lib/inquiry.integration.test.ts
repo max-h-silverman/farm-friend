@@ -164,8 +164,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     ids.adminContact = contactByHash.get("7".repeat(64))!;
 
     const admins = await client()`
-      insert into administrators (contact_id, authorized_at)
-      values (${ids.adminContact}, ${T0}) returning id
+      insert into administrators (email, contact_id, authorized_at)
+      values ('inquiry-admin@viga.example', ${ids.adminContact}, ${T0}) returning id
     `;
 
     // Two farms, so a report at one can be proved never to reach the other.

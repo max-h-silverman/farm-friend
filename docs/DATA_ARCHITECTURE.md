@@ -42,7 +42,14 @@ render an honest "updated X ago" without a second provenance axis.
 - **farmer contacts and authorization** — who may act for a farm, and proof they control the phone
   number.
 - **VIGA approval** — recorded **separately** from onboarding completion; approval is VIGA's act,
-  not a side effect of a farmer finishing a form.
+  not a side effect of a farmer finishing a form. Approval and revocation both record **which
+  administrator acted and when**, and revocation updates the row rather than deleting it: published
+  revisions reference the approval they were made under.
+- **administrators and their sessions** — an administrator is identified by **email**, the identity
+  the login path proves; the phone contact is optional and is not the identity. A session is a
+  durable row holding only the **hash** of its token, so a database read cannot recover a live
+  credential, and roles are re-looked-up per request so revocation is immediate. Sessions carry no
+  personal data beyond the administrator link.
 - **structured public listing facts** — including payment methods and VIGA Farm Bucks acceptance or
   eligibility as **read-only facts**, plus farmer-selected web/social links and an optional photo
   or short biography.
@@ -92,6 +99,12 @@ These are **database-level** requirements, not application conventions:
 - **Farmer authority over inventory publication** — only an authorized farmer for that location can
   publish, and only an approved farm publishes publicly. Both are re-read while the confirmation
   transaction holds the sender and pending-confirmation locks.
+- **One live approval per farm, one live administrator per email** — partial unique indexes over
+  unrevoked rows. The email index is what keeps the login lookup unambiguous; revoked rows remain
+  for the audit trail and are excluded from both.
+- **Administrator authority is re-read at the moment of the write** — approval and revocation check
+  the administrator row inside their own transaction, so a revocation that committed after a request
+  began still wins. A principal proves who the caller was; only the locked row proves who they are.
 - **Universal STOP before dispatch authorization** — a globally stopped recipient cannot claim a
   queued non-required message for dispatch. The atomic outbox claim is the boundary: work claimed
   before STOP may already be in flight and cannot be recalled.
