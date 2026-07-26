@@ -74,7 +74,15 @@ because routing links are F-017's scope; F-012, F-016, F-017, F-018 untouched.
 against PostgreSQL 16.12; typecheck, lint, and `git diff --check` PASS; evals critical 5/5,
 advisory 4/4, adversarial 14/14; production Next.js build with both public routes registered.
 `vitest.config.ts` now collects `apps/*/lib/**/*.test.ts` so the composition root's pure logic is
-unit-tested beside it.
+unit-tested beside it. Merged to `main` as PR #22 (`2aff3eb`), re-verified after merge.
+
+**One flake observed and NOT explained away.** A post-merge run showed `1 failed | 91 passed`,
+followed by **11 consecutive clean 92/92 runs**. Both this failure and an earlier one in the same
+session occurred inside a chained `npm test && npm run test:integration && …` invocation, where two
+vitest processes contend for the same Postgres server; isolated runs have not reproduced it. That
+is a plausible cause, not a diagnosis — the failing test name was not captured before the rerun
+passed. **If it recurs, capture the test name first.** Worth watching: F-013's session log records a
+genuine ~1-in-4 bug that first presented as "a different test each time."
 
 ## 2026-07-25 — F-013 grounded answers and code-bound stock-out recipients
 
