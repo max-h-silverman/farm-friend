@@ -7,7 +7,119 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-26 (latest) — B-004: the webhook kicks the workers, and three tests that could not fail
+## 2026-07-26 (latest) — F-025a: the operator gets an identity, and farms can finally be approved
+
+One item, one PR. Farm Friend could not approve a farm. Publication refuses with `not_approved`
+unless a live `farm_approvals` row exists, and **no code path created one** — every test that
+published successfully did so because its *fixture* inserted the row by hand. The suite was green
+and the product could not work. This is the item that closes that.
+
+**Three defects with one cause: the operator had no identity.** `administrators` identified people
+only by `contact_id` — a phone contact — while magic-link auth identifies them by email, and nothing
+connected the two, so an authenticated operator could never be resolved to an administrator row.
+`resolvePrincipal` therefore returned an empty role list and `hasRole` denied everything. Approval
+was reachable only by hand-written SQL. Fixing the identity fixes all three.
+
+### The decisions worth keeping
+
+**Identity is email, and existing rows fail closed.** Migration 0003 adds `administrators.email`
+(NOT NULL, lowercased and structurally checked, one live row per address) and makes `contact_id`
+optional — an operator who never texts is still an operator. Pre-existing rows have no email and no
+way to invent one, so the migration **revokes** them rather than fabricating an identity. Inventing
+one would have been a real authorization grant conjured by a schema change; this is a greenfield
+build, so failing closed costs nothing.
+
+**A session is a database row, not a signed claim — and that is the whole point.** Roles are
+re-looked-up against the session's administrator on *every* request, so revoking an administrator
+takes effect on their **next request** rather than whenever a self-contained token would have
+expired. Only the token's SHA-256 hash is stored, so a database read cannot recover a live
+credential — the same discipline as the phone hash. Unsalted SHA-256 is correct here and wrong for
+phones: the input is 256 bits of uniform randomness, so there is no candidate set to enumerate.
+
+**Login is not first-user-wins, and that took the shape it did deliberately.** The callback verifies
+the link, then looks the email up in `administrators`. Holding a valid link proves you control an
+address; it does **not** make you an operator. Auto-provisioning there would have been an open door
+on a public URL. A non-administrator gets the same 401 as a bad token, so the endpoint never reveals
+who VIGA's operators are. Bootstrap is a seed script rather than an env-var allowlist, because
+authorization belongs in data where the audit trail can record it — an env var cannot say who
+granted it or when.
+
+**`ADMINISTRATOR_ROLES` is a constant, not a query.** That is the enforcement of Golden Rule #1: the
+farmer owns published state, so an operator role must never confer the ability to act as a farm's
+owner. A list that cannot vary cannot be widened by a bad row, a join, or a future column. VIGA
+approves *whether* a farm may publish; the farmer alone owns *what* it publishes.
+
+**Authority is re-read at the moment of the write.** `approveFarm` and `revokeFarmApproval` check the
+administrator row inside their own transaction, holding the lock. A principal proves who the caller
+*was* when the request started; only the locked row proves who they *are*. The route adds a second
+check and the transaction the third — the third is the one that matters.
+
+### The sabotage log
+
+Every claim was verified falsifiable before being believed:
+
+| Sabotage | Result |
+|---|---|
+| Role lookup also grants `farmer` | 2 tests fail |
+| The `not_approved` gate removed entirely | 2 tests fail |
+| `approveFarm` skips the administrator liveness check | 2 tests fail |
+| Callback auto-provisions any verified email | 1 test fails |
+| `POST` takes `administratorId` from the request body | 1 test fails |
+| Logout clears only the cookie | 1 test fails |
+| `requireRole` dropped from the farms route | 5 tests fail |
+| `resolvePrincipal` returns a hardcoded admin | 5 tests fail |
+| Each of 5 migration constraints dropped | 1 test each |
+| Prefix-matching cookie parser; each cookie attribute | 1 test each |
+| Session revocation / expiry-boundary / hash-identity | 1 test each |
+
+**A false negative that taught the lesson again.** The first "callback skips the administrator
+lookup" sabotage came back green, which looked like a hole in the test. It was not — the edit was
+`if (false || administrator === null)`, which is *identical* to the original. Rewriting it as genuine
+auto-provisioning made the test fail correctly. Worth recording because the failure mode is
+seductive: a sabotage that does not change behavior proves nothing about the test, and reads exactly
+like a test that cannot fail.
+
+**One genuinely weak assertion, found and fixed.** That same test asserted
+`expect(sessions.length).toBeGreaterThanOrEqual(0)` — a check that cannot fail. It now asserts that
+no administrator row and no session were created, which is what the property actually is.
+
+### Findings
+
+- **Eight existing fixtures broke on the new NOT NULL, and that is the correct signal.** Every suite
+  that inserts an administrator needed an email. Each got a distinct address, since the partial
+  unique index rejects duplicate live rows and a shared literal would couple independent suites.
+- **`createDb`, not a hand-built `Db`.** The first version of the approval suite built
+  `{ orm: drizzle(clientA), sql: clientB }` and hit `ERR_INVALID_ARG_TYPE` binding a `Date`. The
+  cause is documented on `createDb` itself: `drizzle()` overwrites the date serializers on whatever
+  postgres.js client it is constructed over. Use `createDb`, which keeps the two clients separate
+  structurally. (`sharedDb`'s first-call caching, per the standing rule, is why `createAppContext`
+  is not an option here.)
+- **Route suites must close `publicReadContext`'s pool.** It is cached for the process life and has
+  no other owner in a test, so `dropdb` fails on the live connection without an explicit close.
+- **Migration/schema drift was checked directly** rather than assumed: applying 0000–0003 to an empty
+  database produces exactly the constraints and indexes `schema.ts` declares, with `email` NOT NULL
+  and `contact_id` nullable.
+
+### Deliberately not built
+
+**Email delivery of the sign-in link (filed as F-031).** F-025a builds link *verification* and the
+session it mints, not sending. Sending needs a mail provider, credentials, and a data-handling
+attestation no decision has authorized — inventing one would be exactly the speculative machinery
+CLAUDE.md forbids. Today a link is minted out of band with `issueMagicToken`, so a non-technical VIGA
+operator cannot yet sign in unaided. That is a real gap before go-live, and it now has an owner.
+
+**The flag queue and stock-out visibility (F-030, was F-025b).** `/api/admin/flags` keeps a *working*
+role check over an empty list and reads nothing. Its retired-F-009 comment is gone, replaced by one
+saying what it does and does not do. Until F-030 ships, an arriving flag is durable and unreviewable
+— which is also why F-026's retention exemption never terminates.
+
+**Verified on the branch:** unit 292/292 (30 files), integration 176/176 (13 files, real Postgres),
+typecheck, lint, evals critical 10/10 + advisory 4/4 + adversarial 25/25, production build with
+`/admin` rendering.
+
+---
+
+## 2026-07-26 — B-004: the webhook kicks the workers, and three tests that could not fail
 
 One item (B-004), one PR. Inbound reply latency went from a ~60s worst case to a **measured 47ms**
 end to end against real Postgres. The production diff is 41 lines in one route plus a new 95-line

@@ -110,8 +110,8 @@ describe("interpreted inventory → pending proposal (integration)", () => {
       ?.id as string;
 
     const admins = await client()`
-      insert into administrators (contact_id, authorized_at)
-      values (${ids.adminContact}, ${T0}) returning id
+      insert into administrators (email, contact_id, authorized_at)
+      values ('interpretation-admin@viga.example', ${ids.adminContact}, ${T0}) returning id
     `;
     const farms = await client()`
       insert into farms (name) values ('Interpreted Farm') returning id

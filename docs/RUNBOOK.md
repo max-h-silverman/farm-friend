@@ -7,11 +7,14 @@ not inlined there).
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract.
 >
-> **Status.** The repository matches the four-package baseline and contains the clean launch schema
-> plus its initial migration. The SMS webhook does not yet verify signatures or persist, repository
-> workflow transactions are not implemented, and live SMS/model implementations and the composition
-> root do not exist. Where a step below names a path or script that does not exist yet, it is the
-> **contract the corresponding work builds to**, not a description of today.
+> **Status (2026-07-26).** The four-package baseline, the launch schema and its migrations, the
+> composition root, verified+persisting SMS ingress, the authoritative workflow transactions, the
+> retention purge, the public map, and the admin sign-in/farm-approval surface all exist. Still
+> **not** built: the seed utility (B-002), a real model provider (F-024 — the stub is configured),
+> the flag/stock-out queues (F-030), sign-in link delivery by email (F-031), and go-live (F-029).
+> Where a step below names a path or script that does not exist yet, it is the **contract the
+> corresponding work builds to**, not a description of today; CLAUDE.md "Current State" is the live
+> snapshot.
 
 ## Prerequisites
 
@@ -45,6 +48,9 @@ Copy `.env.example` → `.env` and fill:
 - `PHONE_HASH_SALT` — required; the phone hash is the only lookup/log key.
 - `CRON_SECRET` — shared secret guarding the scheduled-worker route. **Required, no default, no
   local-only bypass** (see "Scheduled work" below).
+- `MAGIC_LINK_SECRET` — signs admin sign-in links. **No default**: the callback returns 503 rather
+  than verifying signatures against a guessable value, because that would be an open door to the
+  farm-approval surface.
 - `SMS_PROVIDER` — `simulator` or `telnyx`. There is **no default**; an unset or unknown value is a
   configuration error rather than a silent fallback.
 - With `SMS_PROVIDER=telnyx`, all four are required: `TELNYX_API_KEY`,
@@ -68,6 +74,28 @@ every file in `packages/db/drizzle/`, runs the migration set again to prove the 
 a no-op, exercises the launch constraints, and drops the test database. This is destructive only
 to the uniquely named database created by the harness; never point manual migration commands at a
 database whose contents you intend to preserve.
+
+## Bootstrap the first administrator
+
+Authorization has a chicken-and-egg problem: only an administrator can grant authority, so the first
+one comes from outside the application. Run once per environment, against a database you intend to
+change:
+
+```
+DATABASE_URL=… npx tsx packages/db/scripts/bootstrap-administrator.ts you@example.org
+```
+
+Idempotent — an address that is already a live administrator is reported and left alone. Afterwards
+administrators are managed in the database.
+
+**Why a script and not the alternatives** (decided 2026-07-26, F-025a): *first-user-wins* on a public
+login URL is an open door to every farm's published state, and an *env-var allowlist* puts
+authorization in configuration, where the audit trail cannot record who granted it or when. A row has
+an `authorized_at` and the same revocation path as every other grant.
+
+Sign-in itself is a magic link signed with `MAGIC_LINK_SECRET`; verifying it proves control of an
+email address, and the administrator lookup — not the link — is what confers authority. See
+[ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md) §the administrator role.
 
 ## Seeding initial listing data
 
@@ -140,7 +168,7 @@ Three properties are worth knowing when operating it:
 
 - **Flagged threads are exempt.** A body whose inbox event carries an **open** flag is retained;
   flag review needs a readable thread. The exemption ends when the flag is resolved or dismissed.
-  **F-025 builds that resolution path** — until it ships, nothing can move a flag out of `open`, so
+  **F-030 builds that resolution path** — until it ships, nothing can move a flag out of `open`, so
   a flagged body retains indefinitely. That is the exemption working as designed, not a leak.
 - **It never touches outbound work the dispatcher is still using.** Only `sent`/`failed`/
   `ambiguous`/`suppressed` rows are cleared, so a purge can never race the dispatcher into sending

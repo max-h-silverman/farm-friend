@@ -316,3 +316,85 @@ body {
     color: #10201a;
   }
 }
+
+/* The VIGA operator surface (F-025a). Reuses the public palette rather than introducing a
+   second visual system — one product, seen from two sides. */
+.admin {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.1rem 3rem;
+}
+
+.admin-header h1 {
+  margin: 0 0 0.2rem;
+}
+
+.admin-note {
+  color: var(--ink-soft);
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
+.admin-error {
+  padding: 0.7rem 0.9rem;
+  color: var(--ink);
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line);
+  border-radius: 10px;
+}
+
+.admin-farms {
+  list-style: none;
+  margin: 1.4rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.admin-farm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.admin-farm h2 {
+  margin: 0 0 0.15rem;
+  font-size: 1.05rem;
+}
+
+.admin-farm p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.admin-approved {
+  color: var(--green);
+}
+
+.admin-unapproved {
+  color: var(--ink-faint);
+}
+
+.admin-farm button {
+  /* Same 48px target as the public surface: approval happens on a phone too. */
+  min-height: 48px;
+  padding: 0 1.1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.admin-farm button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}

@@ -6,6 +6,7 @@ export * from "./schema";
 export { schema };
 
 export * from "./transactions";
+export * from "./admin";
 
 export interface Db {
   /** Drizzle query builder over the launch schema. */

@@ -139,9 +139,16 @@ export const administrators = pgTable(
   "administrators",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    contactId: uuid("contact_id")
-      .notNull()
-      .references(() => contacts.id, { onDelete: "restrict" }),
+    // Administrator identity is EMAIL, because that is what the login path proves.
+    // `contact_id` used to be the only identifier while magic-link auth identified people
+    // by email, and nothing connected the two — so no session could ever find its
+    // administrator. The identity column and the login path must agree (F-025a).
+    email: text("email").notNull(),
+    // The phone side stays available for the SMS surfaces, but is not the identity and is
+    // not required: an operator who never texts is still an operator.
+    contactId: uuid("contact_id").references(() => contacts.id, {
+      onDelete: "restrict",
+    }),
     authorizedAt: timestamp("authorized_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
@@ -151,9 +158,58 @@ export const administrators = pgTable(
     )
       .on(table.contactId)
       .where(sql`${table.revokedAt} is null`),
+    // The login lookup is by email, so at most one live administrator may hold an address.
+    // Revoked rows stay for the audit trail and are excluded here.
+    oneActivePerEmail: uniqueIndex("administrators_one_active_per_email")
+      .on(table.email)
+      .where(sql`${table.revokedAt} is null`),
+    emailNormalized: check(
+      "administrators_email_normalized",
+      // Lowercased and structurally an address: the login path lowercases before lookup,
+      // so a mixed-case row would be authorization that can never be found.
+      sql`${table.email} = lower(${table.email}) and ${table.email} ~ '^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$'`,
+    ),
     validRevocation: check(
       "administrators_valid_revocation",
       sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.authorizedAt}`,
+    ),
+  }),
+);
+
+export const adminSessions = pgTable(
+  "admin_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Only the HASH of the session token is stored. A database read cannot recover a live
+    // credential — the same discipline the phone hash follows (Golden Rule #5).
+    tokenHash: text("token_hash").notNull(),
+    administratorId: uuid("administrator_id")
+      .notNull()
+      .references(() => administrators.id, { onDelete: "restrict" }),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => ({
+    tokenHashUnique: unique("admin_sessions_token_hash_unique").on(
+      table.tokenHash,
+    ),
+    administratorLookup: index("admin_sessions_administrator").on(
+      table.administratorId,
+    ),
+    // 32 random bytes hex-encoded. A short value here would mean the token was stored
+    // rather than hashed, or truncated to something enumerable.
+    tokenHashShape: check(
+      "admin_sessions_token_hash_shape",
+      sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    boundedLifetime: check(
+      "admin_sessions_bounded_lifetime",
+      sql`${table.expiresAt} > ${table.issuedAt}`,
+    ),
+    validRevocation: check(
+      "admin_sessions_valid_revocation",
+      sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.issuedAt}`,
     ),
   }),
 );

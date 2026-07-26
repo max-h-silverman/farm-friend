@@ -12,3 +12,4 @@ export * from "./public/throttle";
 export * from "./public/proximity";
 export * from "./auth/magic-link";
 export * from "./auth/roles";
+export * from "./auth/session";

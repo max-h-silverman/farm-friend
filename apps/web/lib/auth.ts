@@ -1,24 +1,35 @@
-import { verifyMagicToken, type Principal, type Role } from "@farm-friend/core";
+import { hashSessionToken, type Principal } from "@farm-friend/core";
+import { resolveAdminSession } from "@farm-friend/db";
+import { publicReadContext } from "./public-context";
+import { sessionTokenFromRequest } from "./admin-auth";
 
-// Server-side principal resolution for web routes. In a full build this reads the session
-// cookie, looks up the person + their roles in the DB (server-side, never client-supplied),
-// and returns a Principal. Phase 0 wires the shape + the magic-link verification; the DB
-// role lookup lands with auth-backed features. requireRole (from core) is called by each route.
-
-const secret = () => process.env.MAGIC_LINK_SECRET ?? "dev-only-change-me";
+// Server-side principal resolution for web routes (F-025a).
+//
+// This used to verify a magic-link token and then return an EMPTY role list, so `hasRole`
+// denied everything and no admin route could ever work. It now resolves the durable session
+// against the database on every request.
+//
+// Two properties matter and are load-bearing:
+//
+//   - **Roles are looked up server-side, never taken from the token or the client.** The
+//     cookie carries opaque random material and nothing else — no email, no role, no claim.
+//     Everything about who the caller is comes from the database row the token's hash finds.
+//   - **The lookup is per-request, so revocation is immediate.** Revoking an administrator
+//     or a session takes effect on their next request rather than whenever a self-contained
+//     token would have expired. That is the reason a session is a record, not a signature.
+//
+// `requireRole` (from core) is called by each protected route; this only says who the caller
+// is, never what they may do.
 
 /** Resolve the caller into a Principal, or null if unauthenticated. Server-side only. */
 export async function resolvePrincipal(req: Request): Promise<Principal | null> {
-  // Session token via cookie or Authorization header; verified with the code-enforced signature.
-  const auth = req.headers.get("authorization") ?? "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!token) return null;
+  const token = sessionTokenFromRequest(req);
+  if (token === null) return null;
 
-  const verified = verifyMagicToken(token, secret(), { now: () => new Date() });
-  if (!verified.ok) return null;
-
-  // NOTE: roles MUST be looked up server-side (DB) — never taken from the token/client.
-  // Phase 0 returns a minimal principal; the DB-backed role lookup lands with F-009/F-005.
-  const roles: Role[] = [];
-  return { personId: verified.email, roles };
+  const { db, clock } = publicReadContext();
+  // Only the hash is ever sent to the database, and only the hash is stored there.
+  return resolveAdminSession(db, {
+    tokenHash: hashSessionToken(token),
+    now: clock.now(),
+  });
 }

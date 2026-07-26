@@ -1030,7 +1030,7 @@ const DEFAULT_RETENTION_BATCH = 500;
  * retained — flag review needs a readable thread, and purging evidence out from under an
  * open safety review is irreversible in a way that over-retention is not. The exemption is
  * therefore written to fail SAFE: the purge only touches a row it can positively show has
- * no open flag. F-025 builds the resolution path; until it exists nothing moves a flag out
+ * no open flag. F-030 builds the resolution path; until it exists nothing moves a flag out
  * of `open`, so an exempted row retains indefinitely. That is the exemption working, not a
  * leak.
  *

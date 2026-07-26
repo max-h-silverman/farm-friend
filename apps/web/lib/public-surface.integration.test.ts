@@ -184,8 +184,8 @@ describe("public web surface boundary (integration)", () => {
     ids.contact = contactByHash.get(farmerHash)!;
 
     const admins = await client()`
-      insert into administrators (contact_id, authorized_at)
-      values (${contactByHash.get(adminHash)!}, ${T0}) returning id
+      insert into administrators (email, contact_id, authorized_at)
+      values ('public-surface-admin@viga.example', ${contactByHash.get(adminHash)!}, ${T0}) returning id
     `;
 
     const farm = await client()`

@@ -566,8 +566,8 @@ describe("inbound routing end to end (integration)", () => {
         returning id
       `;
       const admin = await client()`
-        insert into administrators (contact_id, authorized_at)
-        values (${adminContact[0]?.id as string}, ${at(-60)})
+        insert into administrators (email, contact_id, authorized_at)
+        values ('routing-admin@viga.example', ${adminContact[0]?.id as string}, ${at(-60)})
         returning id
       `;
 
