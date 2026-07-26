@@ -331,13 +331,32 @@ React state in the customer's tab — never stored, logged, requested, or put in
 `packages/core/src/sms/commands.ts` and `commands.test.ts` fails if the registered artifact and the
 parser disagree in either direction. `YES`/`NO` are the only commitment tokens.
 
-**Known gaps / owed.** **No seed utility (B-002)** — the schema rejects out-of-range coordinates and
-nothing can invent them, but nothing *loads* farms/locations/approval state, so the map renders empty
-on a fresh database. No per-stand pages and no filter/search UI. Message classification has no projection and no consumer. The
-configured provider is the **stub** — the privacy gate is executable and fails closed, but no real
-vendor's terms have passed it, and it checks an operator-attested declaration rather than vendor
-practice. Auth returns an empty role list with no durable session. No retention job. SMS inquiry has
-no HTTP route **by design** — it is reached from the Telnyx webhook worker.
+**The go-live gap, and it is a wiring gap, not a correctness gap.** Every launch guarantee is proven
+at the function boundary and most are unreachable at the system boundary. Five items own the distance
+to launch — logged 2026-07-26 after auditing the code, each blocking:
+
+- **F-023 — nothing routes inbound SMS.** The webhook verifies and persists correctly, but
+  `runInboundPass` (`apps/web/lib/workers.ts:38`) claims an event, fails stale ones closed, and
+  finalizes **without routing it**. Production callers of `parseCommand`, `consentTransitionFor`, and
+  `answerInquiry`: **none.** Today a farmer texts `STOP` and nothing unsubscribes them. Also: nothing
+  invokes the workers at all — they take caller-supplied ID lists with no scheduler.
+- **F-024 — the configured provider is the stub.** The privacy gate is executable and fails closed,
+  but no real vendor's terms have passed it, and it checks an operator-attested declaration rather
+  than vendor practice.
+- **F-025 — no operator surface.** One page exists (the public map); the one admin route is a stub
+  returning `{ flags: [] }`; auth returns an empty role list. Sharpest edge: **nothing can approve a
+  farm**, and `transactions.ts:711-715` refuses publication without a live `farm_approvals` row —
+  reachable today only by hand-written SQL.
+- **F-026 — no retention job.** Bodies are written with a 30-day `body_expires_at` and **nothing ever
+  deletes them.** The retention promise is a claim, not a mechanism.
+- **B-002 — no seed utility.** Blocked on the VIGA map export; without seeded stands the map is empty
+  and inquiry retrieval has nothing to find.
+
+**Also open:** F-027 (vestigial `tenantId` in the auth principal, contradicting the tenancy non-goal;
+not launch-blocking). `packages/config` and `packages/contracts` still exist despite the handoff's
+"Delete" and no item owns that. No per-stand pages or filter/search UI. Message classification has no
+projection and no consumer. SMS inquiry has no HTTP route **by design** — it is reached from the
+Telnyx webhook worker.
 
 **Two intermittent-failure defects found, and the second reframes the first.** **B-001**: an
 unanchored `RAW_PHONE_RE` matched hex digits in ~3.1% of UUIDs, so `redactOutbound` could refuse
@@ -361,8 +380,13 @@ backlog is complete.** F-012's carrier question resolved as *moot*: the live con
 sample messages, neither advertising the retired tokens, so nothing needed resubmission —
 `docs/TELNYX_10DLC_FIELD_VALUES.txt` had been a wish list of candidate values misread as a record of
 what was submitted. It now opens with a STATUS header declaring it a transcript of live console
-state; **change the console first, then transcribe.** Open: **B-002** (no seed utility). Any new work
-needs a new PM item and separate implementation authorization.
+state; **change the console first, then transcribe.**
+
+**Open, and each needs separate implementation authorization:** **F-023** (inbound routing — largest),
+**F-024** (real model provider), **F-025** (operator surface), **F-026** (retention purge), **B-002**
+(seed utility, blocked on max for the VIGA map export), **F-027** (tenancy cleanup, not blocking).
+F-023 and F-026 both need a scheduler — whichever lands first owns the choice and the other reuses it.
+Any other new work needs a new PM item.
 
 **Owed, not absorbed by any closed item:** there is still **no inbound routing layer** — nothing in
 production code calls `parseCommand`, `runInboundPass`, or `answerInquiry`, so `consentTransitionFor`
