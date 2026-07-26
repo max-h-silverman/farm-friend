@@ -292,8 +292,10 @@ code-rendered grounded answers with recency and stale warnings; the web/QR stock
 private report and resolves the farmer in code. Inbound SMS **routes** (F-023): `apps/web/lib/routing.ts`
 runs compliance keywords → `FLAG` → context-bound `YES`/`NO` → free text, and the model seams are
 reachable only through a `freeText` callback invoked after `parseCommand` returns `none` — so "no
-model on the compliance path" is structural, proven by a seam that throws. The public map UI is built
-(F-017) and is model-free in its **module graph**, not just its handler.
+model on the compliance path" is structural, proven by a seam that throws. Replies go out in
+**~47ms measured**, not the next cron minute (B-004): the webhook builds its 200, then starts that
+sender's inbound+outbound passes with `void`/`.catch` and never awaits them. The public map UI is
+built (F-017) and is model-free in its **module graph**, not just its handler.
 
 **The model never authors customer-facing factual text or writes durable state.** It interprets and
 selects identifiers; code retrieves, validates membership, and renders. Four seams have explicit
@@ -309,9 +311,13 @@ can be shown — so **until F-025 ships flag resolution, a flagged body retains 
 exemption working, not a leak). Outbound bodies clear only in a terminal state, so the purge cannot
 race the dispatcher into an empty SMS.
 
-**One scheduling mechanism, one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
-is the single authenticated trigger for every scheduled pass (`CRON_SECRET` required, no default, no
-dev bypass). `isProactiveSendPermitted` is the single consent predicate; **active** consent is required
+**One worker mechanism, two triggers; one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
+is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` required, no default, no
+dev bypass) and the **only** trigger for F-026's retention purge. The webhook's B-004 kick
+(`apps/web/lib/kick.ts`) calls the same passes sooner for one sender and **owns no guarantee** — every
+failure swallowed, each pass budgeted, cron recovers whatever it misses. Removing the kick entirely
+must fail only latency tests, never durability ones. `isProactiveSendPermitted` is the single consent
+predicate; **active** consent is required
 for a proactive send. Registered keywords and auto-response copy are stated once in
 `packages/core/src/sms/` and tested character-for-character against
 `docs/TELNYX_10DLC_FIELD_VALUES.txt`, which is a **transcript of live console state** — change the
@@ -323,8 +329,8 @@ console first, then transcribe.
 reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
 fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Verified July 26, 2026 (on `main` at `5fb13b8`):** `npm test` 269/269 across 26 files; real-Postgres
-integration 138/138 across 9 files (PostgreSQL 16.12); typecheck + lint pass; evals critical 10/10,
+**Verified July 26, 2026 (B-004 branch at `953306e`):** `npm test` 279/279 across 28 files; real-Postgres
+integration 144/144 across 10 files (PostgreSQL 16.12); typecheck + lint pass; evals critical 10/10,
 advisory 4/4, adversarial 25/25; production Next.js build passes.
 
 ### Open work — each needs separate implementation authorization
@@ -332,9 +338,6 @@ advisory 4/4, adversarial 25/25; production Next.js build passes.
 Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
 supply what production never creates.
 
-- **B-004 — inbound SMS waits up to ~60s for a reply.** Cron polls at Vercel's one-minute floor
-  against a ~10s target. Correctness is intact; it is slow. Decided fix: the webhook kicks the inbound
-  pass **after** acknowledging Telnyx, cron demoted to a recovery net. Should land before F-029.
 - **F-025 — nothing can approve a farm**, yet publication refuses without a live `farm_approvals` row;
   its tests pass only because fixtures insert one. No admin UI, flag route is a stub, auth returns an
   empty role list. **Decided:** split a (sessions + role lookup + approval) / b (flag queue +
@@ -361,10 +364,22 @@ until shown otherwise. **B-001 is not proof the intermittent-failure class is cl
 failing test name was never captured, and a date boundary produces the same signature.
 
 **Sabotage-test every claim: a test that cannot fail proves nothing.** This has caught real gaps
-repeatedly — most recently an exemption predicate drift (`= 'open'` → `<> 'resolved'`) that passed an
-entire suite because no fixture isolated a dismissed-only thread, and a role suite that passed an
-operator→farmer privilege escalation. **Verify agent reports rather than relaying them**; agents have
-reported completion with uncommitted work and marked PM items "in review" ahead of reality.
+repeatedly — an exemption predicate drift (`= 'open'` → `<> 'resolved'`) that passed an entire suite
+because no fixture isolated a dismissed-only thread, a role suite that passed an operator→farmer
+privilege escalation, and B-004's own race tests, which stayed green through three separate claim
+guards being disabled. **Verify agent reports rather than relaying them**; agents have reported
+completion with uncommitted work and marked PM items "in review" ahead of reality.
+
+**`Promise.all` over two async branches does not race them.** The first branch's transaction resolves
+before the second starts, so a two-branch concurrency test serializes itself and cannot fail. Use
+enough simultaneous claimants to actually contend (B-004 uses 8), and confirm by sabotage that the
+test fails when exclusion is genuinely removed. Related: the load-bearing per-sender guard is the
+**`sender_states` upsert row lock** — the explicit `for update`, the `alreadyProcessing` check, and
+the `state = 'pending'` filter are defense-in-depth, and disabling any one alone changes nothing.
+
+**`sharedDb` caches on first call and ignores the URL after that.** A second `createAppContext` in one
+process cannot be pointed at another database, and `close()` on any context tears down the shared
+pool. Assemble the capabilities a pass actually needs instead of building a second context.
 
 **Use isolated worktrees for parallel agents.** Two agents dispatched into one shared tree overwrote
 each other repeatedly and spent more effort recovering than building.

@@ -202,8 +202,22 @@ describe("inbound routing end to end (integration)", () => {
     );
   }
 
-  /** Run the inbound pass with a model that must never be reached. */
+  /**
+   * Run the inbound pass with a model that must never be reached.
+   *
+   * B-004 note: the route now KICKS this sender's passes after acknowledging, so the
+   * webhook is no longer inert and a claimed event may already be in flight when this runs.
+   * `settleKick` waits for that to finish first, which keeps every assertion below about
+   * the DURABLE consequence rather than about which processor got there first. When the
+   * kick has already handled the event, this pass finds nothing pending and is a no-op —
+   * exactly what the row lock guarantees, and what B-004's own race tests prove directly.
+   *
+   * The "no model on the compliance path" guarantee does not rest on this provider: it is a
+   * structural property proven in `routing.test.ts` by a seam that throws on any call, and
+   * a second time by the kick's own passes here reaching the same durable outcome.
+   */
   async function runPassWithForbiddenModel(): Promise<ForbiddenProvider> {
+    await settleKick();
     const provider = new ForbiddenProvider();
     await runInboundPass({
       db: database(),
@@ -214,11 +228,104 @@ describe("inbound routing end to end (integration)", () => {
     return provider;
   }
 
+  /**
+   * Assert the route's own KICK carried the event to `processed` — end to end, through the
+   * real webhook, with no test-supplied worker involved.
+   *
+   * What this DOES prove: the B-004 kick reaches the same durable consequence the local
+   * pass used to, so the webhook is genuinely doing the work in production shape.
+   *
+   * What it does NOT prove, and must not be read as proving: "no model on the compliance
+   * path." Sabotage established the limit honestly — moving the `freeText` call ahead of
+   * `parseCommand` still passes here, because these fixtures leave the database empty, an
+   * empty retrieval is short-circuited in code before any seam (Golden Rule #4), and the
+   * composition root's response-less stub is therefore never reached. That guarantee is
+   * owned structurally by `routing.test.ts`, whose throwing seam fails 8 tests on exactly
+   * this sabotage, and it stays owned there.
+   */
+  async function expectKickProcessedIt(): Promise<void> {
+    // Poll for the kick to reach the TERMINAL state on its own. Deliberately not
+    // `settleKick`: an event the kick abandoned stays `pending`, so waiting for `pending` to
+    // clear would simply time out and let a local pass finish the job — which is exactly how
+    // an earlier version of this helper passed the model-first sabotage.
+    const deadline = Date.now() + 5_000;
+    let states: string[] = [];
+    while (Date.now() < deadline) {
+      const rows = await client()`
+        select state from provider_inbox_events where event_type = 'message_received'
+      `;
+      states = rows.map((row) => row.state as string);
+      if (states.length > 0 && states.every((state) => state === "processed")) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error(
+      `the route's kick did not process the event; states=${JSON.stringify(states)}. ` +
+        "A seam consulted on a compliance path throws in the composition root's " +
+        "response-less stub provider, which leaves the event unprocessed.",
+    );
+  }
+
+  /**
+   * Persist a verified inbound message WITHOUT the route's B-004 kick.
+   *
+   * For the tests that must own the model interaction: they script a provider and then run
+   * their own pass, so the event has to still be there when they do. The kick would consume
+   * it first using the composition root's real provider, and the scripted seam would never
+   * be reached — the test would be asserting against a different model than the one it set
+   * up. This commits exactly what the route commits before acknowledging, so what follows is
+   * ordinary pending work.
+   *
+   * Signature verification and the minimized projection are proven by the real-route tests
+   * above and by `ingress.integration.test.ts`; what these tests own is what happens AFTER.
+   */
+  async function deliverInboundOnly(input: {
+    fromPhone: string;
+    text: string;
+    occurredAt?: Date;
+    providerEventId?: string;
+  }): Promise<void> {
+    const senderHash = hashPhone(input.fromPhone, phoneSalt);
+    const { acceptProviderEvent } = await import("@farm-friend/db");
+    await acceptProviderEvent(database(), {
+      providerEventId: input.providerEventId ?? `evt-${randomUUID()}`,
+      eventType: "message_received",
+      providerMessageId: `msg-${randomUUID()}`,
+      senderHash,
+      body: input.text,
+      occurredAt: input.occurredAt ?? at(0),
+    });
+  }
+
+  /**
+   * Wait until no inbound event is mid-claim, so a test's own pass is not racing the kick
+   * the route just started. Bounded, and a timeout simply proceeds: a stuck claim is a
+   * failure the assertions below should report, not one to hide behind a hang.
+   */
+  async function settleKick(): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const rows = await client()`
+        select count(*)::integer as count from provider_inbox_events
+        where state in ('pending', 'processing')
+      `;
+      if (((rows[0]?.count as number) ?? 0) === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
   describe("compliance keywords, with no model on the path", () => {
     it("a verified STOP unsubscribes end to end and calls no model", async () => {
       const response = await deliverInbound({ fromPhone: customerPhone, text: "STOP" });
       expect(response.status).toBe(200);
 
+      // The route's kick carries this end to end in production shape.
+      await expectKickProcessedIt();
+
+      // ...and separately, with the kick out of the way, the ForbiddenProvider pass still
+      // owns "no seam is consulted on this path" exactly as F-023 wrote it.
+      await client()`truncate table provider_inbox_events, sms_messages, sms_consents,
+        consent_transition_watermarks, sender_states, outbox_work restart identity cascade`;
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "STOP" });
       const provider = await runPassWithForbiddenModel();
 
       // The durable consequence, not the return value.
@@ -417,7 +524,7 @@ describe("inbound routing end to end (integration)", () => {
     });
 
     it("concurrent passes over one sender claim the event exactly once", async () => {
-      await deliverInbound({ fromPhone: customerPhone, text: "JOIN" });
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "JOIN" });
 
       // Two passes racing: the per-sender row lock must let only one claim the event.
       const [a, b] = await Promise.all([
@@ -491,7 +598,7 @@ describe("inbound routing end to end (integration)", () => {
 
     it("a farmer's inventory text opens exactly one proposal and queues its prompt", async () => {
       await seedFarmer();
-      await deliverInbound({ fromPhone: farmerPhone, text: "kale and eggs today" });
+      await deliverInboundOnly({ fromPhone: farmerPhone, text: "kale and eggs today" });
 
       const provider = new ScriptedProvider({
         "inventory-extraction": JSON.stringify({
@@ -528,7 +635,7 @@ describe("inbound routing end to end (integration)", () => {
 
     it("a YES arriving before its prompt was accepted commits nothing", async () => {
       await seedFarmer();
-      await deliverInbound({
+      await deliverInboundOnly({
         fromPhone: farmerPhone,
         text: "kale and eggs",
         occurredAt: at(0),
@@ -590,7 +697,7 @@ describe("inbound routing end to end (integration)", () => {
             expires_at = ${at(180)}
         where sender_hash = ${farmerHash} and state = 'open'
       `;
-      await deliverInbound({
+      await deliverInboundOnly({
         fromPhone: farmerPhone,
         text: "YES",
         occurredAt: at(4),
@@ -668,7 +775,7 @@ describe("inbound routing end to end (integration)", () => {
         values (${revision[0]?.id as string}, ${locationId}, 'kale', 0)
       `;
 
-      await deliverInbound({ fromPhone: customerPhone, text: "who has kale?" });
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "who has kale?" });
 
       // The model interprets and selects identifiers; it never authors the answer. This
       // one also tries to smuggle prose through the selection seam.
@@ -705,7 +812,7 @@ describe("inbound routing end to end (integration)", () => {
     });
 
     it("a customer inquiry creates no durable consent", async () => {
-      await deliverInbound({ fromPhone: customerPhone, text: "who has kale?" });
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "who has kale?" });
 
       const provider = new ScriptedProvider({
         "inquiry-interpretation": JSON.stringify({

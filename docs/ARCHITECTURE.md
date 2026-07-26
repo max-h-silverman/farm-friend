@@ -113,8 +113,16 @@ reference, TTL-bound message body where needed, and processing state. The raw pr
 a second raw E.164 are not stored. The provider event ID is unique; duplicate delivery is a
 successful no-op.
 
+Interpretation and delivery never happen inside ingress. After acknowledging, the webhook **starts**
+that sender's worker passes without awaiting them (the B-004 kick), so a reply goes out in
+milliseconds rather than waiting for the next scheduled sweep; the kick owns no guarantee and the
+cron trigger remains the durable recovery net. Both call the same passes — see
+[RUNBOOK.md](RUNBOOK.md) §"Scheduled work."
+
 Ordinary stateful work is serialized per sender in Postgres. A short transaction locks the sender
-row and claims at most one inbox event; it never spans a model or SMS call. The claimed row is
+row and claims at most one inbox event; it never spans a model or SMS call. That lock is also what
+makes the two triggers safe together: a kick and a concurrent cron pass over one sender cannot both
+claim the event. The claimed row is
 recoverable after an abandoned claim, and retry uses that row rather than creating another logical
 event. After external work, finalization re-locks the sender and applies a consequence only if the
 claim and relevant state are still current.
