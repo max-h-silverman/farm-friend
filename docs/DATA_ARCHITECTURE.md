@@ -17,8 +17,11 @@ enforce, privacy/retention, and the model-run audit MAY-store list.
 > delivery monotonicity. **F-026 implements and proves** raw-context retention:
 > `purgeExpiredBodies` (`packages/db/src/transactions.ts`) clears expired bodies on the scheduled
 > trigger and honors the flagged-thread exemption, proven against real Postgres in
-> `packages/db/src/retention.integration.test.ts`. The private-report and stock-out alerting paths
-> owned by F-013 remain requirements.
+> `packages/db/src/retention.integration.test.ts`. **F-025a implements and proves** administrator
+> identity, durable sessions, and farm approval/revocation (`drizzle/0003_admin_identity_and_sessions.sql`,
+> `packages/db/src/admin.ts`), including the constraint that publication for an unapproved farm is
+> refused when no fixture pre-inserts the approval row. The private-report and stock-out alerting
+> paths owned by F-013 remain requirements.
 
 ## Scope discipline
 
@@ -137,7 +140,7 @@ These are **database-level** requirements, not application conventions:
   because over-retention is recoverable and destroying evidence under an open safety review is not.
   Resolution makes the body immediately eligible; there is **no** bounded grace period after
   resolution, since no consumer needs one and an unowned window would be speculative state.
-  **F-025 owns the resolution path**; until it ships nothing moves a flag out of `open`, so a
+  **F-030 owns the resolution path** (split out of F-025, whose identity half shipped); until it
   flagged body retains indefinitely — the exemption working, not a leak.
 - **The purge never races live delivery.** Outbound bodies are cleared only in a terminal state
   (`sent`/`failed`/`ambiguous`/`suppressed`), because the dispatcher reads `outbox_work.body` to
