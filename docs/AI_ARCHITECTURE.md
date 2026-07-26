@@ -169,17 +169,29 @@ clarify or flag:
   in code; it is never a model output. A free-text SMS may receive a link to the reporting surface
   but cannot select a location or queue a farmer alert.
 - **inquiry interpretation** — question → open intent: item(s), optional farm scope, a
-  **proposed selection/ranking interpretation**, or an "ambiguous → ask" signal. **Never
-  privileges one reading** of a multi-item request, and is not restricted to a fixed strategy
-  enum. Launch does not resolve an arbitrary SMS origin.
+  **proposed selection/ranking interpretation**, an `outOfScopeRequest` **boolean**, or a bare
+  "ambiguous → ask" signal. **Never privileges one reading** of a multi-item request, and is not
+  restricted to a fixed strategy enum. Launch does not resolve an arbitrary SMS origin.
 - **grounded fact selection** — select and order identifiers from the **retrieved facts only**.
   Code validates membership and renders the authoritative, recency-labeled answer; empty retrieval
   → a code-rendered honest "no current listing."
+
+**Neither inquiry seam may return prose.** The ambiguity and clarification outcomes are **bare
+signals carrying no other field** — validation refuses any — and code renders the question. They
+previously carried a model-authored `question` string that was delivered to the customer verbatim;
+that was the only path by which model prose reached a customer in the inquiry flow, and F-018
+removed the field rather than scanning what passed through it.
 - **message classification** — last-resort intent classification, only after deterministic routing.
 
-Recipe requests have no model composition seam. Code may render authoritative availability for
-named ingredients through the ordinary grounded inquiry path, followed by a code-rendered statement
-that launch does not provide recipes or food-safety guidance.
+Recipe requests have no model composition seam — and never had one. Recognizing that a request
+asks for a recipe, cooking or preservation instructions, or food-safety guidance is **meaning**, so
+it stays the model's job: the interpretation seam sets `outOfScopeRequest`, a **boolean that
+carries no words**. Code renders authoritative availability for any ingredients the request names
+through the ordinary grounded inquiry path, then appends `RECIPE_SCOPE_STATEMENT`, a code constant.
+A request with no available ingredients receives the code-rendered "no current listing" plus that
+statement — never a model-authored substitute. Because the model's entire vocabulary here is one
+boolean and a set of opaque identifiers, a hostile model asked for canning instructions has **no
+field to answer through**. There is no content scanner and no food taxonomy in business logic.
 
 SMS composition adds quality guidance to prefer concise, plain-punctuation, emoji-free replies that
 fit one GSM-7 segment when practical. This is a **cost and phrasing preference, never a truncation

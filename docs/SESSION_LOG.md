@@ -7,6 +7,84 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-26 — F-018 recipe scope boundary: the seam never existed, the prose channel did
+
+Built from clean `main` at `fad267c` on `f-018-recipe-scope-boundary`. Test-first throughout.
+
+**The recipe seam never existed — confirmed empirically before deleting anything.** F-018 is written
+as "remove the recipe model projection/seam, model permission, provider decision, and misleading
+advisory-eval claim." A case-insensitive grep for `recipe|meal|food.?safety|preparation|cook|canning|
+preserv|forag` across `packages/`, `apps/`, and `evals/` returned **zero** recipe machinery — every
+hit was the word "preserves" meaning *retains an item*, or "Strawberry preserves" as a test fixture's
+item name. `packages/ai/src/projections.ts` has exactly four projections (inventory extraction,
+inquiry interpretation, grounded fact selection, stock-out parse); none is a recipe seam. There is no
+recipe-link provider in the handoff's unresolved-decisions list, and no advisory eval mentions
+recipes. **Four of the item's scope bullets and one acceptance criterion had nothing to act on.**
+This is the third consecutive item to hit the same trap, and the docs were already correct here —
+`AI_ARCHITECTURE.md` line 180 stated "Recipe requests have no model composition seam."
+
+**What was actually wrong is the half the item's acceptance criteria pointed at and nobody had
+built: there was no enforcement, and there WAS a live prose channel.** `validateInterpretedIntent`
+accepted `{kind:"ambiguous", question:<any non-empty string>}` and `answerInquiry` returned that
+string to the customer **verbatim**. `validateFactSelection` had the identical `clarification.
+question` field. Reproduced with a throwaway probe before any code changed:
+
+```
+VALIDATION OK: true
+DELIVERED VERBATIM TO CUSTOMER:
+  Kale chips: toss with oil, bake 350F 12min. For canning, boil jars 10 minutes;
+  low-acid vegetables are safe at 15 PSI. See allrecipes.com/kale
+```
+
+Canning pressures, a link, and every blocking check green. That is precisely F-018's stated
+"consequence prevented," and it was live on the launch path.
+
+**The fix removes the channel rather than policing it.** The item forbids a content scanner,
+classifier, or moderation service — and rightly: scanning invites an arms race over wording. Both
+outcomes became **bare signals carrying no field but `kind`**, refused by an exact `keys.length !== 1`
+check, and code renders the words (`renderClarificationRequest`). A model with no permitted field to
+write into cannot smuggle prose through it, whatever it renames the field to. That is why the
+adversarial fixtures try `question`, `message`, `answer`, `suggestion`, and `recipe` — the defense is
+structural, so all five fail identically.
+
+**The scope statement is a boolean, and that distinction is the whole design.** Recognizing that
+"what can I make with kale?" is a recipe request is *meaning*, so it stays the model's job —
+hard-coding a food or request vocabulary in `retrieval.ts` would be exactly the taxonomy-as-policy
+CLAUDE.md forbids. But the model sets `outOfScopeRequest: boolean` and **nothing else**; code appends
+the `RECIPE_SCOPE_STATEMENT` constant. The model classifies without composing a syllable. A
+non-boolean value there is refused — "prose wearing a flag's name." The useful half survives: a
+recipe request naming an ingredient still gets real availability and recency, then the boundary.
+
+**Sabotage-tested, five ways — and the one at risk of being tautological was checked deliberately.**
+Loosening the ambiguity check to `keys.size > 2` (2 unit + 2 adversarial fail); hard-coding
+`scopeNote` off (2 integration fail); loosening the clarification check (1 unit + 1 adversarial);
+replacing `RECIPE_SCOPE_STATEMENT` with actual recipe text (1 adversarial + 2 integration); removing
+the boolean guard (1 unit + 2 adversarial). Each was restored after confirming.
+
+The fourth is the one worth recording. H16 asserts on `RECIPE_SCOPE_STATEMENT` — a constant checked
+against itself is exactly the failure mode F-012 and F-016 each caught in their own work. It was
+written from the start to assert the constant does **not** contain `"350F"`, so swapping in recipe
+prose fails it; the integration tests caught the same swap independently. **No test in this tranche
+could pass under a broken implementation** — verified, not assumed.
+
+**One test of mine asserted the wrong mechanism and was corrected.** The hostile-ambiguity
+integration test expected `rejected`; the real outcome is `clarification`, because
+`createInquiryModel.interpret` deliberately converts *any* schema failure into a bare ambiguity
+signal — it fails toward asking rather than guessing, unlike the selection seam, which reports a
+refusal to keep attacks observable. That asymmetry is pre-existing and defensible. The test now
+asserts the property that matters — no word the model wrote survives (`15 PSI`, `allrecipes.com`,
+`350F`, `/canning|bake/i` all absent) — rather than forcing a mechanism.
+
+**Deliberately not done:** F-012, F-016 (done/merged, not reopened); F-017's public map UI and
+proximity/routing links untouched. No content scanner, classifier, moderation service, recipe table,
+provider, package, or durable entity was added — the diff adds one boolean field, two code-rendered
+strings, and deletes two prose fields.
+
+**Verified:** `npm test` 177/177 across 19 files; real-Postgres integration 103/103 across 7 files
+(suites run sequentially, `tee` captured); typecheck, lint, `git diff --check` PASS; evals critical
+10/10, advisory 4/4, adversarial **19/19** (was 14); production Next.js build passes. No integration
+failure occurred; B-001 did not recur.
+
 ## 2026-07-26 — F-016 one launch SMS program, and a live consent defect
 
 Built from clean `main` at `d93ece5` on `f-016-launch-consent-boundary`. Test-first throughout.

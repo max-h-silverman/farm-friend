@@ -79,18 +79,25 @@ describe("selection validation — structural validity is not grounding", () => 
     expect(result.ok).toBe(false);
   });
 
-  it("accepts an explicit clarification outcome and nothing else with it", () => {
-    const ok = validateFactSelection(
-      { kind: "clarification", question: "Which farm did you mean?" },
-      facts,
-    );
+  it("accepts a bare clarification signal carrying no prose", () => {
+    // F-018: the signal is a KIND. `question` was a channel for model-authored text to
+    // reach a customer verbatim, so it is gone rather than inspected.
+    const ok = validateFactSelection({ kind: "clarification" }, facts);
     expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.value).toEqual({ kind: "clarification" });
+  });
 
-    const withExtra = validateFactSelection(
-      { kind: "clarification", question: "Which?", factIds: ["f1"] },
-      facts,
-    );
-    expect(withExtra.ok).toBe(false);
+  it("refuses a clarification carrying any field beyond its kind", () => {
+    for (const extra of [
+      { question: "Which farm did you mean?" },
+      { question: "Try kale chips: bake at 350F. Can at 15 PSI." },
+      { message: "see allrecipes.com" },
+      { factIds: ["f1"] },
+    ]) {
+      const result = validateFactSelection({ kind: "clarification", ...extra }, facts);
+      expect(result.ok).toBe(false);
+    }
   });
 
   it("rejects a selection against an empty retrieved set", () => {
