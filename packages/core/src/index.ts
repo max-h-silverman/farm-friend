@@ -7,6 +7,7 @@ export * from "./sms/commands";
 export * from "./inventory/proposal";
 export * from "./inquiry/retrieval";
 export * from "./inquiry/answer";
+export * from "./public/throttle";
 // The generic commitment state machine is superseded by the inventory-specific proposal
 // port above and has no authoritative caller. Its removal — with the OUT/IGNORE tokens
 // it accepts — belongs to F-012's parser/campaign alignment, which also owns the eval
