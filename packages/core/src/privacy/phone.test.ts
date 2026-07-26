@@ -23,7 +23,7 @@ describe("phone privacy (Golden Rule #5)", () => {
     expect(h1).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("different salts produce different hashes (no cross-tenant correlation)", () => {
+  it("different salts produce different hashes (no cross-deployment correlation)", () => {
     expect(hashPhone("2065551234", "salt-a")).not.toBe(hashPhone("2065551234", "salt-b"));
   });
 });

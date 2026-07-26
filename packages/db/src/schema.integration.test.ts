@@ -151,7 +151,10 @@ describe("clean launch database foundation (integration)", () => {
       ),
     ].join("\n");
     const forbidden = [
-      /\btenant/i,
+      // F-027 assembles this term from fragments rather than writing it literally, so that the
+      // application-source tripwire in packages/core/src/architecture.test.ts can scan EVERY
+      // source with no carve-outs — including the files that forbid the concept.
+      new RegExp(`\\b${["ten", "ant"].join("")}`, "i"),
       /\bgleaning/i,
       /\bvolunteer/i,
       /\bprovenance\b/i,

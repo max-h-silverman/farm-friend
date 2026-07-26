@@ -6,7 +6,6 @@ export type Role = "admin" | "staff" | "farmer";
 /** A resolved principal: who the caller is + the roles they actually hold (server-looked-up). */
 export interface Principal {
   personId: string;
-  tenantId: string;
   roles: Role[];
 }
 
@@ -31,16 +30,16 @@ export class AuthorizationError extends Error {
 
 /**
  * Route guard: assert the principal holds `required`, throwing otherwise. Call at the top of
- * every protected server route/action. Also enforces tenant match when a target tenant is given.
+ * every protected server route/action.
+ *
+ * The authority check is the role check — there is no second scope dimension. Launch is a single
+ * VIGA operation, so a scope comparison could only ever succeed, and a guard that cannot fail
+ * reads as protection while proving nothing.
  */
 export function requireRole(
   principal: Principal | null,
   required: Role,
-  targetTenantId?: string,
 ): asserts principal is Principal {
   if (!principal) throw new AuthorizationError(required);
-  if (targetTenantId !== undefined && principal.tenantId !== targetTenantId) {
-    throw new AuthorizationError(required);
-  }
   if (!hasRole(principal, required)) throw new AuthorizationError(required);
 }

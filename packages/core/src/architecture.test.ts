@@ -290,3 +290,69 @@ describe("no runtime geocoder or map provider (F-017)", () => {
     expect(source).toContain("https://www.google.com/maps/dir/");
   });
 });
+
+describe("no multi-occupancy concept anywhere in application source (F-027)", () => {
+  // Multi-occupancy is an explicit non-goal: one VIGA operation, forever, by product decision.
+  // The auth layer nonetheless carried a `Principal` scope field holding a hard-coded "viga"
+  // plus a comparison that could only ever succeed. A guard that cannot fail is worse than no
+  // guard — it reads as protection while proving nothing, and invites a future change to treat
+  // the dimension as an existing property to preserve, or to add a second speculative field to
+  // match.
+  //
+  // `packages/db/src/schema.integration.test.ts` already forbids the concept in the schema and
+  // migration. This is the same tripwire for application source, and it deliberately covers TEST
+  // sources too: the vestige's most visible construction sites were test fixtures building
+  // principals with the removed field.
+  //
+  // The forbidden word is assembled from fragments rather than written literally, so this file
+  // does not trip its own detector. That keeps the scan EXCEPTION-FREE: every scanned source is
+  // held to the rule, including this one, and no path is carved out to make the suite pass.
+
+  // NOT word-anchored, deliberately. The db schema tripwire matches `\btenant` against
+  // snake_case SQL, where a leading boundary is correct. In camelCase TypeScript it is not: a
+  // `targetTenantId` parameter — the exact name deleted here — carries no word boundary before
+  // "Tenant" and would slip straight through an anchored pattern.
+  const forbiddenTerm = ["ten", "ant"].join("");
+  const forbiddenPattern = new RegExp(forbiddenTerm, "i");
+
+  const scannedSources = [
+    ...sourceFiles("packages/core/src"),
+    ...sourceFiles("packages/ai/src"),
+    ...sourceFiles("packages/db/src"),
+    ...sourceFiles("packages/sms/src"),
+    ...sourceFiles("apps/web/lib"),
+    ...sourceFiles("apps/web/app"),
+  ];
+
+  it("scans a non-trivial set of sources, including its own file", () => {
+    // Guard against a vacuous pass: if `sourceFiles` ever returned nothing, or stopped reaching
+    // the auth module, the assertion below would be trivially true and the tripwire dead.
+    expect(scannedSources.length).toBeGreaterThan(50);
+    expect(scannedSources).toContain("packages/core/src/auth/roles.ts");
+    expect(scannedSources).toContain("packages/core/src/architecture.test.ts");
+  });
+
+  it("detects the forbidden term when it is present", () => {
+    // Proves the detector actually detects. Without this, a typo in the pattern would make the
+    // scan below pass forever while checking nothing.
+    expect(forbiddenPattern.test(`${forbiddenTerm}Id: "viga"`)).toBe(true);
+    // The camelCase parameter form an anchored pattern would have missed.
+    expect(forbiddenPattern.test(`target${forbiddenTerm}Id`)).toBe(true);
+    expect(forbiddenPattern.test(`multi-${forbiddenTerm}`)).toBe(true);
+    expect(forbiddenPattern.test("personId, roles")).toBe(false);
+  });
+
+  it("names no such identifier in any scanned source", () => {
+    const offenders = scannedSources.filter((path) => {
+      const source = readFileSync(new URL(path, repositoryRoot), "utf8");
+      // Comments are stripped: the notes explaining why the concept was removed legitimately
+      // name it, and a historical explanation is not a live dimension.
+      const withoutComments = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      return forbiddenPattern.test(withoutComments);
+    });
+
+    expect(offenders).toEqual([]);
+  });
+});

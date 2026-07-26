@@ -20,5 +20,5 @@ export async function resolvePrincipal(req: Request): Promise<Principal | null> 
   // NOTE: roles MUST be looked up server-side (DB) — never taken from the token/client.
   // Phase 0 returns a minimal principal; the DB-backed role lookup lands with F-009/F-005.
   const roles: Role[] = [];
-  return { personId: verified.email, tenantId: "viga", roles };
+  return { personId: verified.email, roles };
 }
