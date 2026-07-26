@@ -304,9 +304,9 @@ path, and `lib/public-surface-model-free.test.ts` walks the transitive imports o
 and fails if one appears. `POST /api/public/stock-out` remains the single public model-backed
 handler, fronted by the abuse/cost throttle.
 
-**Verified July 26, 2026:** `npm test` 219/219 across 22 files; real-Postgres integration 106/106
-across 7 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 10/10, advisory 4/4,
-adversarial 25/25; production Next.js build passes.
+**Verified July 26, 2026 (post-B-003, on `main` at `ca06926`):** `npm test` 222/222 across 22 files;
+real-Postgres integration 106/106 across 7 files against PostgreSQL 16.12; typecheck + lint pass;
+evals critical 10/10, advisory 4/4, adversarial 25/25; production Next.js build passes.
 
 **Model prose never reaches a customer, and boundaries are booleans.** The inquiry seams' `ambiguous`
 and `clarification` are **bare signals carrying no field but `kind`**; code renders the words. The
@@ -339,18 +339,30 @@ vendor's terms have passed it, and it checks an operator-attested declaration ra
 practice. Auth returns an empty role list with no durable session. No retention job. SMS inquiry has
 no HTTP route **by design** — it is reached from the Telnyx webhook worker.
 
-**B-001 is diagnosed and fixed** — an unanchored `RAW_PHONE_RE` matched hex digits in ~3.1% of
-UUIDs, so `redactOutbound` could refuse legitimate sends at random. **The standing lesson holds:**
-if an integration run fails, capture the test name and assertion BEFORE rerunning
-(`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites **sequentially, never chained**
-— that is what finally caught it. Treat a named failing test as a real defect until shown otherwise.
+**Two intermittent-failure defects found, and the second reframes the first.** **B-001**: an
+unanchored `RAW_PHONE_RE` matched hex digits in ~3.1% of UUIDs, so `redactOutbound` could refuse
+legitimate sends at random — real, measured, fixed. **B-003**: the integration suite was
+**date-dependent** — fixtures hard-coded `2026-07-25` while `outbox_work` enforces
+`body_expires_at > created_at` against a `now()` default, so it was 106/106 at 00:06 and 54 failing
+at 08:32 with no code change. Fixture instants are now offsets from a clock-derived anchor, and
+`architecture.test.ts` fails if a literal date returns (and fails loudly, not vacuously, if a listed
+suite goes missing).
 
-**PM / authorization:** F-013–F-022 are done and merged to `main` (F-017 in PR #26 / `c1dfe09`),
-except **F-012, which is in review and cannot close yet** — all in-repo work is done, but it is
-blocked on one external decision only max can make: *does amending registered Sample Message 3
-require carrier resubmission, or is it console-editable?* **The clean-room finding backlog is now
-complete.** Open: **B-002** (no seed utility) and B-001 (fixed, in review). Any other new work needs
-a new PM item and separate implementation authorization.
+**Do not treat B-001 as closing the intermittent-failure class.** A date-boundary failure produces
+the same `1 failed | N passed` signature, the original failing test name was never captured, and
+B-003 proves the suite held more than one time bomb. **The standing lesson holds:** if an integration
+run fails, capture the test name and assertion BEFORE rerunning
+(`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites **sequentially, never chained**.
+Treat a named failing test as a real defect until shown otherwise. **A suite whose result depends on
+the calendar is not a suite** — fixture instants must be offsets, never literals.
+
+**PM / authorization:** F-012–F-022 are **all done and merged** to `main`. **The clean-room finding
+backlog is complete.** F-012's carrier question resolved as *moot*: the live console registers two
+sample messages, neither advertising the retired tokens, so nothing needed resubmission —
+`docs/TELNYX_10DLC_FIELD_VALUES.txt` had been a wish list of candidate values misread as a record of
+what was submitted. It now opens with a STATUS header declaring it a transcript of live console
+state; **change the console first, then transcribe.** Open: **B-002** (no seed utility). Any new work
+needs a new PM item and separate implementation authorization.
 
 **Owed, not absorbed by any closed item:** there is still **no inbound routing layer** — nothing in
 production code calls `parseCommand`, `runInboundPass`, or `answerInquiry`, so `consentTransitionFor`
