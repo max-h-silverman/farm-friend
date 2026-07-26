@@ -6,8 +6,10 @@ import {
   claimNextInboundEvent,
   recordDispatchResult,
   releaseAbandonedClaims,
+  purgeExpiredBodies,
   CONFIRMATION_WINDOW_MS,
   type Db,
+  type RetentionPassResult,
 } from "@farm-friend/db";
 import { redactOutbound } from "@farm-friend/sms";
 import type { AppContext } from "./composition";
@@ -279,6 +281,30 @@ export async function runOutboundPass(
   }
 
   return { sent, suppressed, ambiguous };
+}
+
+export interface RetentionWorkerDeps {
+  db: Db;
+  clock: Clock;
+  /** Bound on how many rows of each kind one pass will clear. */
+  maxRows?: number;
+}
+
+/**
+ * Clear raw message context whose retention window has closed (F-026).
+ *
+ * The third bounded pass, alongside inbound and outbound. Like them it enumerates its own
+ * work — the trigger supplies no IDs and needs no knowledge of state — and returns counts
+ * only. It deliberately reports NOTHING about what it purged: an operator learns how much
+ * was cleared, never whose message or what it said.
+ */
+export async function runRetentionPass(
+  deps: RetentionWorkerDeps,
+): Promise<RetentionPassResult> {
+  return purgeExpiredBodies(deps.db, {
+    now: deps.clock.now(),
+    limit: deps.maxRows,
+  });
 }
 
 /** Apply a durably accepted delivery event to its outbound work. */

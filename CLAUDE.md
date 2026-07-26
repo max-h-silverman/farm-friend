@@ -324,6 +324,19 @@ either name, a `geocode(` call, or a mapping/routing dependency reappears.
 exported on the browser-safe `@farm-friend/core/proximity` subpath. The browser origin lives only in
 React state in the customer's tab — never stored, logged, requested, or put in model context.
 
+**Raw-context retention is a mechanism, not a claim (F-026).** `purgeExpiredBodies`
+(`packages/db/src/transactions.ts`) clears expired bodies in `sms_messages` and `outbox_work` and
+runs as the third pass on the one cron trigger, beside inbound and outbound — no second scheduling
+mechanism. Only body text goes; the message row, its inbox projection, dispatch attempts, flags, and
+audit events survive. The **flagged-thread exemption fails safe**: a body is purged only where the
+absence of an `open` flag on its inbox event can be shown. **F-025 owns flag resolution**, so until
+it ships a flagged body retains indefinitely — the exemption working, not a leak. Outbound bodies
+clear only in a terminal state, so the purge can never race the dispatcher into an empty SMS. It
+reports counts only, and `retention-wiring.test.ts` fails if it ever gains a `console.` call, a
+`select` naming a body, or loses its call in the cron route. The `model_runs` MAY-store list was
+**verified to already match the schema** — no content-bearing column exists, so the purge has
+nothing to reach there.
+
 **Launch consent is one program and executable.** `isProactiveSendPermitted`
 (`packages/core/src/sms/consent.ts`) is the single pure predicate `authorizeDispatch` consults;
 **active** consent is required for a proactive send. `outbox_work` carries one bounded
@@ -344,8 +357,6 @@ never creates:
   live `farm_approvals` row. The publication tests pass only because their fixtures insert it. Also: no
   admin UI (one page exists, the public map), the flag route is a `{ flags: [] }` stub, auth returns an
   empty role list.
-- **F-026 — nothing deletes expired bodies.** They carry a 30-day `body_expires_at` that governs no
-  delete; the retention promise is a claim, not a mechanism.
 - **F-024 — the configured provider is the stub.** The privacy gate is executable and fails closed, but
   no real vendor's terms have passed it, and it attests a declaration, not vendor practice.
 - **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing. Decided
@@ -373,7 +384,7 @@ was misread as registered copy and cost a cycle. Change the console first, then 
 `commands.test.ts` reads that file and fails if code and registration disagree either way.
 
 **PM / authorization.** F-011–F-022 are done and merged; the clean-room finding backlog is complete.
-**Open, each needing separate implementation authorization:** **F-023** (inbound routing — largest),
-**F-024** (real provider), **F-025** (operator surface), **F-026** (retention purge), **B-002** (seed
-utility — awaiting max's hand-written stand list), **F-027** (tenancy cleanup, not blocking). B-001
-stays open pending the caveat above. Any other new work needs a new PM item.
+**Open, each needing separate implementation authorization:** **F-024** (real provider), **F-025**
+(operator surface — now also gates the end of the retention exemption), **B-002** (seed utility —
+awaiting max's hand-written stand list), **F-027** (tenancy cleanup, not blocking). B-001 stays open
+pending the caveat above. Any other new work needs a new PM item.

@@ -1000,3 +1000,116 @@ export async function applyDeliveryEvent(
     `;
   });
 }
+
+export interface RetentionPassResult {
+  /** Inbound message bodies cleared this pass. */
+  messageBodiesPurged: number;
+  /** Outbound bodies cleared this pass. */
+  outboxBodiesPurged: number;
+  /** Expired inbound bodies retained because their thread is under flag review. */
+  exempted: number;
+}
+
+/** How many rows of each kind one pass will touch. */
+const DEFAULT_RETENTION_BATCH = 500;
+
+/**
+ * Delete raw message context whose retention window has closed (F-026).
+ *
+ * Golden Rule #5 promises raw context is short-lived. Every body is written with a
+ * `body_expires_at`; before this function nothing acted on it, so the promise was a claim
+ * rather than a mechanism. This is the mechanism.
+ *
+ * **What goes:** the body text, and nothing else. **What stays:** the minimized durable
+ * projection — the `sms_messages` row, its `provider_inbox_events` projection, dispatch
+ * attempts, flags, and audit events. Retention is selective: the record that a message
+ * existed is what makes the system auditable; its contents are what the minimization
+ * posture exists to shed.
+ *
+ * **The flagged-thread exemption.** A body whose inbox event carries an OPEN flag is
+ * retained — flag review needs a readable thread, and purging evidence out from under an
+ * open safety review is irreversible in a way that over-retention is not. The exemption is
+ * therefore written to fail SAFE: the purge only touches a row it can positively show has
+ * no open flag. F-025 builds the resolution path; until it exists nothing moves a flag out
+ * of `open`, so an exempted row retains indefinitely. That is the exemption working, not a
+ * leak.
+ *
+ * **Nothing here is logged.** A purge that reported what it deleted would defeat its own
+ * purpose, so the result is counts only — never a body, an ID, or a phone.
+ *
+ * Bounded and idempotent: each statement takes at most `limit` rows, skips rows another
+ * pass has locked, and matches only rows that still have a body, so a second pass over the
+ * same data does nothing.
+ */
+export async function purgeExpiredBodies(
+  db: Db,
+  input: { now: Date; limit?: number },
+): Promise<RetentionPassResult> {
+  const limit = input.limit ?? DEFAULT_RETENTION_BATCH;
+  const sql = driver(db);
+
+  // Both columns are cleared together: `sms_messages_retained_body_has_expiry` requires
+  // body and expiry to be present or absent as a pair, so clearing only the body is not a
+  // legal write. The expiry has no meaning once the body it governed is gone.
+  //
+  // `skip locked` is what makes concurrent passes safe: a row another pass is already
+  // clearing is left alone rather than blocking or being counted twice.
+  const purgedMessages = await sql`
+    update sms_messages
+    set body = null, body_expires_at = null
+    where id in (
+      select m.id from sms_messages m
+      where m.body is not null
+        and m.body_expires_at is not null
+        and m.body_expires_at <= ${input.now}
+        and not exists (
+          select 1
+          from provider_inbox_events e
+          join flags f on f.inbox_event_id = e.id
+          where e.message_id = m.id and f.status = 'open'
+        )
+      order by m.body_expires_at asc
+      limit ${limit}
+      for update of m skip locked
+    )
+    returning id
+  `;
+
+  // Outbound bodies are cleared only once the dispatcher is finished with them.
+  // `runOutboundPass` reads `outbox_work.body` to send it, so clearing a queued or
+  // dispatching row would race the dispatcher and deliver an empty SMS to a real person.
+  // `body` is NOT NULL, so the empty string is the cleared value.
+  const purgedOutbox = await sql`
+    update outbox_work
+    set body = ''
+    where id in (
+      select w.id from outbox_work w
+      where w.body <> ''
+        and w.body_expires_at <= ${input.now}
+        and w.state in ('sent', 'failed', 'ambiguous', 'suppressed')
+      order by w.body_expires_at asc
+      limit ${limit}
+      for update of w skip locked
+    )
+    returning id
+  `;
+
+  // Counted separately so an operator can see the exemption is doing something without
+  // learning anything about the threads it protects.
+  const exempt = await sql`
+    select count(distinct m.id)::integer as count
+    from sms_messages m
+    join provider_inbox_events e on e.message_id = m.id
+    join flags f on f.inbox_event_id = e.id
+    where m.body is not null
+      and m.body_expires_at is not null
+      and m.body_expires_at <= ${input.now}
+      and f.status = 'open'
+  `;
+
+  return {
+    messageBodiesPurged: purgedMessages.length,
+    outboxBodiesPurged: purgedOutbox.length,
+    exempted: (exempt[0]?.count as number) ?? 0,
+  };
+}

@@ -1,10 +1,15 @@
 import { appContext } from "../../../../lib/composition";
-import { runInboundPass, runOutboundPass } from "../../../../lib/workers";
+import {
+  runInboundPass,
+  runOutboundPass,
+  runRetentionPass,
+} from "../../../../lib/workers";
 
 // The scheduled worker trigger (F-023, docs/RUNBOOK.md §"Scheduled work").
 //
-// ONE authenticated internal route runs every scheduled pass. F-026's retention purge adds
-// its call to the list below — one mechanism, not a second cron surface per job.
+// ONE authenticated internal route runs every scheduled pass: inbound routing, outbound
+// dispatch, and the F-026 retention purge. A new scheduled job adds its call below — one
+// mechanism, not a second cron surface per job.
 //
 // Authentication is a shared secret, required with NO default and NO local-only bypass.
 // An environment-dependent auth branch is exactly the conditional safety Golden Rule #6
@@ -70,9 +75,19 @@ async function runScheduledWork(req: Request): Promise<Response> {
     clock: context.clock,
   });
 
-  // F-026 adds `const retention = await runRetentionPass(...)` here.
+  // Retention last (F-026): it clears bodies the two passes above may have just written
+  // or read, and it is the only pass whose work is never time-critical. Ordering is a
+  // courtesy, not a correctness property — the purge skips outbox work the dispatcher has
+  // not finished with, so it is safe at any point in the pass.
+  //
+  // The counts returned here are counts ONLY. A purge that reported what it deleted would
+  // defeat its own purpose.
+  const retention = await runRetentionPass({
+    db: context.db,
+    clock: context.clock,
+  });
 
-  return Response.json({ inbound, outbound }, { status: 200 });
+  return Response.json({ inbound, outbound, retention }, { status: 200 });
 }
 
 /** Vercel Cron issues GET. */

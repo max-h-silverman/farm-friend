@@ -6,7 +6,7 @@ enforce, privacy/retention, and the model-run audit MAY-store list.
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract; where this doc disagrees, the handoff wins.
 >
-> **Status: schema and transaction path implemented; retention remains a requirement.**
+> **Status: schema, transaction path, and retention purge implemented.**
 > `packages/db/src/schema.ts`, `drizzle/0000_clean_launch.sql`, and the F-014 forward migration
 > `drizzle/0001_authoritative_transactions.sql` contain the launch records and constraints below.
 > The real-Postgres integration harness creates an empty throwaway database, applies every
@@ -14,8 +14,11 @@ enforce, privacy/retention, and the model-run audit MAY-store list.
 > partial uniqueness, and published-history guards. **F-014 implements and proves** the repository
 > transactions for sender claiming and recovery, conversation ordering, consent ordering,
 > confirmation/publication with authority and approval rechecks, dispatch authorization, and
-> delivery monotonicity. **Retention is still not implemented**; its statements below remain
-> requirements, as do the private-report and stock-out alerting paths owned by F-013.
+> delivery monotonicity. **F-026 implements and proves** raw-context retention:
+> `purgeExpiredBodies` (`packages/db/src/transactions.ts`) clears expired bodies on the scheduled
+> trigger and honors the flagged-thread exemption, proven against real Postgres in
+> `packages/db/src/retention.integration.test.ts`. The private-report and stock-out alerting paths
+> owned by F-013 remain requirements.
 
 ## Scope discipline
 
@@ -111,9 +114,21 @@ These are **database-level** requirements, not application conventions:
 - **Phones:** normalized at ingress; the raw E.164 lives in **exactly one column**, read **only** by
   the outbound send path (SMS cannot be sent to a hash); the **hash is the only lookup/log key**.
   Raw numbers are **never logged**, **never enter model context**, and are masked in admin.
-- **Raw message context is short-lived** and deleted on expiry. Messages in a flagged thread stay
-  readable while the flag is open and for a bounded period after resolution — flag review needs
-  readable threads. *(Exact retention period is an unresolved launch decision.)*
+- **Raw message context is short-lived** and deleted on expiry. A body is written with a **30-day**
+  `body_expires_at` (`DEFAULT_BODY_TTL_MS`); the scheduled retention purge clears it once that
+  instant passes. Only the body text goes — the `sms_messages` row, its inbox projection, dispatch
+  attempts, flags, and audit events are retained.
+- **Messages in a flagged thread stay readable while the flag is open** — flag review needs readable
+  threads. The exemption is keyed on `flags.status = 'open'` for any flag on the message's inbox
+  event, and it **fails safe**: a body is purged only when the absence of an open flag can be shown,
+  because over-retention is recoverable and destroying evidence under an open safety review is not.
+  Resolution makes the body immediately eligible; there is **no** bounded grace period after
+  resolution, since no consumer needs one and an unowned window would be speculative state.
+  **F-025 owns the resolution path**; until it ships nothing moves a flag out of `open`, so a
+  flagged body retains indefinitely — the exemption working, not a leak.
+- **The purge never races live delivery.** Outbound bodies are cleared only in a terminal state
+  (`sent`/`failed`/`ambiguous`/`suppressed`), because the dispatcher reads `outbox_work.body` to
+  send it. It reports **counts only** — never a body, an identifier, or a phone.
 - **Only selected preference and safety records survive raw-context expiration.** Farm Friend may
   retain lightweight facts such as foods requested or preferred stands; it must not accumulate a
   rich personal profile, and **precise durable home addresses are not part of a customer profile**.
@@ -164,3 +179,8 @@ model input** and no output content that could carry PII. It **MAY** store:
 
 To debug *content*, reproduce from the durable source rows through the assembler — this row is a
 provenance/telemetry record, not a transcript.
+
+**Verified against the schema (F-026):** `model_runs` carries exactly these columns and no other —
+nothing holding a prompt, a completion, or a transcript. The list and the table agree, so the
+retention purge has nothing to reach here. `retention.integration.test.ts` asserts the column set
+and fails if a content-bearing column is ever added.
