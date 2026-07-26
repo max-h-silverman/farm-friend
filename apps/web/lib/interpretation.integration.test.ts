@@ -27,7 +27,10 @@ import { applyInterpretedInventory } from "./interpretation";
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
 const farmerHash = "3".repeat(64);
-const T0 = new Date("2026-07-25T12:00:00Z");
+// Anchored to the real clock, not a calendar date: `outbox_work` enforces
+// `body_expires_at > created_at` against a `now()` default, so a literal date silently
+// expires. See the header note in packages/db/src/workflow.integration.test.ts.
+const T0 = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
 function fakeInterpreter(result: InventoryInterpretation): InventoryInterpreter {
   return { async interpret() { return result; } };
@@ -180,7 +183,7 @@ describe("interpreted inventory → pending proposal (integration)", () => {
         available_at, state, dispatch_authorized_at, completed_at
       )
       values ('seed-prompt', ${farmerHash}, 'inventory_confirmation', 'Confirm',
-              ${new Date(T0.getTime() + 86_400_000)}, ${T0}, 'sent', ${T0}, ${T0})
+              ${new Date(T0.getTime() + 172_800_000)}, ${T0}, 'sent', ${T0}, ${T0})
       returning id
     `;
     const proposal = await client()`

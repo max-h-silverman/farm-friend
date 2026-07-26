@@ -39,10 +39,15 @@ describe("authoritative SMS transaction schema (integration)", () => {
   const adminHash = "d".repeat(64);
   const farmerHash = "e".repeat(64);
   const customerHash = "f".repeat(64);
-  const t0 = "2026-07-25T16:00:00.000Z";
-  const t1 = "2026-07-25T17:00:00.000Z";
-  const t2 = "2026-07-25T18:00:00.000Z";
-  const tomorrow = "2026-07-26T16:00:00.000Z";
+  // Anchored to the real clock, not a calendar date: `outbox_work` enforces
+  // `body_expires_at > created_at` against a `now()` default, so a literal date silently
+  // expires. See the header note in workflow.integration.test.ts.
+  const anchor = Date.now() - 24 * 60 * 60 * 1000;
+  const offset = (hours: number) => new Date(anchor + hours * 60 * 60 * 1000).toISOString();
+  const t0 = offset(0);
+  const t1 = offset(1);
+  const t2 = offset(2);
+  const tomorrow = offset(48);
 
   beforeAll(async () => {
     const baseUrl = requiredDatabaseUrl();

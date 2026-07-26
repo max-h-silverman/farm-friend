@@ -213,22 +213,23 @@ marketing purposes.
 
 ### Auto-Responses
 
+These are transcribed from the live Telnyx console (2026-07-26). If the console changes, change
+these to match — the registered auto-responses are the authority, not this page.
+
 Opt-in:
 
-VIGA Farm Friend: Thanks for subscribing to VIGA farm-stand map updates and produce availability
-SMS. Msg frequency varies, usually 0-6/week. Msg&data rates may apply. Consent is not a condition
-of purchase or participation. Reply HELP for help or STOP to opt out.
+You have agreed to receive SMS updates from VIGA Farm Friend. Msg freq may vary. Std msg & data
+rates apply. Reply STOP to opt out, HELP for help.
 
 Opt-out:
 
-VIGA Farm Friend: You're unsubscribed and will receive no further messages. Reply JOIN to
-request to rejoin.
+VIGA Farm Friend: You have been unsubscribed and will no longer receive messages from us. Reply
+HELP for assistance.
 
 Help:
 
-VIGA Farm Friend: Please reach out to board@vigavashon.org or visit
-https://www.vigavashon.org/viga-farm-friend for help. Reply STOP to unsubscribe. Msg&data rates
-may apply.
+VIGA Farm Friend: For help, reply HELP or contact us at board@vigavashon.org. Msg frequency
+varies. Msg&data rates may apply. Reply STOP to opt out.
 
 ### Keywords
 
