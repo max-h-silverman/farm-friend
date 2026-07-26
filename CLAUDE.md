@@ -287,31 +287,46 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-014 is complete on top of F-022's schema. The authoritative SMS transaction path now
-exists in code: raw-body Telnyx ed25519 verification before parsing, one generalized provider inbox
-for `message.received`/`message.sent`/`message.finalized` behind one event-ID dedup path,
-recoverable per-sender claiming with fail-closed stale ordering, a separate STOP/START consent
-watermark, one open base-revision-bound proposal per sender with activation-relative 12-hour expiry,
-exactly-once publication that rechecks farmer authority and VIGA approval under lock, consent-aware
-dispatch as STOP's linearization point, bounded retries, ambiguous quarantine, and monotonic
-delivery. Forward migration `0001_authoritative_transactions` adds this without rewriting `0000`.
-`apps/web` has the single composition root, the real webhook route, and bounded workers.
+**Phase:** F-015 is complete on top of F-014. The authoritative SMS transaction path (F-014) stands
+unchanged: raw-body Telnyx ed25519 verification before parsing, one generalized provider inbox behind
+one event-ID dedup path, recoverable per-sender claiming with fail-closed stale ordering, a separate
+STOP/START consent watermark, one open base-revision-bound proposal per sender, exactly-once
+publication rechecking farmer authority and VIGA approval under lock, consent-aware dispatch as
+STOP's linearization point, bounded retries, ambiguous quarantine, monotonic delivery.
 
-**Verified July 25, 2026 for F-014:** `npm test` 83/83 across 14 files; real-Postgres integration
-53/53 across 5 files against an isolated PostgreSQL 16.12 cluster; typecheck + lint pass; evals
-critical 3/3, advisory 2/2, adversarial 4/4; the production Next.js build and `git diff --check`
-pass. The integration suite proves the transaction, concurrency, ordering, authority, and delivery
-invariants — **not** retention, customer inquiry, or the model privacy boundary.
+**F-015 made the model boundary executable for the one seam with a real consumer.** The public
+generic assembler is **deleted**; `packages/ai/src/projections.ts` exposes `projectInventoryExtraction`,
+which builds its minimal record field by field from named arguments (a wider caller row cannot widen
+model context, and it copies rather than aliases). The low-level `generateJson` is **not exported**,
+so no caller outside `packages/ai` can reach a model except through a named seam. The live seam
+(`inventory-seam.ts`) is constructed over the provider alone — no db, repository, or record loader —
+with every schema member `.strict()`, so a smuggled `publish`/`recipientHash` is a visible refusal
+rather than a silent strip, and a provider error or unrepairable output asks the farmer rather than
+reading as "no items." The provider privacy gate throws at the composition root.
 
-**Known gaps:** the inventory interpreter is a **typed port tested with deterministic fakes** — no
-live model adapter, context projection, or hostile-model proof (F-015). Auth still returns an empty
-role list with no durable session. The superseded generic commitment machine and its `OUT`/`IGNORE`
-tokens remain because the unchanged eval suite exercises them; removal is F-012's. No seed data, no
-customer inquiry/stock-out path, no retention job, and the grounding eval still uses a cooperative
-canned model.
+**Verified July 25, 2026 for F-015:** `npm test` 99/99 across 16 files; real-Postgres integration
+58/58 across 5 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 5/5, advisory
+4/4, adversarial 7/7; the production Next.js build and `git diff --check` pass. Both barriers were
+verified by deliberate sabotage, not just by observing green: reintroducing a generic assembler
+fails `tsc`, and replacing the field-by-field copy with a spread fails exactly the two adversarial
+fixtures written to catch it. The hostile group (`evals/hostile.ts` + the hostile tests in
+`apps/web/lib/interpretation.integration.test.ts`) runs hostile models across projection →
+validation → code rendering → durable rows, inspecting the captured provider context **and** the
+resulting state — this replaced the cooperative canned model.
 
-**PM / authorization:** F-022 and F-014 are `done`. F-012, F-013, and F-015 through F-019 remain
-planned and require separate implementation authorization.
+**Known gaps.** Only the `inventory-extraction` projection exists; stock-out parsing and grounded
+fact selection (F-013) and message classification (F-012) have **no projection and no consumer** —
+deliberate, so five near-duplicates with one real caller were not built. The configured provider is
+still the **stub**: the gate has been exercised but no real vendor's terms have been approved
+through it, and there is no live vendor adapter. The gate checks an operator-attested declaration,
+not the vendor's actual practice. Auth still returns an empty role list with no durable session. The
+superseded generic commitment machine and its `OUT`/`IGNORE` tokens remain because the critical evals
+exercise them; removal is F-012's. No seed data, no customer inquiry/stock-out path, no retention job.
 
-**Next:** select and authorize the next planned tranche. F-015 owns the model privacy boundary that
-would connect the interpreter port to a live model; do not silently absorb other planned items.
+**PM / authorization:** F-022, F-014, and F-015 are `done`. F-012, F-013, and F-016 through F-019
+remain planned and require separate implementation authorization.
+
+**Next:** select and authorize the next planned tranche. F-013 owns the customer inquiry path —
+retrieval, grounded fact selection, and the code-rendered factual answer — and would add the next
+projections following the worked example in docs/RUNBOOK.md "Add a model seam". Do not silently
+absorb other planned items.

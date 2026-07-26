@@ -8,12 +8,18 @@ import {
 } from "@farm-friend/core";
 import { openOrReviseProposal, type Db } from "@farm-friend/db";
 
-// Farmer inventory text → the one pending proposal (F-014).
+// Farmer inventory text → the one pending proposal.
 //
 // The model interprets; CODE decides the consequence. The interpreter receives only the
-// farmer's own current text plus opaque entry identifiers, its output is validated
-// against the retrieved snapshot before anything acts on it, and the resulting pending
-// payload is the complete snapshot bound to the base revision it was computed from.
+// farmer's own current text plus opaque entry identifiers — the `inventory-extraction`
+// projection in `packages/ai` is what constructs that, and it is the only context that
+// crosses the seam. Output is validated against the retrieved snapshot before anything acts
+// on it, and the resulting pending payload is the complete snapshot bound to the base
+// revision it was computed from.
+//
+// Validation runs HERE even though the seam's schema already checked shape: that schema
+// cannot see the snapshot, so membership of every selected entry ID is this layer's job.
+// A hostile model is contained by this pair, not by either alone.
 //
 // The interpreter call happens outside every database transaction.
 

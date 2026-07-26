@@ -157,6 +157,16 @@ command arguments, packages, or UI.
 6. Add a hostile full-workflow fixture that captures the provider context and resulting outbox row
    (advisory; **critical** if safety-relevant), then run the evals.
 
+**Copy the worked example.** `inventory-extraction` is the built seam and the pattern to follow:
+`projectInventoryExtraction` in `packages/ai/src/projections.ts` (step 2–3, note it copies each
+permitted field explicitly rather than spreading a caller's object),
+`packages/ai/src/inventory-seam.ts` (step 4, and note every schema member is `.strict()` so a
+smuggled consequential field is a visible refusal, not a silent strip),
+`apps/web/lib/interpretation.ts` (step 5, plus snapshot-membership validation the schema cannot
+do), and `evals/hostile.ts` with the hostile group in `apps/web/lib/interpretation.integration.test.ts`
+(step 6). Add the new projection's own bypass assertions to
+`packages/ai/src/safety-boundary.type-test.ts`.
+
 ### Swap a provider
 
 - **Model version, same approved provider contract:** implement/select it by config; the branded
@@ -164,7 +174,11 @@ command arguments, packages, or UI.
 - **Model provider:** before selection, re-verify that it does not train on Farm Friend
   requests/responses, calls are stateless, request/response logging is disabled where supported,
   and unavoidable retention has an approved documented maximum. A provider swap is not exempt from
-  this privacy gate.
+  this privacy gate. **Declare the terms in code**: add the provider's `ProviderDataHandling` to
+  `resolveModelConfig` in `apps/web/lib/composition.ts`. `assertProviderApproved` runs at startup
+  and **throws** on any violation, so a provider that cannot meet the terms never constructs. Note
+  what this is: an operator-attested, version-controlled declaration checked in code — not a
+  network audit of the vendor's actual practice.
 - **SMS:** implement the transport (send + **signature verification**); the redaction guard
   continues to normalize avoidable Unicode and block raw phones. After the provider accepts a send,
   record encoding, character count, and estimated billable segments — **by recipient hash, never
