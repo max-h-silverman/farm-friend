@@ -35,8 +35,16 @@ export class OutboundRedactionError extends Error {
 // Matches North-American style raw phone numbers a leak would surface. Deliberately broad:
 // this is a refuse-to-send guard, not a formatter. Covers +1 (206) 555-1234, 2065551234,
 // 206-555-1234, 206.555.1234, etc.
-const RAW_PHONE_RE =
-  /(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/;
+//
+// B-001: the digits must stand on their own. Without the boundaries below, any ten-digit run
+// matched — including the hex digits inside a UUID, which happens for ~3% of random UUIDs.
+// That made the guard randomly refuse legitimate outbound text carrying an identifier. A
+// phone is not preceded or followed by another digit or by identifier characters (hex letters,
+// underscore) that mark the run as part of a longer token.
+const PHONE_BODY = String.raw`(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}`;
+const RAW_PHONE_RE = new RegExp(
+  String.raw`(?<![0-9A-Za-z_])${PHONE_BODY}(?![0-9A-Za-z_])`,
+);
 
 /**
  * The outbound guard. Normalizes avoidable typographic Unicode, then refuses the named

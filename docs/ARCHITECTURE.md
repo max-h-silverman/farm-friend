@@ -162,10 +162,10 @@ A confirmation token is accepted only for the sender's one open inventory propos
 current prompt has been accepted by Telnyx, and only when the token's provider occurrence time
 follows that activation. It must never commit an earlier proposal version.
 
-> *Current drift:* the generic commitment machine still accepts `OUT` across unrelated pending
-> kinds and has no transactional caller. The target below replaces it. The deterministic parser and
-> registered 10DLC copy also disagree about supported command forms; campaign alignment remains
-> F-012.
+F-012 removed the superseded generic commitment machine and its `OUT`/`IGNORE` tokens; the
+inventory confirmation described below is the one mechanism. The parser's keyword tables are
+derived from the registered 10DLC keyword lists, and a test reads
+`docs/TELNYX_10DLC_FIELD_VALUES.txt` to prove the two agree in both directions.
 
 ## Confirmation
 

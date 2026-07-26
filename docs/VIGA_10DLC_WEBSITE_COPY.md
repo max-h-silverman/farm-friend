@@ -49,8 +49,8 @@ Example messages:
   map. Reply YES if still right, or text changes.
 - VIGA Farm Friend: Draft update for Provo Farms: kale, eggs, tomatoes, and limited strawberries.
   Reply YES to publish to the VIGA farm-stand map or NO to cancel.
-- VIGA Farm Friend: A customer reported Provo Farms may be out of kale. Reply OUT to mark it out,
-  IGNORE to dismiss, or STOP to unsubscribe.
+- VIGA Farm Friend: A customer reported Provo Farms may be out of kale. Reply with your current
+  farm-stand items to update the map, or STOP to unsubscribe.
 
 For questions, contact board@vigavashon.org.
 
@@ -99,8 +99,8 @@ opt-out requests, resolve issues, meet legal or compliance obligations, and prot
 
 ## Your Choices
 
-You can unsubscribe from VIGA Farm Friend SMS at any time by replying STOP, UNSUBSCRIBE, CANCEL,
-END, or QUIT. You can request help by replying HELP or INFO.
+You can unsubscribe from VIGA Farm Friend SMS at any time by replying STOP, STOPALL, UNSUBSCRIBE,
+CANCEL, END, or QUIT. You can request help by replying HELP or INFO.
 
 ## Contact
 
@@ -140,7 +140,7 @@ Message and data rates may apply. Consent is not a condition of purchase or part
 
 ## Opt Out
 
-You can unsubscribe at any time by replying STOP, UNSUBSCRIBE, CANCEL, END, or QUIT. After you opt
+You can unsubscribe at any time by replying STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, or QUIT. After you opt
 out, VIGA Farm Friend will send one confirmation message and no further messages unless you
 request to rejoin.
 
@@ -151,9 +151,12 @@ For help, reply HELP or INFO. You can also contact board@vigavashon.org.
 ## Supported Commands
 
 Reply YES to confirm an update when a message asks for it. Reply NO to cancel a pending update when
-a message asks for it. Reply OUT to mark a reported item out of stock when a farmer alert asks for
-it. Reply IGNORE to dismiss a stock-out report. Reply FLAG to report an issue for VIGA review.
-Reply STOP to unsubscribe.
+a message asks for it. When a stock-out alert asks for your current items, reply with them and VIGA
+Farm Friend will confirm before publishing. Reply STOP to unsubscribe.
+
+VIGA Farm Friend also supports FLAG, a VIGA Farm Friend service feature you can reply with to have
+a person at VIGA review a message thread. FLAG is not a carrier opt-out or help keyword; to
+unsubscribe reply STOP, and for help reply HELP.
 
 ## Privacy
 
@@ -235,7 +238,7 @@ Opt-out: STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT
 
 Help: HELP, INFO
 
-Other commands: YES, NO, OUT, IGNORE, FLAG
+Other commands (VIGA Farm Friend service features, not registered carrier keywords): YES, NO, FLAG
 
 Telnyx messaging profile note: Telnyx reserves START, STOP, and HELP for their standard
 operations. Configure JOIN as an additional `start` keyword and INFO as an additional `help`
@@ -251,8 +254,8 @@ map. Reply YES if still right, or text changes.
 VIGA Farm Friend: Draft update for Provo Farms: kale, eggs, tomatoes, and limited strawberries.
 Reply YES to publish to the VIGA farm-stand map or NO to cancel.
 
-VIGA Farm Friend: A customer reported Provo Farms may be out of kale. Reply OUT to mark it out,
-IGNORE to dismiss, or STOP to unsubscribe.
+VIGA Farm Friend: A customer reported Provo Farms may be out of kale. Reply with your current
+farm-stand items to update the map, or STOP to unsubscribe.
 
 VIGA Farm Friend: Current VIGA farm-stand map listings show eggs at Provo Farms, last updated
 Jul 8. Reply HELP for help or STOP to unsubscribe.
