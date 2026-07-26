@@ -287,46 +287,31 @@ cooperative stubs. Suites:
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
 > facts (test counts from a real run, files read); replace stale lines, don't append.
 
-**Phase:** F-015 is complete on top of F-014. The authoritative SMS transaction path (F-014) stands
-unchanged: raw-body Telnyx ed25519 verification before parsing, one generalized provider inbox behind
-one event-ID dedup path, recoverable per-sender claiming with fail-closed stale ordering, a separate
-STOP/START consent watermark, one open base-revision-bound proposal per sender, exactly-once
-publication rechecking farmer authority and VIGA approval under lock, consent-aware dispatch as
-STOP's linearization point, bounded retries, ambiguous quarantine, monotonic delivery.
+**Phase:** F-014 (authoritative SMS transactions), F-015 (model privacy boundary), and F-013
+(grounded customer answers + code-bound stock-out) are built. Live capability: farmers publish
+inventory by SMS behind a confirmation gate; customers get code-rendered grounded answers with
+recency and stale warnings; the web/QR stock-out path records a private report and resolves the
+farmer in code. **The model never authors customer-facing factual text or writes durable state** —
+it interprets and selects identifiers; code retrieves, validates membership, and renders.
+Four model seams have explicit disjoint projections; there is no generic assembler, and the
+low-level provider call is unexported. See docs/SESSION_LOG.md for how each was built.
 
-**F-015 made the model boundary executable for the one seam with a real consumer.** The public
-generic assembler is **deleted**; `packages/ai/src/projections.ts` exposes `projectInventoryExtraction`,
-which builds its minimal record field by field from named arguments (a wider caller row cannot widen
-model context, and it copies rather than aliases). The low-level `generateJson` is **not exported**,
-so no caller outside `packages/ai` can reach a model except through a named seam. The live seam
-(`inventory-seam.ts`) is constructed over the provider alone — no db, repository, or record loader —
-with every schema member `.strict()`, so a smuggled `publish`/`recipientHash` is a visible refusal
-rather than a silent strip, and a provider error or unrepairable output asks the farmer rather than
-reading as "no items." The provider privacy gate throws at the composition root.
+**Verified July 25, 2026:** `npm test` 137/137 across 17 files; real-Postgres integration 72/72
+across 6 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 5/5, advisory 4/4,
+adversarial 14/14; production Next.js build and `git diff --check` pass.
 
-**Verified July 25, 2026 for F-015:** `npm test` 99/99 across 16 files; real-Postgres integration
-58/58 across 5 files against PostgreSQL 16.12; typecheck + lint pass; evals critical 5/5, advisory
-4/4, adversarial 7/7; the production Next.js build and `git diff --check` pass. Both barriers were
-verified by deliberate sabotage, not just by observing green: reintroducing a generic assembler
-fails `tsc`, and replacing the field-by-field copy with a spread fails exactly the two adversarial
-fixtures written to catch it. The hostile group (`evals/hostile.ts` + the hostile tests in
-`apps/web/lib/interpretation.integration.test.ts`) runs hostile models across projection →
-validation → code rendering → durable rows, inspecting the captured provider context **and** the
-resulting state — this replaced the cooperative canned model.
+**Known gaps / owed.** No HTTP route yet wires the inquiry or stock-out workflows to a public
+surface (needs F-017's abuse throttle). Message classification has no projection and no consumer
+(F-012). The configured provider is the **stub** — the privacy gate is executable and fails closed,
+but no real vendor's terms have passed it, and it checks an operator-attested declaration rather
+than vendor practice. Auth returns an empty role list with no durable session. F-012's superseded
+commitment machine and `OUT`/`IGNORE` tokens remain because the critical evals exercise them. No
+seed data, no retention job.
 
-**Known gaps.** Only the `inventory-extraction` projection exists; stock-out parsing and grounded
-fact selection (F-013) and message classification (F-012) have **no projection and no consumer** —
-deliberate, so five near-duplicates with one real caller were not built. The configured provider is
-still the **stub**: the gate has been exercised but no real vendor's terms have been approved
-through it, and there is no live vendor adapter. The gate checks an operator-attested declaration,
-not the vendor's actual practice. Auth still returns an empty role list with no durable session. The
-superseded generic commitment machine and its `OUT`/`IGNORE` tokens remain because the critical evals
-exercise them; removal is F-012's. No seed data, no customer inquiry/stock-out path, no retention job.
+**PM / authorization:** F-013, F-014, F-015, F-020, F-021, F-022 are done. F-012 and F-016 through
+F-019 remain planned and require separate implementation authorization.
 
-**PM / authorization:** F-022, F-014, and F-015 are `done`. F-012, F-013, and F-016 through F-019
-remain planned and require separate implementation authorization.
-
-**Next:** select and authorize the next planned tranche. F-013 owns the customer inquiry path —
-retrieval, grounded fact selection, and the code-rendered factual answer — and would add the next
-projections following the worked example in docs/RUNBOOK.md "Add a model seam". Do not silently
+**Next:** select and authorize the next planned tranche. F-012 needs a decision only max can make —
+whether aligning the live Telnyx campaign requires resubmission — so its code/copy work can start
+but the item cannot close without that. F-016 through F-019 are self-contained. Do not silently
 absorb other planned items.

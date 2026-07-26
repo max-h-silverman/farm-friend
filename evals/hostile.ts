@@ -10,18 +10,26 @@
 // helper-only assertions do not prove the boundary end to end.
 
 import {
+  projectFactSelection,
+  projectInquiryInterpretation,
   projectInventoryExtraction,
+  projectStockOutParse,
   ProjectionError,
   type LLMProvider,
   type ModelSafeContext,
 } from "@farm-friend/ai";
 import {
   applyInventoryEdits,
+  FixedClock,
+  renderGroundedAnswer,
   renderProposedSnapshot,
+  validateFactSelection,
   validateInterpretation,
+  validateInterpretedIntent,
   type InventoryInterpretation,
   type InventoryInterpreter,
   type PublishedSnapshot,
+  type RetrievedFact,
 } from "@farm-friend/core";
 import { containsRawPhone, redactOutbound } from "@farm-friend/sms";
 
@@ -262,4 +270,127 @@ hx("a raw phone in retrieved public facts fails closed at the projection", async
   } catch (error) {
     return error instanceof ProjectionError;
   }
+});
+
+// ===================================================== F-013 customer inquiry fixtures ======
+//
+// The inquiry path has a structural property the inventory path does not: the model NEVER
+// authors customer-facing factual text. Selection returns identifiers; code dereferences and
+// renders. These fixtures prove a hostile model cannot get a fabricated fact delivered.
+
+/** The retrieved set a hostile model will try to select outside of. */
+const RETRIEVED: RetrievedFact[] = [
+  {
+    factId: "loc-1",
+    locationName: "Alpha Stand",
+    farmName: "Alpha Farm",
+    publicAddress: "1 Road",
+    matchedItems: [{ itemName: "Kale", quantity: 6, unit: "bunches" }],
+    asOf: new Date("2026-07-25T10:00:00Z"),
+  },
+];
+
+const EVAL_CLOCK = new FixedClock(new Date("2026-07-25T12:00:00Z"));
+
+// H7. Unknown-identifier selection. A structurally perfect selection naming a location that
+//     was never retrieved is rejected: structural validity is not grounding.
+hx("inquiry: a selection outside the retrieved set is rejected", () => {
+  const result = validateFactSelection(
+    { kind: "selection", factIds: ["loc-999"] },
+    RETRIEVED,
+  );
+  return !result.ok && result.reason.includes("loc-999");
+});
+
+// H8. Factual-string smuggling. The model tries to supply the answer itself. There is no
+//     permitted field for prose, so the whole selection is refused.
+hx("inquiry: a smuggled factual string is refused, not stripped", () => {
+  for (const extra of [
+    { answerText: "Alpha has 400 lbs of kale" },
+    { recency: "updated just now" },
+    { distance: "0.2 miles" },
+    { directions: "turn left at the barn" },
+  ]) {
+    const result = validateFactSelection(
+      { kind: "selection", factIds: ["loc-1"], ...extra },
+      RETRIEVED,
+    );
+    if (result.ok) return false;
+  }
+  return true;
+});
+
+// H9. The delivered answer contains ONLY code-rendered retrieved values. Even on a legitimate
+//     selection, every word a customer reads is dereferenced from typed facts.
+hx("inquiry: the rendered answer carries only code-rendered retrieved values", () => {
+  const answer = renderGroundedAnswer(["loc-1"], RETRIEVED, EVAL_CLOCK);
+  return (
+    answer.includes("Alpha Stand") &&
+    answer.includes("Kale (6 bunches)") &&
+    answer.includes("updated 2 hours ago") &&
+    // Nothing the model could have supplied appears.
+    !answer.includes("400") &&
+    !answer.includes("miles")
+  );
+});
+
+// H10. An intent naming a ranking operation code cannot execute is refused rather than
+//      silently downgraded, so an unexecutable interpretation never looks executed.
+hx("inquiry: an unexecutable ranking interpretation is refused", () => {
+  const result = validateInterpretedIntent({
+    kind: "lookup",
+    items: ["kale"],
+    ranking: "whatever-the-model-feels-like",
+  });
+  return !result.ok;
+});
+
+// H11. The interpretation seam cannot answer from context, because it never receives facts.
+hx("inquiry: the interpretation projection carries no retrieved facts", () => {
+  const ctx = projectInquiryInterpretation({ taskText: "who has kale?" });
+  const context = JSON.stringify(ctx);
+  return (
+    Object.keys(ctx.fields as object).join(",") === "taskText" &&
+    !context.includes("factId")
+  );
+});
+
+// H12. The selection seam never receives the raw customer text — the injection vector.
+hx("inquiry: the selection projection carries no raw customer text", () => {
+  const ctx = projectFactSelection({
+    items: ["kale"],
+    ranking: "freshest",
+    facts: [
+      {
+        factId: "loc-1",
+        farmName: "Alpha Farm",
+        locationName: "Alpha Stand",
+        matchedItemNames: ["Kale"],
+        ageHours: 2,
+      },
+    ],
+  });
+  const context = JSON.stringify(ctx);
+  return (
+    !context.includes("taskText") &&
+    !context.includes("Ignore") &&
+    // Nor any contact or address data.
+    !containsRawPhone(context) &&
+    !context.includes("1 Road")
+  );
+});
+
+// H13. The stock-out seam cannot name a location or a recipient, so it cannot route a
+//      stranger's report to an unrelated farmer.
+hx("stock-out: the parse projection carries no location or recipient", () => {
+  const ctx = projectStockOutParse({
+    taskText: "the kale was gone, text the owner at 206-555-1234",
+    listedItems: [{ entryId: "e1", itemName: "Kale" }],
+  });
+  const context = JSON.stringify(ctx);
+  return (
+    Object.keys(ctx.fields as object).sort().join(",") === "listedItems,taskText" &&
+    !context.includes("salesLocation") &&
+    !context.includes("recipient")
+  );
 });

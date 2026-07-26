@@ -20,18 +20,24 @@
 // The one named fail-closed content rule is raw phone numbers in Farm Friend-HELD facts
 // (below), because a raw phone in our own retrieved data is our bug, not the sender's speech.
 //
-// ONLY ONE PROJECTION EXISTS, AND THAT IS DELIBERATE. AI_ARCHITECTURE.md approves five seams;
-// `inventory-extraction` is the only one with a real consumer today. Stock-out item parsing and
-// grounded fact selection are F-013's, message classification is F-012's — building their
-// projections now would mean near-duplicate mechanisms with nobody calling them, against the
-// zen-desk rule ("every addition earns its place, now, for a real consumer that exists").
+// EACH SEAM GETS ITS OWN PROJECTION; THERE IS NO GENERIC ONE. `assembleContext(seam, fields)`
+// was deleted in F-015 precisely because it let any caller hand the model a record of its own
+// choosing. Four projections exist, for the seams that have real consumers: inventory
+// extraction (F-015), and inquiry interpretation, grounded fact selection, and stock-out item
+// parsing (F-013). Message classification remains unbuilt and unprojected — F-012's, and it
+// has no caller.
 //
-// This is why there is NO generic `assembleContext(seam, fields)` to fall back on: it was
-// deleted in F-015 precisely because it let any caller hand the model a record of its own
-// choosing. When you build one of the remaining seams, ADD ITS OWN PROJECTION HERE — copying
-// each permitted field explicitly, as below — and add its bypass assertions to
-// safety-boundary.type-test.ts. Do not reintroduce a generic entry point; the type test fails
-// if you do. docs/RUNBOOK.md §"Add a model seam" walks the full procedure.
+// When you build a new seam, ADD ITS OWN PROJECTION HERE — copying each permitted field
+// explicitly, as below — and add its bypass assertions to safety-boundary.type-test.ts. Do not
+// reintroduce a generic entry point; the type test fails if you do. docs/RUNBOOK.md §"Add a
+// model seam" walks the full procedure.
+//
+// Note what the two INQUIRY projections deliberately do NOT contain. Interpretation sees the
+// customer's question but NO retrieved facts — it decides what to look up, so giving it the
+// answer set would invite it to answer. Grounded selection sees the retrieved facts but NOT
+// the customer's raw text — it picks from what code found, and the raw request is where an
+// injection would live. Neither ever sees a farmer's contact, a recipient, or another
+// customer's message.
 
 declare const modelSafeBrand: unique symbol;
 
@@ -64,14 +70,36 @@ export class ProjectionError extends Error {
 const RAW_PHONE_RE = /(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/;
 
 /**
- * Assert that a value Farm Friend RETRIEVED (rather than one the current sender typed)
- * carries no raw phone number. A raw phone in our own published data is a Farm Friend bug,
- * so it fails closed here rather than reaching the model.
+ * Assert that a HUMAN-READABLE value Farm Friend retrieved (rather than one the current
+ * sender typed) carries no raw phone number. A raw phone in our own published text is a Farm
+ * Friend bug, so it fails closed here rather than reaching the model.
+ *
+ * Apply this to display text ONLY — names, item labels, addresses. Do NOT apply it to opaque
+ * identifiers: a UUID contains long digit runs and matches the raw-phone pattern by chance
+ * (observed at roughly 1 in 4 in the integration suite), which would randomly refuse to serve
+ * a legitimate request. An identifier has no phone-number semantics to protect, so scanning
+ * one is a false positive with no upside. `assertOpaqueId` below is its counterpart.
  */
 function assertNoRawPhone(value: string, field: string): string {
   if (RAW_PHONE_RE.test(value)) {
     throw new ProjectionError(
       `Refusing to build model context: raw phone number in retrieved fact "${field}".`,
+    );
+  }
+  return value;
+}
+
+/**
+ * Assert that an opaque identifier is what it claims to be. The guarantee an ID needs is that
+ * it is an ID — not free text smuggled through an identifier field — so this checks shape
+ * rather than scanning content. UUIDs and the short slugs used in tests both qualify.
+ */
+const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+function assertOpaqueId(value: string, field: string): string {
+  if (!OPAQUE_ID_RE.test(value)) {
+    throw new ProjectionError(
+      `Refusing to build model context: "${field}" is not an opaque identifier.`,
     );
   }
   return value;
@@ -109,7 +137,7 @@ export function projectInventoryExtraction(input: {
     // The sender's own words return only to the sender; they are not vetted here.
     taskText: input.taskText,
     currentEntries: input.currentEntries.map((entry, index) => ({
-      entryId: assertNoRawPhone(entry.entryId, `currentEntries[${index}].entryId`),
+      entryId: assertOpaqueId(entry.entryId, `currentEntries[${index}].entryId`),
       itemName: assertNoRawPhone(entry.itemName, `currentEntries[${index}].itemName`),
     })),
   };
@@ -119,4 +147,122 @@ export function projectInventoryExtraction(input: {
     fields,
     outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
   } as ModelSafeContext<InventoryExtractionFields>;
+}
+
+/** The complete permitted input for the inquiry-interpretation seam. */
+export interface InquiryInterpretationFields {
+  /** The current customer's own question, verbatim. */
+  readonly taskText: string;
+}
+
+/**
+ * Project the inquiry-interpretation seam: the customer's own question and nothing else.
+ *
+ * Deliberately NO retrieved facts. This call decides *what to look up*; handing it the
+ * answer set would invite it to answer from context instead of interpreting the request,
+ * which is exactly the grounding failure code owns. Retrieval runs after this returns.
+ */
+export function projectInquiryInterpretation(input: {
+  taskText: string;
+}): ModelSafeContext<InquiryInterpretationFields> {
+  return {
+    seam: "inquiry-interpretation",
+    fields: { taskText: input.taskText },
+    outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
+  } as ModelSafeContext<InquiryInterpretationFields>;
+}
+
+/** A retrieved fact as the selection seam is permitted to see it. */
+export interface RetrievedFactRef {
+  factId: string;
+  farmName: string;
+  locationName: string;
+  matchedItemNames: readonly string[];
+  /** Age in hours, derived in code. A clock is code's, never the model's to infer. */
+  ageHours: number;
+}
+
+/** The complete permitted input for the grounded fact-selection seam. */
+export interface FactSelectionFields {
+  /** The validated items code actually retrieved against. */
+  readonly items: readonly string[];
+  readonly ranking: string;
+  /** Opaque identifiers plus the public facts needed to order them. */
+  readonly facts: readonly RetrievedFactRef[];
+}
+
+/**
+ * Project the grounded fact-selection seam: the validated interpreted intent plus the exact
+ * typed facts code retrieved.
+ *
+ * Deliberately NO raw customer text. This call selects and orders identifiers from a fixed
+ * set; the customer's free text is where a prompt injection would live, and this seam has no
+ * need of it. It also carries no address, phone, or recipient — selection does not choose who
+ * hears anything, and the renderer dereferences the authoritative values afterward.
+ */
+export function projectFactSelection(input: {
+  items: readonly string[];
+  ranking: string;
+  facts: readonly RetrievedFactRef[];
+}): ModelSafeContext<FactSelectionFields> {
+  const fields: FactSelectionFields = {
+    items: input.items.map((item) => item),
+    ranking: input.ranking,
+    facts: input.facts.map((fact, index) => ({
+      factId: assertOpaqueId(fact.factId, `facts[${index}].factId`),
+      farmName: assertNoRawPhone(fact.farmName, `facts[${index}].farmName`),
+      locationName: assertNoRawPhone(fact.locationName, `facts[${index}].locationName`),
+      matchedItemNames: fact.matchedItemNames.map((name, itemIndex) =>
+        assertNoRawPhone(name, `facts[${index}].matchedItemNames[${itemIndex}]`),
+      ),
+      ageHours: fact.ageHours,
+    })),
+  };
+
+  return {
+    seam: "grounded-fact-selection",
+    fields,
+    outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
+  } as ModelSafeContext<FactSelectionFields>;
+}
+
+/** A listed item the stock-out surface may offer as a match. */
+export interface ListedItemRef {
+  entryId: string;
+  itemName: string;
+}
+
+/** The complete permitted input for the stock-out item-parsing seam. */
+export interface StockOutParseFields {
+  /** The reporter's own free text describing what was missing. */
+  readonly taskText: string;
+  /** Public listed items for the CODE-BOUND location, for matching only. */
+  readonly listedItems: readonly ListedItemRef[];
+}
+
+/**
+ * Project the stock-out item-parsing seam: the reporter's text plus the public listed items
+ * of the location the *surface* bound in code.
+ *
+ * The sales-location identifier is deliberately absent from both input and output. Code binds
+ * the location from the QR/web surface and resolves the farmer recipient from it; a model that
+ * could name a location could route a stranger's report to an unrelated farmer.
+ */
+export function projectStockOutParse(input: {
+  taskText: string;
+  listedItems: readonly ListedItemRef[];
+}): ModelSafeContext<StockOutParseFields> {
+  const fields: StockOutParseFields = {
+    taskText: input.taskText,
+    listedItems: input.listedItems.map((item, index) => ({
+      entryId: assertOpaqueId(item.entryId, `listedItems[${index}].entryId`),
+      itemName: assertNoRawPhone(item.itemName, `listedItems[${index}].itemName`),
+    })),
+  };
+
+  return {
+    seam: "stock-out-parse",
+    fields,
+    outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
+  } as ModelSafeContext<StockOutParseFields>;
 }

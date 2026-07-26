@@ -1,6 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  projectFactSelection,
+  projectInquiryInterpretation,
   projectInventoryExtraction,
+  projectStockOutParse,
   ProjectionError,
   type ModelSafeContext,
 } from "./index";
@@ -90,5 +94,196 @@ describe("inventory-extraction projection — the only permitted model input for
       currentEntries: [],
     });
     expect(ctx.seam).toBe("inventory-extraction");
+  });
+});
+
+describe("inquiry-interpretation projection — the question, and no facts", () => {
+  it("carries only the customer's own question", () => {
+    const ctx = projectInquiryInterpretation({ taskText: "who has kale today?" });
+    expect(ctx.seam).toBe("inquiry-interpretation");
+    expect(Object.keys(ctx.fields)).toEqual(["taskText"]);
+    expect(ctx.fields.taskText).toBe("who has kale today?");
+  });
+
+  it("cannot be handed retrieved facts, so it cannot answer from context", () => {
+    // The type test proves this statically; this records the intent at runtime too.
+    const ctx = projectInquiryInterpretation({ taskText: "kale?" });
+    expect(JSON.stringify(ctx)).not.toContain("factId");
+  });
+});
+
+describe("grounded-fact-selection projection — the facts, and no raw customer text", () => {
+  const facts = [
+    {
+      factId: "f1",
+      farmName: "Alpha Farm",
+      locationName: "Alpha Stand",
+      matchedItemNames: ["kale"],
+      ageHours: 2,
+    },
+  ];
+
+  it("carries the validated intent and the exact retrieved facts", () => {
+    const ctx = projectFactSelection({ items: ["kale"], ranking: "freshest", facts });
+    expect(ctx.seam).toBe("grounded-fact-selection");
+    expect(Object.keys(ctx.fields).sort()).toEqual(["facts", "items", "ranking"]);
+    expect(ctx.fields.facts[0]!.factId).toBe("f1");
+  });
+
+  it("does not carry the customer's raw text, where an injection would live", () => {
+    const ctx = projectFactSelection({ items: ["kale"], ranking: "any", facts });
+    expect(JSON.stringify(ctx)).not.toContain("taskText");
+  });
+
+  it("copies each fact field-by-field, so an over-broad row cannot widen it", () => {
+    const overBroad = {
+      factId: "f1",
+      farmName: "Alpha Farm",
+      locationName: "Alpha Stand",
+      matchedItemNames: ["kale"],
+      ageHours: 2,
+      farmerPhoneHash: "deadbeef",
+      internalNote: "owner behind on dues",
+    } as (typeof facts)[number];
+
+    const ctx = projectFactSelection({ items: ["kale"], ranking: "any", facts: [overBroad] });
+    expect(Object.keys(ctx.fields.facts[0]!).sort()).toEqual([
+      "ageHours",
+      "factId",
+      "farmName",
+      "locationName",
+      "matchedItemNames",
+    ]);
+    expect(JSON.stringify(ctx)).not.toContain("deadbeef");
+    expect(JSON.stringify(ctx)).not.toContain("behind on dues");
+  });
+
+  it("refuses a raw phone in retrieved public facts", () => {
+    expect(() =>
+      projectFactSelection({
+        items: ["kale"],
+        ranking: "any",
+        facts: [{ ...facts[0]!, locationName: "Call 206-555-1234 Stand" }],
+      }),
+    ).toThrow(ProjectionError);
+  });
+});
+
+describe("stock-out-parse projection — no location identifier in or out", () => {
+  it("carries the reporter's text and the bound location's listed items", () => {
+    const ctx = projectStockOutParse({
+      taskText: "the kale bin was empty",
+      listedItems: [{ entryId: "e1", itemName: "Kale" }],
+    });
+    expect(ctx.seam).toBe("stock-out-parse");
+    expect(Object.keys(ctx.fields).sort()).toEqual(["listedItems", "taskText"]);
+    expect(ctx.fields.listedItems[0]!.entryId).toBe("e1");
+  });
+
+  it("never carries a sales-location identifier — code binds that from the surface", () => {
+    const ctx = projectStockOutParse({
+      taskText: "empty",
+      listedItems: [{ entryId: "e1", itemName: "Kale" }],
+    });
+    expect(JSON.stringify(ctx)).not.toContain("salesLocation");
+    expect(JSON.stringify(ctx)).not.toContain("recipient");
+  });
+
+  it("copies listed items field-by-field", () => {
+    const overBroad = {
+      entryId: "e1",
+      itemName: "Kale",
+      salesLocationId: "loc-1",
+    } as { entryId: string; itemName: string };
+
+    const ctx = projectStockOutParse({ taskText: "empty", listedItems: [overBroad] });
+    expect(Object.keys(ctx.fields.listedItems[0]!).sort()).toEqual(["entryId", "itemName"]);
+    expect(JSON.stringify(ctx)).not.toContain("loc-1");
+  });
+});
+
+describe("opaque identifiers are checked for shape, never scanned as content", () => {
+  // Regression: UUIDs contain long digit runs and matched the raw-phone pattern by chance
+  // (~1 in 4 integration runs), which randomly refused legitimate requests. An identifier has
+  // no phone semantics to protect; scanning one is a false positive with no upside.
+  it("accepts UUID identifiers across many draws, in every projection", () => {
+    for (let i = 0; i < 500; i++) {
+      const id = randomUUID();
+      expect(() =>
+        projectInventoryExtraction({
+          taskText: "kale",
+          currentEntries: [{ entryId: id, itemName: "Kale" }],
+        }),
+      ).not.toThrow();
+      expect(() =>
+        projectFactSelection({
+          items: ["kale"],
+          ranking: "any",
+          facts: [
+            {
+              factId: id,
+              farmName: "Alpha Farm",
+              locationName: "Alpha Stand",
+              matchedItemNames: ["Kale"],
+              ageHours: 1,
+            },
+          ],
+        }),
+      ).not.toThrow();
+      expect(() =>
+        projectStockOutParse({ taskText: "gone", listedItems: [{ entryId: id, itemName: "Kale" }] }),
+      ).not.toThrow();
+    }
+  });
+
+  it("accepts a UUID that literally contains a phone-shaped digit run", () => {
+    // Constructed to match RAW_PHONE_RE if it were scanned as content.
+    const id = "2065551234-4d1f-4c2b-8f3a-1234567890ab";
+    expect(() =>
+      projectFactSelection({
+        items: ["kale"],
+        ranking: "any",
+        facts: [
+          {
+            factId: id,
+            farmName: "Alpha Farm",
+            locationName: "Alpha Stand",
+            matchedItemNames: ["Kale"],
+            ageHours: 1,
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it("still refuses free text smuggled through an identifier field", () => {
+    // The guarantee an ID needs is that it IS an id, not that it is phone-free.
+    for (const notAnId of ["call me at 206-555-1234", "id with spaces", "", "a".repeat(200)]) {
+      expect(() =>
+        projectStockOutParse({
+          taskText: "gone",
+          listedItems: [{ entryId: notAnId, itemName: "Kale" }],
+        }),
+      ).toThrow(ProjectionError);
+    }
+  });
+
+  it("still refuses a raw phone in human-readable retrieved text", () => {
+    // The content rule stays where it means something: display text.
+    expect(() =>
+      projectFactSelection({
+        items: ["kale"],
+        ranking: "any",
+        facts: [
+          {
+            factId: randomUUID(),
+            farmName: "Alpha Farm",
+            locationName: "Call 206-555-1234 Stand",
+            matchedItemNames: ["Kale"],
+            ageHours: 1,
+          },
+        ],
+      }),
+    ).toThrow(ProjectionError);
   });
 });

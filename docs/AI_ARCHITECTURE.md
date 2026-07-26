@@ -22,12 +22,17 @@ verification**, validation, evals, and data minimization. Data shapes are in
 > across projection → validation → code rendering → durable state, inspecting both the captured
 > provider context and the resulting rows.
 >
-> **Still requirements awaiting their owning item:** the seams below other than inventory
-> extraction have **no projection and no consumer** — stock-out item parsing and grounded fact
-> selection are F-013's, message classification F-012's. Retrieval/ranking, selected-ID
-> membership for *inquiry*, and the code-rendered customer answer are therefore **unbuilt**
-> (F-013). The configured provider is still the deterministic stub; no live vendor adapter
-> exists, so the gate has been exercised but no real vendor's terms have been approved through it.
+> **F-013 completed the customer-facing half.** Inquiry interpretation, code-owned retrieval and
+> ranking, grounded fact selection, and the code-rendered answer now exist, as does the code-bound
+> web/QR stock-out path whose farmer recipient is resolved in code from the bound location. The
+> model never authors customer-facing factual text: selection returns identifiers, and
+> `packages/core/src/inquiry/answer.ts` dereferences authoritative values and renders names, items,
+> recency, and stale warnings. Empty retrieval is code-rendered **without** a selection call.
+>
+> **Still requirements awaiting their owning item:** message classification has no projection and
+> no consumer (F-012). The configured provider is still the deterministic stub; no live vendor
+> adapter exists, so the gate has been exercised but no real vendor's terms have been approved
+> through it.
 
 ## The trust contract — an LLM-brain in a harness
 
@@ -119,10 +124,22 @@ and there is deliberately no generic assembler standing in for them in the meant
 | Seam | Permitted model input | Built? |
 |---|---|---|
 | inventory extraction | the current farmer message, plus opaque entry IDs and public item names for the farmer's own location | **yes** |
-| stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location | no — F-013 |
-| inquiry interpretation | the current customer SMS request | no — F-013 |
-| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts | no — F-013 |
+| stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location | **yes** |
+| inquiry interpretation | the current customer SMS request | **yes** |
+| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts | **yes** |
 | message classification, if retained | the current sender's message only | no — F-012 |
+
+The two inquiry projections are deliberately **disjoint**, and this is load-bearing rather than
+incidental. Interpretation receives the customer's question and **no retrieved facts**: it decides
+what to look up, and handing it the answer set would invite it to answer from context. Grounded
+selection receives the retrieved facts and **not the raw question**: it orders what code already
+found, and the raw request is where a prompt injection would live. Each split is a compile error to
+violate (`packages/ai/src/safety-boundary.type-test.ts`).
+
+**Opaque identifiers are checked for shape, not scanned as content.** The named raw-phone rule
+applies to human-readable retrieved text (names, item labels). Applying it to an identifier is a
+false positive with no upside: a UUID's digit runs match the phone pattern by chance, which was
+observed refusing ~1 in 4 legitimate integration runs before F-013 separated the two checks.
 
 No projection contains raw phone/contact data, another actor's message, unrelated thread history,
 authentication or consent state, admin/audit records, internal notes, or secrets. A current sender
@@ -233,9 +250,13 @@ rows, rather than asserting on helpers. Structurally valid selections outside th
 rejected; a smuggled consequential field is a visible refusal rather than a silent strip; and an
 invention reaches at most a code-rendered confirmation the farmer must approve.
 
-**Still required, with its owning item.** Proving the queued *customer* factual response contains
-only code-rendered retrieved values, and that a free-text SMS stock-out report cannot select a
-location or queue a farmer alert, needs those paths to exist first (**F-013**).
+**Done (F-013), for the inquiry and stock-out seams.** The adversarial group proves a selection
+outside the retrieved set is rejected, a smuggled factual string (`answerText`, `recency`,
+`distance`, `directions`) is a visible refusal rather than a stripped field, the delivered answer
+contains only code-rendered retrieved values, an unexecutable ranking interpretation is refused
+rather than downgraded, and neither inquiry projection carries the other's data. Integration tests
+prove a report never mutates published inventory or ranking, and that an entry from another farm's
+stand is refused against a code-bound location.
 
 Any change touching a model seam runs evals; a provider, prompt, or context-projection change must
 pass the full suite at parity or better.

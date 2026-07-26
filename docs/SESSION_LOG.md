@@ -7,6 +7,60 @@ is the *why behind past changes*.
 
 ---
 
+## 2026-07-25 — F-013 grounded answers and code-bound stock-out recipients
+
+Built on the F-015 branch (the projection pattern it establishes is exactly what this item
+follows). Test-first: `answer.test.ts` and `retrieval.test.ts` were written and observed failing
+before either module existed.
+
+**The customer never reads a model-authored fact.** That is the whole item, and it is structural
+rather than promised. Retrieval returns typed facts with opaque IDs; the model returns *identifiers
+only*; code validates membership against the exact retrieved set, dereferences authoritative
+values, and renders names, items, recency, and stale warnings. The selection schema has no field
+capable of carrying prose, so a model wanting to invent availability has nowhere to put it.
+
+**The two inquiry projections are deliberately disjoint.** Interpretation sees the question and no
+facts — it decides what to look up, and handing it the answer set would invite it to answer from
+context. Selection sees the facts and not the raw question — it orders what code found, and the raw
+request is where an injection lives. Both splits are compile errors to violate.
+
+**Empty retrieval short-circuits before the selection call.** With nothing to select from, a model
+call could only invent, so the honest "no current listing" is code-rendered without one. The
+integration test asserts the selection seam was never reached.
+
+**Two decisions worth recording.**
+
+*A refused shape is distinguished from a transient failure.* The first integration run showed a
+smuggled `answerText` arriving as a polite clarification: the strict schema rejected it correctly,
+but the seam collapsed both failure modes, so an attack was indistinguishable from a network blip.
+The seam now returns an explicit refusal and the workflow rejects `invalid_output` visibly while
+still asking the customer on `provider_error` — because "nobody has kale" is a factual claim we
+cannot support from a failed call.
+
+*Opaque identifiers are checked for shape, never scanned as content.* A flaky integration failure
+(~1 in 4 runs, a different test each time) turned out to be a real bug: `assertNoRawPhone` was
+applied to UUIDs, whose digit runs match the phone pattern by chance. In production this would have
+randomly refused legitimate customer inquiries. The content rule now applies only to human-readable
+retrieved text; identifiers get `assertOpaqueId`, which checks that an ID is an ID rather than free
+text smuggled through an identifier field. Pinned by a 500-draw regression test plus a
+deliberately phone-shaped UUID. Worth noting the general lesson: a safety check applied where its
+semantics do not hold is not conservative, it is a liability.
+
+*The superseded `reportStockout` helper was deleted, not corrected.* F-013 required removing its
+false "the outcome shape has no inventory field, therefore a report cannot mutate state" proof. It
+had no caller but its own test, and the real workflow now proves that invariant against durable
+published state, so deleting it beat maintaining two ways to do one thing.
+
+**Deliberately not done:** message classification remains unbuilt and unprojected (F-012's, no
+consumer); F-012's commitment machine and OUT/IGNORE tokens are untouched; no live vendor adapter;
+F-016 through F-019 untouched.
+
+**Verified:** `npm test` 137/137 across 17 files; real-Postgres integration 72/72 across 6 files
+against PostgreSQL 16.12, run **six consecutive times** to confirm the flakiness was resolved rather
+than reshuffled; typecheck and lint PASS; evals critical 5/5, advisory 4/4, adversarial 14/14; the
+production Next.js build and `git diff --check` PASS. The new adversarial fixtures were
+sabotage-tested: relaxing the selection validator's extra-key check fails the smuggling fixture.
+
 ## 2026-07-25 — F-015 model privacy boundary and hostile verification
 
 Starting from clean `main` at `b9aaf50`, F-015 connected F-014's typed interpreter port to a live
