@@ -174,6 +174,7 @@ describe("no runtime geocoder or map provider (F-017)", () => {
       "packages/db/src/workflow.integration.test.ts",
       "packages/db/src/transactions.integration.test.ts",
       "packages/db/src/schema.integration.test.ts",
+      "packages/db/src/retention.integration.test.ts",
       "apps/web/lib/inquiry.integration.test.ts",
       "apps/web/lib/interpretation.integration.test.ts",
       "apps/web/lib/public-surface.integration.test.ts",

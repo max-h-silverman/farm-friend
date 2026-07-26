@@ -106,9 +106,32 @@ authenticated internal route runs every scheduled pass:
 GET|POST /api/internal/cron      Authorization: Bearer $CRON_SECRET
 ```
 
-It runs the inbound pass (deterministic routing → consent/confirmation/free-text) and then the
-outbound pass (dispatch claim → provider → result). Each pass **enumerates its own work** — pending
-sender hashes and due outbox rows — so the trigger passes no IDs and needs no knowledge of state.
+It runs three bounded passes in order: the inbound pass (deterministic routing →
+consent/confirmation/free-text), the outbound pass (dispatch claim → provider → result), and the
+**retention purge** (F-026). Each pass **enumerates its own work** — pending sender hashes, due
+outbox rows, expired bodies — so the trigger passes no IDs and needs no knowledge of state.
+
+**The retention purge** clears raw message context whose `body_expires_at` has passed: the body text
+in `sms_messages` and `outbox_work`, and nothing else. The `sms_messages` row, its
+`provider_inbox_events` projection, dispatch attempts, flags, and audit events all survive —
+retention is selective, and the record that a message existed is what keeps the system auditable.
+
+Three properties are worth knowing when operating it:
+
+- **Flagged threads are exempt.** A body whose inbox event carries an **open** flag is retained;
+  flag review needs a readable thread. The exemption ends when the flag is resolved or dismissed.
+  **F-025 builds that resolution path** — until it ships, nothing can move a flag out of `open`, so
+  a flagged body retains indefinitely. That is the exemption working as designed, not a leak.
+- **It never touches outbound work the dispatcher is still using.** Only `sent`/`failed`/
+  `ambiguous`/`suppressed` rows are cleared, so a purge can never race the dispatcher into sending
+  an empty SMS.
+- **It reports counts only.** The response carries `messageBodiesPurged`, `outboxBodiesPurged`, and
+  `exempted` — never a body, an identifier, or a phone. A purge that logged what it deleted would
+  defeat its own purpose.
+
+It is idempotent and safe to run concurrently with live traffic and with itself (`for update skip
+locked`), and bounded per pass, so a large backlog drains over several runs rather than in one long
+transaction.
 
 Run it locally, or by hand against a deployment:
 
@@ -126,8 +149,8 @@ compares it in constant time, and there is deliberately **no** environment-condi
 `apps/web/lib/cron-auth.test.ts` reads the route source and fails if one appears. An unauthenticated
 worker trigger would be a remote way to drive consent changes and real outbound SMS.
 
-**Adding a scheduled job** (e.g. F-026's retention purge) means adding its call inside
-`runScheduledWork` in that one route — never a second cron surface.
+**Adding a scheduled job** means adding its call inside `runScheduledWork` in that one route —
+never a second cron surface. F-026's retention purge is the worked example.
 
 ## Telnyx webhook config
 
