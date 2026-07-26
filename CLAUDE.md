@@ -331,65 +331,46 @@ React state in the customer's tab — never stored, logged, requested, or put in
 `packages/core/src/sms/commands.ts` and `commands.test.ts` fails if the registered artifact and the
 parser disagree in either direction. `YES`/`NO` are the only commitment tokens.
 
-**The go-live gap, and it is a wiring gap, not a correctness gap.** Every launch guarantee is proven
-at the function boundary and most are unreachable at the system boundary. Five items own the distance
-to launch — logged 2026-07-26 after auditing the code, each blocking:
+**The go-live gap is a WIRING gap, not a correctness gap.** Launch guarantees are proven at the
+function boundary and mostly unreachable at the system boundary. Do not read a passing suite as a
+working product — several of these gaps hide behind green tests whose fixtures supply what production
+never creates:
 
-- **F-023 — nothing routes inbound SMS.** The webhook verifies and persists correctly, but
-  `runInboundPass` (`apps/web/lib/workers.ts:38`) claims an event, fails stale ones closed, and
-  finalizes **without routing it**. Production callers of `parseCommand`, `consentTransitionFor`, and
-  `answerInquiry`: **none.** Today a farmer texts `STOP` and nothing unsubscribes them. Also: nothing
-  invokes the workers at all — they take caller-supplied ID lists with no scheduler.
-- **F-024 — the configured provider is the stub.** The privacy gate is executable and fails closed,
-  but no real vendor's terms have passed it, and it checks an operator-attested declaration rather
-  than vendor practice.
-- **F-025 — no operator surface.** One page exists (the public map); the one admin route is a stub
-  returning `{ flags: [] }`; auth returns an empty role list. Sharpest edge: **nothing can approve a
-  farm**, and `transactions.ts:711-715` refuses publication without a live `farm_approvals` row —
-  reachable today only by hand-written SQL.
-- **F-026 — no retention job.** Bodies are written with a 30-day `body_expires_at` and **nothing ever
-  deletes them.** The retention promise is a claim, not a mechanism.
-- **B-002 — no seed utility.** Blocked on the VIGA map export; without seeded stands the map is empty
-  and inquiry retrieval has nothing to find.
+- **F-023 — nothing routes inbound SMS.** The webhook verifies and persists correctly; `runInboundPass`
+  (`apps/web/lib/workers.ts:38`) then claims, fails stale closed, and finalizes **without routing**.
+  Production callers of `parseCommand`, `consentTransitionFor`, `answerInquiry`: **none** — a farmer
+  texts `STOP` and nothing unsubscribes them. Nothing invokes the workers at all (no scheduler).
+- **F-025 — nothing can approve a farm**, yet `transactions.ts:711-715` refuses publication without a
+  live `farm_approvals` row. The publication tests pass only because their fixtures insert it. Also: no
+  admin UI (one page exists, the public map), the flag route is a `{ flags: [] }` stub, auth returns an
+  empty role list.
+- **F-026 — nothing deletes expired bodies.** They carry a 30-day `body_expires_at` that governs no
+  delete; the retention promise is a claim, not a mechanism.
+- **F-024 — the configured provider is the stub.** The privacy gate is executable and fails closed, but
+  no real vendor's terms have passed it, and it attests a declaration, not vendor practice.
+- **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
 
-**Also open:** F-027 (vestigial `tenantId` in the auth principal, contradicting the tenancy non-goal;
-not launch-blocking). `packages/config` and `packages/contracts` still exist despite the handoff's
-"Delete" and no item owns that. No per-stand pages or filter/search UI. Message classification has no
-projection and no consumer. SMS inquiry has no HTTP route **by design** — it is reached from the
-Telnyx webhook worker.
+**Also open / unowned:** F-027 (vestigial `tenantId` contradicting the tenancy non-goal).
+`packages/config` and `packages/contracts` still exist despite the handoff's "Delete" — **no item owns
+this.** No per-stand pages or filter/search UI. Message classification has no projection or consumer.
+SMS inquiry has no HTTP route **by design** — reached from the Telnyx webhook worker.
 
-**Two intermittent-failure defects found, and the second reframes the first.** **B-001**: an
-unanchored `RAW_PHONE_RE` matched hex digits in ~3.1% of UUIDs, so `redactOutbound` could refuse
-legitimate sends at random — real, measured, fixed. **B-003**: the integration suite was
-**date-dependent** — fixtures hard-coded `2026-07-25` while `outbox_work` enforces
-`body_expires_at > created_at` against a `now()` default, so it was 106/106 at 00:06 and 54 failing
-at 08:32 with no code change. Fixture instants are now offsets from a clock-derived anchor, and
-`architecture.test.ts` fails if a literal date returns (and fails loudly, not vacuously, if a listed
-suite goes missing).
+**Standing test-suite rules, learned from two real defects (B-001 unanchored regex, B-003
+date-dependence — see SESSION_LOG).** If an integration run fails: capture the test name and
+assertion BEFORE rerunning (`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites
+**sequentially, never chained**. Treat a named failing test as a real defect until shown otherwise.
+**A suite whose result depends on the calendar is not a suite** — fixture instants must be offsets
+from a clock-derived anchor, never literals (`architecture.test.ts` enforces this). **B-001 is not
+proof the intermittent-failure class is closed**: its original failing test name was never captured,
+and a date boundary produces the same `1 failed | N passed` signature.
 
-**Do not treat B-001 as closing the intermittent-failure class.** A date-boundary failure produces
-the same `1 failed | N passed` signature, the original failing test name was never captured, and
-B-003 proves the suite held more than one time bomb. **The standing lesson holds:** if an integration
-run fails, capture the test name and assertion BEFORE rerunning
-(`npm run test:integration 2>&1 | tee /tmp/itest.log`) and run suites **sequentially, never chained**.
-Treat a named failing test as a real defect until shown otherwise. **A suite whose result depends on
-the calendar is not a suite** — fixture instants must be offsets, never literals.
+**Registered 10DLC copy: the console is the authority.** `docs/TELNYX_10DLC_FIELD_VALUES.txt` is a
+**transcript** of live console state, not a draft — a candidate sample message once living only there
+was misread as registered copy and cost a cycle. Change the console first, then transcribe.
+`commands.test.ts` reads that file and fails if code and registration disagree either way.
 
-**PM / authorization:** F-012–F-022 are **all done and merged** to `main`. **The clean-room finding
-backlog is complete.** F-012's carrier question resolved as *moot*: the live console registers two
-sample messages, neither advertising the retired tokens, so nothing needed resubmission —
-`docs/TELNYX_10DLC_FIELD_VALUES.txt` had been a wish list of candidate values misread as a record of
-what was submitted. It now opens with a STATUS header declaring it a transcript of live console
-state; **change the console first, then transcribe.**
-
-**Open, and each needs separate implementation authorization:** **F-023** (inbound routing — largest),
-**F-024** (real model provider), **F-025** (operator surface), **F-026** (retention purge), **B-002**
-(seed utility, blocked on max for the VIGA map export), **F-027** (tenancy cleanup, not blocking).
-F-023 and F-026 both need a scheduler — whichever lands first owns the choice and the other reuses it.
-Any other new work needs a new PM item.
-
-**Owed, not absorbed by any closed item:** there is still **no inbound routing layer** — nothing in
-production code calls `parseCommand`, `runInboundPass`, or `answerInquiry`, so `consentTransitionFor`
-and the inquiry seams have no runtime caller. The consent *decision* and the inquiry *workflow* are
-built and proven; wiring the Telnyx webhook worker to them is downstream work. Paired with the
-missing seed utility, these are the two gaps between "proven in tests" and "usable at launch."
+**PM / authorization.** F-011–F-022 are done and merged; the clean-room finding backlog is complete.
+**Open, each needing separate implementation authorization:** **F-023** (inbound routing — largest),
+**F-024** (real provider), **F-025** (operator surface), **F-026** (retention purge), **B-002** (seed
+utility — blocked on max for the VIGA map export), **F-027** (tenancy cleanup, not blocking). B-001
+stays open pending the caveat above. Any other new work needs a new PM item.

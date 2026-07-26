@@ -17,8 +17,14 @@ driver; **A2P 10DLC is assumed approved by launch** (Eat Vashon week). All copy 
 > by real-Postgres tests. F-012 aligned the keyword set: the parser derives its tables from the
 > registered opt-out/opt-in/help lists, `STOPALL` now opts out globally, and the obsolete
 > `OUT`/`IGNORE` tokens are gone from the parser, the registered artifact, and public copy.
-> **Still open:** whether amending registered Sample Message 3 requires carrier resubmission —
-> a Telnyx-console question only max can answer.
+> **Resolved 2026-07-26 — no resubmission was required.** The live console registers two sample
+> messages, both using `YES`/`NO`; the "Message 3" that advertised `OUT`/`IGNORE` existed only in
+> `docs/TELNYX_10DLC_FIELD_VALUES.txt`, which was a draft misread as a record of registered copy.
+> That file is now a transcript of live console state — **change the console first, then transcribe.**
+> The HELP auto-response was also corrected to route to `board@vigavashon.org`, so the campaign's
+> declared `Embedded Phone Number: No` is truthful.
+> **Still owed (F-023):** none of this keyword handling has a production caller — nothing routes a
+> persisted inbound event to `parseCommand`, so a registered `STOP` does not yet unsubscribe anyone.
 
 ## Deterministic keyword handling (code, before any model call)
 
