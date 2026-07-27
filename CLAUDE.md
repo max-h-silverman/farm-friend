@@ -426,8 +426,12 @@ supply what production never creates.
   Provisioning Status on the 10DLC campaign was `Pending`** — approved campaign and profile-Active
   number do *not* imply the number is provisioned on the campaign, and an unprovisioned number has no
   carrier route for inbound, so messages die upstream of Telnyx's own records. Max assigned it late in
-  that session. **Next session: check the campaign shows `Active`, then send `STOP` → `JOIN` → `HELP`
-  and verify in `sms_consents`.** No code or config change is expected. **A supervised `JOIN` demo
+  that session. **Provisioning then cleared and ingress started working — two inbound webhooks
+  returned 200 (05:49:10Z and 05:59:57Z) — but still no reply arrived.** So the remaining failure is
+  **outbound, not ingress**: signature verified, message committed, 200 returned, and the reply never
+  went out. Suspect the B-004 kick, which swallows every failure by construction and has **no cron to
+  recover it** on Hobby. **Next session starts by reading `outbox_work` / `sms_consents` / `sender_states`
+  to find which stage stopped** — the answer is in the database, not the phone. **A supervised `JOIN` demo
   needs none of F-024/B-002/F-031**; keyword paths precede any model call and the reply rides the
   **B-004 kick in ~47ms**, not cron. Production cron is an **open decision**: Pro ($20/mo) vs. an
   external scheduler hitting the authenticated endpoint — and Hobby **cannot** run this schedule at

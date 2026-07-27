@@ -130,10 +130,22 @@ confirmation that the `vercel.json` strip was restored.
 
 ### Owed
 
-F-029 waits on carrier provisioning to clear (`Pending` → `Active` on the campaign), which is
-outside our control and typically minutes to hours. Then: `STOP` → `JOIN` → `HELP`, verified in
-`sms_consents`. **No code or configuration change is expected** — every app-side property is already
-verified. B-008 is open. The throwaway Vercel project and branch still want deleting before go-live,
+**Late update, after the wrap commit: provisioning cleared, ingress now works, and the demo still
+fails — one stage later.** Two inbound webhooks returned **200** (05:49:10Z and 05:59:57Z): signature
+verified, message committed durably, acknowledgement returned. No reply arrived at the handset.
+
+The failure has therefore **moved from ingress to outbound**, which retires the carrier theory
+entirely and makes this the first app-side suspicion of the whole effort. The prime suspect is the
+**B-004 kick**: it is started with `void`, never awaited, and swallows every failure by construction,
+and on Hobby there is **no cron to recover what it drops**. That is exactly the silent-failure mode
+flagged at the session's start — a reply that never arrives with no error surfaced anywhere, because
+the webhook already returned its 200.
+
+Next session begins in the database rather than on the phone: `sms_messages` (did the inbound row
+commit?), `sender_states` (did the inbound pass run?), `outbox_work` (was a reply queued, and what is
+its `state`?), `outbox_dispatch_attempts` (was dispatch attempted, and what came back?), and
+`sms_consents` (did the STOP transition commit even though no acknowledgement went out?). Each table
+answers a different stage, and the first empty one localizes the break. B-008 is open. The throwaway Vercel project and branch still want deleting before go-live,
 and production cron remains the open Pro-vs-external-scheduler decision, now sharper because Hobby
 cannot deploy this repo's `vercel.json` at all.
 
