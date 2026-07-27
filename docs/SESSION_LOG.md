@@ -75,6 +75,19 @@ the projection check forbids a delivery event without a `dispatch_attempt_id`, a
 fails if either constraint is relaxed. The zero-caller singular wrapper was deleted rather than left
 beside the new plural one.
 
+### Merged past a permanently-red check, deliberately
+
+Merged as `f16ef8f` (PR #46) with GitHub's Vercel check failing. It fails on **every** commit
+including `main`'s last three, all predating this work: the committed `vercel.json` declares a
+one-minute cron the Hobby plan rejects, which is why production is deployed by hand with the `crons`
+block stripped. max's call: merge now. It is written into CLAUDE.md so the red check is not mistaken
+for a signal about a change under review — worth removing at go-live, since a check nobody can
+distinguish from a real failure is how a real failure eventually gets missed.
+
+**Production verification by effect is owed and not done**: no scheduled run has been observed
+applying a real callback, since that needs the production `DATABASE_URL`. It is step one of the next
+session, the same way the retention purge was verified the day before.
+
 ---
 
 ## 2026-07-27 — a scheduler that can fail loudly, the sentence the database threw away, and conforming to the carrier

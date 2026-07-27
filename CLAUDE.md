@@ -417,6 +417,11 @@ integration built a stale commit three times. **Hobby rejects `vercel.json`'s on
 deploying requires stripping the `crons` block from the working tree *uncommitted* and restoring it
 after — never the stale `throwaway/hobby-deploy-test` branch. **Tear down the project and that branch
 before go-live.**
+**Consequence: GitHub's "Vercel" check is permanently RED on every commit and PR**, `main` included
+(4f74e6a, a989172, 459a3a7, and PR #46 all failed identically) — the committed one-minute cron the
+Hobby plan rejects. It is **not** a signal about the change under review, and B-012 was merged past
+it deliberately. A check nobody can distinguish from a real failure is worth removing when the plan
+question is settled at go-live; until then, judge PRs by the local suites.
 
 **The webhook's config diagnostic is three-way, not two-way** (the RUNBOOK step-4 framing is wrong).
 `route.ts` calls `appContext()` before the provider check, and `resolveConfig` **throws** on a missing
@@ -482,24 +487,23 @@ supply what production never creates.
   returns `400` on every send. **What remains for go-live is not the SMS path** — it is **F-034
   (credential rotation, a hard blocker)**, tearing down the throwaway project and branch, B-002 seed
   data, F-024 a real model provider, and F-031 mail delivery.
-- **B-012 — FIXED and merged, integration-verified; production verification by effect still owed.**
-  `runDeliveryPass` is the **fourth** bounded pass on the one cron trigger, and
-  `applyPendingDeliveryEvents` (`packages/db/src/transactions.ts`) claims a bounded batch
-  `for update skip locked` and applies each through the existing `applyDeliveryEvent`. The
-  zero-caller singular wrapper is deleted. **Not** the per-sender inbound path: a delivery callback
-  carries no sender, the projection check forbids one, and the one-claim-per-sender index is scoped
-  to `message_received` — routing it through the sender lock would serialize carrier traffic behind
-  a farmer's conversation and could advance a conversation watermark from an outbound event, making
-  that sender's next real message look stale. `releaseAbandonedClaims` is not scoped to inbound and
-  already recovers a lapsed delivery claim.
+- **B-012 — FIXED and merged (`f16ef8f`, PR #46), integration-verified. Production verification by
+  effect is STILL OWED** — the standing `message_sent`/`message_finalized` rows should move
+  `pending` → `processed` on a `*/5` run; not yet observed.
+  `runDeliveryPass` is the **fourth** bounded pass on the one cron trigger;
+  `applyPendingDeliveryEvents` claims a bounded batch `for update skip locked` and applies each
+  through `applyDeliveryEvent`. The zero-caller singular wrapper is deleted. **Not** the per-sender
+  inbound path — a delivery callback carries no sender, the projection check forbids one, and the
+  one-claim-per-sender index is scoped to `message_received`; routing it through the sender lock
+  would serialize carrier traffic behind a farmer's conversation and could advance a conversation
+  watermark from an outbound event, making that sender's next real message look stale.
   **The duplicate-event rule is enforced TWICE** — the `guard_outbox_delivery_watermark` trigger
   (migration 0001) returns `OLD` on a repeated `delivery_event_id`, *and* `applyDeliveryEvent` guards
-  it in TS — so removing either alone changes nothing observable and no single-point sabotage can
-  fail a test of it. Found by sabotage; the test now uses a **non-terminal** first status (a terminal
-  one lets the trigger's "terminal result cannot be replaced" branch enforce it for the wrong reason)
-  and fails when both are removed. An orphaned-callback path was designed then **deleted as
-  unreachable**: the projection check plus an `on delete restrict` FK make a delivery event
-  correlating to nothing impossible to construct, and a test asserts that instead.
+  it in TS — so removing either alone changes nothing observable and **no single-point sabotage can
+  fail a test of it**. The test uses a **non-terminal** first status, since a terminal one lets the
+  trigger's "terminal result cannot be replaced" branch enforce it for the wrong reason. An
+  orphaned-callback path was designed then **deleted as unreachable**: the projection check plus an
+  `on delete restrict` FK make a delivery event correlating to nothing impossible to construct.
 - **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
   that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
   Verified: suppression is enforced **independently of the profile's auto-response fields**, so
