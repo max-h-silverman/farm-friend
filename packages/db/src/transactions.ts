@@ -413,24 +413,69 @@ export async function applyConsentTransition(
       }
     }
 
-    // B-011: JOIN establishes consent only for a sender with no record yet. Checked here,
-    // under the `for update` lock taken above, so two concurrent JOINs cannot both observe
-    // "no record" and both enroll. Deliberately keyed on the CONSENT row rather than the
-    // watermark: the watermark is written by every transition including the ones that do not
-    // enroll, so an absent consent row is the honest test of "never opted in".
+    // B-011: JOIN establishes consent only for a sender with no record yet.
+    //
+    // Enforced by the PRIMARY KEY on `sms_consents.recipient_hash`, not by a read — and this
+    // distinction was found by an integration test, not by reasoning. The `for update` above
+    // locks EXISTING watermark rows; a genuinely first-time sender has none, so there is
+    // nothing to lock and concurrent JOINs are not serialized by it at all. An earlier draft
+    // of this guard did `select ... from sms_consents` and refused on a hit, and the
+    // 8-claimant race enrolled THREE of them: every transaction read "no record" before any
+    // of them wrote one. The comment claiming the lock serialized it was simply wrong.
+    //
+    // `on conflict do nothing` moves the decision into the unique index, where the database
+    // resolves it: exactly one insert reports a row, the losers report none, and they learn
+    // it from the write rather than from a stale read. `returning` is what makes the outcome
+    // observable — a plain conflict-swallowing insert cannot tell winner from loser.
+    //
+    // Keyed on the CONSENT row rather than the watermark on purpose: the watermark is written
+    // by every transition including ones that do not enroll, so an absent consent row is the
+    // honest test of "never opted in".
     if (input.firstTimeOnly) {
-      const existing = await tx`
-        select state from sms_consents where recipient_hash = ${input.recipientHash}
+      const claimed = await tx`
+        insert into sms_consents (
+          recipient_hash, state, capture_source, captured_at, capture_evidence_ref, updated_at
+        )
+        values (
+          ${input.recipientHash}, 'active', ${input.captureSource ?? "join"},
+          ${input.occurredAt}, ${input.captureEvidenceRef ?? input.providerEventId},
+          ${input.occurredAt}
+        )
+        on conflict (recipient_hash) do nothing
+        returning state
       `;
-      if (existing.length > 0) {
-        // No watermark write either: this command had no consent consequence, so letting it
-        // advance the watermark would let a JOIN mask a later legitimate START.
+
+      if (claimed.length === 0) {
+        // Someone already holds the record — a returning farmer, or a concurrent JOIN that
+        // won the insert. No watermark write either: this command had no consent
+        // consequence, and advancing the watermark would let a JOIN mask a later
+        // legitimate START arriving at an earlier provider time.
+        const existing = await tx`
+          select state from sms_consents where recipient_hash = ${input.recipientHash}
+        `;
         return {
           applied: false,
           state: (existing[0]?.state as "active" | "stopped") ?? "stopped",
           refusal: "already_enrolled",
         };
       }
+
+      // This transaction established consent. Record the watermark and report it, skipping
+      // the generic write below — the consent row is already exactly what it would produce.
+      await tx`
+        insert into consent_transition_watermarks (
+          recipient_hash, transition, occurred_at, provider_event_id
+        )
+        values (
+          ${input.recipientHash}, ${input.transition}, ${input.occurredAt},
+          ${input.providerEventId}
+        )
+        on conflict (recipient_hash) do update
+          set transition = excluded.transition,
+              occurred_at = excluded.occurred_at,
+              provider_event_id = excluded.provider_event_id
+      `;
+      return { applied: true, state: "active" };
     }
 
     await tx`

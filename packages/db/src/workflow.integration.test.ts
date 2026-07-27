@@ -43,6 +43,16 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 }
 
 const farmerHash = "1".repeat(64);
+/**
+ * A sender with a contact row but deliberately NO seeded consent — the only hash in this
+ * fixture that is genuinely first-time (B-011).
+ *
+ * `farmerHash` is seeded `active` / `farmer_onboarding` in `beforeEach`, so it can never
+ * exercise the first-time JOIN path. Reusing it caught this the honest way: the first
+ * integration run failed with `applied: false` on both B-011 tests, which was the guard
+ * working correctly against a fixture that contradicted the test's premise.
+ */
+const newcomerHash = "3".repeat(64);
 const customerHash = "2".repeat(64);
 
 // The fixture timeline is ANCHORED TO THE REAL CLOCK, not to a calendar date.
@@ -126,7 +136,8 @@ describe("authoritative SMS transactions (integration)", () => {
 
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash)
-      values ('+12065550301', ${farmerHash}), ('+12065550302', ${customerHash})
+      values ('+12065550301', ${farmerHash}), ('+12065550302', ${customerHash}),
+             ('+12065550303', ${newcomerHash})
       returning id, phone_hash
     `;
     for (const row of contacts) ids[row.phone_hash as string] = row.id as string;
@@ -400,7 +411,7 @@ describe("authoritative SMS transactions (integration)", () => {
     describe("JOIN establishes consent only for a first-time sender (B-011)", () => {
       it("enrolls a genuine first-time sender", async () => {
         const result = await applyConsentTransition(database(), {
-          recipientHash: farmerHash,
+          recipientHash: newcomerHash,
           transition: "start",
           captureSource: "join",
           occurredAt: at(10),
@@ -410,7 +421,7 @@ describe("authoritative SMS transactions (integration)", () => {
 
         expect(result.applied).toBe(true);
         const consent = await client()`
-          select state, capture_source from sms_consents where recipient_hash = ${farmerHash}
+          select state, capture_source from sms_consents where recipient_hash = ${newcomerHash}
         `;
         expect(consent[0]?.state).toBe("active");
         expect(consent[0]?.capture_source).toBe("join");
@@ -420,7 +431,7 @@ describe("authoritative SMS transactions (integration)", () => {
         // THE DIVERGENCE THIS CLOSES. Before the rule, this committed `active` while the
         // carrier blocked every message to that number.
         await applyConsentTransition(database(), {
-          recipientHash: farmerHash,
+          recipientHash: newcomerHash,
           transition: "start",
           captureSource: "join",
           occurredAt: at(10),
@@ -428,14 +439,14 @@ describe("authoritative SMS transactions (integration)", () => {
           firstTimeOnly: true,
         });
         await applyConsentTransition(database(), {
-          recipientHash: farmerHash,
+          recipientHash: newcomerHash,
           transition: "stop",
           occurredAt: at(20),
           providerEventId: "b011-stop",
         });
 
         const rejoin = await applyConsentTransition(database(), {
-          recipientHash: farmerHash,
+          recipientHash: newcomerHash,
           transition: "start",
           captureSource: "join",
           occurredAt: at(30),
@@ -449,7 +460,7 @@ describe("authoritative SMS transactions (integration)", () => {
         expect(rejoin.refusal).toBe("already_enrolled");
 
         const consent = await client()`
-          select state from sms_consents where recipient_hash = ${farmerHash}
+          select state from sms_consents where recipient_hash = ${newcomerHash}
         `;
         expect(consent[0]?.state).toBe("stopped");
 
@@ -457,7 +468,7 @@ describe("authoritative SMS transactions (integration)", () => {
         // moved it could mask a later legitimate START at an earlier provider time.
         const watermark = await client()`
           select provider_event_id from consent_transition_watermarks
-          where recipient_hash = ${farmerHash}
+          where recipient_hash = ${newcomerHash}
         `;
         expect(watermark[0]?.provider_event_id).toBe("b011-stop");
       });
@@ -465,14 +476,14 @@ describe("authoritative SMS transactions (integration)", () => {
       it("lets START restore that same sender, because the carrier honours it", async () => {
         // The escape hatch has to work, or a farmer who opted out could never return.
         await applyConsentTransition(database(), {
-          recipientHash: farmerHash,
+          recipientHash: newcomerHash,
           transition: "stop",
           occurredAt: at(10),
           providerEventId: "b011-stop-2",
         });
 
         const restored = await applyConsentTransition(database(), {
-          recipientHash: farmerHash,
+          recipientHash: newcomerHash,
           transition: "start",
           captureSource: "start",
           occurredAt: at(20),
@@ -482,7 +493,7 @@ describe("authoritative SMS transactions (integration)", () => {
 
         expect(restored.applied).toBe(true);
         const consent = await client()`
-          select state, capture_source from sms_consents where recipient_hash = ${farmerHash}
+          select state, capture_source from sms_consents where recipient_hash = ${newcomerHash}
         `;
         expect(consent[0]?.state).toBe("active");
         expect(consent[0]?.capture_source).toBe("start");
@@ -498,7 +509,7 @@ describe("authoritative SMS transactions (integration)", () => {
         const results = await Promise.all(
           Array.from({ length: 8 }, (_unused, index) =>
             applyConsentTransition(database(), {
-              recipientHash: farmerHash,
+              recipientHash: newcomerHash,
               transition: "start",
               captureSource: "join",
               // Distinct provider times, so the watermark cannot be what serializes them —
@@ -517,7 +528,7 @@ describe("authoritative SMS transactions (integration)", () => {
         ).toHaveLength(7);
 
         const consent = await client()`
-          select state, capture_source from sms_consents where recipient_hash = ${farmerHash}
+          select state, capture_source from sms_consents where recipient_hash = ${newcomerHash}
         `;
         expect(consent).toHaveLength(1);
         expect(consent[0]?.state).toBe("active");

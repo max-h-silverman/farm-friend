@@ -23,6 +23,19 @@ not inlined there).
 - **Postgres** for integration tests and migrations: local Postgres or a disposable CI instance.
   Set `DATABASE_URL` (see `.env.example`) to a database whose test role may create and drop a
   throwaway database. The integration suite fails explicitly when the variable is absent.
+
+  **On this Mac it is already installed, and it is NOT on `PATH`.** Homebrew's `postgresql@16` runs
+  as a launch agent; `psql`, `pg_isready` and friends live in `/opt/homebrew/opt/postgresql@16/bin`,
+  so a bare `which psql` reports nothing and looks exactly like "no database available". A whole
+  session was once written off on that false negative. To run the suite:
+
+  ```bash
+  export PATH=/opt/homebrew/opt/postgresql@16/bin:$PATH
+  export DATABASE_URL="postgres://$(whoami)@localhost:5432/postgres"
+  npm run test:integration 2>&1 | tee /tmp/itest.log
+  ```
+
+  Confirm it is up with `brew services list | grep postgres` or `pg_isready` (full path).
 - No network is required for unit tests or evals (the model stub is offline and deterministic).
 
 ## Local dev — the five commands

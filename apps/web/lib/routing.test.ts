@@ -40,7 +40,15 @@ function recordingDb(rows: Record<string, unknown>[] = []): {
 } {
   const queries: string[] = [];
   const record = (strings: TemplateStringsArray) => {
-    queries.push(strings.join("?").replace(/\s+/g, " ").trim());
+    const text = strings.join("?").replace(/\s+/g, " ").trim();
+    queries.push(text);
+    // B-011: the first-time JOIN guard is an `insert ... on conflict do nothing returning`,
+    // so an EMPTY result means "someone else already holds the record". A stub that returned
+    // `[]` for this query would report every first-time sender as already-enrolled. The
+    // default fixture is a sender with no consent row, so the insert wins and returns one.
+    if (text.includes("insert into sms_consents")) {
+      return Promise.resolve([{ state: "active" }]);
+    }
     return Promise.resolve(rows);
   };
 
@@ -154,11 +162,13 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       const record = (strings: TemplateStringsArray) => {
         const text = strings.join("?").replace(/\s+/g, " ").trim();
         queries.push(text);
-        // Only the consent-state lookup returns a row; the watermark select must stay empty
-        // or the transition would be refused as stale instead, which is the other branch.
-        return Promise.resolve(
-          text.includes("from sms_consents") ? [{ state }] : [],
-        );
+        // The already-enrolled shape: the guard's `insert ... on conflict do nothing
+        // returning` finds a conflict and returns NOTHING, and the follow-up select reads
+        // the existing state. The watermark select must stay empty, or the transition would
+        // be refused as `stale` instead — that is the other branch and a different test.
+        if (text.includes("insert into sms_consents")) return Promise.resolve([]);
+        if (text.includes("from sms_consents")) return Promise.resolve([{ state }]);
+        return Promise.resolve([]);
       };
       const sql = record as unknown as Db["sql"] & {
         begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
@@ -189,9 +199,14 @@ describe("deterministic routing order (Golden Rule #2)", () => {
         expect(result.replies[0]?.category).toBe("required_reply");
         // Nothing was enrolled.
         expect(result.outcome).toMatchObject({ kind: "consent", applied: false });
-        // And no consent row was written — the watermark must not advance either, or a JOIN
-        // could mask a later legitimate START.
-        expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(false);
+        // The guard IS an `insert ... on conflict do nothing`, so an insert statement does
+        // run — it is how the database, rather than a racy read, decides who holds the
+        // record. What must not happen is a WRITE, and the conflict is what prevents it;
+        // asserting "no insert statement" would now contradict the design.
+        //
+        // The watermark is the load-bearing assertion here: a JOIN with no consent
+        // consequence must not advance it, or it could mask a later legitimate START
+        // arriving at an earlier provider time.
         expect(
           queries.some((q) => q.includes("insert into consent_transition_watermarks")),
         ).toBe(false);

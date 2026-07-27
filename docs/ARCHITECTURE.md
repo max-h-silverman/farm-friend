@@ -145,7 +145,9 @@ stale and an older delayed `START` cannot undo a newer `STOP`.
 ## Launch SMS consent
 
 Launch VIGA Farm Friend is one registered operational SMS program. Each recipient has one current
-launch-program consent state with capture provenance. `JOIN` and `START` establish or restore it;
+launch-program consent state with capture provenance. `START` establishes **or restores** it from
+any state; `JOIN` establishes it **only for a sender with no consent record** — see B-011 in
+docs/SMS_COMPLIANCE.md, where the carrier's own opt-out list, which only `START` clears, is why;
 documented farmer onboarding may establish it only after number-control verification and records
 how, when, and where consent was captured. Inventory prompts, publication confirmations, customer
 inquiry replies, and stock-out alerts are message categories inside that program, not separate
@@ -163,8 +165,11 @@ requires **active** consent for a proactive send: an absent consent row means th
 opted in, and silence is not permission. (Before F-016 the gate asked only whether the recipient had
 `STOP`ped, so a never-enrolled recipient was authorized.) `outbox_work` carries one bounded
 `message_category` — the former free-text `message_kind` plus `is_required` boolean are deleted —
-and `consentTransitionFor` maps `JOIN`/`START` onto that one program, differing only in recorded
-provenance.
+and `consentTransitionFor` maps `JOIN`/`START` onto that one program, differing in recorded
+provenance and in whether an existing record blocks them (`JOIN` alone is first-time-only). The
+first-time rule is enforced inside `applyConsentTransition` by an `insert … on conflict do nothing
+returning` against `sms_consents`' primary key — **not** by a read, and not by the watermark's
+`for update`, which cannot lock a row that does not exist yet.
 
 Future programs require their own disclosed enrollment when they are approved and built. Launch has
 no program discriminator, future-program enrollment row, `JOIN <program>` grammar, or general
@@ -177,7 +182,8 @@ order:
 
 1. **Compliance keywords win** — STOP/START/JOIN/HELP and their required variants. `STOP` always
    unsubscribes **globally**, regardless of conversation state, and can never be reinterpreted.
-   `JOIN` and `START` establish or restore the one launch-program consent state.
+   `START` establishes or restores the one launch-program consent state from any state; `JOIN`
+   establishes it only for a sender with no record, and otherwise replies naming `START`.
 2. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). FLAG is a
    **Farm Friend product safety feature**, not a carrier-mandated keyword.
 3. **Live inventory confirmation** — a context-bound `YES` or `NO` that applies to the sender's one
@@ -232,7 +238,7 @@ Every workflow has **one authoritative core use case and one durable path**:
 | Inventory publishing | Maintain one open proposal per sender; after its current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
 | Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally ask for current inventory; a reply uses the ordinary inventory flow; free-text customer SMS cannot queue an alert; never alter public inventory |
 | Customer inquiry | After deterministic SMS routing, obtain model interpretation of the current request; code validates it and retrieves typed current facts; for non-empty retrieval the model selects/orders fact IDs; code validates membership, renders the factual reply, and queues it; the direct response creates no later proactive subscription |
-| Launch SMS consent | Maintain one launch-program consent state with provenance; `JOIN`, `START`, and documented farmer onboarding establish it; message categories do not have separate enrollment |
+| Launch SMS consent | Maintain one launch-program consent state with provenance; `START` and documented farmer onboarding establish or restore it, `JOIN` establishes it for first-time senders only (B-011); message categories do not have separate enrollment |
 | STOP / START / JOIN / HELP | Apply deterministic consent behavior before any other interpretation; universal STOP applies across all Farm Friend messaging; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
 | FLAG | Store the concern and expose it to the single-level admin queue |
 | Authentication | Issue and consume short-lived credentials once, with replay prevention and rate limiting |

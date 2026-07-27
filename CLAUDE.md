@@ -427,16 +427,14 @@ plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only plac
 asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
 statements**, so external packages named in *config files* are outside its design.
 
-**Verified July 27, 2026 (branch `b-010-provider-error-detail`, 4 commits on `main`@456ad93):**
-`npm test` **393/393 across 42 files**; typecheck + lint pass; `next build` clean; `drizzle-kit check`
-reports the schema consistent. **Integration and evals NOT run — no Postgres was available in the
-session environment.** That gap covers two things this session added and nothing verified: migration
-**0004** (exactly the class integration exists to prove) and the **four B-011 integration tests**,
-including the 8-claimant JOIN race. **Run `npm run test:integration` before merging.** Evals
-unaffected (no model seam touched). Last known real-Postgres 222/222 across 16 files, evals critical
-10/10, advisory 4/4, adversarial 25/25. Nothing was verified against the live deployment this
-session: the scheduler needs its repository secret and a push before it can run at all.
-Newest session-log entry: B-009 — the kick never survived the response.
+**Verified July 27, 2026 (`main`, B-010 + B-011 + external scheduler merged):** `npm test`
+**393/393 across 42 files**; `npm run test:integration` **226/226 across 16 files** on real
+Postgres 16.12; `npm run evals` critical **11/11**, advisory 4/4, adversarial 25/25; typecheck +
+lint pass; `next build` clean. Migration **0004** proven from an empty database by the integration
+run. Nothing was verified against the live deployment: **the scheduler still needs its repository
+secret and is not running** (below).
+Newest session-log entry: the scheduler, B-010, and conforming to the carrier. Entries older than
+the newest eight now live in `docs/SESSION_LOG_ARCHIVE.md` (rotated at 31 entries / 152k chars).
 
 ### Open work — each needs separate implementation authorization
 
@@ -472,7 +470,7 @@ supply what production never creates.
   the workable path. **`START` lifts the block; `JOIN` does not** (a `join` four minutes after a
   `stop` still 409'd). The live consequence: a farmer who texts STOP then JOIN is recorded `active`
   while the carrier blocks every message, so `isProactiveSendPermitted` returns true for sends that
-  can never arrive. **FIXED, in review, not integration-verified.** max's decision: *conform to the
+  can never arrive. **FIXED and merged, integration-verified.** max's decision: *conform to the
   carrier* rather than reconcile after the fact — **`JOIN` enrolls only a first-time sender; once a
   consent record exists only `START` restores.** Our record can no longer claim consent the carrier
   will not honour, and **no provider response drives a consent transition** — a 409 is never
@@ -489,16 +487,15 @@ supply what production never creates.
   registration. **Honest limit: while the block is active that reply is itself 409'd and never
   arrives.** The remaining work is farmer-facing, not code — onboarding material must say **START**,
   not JOIN, for returning after an opt-out.
-- **B-010 — FIXED, in review, not integration-verified.** `outbox_dispatch_attempts` now carries
+- **B-010 — FIXED and merged, integration-verified.** `outbox_dispatch_attempts` now carries
   `provider_code` (validated machine token) and `provider_error_detail` (phone-masked, 500-char
   bounded) via migration **0004**; `summarizeProviderError` never throws, so a malformed error body
   cannot break the send path. Nothing branches on either — `errorCode` is still what the retry policy
   reads. The item's own privacy question is answered: the real 40300 body **does** echo both E.164
   numbers, so phones are *masked* rather than the class being dropped, reusing the outbound guard's
   `PHONE_BODY` via `maskRawPhones`. `createTelnyxTransport` was **unexported and untested** — that is
-  how the discard survived, since everything above it used the never-failing simulator. **Owed: the
-  integration suite has NOT run** (no Postgres in the session env; migration checked only by
-  `drizzle-kit check`). Triage query is in RUNBOOK §"Failure triage".
+  how the discard survived, since everything above it used the never-failing simulator. Triage query
+  is in RUNBOOK §"Failure triage".
 - **B-008 — lint does not run in deployed builds.** `apps/web` omits `@typescript-eslint/eslint-plugin`
   and `@typescript-eslint/parser`, so the plugin fails to load and Next skips lint non-fatally: the
   build goes green with the gate silently absent. Two-line manifest fix; the real work is extending
@@ -576,6 +573,23 @@ near it. Loose alternation is the tell.
 code path that parses a real provider error had no test at all — every suite above it used the
 simulator, which never fails. That is how B-010's discard survived. When a seam does the real I/O
 parsing, export it and test it against real captured payloads, or its failure mode is invisible.
+
+**`select … for update` cannot serialize a row that does not exist yet.** B-011's first guard read
+`sms_consents` inside `applyConsentTransition` and refused on a hit, with a comment claiming the
+existing `for update` on the watermark serialized it. It does not: `for update` locks rows that
+EXIST, and a genuinely first-time sender has no watermark row, so eight concurrent JOINs all read
+"no record" and **three enrolled**. Every unit test passed — stubs cannot model row contention.
+For a first-insert race the arbiter must be a **unique index**, not a lock:
+`insert … on conflict (key) do nothing returning …`, where the empty result *is* the signal that
+someone else won. Without `returning`, winner and loser are indistinguishable.
+
+**A tool that "isn't installed" may just not be on `PATH`.** Two lookups for Postgres came up empty
+and a whole session proceeded on "no database available", writing that into the docs as an owed
+gap — while Homebrew's `postgresql@16` was installed and *running* at
+`/opt/homebrew/opt/postgresql@16/bin`. Running the integration suite is what exposed the race above.
+Check `/opt/homebrew/opt`, `brew services list`, and the app directories before concluding a
+dependency is absent; **a negative result from one lookup is not proof of absence**, and it is the
+same reasoning-from-indirect-evidence error as trusting `vercel env ls`'s timestamp column.
 
 **Do not infer configuration from a dashboard's timestamp column.** `vercel env ls` reported
 `TELNYX_API_KEY` as "1h ago" while the web UI showed "Updated just now" — the CLI column is not last
