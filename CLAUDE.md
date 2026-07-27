@@ -379,7 +379,9 @@ past and confirm the purge clears it. A 401 looks identical to success in any sc
 
 **One worker mechanism, two triggers; one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
 is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` required, no default, no
-dev bypass) and the **only** trigger for F-026's retention purge. `apps/web/vercel.json` is what
+dev bypass) and the **only** trigger for F-026's retention purge. **Four bounded passes** run there:
+inbound, outbound, delivery (B-012), retention — each enumerating its own work and returning counts.
+`apps/web/vercel.json` is what
 actually schedules it (B-005 — it was missing entirely while the RUNBOOK documented it);
 `cron-schedule.test.ts` asserts that config against the route it names, because the failure is
 silent: the kick keeps replies fast while nothing recovers what it drops and the purge never runs.
@@ -431,13 +433,14 @@ plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only plac
 asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
 statements**, so external packages named in *config files* are outside its design.
 
-**Verified July 27, 2026 (`main`, B-010 + B-011 + external scheduler merged):** `npm test`
-**393/393 across 42 files**; `npm run test:integration` **226/226 across 16 files** on real
-Postgres 16.12; `npm run evals` critical **11/11**, advisory 4/4, adversarial 25/25; typecheck +
-lint pass; `next build` clean. Migration **0004** proven from an empty database by the integration
-run. Nothing was verified against the live deployment: **the scheduler still needs its repository
-secret and is not running** (below).
-Newest session-log entry: the scheduler, B-010, and conforming to the carrier. Entries older than
+**Verified July 27, 2026 (`main`, B-012 merged):** `npm test` **402/402 across 43 files**;
+`npm run test:integration` **240/240 across 17 files** on real Postgres 16.12; `npm run evals`
+critical **11/11**, advisory 4/4, adversarial 25/25; typecheck + lint pass; `next build` clean.
+Migration **0004** proven from an empty database by the integration run. **B-012 was not verified
+against the live deployment** — the pass is proven locally and by wiring assertion, but no scheduled
+production run has been observed applying a real callback. Verify by effect: the standing
+`message_sent`/`message_finalized` rows should move `pending` → `processed` on the next `*/5` run.
+Newest session-log entry: the delivery callbacks nothing read. Entries older than
 the newest eight now live in `docs/SESSION_LOG_ARCHIVE.md` (rotated at 31 entries / 152k chars).
 
 ### Open work — each needs separate implementation authorization
@@ -479,13 +482,24 @@ supply what production never creates.
   returns `400` on every send. **What remains for go-live is not the SMS path** — it is **F-034
   (credential rotation, a hard blocker)**, tearing down the throwaway project and branch, B-002 seed
   data, F-024 a real model provider, and F-031 mail delivery.
-- **B-012 — delivery callbacks are stored but never applied.** `applyPendingDeliveryEvent`
-  (`apps/web/lib/workers.ts:316`) has **zero callers** — no pass, no webhook, not even a test. Found
-  in production while verifying the scheduler: `message_received` 21/21 `processed`, but
-  `message_sent` 9 and `message_finalized` 11 **all still `pending`**. So `sent` in `outbox_work`
-  means "the provider accepted it", never "the handset got it" — and the rows accumulate with no
-  terminal state. Same unowned-machinery shape as `model_runs`. Likely a fourth bounded pass on the
-  one cron trigger; check `applyDeliveryEvent` is idempotent under replay first.
+- **B-012 — FIXED and merged, integration-verified; production verification by effect still owed.**
+  `runDeliveryPass` is the **fourth** bounded pass on the one cron trigger, and
+  `applyPendingDeliveryEvents` (`packages/db/src/transactions.ts`) claims a bounded batch
+  `for update skip locked` and applies each through the existing `applyDeliveryEvent`. The
+  zero-caller singular wrapper is deleted. **Not** the per-sender inbound path: a delivery callback
+  carries no sender, the projection check forbids one, and the one-claim-per-sender index is scoped
+  to `message_received` — routing it through the sender lock would serialize carrier traffic behind
+  a farmer's conversation and could advance a conversation watermark from an outbound event, making
+  that sender's next real message look stale. `releaseAbandonedClaims` is not scoped to inbound and
+  already recovers a lapsed delivery claim.
+  **The duplicate-event rule is enforced TWICE** — the `guard_outbox_delivery_watermark` trigger
+  (migration 0001) returns `OLD` on a repeated `delivery_event_id`, *and* `applyDeliveryEvent` guards
+  it in TS — so removing either alone changes nothing observable and no single-point sabotage can
+  fail a test of it. Found by sabotage; the test now uses a **non-terminal** first status (a terminal
+  one lets the trigger's "terminal result cannot be replaced" branch enforce it for the wrong reason)
+  and fails when both are removed. An orphaned-callback path was designed then **deleted as
+  unreachable**: the projection check plus an `on delete restrict` FK make a delivery event
+  correlating to nothing impossible to construct, and a test asserts that instead.
 - **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
   that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
   Verified: suppression is enforced **independently of the profile's auto-response fields**, so
