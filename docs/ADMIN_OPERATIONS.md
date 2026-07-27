@@ -38,6 +38,22 @@ administrator, which is why revoking an administrator or a session takes effect 
 request** rather than whenever a self-contained token would have expired. Sessions expire in 12
 hours; signing out revokes the record server-side, not just the cookie.
 
+**How you actually sign in (F-032).** Go to `/admin/login`, enter your VIGA email address, and open
+the link that arrives. The link expires in **15 minutes** and can be used once; requesting another
+is free. The page works without JavaScript, because sign-in is the recovery path for every other
+admin screen and must not be the one that breaks.
+
+The confirmation always reads *"if that address belongs to an administrator, a sign-in link is on
+its way"* — for **every** address, including a mistyped one. That is deliberate and not evasiveness:
+the page is public, so a message that distinguished a recognized address from an unrecognized one
+would let anyone on the internet discover who VIGA's operators are. If no link arrives, the likely
+causes are a typo, an address that was never authorized, or one that has been revoked — the screen
+cannot tell you which, and whoever runs Farm Friend can.
+
+> **Not yet delivering mail.** The provider is not configured (F-031), so *no link is actually
+> sent today*. Until it is, ask whoever runs Farm Friend to mint one for you directly. Everything
+> else on this path — the form, the throttle, the token, the expiry — is live.
+
 **An administrator is never a farmer.** The role lookup returns the administrator role only, and it
 is a constant rather than a query — an operator role cannot confer the ability to act as a farm's
 owner (Golden Rule #1). VIGA approves *whether* a farm may publish; the farmer alone owns *what*
@@ -50,6 +66,7 @@ daily data entry, the product has failed its north star.
 
 | Surface | Status | What the administrator does |
 |---|---|---|
+| Sign-in | **Built** (F-032) — `/admin/login` | Request a 15-minute sign-in link. Public and unauthenticated, so it answers identically for every address. **Mail delivery pending F-031** |
 | Farm approval | **Built** (F-025a) — `/admin` | Verify a farm and **approve it for publication** — recorded separately from the farmer completing onboarding |
 | Flag review + thread viewer | **Built** (F-030) — `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | **Built** (F-030) — `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |

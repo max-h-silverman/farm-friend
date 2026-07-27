@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { StockOutModel } from "@farm-friend/ai";
-import type { Clock, ModelCallThrottle } from "@farm-friend/core";
+import type { Clock, PublicActionThrottle } from "@farm-friend/core";
 import type { Db } from "@farm-friend/db";
 import { clientSignalFor } from "./client-signal";
 import { recordStockOutReport } from "./stockout";
@@ -22,7 +22,7 @@ export interface PublicStockOutDeps {
   db: Db;
   model: StockOutModel;
   clock: Clock;
-  throttle: ModelCallThrottle;
+  throttle: PublicActionThrottle;
   /**
    * A coarse, hashed client signal for cost bucketing. It is NEVER identity, never a phone
    * number, and never a durable record — it exists only to keep one abuser from spending

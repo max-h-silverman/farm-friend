@@ -19,7 +19,7 @@ export async function POST(req: Request): Promise<Response> {
     db: context.db,
     model: context.stockOut,
     clock: context.clock,
-    throttle: context.publicModelThrottle,
+    throttle: context.publicActionThrottle,
     signalSalt: context.config.phoneSalt,
   });
 }

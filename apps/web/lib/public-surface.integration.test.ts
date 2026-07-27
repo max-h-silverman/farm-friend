@@ -10,7 +10,7 @@ import {
   type LLMProvider,
   type ModelSafeContext,
 } from "@farm-friend/ai";
-import { createModelCallThrottle, FixedClock } from "@farm-friend/core";
+import { createPublicActionThrottle, FixedClock } from "@farm-friend/core";
 import { createDb, type Db } from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
 import { handleStandsRequest, listPublicStands } from "./public-listing";
@@ -308,7 +308,7 @@ describe("public web surface boundary (integration)", () => {
 
     it("is never capped by the public model throttle", async () => {
       const clock = new FixedClock(new Date(T0));
-      const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+      const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
 
       // Ordinary browsing, far past any model budget. Model-free lookup does not consume
       // the throttle and is never artificially capped.
@@ -326,7 +326,7 @@ describe("public web surface boundary (integration)", () => {
     it("records a report and consumes model budget", async () => {
       const provider = new ScriptedProvider(parseListed());
       const clock = new FixedClock(new Date(T0));
-      const throttle = createModelCallThrottle({ clock, limit: 3, windowMs: 60_000 });
+      const throttle = createPublicActionThrottle({ clock, limit: 3, windowMs: 60_000 });
 
       const result = await handleStockOutReport({
         db: db!,
@@ -345,7 +345,7 @@ describe("public web surface boundary (integration)", () => {
     it("refuses an over-budget report BEFORE the model call", async () => {
       const provider = new ScriptedProvider(parseListed());
       const clock = new FixedClock(new Date(T0));
-      const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+      const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
 
       const deps = {
         db: db!,
@@ -369,7 +369,7 @@ describe("public web surface boundary (integration)", () => {
     it("records nothing durable for a throttled request", async () => {
       const provider = new ScriptedProvider(parseListed());
       const clock = new FixedClock(new Date(T0));
-      const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+      const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
       const deps = {
         db: db!,
         model: createStockOutModel(provider),
@@ -390,7 +390,7 @@ describe("public web surface boundary (integration)", () => {
     it("meters per client, so one abuser cannot deny the form to everyone", async () => {
       const provider = new ScriptedProvider(parseListed());
       const clock = new FixedClock(new Date(T0));
-      const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+      const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
       const base = {
         db: db!,
         model: createStockOutModel(provider),
@@ -411,7 +411,7 @@ describe("public web surface boundary (integration)", () => {
     it("never mutates published inventory, throttled or not", async () => {
       const provider = new ScriptedProvider(parseListed());
       const clock = new FixedClock(new Date(T0));
-      const throttle = createModelCallThrottle({ clock, limit: 5, windowMs: 60_000 });
+      const throttle = createPublicActionThrottle({ clock, limit: 5, windowMs: 60_000 });
 
       await handleStockOutReport({
         db: db!,
@@ -433,7 +433,7 @@ describe("public web surface boundary (integration)", () => {
     it("rejects an unknown location without spending model budget", async () => {
       const provider = new ScriptedProvider(parseListed());
       const clock = new FixedClock(new Date(T0));
-      const throttle = createModelCallThrottle({ clock, limit: 5, windowMs: 60_000 });
+      const throttle = createPublicActionThrottle({ clock, limit: 5, windowMs: 60_000 });
 
       const result = await handleStockOutReport({
         db: db!,
@@ -459,7 +459,7 @@ describe("public web surface boundary (integration)", () => {
         db: db!,
         model: createStockOutModel(provider),
         clock,
-        throttle: createModelCallThrottle({ clock, limit, windowMs: 60_000 }),
+        throttle: createPublicActionThrottle({ clock, limit, windowMs: 60_000 }),
         signalSalt: "route-test-salt",
       };
     }

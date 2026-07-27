@@ -9,10 +9,12 @@ import {
   type StockOutModel,
 } from "@farm-friend/ai";
 import {
-  createModelCallThrottle,
+  createPublicActionThrottle,
+  createUnconfiguredMailSender,
   type Clock,
   type InventoryInterpreter,
-  type ModelCallThrottle,
+  type MailSender,
+  type PublicActionThrottle,
 } from "@farm-friend/core";
 import { type Db } from "@farm-friend/db";
 import { sharedClock, sharedDb } from "./public-context";
@@ -47,6 +49,18 @@ export interface AppConfig {
    * remote way to drive real messaging. There is deliberately no development bypass.
    */
   cronSecret: string;
+  /**
+   * Signs admin sign-in links. Required with no default: a guessable value would let anyone
+   * forge a link, and the administrator lookup behind it is the only thing standing between
+   * a forged link and authority over every farm's published state.
+   */
+  magicLinkSecret: string;
+  /**
+   * The public origin sign-in links are built against. CONFIGURED rather than derived from
+   * the request, because a `Host:` header an attacker controls would otherwise let the
+   * link-request endpoint mail a real operator a link pointing at the attacker's origin.
+   */
+  publicBaseUrl: string;
   sms: SmsConfig;
   model: ModelConfig;
 }
@@ -94,6 +108,37 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
+/**
+ * Resolve the public origin sign-in links are built against.
+ *
+ * Validated here rather than trusted, because every failure mode of this value is silent:
+ * a malformed origin produces links that do not work, with an operator who cannot sign in
+ * and nothing in the logs explaining why. Plaintext `http` is refused outside localhost
+ * because the link is a bearer credential and must not travel in cleartext.
+ */
+function resolvePublicBaseUrl(env: NodeJS.ProcessEnv): string {
+  const raw = required(env, "PUBLIC_BASE_URL").trim();
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new ConfigurationError(
+      "PUBLIC_BASE_URL must be an absolute URL, e.g. https://farmfriend.example",
+    );
+  }
+
+  const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocal)) {
+    throw new ConfigurationError(
+      "PUBLIC_BASE_URL must use https (http is permitted only for localhost)",
+    );
+  }
+
+  // Normalized so a link is never assembled with a doubled separator.
+  return raw.replace(/\/+$/, "");
+}
+
 /** Resolve and validate runtime configuration, or throw before anything starts. */
 export function resolveConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const sms = resolveSmsConfig(env);
@@ -113,6 +158,9 @@ export function resolveConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     phoneSalt: required(env, "PHONE_HASH_SALT"),
     // The scheduled-worker trigger drives consent and outbound SMS; it never runs open.
     cronSecret: required(env, "CRON_SECRET"),
+    // Signs sign-in links. A guessable value forges authority over the admin surface.
+    magicLinkSecret: required(env, "MAGIC_LINK_SECRET"),
+    publicBaseUrl: resolvePublicBaseUrl(env),
     sms: sms.config,
     model,
   };
@@ -135,11 +183,21 @@ export interface AppContext {
   stockOut: StockOutModel;
   clock: Clock;
   /**
-   * The abuse/cost throttle fronting the ONE public unauthenticated model surface — the QR
+   * The abuse/cost throttle fronting the one public unauthenticated MODEL surface — the QR
    * stock-out form. Model-free map/listing lookup does not pass through it and is never
    * capped; SMS uses its own sender/consent/frequency controls (F-019).
    */
-  publicModelThrottle: ModelCallThrottle;
+  publicActionThrottle: PublicActionThrottle;
+  /**
+   * A SEPARATE budget for sign-in link requests (F-032). Deliberately not the same instance
+   * as the stock-out throttle: sharing one would let a burst of anonymous stock-out reports
+   * from a shared NAT exhaust a real operator's ability to request a sign-in link, which is
+   * an availability failure on the recovery path of the admin surface. One mechanism, two
+   * budgets — not two mechanisms.
+   */
+  signInThrottle: PublicActionThrottle;
+  /** Sends the one transactional message Farm Friend has. Fails closed until F-031. */
+  mail: MailSender;
   close(): Promise<void>;
 }
 
@@ -229,11 +287,23 @@ export function createAppContext(env: NodeJS.ProcessEnv = process.env): AppConte
     clock,
     // Deliberately generous: a real reporter standing at a stand submits once, maybe twice
     // after a typo. This bites a script, not a customer.
-    publicModelThrottle: createModelCallThrottle({
+    publicActionThrottle: createPublicActionThrottle({
       clock,
       limit: 5,
       windowMs: 60_000,
     }),
+    // Tighter than the stock-out budget and over a longer window. Requesting a sign-in link
+    // is a rare, deliberate act — an operator does it once and reads their mail — so a low
+    // ceiling costs a real user nothing while making inbox flooding and address probing
+    // expensive. A separate instance, so stock-out traffic cannot exhaust it.
+    signInThrottle: createPublicActionThrottle({
+      clock,
+      limit: 3,
+      windowMs: 15 * 60_000,
+    }),
+    // Fails closed until F-031 selects a provider and records its attested data handling.
+    // Nothing here claims a vendor's terms; the seam simply refuses to send.
+    mail: createUnconfiguredMailSender(),
     sendSms: createLastMileSender({
       resolver: createPhoneResolver(db),
       transport,

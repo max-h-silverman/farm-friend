@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FixedClock } from "../clock";
-import { createModelCallThrottle } from "./throttle";
+import { createPublicActionThrottle } from "./throttle";
 
 // F-019 — the abuse/cost throttle that fronts PUBLIC, UNAUTHENTICATED, MODEL-BACKED handlers.
 //
@@ -14,7 +14,7 @@ const T0 = new Date("2026-07-25T12:00:00Z");
 describe("public model-call throttle", () => {
   it("admits calls up to the configured budget", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 3, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 3, windowMs: 60_000 });
 
     expect(throttle.admit("client-a").allowed).toBe(true);
     expect(throttle.admit("client-a").allowed).toBe(true);
@@ -23,7 +23,7 @@ describe("public model-call throttle", () => {
 
   it("refuses the call that exceeds the budget", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 2, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 2, windowMs: 60_000 });
 
     throttle.admit("client-a");
     throttle.admit("client-a");
@@ -36,7 +36,7 @@ describe("public model-call throttle", () => {
 
   it("meters each client signal separately", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
 
     expect(throttle.admit("client-a").allowed).toBe(true);
     expect(throttle.admit("client-a").allowed).toBe(false);
@@ -46,7 +46,7 @@ describe("public model-call throttle", () => {
 
   it("admits again once the window has passed", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
 
     expect(throttle.admit("client-a").allowed).toBe(true);
     expect(throttle.admit("client-a").allowed).toBe(false);
@@ -57,7 +57,7 @@ describe("public model-call throttle", () => {
 
   it("slides the window rather than resetting on a fixed boundary", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 2, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 2, windowMs: 60_000 });
 
     throttle.admit("client-a"); // t=0
     clock.advanceMs(50_000);
@@ -72,7 +72,7 @@ describe("public model-call throttle", () => {
 
   it("reports how long the caller must wait, based on the oldest call in the window", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
 
     throttle.admit("client-a");
     clock.advanceMs(20_000);
@@ -86,7 +86,7 @@ describe("public model-call throttle", () => {
 
   it("does not consume budget for a call it refused", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
 
     throttle.admit("client-a"); // t=0, consumes the only slot
     clock.advanceMs(30_000);
@@ -98,7 +98,7 @@ describe("public model-call throttle", () => {
 
   it("forgets clients whose calls have all aged out", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 5, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 5, windowMs: 60_000 });
 
     throttle.admit("client-a");
     throttle.admit("client-b");
@@ -114,7 +114,7 @@ describe("public model-call throttle", () => {
 
   it("treats an absent client signal as one shared bucket rather than unlimited", () => {
     const clock = new FixedClock(new Date(T0));
-    const throttle = createModelCallThrottle({ clock, limit: 1, windowMs: 60_000 });
+    const throttle = createPublicActionThrottle({ clock, limit: 1, windowMs: 60_000 });
 
     expect(throttle.admit(null).allowed).toBe(true);
     // A missing signal must fail CLOSED: an attacker who can strip the header would
@@ -124,7 +124,7 @@ describe("public model-call throttle", () => {
 
   it("rejects a non-positive budget rather than admitting everything", () => {
     const clock = new FixedClock(new Date(T0));
-    expect(() => createModelCallThrottle({ clock, limit: 0, windowMs: 60_000 })).toThrow();
-    expect(() => createModelCallThrottle({ clock, limit: 3, windowMs: 0 })).toThrow();
+    expect(() => createPublicActionThrottle({ clock, limit: 0, windowMs: 60_000 })).toThrow();
+    expect(() => createPublicActionThrottle({ clock, limit: 3, windowMs: 0 })).toThrow();
   });
 });
