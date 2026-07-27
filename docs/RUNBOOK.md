@@ -218,10 +218,18 @@ concurrency control, it just arrives at the same lock from a second direction.
 GET|POST /api/internal/cron      Authorization: Bearer $CRON_SECRET
 ```
 
-It runs three bounded passes in order: the inbound pass (deterministic routing →
-consent/confirmation/free-text), the outbound pass (dispatch claim → provider → result), and the
-**retention purge** (F-026). Each pass **enumerates its own work** — pending sender hashes, due
-outbox rows, expired bodies — so the trigger passes no IDs and needs no knowledge of state.
+It runs four bounded passes in order: the inbound pass (deterministic routing →
+consent/confirmation/free-text), the outbound pass (dispatch claim → provider → result), the
+**delivery pass** (B-012), and the **retention purge** (F-026). Each pass **enumerates its own
+work** — pending sender hashes, due outbox rows, pending delivery callbacks, expired bodies — so the
+trigger passes no IDs and needs no knowledge of state.
+
+**The delivery pass** applies the `message.sent` / `message.finalized` callbacks the webhook stored,
+advancing `outbox_work.delivery_status`. Without it `sent` means only "the provider accepted it",
+never "the carrier delivered it" — which is what you read when a farmer reports never receiving a
+prompt. It runs after the outbound pass, so a send dispatched in *this* pass has its callback applied
+in the next. Delivery callbacks are deliberately **not** per-sender conversational work: they carry
+no sender and never touch conversation state.
 
 **The retention purge** clears raw message context whose `body_expires_at` has passed: the body text
 in `sms_messages` and `outbox_work`, and nothing else. The `sms_messages` row, its
@@ -664,3 +672,21 @@ The order is the safety property: **do not point the carrier at the app before t
   `provider_error_detail` is phone-masked (`[redacted]`) and capped at 500 chars, so it is safe to
   read and paste. Both columns are best-effort: a provider returning an unparseable body records the
   status alone rather than failing the write.
+
+- **The provider accepted it but the farmer says it never arrived** → the dispatch attempt is the
+  wrong place to look; read the *carrier's* verdict, which the delivery pass records (B-012):
+
+  ```sql
+  select delivery_status, delivery_occurred_at, dispatch_authorized_at, message_category
+  from outbox_work
+  where delivery_status is distinct from 'delivered'
+    and dispatch_authorized_at is not null
+  order by dispatch_authorized_at desc limit 20;
+  ```
+
+  `delivery_status` NULL with an authorized dispatch means **no callback has been applied yet** —
+  either the carrier has not reported, or the delivery pass is not running (check that a scheduled
+  run returns 200; a 401 looks identical to success in any scheduler's UI). `delivery_failed` is the
+  carrier rejecting it after Telnyx accepted it, which is the B-011 block shape. Watch for
+  `provider_inbox_events` rows of type `message_sent`/`message_finalized` sitting `pending`: that is
+  B-012's exact signature and means nothing is consuming them.

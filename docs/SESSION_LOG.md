@@ -11,7 +11,73 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-27 (latest) — a scheduler that can fail loudly, the sentence the database threw away, and conforming to the carrier
+## 2026-07-27 (latest) — the callbacks nothing read, and a rule enforced twice
+
+B-012, found the day before while verifying the scheduler by effect. One bounded pass, and a
+sabotage sequence that corrected the test rather than the code.
+
+### The machinery was complete except for the part that runs it
+
+`applyPendingDeliveryEvent` had **zero callers** — no pass, no webhook, not even a test. Everything
+around it worked: Telnyx's `message.sent` / `message.finalized` callbacks were signature-verified,
+minimized, correlated to their dispatch attempt by `provider_message_id`, and durably stored with
+their `delivery_status` already on the row. Then nothing ever read them. Production: 21/21 inbound
+events `processed`, all 20 delivery callbacks still `pending`.
+
+The consequence is a meaning gap, not a crash. `sent` in `outbox_work` recorded that Telnyx
+*accepted* a message and never that the carrier *delivered* it — which is exactly what you would
+want when a farmer says they never got a prompt, and exactly the data B-011's invisible carrier
+block would surface in. This is the third instance of the same shape (F-023 routing existed and was
+unreachable; F-026's purge existed and was unscheduled), so the wiring test came first this time.
+
+### Both design questions were settled by reading, not assuming
+
+**Not the per-sender inbound path.** The schema had already made this decision and written it down:
+`provider_inbox_events_minimal_projection_per_event_type` *forbids* a `sender_hash` on a delivery
+row, and the one-claim-per-sender index is scoped `where event_type = 'message_received'`. Routing
+delivery callbacks through `claimNextInboundEvent` would serialize unrelated carrier traffic behind
+a farmer's conversation, and risk advancing a conversation watermark from an outbound event — which
+would make that sender's *next real message* look stale and be rejected. So: a fourth bounded pass
+on the one cron trigger, alongside inbound, outbound, and retention.
+
+**Idempotent under replay, already.** `applyDeliveryEvent` ignores a repeated provider event ID and
+any event at or before the row's current delivery instant, under a `for update` on `outbox_work`.
+And `releaseAbandonedClaims` is *not* scoped to `message_received`, so it already recovers a lapsed
+delivery claim — the claim is a real one because `coherent_claim_state` requires a token and expiry
+on any `processing` row.
+
+### The sabotage that found a third mechanism
+
+Removing the duplicate-event guard from `applyDeliveryEvent` left the entire suite green. The first
+assumption — that the test was weak — was half right, but the reason was not the expected one.
+Probing the actual `UPDATE ... RETURNING` showed it matching a row and returning the *old* status,
+which pointed at a **database trigger nobody had mentioned**: `guard_outbox_delivery_watermark`
+(migration 0001) returns `OLD` when `delivery_event_id` repeats. The rule is enforced **twice**,
+independently — trigger and application guard — so no single-point sabotage can fail a test of it.
+
+The test was also passing for a third wrong reason: with a *terminal* first status, the trigger's
+"a terminal result cannot be replaced" branch enforced it regardless. Rewritten with `sent` as the
+first status, so only the duplicate rule is in play; it now fails only when *both* mechanisms are
+removed, which is the honest result for a genuinely redundant guarantee. Four separate sabotages
+were run: `for update skip locked` (fails only the 8-claimant contention test), the event-type
+filter (fails the "never claims a conversational event" boundary), each duplicate mechanism alone
+(green — the finding), and both together (fails).
+
+**Contention was tested with eight simultaneous claimants**, per B-011's lesson that `Promise.all`
+over two branches serializes itself and cannot fail.
+
+### A designed path deleted instead of built
+
+An orphaned-callback path — a `rejected` terminal state for an event whose dispatch attempt vanished,
+so it wouldn't be re-claimed forever — was written, then deleted once its test wouldn't construct:
+the projection check forbids a delivery event without a `dispatch_attempt_id`, and the FK is
+`on delete restrict`. The state is **unreachable**, so a test now asserts that guarantee instead, and
+fails if either constraint is relaxed. The zero-caller singular wrapper was deleted rather than left
+beside the new plural one.
+
+---
+
+## 2026-07-27 — a scheduler that can fail loudly, the sentence the database threw away, and conforming to the carrier
 
 Two pieces of the durability gap, and a consent rule that removed a divergence rather than repairing it.
 
