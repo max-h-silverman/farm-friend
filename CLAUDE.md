@@ -351,7 +351,10 @@ whole serialized responses for an E.164 and for any 64-hex run.
 
 **One worker mechanism, two triggers; one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
 is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` required, no default, no
-dev bypass) and the **only** trigger for F-026's retention purge. The webhook's B-004 kick
+dev bypass) and the **only** trigger for F-026's retention purge. `apps/web/vercel.json` is what
+actually schedules it (B-005 — it was missing entirely while the RUNBOOK documented it);
+`cron-schedule.test.ts` asserts that config against the route it names, because the failure is
+silent: the kick keeps replies fast while nothing recovers what it drops and the purge never runs. The webhook's B-004 kick
 (`apps/web/lib/kick.ts`) calls the same passes sooner for one sender and **owns no guarantee** — every
 failure swallowed, each pass budgeted, cron recovers whatever it misses. Removing the kick entirely
 must fail only latency tests, never durability ones. `isProactiveSendPermitted` is the single consent
@@ -367,8 +370,8 @@ console first, then transcribe.
 reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
 fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Verified July 26, 2026 (`main`, F-032 merged):** `npm test` 342/342 across 36 files; real-Postgres
-integration 216/216 across 15 files; typecheck + lint pass; evals critical 10/10,
+**Verified July 26, 2026 (`main`, F-032 + B-005 merged):** `npm test` 346/346 across 37 files;
+real-Postgres integration 216/216 across 15 files; typecheck + lint pass; evals critical 10/10,
 advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin`, `/admin/login`,
 `/admin/flags`, `/admin/reports` render; all routes dynamic). Newest session-log entry: F-032.
 
@@ -384,10 +387,14 @@ supply what production never creates.
 - **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
   **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
   seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
-- **F-029 — go-live** (deploy, Telnyx console, first verified live `STOP`/`JOIN`). **Decided:** only
-  after everything else. Max holds all credentials. Deploying now also needs `MAGIC_LINK_SECRET` and
-  `PUBLIC_BASE_URL` set and the bootstrap script run once per environment. The FLAG rail's pre-launch
-  gate is now **satisfied** (F-030).
+- **F-029 — go-live** (deploy, Telnyx console, first verified live `STOP`/`JOIN`). **Decided
+  2026-07-26, reaffirmed:** a single all-at-once gate after everything else — *not* split into an
+  early compliance-only deploy, even though `JOIN`/`STOP`/`HELP` are model-free and would not
+  actually be gated by F-024 or B-002. Max holds all credentials; the 10DLC campaign is **approved**
+  and a Neon project **exists**. Remaining is the Vercel project (root directory `apps/web`), the env
+  set, and pointing the Telnyx webhook — full ordered procedure in docs/RUNBOOK.md §Deploy, whose
+  order is a safety property (never point the carrier at the app before it can honor `STOP`).
+  The FLAG rail's pre-launch gate is **satisfied** (F-030); B-005's cron config is **fixed**.
 - **F-031 — no mail provider, so no sign-in link is delivered.** F-032 built everything up to the
   wire (request route, throttle, `/admin/login`, code-rendered template, fail-closed seam). What
   remains is the transport: a vendor, its credentials, its **attested** data-handling terms, and

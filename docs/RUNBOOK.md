@@ -229,8 +229,12 @@ Run it locally, or by hand against a deployment:
 curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/internal/cron
 ```
 
-On Vercel, schedule it with Vercel Cron (`vercel.json` → `crons`, path `/api/internal/cron`); Vercel
-sends the `Authorization: Bearer` header from the project's `CRON_SECRET` environment variable.
+On Vercel this is scheduled by **`apps/web/vercel.json`** (`crons` → `/api/internal/cron`, every
+minute); Vercel sends the `Authorization: Bearer` header from the project's `CRON_SECRET`
+environment variable. That file is asserted by `apps/web/lib/cron-schedule.test.ts` against the
+route it names, because it was **missing entirely** until B-005 while this section documented it —
+and the failure is silent, since B-004's kick keeps replies fast while nothing recovers what it
+drops and F-026's purge never runs.
 Choose the interval as a **recovery** budget, not a reply-latency one: since B-004 the kick front-runs
 this route for live traffic, so the interval decides only how long work a kick *missed* waits. One
 minute — Vercel Cron's floor — is fine. It is also the floor that made polling alone unable to meet
@@ -388,6 +392,46 @@ do), and `evals/hostile.ts` with the hostile group in `apps/web/lib/interpretati
 
 Vercel (web + API + scheduled jobs) against Neon Postgres. Migrations run as part of the deploy
 step. Never deploy unless explicitly asked (CLAUDE.md "Do not").
+
+**This has never been run.** The steps below are the procedure F-029 will execute and verify, not a
+record of a deploy that happened. Treat each as unproven until F-029 records its result.
+
+The order is the safety property: **do not point the carrier at the app before the app can honor
+`STOP`.**
+
+1. **Confirm the 10DLC campaign is _approved_**, not merely submitted. Carrier approval is queue
+   time outside our control.
+2. **Provision Neon Postgres** and run every migration from an empty database.
+3. **Create the Vercel project** with **root directory `apps/web`** (this is a workspace monorepo;
+   `apps/web/vercel.json` carries the cron schedule). Set every variable below — configuration
+   **fails closed**, so a missing one is a startup error rather than a degraded mode:
+
+   | Variable | Notes |
+   |---|---|
+   | `DATABASE_URL` | the Neon connection string |
+   | `PHONE_HASH_SALT` | a real generated secret — **never** the `.env.example` placeholder |
+   | `CRON_SECRET` | a real generated secret; Vercel Cron sends it as the bearer token |
+   | `MAGIC_LINK_SECRET` | a real generated secret (F-025a) |
+   | `PUBLIC_BASE_URL` | the deployment's `https://` origin (F-032) |
+   | `SMS_PROVIDER` | `telnyx` |
+   | `TELNYX_API_KEY` · `TELNYX_MESSAGING_PROFILE_ID` · `TELNYX_FROM_NUMBER` | delivery credentials |
+   | `TELNYX_PUBLIC_KEY` | the **ed25519 webhook verification key**; without it inbound webhooks cannot be verified at all |
+
+4. **Verify configuration fails closed** in the deployed environment — deliberately confirm that a
+   missing Telnyx key throws rather than degrading to an unverified webhook.
+5. **Run the administrator bootstrap once** against the production database (§"Bootstrap the first
+   administrator"). Note that **no sign-in link is delivered until F-031**, so mint one out of band
+   with `issueMagicToken`.
+6. **Point the Telnyx messaging profile's webhook** at `https://<deployment>/api/sms/webhook`, and
+   confirm +1 206-864-5326 is attached to that profile.
+7. **Verify signature rejection first:** an unsigned or wrongly signed POST to the live webhook must
+   return 401 *before* any real message is sent.
+8. **Send a real `STOP` before a real `JOIN`.** `STOP` is the compliance-critical path and the one a
+   carrier audits. Verify the durable consent state changed, then `JOIN`, then `HELP`.
+9. **Confirm the scheduled pass is actually firing** in the deployment (Vercel's cron log, plus its
+   effects — an expired body cleared by F-026's purge). The B-004 kick masks a dead cron by keeping
+   replies fast, so "replies work" is *not* evidence the schedule runs.
+10. Record the verified result and the console state here.
 
 ## Failure triage
 
