@@ -142,6 +142,44 @@ with its reason. **The durable fix is farmer-facing, not code:** onboarding mate
 instructions must say START, not JOIN, for returning after an opt-out. That is the one piece of B-011
 still open.
 
+### Shipped to production, and the purge finally ran
+
+All three owed steps completed 2026-07-27, in the order the outage risk demanded — except the first,
+which max chose to reorder knowingly.
+
+**The ordering call.** `recordDispatchResult` writes `provider_code` / `provider_error_detail` on
+*every* dispatch outcome, so deploying before migration 0004 means every outbound SMS fails at the
+record step until the migration lands. Flagged as a real window rather than a theoretical one; max
+accepted it (the number carries no real traffic and this is still throwaway validation) and the
+migration followed immediately. Confirmed after the fact: both columns present, 5 migrations applied.
+
+**Deploy** used the documented Hobby workaround — strip `crons` uncommitted, `npx vercel --prod`
+(the CLI uploads from disk), restore, confirm `cron-schedule.test.ts` back to 4/4. Live checks:
+health 200, cron 401 without a secret, webhook **401** — which is the three-way diagnostic saying all
+four Telnyx credentials resolved, since a missing one renders 500.
+
+**The purge ran against real data for the first time.** F-026 had only ever reported `0/0/0` because
+nothing was eligible, so a privacy commitment had been *unenforced*, not merely unverified. With
+`CRON_SECRET` set and a manual run returning 200, one body was made eligible among 21 real messages:
+
+| | before | after |
+|---|---|---|
+| `body` | present | **NULL** |
+| `body_expires_at` | past | **NULL** |
+| the row itself | present | **present** |
+| other bodies | 21 | **20** |
+
+Cleared as a pair, minimized projection intact, blast radius exactly one. Checking what *survived*
+mattered as much as what went — a purge that over-reached would be worse than one that never ran.
+
+**And the verification found something.** The same sweep showed `message_received` 21/21 `processed`
+but `message_sent` (9) and `message_finalized` (11) **all still `pending`**.
+`applyPendingDeliveryEvent` has **zero callers** — no pass, no webhook, not even a test. So `sent` in
+`outbox_work` means "the provider accepted it", never "the handset received it", and the rows
+accumulate with no terminal state. Filed as **B-012**; same unowned-machinery shape as `model_runs`.
+Not caused by this session's work — found *because* the scheduler was verified by effect rather than
+by a green checkmark, which is the entire argument for doing it that way.
+
 ### Verified
 
 Merged to `main` as **e4798fa** (PR #45, squashed). The PR's only check — Vercel — was failing, but
@@ -177,12 +215,7 @@ the load-bearing assertion is that no **watermark** advances.
   (`/opt/homebrew/opt/postgresql@16/bin`). Finding it during the wrap is what surfaced the race
   above. **A negative result from a tool lookup is not proof the thing is absent** — the same
   reasoning-from-indirect-evidence trap that produced the wrong `vercel env ls` conclusion earlier.
-- **The scheduler is merged but not live.** `CRON_SECRET` is not set as a repository secret
-  (`gh secret list` is empty), so no run can authenticate. **Migration 0004 is also owed and is
-  ordered first** — it must reach production before the code that writes to its columns. Exact
-  operator steps and the verify-by-effect SQL are in RUNBOOK §"Deploy" → *Owed right now*. The
-  verification is the purge, never the Actions tab: a 401 fails the run visibly, but only a cleared
-  `body_expires_at` proves the passes actually ran.
+- ~~The scheduler is merged but not live.~~ **Done and verified the same day — see below.**
 - **B-011's farmer-facing half.** The code rule is in; the onboarding copy that tells returning
   farmers to text START rather than JOIN is not, and no code change can substitute for it.
 

@@ -458,13 +458,13 @@ do), and `evals/hostile.ts` with the hostile group in `apps/web/lib/interpretati
 Vercel (web + API + scheduled jobs) against Neon Postgres. Never deploy unless explicitly asked
 (CLAUDE.md "Do not").
 
-### Owed right now (as of `main`@e4798fa, 2026-07-27) — operator steps, in this order
+### The production deploy sequence (done once on 2026-07-27; repeat in this order)
 
-Everything below needs a credential the working session does not hold. **Order matters: the
-migration must land before the code that writes to the new columns.**
+**Order matters.** A migration adding columns the new code writes must land *before* that code
+deploys, or every affected write fails in the gap. 0004 (B-010) was exactly this case.
 
 ```bash
-# 1. Migration 0004 (B-010) — BEFORE deploying the code, or dispatch writes hit missing columns.
+# 1. Migration FIRST.
 DATABASE_URL='<production Neon URL>' npm run db:migrate
 
 # 2. Deploy. Hobby rejects vercel.json's one-minute cron, so strip the block UNCOMMITTED,
@@ -473,16 +473,19 @@ DATABASE_URL='<production Neon URL>' npm run db:migrate
 npx vercel --prod
 git checkout apps/web/vercel.json
 
-# 3. The scheduler's secret — GitHub will not run the workflow until this exists.
-#    Must be the SAME value as the deployment's CRON_SECRET env var, or every run 401s.
+# 3. The scheduler's secret, if not already set. Must be the SAME value as the deployment's
+#    CRON_SECRET env var, or every run 401s.
 gh secret set CRON_SECRET
 
-# 4. Fire it once by hand rather than waiting: Actions → scheduled-worker → Run workflow.
+# 4. Fire a run rather than waiting: gh workflow run scheduled-worker.yml
 ```
 
-**Then verify by effect — a green run in the Actions tab is not proof.** The workflow checks
-`%{http_code}`, so a 401 does fail the run; but the only thing that proves the *passes* execute is
-F-026's purge, which runs on this trigger alone:
+**Because the deployed build carries no `crons` block, the GitHub workflow is production's ONLY
+scheduled trigger.** The `waitUntil` kick is best-effort and owns no guarantee.
+
+**Then verify by effect — a green Actions run is not proof.** The workflow does check
+`%{http_code}`, so a stale secret fails visibly; but only F-026's purge, which runs on this trigger
+alone, proves the *passes* executed:
 
 ```sql
 -- Make one body eligible. Excludes threads under open flag review, so the exemption is not
@@ -496,14 +499,15 @@ where id = (
       where e.message_id = m.id and f.status = 'open'
     )
   limit 1
-) returning id, body_expires_at;
+) returning id;
 
--- After a scheduled run: body AND body_expires_at must both be NULL (they clear as a pair).
--- select id, body is null as cleared, body_expires_at from sms_messages where id = '<id>';
+-- After a run: body AND body_expires_at must both be NULL (they clear as a pair), and the
+-- ROW must still exist — the minimized projection survives, only the content goes.
+-- select id, body is null, body_expires_at is null from sms_messages where id = '<id>';
 ```
 
-If the body is still set, the trigger is not reaching the route or is taking a 401 — check the
-Actions run's printed status code, which names the cause.
+Confirmed working 2026-07-27: exactly 1 of 21 bodies cleared, all 21 rows intact. Check the blast
+radius too — a purge that over-reached would be worse than one that never ran.
 
 **Migrations are a separate operator step, not part of the build** (B-006 — this section claimed
 otherwise while no such step existed):

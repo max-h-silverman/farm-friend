@@ -355,16 +355,17 @@ viewer mask at the **query** (`right(phone_e164, 4)`), so the full number never 
 `maskPhoneSuffix` **throws** on anything longer rather than truncating. Asserted by tests that grep
 whole serialized responses for an E.164 and for any 64-hex run.
 
-**The external scheduler is BUILT but NOT YET LIVE — production still has one best-effort trigger.**
-The deployed build is uploaded with its `crons` block stripped (the Hobby workaround), so the
-`waitUntil` kick remains the only thing running passes in production, which is the inversion B-009
-was filed against. `.github/workflows/scheduled-worker.yml` closes it — decided: external scheduler
-now, revisit Pro at go-live. It is **merged to `main`**, so GitHub can see the schedule, but
-**`CRON_SECRET` is not set as a repository secret** (`gh secret list` is empty), so no run can
-authenticate and the gap is exactly as it was. **Also owed and ordered before any deploy: migration
-0004** (B-010) must be applied to production, or dispatch writes hit missing columns. Exact operator
-steps — migrate, deploy with the `crons` block stripped uncommitted, `gh secret set CRON_SECRET`,
-then verify by effect — are in RUNBOOK §"Deploy" → *Owed right now*.
+**The external scheduler is LIVE, and the retention purge has now actually run in production.**
+Verified by effect on 2026-07-27, not by a dashboard: a body with `body_expires_at` in the past was
+cleared by a real scheduled pass — `body` and `body_expires_at` both NULL, the `sms_messages` row
+itself intact, and **exactly 1 of 21 bodies touched**. Before this, F-026's purge had never executed
+against real data (every observed pass reported `0/0/0` because nothing was eligible), so a privacy
+commitment moved from unenforced to demonstrated.
+`.github/workflows/scheduled-worker.yml` on `*/5` is the trigger; `CRON_SECRET` is set as a
+repository secret and a manual run returns 200. **The deployed build still has no `crons` block**
+(stripped for the Hobby deploy), so this workflow is production's *only* scheduled trigger — the
+`waitUntil` kick remains best-effort and owns no guarantee. Migration **0004** is applied to
+production (both B-010 columns present, 5 migrations total).
 `apps/web/lib/external-scheduler.test.ts` polices the workflow (source-asserting, same family as
 `cron-schedule.test.ts`); its central assertion is that the run **checks `%{http_code}` against 200**,
 because a bare `curl` exits 0 on a 401 and a stale secret would show green checkmarks forever. That
@@ -466,10 +467,13 @@ supply what production never creates.
   still absent (below), **B-011** is a live consent-integrity divergence, the throwaway project and
   branch want tearing down, and every credential exposed on 2026-07-27 needs rotating — except
   `PHONE_HASH_SALT`, which **cannot** be rotated without orphaning every phone hash.
-- **F-033 — activate the scheduler + apply migration 0004 in production.** Both shipped in code
-  (`main`@e4798fa); neither is in effect. `gh secret list` is empty so no scheduled run can
-  authenticate, and 0004 must reach the database **before** the code that writes to its columns.
-  Ordered operator steps + verify-by-effect SQL: RUNBOOK §"Deploy" → *Owed right now*.
+- **B-012 — delivery callbacks are stored but never applied.** `applyPendingDeliveryEvent`
+  (`apps/web/lib/workers.ts:316`) has **zero callers** — no pass, no webhook, not even a test. Found
+  in production while verifying the scheduler: `message_received` 21/21 `processed`, but
+  `message_sent` 9 and `message_finalized` 11 **all still `pending`**. So `sent` in `outbox_work`
+  means "the provider accepted it", never "the handset got it" — and the rows accumulate with no
+  terminal state. Same unowned-machinery shape as `model_runs`. Likely a fourth bounded pass on the
+  one cron trigger; check `applyDeliveryEvent` is idempotent under replay first.
 - **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
   that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
   Verified: suppression is enforced **independently of the profile's auto-response fields**, so
