@@ -390,8 +390,21 @@ do), and `evals/hostile.ts` with the hostile group in `apps/web/lib/interpretati
 
 ## Deploy (only when asked)
 
-Vercel (web + API + scheduled jobs) against Neon Postgres. Migrations run as part of the deploy
-step. Never deploy unless explicitly asked (CLAUDE.md "Do not").
+Vercel (web + API + scheduled jobs) against Neon Postgres. Never deploy unless explicitly asked
+(CLAUDE.md "Do not").
+
+**Migrations are a separate operator step, not part of the build** (B-006 — this section claimed
+otherwise while no such step existed):
+
+```
+DATABASE_URL=… npm run db:migrate
+```
+
+Idempotent, so re-running is the normal way to check state. It prints the target's host and database
+name but **never** the connection string's password. It is deliberately **not** wired into the Vercel
+build: a build hook would migrate on every preview deploy and every rollback, pointing whatever
+`DATABASE_URL` that environment carries at a schema change — including production, from a branch
+build.
 
 **This has never been run.** The steps below are the procedure F-029 will execute and verify, not a
 record of a deploy that happened. Treat each as unproven until F-029 records its result.
@@ -401,7 +414,7 @@ The order is the safety property: **do not point the carrier at the app before t
 
 1. **Confirm the 10DLC campaign is _approved_**, not merely submitted. Carrier approval is queue
    time outside our control.
-2. **Provision Neon Postgres** and run every migration from an empty database.
+2. **Provision Neon Postgres**, then `DATABASE_URL=… npm run db:migrate` against it from empty.
 3. **Create the Vercel project** with **root directory `apps/web`** (this is a workspace monorepo;
    `apps/web/vercel.json` carries the cron schedule). Set every variable below — configuration
    **fails closed**, so a missing one is a startup error rather than a degraded mode:
