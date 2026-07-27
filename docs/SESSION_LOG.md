@@ -96,7 +96,44 @@ trigger. Claim latency is the load-bearing number: ~1888s (and only when a pass 
 hand) → single-digit seconds. Consent semantics held against real traffic — the watermark carries
 only the latest transition, and `HELP` did not move consent.
 
+The supervised keyword demo then completed on a clean number: `start` → `join` → `help` at
+06:43, all three `accepted` with real provider message IDs, consent landing at
+`active` / `capture_source='join'`. A free-text inquiry (`"where can i get bok choy?"`) was also
+exercised and returned a code-rendered clarification.
+
 `npm test` 363/363 across 39 files; typecheck, lint and `next build` clean.
+
+### B-011, found while demoing: the carrier owns STOP, and JOIN cannot undo it
+
+The demo surfaced a second defect that the database alone did not show — it took a screenshot of
+the actual handset. **Telnyx answers STOP/START itself**, in copy that is not ours ("Reply START to
+re-subscribe"), while Farm Friend's registered copy says "Reply HELP for assistance". Two voices,
+with contradictory instructions.
+
+Worse, Telnyx then **rejects Farm Friend's own reply with 409** while its block rule is active.
+Probing the API directly named it:
+
+```
+40300 | Blocked due to STOP message
+"Messages cannot be sent from '…' to '…' due to an existing block rule."
+```
+
+This settles a question the previous framing had left open: **suppression is enforced independently
+of the profile's auto-response fields**, which were deliberately left empty in an earlier session.
+Disabling the auto-response text would therefore not restore deliverability, so "accept carrier
+handling for STOP/START" is the workable path rather than one of two equal options.
+
+**`START` lifts the block; `JOIN` does not** — `JOIN` is Farm Friend's registered opt-in keyword and
+means nothing to Telnyx's compliance layer. Confirmed by outcome, not by timing: a `join` sent four
+minutes after a `stop` still 409'd, while a `start` between them was accepted.
+
+The consequence is a **consent-integrity divergence**, not a cosmetic one. A farmer who texts STOP
+and later texts JOIN is recorded `active` by Farm Friend — `isProactiveSendPermitted` returns true —
+while Telnyx blocks every message to them. The database and the carrier disagree about the same
+person and nothing reconciles them. One candidate fix (treat a `40300` as authoritative and
+reconcile consent to `stopped`) brushes against Golden Rule #2, since it lets a provider response
+drive a consent transition; it would have to be a deterministic code-owned rule keyed to that one
+error, never a general "provider says so" path. Undecided, and max's call.
 
 ### Owed
 

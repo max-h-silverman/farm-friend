@@ -297,16 +297,11 @@ model on the compliance path" is structural, proven by a seam that throws. The w
 awaits them (B-004, fixed by B-009). The public map UI is built (F-017) and is model-free in its
 **module graph**, not just its handler.
 
-**`waitUntil` is load-bearing, and its absence was invisible to every local suite (B-009).** Started
-with a bare `void`, the kick is work the Vercel runtime knows nothing about: the invocation suspends
-when the handler returns and the pass never runs. In production that silently dropped *every* inbound
-message — committed, acknowledged 200, then abandoned with `provider_inbox_events.claimed_at` NULL
-and every downstream table empty. **Vitest runs in Node, where a floating promise resolves normally**,
-so the entire existing kick suite passed throughout; no behavioural test in that runtime can see this
-class of bug. `apps/web/lib/kick-survival.test.ts` asserts the registration against the route source
-for that reason, and its own first draft **survived its sabotage** by matching the `import` line —
-it now strips imports and asserts the call site. Measured after the fix: claim latency went from
-*never* to **4–8 seconds**.
+**`waitUntil` is load-bearing (B-009).** A bare `void` is invisible to the Vercel runtime, which
+suspends the invocation when the handler returns — in production that silently dropped *every*
+inbound message. **No behavioural test in vitest can see this**: Node resolves floating promises, so
+the whole kick suite passed throughout. `apps/web/lib/kick-survival.test.ts` therefore asserts the
+registration against the route **source**. Claim latency after the fix: *never* → **4–8s**.
 
 **The operator surface is built: sign-in request, approval, flag review, stock-out triage (F-025a,
 F-030, F-032).**
@@ -419,12 +414,12 @@ plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only plac
 asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
 statements**, so external packages named in *config files* are outside its design.
 
-**Verified July 27, 2026 (`b-009-worker-passes-never-run` @ 8b2cef0):** `npm test` 363/363 across 39
-files; typecheck + lint pass; `next build` clean. Integration/evals not re-run (no DB-layer,
-model-seam, or workflow code touched — the change is one route and its tests); last known
-real-Postgres 222/222 across 16 files, evals critical 10/10, advisory 4/4, adversarial 25/25.
-**Also verified against the live deployment**, which is the only place B-009 was ever visible: full
-SMS round trip, claim latency 4–8s, four replies dispatched with real provider message IDs.
+**Verified July 27, 2026 (`main`, B-009 merged):** `npm test` 363/363 across 39 files; typecheck +
+lint pass; `next build` clean. Integration/evals not re-run (no DB-layer, model-seam, or workflow
+code touched — the change is one route and its tests); last known real-Postgres 222/222 across 16
+files, evals critical 10/10, advisory 4/4, adversarial 25/25. **Also verified against the live
+deployment**, which is the only place B-009 was ever visible: full SMS round trip, claim latency
+4–8s, keyword replies dispatched with real provider message IDs.
 Newest session-log entry: B-009 — the kick never survived the response.
 
 ### Open work — each needs separate implementation authorization
@@ -445,13 +440,27 @@ supply what production never creates.
   the same webhook. Six keywords were exercised against the live deployment (`stop`, `start`, `stop`,
   `join`, `help`, `start`), each routed to the correct registered copy, and consent verified against
   real traffic: the watermark holds only the latest transition and **`HELP` correctly did not move
-  consent**. Three earlier blockers, each masking the next: (1) the number was never provisioned on
-  the 10DLC campaign — an approved campaign and a profile-Active number do *not* imply provisioning,
-  and messages died upstream of Telnyx's own records; (2) **B-009**, the kick never running; (3)
-  `TELNYX_FROM_NUMBER` not in exact E.164 form, which returns `400` on every send. **What remains for
-  go-live is not the SMS path.** Production cron is still undecided and still absent (below), the
-  throwaway project and branch want tearing down, and every credential exposed this session needs
-  rotating.
+  consent**. The supervised demo completed on a clean number: `start` → `join` → `help`, all three
+  accepted with real provider message IDs. Three earlier blockers, each masking the next: (1) the
+  number was never provisioned on the 10DLC campaign — an approved campaign and a profile-Active
+  number do *not* imply provisioning, and messages died upstream of Telnyx's own records;
+  (2) **B-009**, the kick never running; (3) `TELNYX_FROM_NUMBER` not in exact E.164 form, which
+  returns `400` on every send. **What remains for go-live is not the SMS path**: production cron is
+  still absent (below), **B-011** is a live consent-integrity divergence, the throwaway project and
+  branch want tearing down, and every credential exposed on 2026-07-27 needs rotating — except
+  `PHONE_HASH_SALT`, which **cannot** be rotated without orphaning every phone hash.
+- **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
+  that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
+  Verified: suppression is enforced **independently of the profile's auto-response fields**, so
+  disabling that text would not restore deliverability — accepting carrier handling for STOP/START is
+  the workable path. **`START` lifts the block; `JOIN` does not** (a `join` four minutes after a
+  `stop` still 409'd). The live consequence: a farmer who texts STOP then JOIN is recorded `active`
+  while the carrier blocks every message, so `isProactiveSendPermitted` returns true for sends that
+  can never arrive. A candidate fix — treating `40300` as authoritative and reconciling consent to
+  `stopped` — touches Golden Rule #2 and needs max's decision.
+- **B-010 — dispatch stores only the provider HTTP status**, discarding the error detail. Cost hours
+  twice on 2026-07-27: `"The source phone number was deemed invalid by the carrier"` and
+  `"Blocked due to STOP message"` were both obtained by manual curl, never from the database.
 - **B-008 — lint does not run in deployed builds.** `apps/web` omits `@typescript-eslint/eslint-plugin`
   and `@typescript-eslint/parser`, so the plugin fails to load and Next skips lint non-fatally: the
   build goes green with the gate silently absent. Two-line manifest fix; the real work is extending
