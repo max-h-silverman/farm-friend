@@ -7,7 +7,91 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-27 (latest) — B-009: the reply never went out because the kick never ran
+## 2026-07-27 (latest) — the scheduler that can fail loudly, and the sentence the database threw away
+
+Two pieces of the durability gap, plus a decision deliberately *not* made.
+
+### Production's recovery net exists in the repo now, not yet in the world
+
+The deployed build is uploaded with `vercel.json`'s `crons` block stripped, because Hobby rejects a
+one-minute schedule. The consequence had been sitting in plain sight since B-009: the best-effort
+kick was the *only* thing invoking the workers, which is the precise inversion B-009 was filed
+against, and F-026's retention purge — which runs on that trigger alone — had never executed in
+production at all.
+
+Decision (max): external scheduler now, revisit Pro at go-live. **GitHub Actions over a SaaS
+scheduler for one reason only:** a dashboard-configured job is *unassertable*. cron-job.org would
+have scheduled more faithfully — GitHub's schedules are best-effort and droppable, so `*/5` is a
+request rather than a guarantee — but nothing in the repo could then prove the job existed or still
+authenticated, which is the exact silent-failure shape B-005 was filed against. The interval is
+acceptable only because the kick front-runs live traffic, so it governs how long *missed* work waits,
+never reply latency. That distinction is written into the workflow and the RUNBOOK, because calling
+it "a one-minute cron" would be false.
+
+**The assertion that matters is that the run checks its HTTP status.** A bare `curl` exits 0 on a
+401, so a rotated `CRON_SECRET` would produce a tidy column of green checkmarks while nothing had run
+for weeks. And that assertion's first draft **survived its own sabotage** — a workflow accepting
+every status still passed, because `/--fail|-f\b|http_code|status/` was satisfied by the
+`-w '%{http_code}'` flag and the bare `/exit 1/` by an unrelated missing-secret guard. Same trap as
+B-009's import line, in a new costume. It is now anchored to the comparison itself and fails under
+four separate sabotages of it. Nine sabotages were run across the file; all six assertions fail when
+the property they name is removed.
+
+### B-011 turned out to be blocked on something more basic than its Golden Rule question
+
+The plan was to bring max the consent-transition decision. Reading the code first changed the
+sequencing: `classify()` in `packages/sms/src/delivery.ts` read only the **HTTP status** off the
+thrown error, and `createTelnyxTransport` discarded the response body outright. Telnyx returns
+`40300` in that body. **The error code B-011's candidate rule keys on did not exist anywhere in the
+system** — every 409 arrived indistinguishable from every other conflict.
+
+So B-010 was the prerequisite, and max chose to do it first and decide B-011 against real stored
+rows rather than a single hand-run curl.
+
+### B-010: the privacy question in its own notes had a "yes" answer
+
+The item asked whether any class of provider error echoes the destination number, and said that if so
+the class should be *dropped* rather than truncated. It does — the real 40300 body names **both**
+E.164 numbers. But dropping it would discard the diagnostic entirely, so phones are **masked**
+instead: the sentence survives, no digits do.
+
+`maskRawPhones` is built on the outbound guard's existing `PHONE_BODY` pattern rather than a second
+regex, so both consumers inherit every future correction to it — including B-001's UUID-hex fix. Same
+detector, two dispositions: the guard *refuses* an outbound body carrying a phone (it is our own
+message; a phone in it is a defect to surface), while stored third-party text is *masked* (a
+provider legitimately names the numbers it could not deliver between).
+
+Two columns, kept separate on purpose: `provider_code` is a **validated machine token** — a future
+rule may key on it — and `provider_error_detail` is free text nothing may ever branch on. Both are
+nullable and excluded from the `coherent_result` check, because a provider returning an unparseable
+body (a gateway's HTML 502) must still be able to record its rejection; requiring them would turn a
+malformed error into a failed write *inside the dispatch path*. `summarizeProviderError` never throws
+for the same reason.
+
+Nothing branches on either value today. `errorCode` remains what the retry policy reads, so this
+changed no dispatch decision — it only made the next failure readable in one query.
+
+**Why the discard survived this long: `createTelnyxTransport` was unexported.** The single code path
+that parses a real provider error had no test, because everything above it used the simulator, which
+never fails. It is now exported and covered against the two real 2026-07-27 payloads, and that suite
+fails under a full revert to the original defect.
+
+### What is owed
+
+- **Integration has not run.** No Postgres in the session environment, and this change adds migration
+  0004 — exactly the class integration exists to verify. `drizzle-kit check` reports the schema
+  consistent, which is not the same thing. Run it before merging.
+- **The scheduler is not live.** It needs the `CRON_SECRET` repository secret and a push before
+  GitHub will register it, and then the verification that actually proves it: set a `body_expires_at`
+  in the past and confirm the purge clears it. Not a dashboard check — a 401 looks like success there.
+- **B-011 is still live and unreconciled**, now with a third option on the table: surface blocked
+  recipients for an operator instead of reconciling automatically. No Golden Rule #2 exposure, human
+  in the loop — plausibly the coordinator-at-a-desk answer, and worth weighing before building the
+  authoritative rule.
+
+---
+
+## 2026-07-27 — B-009: the reply never went out because the kick never ran
 
 Farm Friend sent its first SMS. The full round trip works: inbound keyword → deterministic route →
 queued reply → Telnyx dispatch with a real provider message ID → delivery callbacks returning
