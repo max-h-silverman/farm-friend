@@ -752,6 +752,22 @@ export const outboxDispatchAttempts = pgTable(
     state: dispatchAttemptState("state").notNull(),
     providerMessageId: text("provider_message_id"),
     errorCode: text("error_code"),
+    // B-010 — diagnostics, never dispatch inputs.
+    //
+    // `error_code` alone names a category and not a cause, which cost hours twice on
+    // 2026-07-27: a stored '400' was really "The source phone number was deemed invalid by
+    // the carrier", and a '409' was really Telnyx code 40300, "Blocked due to STOP message".
+    // Both were recovered by curling the provider by hand.
+    //
+    // Deliberately NOT covered by `coherentResult` below: they are best-effort. A provider
+    // that returns an unparseable body must still be able to record a rejection, so making
+    // them mandatory would turn a malformed error into a failed write.
+    //
+    // `provider_error_detail` is phone-masked and length-bounded before it arrives here
+    // (`summarizeProviderError`) — the raw 40300 body contains two E.164 numbers, and
+    // Golden Rule #5 permits exactly one raw-phone column, which this is not.
+    providerCode: text("provider_code"),
+    providerErrorDetail: text("provider_error_detail"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },

@@ -898,6 +898,11 @@ export interface DispatchResultInput {
   outcome: "accepted" | "definitive_rejection" | "ambiguous";
   providerMessageId?: string;
   errorCode?: string;
+  /** B-010: the provider's machine token (e.g. Telnyx `40300`). Diagnostic today; validated
+   *  as a token at capture, so a future rule could key on it. */
+  providerCode?: string;
+  /** B-010: the provider's own sentence, already phone-masked and length-bounded. */
+  providerErrorDetail?: string;
   now: Date;
 }
 
@@ -922,7 +927,9 @@ export async function recordDispatchResult(
       update outbox_dispatch_attempts
       set state = ${input.outcome}, completed_at = ${input.now},
           provider_message_id = ${input.providerMessageId ?? null},
-          error_code = ${input.errorCode ?? null}
+          error_code = ${input.errorCode ?? null},
+          provider_code = ${input.providerCode ?? null},
+          provider_error_detail = ${input.providerErrorDetail ?? null}
       where id = ${input.dispatchAttemptId}
     `;
 
