@@ -49,9 +49,20 @@ Copy `.env.example` → `.env` and fill:
 - `PHONE_HASH_SALT` — required; the phone hash is the only lookup/log key.
 - `CRON_SECRET` — shared secret guarding the scheduled-worker route. **Required, no default, no
   local-only bypass** (see "Scheduled work" below).
-- `MAGIC_LINK_SECRET` — signs admin sign-in links. **No default**: the callback returns 503 rather
-  than verifying signatures against a guessable value, because that would be an open door to the
-  farm-approval surface.
+- `MAGIC_LINK_SECRET` — signs admin sign-in links. **Required, no default**: the callback returns
+  503 rather than verifying signatures against a guessable value, because that would be an open
+  door to the farm-approval surface.
+- `PUBLIC_BASE_URL` — the public origin sign-in links are built against, e.g.
+  `https://farmfriend.example`. **Required, no default, and validated**: it must be an absolute
+  URL, and `http` is refused outside localhost because a sign-in link is a bearer credential that
+  must not travel in cleartext. It is configuration rather than a value derived from the request,
+  because a `Host:` header an attacker controls would otherwise let the link-request endpoint mail
+  a real operator a working-looking link pointing at the attacker's origin.
+- **Mail provider** — not yet configured. F-032 built the sign-in request path against a
+  `MailSender` seam whose only implementation today **fails closed**: an attempted send throws
+  `MailNotConfiguredError` rather than quietly succeeding. Choosing a provider, recording its
+  attested data handling, and implementing the adapter is **F-031**. Until then an administrator
+  requesting a link gets the same 202 as everyone else and no mail is delivered.
 - `SMS_PROVIDER` — `simulator` or `telnyx`. There is **no default**; an unset or unknown value is a
   configuration error rather than a silent fallback.
 - With `SMS_PROVIDER=telnyx`, all four are required: `TELNYX_API_KEY`,
@@ -97,6 +108,36 @@ an `authorized_at` and the same revocation path as every other grant.
 Sign-in itself is a magic link signed with `MAGIC_LINK_SECRET`; verifying it proves control of an
 email address, and the administrator lookup — not the link — is what confers authority. See
 [ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md) §the administrator role.
+
+### Bootstrap, then sign in
+
+1. Run the bootstrap script above once per environment, against that environment's database.
+2. The operator opens `/admin/login` and enters that address.
+3. `POST /api/auth/request-link` mints a 15-minute link and hands it to the mail seam.
+4. Opening the link hits `/api/auth/callback`, which re-checks the administrator row and mints the
+   durable session.
+
+**Step 3 does not deliver mail yet** — the seam fails closed pending F-031. Until a provider is
+configured, mint a link out of band with `issueMagicToken` and give it to the operator directly.
+
+Two properties of the request endpoint to preserve when changing it, both proven by tests in
+`apps/web/lib/request-link.test.ts`:
+
+- **The response is byte-identical for every address** — same status, headers, and body whether or
+  not the address is an administrator, whether it is malformed, and whether the mail seam threw.
+  The endpoint is public, so any observable difference enumerates who VIGA's operators are. Note
+  the third case especially: letting a mail failure become a 500 recreates the oracle through the
+  error path, because mail is only ever attempted for a real administrator.
+- **The token reaches exactly two places** — the rendered message and the operator's mailbox. It is
+  never in a response body and never in a log. The handler therefore contains **no `console` call
+  at all**, asserted against its source, because a vendor SDK routinely attaches the request payload
+  (containing the live link) to the error it throws.
+
+Rate limiting is the shared `createPublicActionThrottle`, on its **own budget** rather than the QR
+stock-out form's: sharing one would let anonymous stock-out traffic from a shared NAT exhaust a real
+operator's ability to sign in. The budget is per client, never per email address — a per-address
+budget is itself an oracle, since an attacker learns which addresses send mail by watching which
+ones start refusing.
 
 ## Seeding initial listing data
 
@@ -285,6 +326,19 @@ command arguments, packages, or UI.
 5. Test-first, in `apps/web/lib/admin-routes.integration.test.ts`: add the refusal assertion for
    **every method** on the new route to the unauthorized-caller block, and grep the whole serialized
    response for an E.164 and for any 64-hex run.
+
+**A PUBLIC auth route is the exception, and inverts most of this.** `/api/auth/request-link` and
+`/api/auth/callback` are deliberately unauthenticated — they are how someone becomes authenticated,
+so `requireAdministrator` cannot apply. What replaces it:
+
+- **Answer identically for every input.** Not "return 200 in both cases" — identical status,
+  headers, and body, asserted by comparing whole serialized responses. Include the failure paths:
+  a malformed address, and an internal error on work only a real administrator triggers.
+- **Front it with `createPublicActionThrottle` on its own budget**, and consult the throttle
+  *before* any database lookup, so a refused request performs no read and cannot be timed.
+- **Bucket by client, never by the identifier being probed.** A per-address budget tells an
+  attacker which addresses are real by which ones start refusing.
+- **Build outbound URLs from configured values**, never from `Host` or `X-Forwarded-Host`.
 
 ### Add a model seam
 

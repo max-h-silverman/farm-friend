@@ -297,25 +297,41 @@ coordinate. SMS resolves no arbitrary customer origin at launch.
 
 ## Abuse / cost throttle
 
-The QR stock-out form ingests free text into a model with **no auth**. A code-level rate/cost guard
-fronts that public model-backed handler, keyed by a coarse client signal. Normal public map,
-listing, filter, and proximity lookup is model-free and **never artificially capped**. SMS inquiry
+Public, unauthenticated handlers that perform an **expensive or consequential** action are fronted
+by a code-level rate/cost guard keyed by a coarse client signal. Normal public map, listing, filter,
+and proximity lookup does neither, is model-free, and is **never artificially capped**. SMS inquiry
 uses the SMS sender, consent, frequency, and delivery controls rather than a coarse web-client
 signal.
 
-**Built (F-019).** `createModelCallThrottle` in `packages/core/src/public/throttle.ts` is a sliding
-per-client window over the injected `Clock`; the composition root constructs the single instance
-(5 calls / 60s). `apps/web/lib/client-signal.ts` derives the bucket key by hashing the **leftmost**
+Two such handlers exist at launch: the **QR stock-out form** (F-019), which ingests free text into a
+model, and the **sign-in link request** (F-032), which causes Farm Friend to send mail. They share
+one mechanism on **separate budgets** — sharing a single instance would let anonymous stock-out
+traffic from a shared NAT exhaust a real operator's ability to sign in, an availability failure on
+the admin surface's recovery path.
+
+**Built (F-019, generalized in F-032).** `createPublicActionThrottle` in
+`packages/core/src/public/throttle.ts` is a sliding per-client window over the injected `Clock`; the
+composition root constructs both instances (stock-out 5 / 60s; sign-in 3 / 15min). It was
+`createModelCallThrottle` until F-032 — the mechanism was always general and only the name was
+model-specific, so it was renamed rather than duplicated.
+`apps/web/lib/client-signal.ts` derives the bucket key by hashing the **leftmost**
 `x-forwarded-for` hop with the deployment salt — so no raw address reaches the throttle map, and
 appending a hop cannot buy a fresh budget. The key is a **cost bucket, never identity**: it is not
 durable, not an authorization input, and not a customer profile.
 
-Two orderings are load-bearing and tested: the throttle is consulted **before** the model call (a
-refused report costs nothing), and a **malformed body is rejected before the throttle** so junk
-cannot spend a genuine reporter's budget. An absent signal collapses to one shared bucket rather
-than an exemption. The public routes are `GET /api/public/stands` (model-free, unthrottled) and
-`POST /api/public/stock-out` (throttled); handlers live in `apps/web/lib/` because Next.js permits
-only its own fields as route exports.
+Two orderings are load-bearing and tested on both consumers: the throttle is consulted **before** the
+rationed work — the model call, or on the sign-in path the administrator lookup, so a refused request
+performs no database read and cannot be used to time the table — and a **malformed body is rejected
+before the throttle** so junk cannot spend a genuine caller's budget. An absent signal collapses to
+one shared bucket rather than an exemption.
+
+The sign-in path adds a constraint the stock-out path does not have: the budget is keyed by
+**client, never by the email address being probed**. A per-address budget is itself an enumeration
+oracle — an attacker learns which addresses are real by watching which ones begin refusing.
+
+The public routes are `GET /api/public/stands` (model-free, unthrottled),
+`POST /api/public/stock-out` (throttled), and `POST /api/auth/request-link` (throttled); handlers
+live in `apps/web/lib/` because Next.js permits only its own fields as route exports.
 
 ## Invariants (must be enforced in code and proven by tests)
 

@@ -35,8 +35,8 @@ export default async function AdminPage() {
       <main className="admin">
         <h1>Farm Friend admin</h1>
         <p>
-          You are not signed in. Open the magic link sent to your VIGA email address to
-          continue.
+          You are not signed in. <Link href="/admin/login">Request a sign-in link</Link> and
+          open it from your VIGA email address to continue.
         </p>
         <p className="admin-note">
           Only provisioned administrators can sign in. If your address is not recognized,

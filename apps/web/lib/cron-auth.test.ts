@@ -19,6 +19,10 @@ const baseEnv = {
   DATABASE_URL: "postgres://user:pass@localhost:5432/farmfriend",
   PHONE_HASH_SALT: "test-salt",
   CRON_SECRET: "test-cron-secret",
+  // Required since F-032. Present here only so the CRON_SECRET assertions below fail for
+  // the reason they name; sign-in configuration has its own suite in sign-in-config.test.ts.
+  MAGIC_LINK_SECRET: "test-magic-secret",
+  PUBLIC_BASE_URL: "https://ff.example",
   SMS_PROVIDER: "simulator",
 } satisfies NodeJS.ProcessEnv;
 
