@@ -60,6 +60,36 @@ function importedWorkspaces(file: string): Set<string> {
   return found;
 }
 
+describe("apps/web can be built as an isolated workspace", () => {
+  // A deployment installs `apps/web` as ONE workspace, not the whole repository — the build log
+  // reads `added 51 packages`, nowhere near the root tree. Anything `next build` needs must
+  // therefore be declared in `apps/web`, not merely at the root.
+  //
+  // Root-only devDependencies are invisible locally for the same hoisting reason as B-007's first
+  // half: `next build` from the repo root finds `typescript` in the root `node_modules` and
+  // succeeds. It fails only where the root manifest was never installed.
+  //
+  // These three are what Next's own build phases require: `typescript` + `@types/node` for the
+  // type check, `eslint` for the lint pass. Missing them is not a compile error — the build gets
+  // all the way through `✓ Compiled successfully` and then dies.
+
+  const webManifest = JSON.parse(
+    readFileSync(resolve(repoRoot, "apps/web/package.json"), "utf8"),
+  ) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+
+  const declared = new Set([
+    ...Object.keys(webManifest.dependencies ?? {}),
+    ...Object.keys(webManifest.devDependencies ?? {}),
+  ]);
+
+  it.each(["typescript", "@types/node", "eslint"])(
+    "declares %s, which `next build` requires at build time",
+    (pkg) => {
+      expect(declared.has(pkg)).toBe(true);
+    },
+  );
+});
+
 describe("apps/web transpiles every workspace package it imports", () => {
   // The SECOND half of the same deploy failure, and the one that was actually load-bearing.
   //
