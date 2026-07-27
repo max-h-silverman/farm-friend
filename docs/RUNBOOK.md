@@ -175,10 +175,19 @@ same passes:
 
 - **The kick (B-004) — the low-latency path.** After the webhook acknowledges Telnyx, it starts the
   inbound and outbound passes *for that one sender*. This is what makes a reply arrive in
-  milliseconds instead of up to a minute. It is started and deliberately **not awaited**, so it can
-  neither delay nor fail the 200, and it owns **no guarantee**: every failure is swallowed and the
-  work is left for the recovery net. It is scoped to one sender and budgeted, so a wedged pass is
-  abandoned rather than running until the invocation is killed.
+  milliseconds instead of up to a minute. It is **registered with `waitUntil` and deliberately not
+  awaited**, so it can neither delay nor fail the 200, and it owns **no guarantee**: every failure is
+  swallowed and the work is left for the recovery net. It is scoped to one sender and budgeted, so a
+  wedged pass is abandoned rather than running until the invocation is killed.
+
+  **`waitUntil` is load-bearing (B-009), not decoration.** Started with a bare `void`, the kick is
+  work the runtime knows nothing about: Vercel suspends the invocation the moment the handler
+  returns, and the pass never runs. In production that dropped *every* inbound message — committed,
+  acknowledged 200, then silently abandoned with `provider_inbox_events.claimed_at` NULL. Nothing in
+  the local suites can see it, because vitest runs in Node where a floating promise resolves
+  normally; `apps/web/lib/kick-survival.test.ts` asserts the registration against the route source
+  for exactly that reason. (`after()` from `next/server` is the modern equivalent and requires
+  Next 15.1+; this app is on Next 14.)
 - **Cron — the durable recovery net.** The authenticated route below still runs the full unscoped
   passes, recovering anything a kick missed because an invocation crashed, a claim lapsed, or the
   process died mid-pass. It remains the **only** trigger for F-026's retention purge, which is never
@@ -235,6 +244,30 @@ environment variable. That file is asserted by `apps/web/lib/cron-schedule.test.
 route it names, because it was **missing entirely** until B-005 while this section documented it —
 and the failure is silent, since B-004's kick keeps replies fast while nothing recovers what it
 drops and F-026's purge never runs.
+
+**The schedule depends on the plan, and Hobby cannot run this one.** A one-minute cron exceeds
+Hobby's daily cap, so `npx vercel --prod` refuses the deploy outright. Two ways forward, and the
+route's contract is identical under both — it is a plain authenticated HTTP endpoint:
+
+- **Vercel Pro** — `vercel.json` deploys as-is, no external dependency, no extra secret handling.
+- **An external scheduler** — anything that can issue an authenticated request every minute
+  (cron-job.org, GitHub Actions, Upstash QStash, a box with crontab):
+
+  ```
+  curl -fsS -X POST https://<deployment>/api/internal/cron \
+    -H "Authorization: Bearer $CRON_SECRET"
+  ```
+
+  The secret then lives in a second place, which is a real cost: rotating `CRON_SECRET` means
+  rotating it *both* places, and a stale copy fails closed with a 401 every minute rather than
+  loudly. Prefer a scheduler that alerts on non-2xx, or the dead trigger is as silent as the bug
+  this section exists to prevent.
+
+**Verify a schedule by its EFFECT, never by a dashboard.** A green cron entry proves an invocation
+was attempted, not that the pass did its work — a 401 from a stale secret looks like activity. The
+one unambiguous signal is F-026's purge, which runs on this trigger *alone*: set a body's
+`body_expires_at` in the past, wait, and confirm it is `NULL`. If it clears, the trigger is
+authenticated and the passes are running.
 Choose the interval as a **recovery** budget, not a reply-latency one: since B-004 the kick front-runs
 this route for live traffic, so the interval decides only how long work a kick *missed* waits. One
 minute — Vercel Cron's floor — is fine. It is also the floor that made polling alone unable to meet
