@@ -7,7 +7,117 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-27 (latest) — Telnyx wired and verified; the demo blocked on an unprovisioned number
+## 2026-07-27 (latest) — B-009: the reply never went out because the kick never ran
+
+Farm Friend sent its first SMS. The full round trip works: inbound keyword → deterministic route →
+queued reply → Telnyx dispatch with a real provider message ID → delivery callbacks returning
+through the same webhook.
+
+Three defects were stacked, each hiding the next. Only the middle one was in the code.
+
+### The diagnosis, in the database rather than on the phone
+
+Two real inbound `HELP` messages had been committed and acknowledged 200 with no reply. Reading
+every table localized it in one pass:
+
+| Table | Rows | Reading |
+|---|---|---|
+| `sms_messages` | 2 | ingress committed |
+| `contacts` | 1 | committed in the request path |
+| `provider_inbox_events` | 2, `state='pending'`, `claimed_at` NULL | **never claimed — the break** |
+| `sender_states` / `outbox_work` / `outbox_dispatch_attempts` / `sms_consents` | 0 | nothing downstream ran |
+
+20 of 23 tables were empty. Everything the webhook does *synchronously* committed; everything the
+kick does never happened. The first missing step is the first step past the durable commit, which
+is the `void kickSenderPasses(...)` call.
+
+### The cause is a platform contract, not a logic error
+
+`void` starts work the Vercel runtime knows nothing about. Once the handler returns, the invocation
+is free to suspend, and the promise simply stops. Vercel's reference states it outright: work that
+is not awaited may be shut down before it completes. `waitUntil` registers the promise and extends
+the invocation's lifetime until it settles, without holding the response open. (`after()` from
+`next/server` is the modern equivalent and needs Next 15.1+; this app is on Next 14.)
+
+The kick gained no guarantee from this. A registered promise shares the function's timeout and is
+cancelled with it, so it stays best-effort and the scheduled trigger stays the durable net.
+
+**The compliance exposure is why this was critical rather than a latency bug.**
+`applyConsentTransition` runs inside `routeInboundMessage`, inside `runInboundPass`, inside the
+kick — so a real `STOP` would have committed **no consent row at all** while Telnyx received a 200.
+Not "consent correct, acknowledgement missing": the opt-out silently dropped. No violation had
+occurred, because both test messages were `HELP` and an earlier `STOP` was sent during the
+unprovisioned-number window and left no trace in any table.
+
+### Why every local suite passed
+
+**Vitest runs in Node, where a floating promise resolves normally.** The entire existing kick suite
+— including `kick-wiring.test.ts`, written specifically to police how the kick is wired — passed
+throughout. No behavioural test in that runtime can see this bug. `kick-survival.test.ts` therefore
+asserts the registration against the route source, the same technique `cron-auth.test.ts` and
+`workspace-manifests.test.ts` use for properties that are constructs rather than behaviours.
+
+**That test's first draft survived its own sabotage.** It asserted `/waitUntil\s*\(/` against the
+whole file; reverting the call site to the production defect still passed, because the `import` line
+matched. It now strips imports and anchors to the call site, and fails under three sabotages —
+revert to `void`, wrap an unrelated promise, `await` the kick. `kick-wiring.test.ts` passes through
+all three, which is precisely why the new file had to exist.
+
+`kick-wiring.test.ts` asserted `void kickSenderPasses(`. `void` was only ever a proxy for
+"deliberately not awaited" — and it turned out to *be* the defect — so that assertion now follows
+the intent instead of the keyword.
+
+### Two configuration defects on either side of it
+
+**Before:** the 10DLC campaign provisioning (previous entry) — fixed between sessions.
+
+**After:** `TELNYX_FROM_NUMBER` was not in exact E.164 form, so Telnyx returned `400` on every send.
+This masked B-009's fix for most of the session and cost far more time than it should have, because
+`outbox_dispatch_attempts` stores `error_code = '400'` and **discards Telnyx's own sentence** —
+`"The source phone number was deemed invalid by the carrier."` — which names the field outright.
+Filed as **B-010**. Localizing it instead required probing the Telnyx API directly, testing each
+request component in isolation, and enumerating malformed `from` formats until the error reproduced.
+
+A dead end worth recording: `vercel env ls` showed `TELNYX_API_KEY` as "1h ago" while the web UI
+showed "Updated just now". The CLI column is not last-update, and trusting it produced a confidently
+wrong conclusion mid-diagnosis. Vercel values are write-only — the UI hides them and `vercel env
+pull` returns `[SENSITIVE]` (confirmed for all ten) — so the only honest check is behavioural.
+
+### Verified by effect, in the deployment
+
+| | Before | After |
+|---|---|---|
+| Inbound claim latency | never, unless cron was triggered by hand | **4–8s, automatic** |
+| Consent commit | nothing recorded | `active` / `start`, watermark correct |
+| Routing | never ran | every message routed to the correct registered copy |
+
+Six keywords in 39 seconds, out of order, each claimed within seconds with no cron and no manual
+trigger. Claim latency is the load-bearing number: ~1888s (and only when a pass was triggered by
+hand) → single-digit seconds. Consent semantics held against real traffic — the watermark carries
+only the latest transition, and `HELP` did not move consent.
+
+`npm test` 363/363 across 39 files; typecheck, lint and `next build` clean.
+
+### Owed
+
+**The durability half is not done.** The deployed build has its `crons` block stripped for Hobby, so
+production has **no scheduled recovery net at all** — the kick is the only thing running passes,
+which is the exact inversion this item was filed against. The external-scheduler-vs-Pro decision
+(external now, Pro at go-live) still needs implementing, and `CRON_SECRET` had to be rotated
+mid-session because it was unreadable, which any external scheduler will need again.
+
+The retention purge has still never been verified by effect; every observed pass reported `0/0/0`.
+
+**Credential hygiene is now a go-live blocker, not a nicety.** `DATABASE_URL`, `CRON_SECRET` and the
+Telnyx API key were all exposed in a working transcript this session and need rotating. Note the
+asymmetry: **`PHONE_HASH_SALT` cannot be rotated** — changing it orphans every phone hash in the
+database. Record it while it still works.
+
+B-008 is still open, and its symptom appeared again in this session's build log.
+
+---
+
+## 2026-07-27 — Telnyx wired and verified; the demo blocked on an unprovisioned number
 
 No code changed. The Telnyx transport was configured and every app-side property verified against
 the live deployment — and the supervised `JOIN` demo still could not run, because the number was
