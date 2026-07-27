@@ -60,6 +60,44 @@ function importedWorkspaces(file: string): Set<string> {
   return found;
 }
 
+describe("apps/web transpiles every workspace package it imports", () => {
+  // The SECOND half of the same deploy failure, and the one that was actually load-bearing.
+  //
+  // Every `@farm-friend/*` package ships raw TypeScript (`"main": "./src/index.ts"`), so Next.js
+  // must be told to transpile them. `next.config.mjs` listed only `@farm-friend/core` while
+  // `lib/composition.ts` imports `ai`, `db`, and `sms` as well.
+  //
+  // The dev server is more forgiving than a production build, so this — like the missing manifest
+  // entry — is invisible until something runs `next build` for real.
+
+  const webDir = resolve(repoRoot, "apps/web");
+
+  /** The `transpilePackages` array, read out of the Next config source. */
+  function transpiledPackages(): string[] {
+    const source = readFileSync(resolve(webDir, "next.config.mjs"), "utf8");
+    const match = source.match(/transpilePackages:\s*\[([^\]]*)\]/);
+    if (match === null) return [];
+    return [...(match[1] as string).matchAll(/["'](@farm-friend\/[a-z-]+)["']/g)].map(
+      (m) => m[1] as string,
+    );
+  }
+
+  it("transpiles every @farm-friend package apps/web imports", () => {
+    const transpiled = new Set(transpiledPackages());
+
+    const imported = new Set<string>();
+    for (const file of sourceFiles(webDir)) {
+      for (const pkg of importedWorkspaces(file)) imported.add(pkg);
+    }
+
+    // Guards the test: a config rename or regex drift returning nothing must not pass vacuously.
+    expect(imported.size).toBeGreaterThan(0);
+
+    const missing = [...imported].filter((pkg) => !transpiled.has(pkg)).sort();
+    expect(missing).toEqual([]);
+  });
+});
+
 describe("every workspace declares what it imports", () => {
   const dirs = workspaceDirs();
 
