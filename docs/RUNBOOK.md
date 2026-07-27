@@ -401,13 +401,34 @@ DATABASE_URL=… npm run db:migrate
 ```
 
 Idempotent, so re-running is the normal way to check state. It prints the target's host and database
-name but **never** the connection string's password. It is deliberately **not** wired into the Vercel
+name but **never** the connection string's password.
+
+**Migrate against an empty database, and check first.** `0000_clean_launch.sql` uses
+`CREATE TABLE IF NOT EXISTS`, so a table that already exists under a *different* schema is silently
+skipped — and a later `ALTER TABLE … ADD CONSTRAINT` then fails on a column that was never created.
+The result is a half-applied schema where **every retry fails identically**, and the error names a
+missing column rather than the real cause. This happened on the first deploy (2026-07-27) against a
+database still holding the older Farm Friend's tables. Inspect
+`information_schema.tables` before migrating into anything you did not create empty.
+
+On **Neon**, use the **direct** connection string (the hostname *without* `-pooler`) for migrations;
+the pooled one is for the running app. This was not the cause of the failure above, but it is Neon's
+documented guidance for DDL. It is deliberately **not** wired into the Vercel
 build: a build hook would migrate on every preview deploy and every rollback, pointing whatever
 `DATABASE_URL` that environment carries at a schema change — including production, from a branch
 build.
 
-**This has never been run.** The steps below are the procedure F-029 will execute and verify, not a
-record of a deploy that happened. Treat each as unproven until F-029 records its result.
+**First run 2026-07-27**, as a throwaway Hobby-tier validation (https://farm-friend-web.vercel.app),
+not the F-029 go-live. Steps 1–5 are now **proven**; steps 6–10 (Telnyx) remain unrun.
+
+Two things that cost real time and are not obvious:
+
+- **Deploy with `npx vercel --prod` from a local checkout.** The Git integration built the same
+  pre-fix commit three times regardless of what was pushed. The CLI uploads what is on disk.
+- **A monorepo deploy installs `apps/web` alone**, so anything the build needs must be declared
+  there — not merely at the workspace root. Five defects of exactly this shape shipped undetected
+  because npm hoisting hides them locally (B-005/B-006/B-007);
+  `packages/core/src/workspace-manifests.test.ts` is what now catches them.
 
 The order is the safety property: **do not point the carrier at the app before the app can honor
 `STOP`.**

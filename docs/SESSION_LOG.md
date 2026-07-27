@@ -7,7 +7,98 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-26 (latest) — F-032: the sign-in path gets built up to the wire, and F-031 keeps the wire
+## 2026-07-27 (latest) — The first deploy, and the five defects a green suite could not see
+
+Farm Friend is **deployed**: https://farm-friend-web.vercel.app. Health returns `{"ok":true}`,
+`/api/public/stands` returns `{"stands":[]}` against a real Neon database, and every security
+boundary built over the last several sessions holds against a live deployment rather than a test
+runner — cron 401 with no or wrong secret, admin API 403 unauthenticated, sign-in responses
+byte-identical across addresses, throttle firing.
+
+This was not the F-029 go-live. It is a **throwaway Hobby-tier deploy** to validate build and env
+wiring, on branch `throwaway/hobby-deploy-test`, to be torn down.
+
+### Five defects, one shape
+
+Every one was invisible to 346 passing tests, because every test ran in a developer's fully-hoisted
+`node_modules` or against a local database:
+
+- **B-005** — no `vercel.json` at all, while RUNBOOK documented `vercel.json` → `crons`. Nothing
+  would ever have been scheduled.
+- **B-006** — no migrate command, while RUNBOOK said "migrations run as part of the deploy step."
+  Migrations were applied in exactly one place: the integration harness, against a database it
+  created and dropped.
+- **B-007a** — `apps/web` imported `@farm-friend/ai` without declaring it.
+- **B-007b** — `transpilePackages` listed only `@farm-friend/core` while three others were imported.
+  **This was the actual build failure.** Every package ships raw TypeScript, the dev server
+  tolerates it, `next build` does not.
+- **B-007c** — `typescript`, `@types/node`, and `eslint` declared only at the workspace root. The
+  build reached `✓ Compiled successfully` and then died in the type-check phase.
+
+Each now has a test that fails without its fix, including a general one — `workspace-manifests.test.ts`
+walks every workspace and asserts imports are declared, matching on `from "…"` / `import("…")` rather
+than any occurrence of the string so a package named in a comment or in `architecture.test.ts`'s
+tripwire list is not counted.
+
+**The lesson worth keeping: npm workspaces hoisting makes a whole class of packaging defect
+undetectable locally.** `npm test`, `npm run typecheck`, `npm run lint`, and `next build` from the
+repo root all pass against manifests that cannot survive an isolated install. The only place the
+repository now asserts that property is a test that reads the manifests directly.
+
+### The near-miss
+
+The Neon database was not empty. It held the **older Farm Friend** — the gleaning volunteer
+coordination model (`volunteers`, `opportunities`, `claims`, `dispatch_waves`) whose machinery
+CLAUDE.md names as an explicit non-goal — with 6 volunteer records, 17 SMS messages, and 2 farms
+carrying contact phone numbers.
+
+The reset script's row-count guard refused, having been written on the assumption the database was
+empty. **That guard is the only reason nothing was destroyed.** The order was wrong: a destructive
+script was proposed before the database was inspected. Inspect first.
+
+It also explains the migration failures. `flags` existed with the old schema
+(`phone_hash`/`volunteer_id`, not `contact_hash`/`reason_code`), so `CREATE TABLE IF NOT EXISTS`
+skipped it and the foreign key could never be created. **The repeated failure was protecting the old
+data.** A pooled-vs-direct Neon connection theory was advanced confidently and was wrong — the same
+failure occurred on both.
+
+Max confirmed the contents were his own test numbers from a superseded deployment, and authorized the
+wipe. The rewritten script required `CONFIRM_WIPE=yes` **and** fingerprinted the old schema, so a
+mistyped connection string would fail rather than erase something else.
+
+### The Vercel specifics
+
+Hobby caps cron at once per day and **rejects** the one-minute schedule, so the throwaway branch
+carries a `vercel.json` with no `crons` block — which is why `cron-schedule.test.ts` fails on that
+branch by construction, and only there. The Git integration also built the same pre-fix commit three
+times; deploying with `npx vercel --prod` from a local checkout sidestepped it entirely and is what
+finally worked.
+
+### A correction that matters for the demo
+
+Earlier guidance in this session wrongly implied F-024, B-002, and F-031 gate a live `JOIN` demo.
+**They do not.** `JOIN`/`STOP`/`HELP`/`START` are deterministic keyword paths handled before any
+model call (`provider.calls === 0`, asserted through the real webhook route), and the reply is sent
+by the **B-004 kick in ~47ms** rather than by cron — so a demo needs no cron and no Vercel Pro. What
+it needs is Telnyx credentials, `SMS_PROVIDER=telnyx`, and the messaging profile webhook pointed at
+the deployed URL. F-029 records this correction.
+
+### Verified
+
+`npm test` 356/356 across 38 files; real-Postgres integration 222/222 across 16 files; typecheck +
+lint clean; evals critical 10/10, advisory 4/4, adversarial 25/25. Live deployment verified by
+request against every route above. PRs #41, #42, #43 merged.
+
+### Owed
+
+The throwaway Vercel project and `throwaway/hobby-deploy-test` branch should be deleted before
+go-live. `PUBLIC_BASE_URL` may still be a placeholder in Vercel. Production cron remains an open
+F-029 decision (Pro vs. an external scheduler). F-024, B-002, and F-031 still gate a *useful* launch,
+just not a keyword demo.
+
+---
+
+## 2026-07-26 — F-032: the sign-in path gets built up to the wire, and F-031 keeps the wire
 
 One item, one PR, merged. F-025a built magic-link verification and the session it mints; F-030 built
 the queues those sessions unlock. Nothing could **send** a link, so a non-technical VIGA operator

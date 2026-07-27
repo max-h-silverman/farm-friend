@@ -373,10 +373,27 @@ console first, then transcribe.
 reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
 fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Verified July 26, 2026 (`main`, F-032 + B-005 + B-006 merged):** `npm test` 346/346 across 37 files;
+**Farm Friend is deployed** (throwaway Hobby validation, not F-029 go-live):
+https://farm-friend-web.vercel.app. Verified by live request — health `{"ok":true}`,
+`/api/public/stands` `{"stands":[]}` against real Neon, cron **401** with no/wrong secret, admin API
+**403** unauthenticated, sign-in responses **byte-identical** across addresses, throttle firing. The
+webhook returns 503 rather than 401 because `SMS_PROVIDER=simulator` has no verification key — fail
+closed working as designed. Deploy with `npx vercel --prod` from a local checkout; the Git
+integration built a stale commit three times. **Tear down the project and
+`throwaway/hobby-deploy-test` before go-live.**
+
+**Packaging defects are invisible locally — npm workspaces hoists.** `npm test`, `typecheck`, `lint`,
+and `next build` from the repo root all pass against manifests that cannot survive an isolated
+install, which is what a deploy does. Five such defects shipped undetected until the first real
+deploy (B-005 no cron config, B-006 no migrate command, B-007 undeclared dep + `transpilePackages`
+missing three packages + root-only `typescript`/`@types/node`/`eslint`).
+`packages/core/src/workspace-manifests.test.ts` is the only place this property is asserted.
+
+**Verified July 27, 2026 (`main`, through B-007 merged):** `npm test` 356/356 across 38 files;
 real-Postgres integration 222/222 across 16 files; typecheck + lint pass; evals critical 10/10,
 advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin`, `/admin/login`,
-`/admin/flags`, `/admin/reports` render; all routes dynamic). Newest session-log entry: F-032.
+`/admin/flags`, `/admin/reports` render; all routes dynamic). Newest session-log entry: the first
+deploy.
 
 ### Open work — each needs separate implementation authorization
 
@@ -390,14 +407,17 @@ supply what production never creates.
 - **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
   **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
   seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
-- **F-029 — go-live** (deploy, Telnyx console, first verified live `STOP`/`JOIN`). **Decided
-  2026-07-26, reaffirmed:** a single all-at-once gate after everything else — *not* split into an
-  early compliance-only deploy, even though `JOIN`/`STOP`/`HELP` are model-free and would not
-  actually be gated by F-024 or B-002. Max holds all credentials; the 10DLC campaign is **approved**
-  and a Neon project **exists**. Remaining is the Vercel project (root directory `apps/web`), the env
-  set, and pointing the Telnyx webhook — full ordered procedure in docs/RUNBOOK.md §Deploy, whose
-  order is a safety property (never point the carrier at the app before it can honor `STOP`).
-  The FLAG rail's pre-launch gate is **satisfied** (F-030); B-005's cron config is **fixed**.
+- **F-029 — go-live** (Telnyx console, first verified live `STOP`/`JOIN`). Campaign **approved**,
+  Neon **provisioned and migrated**, app **deployed**. Remaining: Telnyx credentials +
+  `SMS_PROVIDER=telnyx` in Vercel, and pointing the messaging profile webhook at
+  `/api/sms/webhook`. Ordered procedure in docs/RUNBOOK.md §Deploy — the order is a safety property
+  (never point the carrier at the app before it can honor `STOP`; verify signature rejection first).
+  **A supervised `JOIN` demo needs none of F-024/B-002/F-031** — corrected 2026-07-27, earlier
+  guidance in that session was wrong. Keyword paths are handled before any model call
+  (`provider.calls === 0` through the real route) and the reply goes out on the **B-004 kick in
+  ~47ms**, not cron — so no cron and **no Vercel Pro** for a demo. Those three still gate a *useful*
+  launch. Production cron is an **open decision**: Pro ($20/mo) vs. an external scheduler hitting the
+  authenticated endpoint; verify whichever by **effect** (a purged body), never by its dashboard.
 - **F-031 — no mail provider, so no sign-in link is delivered.** F-032 built everything up to the
   wire (request route, throttle, `/admin/login`, code-rendered template, fail-closed seam). What
   remains is the transport: a vendor, its credentials, its **attested** data-handling terms, and
@@ -435,6 +455,15 @@ the `state = 'pending'` filter are defense-in-depth, and disabling any one alone
 **`sharedDb` caches on first call and ignores the URL after that.** A second `createAppContext` in one
 process cannot be pointed at another database, and `close()` on any context tears down the shared
 pool. Assemble the capabilities a pass actually needs instead of building a second context.
+
+**Inspect before proposing anything destructive — and guard it anyway.** A reset script was written
+for a database assumed empty; it held the **older Farm Friend's** data (6 volunteers, 17 messages, 2
+farms with phone numbers). Only its row-count guard prevented the loss. Read the actual state first,
+then make the destructive step require an explicit confirmation **and** fingerprint its target, so a
+mistyped connection string fails instead of erasing something else. Related: a confident
+pooled-vs-direct Neon theory was wrong — the real cause was a colliding `flags` table that
+`CREATE TABLE IF NOT EXISTS` silently skipped, and **the repeated migration failure was protecting
+the old data**.
 
 **Use isolated worktrees for parallel agents.** Two agents dispatched into one shared tree overwrote
 each other repeatedly and spent more effort recovering than building.
