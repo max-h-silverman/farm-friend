@@ -7,9 +7,9 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-27 (latest) — the scheduler that can fail loudly, and the sentence the database threw away
+## 2026-07-27 (latest) — a scheduler that can fail loudly, the sentence the database threw away, and conforming to the carrier
 
-Two pieces of the durability gap, plus a decision deliberately *not* made.
+Two pieces of the durability gap, and a consent rule that removed a divergence rather than repairing it.
 
 ### Production's recovery net exists in the repo now, not yet in the world
 
@@ -76,18 +76,64 @@ that parses a real provider error had no test, because everything above it used 
 never fails. It is now exported and covered against the two real 2026-07-27 payloads, and that suite
 fails under a full revert to the original defect.
 
+### B-011: conform to the carrier instead of reconciling after it
+
+max's call, and it reframed the problem: **"conform to telnyx. join only works on first-time inbound.
+otherwise require START."**
+
+Both options the item had been carrying accepted that the two records would diverge and argued about
+the repair — reconcile consent from a 409, or surface the mismatch for an operator. A third that
+surfaced while reading the code (surface blocked recipients, reconcile nothing) had the same shape.
+max's rule removes the divergence at its source instead: our record can no longer claim consent the
+carrier will not honour, because JOIN never again enrolls someone Telnyx may be blocking.
+
+And it does that with **no Golden Rule #2 exposure at all** — the outcome the "authoritative 40300"
+option kept bumping into. No provider response drives a consent transition; a 409 is never consulted.
+The decision stays a pure function of our own deterministic routing plus our own stored record. The
+B-010 work that unblocked the authoritative option turned out not to be needed for the fix that
+actually shipped, though it is what made the carrier's behaviour legible enough to reason about.
+
+**Where the rule lives is the load-bearing part.** Inside `applyConsentTransition`'s existing
+`for update` row lock, via a `firstTimeOnly` flag — not in `routing.ts`. A caller-side read followed
+by a write is a race: two concurrent JOINs could both observe "no record" and both enroll. The
+8-claimant integration test exists for that, per the standing rule that `Promise.all` over two
+branches serializes itself and cannot fail.
+
+Two smaller decisions that took a second pass:
+
+- The guard keys on the **`sms_consents` row, not the watermark**. Every transition writes a
+  watermark, including ones that do not enroll, so an absent consent row is the honest test of "never
+  opted in". A refused JOIN also writes **no** watermark — otherwise it could mask a later legitimate
+  START arriving at an earlier provider time.
+- `applied: false` was **ambiguous** between "stale event" and "already enrolled", which need
+  different answers to the sender. `ConsentTransitionResult.refusal` now says which. Routing keys on
+  the reason, and **keying on `!applied` passed the entire routing suite** until a stale-JOIN fixture
+  existed — the fourteenth sabotage of the session and the second time this session that an
+  assertion proved to be satisfied by something other than the property it named.
+
+`ALREADY_JOINED_RESPONSE` is 114 chars, one GSM-7 segment, and is deliberately **not** one of the
+three registered 10DLC auto-responses — those are transcribed from live console state and pinned
+character-for-character, this is ordinary code-rendered copy that can be edited without touching the
+carrier registration. It goes out as `required_reply`, which is what lets it reach a `stopped` sender.
+
+**The limitation is real and is written into the code comment rather than smoothed over:** while the
+carrier block is active, that reply is itself 409'd and the farmer never sees it. It is still correct
+to send — the block may not be active, it costs nothing when it is, and B-010 now records the refusal
+with its reason. **The durable fix is farmer-facing, not code:** onboarding material and printed
+instructions must say START, not JOIN, for returning after an opt-out. That is the one piece of B-011
+still open.
+
 ### What is owed
 
-- **Integration has not run.** No Postgres in the session environment, and this change adds migration
-  0004 — exactly the class integration exists to verify. `drizzle-kit check` reports the schema
-  consistent, which is not the same thing. Run it before merging.
+- **Integration has not run.** No Postgres in the session environment. That covers migration 0004
+  (exactly the class integration exists to verify) and the four new B-011 integration tests including
+  the 8-claimant race. `drizzle-kit check` reports the schema consistent, which is not the same
+  thing. Run it before merging.
 - **The scheduler is not live.** It needs the `CRON_SECRET` repository secret and a push before
   GitHub will register it, and then the verification that actually proves it: set a `body_expires_at`
   in the past and confirm the purge clears it. Not a dashboard check — a 401 looks like success there.
-- **B-011 is still live and unreconciled**, now with a third option on the table: surface blocked
-  recipients for an operator instead of reconciling automatically. No Golden Rule #2 exposure, human
-  in the loop — plausibly the coordinator-at-a-desk answer, and worth weighing before building the
-  authoritative rule.
+- **B-011's farmer-facing half.** The code rule is in; the onboarding copy that tells returning
+  farmers to text START rather than JOIN is not, and no code change can substitute for it.
 
 ---
 

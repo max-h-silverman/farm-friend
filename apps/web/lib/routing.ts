@@ -1,6 +1,7 @@
 import {
   parseCommand,
   consentTransitionFor,
+  ALREADY_JOINED_RESPONSE,
   REGISTERED_HELP_AUTO_RESPONSE,
   REGISTERED_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
@@ -182,7 +183,16 @@ async function routeCompliance(
     };
   }
 
-  const transition = consentTransitionFor(keyword);
+  // B-011: JOIN may establish consent only for a first-time sender, because only START
+  // clears the carrier's own opt-out list.
+  //
+  // The record check does NOT happen here. `consentTransitionFor` is pure and cannot see
+  // stored state, and a read in this function followed by a write would be a race — two
+  // concurrent JOINs could both observe "no record" and both enroll. So this asks for the
+  // transition as if unconditional, and `applyConsentTransition` enforces the first-time
+  // rule inside the `for update` lock that already serializes these commands.
+  const firstTimeOnly = keyword === "JOIN";
+  const transition = consentTransitionFor(keyword, null);
 
   if (transition === null) {
     // HELP/INFO: an answer is owed, but consent is untouched — asking for help is not
@@ -211,7 +221,15 @@ async function routeCompliance(
     ...(transition.captureSource !== undefined
       ? { captureSource: transition.captureSource }
       : {}),
+    ...(firstTimeOnly ? { firstTimeOnly: true } : {}),
   });
+
+  // B-011: a JOIN refused because a record already exists gets told the word that actually
+  // works. Keyed on the explicit refusal reason, NOT on `!applied` — a JOIN refused by the
+  // watermark (an older event arriving late) is not a returning farmer, and answering it
+  // with "reply START" would be a non-sequitur.
+  const replyBody =
+    applied.refusal === "already_enrolled" ? ALREADY_JOINED_RESPONSE : autoResponse;
 
   return {
     outcome: {
@@ -219,12 +237,13 @@ async function routeCompliance(
       transition: transition.transition,
       applied: applied.applied,
     },
-    replies: autoResponse
+    replies: replyBody
       ? [
           {
-            body: autoResponse,
+            body: replyBody,
             // `required_reply` is the one category STOP itself cannot suppress — otherwise
-            // the carrier-required opt-out confirmation could never be delivered.
+            // the carrier-required opt-out confirmation could never be delivered. It is also
+            // what lets the already-joined answer go out to a `stopped` sender.
             category: "required_reply",
             logicalKey: `consent-${input.providerEventId}`,
           },

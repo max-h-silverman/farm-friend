@@ -135,6 +135,139 @@ describe("deterministic routing order (Golden Rule #2)", () => {
     }
   });
 
+  // B-011 — JOIN from someone who already has a record must not claim consent, and must say
+  // the word that actually works.
+  //
+  // Telnyx keeps its own opt-out list and enforces it at the carrier layer; only START
+  // clears it. A `join` four minutes after a `stop` still 409'd while a `start` between them
+  // was accepted (verified 2026-07-27), so a JOIN that "restored" consent would record
+  // `active` for a farmer the carrier blocks.
+  //
+  // The `sms_consents` row is what `applyConsentTransition` consults for the first-time
+  // rule, so returning one here is what makes this an already-enrolled sender. The real
+  // transaction runs against Postgres in the integration suite; this owns the ROUTING
+  // consequence — which copy the sender gets.
+  describe("JOIN after a record exists (B-011)", () => {
+    /** A Db whose `sms_consents` lookup finds an existing row. */
+    function dbWithConsentRow(state: "active" | "stopped") {
+      const queries: string[] = [];
+      const record = (strings: TemplateStringsArray) => {
+        const text = strings.join("?").replace(/\s+/g, " ").trim();
+        queries.push(text);
+        // Only the consent-state lookup returns a row; the watermark select must stay empty
+        // or the transition would be refused as stale instead, which is the other branch.
+        return Promise.resolve(
+          text.includes("from sms_consents") ? [{ state }] : [],
+        );
+      };
+      const sql = record as unknown as Db["sql"] & {
+        begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+      };
+      sql.begin = (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = record as unknown as { json: (v: unknown) => unknown };
+        tx.json = (value: unknown) => value;
+        return fn(tx);
+      };
+      return {
+        db: { sql, orm: {}, close: async () => {} } as unknown as Db,
+        queries,
+      };
+    }
+
+    for (const state of ["stopped", "active"] as const) {
+      it(`tells a ${state} sender to reply START, and enrolls nobody`, async () => {
+        const { db, queries } = dbWithConsentRow(state);
+        const result = await routeInboundMessage(
+          { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+          event("JOIN"),
+        );
+
+        // THE ASSERTION: they are told the carrier's word, not the opt-in confirmation.
+        expect(result.replies[0]?.body).toMatch(/reply START to restart/i);
+        expect(result.replies[0]?.body).not.toMatch(/agreed to receive/i);
+        // `required_reply` is what lets this reach a `stopped` sender at all.
+        expect(result.replies[0]?.category).toBe("required_reply");
+        // Nothing was enrolled.
+        expect(result.outcome).toMatchObject({ kind: "consent", applied: false });
+        // And no consent row was written — the watermark must not advance either, or a JOIN
+        // could mask a later legitimate START.
+        expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(false);
+        expect(
+          queries.some((q) => q.includes("insert into consent_transition_watermarks")),
+        ).toBe(false);
+      });
+    }
+
+    it("still enrolls a genuine first-time sender with the registered copy", async () => {
+      // The control. No consent row exists, so JOIN works exactly as before — this is what
+      // proves the rule narrowed the right case rather than breaking opt-in outright.
+      const { db, queries } = recordingDb();
+      const result = await routeInboundMessage(
+        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        event("JOIN"),
+      );
+
+      expect(result.outcome).toMatchObject({ kind: "consent", applied: true });
+      expect(result.replies[0]?.body).toMatch(/agreed to receive/i);
+      expect(queries.some((q) => q.includes("consent_transition_watermarks"))).toBe(true);
+    });
+
+    it("does not give the already-joined answer to a merely STALE join", async () => {
+      // The distinction the `refusal` field exists for, and the reason routing keys on the
+      // REASON rather than on `!applied`. A JOIN refused by the watermark is an older event
+      // arriving late — it says nothing about the sender having a record, so answering it
+      // with "reply START to restart" would be a non-sequitur.
+      //
+      // Caught by sabotage: keying on `!applied.applied` passed this entire file until this
+      // case existed, because no fixture produced a stale refusal.
+      const queries: string[] = [];
+      const record = (strings: TemplateStringsArray) => {
+        const text = strings.join("?").replace(/\s+/g, " ").trim();
+        queries.push(text);
+        // A NEWER watermark already exists, so this JOIN loses on provider time. No
+        // `sms_consents` row, so the first-time rule itself would have allowed it.
+        if (text.includes("from consent_transition_watermarks")) {
+          return Promise.resolve([
+            { transition: "start", occurred_at: new Date(T0.getTime() + 60_000) },
+          ]);
+        }
+        return Promise.resolve([]);
+      };
+      const sql = record as unknown as Db["sql"] & {
+        begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
+      };
+      sql.begin = (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = record as unknown as { json: (v: unknown) => unknown };
+        tx.json = (value: unknown) => value;
+        return fn(tx);
+      };
+      const db = { sql, orm: {}, close: async () => {} } as unknown as Db;
+
+      const result = await routeInboundMessage(
+        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        event("JOIN"),
+      );
+
+      expect(result.outcome).toMatchObject({ kind: "consent", applied: false });
+      // Registered copy, NOT the already-joined answer.
+      expect(result.replies[0]?.body).toMatch(/agreed to receive/i);
+      expect(result.replies[0]?.body).not.toMatch(/reply START to restart/i);
+    });
+
+    it("does not give the already-joined answer to START", async () => {
+      // START must reach the carrier from any state — it is the one word that lifts a block
+      // we cannot see. It gets the registered opt-in copy, never "reply START".
+      const { db } = dbWithConsentRow("stopped");
+      const result = await routeInboundMessage(
+        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        event("START"),
+      );
+
+      expect(result.outcome).toMatchObject({ kind: "consent", applied: true });
+      expect(result.replies[0]?.body).toMatch(/agreed to receive/i);
+    });
+  });
+
   it("answers HELP/INFO with the registered help copy and changes no consent", async () => {
     for (const word of ["HELP", "INFO"]) {
       const { db, queries } = recordingDb();

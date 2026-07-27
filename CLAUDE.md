@@ -389,7 +389,9 @@ predicate; **active** consent is required
 for a proactive send. Registered keywords and auto-response copy are stated once in
 `packages/core/src/sms/` and tested character-for-character against
 `docs/TELNYX_10DLC_FIELD_VALUES.txt`, which is a **transcript of live console state** — change the
-console first, then transcribe.
+console first, then transcribe. `ALREADY_JOINED_RESPONSE` (B-011) lives beside those three but is
+**not** registered copy and is **not** pinned to the transcript: it is ordinary code-rendered reply
+text and must never be transcribed into that block.
 
 **Architecture tripwires that must keep failing.** `packages/core/src/architecture.test.ts` fails if:
 `MapProvider`/`StubMapProvider`/a `geocode(` call returns (F-017); `packages/config` or
@@ -425,14 +427,15 @@ plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only plac
 asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
 statements**, so external packages named in *config files* are outside its design.
 
-**Verified July 27, 2026 (branch `b-010-provider-error-detail`, 2 commits on `main`@456ad93):**
-`npm test` **381/381 across 42 files**; typecheck + lint pass; `next build` clean; `drizzle-kit check`
+**Verified July 27, 2026 (branch `b-010-provider-error-detail`, 4 commits on `main`@456ad93):**
+`npm test` **393/393 across 42 files**; typecheck + lint pass; `next build` clean; `drizzle-kit check`
 reports the schema consistent. **Integration and evals NOT run — no Postgres was available in the
-session environment, and this change adds migration 0004, which is exactly the class integration
-exists to verify. Run `npm run test:integration` before merging.** Evals unaffected (no model seam
-touched). Last known real-Postgres 222/222 across 16 files, evals critical 10/10, advisory 4/4,
-adversarial 25/25. Nothing was verified against the live deployment this session: the scheduler needs
-its repository secret and a push before it can run at all.
+session environment.** That gap covers two things this session added and nothing verified: migration
+**0004** (exactly the class integration exists to prove) and the **four B-011 integration tests**,
+including the 8-claimant JOIN race. **Run `npm run test:integration` before merging.** Evals
+unaffected (no model seam touched). Last known real-Postgres 222/222 across 16 files, evals critical
+10/10, advisory 4/4, adversarial 25/25. Nothing was verified against the live deployment this
+session: the scheduler needs its repository secret and a push before it can run at all.
 Newest session-log entry: B-009 — the kick never survived the response.
 
 ### Open work — each needs separate implementation authorization
@@ -469,15 +472,23 @@ supply what production never creates.
   the workable path. **`START` lifts the block; `JOIN` does not** (a `join` four minutes after a
   `stop` still 409'd). The live consequence: a farmer who texts STOP then JOIN is recorded `active`
   while the carrier blocks every message, so `isProactiveSendPermitted` returns true for sends that
-  can never arrive. A candidate fix — treating `40300` as authoritative and reconciling consent to
-  `stopped` — touches Golden Rule #2 and needs max's decision. **Still live and unreconciled.**
-  **B-010 was its missing prerequisite and has now landed:** `classify()` read only the HTTP status
-  and the transport discarded the body, so **`40300` was not available anywhere in the system** — a
-  409 arrived indistinguishable from any other conflict. The rule is now *buildable*, and the choice
-  can be made against accumulated real rows rather than one hand-run curl. A third option worth
-  weighing, surfaced while reading the code: reconcile nothing automatically, but **surface blocked
-  recipients on the admin surface** — no Golden Rule #2 exposure at all, human in the loop, the
-  coordinator-at-a-desk answer.
+  can never arrive. **FIXED, in review, not integration-verified.** max's decision: *conform to the
+  carrier* rather than reconcile after the fact — **`JOIN` enrolls only a first-time sender; once a
+  consent record exists only `START` restores.** Our record can no longer claim consent the carrier
+  will not honour, and **no provider response drives a consent transition** — a 409 is never
+  consulted, so Golden Rule #2 is untouched. `STOP` still applies from every state; `START` is
+  honoured from every state (it is the one word that lifts a block we cannot see).
+  The rule lives **inside `applyConsentTransition`'s `for update` lock** (`firstTimeOnly`), never in
+  the caller — a caller-side read-then-write would let two concurrent JOINs both see "no record".
+  It keys on the **`sms_consents` row, not the watermark**, and a refused JOIN advances **no**
+  watermark, or it could mask a later legitimate START. `ConsentTransitionResult.refusal`
+  (`stale` | `already_enrolled`) disambiguates `applied: false`; routing keys on the **reason**, and
+  keying on `!applied` **passed the whole routing suite** until a stale-JOIN fixture existed.
+  `ALREADY_JOINED_RESPONSE` (114 chars, one segment) tells the farmer to text START — deliberately
+  **not** a registered 10DLC auto-response, so it is editable without touching the carrier
+  registration. **Honest limit: while the block is active that reply is itself 409'd and never
+  arrives.** The remaining work is farmer-facing, not code — onboarding material must say **START**,
+  not JOIN, for returning after an opt-out.
 - **B-010 — FIXED, in review, not integration-verified.** `outbox_dispatch_attempts` now carries
   `provider_code` (validated machine token) and `provider_error_detail` (phone-masked, 500-char
   bounded) via migration **0004**; `summarizeProviderError` never throws, so a malformed error body

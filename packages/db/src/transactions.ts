@@ -343,11 +343,37 @@ export interface ConsentTransitionInput {
    * never in what they enroll. Ignored for a `stop` transition, which records none.
    */
   captureSource?: ConsentCaptureSource;
+  /**
+   * B-011 — this transition may establish consent only when NO consent record exists yet.
+   *
+   * Set for `JOIN`, which is Farm Friend's own registered opt-in keyword and carries no
+   * meaning to the carrier's compliance layer: Telnyx keeps its own opt-out list, only
+   * `START` clears it, and while a number is on it every send is refused 409 / 40300. A
+   * `JOIN` that "restored" consent would therefore record `active` for someone the carrier
+   * blocks — the database and the carrier disagreeing about the same person.
+   *
+   * Evaluated INSIDE this function's row lock rather than by the caller, because a
+   * read-then-write in the caller is a race: two concurrent JOINs could both observe "no
+   * record" and both establish consent. `for update` on the watermark is what serializes it.
+   */
+  firstTimeOnly?: boolean;
 }
 
 export interface ConsentTransitionResult {
   applied: boolean;
   state: "active" | "stopped";
+  /**
+   * Why an unapplied transition was refused. `applied: false` alone is ambiguous, and the
+   * two causes need different answers to the sender (B-011):
+   *
+   * - `stale` — an older event arriving late, refused by the watermark. Says nothing about
+   *   the sender's intent; they get the registered copy.
+   * - `already_enrolled` — a `firstTimeOnly` JOIN from someone who already has a record.
+   *   This is the returning farmer who must be told to text START.
+   *
+   * Absent when `applied` is true.
+   */
+  refusal?: "stale" | "already_enrolled";
 }
 
 /**
@@ -382,6 +408,27 @@ export async function applyConsentTransition(
         return {
           applied: false,
           state: (state[0]?.state as "active" | "stopped") ?? "stopped",
+          refusal: "stale",
+        };
+      }
+    }
+
+    // B-011: JOIN establishes consent only for a sender with no record yet. Checked here,
+    // under the `for update` lock taken above, so two concurrent JOINs cannot both observe
+    // "no record" and both enroll. Deliberately keyed on the CONSENT row rather than the
+    // watermark: the watermark is written by every transition including the ones that do not
+    // enroll, so an absent consent row is the honest test of "never opted in".
+    if (input.firstTimeOnly) {
+      const existing = await tx`
+        select state from sms_consents where recipient_hash = ${input.recipientHash}
+      `;
+      if (existing.length > 0) {
+        // No watermark write either: this command had no consent consequence, so letting it
+        // advance the watermark would let a JOIN mask a later legitimate START.
+        return {
+          applied: false,
+          state: (existing[0]?.state as "active" | "stopped") ?? "stopped",
+          refusal: "already_enrolled",
         };
       }
     }

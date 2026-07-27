@@ -385,6 +385,145 @@ describe("authoritative SMS transactions (integration)", () => {
       expect(consent[0]?.state).toBe("stopped");
     });
 
+    // B-011 — our consent record must not claim consent the CARRIER will not honour.
+    //
+    // Telnyx keeps its own opt-out list and enforces it at the carrier layer: while a number
+    // is on it every send is refused 409 / 40300, independently of the messaging profile's
+    // auto-response settings. `START` clears that block; `JOIN` does not, because JOIN is
+    // OUR registered keyword and means nothing to Telnyx's compliance layer (verified
+    // 2026-07-27: a `join` four minutes after a `stop` still 409'd, a `start` between them
+    // was accepted). So JOIN establishes consent only for a sender with no record yet.
+    //
+    // The rule lives INSIDE this transaction rather than in the caller, and that is the part
+    // worth proving against real Postgres: a caller-side read followed by a write would let
+    // two concurrent JOINs both observe "no record" and both enroll.
+    describe("JOIN establishes consent only for a first-time sender (B-011)", () => {
+      it("enrolls a genuine first-time sender", async () => {
+        const result = await applyConsentTransition(database(), {
+          recipientHash: farmerHash,
+          transition: "start",
+          captureSource: "join",
+          occurredAt: at(10),
+          providerEventId: "b011-first-join",
+          firstTimeOnly: true,
+        });
+
+        expect(result.applied).toBe(true);
+        const consent = await client()`
+          select state, capture_source from sms_consents where recipient_hash = ${farmerHash}
+        `;
+        expect(consent[0]?.state).toBe("active");
+        expect(consent[0]?.capture_source).toBe("join");
+      });
+
+      it("refuses to restore a STOPPED sender, and says why", async () => {
+        // THE DIVERGENCE THIS CLOSES. Before the rule, this committed `active` while the
+        // carrier blocked every message to that number.
+        await applyConsentTransition(database(), {
+          recipientHash: farmerHash,
+          transition: "start",
+          captureSource: "join",
+          occurredAt: at(10),
+          providerEventId: "b011-join-1",
+          firstTimeOnly: true,
+        });
+        await applyConsentTransition(database(), {
+          recipientHash: farmerHash,
+          transition: "stop",
+          occurredAt: at(20),
+          providerEventId: "b011-stop",
+        });
+
+        const rejoin = await applyConsentTransition(database(), {
+          recipientHash: farmerHash,
+          transition: "start",
+          captureSource: "join",
+          occurredAt: at(30),
+          providerEventId: "b011-join-2",
+          firstTimeOnly: true,
+        });
+
+        expect(rejoin.applied).toBe(false);
+        // The reason is what routing keys on to answer "reply START" rather than the
+        // registered opt-in copy — `applied: false` alone is ambiguous with a stale event.
+        expect(rejoin.refusal).toBe("already_enrolled");
+
+        const consent = await client()`
+          select state from sms_consents where recipient_hash = ${farmerHash}
+        `;
+        expect(consent[0]?.state).toBe("stopped");
+
+        // The watermark must NOT have advanced: a JOIN with no consent consequence that
+        // moved it could mask a later legitimate START at an earlier provider time.
+        const watermark = await client()`
+          select provider_event_id from consent_transition_watermarks
+          where recipient_hash = ${farmerHash}
+        `;
+        expect(watermark[0]?.provider_event_id).toBe("b011-stop");
+      });
+
+      it("lets START restore that same sender, because the carrier honours it", async () => {
+        // The escape hatch has to work, or a farmer who opted out could never return.
+        await applyConsentTransition(database(), {
+          recipientHash: farmerHash,
+          transition: "stop",
+          occurredAt: at(10),
+          providerEventId: "b011-stop-2",
+        });
+
+        const restored = await applyConsentTransition(database(), {
+          recipientHash: farmerHash,
+          transition: "start",
+          captureSource: "start",
+          occurredAt: at(20),
+          providerEventId: "b011-start",
+          // No `firstTimeOnly`: START is never narrowed this way.
+        });
+
+        expect(restored.applied).toBe(true);
+        const consent = await client()`
+          select state, capture_source from sms_consents where recipient_hash = ${farmerHash}
+        `;
+        expect(consent[0]?.state).toBe("active");
+        expect(consent[0]?.capture_source).toBe("start");
+      });
+
+      it("enrolls exactly once when many first-time JOINs arrive at once", async () => {
+        // The reason the rule lives in this transaction and not in the caller. A read in
+        // routing followed by a write here would let every one of these observe "no record".
+        //
+        // Eight simultaneous claimants, per the standing rule: `Promise.all` over two
+        // branches does not race them, because the first transaction resolves before the
+        // second starts. Eight actually contend for the `for update` lock.
+        const results = await Promise.all(
+          Array.from({ length: 8 }, (_unused, index) =>
+            applyConsentTransition(database(), {
+              recipientHash: farmerHash,
+              transition: "start",
+              captureSource: "join",
+              // Distinct provider times, so the watermark cannot be what serializes them —
+              // an identical timestamp would let the tie rule do this test's work.
+              occurredAt: at(10 + index),
+              providerEventId: `b011-race-${index}`,
+              firstTimeOnly: true,
+            }),
+          ),
+        );
+
+        // Exactly one enrolls; the rest are refused as already-enrolled.
+        expect(results.filter((r) => r.applied)).toHaveLength(1);
+        expect(
+          results.filter((r) => r.refusal === "already_enrolled"),
+        ).toHaveLength(7);
+
+        const consent = await client()`
+          select state, capture_source from sms_consents where recipient_hash = ${farmerHash}
+        `;
+        expect(consent).toHaveLength(1);
+        expect(consent[0]?.state).toBe("active");
+      });
+    });
+
     it("is not made stale by intervening conversation messages", async () => {
       await applyConsentTransition(database(), {
         recipientHash: farmerHash,

@@ -56,18 +56,48 @@ export interface ConsentTransitionEffect {
 }
 
 /**
- * The consent consequence of a deterministic compliance keyword, or `null` when it has
- * none. `JOIN` and `START` both establish or restore the ONE launch program — they differ
- * only in recorded provenance, never in what they enroll. There is no `JOIN <program>`
- * grammar for them to carry.
+ * The consent consequence of a deterministic compliance keyword, or `null` when it has none.
+ *
+ * `JOIN` and `START` enroll in the ONE launch program and differ only in recorded
+ * provenance — there is no `JOIN <program>` grammar for them to carry. But they differ in
+ * one other way that is not ours to choose (B-011):
+ *
+ * **The carrier owns its own opt-out list, and only `START` clears it.** Telnyx enforces that
+ * list independently of our messaging profile's settings; while a number is on it, every send
+ * is refused with 409 / code 40300 (verified 2026-07-27 by direct probe). `START` is a
+ * carrier-level keyword that lifts the block. `JOIN` is *ours*, and means nothing to Telnyx's
+ * compliance layer — a `join` four minutes after a `stop` still 409'd, while a `start`
+ * between them was accepted.
+ *
+ * So `JOIN` establishes consent only for a sender with **no prior record**. Once a record
+ * exists, only `START` restores. This makes our record CONFORM to the carrier's rather than
+ * reconciling the two after they diverge: previously a farmer who texted STOP then JOIN was
+ * recorded `active` while the carrier blocked every message, and `isProactiveSendPermitted`
+ * returned true for sends that could never arrive.
+ *
+ * Note what this deliberately is NOT: no provider response drives a consent transition. The
+ * decision stays a pure function of our own deterministic routing plus our own stored record,
+ * which is exactly where Golden Rule #2 keeps it. A 409 is never consulted.
+ *
+ * `STOP` is unaffected and still applies from every state — narrowing the opt-in path must
+ * never narrow the opt-out one.
  */
 export function consentTransitionFor(
   keyword: ComplianceKeyword,
+  current: LaunchConsentRecord | null,
 ): ConsentTransitionEffect | null {
   switch (keyword) {
     case "JOIN":
-      return { transition: "start", captureSource: "join" };
+      // First-time opt-in only. An existing record — stopped OR active — means the carrier
+      // may hold a block that JOIN cannot clear, so we do not claim consent it will refuse.
+      // For an already-active sender there is also nothing to establish, and rewriting
+      // `captureSource` would falsify the provenance of the original opt-in.
+      return current === null
+        ? { transition: "start", captureSource: "join" }
+        : null;
     case "START":
+      // The carrier's own keyword. Always honoured, from any state, so our record can never
+      // swallow the one word that actually lifts a block we cannot see.
       return { transition: "start", captureSource: "start" };
     case "STOP":
       return { transition: "stop" };
