@@ -1,0 +1,83 @@
+name: scheduled-worker
+
+# Production's scheduled recovery net (B-009 follow-up).
+#
+# WHY THIS EXISTS OUTSIDE VERCEL. `apps/web/vercel.json` declares a one-minute cron, but the
+# Hobby plan rejects that schedule, so every production deploy has been uploaded with the
+# `crons` block stripped. The deployed system has therefore had NO scheduled pass at all —
+# only the webhook kick, which deliberately owns no guarantee (every failure swallowed, each
+# pass budgeted). This workflow is the durable trigger until Vercel Pro is revisited at
+# go-live, at which point `vercel.json` takes over again and this file should be DELETED
+# rather than left running a second schedule against the same work.
+#
+# WHAT IT RECOVERS. Inbound routing and outbound dispatch that a kick dropped, plus F-026's
+# retention purge — which runs ONLY on this trigger and has consequently never run in
+# production. That purge is a privacy commitment, not a performance nicety.
+#
+# SCHEDULE HONESTY. GitHub's scheduled events are best-effort and are commonly delayed, and
+# under load they can be skipped entirely; `*/5` is the interval this asks for, not a
+# guarantee it receives. That is acceptable precisely because the kick front-runs this route
+# for live traffic, so the interval decides how long MISSED work waits, never reply latency.
+# It is not equivalent to the one-minute Vercel schedule and should not be described as such.
+
+on:
+  schedule:
+    # Off the :00 mark: every repo on GitHub schedules on the hour, and jobs at peak minutes
+    # are the ones most likely to be dropped.
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
+  # Lets an operator run a pass by hand — the same contract the route serves to cron.
+  workflow_dispatch:
+
+# If a run is somehow still going when the next fires, let it finish rather than stacking a
+# second caller onto the same `for update skip locked` work.
+concurrency:
+  group: scheduled-worker
+  cancel-in-progress: false
+
+jobs:
+  run-pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger the scheduled worker pass
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          # Fail loudly when the secret is absent. Without this the request would go out with
+          # an empty bearer token, take a 401, and — since the status check below reports the
+          # code but not the cause — look like a rotated-secret problem rather than a missing
+          # repository secret.
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "CRON_SECRET is not set in repository secrets; the worker cannot be invoked."
+            exit 1
+          fi
+
+          # THE POINT OF THIS STEP: check the STATUS, not just that curl ran.
+          #
+          # A bare `curl` exits 0 on 401, 404 and 500 alike. A stale CRON_SECRET would then
+          # produce a tidy column of green checkmarks in the Actions tab while no pass had run
+          # since the day it rotated — the silent failure this whole file is defending against.
+          #
+          # The body is discarded (`-o /dev/null`): Actions logs are readable by anyone who can
+          # read the repo, and the pass result is operational detail. Only the code is printed.
+          status="$(
+            curl --silent --show-error \
+                 --max-time 120 \
+                 --retry 2 --retry-delay 5 --retry-connrefused \
+                 -o /dev/null \
+                 -w '%{http_code}' \
+                 -X POST \
+                 -H "Authorization: Bearer ${CRON_SECRET}" \
+                 https://farm-friend-web.vercel.app/api/internal/cron
+          )"
+
+          if [ "${status}" != "200" ]; then
+            echo "Scheduled worker returned HTTP ${status} (expected 200)."
+            echo "401 => CRON_SECRET is wrong or rotated. 404 => route moved."
+            echo "500 => a required environment variable is missing or blank."
+            exit 1
+          fi
+
+          echo "Scheduled worker pass completed (HTTP 200)."

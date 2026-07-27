@@ -166,8 +166,10 @@ These are **database-level** requirements, not application conventions:
   retention.
 - **Public listings expose** stand addresses and farmer-selected links. **Direct farmer phone
   numbers and email addresses are never public.**
-- **Consent:** active launch-program consent gates every proactive non-required SMS. `JOIN`, `START`,
-  and documented farmer onboarding establish it with provenance. A customer-initiated inquiry
+- **Consent:** active launch-program consent gates every proactive non-required SMS. `START` and
+  documented farmer onboarding establish or restore it with provenance; `JOIN` establishes it only
+  for a sender with **no** consent record, because the carrier's own opt-out list is cleared by
+  `START` alone (B-011, docs/SMS_COMPLIANCE.md). A customer-initiated inquiry
   permits its relevant direct response but creates no durable consent for later proactive
   notifications. `STOP` clears launch consent immediately and applies across all Farm Friend
   messaging. STOP/START transitions are ordered separately from conversation state by provider

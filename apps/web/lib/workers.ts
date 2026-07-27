@@ -264,6 +264,11 @@ export async function runOutboundPass(
       providerMessageId:
         result.outcome === "accepted" ? result.providerMessageId : undefined,
       errorCode: result.outcome === "accepted" ? undefined : result.errorCode,
+      // B-010: carry the provider's own code and sentence into the row an operator reads.
+      // Diagnostics only — nothing here changes what the dispatcher decides.
+      providerCode: result.outcome === "accepted" ? undefined : result.providerCode,
+      providerErrorDetail:
+        result.outcome === "accepted" ? undefined : result.errorDetail,
       now: deps.clock.now(),
     });
 

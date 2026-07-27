@@ -53,7 +53,7 @@ commit or decline.
 |---|---|
 | `STOP` / `STOPALL` / `UNSUBSCRIBE` / `CANCEL` / `END` / `QUIT` | **Global** opt-out of all SMS — the exact registered opt-out list. Clears launch-program consent immediately. **Can never be reinterpreted by conversation state.** Send the single confirming opt-out reply, then nothing further. |
 | `START` | Establish or restore consent to the one VIGA Farm Friend launch SMS program. |
-| `JOIN` | Establish consent to the one VIGA Farm Friend launch SMS program. There is no launch `JOIN <program>` grammar. |
+| `JOIN` | Establish consent to the one VIGA Farm Friend launch SMS program, **for a first-time sender only** — once a consent record exists, `JOIN` does not restore it and the sender is told to reply `START` (B-011, below). There is no launch `JOIN <program>` grammar. |
 | `HELP` / `INFO` | Return help text; never suppressed by state. |
 
 ### Commitment tokens (context-bound, never global)
@@ -112,9 +112,30 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   the registered/public opt-in. Inventory prompts, publication confirmations, customer inquiry
   replies, and stock-out alerts are applicable message categories inside it, not separately enrolled
   programs.
-- **Launch-program consent** — `JOIN` and `START` establish or restore one durable consent state.
-  `STOP` clears it and applies across all Farm Friend messaging. No **proactive non-required** SMS is
-  sent without active launch consent.
+- **Launch-program consent** — one durable consent state. `JOIN` **establishes** it for a sender
+  with no record; `START` establishes **or restores** it from any state. `STOP` clears it and
+  applies across all Farm Friend messaging. No **proactive non-required** SMS is sent without active
+  launch consent.
+
+  **Why the two opt-in keywords differ (B-011).** The carrier keeps its own opt-out list and
+  enforces it independently of ours: while a number is on it, Telnyx refuses every send with
+  `409 / 40300`, regardless of the messaging profile's auto-response settings. **`START` clears that
+  block; `JOIN` does not** — `JOIN` is Farm Friend's registered keyword and carries no meaning to
+  the carrier's compliance layer (verified 2026-07-27: a `join` four minutes after a `stop` still
+  409'd, while a `start` between them was accepted; it is a state, not a timing window).
+
+  If `JOIN` restored consent, Farm Friend would record `active` for a recipient the carrier blocks —
+  the database and the carrier disagreeing about the same person, with `isProactiveSendPermitted`
+  returning true for messages that can never arrive. Restricting `JOIN` to first-time senders makes
+  our record **conform** to the carrier's rather than reconciling after a divergence, and it does so
+  without letting any provider response drive a consent transition: the decision is a pure function
+  of our own deterministic routing and our own stored record (Golden Rule #2 intact). A `409` is
+  never consulted.
+
+  A `JOIN` from an existing record receives a code-rendered reply naming `START`, sent as
+  `required_reply`. **Known limitation:** while the carrier block is active that reply is itself
+  blocked and never arrives, so farmer-facing onboarding material must say **START**, not JOIN, for
+  returning after an opt-out.
 - **Farmer onboarding** — after verifying control of the SMS number, onboarding may capture consent
   with provenance: how, when, and where it was captured and who recorded it. Every proactive farmer
   send must trace to that documented opt-in or a deterministic `JOIN`/`START`.

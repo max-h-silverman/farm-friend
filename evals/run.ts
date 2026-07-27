@@ -94,9 +94,13 @@ fx("critical", "consent: absent consent never authorizes a proactive send", () =
 fx("critical", "consent: JOIN and START establish the one launch program", () => {
   // Two registered spellings, ONE enrollment. They may differ only in provenance; if
   // either stopped establishing consent, or a third program appeared, this fails.
-  const join = consentTransitionFor("JOIN");
-  const start = consentTransitionFor("START");
-  const stop = consentTransitionFor("STOP");
+  //
+  // B-011: the transition is now a function of the keyword AND the sender's existing
+  // record, so each call states which sender it is asking about. For a first-time sender
+  // (no record) both spellings still establish the same one program.
+  const join = consentTransitionFor("JOIN", null);
+  const start = consentTransitionFor("START", null);
+  const stop = consentTransitionFor("STOP", null);
   return (
     join?.transition === "start" &&
     join.captureSource === "join" &&
@@ -104,8 +108,34 @@ fx("critical", "consent: JOIN and START establish the one launch program", () =>
     start.captureSource === "start" &&
     stop?.transition === "stop" &&
     // Help and safety keywords carry no consent consequence in either direction.
-    consentTransitionFor("HELP") === null &&
-    consentTransitionFor("FLAG") === null
+    consentTransitionFor("HELP", null) === null &&
+    consentTransitionFor("FLAG", null) === null
+  );
+});
+
+fx("critical", "consent: JOIN cannot restore consent the carrier still blocks", () => {
+  // B-011. Telnyx keeps its own opt-out list and only START clears it; JOIN is our keyword
+  // and means nothing to the carrier's compliance layer. So JOIN must not re-establish
+  // consent for a sender who already has a record — that is how the database came to claim
+  // `active` for a farmer every message would 409 against.
+  //
+  // Critical rather than advisory: this is a consent-integrity property, and it is the
+  // decision (conform to the carrier) that closed the divergence rather than repairing it.
+  const stopped = { state: "stopped" } as const;
+  const active = { state: "active", captureSource: "join" } as const;
+  return (
+    // JOIN enrolls only a genuine first-time sender.
+    consentTransitionFor("JOIN", null)?.captureSource === "join" &&
+    consentTransitionFor("JOIN", stopped) === null &&
+    consentTransitionFor("JOIN", active) === null &&
+    // START is the carrier's own keyword and must be honoured from EVERY state, or a
+    // farmer who opted out could never return.
+    consentTransitionFor("START", stopped)?.transition === "start" &&
+    consentTransitionFor("START", active)?.transition === "start" &&
+    // Narrowing the opt-in path must never narrow the opt-out one.
+    consentTransitionFor("STOP", null)?.transition === "stop" &&
+    consentTransitionFor("STOP", active)?.transition === "stop" &&
+    consentTransitionFor("STOP", stopped)?.transition === "stop"
   );
 });
 

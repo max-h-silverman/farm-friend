@@ -5,6 +5,7 @@ export * from "./redaction";
 export * from "./segments";
 export * from "./telnyx";
 export * from "./delivery";
+export * from "./provider-error";
 
 export interface OutboundMessage {
   toPhoneHash: string; // recipient keyed by hash, never raw

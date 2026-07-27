@@ -31,9 +31,19 @@ export type LastMileLogger = (entry: LastMileLogEntry) => void;
 export type DispatchOutcome =
   | { outcome: "accepted"; providerMessageId: string }
   /** The provider definitely did not accept it; a bounded retry is permitted. */
-  | { outcome: "definitive_rejection"; errorCode: string }
+  | {
+      outcome: "definitive_rejection";
+      errorCode: string;
+      providerCode?: string;
+      errorDetail?: string;
+    }
   /** It may have been accepted. Never resend automatically. */
-  | { outcome: "ambiguous"; errorCode: string };
+  | {
+      outcome: "ambiguous";
+      errorCode: string;
+      providerCode?: string;
+      errorDetail?: string;
+    };
 
 export interface LastMileSendInput {
   recipientHash: string;
@@ -58,12 +68,27 @@ function classify(error: unknown): DispatchOutcome {
   const status = (error as { status?: number } | null)?.status;
   const code = (error as { code?: string } | null)?.code;
 
+  // B-010: the transport attaches the provider's own code and explanation when it could
+  // parse them. Both are carried through to storage as DIAGNOSTICS — `errorCode` stays the
+  // value the retry policy reads, so adding these changes no dispatch decision today.
+  //
+  // `providerCode` is the machine token (Telnyx `40300`); it is validated as a token by
+  // `summarizeProviderError`, which is what makes it safe for a future rule to key on.
+  // `errorDetail` is free text and nothing may ever branch on it.
+  const providerCode = (error as { providerCode?: string } | null)?.providerCode;
+  const detail = (error as { detail?: string } | null)?.detail;
+  const diagnostics = {
+    ...(typeof providerCode === "string" ? { providerCode } : {}),
+    ...(typeof detail === "string" ? { errorDetail: detail } : {}),
+  };
+
   if (typeof status === "number" && DEFINITIVE_REJECTION_STATUSES.has(status)) {
-    return { outcome: "definitive_rejection", errorCode: String(status) };
+    return { outcome: "definitive_rejection", errorCode: String(status), ...diagnostics };
   }
   return {
     outcome: "ambiguous",
     errorCode: code ?? (typeof status === "number" ? String(status) : "unknown"),
+    ...diagnostics,
   };
 }
 

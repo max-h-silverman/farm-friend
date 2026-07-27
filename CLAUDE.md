@@ -355,12 +355,23 @@ viewer mask at the **query** (`right(phone_e164, 4)`), so the full number never 
 `maskPhoneSuffix` **throws** on anything longer rather than truncating. Asserted by tests that grep
 whole serialized responses for an E.164 and for any 64-hex run.
 
-**Production currently has ONE trigger, not two, and it is the best-effort one.** The deployed build
-was uploaded with its `crons` block stripped (the Hobby workaround), so **no scheduled recovery net
-exists in production** — the `waitUntil` kick is the only thing running passes, which is exactly the
-inversion B-009 was filed against. The external-scheduler-vs-Pro decision (below) is what closes it.
+**The external scheduler is BUILT but NOT YET LIVE — production still has one best-effort trigger.**
+The deployed build is uploaded with its `crons` block stripped (the Hobby workaround), so the
+`waitUntil` kick remains the only thing running passes in production, which is the inversion B-009
+was filed against. `.github/workflows/scheduled-worker.yml` closes it — decided: external scheduler
+now, revisit Pro at go-live — but it **requires two manual steps neither of which has happened**:
+add the `CRON_SECRET` repository secret, and push the branch so GitHub registers the schedule. Until
+both are done the gap is exactly as it was.
+`apps/web/lib/external-scheduler.test.ts` polices the workflow (source-asserting, same family as
+`cron-schedule.test.ts`); its central assertion is that the run **checks `%{http_code}` against 200**,
+because a bare `curl` exits 0 on a 401 and a stale secret would show green checkmarks forever. That
+assertion's first draft survived its own sabotage by matching the word "status" elsewhere in the
+file, so it is now anchored to the comparison. Interval is `*/5` and is **not** equivalent to
+Vercel's one minute — GitHub schedules are best-effort and droppable; acceptable only because the
+kick front-runs live traffic. **Delete the workflow when Pro lands**, never run both.
 The retention purge has **never been verified by effect**; every observed pass reported `0/0/0`
-because nothing was eligible.
+because nothing was eligible. **That verification is still owed** — set a `body_expires_at` in the
+past and confirm the purge clears it. A 401 looks identical to success in any scheduler's UI.
 
 **One worker mechanism, two triggers; one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
 is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` required, no default, no
@@ -378,7 +389,9 @@ predicate; **active** consent is required
 for a proactive send. Registered keywords and auto-response copy are stated once in
 `packages/core/src/sms/` and tested character-for-character against
 `docs/TELNYX_10DLC_FIELD_VALUES.txt`, which is a **transcript of live console state** — change the
-console first, then transcribe.
+console first, then transcribe. `ALREADY_JOINED_RESPONSE` (B-011) lives beside those three but is
+**not** registered copy and is **not** pinned to the transcript: it is ordinary code-rendered reply
+text and must never be transcribed into that block.
 
 **Architecture tripwires that must keep failing.** `packages/core/src/architecture.test.ts` fails if:
 `MapProvider`/`StubMapProvider`/a `geocode(` call returns (F-017); `packages/config` or
@@ -414,13 +427,14 @@ plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only plac
 asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
 statements**, so external packages named in *config files* are outside its design.
 
-**Verified July 27, 2026 (`main`, B-009 merged):** `npm test` 363/363 across 39 files; typecheck +
-lint pass; `next build` clean. Integration/evals not re-run (no DB-layer, model-seam, or workflow
-code touched — the change is one route and its tests); last known real-Postgres 222/222 across 16
-files, evals critical 10/10, advisory 4/4, adversarial 25/25. **Also verified against the live
-deployment**, which is the only place B-009 was ever visible: full SMS round trip, claim latency
-4–8s, keyword replies dispatched with real provider message IDs.
-Newest session-log entry: B-009 — the kick never survived the response.
+**Verified July 27, 2026 (`main`, B-010 + B-011 + external scheduler merged):** `npm test`
+**393/393 across 42 files**; `npm run test:integration` **226/226 across 16 files** on real
+Postgres 16.12; `npm run evals` critical **11/11**, advisory 4/4, adversarial 25/25; typecheck +
+lint pass; `next build` clean. Migration **0004** proven from an empty database by the integration
+run. Nothing was verified against the live deployment: **the scheduler still needs its repository
+secret and is not running** (below).
+Newest session-log entry: the scheduler, B-010, and conforming to the carrier. Entries older than
+the newest eight now live in `docs/SESSION_LOG_ARCHIVE.md` (rotated at 31 entries / 152k chars).
 
 ### Open work — each needs separate implementation authorization
 
@@ -456,11 +470,32 @@ supply what production never creates.
   the workable path. **`START` lifts the block; `JOIN` does not** (a `join` four minutes after a
   `stop` still 409'd). The live consequence: a farmer who texts STOP then JOIN is recorded `active`
   while the carrier blocks every message, so `isProactiveSendPermitted` returns true for sends that
-  can never arrive. A candidate fix — treating `40300` as authoritative and reconciling consent to
-  `stopped` — touches Golden Rule #2 and needs max's decision.
-- **B-010 — dispatch stores only the provider HTTP status**, discarding the error detail. Cost hours
-  twice on 2026-07-27: `"The source phone number was deemed invalid by the carrier"` and
-  `"Blocked due to STOP message"` were both obtained by manual curl, never from the database.
+  can never arrive. **FIXED and merged, integration-verified.** max's decision: *conform to the
+  carrier* rather than reconcile after the fact — **`JOIN` enrolls only a first-time sender; once a
+  consent record exists only `START` restores.** Our record can no longer claim consent the carrier
+  will not honour, and **no provider response drives a consent transition** — a 409 is never
+  consulted, so Golden Rule #2 is untouched. `STOP` still applies from every state; `START` is
+  honoured from every state (it is the one word that lifts a block we cannot see).
+  The rule lives **inside `applyConsentTransition`'s `for update` lock** (`firstTimeOnly`), never in
+  the caller — a caller-side read-then-write would let two concurrent JOINs both see "no record".
+  It keys on the **`sms_consents` row, not the watermark**, and a refused JOIN advances **no**
+  watermark, or it could mask a later legitimate START. `ConsentTransitionResult.refusal`
+  (`stale` | `already_enrolled`) disambiguates `applied: false`; routing keys on the **reason**, and
+  keying on `!applied` **passed the whole routing suite** until a stale-JOIN fixture existed.
+  `ALREADY_JOINED_RESPONSE` (114 chars, one segment) tells the farmer to text START — deliberately
+  **not** a registered 10DLC auto-response, so it is editable without touching the carrier
+  registration. **Honest limit: while the block is active that reply is itself 409'd and never
+  arrives.** The remaining work is farmer-facing, not code — onboarding material must say **START**,
+  not JOIN, for returning after an opt-out.
+- **B-010 — FIXED and merged, integration-verified.** `outbox_dispatch_attempts` now carries
+  `provider_code` (validated machine token) and `provider_error_detail` (phone-masked, 500-char
+  bounded) via migration **0004**; `summarizeProviderError` never throws, so a malformed error body
+  cannot break the send path. Nothing branches on either — `errorCode` is still what the retry policy
+  reads. The item's own privacy question is answered: the real 40300 body **does** echo both E.164
+  numbers, so phones are *masked* rather than the class being dropped, reusing the outbound guard's
+  `PHONE_BODY` via `maskRawPhones`. `createTelnyxTransport` was **unexported and untested** — that is
+  how the discard survived, since everything above it used the never-failing simulator. Triage query
+  is in RUNBOOK §"Failure triage".
 - **B-008 — lint does not run in deployed builds.** `apps/web` omits `@typescript-eslint/eslint-plugin`
   and `@typescript-eslint/parser`, so the plugin fails to load and Next skips lint non-fatally: the
   build goes green with the gate silently absent. Two-line manifest fix; the real work is extending
@@ -523,10 +558,38 @@ rather than the code, assert it against the **source** — that is what `kick-su
 `cron-schedule.test.ts`, `cron-auth.test.ts` and `workspace-manifests.test.ts` all are — and verify
 the real thing by **effect** in the deployment.
 
-**A source-reading test can match its own import statement.** `kick-survival.test.ts` first asserted
-`/waitUntil\s*\(/` over the whole file and **survived reverting the call site to the production
-defect**, because the import line satisfied it. Strip imports, anchor to the call site, and never
-trust such a test until the sabotage has actually been run.
+**A source-reading test can match its own import statement — or any other incidental text.**
+`kick-survival.test.ts` first asserted `/waitUntil\s*\(/` over the whole file and **survived
+reverting the call site to the production defect**, because the import line satisfied it. Strip
+imports, anchor to the call site, and never trust such a test until the sabotage has actually been
+run. **This has now happened twice.** `external-scheduler.test.ts` asserted the workflow checks its
+HTTP status with `/--fail|-f\b|http_code|status/` plus a bare `/exit 1/`, and survived a workflow
+that accepted **every** status — the words were satisfied by the `-w '%{http_code}'` flag and by an
+unrelated missing-secret guard. The general rule: **a source assertion must be anchored to the
+construct it claims to prove** (the comparison, the call site), never to vocabulary that appears
+near it. Loose alternation is the tell.
+
+**An unexported seam is an untested seam.** `createTelnyxTransport` was module-private, so the one
+code path that parses a real provider error had no test at all — every suite above it used the
+simulator, which never fails. That is how B-010's discard survived. When a seam does the real I/O
+parsing, export it and test it against real captured payloads, or its failure mode is invisible.
+
+**`select … for update` cannot serialize a row that does not exist yet.** B-011's first guard read
+`sms_consents` inside `applyConsentTransition` and refused on a hit, with a comment claiming the
+existing `for update` on the watermark serialized it. It does not: `for update` locks rows that
+EXIST, and a genuinely first-time sender has no watermark row, so eight concurrent JOINs all read
+"no record" and **three enrolled**. Every unit test passed — stubs cannot model row contention.
+For a first-insert race the arbiter must be a **unique index**, not a lock:
+`insert … on conflict (key) do nothing returning …`, where the empty result *is* the signal that
+someone else won. Without `returning`, winner and loser are indistinguishable.
+
+**A tool that "isn't installed" may just not be on `PATH`.** Two lookups for Postgres came up empty
+and a whole session proceeded on "no database available", writing that into the docs as an owed
+gap — while Homebrew's `postgresql@16` was installed and *running* at
+`/opt/homebrew/opt/postgresql@16/bin`. Running the integration suite is what exposed the race above.
+Check `/opt/homebrew/opt`, `brew services list`, and the app directories before concluding a
+dependency is absent; **a negative result from one lookup is not proof of absence**, and it is the
+same reasoning-from-indirect-evidence error as trusting `vercel env ls`'s timestamp column.
 
 **Do not infer configuration from a dashboard's timestamp column.** `vercel env ls` reported
 `TELNYX_API_KEY` as "1h ago" while the web UI showed "Updated just now" — the CLI column is not last

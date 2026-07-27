@@ -23,6 +23,19 @@ not inlined there).
 - **Postgres** for integration tests and migrations: local Postgres or a disposable CI instance.
   Set `DATABASE_URL` (see `.env.example`) to a database whose test role may create and drop a
   throwaway database. The integration suite fails explicitly when the variable is absent.
+
+  **On this Mac it is already installed, and it is NOT on `PATH`.** Homebrew's `postgresql@16` runs
+  as a launch agent; `psql`, `pg_isready` and friends live in `/opt/homebrew/opt/postgresql@16/bin`,
+  so a bare `which psql` reports nothing and looks exactly like "no database available". A whole
+  session was once written off on that false negative. To run the suite:
+
+  ```bash
+  export PATH=/opt/homebrew/opt/postgresql@16/bin:$PATH
+  export DATABASE_URL="postgres://$(whoami)@localhost:5432/postgres"
+  npm run test:integration 2>&1 | tee /tmp/itest.log
+  ```
+
+  Confirm it is up with `brew services list | grep postgres` or `pg_isready` (full path).
 - No network is required for unit tests or evals (the model stub is offline and deterministic).
 
 ## Local dev — the five commands
@@ -250,18 +263,37 @@ Hobby's daily cap, so `npx vercel --prod` refuses the deploy outright. Two ways 
 route's contract is identical under both — it is a plain authenticated HTTP endpoint:
 
 - **Vercel Pro** — `vercel.json` deploys as-is, no external dependency, no extra secret handling.
-- **An external scheduler** — anything that can issue an authenticated request every minute
-  (cron-job.org, GitHub Actions, Upstash QStash, a box with crontab):
+- **An external scheduler** — anything that can issue an authenticated request on an interval.
 
-  ```
-  curl -fsS -X POST https://<deployment>/api/internal/cron \
-    -H "Authorization: Bearer $CRON_SECRET"
-  ```
+**Currently live: GitHub Actions, `.github/workflows/scheduled-worker.yml`.** Until Pro is revisited
+at go-live, that committed workflow is production's only scheduled recovery net, and it is what the
+deployed `crons`-stripped build has instead of a Vercel schedule. It was chosen over a SaaS
+scheduler for one reason: a dashboard-configured job is **unassertable**, while an in-repo workflow
+is policed by `apps/web/lib/external-scheduler.test.ts` — same source-asserting family as
+`cron-schedule.test.ts` and `cron-auth.test.ts`.
 
-  The secret then lives in a second place, which is a real cost: rotating `CRON_SECRET` means
-  rotating it *both* places, and a stale copy fails closed with a 401 every minute rather than
-  loudly. Prefer a scheduler that alerts on non-2xx, or the dead trigger is as silent as the bug
-  this section exists to prevent.
+Two properties that test exists to hold, both learned from real defects:
+
+- **It checks the HTTP status, not merely that `curl` ran.** A bare `curl` exits 0 on a 401, so a
+  stale `CRON_SECRET` would paint a column of green checkmarks in the Actions tab while nothing had
+  run since the day it rotated. The workflow captures `%{http_code}`, compares it to 200, and exits
+  non-zero otherwise. *(The first draft of that assertion survived its own sabotage — it matched the
+  word "status" elsewhere in the file — so it is now anchored to the comparison itself.)*
+- **The secret reaches `curl` through `env:`, never interpolated into the `run:` block**, which would
+  place it in the process argument list.
+
+**Its interval is `*/5`, and that is not equivalent to Vercel's one minute.** GitHub's scheduled
+events are best-effort: commonly delayed, and droppable under load. That is acceptable only because
+the kick front-runs this route for live traffic, so the interval governs how long *missed* work
+waits, never reply latency. Do not describe this as a one-minute pulse.
+
+**When Pro lands, delete the workflow** rather than leaving two schedules racing the same
+`for update skip locked` work.
+
+Under any external scheduler the secret lives in a second place, which is a real cost: rotating
+`CRON_SECRET` means rotating it *both* places (for this workflow, the repository secret named
+`CRON_SECRET`), and a stale copy fails closed with a 401 rather than loudly — which is exactly why
+the status check above is mandatory.
 
 **Verify a schedule by its EFFECT, never by a dashboard.** A green cron entry proves an invocation
 was attempted, not that the pass did its work — a 401 from a stale secret looks like activity. The
@@ -547,3 +579,25 @@ The order is the safety property: **do not point the carrier at the app before t
 - **A hostile workflow test/eval exposes unavailable private data or forces a commit** → runtime
   projection, validation, or deterministic consequence handling has a bug; fix the code, not the
   prompt (Golden Rule #6). The failing eval detected the bug; it was not the production guard.
+- **An SMS is not arriving** → read the failed attempt, do not reproduce the call by hand:
+
+  ```sql
+  select state, error_code, provider_code, provider_error_detail, started_at
+  from outbox_dispatch_attempts
+  where state in ('definitive_rejection', 'ambiguous')
+  order by started_at desc limit 20;
+  ```
+
+  `error_code` is the HTTP status and names only a category. **`provider_code` and
+  `provider_error_detail` are the ones that identify the cause** (B-010) — before they existed, two
+  separate 2026-07-27 investigations each burned hours recovering by curl a sentence the provider
+  had already sent us. Known values:
+
+  | provider_code | Meaning | Action |
+  |---|---|---|
+  | `40001`-class, "source phone number … deemed invalid" | `TELNYX_FROM_NUMBER` is not exact E.164 | Fix the env var; a leading `+` is required |
+  | `40300`, "Blocked due to STOP message" | Telnyx's carrier block rule is active for that recipient | See B-011 — `START` lifts it, `JOIN` does **not** |
+
+  `provider_error_detail` is phone-masked (`[redacted]`) and capped at 500 chars, so it is safe to
+  read and paste. Both columns are best-effort: a provider returning an unparseable body records the
+  status alone rather than failing the write.

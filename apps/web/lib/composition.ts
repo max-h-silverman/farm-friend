@@ -21,6 +21,7 @@ import { sharedClock, sharedDb } from "./public-context";
 import {
   createLastMileSender,
   resolveSmsConfig,
+  summarizeProviderError,
   type PhoneResolver,
   type ProviderTransport,
   type SmsConfig,
@@ -216,7 +217,17 @@ function createPhoneResolver(db: Db): PhoneResolver {
   };
 }
 
-function createTelnyxTransport(config: {
+/**
+ * The live Telnyx HTTP transport.
+ *
+ * Exported for `telnyx-transport.test.ts` (B-010). This function is where the provider's
+ * error response is parsed, and it is precisely where the explanation used to be thrown
+ * away — an untested seam is what let `error_code = '400'` stand in for "the source phone
+ * number was deemed invalid by the carrier" through two long debugging sessions. It is not
+ * part of the composition root's public contract; `appContext()` remains the only way to
+ * obtain a wired transport.
+ */
+export function createTelnyxTransport(config: {
   apiKey: string;
   messagingProfileId: string;
   fromNumber: string;
@@ -239,10 +250,28 @@ function createTelnyxTransport(config: {
     });
 
     if (!response.ok) {
+      // B-010: keep what Telnyx actually SAID, not just the status class it said it with.
+      // `error_code = '400'` twice cost hours on 2026-07-27 while the response body held
+      // "The source phone number was deemed invalid by the carrier" — the sentence that
+      // names the misconfigured field. `summarizeProviderError` masks phones and bounds
+      // length, and never throws, so a malformed error body cannot break the send path.
+      const rawBody = await response.text().catch(() => "");
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawBody);
+      } catch {
+        parsed = undefined;
+      }
+      const summary = summarizeProviderError({ status: response.status, body: parsed });
+
       const error = new Error(`telnyx responded ${response.status}`) as Error & {
         status?: number;
+        providerCode?: string;
+        detail?: string;
       };
       error.status = response.status;
+      if (summary.providerCode !== undefined) error.providerCode = summary.providerCode;
+      if (summary.detail !== undefined) error.detail = summary.detail;
       throw error;
     }
 

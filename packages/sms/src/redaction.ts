@@ -42,9 +42,8 @@ export class OutboundRedactionError extends Error {
 // phone is not preceded or followed by another digit or by identifier characters (hex letters,
 // underscore) that mark the run as part of a longer token.
 const PHONE_BODY = String.raw`(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}`;
-const RAW_PHONE_RE = new RegExp(
-  String.raw`(?<![0-9A-Za-z_])${PHONE_BODY}(?![0-9A-Za-z_])`,
-);
+const RAW_PHONE_PATTERN = String.raw`(?<![0-9A-Za-z_])${PHONE_BODY}(?![0-9A-Za-z_])`;
+const RAW_PHONE_RE = new RegExp(RAW_PHONE_PATTERN);
 
 /**
  * The outbound guard. Normalizes avoidable typographic Unicode, then refuses the named
@@ -65,4 +64,23 @@ export function redactOutbound(body: string): RedactedOutbound {
 /** Non-throwing probe for tests / callers that want to branch rather than catch. */
 export function containsRawPhone(body: string): boolean {
   return RAW_PHONE_RE.test(body);
+}
+
+/**
+ * Replace every raw phone in a string with `[redacted]` (B-010).
+ *
+ * The outbound guard REFUSES a body carrying a phone, which is right for text Farm Friend is
+ * about to send: it is our own message and a phone in it is a defect to surface loudly.
+ * Inbound third-party text we merely want to *store* is the opposite case — a provider's
+ * error explanation legitimately names the numbers it could not deliver between, and
+ * refusing it would throw away the diagnostic entirely. So this masks rather than throws.
+ *
+ * Same detector, two dispositions. Deliberately not a second phone regex: `PHONE_BODY` and
+ * its boundary rules — including the B-001 fix that stopped UUID hex from matching — are
+ * stated once and both consumers inherit every future correction to them.
+ *
+ * This is NOT a general private-value detector; the file header's limits all apply.
+ */
+export function maskRawPhones(text: string): string {
+  return text.replace(new RegExp(RAW_PHONE_PATTERN, "g"), "[redacted]");
 }

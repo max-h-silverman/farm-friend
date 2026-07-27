@@ -343,11 +343,37 @@ export interface ConsentTransitionInput {
    * never in what they enroll. Ignored for a `stop` transition, which records none.
    */
   captureSource?: ConsentCaptureSource;
+  /**
+   * B-011 — this transition may establish consent only when NO consent record exists yet.
+   *
+   * Set for `JOIN`, which is Farm Friend's own registered opt-in keyword and carries no
+   * meaning to the carrier's compliance layer: Telnyx keeps its own opt-out list, only
+   * `START` clears it, and while a number is on it every send is refused 409 / 40300. A
+   * `JOIN` that "restored" consent would therefore record `active` for someone the carrier
+   * blocks — the database and the carrier disagreeing about the same person.
+   *
+   * Evaluated INSIDE this function's row lock rather than by the caller, because a
+   * read-then-write in the caller is a race: two concurrent JOINs could both observe "no
+   * record" and both establish consent. `for update` on the watermark is what serializes it.
+   */
+  firstTimeOnly?: boolean;
 }
 
 export interface ConsentTransitionResult {
   applied: boolean;
   state: "active" | "stopped";
+  /**
+   * Why an unapplied transition was refused. `applied: false` alone is ambiguous, and the
+   * two causes need different answers to the sender (B-011):
+   *
+   * - `stale` — an older event arriving late, refused by the watermark. Says nothing about
+   *   the sender's intent; they get the registered copy.
+   * - `already_enrolled` — a `firstTimeOnly` JOIN from someone who already has a record.
+   *   This is the returning farmer who must be told to text START.
+   *
+   * Absent when `applied` is true.
+   */
+  refusal?: "stale" | "already_enrolled";
 }
 
 /**
@@ -382,8 +408,74 @@ export async function applyConsentTransition(
         return {
           applied: false,
           state: (state[0]?.state as "active" | "stopped") ?? "stopped",
+          refusal: "stale",
         };
       }
+    }
+
+    // B-011: JOIN establishes consent only for a sender with no record yet.
+    //
+    // Enforced by the PRIMARY KEY on `sms_consents.recipient_hash`, not by a read — and this
+    // distinction was found by an integration test, not by reasoning. The `for update` above
+    // locks EXISTING watermark rows; a genuinely first-time sender has none, so there is
+    // nothing to lock and concurrent JOINs are not serialized by it at all. An earlier draft
+    // of this guard did `select ... from sms_consents` and refused on a hit, and the
+    // 8-claimant race enrolled THREE of them: every transaction read "no record" before any
+    // of them wrote one. The comment claiming the lock serialized it was simply wrong.
+    //
+    // `on conflict do nothing` moves the decision into the unique index, where the database
+    // resolves it: exactly one insert reports a row, the losers report none, and they learn
+    // it from the write rather than from a stale read. `returning` is what makes the outcome
+    // observable — a plain conflict-swallowing insert cannot tell winner from loser.
+    //
+    // Keyed on the CONSENT row rather than the watermark on purpose: the watermark is written
+    // by every transition including ones that do not enroll, so an absent consent row is the
+    // honest test of "never opted in".
+    if (input.firstTimeOnly) {
+      const claimed = await tx`
+        insert into sms_consents (
+          recipient_hash, state, capture_source, captured_at, capture_evidence_ref, updated_at
+        )
+        values (
+          ${input.recipientHash}, 'active', ${input.captureSource ?? "join"},
+          ${input.occurredAt}, ${input.captureEvidenceRef ?? input.providerEventId},
+          ${input.occurredAt}
+        )
+        on conflict (recipient_hash) do nothing
+        returning state
+      `;
+
+      if (claimed.length === 0) {
+        // Someone already holds the record — a returning farmer, or a concurrent JOIN that
+        // won the insert. No watermark write either: this command had no consent
+        // consequence, and advancing the watermark would let a JOIN mask a later
+        // legitimate START arriving at an earlier provider time.
+        const existing = await tx`
+          select state from sms_consents where recipient_hash = ${input.recipientHash}
+        `;
+        return {
+          applied: false,
+          state: (existing[0]?.state as "active" | "stopped") ?? "stopped",
+          refusal: "already_enrolled",
+        };
+      }
+
+      // This transaction established consent. Record the watermark and report it, skipping
+      // the generic write below — the consent row is already exactly what it would produce.
+      await tx`
+        insert into consent_transition_watermarks (
+          recipient_hash, transition, occurred_at, provider_event_id
+        )
+        values (
+          ${input.recipientHash}, ${input.transition}, ${input.occurredAt},
+          ${input.providerEventId}
+        )
+        on conflict (recipient_hash) do update
+          set transition = excluded.transition,
+              occurred_at = excluded.occurred_at,
+              provider_event_id = excluded.provider_event_id
+      `;
+      return { applied: true, state: "active" };
     }
 
     await tx`
@@ -898,6 +990,11 @@ export interface DispatchResultInput {
   outcome: "accepted" | "definitive_rejection" | "ambiguous";
   providerMessageId?: string;
   errorCode?: string;
+  /** B-010: the provider's machine token (e.g. Telnyx `40300`). Diagnostic today; validated
+   *  as a token at capture, so a future rule could key on it. */
+  providerCode?: string;
+  /** B-010: the provider's own sentence, already phone-masked and length-bounded. */
+  providerErrorDetail?: string;
   now: Date;
 }
 
@@ -922,7 +1019,9 @@ export async function recordDispatchResult(
       update outbox_dispatch_attempts
       set state = ${input.outcome}, completed_at = ${input.now},
           provider_message_id = ${input.providerMessageId ?? null},
-          error_code = ${input.errorCode ?? null}
+          error_code = ${input.errorCode ?? null},
+          provider_code = ${input.providerCode ?? null},
+          provider_error_detail = ${input.providerErrorDetail ?? null}
       where id = ${input.dispatchAttemptId}
     `;
 
