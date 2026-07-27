@@ -354,7 +354,10 @@ is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` re
 dev bypass) and the **only** trigger for F-026's retention purge. `apps/web/vercel.json` is what
 actually schedules it (B-005 — it was missing entirely while the RUNBOOK documented it);
 `cron-schedule.test.ts` asserts that config against the route it names, because the failure is
-silent: the kick keeps replies fast while nothing recovers what it drops and the purge never runs. The webhook's B-004 kick
+silent: the kick keeps replies fast while nothing recovers what it drops and the purge never runs.
+`npm run db:migrate` applies migrations to a deployed database (B-006 — there was no way to migrate
+at all; the RUNBOOK claimed the build did it). Deliberately not a build hook: that would migrate on
+every preview deploy and rollback, including production from a branch build. The webhook's B-004 kick
 (`apps/web/lib/kick.ts`) calls the same passes sooner for one sender and **owns no guarantee** — every
 failure swallowed, each pass budgeted, cron recovers whatever it misses. Removing the kick entirely
 must fail only latency tests, never durability ones. `isProactiveSendPermitted` is the single consent
@@ -370,8 +373,8 @@ console first, then transcribe.
 reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
 fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Verified July 26, 2026 (`main`, F-032 + B-005 merged):** `npm test` 346/346 across 37 files;
-real-Postgres integration 216/216 across 15 files; typecheck + lint pass; evals critical 10/10,
+**Verified July 26, 2026 (`main`, F-032 + B-005 + B-006 merged):** `npm test` 346/346 across 37 files;
+real-Postgres integration 222/222 across 16 files; typecheck + lint pass; evals critical 10/10,
 advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin`, `/admin/login`,
 `/admin/flags`, `/admin/reports` render; all routes dynamic). Newest session-log entry: F-032.
 
