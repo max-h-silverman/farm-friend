@@ -144,6 +144,11 @@ still open.
 
 ### Verified
 
+Merged to `main` as **e4798fa** (PR #45, squashed). The PR's only check — Vercel — was failing, but
+`main`@456ad93 carried the identical failure at the same URL: it is the known Hobby rejection of
+`vercel.json`'s one-minute cron, which is precisely why deploys go out via `npx vercel --prod` from a
+local checkout with the `crons` block stripped. Pre-existing, and it blocks `main` equally.
+
 Everything green at wrap, on real Postgres 16.12:
 
 | Suite | Result |
@@ -172,9 +177,12 @@ the load-bearing assertion is that no **watermark** advances.
   (`/opt/homebrew/opt/postgresql@16/bin`). Finding it during the wrap is what surfaced the race
   above. **A negative result from a tool lookup is not proof the thing is absent** — the same
   reasoning-from-indirect-evidence trap that produced the wrong `vercel env ls` conclusion earlier.
-- **The scheduler is not live.** It needs the `CRON_SECRET` repository secret and a push before
-  GitHub will register it, and then the verification that actually proves it: set a `body_expires_at`
-  in the past and confirm the purge clears it. Not a dashboard check — a 401 looks like success there.
+- **The scheduler is merged but not live.** `CRON_SECRET` is not set as a repository secret
+  (`gh secret list` is empty), so no run can authenticate. **Migration 0004 is also owed and is
+  ordered first** — it must reach production before the code that writes to its columns. Exact
+  operator steps and the verify-by-effect SQL are in RUNBOOK §"Deploy" → *Owed right now*. The
+  verification is the purge, never the Actions tab: a 401 fails the run visibly, but only a cleared
+  `body_expires_at` proves the passes actually ran.
 - **B-011's farmer-facing half.** The code rule is in; the onboarding copy that tells returning
   farmers to text START rather than JOIN is not, and no code change can substitute for it.
 

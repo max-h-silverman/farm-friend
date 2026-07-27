@@ -359,9 +359,12 @@ whole serialized responses for an E.164 and for any 64-hex run.
 The deployed build is uploaded with its `crons` block stripped (the Hobby workaround), so the
 `waitUntil` kick remains the only thing running passes in production, which is the inversion B-009
 was filed against. `.github/workflows/scheduled-worker.yml` closes it — decided: external scheduler
-now, revisit Pro at go-live — but it **requires two manual steps neither of which has happened**:
-add the `CRON_SECRET` repository secret, and push the branch so GitHub registers the schedule. Until
-both are done the gap is exactly as it was.
+now, revisit Pro at go-live. It is **merged to `main`**, so GitHub can see the schedule, but
+**`CRON_SECRET` is not set as a repository secret** (`gh secret list` is empty), so no run can
+authenticate and the gap is exactly as it was. **Also owed and ordered before any deploy: migration
+0004** (B-010) must be applied to production, or dispatch writes hit missing columns. Exact operator
+steps — migrate, deploy with the `crons` block stripped uncommitted, `gh secret set CRON_SECRET`,
+then verify by effect — are in RUNBOOK §"Deploy" → *Owed right now*.
 `apps/web/lib/external-scheduler.test.ts` polices the workflow (source-asserting, same family as
 `cron-schedule.test.ts`); its central assertion is that the run **checks `%{http_code}` against 200**,
 because a bare `curl` exits 0 on a 401 and a stale secret would show green checkmarks forever. That
