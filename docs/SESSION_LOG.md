@@ -7,7 +7,102 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-26 (latest) — F-030: the flag rail gets its human half, and retention learns to terminate
+## 2026-07-26 (latest) — F-032: the sign-in path gets built up to the wire, and F-031 keeps the wire
+
+One item, one PR, merged. F-025a built magic-link verification and the session it mints; F-030 built
+the queues those sessions unlock. Nothing could **send** a link, so a non-technical VIGA operator
+still could not sign in unaided.
+
+### The split, and why it happened first
+
+The session opened by surfacing the blocker the prompt named: F-031 needs a mail provider,
+credentials, and an attestation of its data-processing terms that **no decision has authorized**.
+Max asked whether GCP offers an option (he has `farm-friend-vashon`). It does not — Google has no
+first-party transactional email API. "Email on GCP" in practice means SendGrid via Marketplace,
+whose terms are **Twilio's, not Google's**, so GCP billing consolidation buys no privacy or
+architectural advantage. Gmail API on Workspace works but is a mailbox API with sending limits not
+designed for automated mail. Max held the decision to find out what email infrastructure VIGA
+already runs — the right sequencing, since an existing Workspace tenant or sending domain constrains
+the choice more than any vendor comparison.
+
+That made F-031's "receive it by email" criterion unmeetable this session. Rather than narrow the
+item silently or mark it done against criteria it does not meet, **F-032 was split off** for the
+provider-independent half. F-031 keeps the transport, the attestation, and the SPF/DKIM/DMARC
+sending-domain work, and stays the F-029 blocker.
+
+### The decisions worth keeping
+
+**The mail seam fails closed by throwing, not by no-oping.** A "no provider configured" sender that
+quietly returned success would present as a healthy system that never delivers — the hardest version
+of this bug to diagnose. Its error carries **neither the recipient nor the body**, because an error
+is the most likely thing on this path to reach a log aggregator and the body contains a live
+credential. Startup deliberately does *not* require a provider: making it mandatory would take down
+the map, the webhook, and the cron worker over a feature none of them use. The cost of that trade is
+paid at send time, loudly.
+
+**Enumeration safety is a property of whole responses, and it has to survive failure.** The endpoint
+is public, so any observable difference — status, header, body, timing — tells a stranger who VIGA's
+operators are. Asserted by comparing **whole serialized responses** rather than shapes. The subtle
+half is the failure path: mail is only ever attempted for a real administrator, so letting a mail
+error become a 500 rebuilds the oracle precisely. That is proven with a throwing seam, and it is the
+case a cooperative stub would have missed. The live run confirmed it end to end — a **bootstrapped
+real administrator** and a stranger got byte-identical 202s while the seam was throwing
+`MailNotConfiguredError`.
+
+**The budget is per client, never per email address.** A per-address budget is itself an oracle: an
+attacker learns which addresses are real by watching which ones start refusing. Sign-in also gets its
+own throttle instance, because sharing the stock-out form's would let anonymous QR traffic from a
+shared NAT exhaust a real operator's ability to sign in — an availability failure on the recovery
+path of the whole admin surface.
+
+**The throttle runs before the administrator lookup.** A refused request performs no database read,
+so the endpoint cannot be used to time the table and a throttled attacker cannot keep probing.
+
+**`createModelCallThrottle` became `createPublicActionThrottle`.** The mechanism was always general —
+a sliding window over a coarse client key — and only the name was model-specific. One mechanism with
+two consumers beat a second near-identical limiter.
+
+**No `console` call exists in the handler, asserted against its source.** A vendor SDK routinely
+attaches the request payload — containing the live sign-in link — to the error it throws, so there is
+no safe console call on this path. The accepted cost is a silent delivery failure, and it is paid for
+by the seam failing loudly at send time instead.
+
+**Writing the no-JS test caught a real defect.** `/admin/login` must work without JavaScript, since
+it is the recovery path for every other admin screen. The handler parsed only JSON, so every native
+form post would have answered 400 while the enhanced path worked fine — the acceptance criterion
+would have been false. It now accepts form-encoded bodies, verified in the built app's markup.
+
+### The sabotage log
+
+Ten sabotages, each verified to fail before the claim was believed: 404 for a non-administrator; a
+distinguishing response header on an identical body; a mail error escaping as a 500; logging the
+caught error; debug-logging the minted link; the throttle moved after the lookup; the link built from
+the `Host` header; lowercase normalization removed; form-encoding support removed; and
+`revoked_at is null` dropped from the administrator query — the one property only the real database
+owns, which correctly failed the integration suite with a revoked operator receiving mail.
+
+**None passed silently this time**, unlike F-030's two. The enumeration tests were written to compare
+whole serialized responses specifically because F-030's near-miss was a shape check that could not
+see a changed value.
+
+### Verified
+
+`npm test` 342/342 across 36 files; real-Postgres integration 216/216 across 15 files; typecheck +
+lint clean; evals critical 10/10, advisory 4/4, adversarial 25/25; production build passes with
+`/admin/login` and `/api/auth/request-link` present and every route dynamic. Exercised live against a
+bootstrapped administrator: identical 202s, throttle refusing the 4th request with `retry-after: 900`,
+and **no token or address in the server log**. Merged to `main`.
+
+### Owed
+
+F-031 is now purely the transport: pick a provider once VIGA's existing email infrastructure is
+known, read its terms, implement the `MailSender` adapter, and set up SPF/DKIM/DMARC. Until then no
+link is delivered and a link must still be minted out of band with `issueMagicToken`. `model_runs`
+still has no production writer.
+
+---
+
+## 2026-07-26 — F-030: the flag rail gets its human half, and retention learns to terminate
 
 One item, one PR, merged. `FLAG` is a **registered 10DLC compliance commitment** and no human
 could act on one: `/api/admin/flags` returned `{ flags: [] }` behind a *working* role check and

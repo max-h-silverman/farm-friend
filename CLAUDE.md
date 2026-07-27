@@ -297,7 +297,8 @@ model on the compliance path" is structural, proven by a seam that throws. Repli
 sender's inbound+outbound passes with `void`/`.catch` and never awaits them. The public map UI is
 built (F-017) and is model-free in its **module graph**, not just its handler.
 
-**The operator surface is built: approval, flag review, stock-out triage (F-025a + F-030).**
+**The operator surface is built: sign-in request, approval, flag review, stock-out triage (F-025a,
+F-030, F-032).**
 Administrator identity is **email** (migration 0003; `contact_id` is optional and not the identity),
 sign-in is a magic link whose verification proves an address and whose `administrators` lookup — not
 the link — confers authority, so login is **not** first-user-wins. A session is a durable row storing
@@ -313,6 +314,21 @@ second operator gets 409, not a silent overwrite. Triage offers no action that c
 across every operator action. The role lookup returns a **constant** `["admin"]` — an operator can
 never acquire farmer capability, proven by sabotage. Bootstrap is
 `packages/db/scripts/bootstrap-administrator.ts`.
+
+**Requesting a sign-in link is built; delivering it is not (F-032).** `/admin/login` posts to the
+public `POST /api/auth/request-link`, which mints a 15-minute token and hands a **code-rendered**
+message to a `MailSender` seam. The seam **fails closed by throwing** — no provider is configured
+(that is F-031), so no link is actually delivered and one must still be minted out of band with
+`issueMagicToken`. The route's guarantees: the response is **byte-identical** for every address —
+administrator, stranger, malformed, *and when the mail seam throws* — asserted by comparing whole
+serialized responses, because mail is attempted only for a real administrator and a 500 would
+rebuild the oracle through the error path. The throttle runs **before** the administrator lookup, so
+a refused request performs no database read. The budget is per **client, never per address** (a
+per-address budget is itself an oracle). The handler contains **no `console` call at all**, asserted
+against its source, since a vendor SDK attaches the payload — carrying the live link — to the error
+it throws. `/admin/login` works **without JavaScript**; the handler accepts form-encoded bodies as
+well as JSON. `createModelCallThrottle` is now `createPublicActionThrottle` — one mechanism, two
+consumers, separate budgets.
 
 **The model never authors customer-facing factual text or writes durable state.** It interprets and
 selects identifiers; code retrieves, validates membership, and renders. Four seams have explicit
@@ -351,10 +367,10 @@ console first, then transcribe.
 reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
 fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Verified July 26, 2026 (`main`, F-030 merged):** `npm test` 298/298 across 31 files; real-Postgres
-integration 210/210 across 14 files; typecheck + lint pass; evals critical 10/10,
-advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin`, `/admin/flags`,
-`/admin/reports` render; all routes dynamic). Newest session-log entry: F-030.
+**Verified July 26, 2026 (`main`, F-032 merged):** `npm test` 342/342 across 36 files; real-Postgres
+integration 216/216 across 15 files; typecheck + lint pass; evals critical 10/10,
+advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin`, `/admin/login`,
+`/admin/flags`, `/admin/reports` render; all routes dynamic). Newest session-log entry: F-032.
 
 ### Open work — each needs separate implementation authorization
 
@@ -369,14 +385,18 @@ supply what production never creates.
   **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
   seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
 - **F-029 — go-live** (deploy, Telnyx console, first verified live `STOP`/`JOIN`). **Decided:** only
-  after everything else. Max holds all credentials. Deploying now also needs `MAGIC_LINK_SECRET` set
-  and the bootstrap script run once per environment. The FLAG rail's pre-launch gate is now
-  **satisfied** (F-030).
-- **F-031 — no way to *send* a sign-in link.** F-025a built link verification and the session it
-  mints, not email delivery — that needs a mail provider, credentials, and an attestation no decision
-  has authorized, so it was left out rather than improvised. Today a link must be minted out of band
-  with `issueMagicToken`, so a non-technical VIGA operator cannot yet sign in unaided — **including
-  to the F-030 queues**, which is what makes this the next real blocker.
+  after everything else. Max holds all credentials. Deploying now also needs `MAGIC_LINK_SECRET` and
+  `PUBLIC_BASE_URL` set and the bootstrap script run once per environment. The FLAG rail's pre-launch
+  gate is now **satisfied** (F-030).
+- **F-031 — no mail provider, so no sign-in link is delivered.** F-032 built everything up to the
+  wire (request route, throttle, `/admin/login`, code-rendered template, fail-closed seam). What
+  remains is the transport: a vendor, its credentials, its **attested** data-handling terms, and
+  SPF/DKIM/DMARC on the sending domain. **Blocked on what email infrastructure VIGA already runs** —
+  max is finding out. Surveyed 2026-07-26 so it is not repeated: **GCP has no first-party
+  transactional email API**; "email on GCP" means SendGrid via Marketplace, whose terms are
+  **Twilio's, not Google's**. Never infer the attestation values. Until this lands a link must be
+  minted out of band with `issueMagicToken`, so a non-technical operator still cannot sign in
+  unaided.
 - **B-001** stays open pending its caveat below. `model_runs` has **no production writer** — its only
   insert is in a test; unowned. No per-stand pages or filter/search UI. Message classification has no
   consumer. SMS inquiry has no HTTP route **by design** — reached from the Telnyx webhook worker.
