@@ -451,13 +451,49 @@ The order is the safety property: **do not point the carrier at the app before t
    | `TELNYX_API_KEY` · `TELNYX_MESSAGING_PROFILE_ID` · `TELNYX_FROM_NUMBER` | delivery credentials |
    | `TELNYX_PUBLIC_KEY` | the **ed25519 webhook verification key**; without it inbound webhooks cannot be verified at all |
 
-4. **Verify configuration fails closed** in the deployed environment — deliberately confirm that a
-   missing Telnyx key throws rather than degrading to an unverified webhook.
+4. **Verify configuration fails closed** in the deployed environment. Env vars do not take effect
+   until a **redeploy**. POST an unsigned request to the live webhook and read the status — the
+   diagnostic is **three-way**, because `route.ts` calls `appContext()` *before* the provider check
+   and `resolveConfig` **throws** on a missing Telnyx var:
+
+   | Status | Meaning |
+   |---|---|
+   | **401** `missing_signature` | config resolved — proceed |
+   | **503** `webhook_not_configured` | `SMS_PROVIDER` is not `telnyx` (execution reached the provider check, so the other vars resolved) |
+   | **500** | `SMS_PROVIDER=telnyx` but a Telnyx credential is **missing or blank** |
+
+   A missing credential is **500, never 503** — an earlier version of this section said otherwise and
+   sent a real debugging session after the wrong var. `vercel env pull` cannot verify values;
+   encrypted vars return `[SENSITIVE]`. `vercel env ls` timestamps are a useful tell for which vars
+   were actually edited.
+
+   **On Hobby, `npx vercel --prod` refuses to deploy at all** — `vercel.json`'s one-minute cron
+   exceeds the plan's daily cap. Strip the `crons` block from the working tree **uncommitted**,
+   deploy (the CLI uploads from disk), and restore it immediately; `cron-schedule.test.ts` failing is
+   the tripwire for a forgotten restore. Do **not** deploy `throwaway/hobby-deploy-test` — it carries
+   no source difference, only doc drift, and is never-merge.
 5. **Run the administrator bootstrap once** against the production database (§"Bootstrap the first
    administrator"). Note that **no sign-in link is delivered until F-031**, so mint one out of band
    with `issueMagicToken`.
 6. **Point the Telnyx messaging profile's webhook** at `https://<deployment>/api/sms/webhook`, and
    confirm +1 206-864-5326 is attached to that profile.
+
+   Leave the profile's three **auto-response message fields empty** (Keywords tab). Farm Friend sends
+   the registered copy itself; text here would double-reply. The STOP/START/HELP keyword *labels* are
+   fixed and non-editable — that is expected.
+
+   **Attaching the number to the profile is not the same as provisioning it on the approved
+   campaign — check both.** Messaging → Campaigns → your campaign → the number's **Provisioning
+   Status** must read **Active**, not **Pending**.
+
+   This cost a whole session on 2026-07-27. The campaign was approved and the number showed Active
+   *on the profile*, but it had never been provisioned *on the campaign*. Real `STOP` and `HELP`
+   produced no reply, no webhook delivery, and **no Telnyx message record at all** — an unprovisioned
+   number has no carrier route for inbound 10DLC traffic, so the messages died upstream of Telnyx
+   entirely. Nothing in the profile view hints at this. `HELP` failing identically to `STOP` is what
+   ruled out carrier keyword absorption and pointed upstream.
+
+   Provisioning is carrier-side and clears on its own, typically minutes to hours.
 7. **Verify signature rejection first:** an unsigned or wrongly signed POST to the live webhook must
    return 401 *before* any real message is sent.
 8. **Send a real `STOP` before a real `JOIN`.** `STOP` is the compliance-critical path and the one a

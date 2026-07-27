@@ -376,24 +376,35 @@ fixture uses a date literal instead of a clock-derived offset (B-003).
 **Farm Friend is deployed** (throwaway Hobby validation, not F-029 go-live):
 https://farm-friend-web.vercel.app. Verified by live request — health `{"ok":true}`,
 `/api/public/stands` `{"stands":[]}` against real Neon, cron **401** with no/wrong secret, admin API
-**403** unauthenticated, sign-in responses **byte-identical** across addresses, throttle firing. The
-webhook returns 503 rather than 401 because `SMS_PROVIDER=simulator` has no verification key — fail
-closed working as designed. Deploy with `npx vercel --prod` from a local checkout; the Git
-integration built a stale commit three times. **Tear down the project and
-`throwaway/hobby-deploy-test` before go-live.**
+**403** unauthenticated, sign-in responses **byte-identical** across addresses, throttle firing.
+**Telnyx is now configured** (`SMS_PROVIDER=telnyx` + four credentials): the webhook answers **401**
+where it answered 503, and all five signature-rejection paths return 401 — including
+`signature_mismatch`, which proves `TELNYX_PUBLIC_KEY` decodes to a valid 32-byte ed25519 key rather
+than merely being non-empty. Deploy with `npx vercel --prod` from a local checkout; the Git
+integration built a stale commit three times. **Hobby rejects `vercel.json`'s one-minute cron**, so
+deploying requires stripping the `crons` block from the working tree *uncommitted* and restoring it
+after — never the stale `throwaway/hobby-deploy-test` branch. **Tear down the project and that branch
+before go-live.**
+
+**The webhook's config diagnostic is three-way, not two-way** (the RUNBOOK step-4 framing is wrong).
+`route.ts` calls `appContext()` before the provider check, and `resolveConfig` **throws** on a missing
+Telnyx var, which renders **500**. So: **401** = resolved; **503** = `SMS_PROVIDER` is not `telnyx`;
+**500** = a credential is missing or blank. A missing credential is never 503. `vercel env pull`
+cannot verify values — encrypted vars return `[SENSITIVE]`.
 
 **Packaging defects are invisible locally — npm workspaces hoists.** `npm test`, `typecheck`, `lint`,
 and `next build` from the repo root all pass against manifests that cannot survive an isolated
-install, which is what a deploy does. Five such defects shipped undetected until the first real
-deploy (B-005 no cron config, B-006 no migrate command, B-007 undeclared dep + `transpilePackages`
-missing three packages + root-only `typescript`/`@types/node`/`eslint`).
-`packages/core/src/workspace-manifests.test.ts` is the only place this property is asserted.
+install, which is what a deploy does. **Six** such defects have now shipped undetected (B-005 no cron
+config, B-006 no migrate command, B-007 undeclared dep + `transpilePackages` missing three packages +
+root-only `typescript`/`@types/node`/`eslint`, **B-008** missing `@typescript-eslint`
+plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only place this property is
+asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
+statements**, so external packages named in *config files* are outside its design.
 
-**Verified July 27, 2026 (`main`, through B-007 merged):** `npm test` 356/356 across 38 files;
-real-Postgres integration 222/222 across 16 files; typecheck + lint pass; evals critical 10/10,
-advisory 4/4, adversarial 25/25; production Next.js build passes (`/admin`, `/admin/login`,
-`/admin/flags`, `/admin/reports` render; all routes dynamic). Newest session-log entry: the first
-deploy.
+**Verified July 27, 2026 (`main` @ c266ec1):** `npm test` 356/356 across 38 files; typecheck + lint
+pass. Integration/evals not re-run this session (no DB, model-seam, or workflow code touched); last
+known real-Postgres 222/222 across 16 files, evals critical 10/10, advisory 4/4, adversarial 25/25.
+Newest session-log entry: Telnyx wired, demo blocked upstream.
 
 ### Open work — each needs separate implementation authorization
 
@@ -407,17 +418,24 @@ supply what production never creates.
 - **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
   **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
   seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
-- **F-029 — go-live** (Telnyx console, first verified live `STOP`/`JOIN`). Campaign **approved**,
-  Neon **provisioned and migrated**, app **deployed**. Remaining: Telnyx credentials +
-  `SMS_PROVIDER=telnyx` in Vercel, and pointing the messaging profile webhook at
-  `/api/sms/webhook`. Ordered procedure in docs/RUNBOOK.md §Deploy — the order is a safety property
-  (never point the carrier at the app before it can honor `STOP`; verify signature rejection first).
-  **A supervised `JOIN` demo needs none of F-024/B-002/F-031** — corrected 2026-07-27, earlier
-  guidance in that session was wrong. Keyword paths are handled before any model call
-  (`provider.calls === 0` through the real route) and the reply goes out on the **B-004 kick in
-  ~47ms**, not cron — so no cron and **no Vercel Pro** for a demo. Those three still gate a *useful*
-  launch. Production cron is an **open decision**: Pro ($20/mo) vs. an external scheduler hitting the
-  authenticated endpoint; verify whichever by **effect** (a purged body), never by its dashboard.
+- **F-029 — go-live. Waiting on carrier provisioning (2026-07-27), cause identified.** Everything
+  app-side is done and verified: deployed, `SMS_PROVIDER=telnyx`, four credentials, webhook pointed,
+  all five signature-rejection paths 401, number Active on the profile. The demo still failed —
+  real `STOP` and `HELP` produced no reply, **zero** requests in Vercel's logs, Telnyx "No deliveries
+  found", and Telnyx Detail Record Search **"No records found."** **Root cause: the number's
+  Provisioning Status on the 10DLC campaign was `Pending`** — approved campaign and profile-Active
+  number do *not* imply the number is provisioned on the campaign, and an unprovisioned number has no
+  carrier route for inbound, so messages die upstream of Telnyx's own records. Max assigned it late in
+  that session. **Next session: check the campaign shows `Active`, then send `STOP` → `JOIN` → `HELP`
+  and verify in `sms_consents`.** No code or config change is expected. **A supervised `JOIN` demo
+  needs none of F-024/B-002/F-031**; keyword paths precede any model call and the reply rides the
+  **B-004 kick in ~47ms**, not cron. Production cron is an **open decision**: Pro ($20/mo) vs. an
+  external scheduler hitting the authenticated endpoint — and Hobby **cannot** run this schedule at
+  all; verify whichever by **effect** (a purged body), never by its dashboard.
+- **B-008 — lint does not run in deployed builds.** `apps/web` omits `@typescript-eslint/eslint-plugin`
+  and `@typescript-eslint/parser`, so the plugin fails to load and Next skips lint non-fatally: the
+  build goes green with the gate silently absent. Two-line manifest fix; the real work is extending
+  `workspace-manifests.test.ts` to config-file dependency references.
 - **F-031 — no mail provider, so no sign-in link is delivered.** F-032 built everything up to the
   wire (request route, throttle, `/admin/login`, code-rendered template, fail-closed seam). What
   remains is the transport: a vendor, its credentials, its **attested** data-handling terms, and

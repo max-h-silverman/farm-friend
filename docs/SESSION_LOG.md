@@ -7,7 +7,139 @@ is the *why behind past changes*.
 
 ---
 
-## 2026-07-27 (latest) — The first deploy, and the five defects a green suite could not see
+## 2026-07-27 (latest) — Telnyx wired and verified; the demo blocked on an unprovisioned number
+
+No code changed. The Telnyx transport was configured and every app-side property verified against
+the live deployment — and the supervised `JOIN` demo still could not run, because the number was
+never provisioned on the 10DLC campaign, so inbound SMS never reached Telnyx at all.
+
+### What now works
+
+`SMS_PROVIDER=telnyx` plus the four credentials are live in Vercel Production. The webhook answers
+**401 `missing_signature`** where it previously answered 503, which is the observable proof that
+`resolveConfig` resolved a complete Telnyx config.
+
+Signature rejection was probed five ways against the deployment, all 401:
+
+| Probe | Reason returned |
+|---|---|
+| No headers | `missing_signature` |
+| Well-formed but wrong signature | **`signature_mismatch`** |
+| Stale timestamp (−1h) | `timestamp_outside_window` |
+| Junk (non-base64) signature | `malformed_signature` |
+| Signature without timestamp | `missing_signature` |
+
+`signature_mismatch` is the load-bearing one. Reaching it requires the timestamp check to pass, a
+64-byte signature to decode, and **`TELNYX_PUBLIC_KEY` to decode to exactly 32 bytes and import as a
+valid ed25519 key** — a wrong-key paste returns `malformed_key` instead. So the public key is
+structurally a real ed25519 key. Whether it is *the account's* key is still unproven; only a genuine
+Telnyx-signed request settles that.
+
+### The three-way diagnostic the runbook got wrong
+
+The session prompt (and RUNBOOK step 4) framed step 2 as two-way: 401 good, 503 means a missing
+credential. That is wrong, and it points at the wrong fix.
+
+`route.ts` calls `appContext()` as its **first statement**, before the provider check. `resolveConfig`
+**throws** when `SMS_PROVIDER=telnyx` and any Telnyx var is missing or blank, and a throw in a route
+handler renders **500**. So:
+
+- **401** — config resolved.
+- **503** — `SMS_PROVIDER` is not `telnyx`; execution reached the provider check, so all five vars
+  resolved.
+- **500** — `SMS_PROVIDER=telnyx` but a credential is missing or empty.
+
+A missing credential is **500, never 503**. This mattered in practice: the first redeploy still
+returned 503, and the correct read was "`SMS_PROVIDER` was never flipped from `simulator`" — which is
+what it turned out to be. The `vercel env ls` timestamps were the tell: the four Telnyx vars were
+minutes old, `SMS_PROVIDER` was two hours old, unchanged with the rest of the original set.
+
+Note `vercel env pull` cannot help here — encrypted values come back as `[SENSITIVE]`.
+
+### Hobby cannot deploy this repo's `vercel.json`
+
+`npx vercel --prod` from `main` fails outright: `Hobby accounts are limited to daily cron jobs. This
+cron expression (* * * * *) would run more than once per day.` B-005's one-minute schedule is
+incompatible with the plan.
+
+Rather than redeploy the stale `throwaway/hobby-deploy-test` branch — which was **17 commits of
+doc drift** behind `main` and is documented as never-merge — the crons block was stripped from the
+working tree **uncommitted**, deployed, and restored immediately. `vercel --prod` uploads from disk,
+so this needs no branch and no commit. Confirmed first that the two branches differ in **zero source
+files**: only docs and `vercel.json`.
+
+This makes the Hobby-vs-Pro question concrete rather than theoretical. The throwaway project can
+never become the real one; it cannot run the schedule the app requires.
+
+### The demo could not run — and the app is not implicated
+
+Real `STOP`, then `HELP`, to +1 206-864-5326. No reply to either. Diagnosis from both ends:
+
+- **Vercel runtime logs** — zero requests to `/api/sms/webhook` in the window. The only hits were
+  this session's own probes, timestamps confirmed. No application code ran.
+- **Telnyx → Webhook Deliveries** — "No deliveries found."
+- **Telnyx → Detail Record Search** — **"No records found."**
+
+The last is decisive. Telnyx has no record of the inbound messages *at all*, so the failure is
+upstream of the webhook and upstream of Telnyx's own message records.
+
+**Root cause found at the end of the session: the number's Provisioning Status on the 10DLC campaign
+read `Pending`.** It had never been provisioned on the campaign; max assigned it minutes before the
+wrap. An unprovisioned number has no carrier route for inbound 10DLC traffic, which is exactly why
+the messages died before Telnyx saw them.
+
+The trap is that **three separate things all looked correct**: the campaign was *approved*, the
+number was *Active*, and the number was *attached to the messaging profile*. None of those implies
+the number is provisioned **on the campaign**, and no view we looked at surfaced the gap — we found
+it only by opening the campaign's own number list. Attaching the number to the profile mid-session
+did not change the result, because that was never the missing binding.
+
+**`HELP` failing alongside `STOP` is what rules out the leading theory.** Carrier keyword absorption
+was the suspected cause — Telnyx maintains its own opt-out list, and the console's Keywords page
+shows STOP/START/HELP as fixed, non-editable defaults. But HELP is not an opt-out keyword and Telnyx
+has no compliance reason to swallow it. Two different keywords failing identically means the problem
+is not keyword-specific.
+
+The three auto-response message fields were deliberately left **empty** during profile creation, so
+Telnyx would not double-reply alongside Farm Friend's registered copy. That decision stands and was
+not the cause.
+
+### B-008: the sixth defect of the B-007 family
+
+The successful deploy's build log carried
+`ESLint: Failed to load plugin '@typescript-eslint' … Cannot find module '@typescript-eslint/eslint-plugin'`.
+
+`apps/web/package.json` declares `eslint` but not `@typescript-eslint/eslint-plugin` or
+`@typescript-eslint/parser`, which the root `.eslintrc.cjs` loads. Next treats the failure as
+non-fatal, so **lint is skipped and the build goes green**. Not a runtime defect — compilation and
+type-check both ran — but a lost quality gate whose absence is invisible on a passing deploy.
+
+`workspace-manifests.test.ts` could not have caught it: it matches
+`@farm-friend/*` **in import statements**. This is an *external* package referenced from a *config
+file* — outside the test's design on two independent axes. `npm run lint` passes locally for exactly
+the hoisting reason the whole family shares.
+
+Filed as B-008 rather than fixed mid-session; the valuable part is extending the general test to
+config-file references, not the two-line manifest fix.
+
+### Verified
+
+`npm test` 356/356 across 38 files; typecheck and lint clean. Integration and evals not run — no
+database, model-seam, or workflow code was touched. `cron-schedule.test.ts` passing is the
+confirmation that the `vercel.json` strip was restored.
+
+### Owed
+
+F-029 waits on carrier provisioning to clear (`Pending` → `Active` on the campaign), which is
+outside our control and typically minutes to hours. Then: `STOP` → `JOIN` → `HELP`, verified in
+`sms_consents`. **No code or configuration change is expected** — every app-side property is already
+verified. B-008 is open. The throwaway Vercel project and branch still want deleting before go-live,
+and production cron remains the open Pro-vs-external-scheduler decision, now sharper because Hobby
+cannot deploy this repo's `vercel.json` at all.
+
+---
+
+## 2026-07-27 — The first deploy, and the five defects a green suite could not see
 
 Farm Friend is **deployed**: https://farm-friend-web.vercel.app. Health returns `{"ok":true}`,
 `/api/public/stands` returns `{"stands":[]}` against a real Neon database, and every security
