@@ -466,6 +466,10 @@ supply what production never creates.
   still absent (below), **B-011** is a live consent-integrity divergence, the throwaway project and
   branch want tearing down, and every credential exposed on 2026-07-27 needs rotating — except
   `PHONE_HASH_SALT`, which **cannot** be rotated without orphaning every phone hash.
+- **F-033 — activate the scheduler + apply migration 0004 in production.** Both shipped in code
+  (`main`@e4798fa); neither is in effect. `gh secret list` is empty so no scheduled run can
+  authenticate, and 0004 must reach the database **before** the code that writes to its columns.
+  Ordered operator steps + verify-by-effect SQL: RUNBOOK §"Deploy" → *Owed right now*.
 - **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
   that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
   Verified: suppression is enforced **independently of the profile's auto-response fields**, so
