@@ -452,6 +452,19 @@ supply what production never creates.
 - **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
   **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
   seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
+- **F-034 — ROTATE EVERY EXPOSED CREDENTIAL. Hard blocker on F-029; do not go live without it.**
+  `DATABASE_URL` (the full Neon URL was pasted in a transcript), `CRON_SECRET`, `TELNYX_API_KEY`, and
+  possibly `MAGIC_LINK_SECRET` were all exposed during 2026-07-27 validation. **max deliberately
+  deferred rotation to go-live** (2026-07-27) so it happens once rather than twice — sound *only*
+  while this stays a throwaway project with no real numbers in the database. **The moment real
+  farmer or customer numbers exist, this becomes urgent, not deferred.**
+  `CRON_SECRET` lives in **two** places that must match — the Vercel env var and the GitHub
+  repository secret — or every scheduled run 401s.
+  **`PHONE_HASH_SALT` MUST NOT BE ROTATED, ever.** It is the input to the only lookup key for every
+  phone in the system; rotating it orphans every hash with no way back. If it is ever believed
+  compromised the answer is a designed re-hash migration, not a rotation. Record it, never rotate it.
+  Verify each rotation **behaviourally** — Vercel values are write-only and `vercel env ls`'s
+  timestamp column is not a last-updated field. Full checklist and proofs: `/pm show F-034`.
 - **F-029 — go-live. The full SMS round trip now works end to end (2026-07-27).** Farm Friend sent
   its first SMS. Inbound keyword → deterministic route → queued reply → Telnyx dispatch with a real
   provider message ID → delivery callbacks (`message_sent`, `message_finalized`) returning through
@@ -463,10 +476,9 @@ supply what production never creates.
   number was never provisioned on the 10DLC campaign — an approved campaign and a profile-Active
   number do *not* imply provisioning, and messages died upstream of Telnyx's own records;
   (2) **B-009**, the kick never running; (3) `TELNYX_FROM_NUMBER` not in exact E.164 form, which
-  returns `400` on every send. **What remains for go-live is not the SMS path**: production cron is
-  still absent (below), **B-011** is a live consent-integrity divergence, the throwaway project and
-  branch want tearing down, and every credential exposed on 2026-07-27 needs rotating — except
-  `PHONE_HASH_SALT`, which **cannot** be rotated without orphaning every phone hash.
+  returns `400` on every send. **What remains for go-live is not the SMS path** — it is **F-034
+  (credential rotation, a hard blocker)**, tearing down the throwaway project and branch, B-002 seed
+  data, F-024 a real model provider, and F-031 mail delivery.
 - **B-012 — delivery callbacks are stored but never applied.** `applyPendingDeliveryEvent`
   (`apps/web/lib/workers.ts:316`) has **zero callers** — no pass, no webhook, not even a test. Found
   in production while verifying the scheduler: `message_received` 21/21 `processed`, but

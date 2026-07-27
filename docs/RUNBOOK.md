@@ -458,6 +458,18 @@ do), and `evals/hostile.ts` with the hostile group in `apps/web/lib/interpretati
 Vercel (web + API + scheduled jobs) against Neon Postgres. Never deploy unless explicitly asked
 (CLAUDE.md "Do not").
 
+> **⛔ Before a GO-LIVE deploy: rotate credentials first (F-034).** `DATABASE_URL`, `CRON_SECRET`,
+> `TELNYX_API_KEY` and possibly `MAGIC_LINK_SECRET` were exposed in 2026-07-27 validation
+> transcripts; rotation was deliberately deferred to go-live so it happens once. `CRON_SECRET` must
+> be changed in **two** matching places (Vercel env var + GitHub repository secret) or every
+> scheduled run 401s.
+>
+> **`PHONE_HASH_SALT` must NOT be rotated** — it orphans every phone hash in the database and is
+> unrecoverable. Record it; never rotate it.
+>
+> This does **not** apply to ordinary validation deploys against the throwaway project.
+> Checklist: `/pm show F-034`.
+
 ### The production deploy sequence (done once on 2026-07-27; repeat in this order)
 
 **Order matters.** A migration adding columns the new code writes must land *before* that code
