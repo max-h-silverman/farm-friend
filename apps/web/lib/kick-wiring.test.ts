@@ -32,10 +32,17 @@ describe("the webhook acknowledges before it kicks", () => {
     expect(ackIndex).toBeLessThan(kickIndex);
   });
 
-  it("starts the kick with an explicitly discarded promise", () => {
-    // `void` marks the floating call as deliberate rather than a forgotten `await` — the
-    // distinction this whole design rests on.
-    expect(routeSource).toMatch(/void\s+kickSenderPasses\(/);
+  it("starts the kick as a deliberately non-awaited promise", () => {
+    // Marks the call as deliberate rather than a forgotten `await` — the distinction this
+    // whole design rests on.
+    //
+    // B-009 changed HOW that intent is expressed. This was `void kickSenderPasses(`, and
+    // `void` turned out to be the defect: it discards the promise so thoroughly that the
+    // Vercel runtime never learns the work exists and suspends the invocation out from
+    // under it. `waitUntil` states the same intent — do not block the response — while
+    // keeping the invocation alive to finish. The assertion follows the intent, not the
+    // keyword that used to carry it.
+    expect(routeSource).toMatch(/waitUntil\(\s*\n?\s*kickSenderPasses\(/);
   });
 
   it("never awaits the kick", () => {
@@ -44,11 +51,11 @@ describe("the webhook acknowledges before it kicks", () => {
     expect(routeSource).not.toMatch(/await\s+kickSenderPasses/);
   });
 
-  it("attaches a rejection handler to the floating kick", () => {
-    // A floating promise with no handler is an unhandled rejection, which some runtimes
-    // treat as a fatal invocation error. `kickSenderPasses` already swallows internally;
-    // this is the belt-and-braces the route owes a promise it deliberately does not await.
-    const kickIndex = routeSource.indexOf("void kickSenderPasses(");
+  it("attaches a rejection handler to the non-awaited kick", () => {
+    // A promise with no handler is an unhandled rejection, which some runtimes treat as a
+    // fatal invocation error. `kickSenderPasses` already swallows internally; this is the
+    // belt-and-braces the route owes a promise it deliberately does not await.
+    const kickIndex = routeSource.indexOf("kickSenderPasses(");
     expect(kickIndex).toBeGreaterThan(-1);
     // The `.catch` must attach to the kick, before the handler returns the response.
     const afterKick = routeSource.slice(kickIndex);
