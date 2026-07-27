@@ -11,3 +11,4 @@ coverage/
 .expo/
 ios/
 android/
+.vercel
