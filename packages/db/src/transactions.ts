@@ -1100,6 +1100,101 @@ export async function applyDeliveryEvent(
   });
 }
 
+export interface DeliveryPassResult {
+  /** Delivery callbacks claimed and applied this pass. */
+  applied: number;
+}
+
+/** How many delivery callbacks one pass will consume. */
+const DEFAULT_DELIVERY_BATCH = 100;
+
+/**
+ * Claim and apply the delivery callbacks the webhook durably stored (B-012).
+ *
+ * The webhook verifies, minimizes, correlates, and stores `message.sent` /
+ * `message.finalized` — and before this, nothing ever read them. Every callback sat
+ * `pending` forever, so `outbox_work.delivery_status` stayed NULL and `sent` in the outbox
+ * meant only "the provider accepted it", never "the carrier delivered it".
+ *
+ * **Why this is not the inbound path.** A delivery callback is not per-sender
+ * conversational work: it carries no sender, no body, and no conversational meaning. The
+ * schema encodes that already — `provider_inbox_events_minimal_projection_per_event_type`
+ * forbids a `sender_hash` on a delivery row, and the one-claim-per-sender index is scoped
+ * `where event_type = 'message_received'`. Routing these through `claimNextInboundEvent`
+ * would serialize unrelated carrier traffic behind a farmer's conversation and would risk
+ * advancing a conversation watermark from an outbound event, which would make that
+ * sender's next real message look stale and be rejected.
+ *
+ * **Exactly once.** The claim is `for update skip locked`, so concurrent passes partition
+ * the work rather than duplicating or blocking on it. Application is idempotent
+ * independently of the claim: `applyDeliveryEvent` ignores a repeat of the same provider
+ * event ID and any event at or before the row's current delivery instant, so a claim that
+ * lapses and is recovered re-applies to the same watermark rather than writing twice.
+ *
+ * Bounded like every other pass, and it returns a COUNT only — a delivery row correlates
+ * to a recipient, so nothing identifying leaves this function.
+ */
+export async function applyPendingDeliveryEvents(
+  db: Db,
+  input: { now: Date; limit?: number },
+): Promise<DeliveryPassResult> {
+  const limit = input.limit ?? DEFAULT_DELIVERY_BATCH;
+  const sql = driver(db);
+
+  // Claim in one transaction. `skip locked` is what makes eight simultaneous passes safe:
+  // a row another pass already holds is passed over rather than waited on.
+  const claimed = (await sql.begin(async (tx) => {
+    const rows = await tx`
+      select id, dispatch_attempt_id, delivery_status, occurred_at, provider_event_id
+      from provider_inbox_events
+      where state = 'pending'
+        and event_type in ('message_sent', 'message_finalized')
+      order by occurred_at asc, provider_event_id asc
+      limit ${limit}
+      for update skip locked
+    `;
+    if (rows.length === 0) return [];
+
+    // `coherent_claim_state` requires a claim token and expiry on a processing row, so the
+    // claim is a real one and lapses like any other — `releaseAbandonedClaims` is not
+    // scoped to inbound events and already recovers these.
+    const ids = rows.map((row) => (row as Record<string, unknown>).id as string);
+    await tx`
+      update provider_inbox_events
+      set state = 'processing', claim_token = ${randomClaimToken()},
+          claimed_at = ${input.now},
+          claim_expires_at = ${new Date(input.now.getTime() + DEFAULT_CLAIM_TTL_MS)}
+      where id in ${tx(ids)}
+    `;
+    return rows;
+  })) as Record<string, unknown>[];
+
+  let applied = 0;
+  for (const row of claimed) {
+    // Application is its own transaction, taking the `outbox_work` row lock. A failure
+    // here leaves the claim to lapse and be recovered rather than losing the callback.
+    await applyDeliveryEvent(db, {
+      dispatchAttemptId: row.dispatch_attempt_id as string,
+      deliveryStatus: row.delivery_status as
+        | "sent"
+        | "delivered"
+        | "delivery_failed",
+      occurredAt: row.occurred_at as Date,
+      providerEventId: row.provider_event_id as string,
+    });
+
+    await sql`
+      update provider_inbox_events
+      set state = 'processed', claim_token = null, claim_expires_at = null,
+          finalized_at = ${input.now}
+      where id = ${row.id as string} and state = 'processing'
+    `;
+    applied += 1;
+  }
+
+  return { applied };
+}
+
 export interface RetentionPassResult {
   /** Inbound message bodies cleared this pass. */
   messageBodiesPurged: number;

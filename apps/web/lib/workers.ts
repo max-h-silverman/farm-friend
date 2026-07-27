@@ -1,7 +1,7 @@
 import type { Clock, InventoryInterpreter } from "@farm-friend/core";
 import type { InquiryModel } from "@farm-friend/ai";
 import {
-  applyDeliveryEvent,
+  applyPendingDeliveryEvents,
   authorizeDispatch,
   claimNextInboundEvent,
   recordDispatchResult,
@@ -9,6 +9,7 @@ import {
   purgeExpiredBodies,
   CONFIRMATION_WINDOW_MS,
   type Db,
+  type DeliveryPassResult,
   type RetentionPassResult,
 } from "@farm-friend/db";
 import { redactOutbound } from "@farm-friend/sms";
@@ -312,15 +313,36 @@ export async function runRetentionPass(
   });
 }
 
-/** Apply a durably accepted delivery event to its outbound work. */
-export async function applyPendingDeliveryEvent(
-  db: Db,
-  input: {
-    dispatchAttemptId: string;
-    deliveryStatus: "sent" | "delivered" | "delivery_failed";
-    occurredAt: Date;
-    providerEventId: string;
-  },
-): Promise<void> {
-  await applyDeliveryEvent(db, input);
+export interface DeliveryWorkerDeps {
+  db: Db;
+  clock: Clock;
+  /** Bound on how many callbacks one pass will consume. */
+  maxEvents?: number;
+}
+
+/**
+ * Apply the delivery callbacks the webhook durably stored (B-012).
+ *
+ * The FOURTH bounded pass, alongside inbound, outbound, and retention. Like them it
+ * enumerates its own work and returns counts only.
+ *
+ * This pass is what makes `outbox_work.delivery_status` mean anything. Without it the
+ * webhook's `message.sent` / `message.finalized` rows sat `pending` forever — 20 of them in
+ * production — so `sent` in the outbox recorded that Telnyx ACCEPTED a message and never
+ * whether the carrier delivered it. That is precisely the distinction a farmer who never
+ * received a prompt is diagnosed from, and the data B-011's carrier block would show up in.
+ *
+ * Deliberately NOT the per-sender inbound path: a delivery callback carries no sender and
+ * no conversational meaning, so serializing it behind a farmer's conversation would be the
+ * wrong shape, and advancing a conversation watermark from it would make that sender's next
+ * real message look stale. `applyPendingDeliveryEvents` holds the claim and the exactly-once
+ * guarantees; see its contract in packages/db/src/transactions.ts.
+ */
+export async function runDeliveryPass(
+  deps: DeliveryWorkerDeps,
+): Promise<DeliveryPassResult> {
+  return applyPendingDeliveryEvents(deps.db, {
+    now: deps.clock.now(),
+    limit: deps.maxEvents,
+  });
 }
