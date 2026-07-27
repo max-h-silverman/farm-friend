@@ -292,10 +292,16 @@ code-rendered grounded answers with recency and stale warnings; the web/QR stock
 private report and resolves the farmer in code. Inbound SMS **routes** (F-023): `apps/web/lib/routing.ts`
 runs compliance keywords → `FLAG` → context-bound `YES`/`NO` → free text, and the model seams are
 reachable only through a `freeText` callback invoked after `parseCommand` returns `none` — so "no
-model on the compliance path" is structural, proven by a seam that throws. Replies go out in
-**~47ms measured**, not the next cron minute (B-004): the webhook builds its 200, then starts that
-sender's inbound+outbound passes with `void`/`.catch` and never awaits them. The public map UI is
-built (F-017) and is model-free in its **module graph**, not just its handler.
+model on the compliance path" is structural, proven by a seam that throws. The webhook builds its
+200, then starts that sender's inbound+outbound passes **registered via `waitUntil`** and never
+awaits them (B-004, fixed by B-009). The public map UI is built (F-017) and is model-free in its
+**module graph**, not just its handler.
+
+**`waitUntil` is load-bearing (B-009).** A bare `void` is invisible to the Vercel runtime, which
+suspends the invocation when the handler returns — in production that silently dropped *every*
+inbound message. **No behavioural test in vitest can see this**: Node resolves floating promises, so
+the whole kick suite passed throughout. `apps/web/lib/kick-survival.test.ts` therefore asserts the
+registration against the route **source**. Claim latency after the fix: *never* → **4–8s**.
 
 **The operator surface is built: sign-in request, approval, flag review, stock-out triage (F-025a,
 F-030, F-032).**
@@ -349,6 +355,13 @@ viewer mask at the **query** (`right(phone_e164, 4)`), so the full number never 
 `maskPhoneSuffix` **throws** on anything longer rather than truncating. Asserted by tests that grep
 whole serialized responses for an E.164 and for any 64-hex run.
 
+**Production currently has ONE trigger, not two, and it is the best-effort one.** The deployed build
+was uploaded with its `crons` block stripped (the Hobby workaround), so **no scheduled recovery net
+exists in production** — the `waitUntil` kick is the only thing running passes, which is exactly the
+inversion B-009 was filed against. The external-scheduler-vs-Pro decision (below) is what closes it.
+The retention purge has **never been verified by effect**; every observed pass reported `0/0/0`
+because nothing was eligible.
+
 **One worker mechanism, two triggers; one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
 is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` required, no default, no
 dev bypass) and the **only** trigger for F-026's retention purge. `apps/web/vercel.json` is what
@@ -401,10 +414,13 @@ plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only plac
 asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
 statements**, so external packages named in *config files* are outside its design.
 
-**Verified July 27, 2026 (`main` @ c266ec1):** `npm test` 356/356 across 38 files; typecheck + lint
-pass. Integration/evals not re-run this session (no DB, model-seam, or workflow code touched); last
-known real-Postgres 222/222 across 16 files, evals critical 10/10, advisory 4/4, adversarial 25/25.
-Newest session-log entry: Telnyx wired, demo blocked upstream.
+**Verified July 27, 2026 (`main`, B-009 merged):** `npm test` 363/363 across 39 files; typecheck +
+lint pass; `next build` clean. Integration/evals not re-run (no DB-layer, model-seam, or workflow
+code touched — the change is one route and its tests); last known real-Postgres 222/222 across 16
+files, evals critical 10/10, advisory 4/4, adversarial 25/25. **Also verified against the live
+deployment**, which is the only place B-009 was ever visible: full SMS round trip, claim latency
+4–8s, keyword replies dispatched with real provider message IDs.
+Newest session-log entry: B-009 — the kick never survived the response.
 
 ### Open work — each needs separate implementation authorization
 
@@ -418,24 +434,33 @@ supply what production never creates.
 - **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
   **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
   seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
-- **F-029 — go-live. Waiting on carrier provisioning (2026-07-27), cause identified.** Everything
-  app-side is done and verified: deployed, `SMS_PROVIDER=telnyx`, four credentials, webhook pointed,
-  all five signature-rejection paths 401, number Active on the profile. The demo still failed —
-  real `STOP` and `HELP` produced no reply, **zero** requests in Vercel's logs, Telnyx "No deliveries
-  found", and Telnyx Detail Record Search **"No records found."** **Root cause: the number's
-  Provisioning Status on the 10DLC campaign was `Pending`** — approved campaign and profile-Active
-  number do *not* imply the number is provisioned on the campaign, and an unprovisioned number has no
-  carrier route for inbound, so messages die upstream of Telnyx's own records. Max assigned it late in
-  that session. **Provisioning then cleared and ingress started working — two inbound webhooks
-  returned 200 (05:49:10Z and 05:59:57Z) — but still no reply arrived.** So the remaining failure is
-  **outbound, not ingress**: signature verified, message committed, 200 returned, and the reply never
-  went out. Suspect the B-004 kick, which swallows every failure by construction and has **no cron to
-  recover it** on Hobby. **Next session starts by reading `outbox_work` / `sms_consents` / `sender_states`
-  to find which stage stopped** — the answer is in the database, not the phone. **A supervised `JOIN` demo
-  needs none of F-024/B-002/F-031**; keyword paths precede any model call and the reply rides the
-  **B-004 kick in ~47ms**, not cron. Production cron is an **open decision**: Pro ($20/mo) vs. an
-  external scheduler hitting the authenticated endpoint — and Hobby **cannot** run this schedule at
-  all; verify whichever by **effect** (a purged body), never by its dashboard.
+- **F-029 — go-live. The full SMS round trip now works end to end (2026-07-27).** Farm Friend sent
+  its first SMS. Inbound keyword → deterministic route → queued reply → Telnyx dispatch with a real
+  provider message ID → delivery callbacks (`message_sent`, `message_finalized`) returning through
+  the same webhook. Six keywords were exercised against the live deployment (`stop`, `start`, `stop`,
+  `join`, `help`, `start`), each routed to the correct registered copy, and consent verified against
+  real traffic: the watermark holds only the latest transition and **`HELP` correctly did not move
+  consent**. The supervised demo completed on a clean number: `start` → `join` → `help`, all three
+  accepted with real provider message IDs. Three earlier blockers, each masking the next: (1) the
+  number was never provisioned on the 10DLC campaign — an approved campaign and a profile-Active
+  number do *not* imply provisioning, and messages died upstream of Telnyx's own records;
+  (2) **B-009**, the kick never running; (3) `TELNYX_FROM_NUMBER` not in exact E.164 form, which
+  returns `400` on every send. **What remains for go-live is not the SMS path**: production cron is
+  still absent (below), **B-011** is a live consent-integrity divergence, the throwaway project and
+  branch want tearing down, and every credential exposed on 2026-07-27 needs rotating — except
+  `PHONE_HASH_SALT`, which **cannot** be rotated without orphaning every phone hash.
+- **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
+  that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
+  Verified: suppression is enforced **independently of the profile's auto-response fields**, so
+  disabling that text would not restore deliverability — accepting carrier handling for STOP/START is
+  the workable path. **`START` lifts the block; `JOIN` does not** (a `join` four minutes after a
+  `stop` still 409'd). The live consequence: a farmer who texts STOP then JOIN is recorded `active`
+  while the carrier blocks every message, so `isProactiveSendPermitted` returns true for sends that
+  can never arrive. A candidate fix — treating `40300` as authoritative and reconciling consent to
+  `stopped` — touches Golden Rule #2 and needs max's decision.
+- **B-010 — dispatch stores only the provider HTTP status**, discarding the error detail. Cost hours
+  twice on 2026-07-27: `"The source phone number was deemed invalid by the carrier"` and
+  `"Blocked due to STOP message"` were both obtained by manual curl, never from the database.
 - **B-008 — lint does not run in deployed builds.** `apps/web` omits `@typescript-eslint/eslint-plugin`
   and `@typescript-eslint/parser`, so the plugin fails to load and Next skips lint non-fatally: the
   build goes green with the gate silently absent. Two-line manifest fix; the real work is extending
@@ -489,3 +514,24 @@ the old data**.
 
 **Use isolated worktrees for parallel agents.** Two agents dispatched into one shared tree overwrote
 each other repeatedly and spent more effort recovering than building.
+
+**The local runtime is not the deployed runtime, and a green suite says nothing about the gap.**
+B-009's whole class: vitest runs in Node, where a floating promise resolves, so the kick suite passed
+while production dropped every message. Node semantics ≠ serverless lifecycle, just as a hoisted
+`node_modules` ≠ an isolated install (B-005 → B-008). When a property belongs to the *platform*
+rather than the code, assert it against the **source** — that is what `kick-survival.test.ts`,
+`cron-schedule.test.ts`, `cron-auth.test.ts` and `workspace-manifests.test.ts` all are — and verify
+the real thing by **effect** in the deployment.
+
+**A source-reading test can match its own import statement.** `kick-survival.test.ts` first asserted
+`/waitUntil\s*\(/` over the whole file and **survived reverting the call site to the production
+defect**, because the import line satisfied it. Strip imports, anchor to the call site, and never
+trust such a test until the sabotage has actually been run.
+
+**Do not infer configuration from a dashboard's timestamp column.** `vercel env ls` reported
+`TELNYX_API_KEY` as "1h ago" while the web UI showed "Updated just now" — the CLI column is not last
+-update. That produced a confidently wrong conclusion mid-diagnosis. Values in Vercel are
+**write-only**: neither the UI nor `vercel env pull` reveals them (`[SENSITIVE]`), so the only honest
+check is **behavioural**. Record every secret in a password manager *at the moment it is set* —
+`PHONE_HASH_SALT` especially, since rotating it orphans every phone hash in the database and is
+therefore unrecoverable in a way the others are not.

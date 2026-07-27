@@ -113,11 +113,17 @@ reference, TTL-bound message body where needed, and processing state. The raw pr
 a second raw E.164 are not stored. The provider event ID is unique; duplicate delivery is a
 successful no-op.
 
-Interpretation and delivery never happen inside ingress. After acknowledging, the webhook **starts**
-that sender's worker passes without awaiting them (the B-004 kick), so a reply goes out in
-milliseconds rather than waiting for the next scheduled sweep; the kick owns no guarantee and the
-cron trigger remains the durable recovery net. Both call the same passes — see
+Interpretation and delivery never happen inside ingress. After acknowledging, the webhook **registers**
+that sender's worker passes with the runtime (`waitUntil`) without awaiting them (the B-004 kick), so
+a reply goes out in seconds rather than waiting for the next scheduled sweep; the kick owns no
+guarantee and the scheduled trigger remains the durable recovery net. Both call the same passes — see
 [RUNBOOK.md](RUNBOOK.md) §"Scheduled work."
+
+**Registration is what makes "starts" true (B-009).** A bare `void` call is invisible to the serverless
+runtime, which is free to suspend the invocation the moment the handler returns — the pass then never
+runs, and with no scheduled trigger nothing recovers it. This is a property of the deployment platform,
+not of the code's logic, so it is asserted against the route source and verified in the deployment
+rather than by a behavioural test.
 
 Ordinary stateful work is serialized per sender in Postgres. A short transaction locks the sender
 row and claims at most one inbox event; it never spans a model or SMS call. That lock is also what
