@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  parseOpenHours,
-  parseSeason,
-  parseStocking,
-  parseOfferings,
-  DAY,
-} from "./availability";
+import { parseOpenHours, parseSeason, parseStocking, DAY } from "./availability";
 
 // F-035 — turning VIGA's prose into filterable data.
 //
@@ -253,41 +247,5 @@ describe("parseStocking", () => {
   it("separates an absent cadence from an unreadable one", () => {
     expect(parseStocking("")).toMatchObject({ cadence: "not_stated" });
     expect(parseStocking("when the moon is right")).toMatchObject({ cadence: "unparsed" });
-  });
-});
-
-describe("parseOfferings", () => {
-  it("splits a generally-offers list into filterable items", () => {
-    expect(parseOfferings("Eggs, plant starts, veggies and fruit")).toEqual([
-      "eggs",
-      "plant starts",
-      "veggies",
-      "fruit",
-    ]);
-    expect(parseOfferings("Starts, tomatoes, peppers, rhubarb, pears, plums, apples"))
-      .toEqual(["starts", "tomatoes", "peppers", "rhubarb", "pears", "plums", "apples"]);
-  });
-
-  it("keeps multi-word items intact", () => {
-    expect(parseOfferings("Artisan popsicles, natural soda and drinking shrub")).toEqual([
-      "artisan popsicles",
-      "natural soda",
-      "drinking shrub",
-    ]);
-  });
-
-  it("refuses prose that is not a list", () => {
-    // Holmestead's "We place a sign at the bottom of the driveway when we are open" is not an
-    // offerings list, and splitting it on commas would produce nonsense tags that then appear
-    // as things a customer could filter for.
-    expect(parseOfferings("We place a sign at the bottom of the driveway when we are open"))
-      .toEqual([]);
-    expect(parseOfferings("This is a community farmstand from the neighbors on Morgan Hill"))
-      .toEqual([]);
-  });
-
-  it("drops duplicates and blanks without inventing items", () => {
-    expect(parseOfferings("Eggs, eggs,  , EGGS")).toEqual(["eggs"]);
-    expect(parseOfferings("")).toEqual([]);
   });
 });

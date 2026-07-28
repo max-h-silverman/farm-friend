@@ -11,8 +11,14 @@
 //
 // Vocabulary note (CLAUDE.md): this file contains no farm names and no produce taxonomy. It
 // recognizes CALENDAR and CLOCK vocabulary — "Tuesday", "March", "dusk" — which is fixed
-// language about time, not a claim about what food exists. `parseOfferings` deliberately does
-// not know what an aubergine is; it splits a list and lowercases it.
+// language about time, not a claim about what food exists.
+//
+// SCOPE: availability only. What a stand OFFERS is deliberately not parsed here. A regex can
+// split "eggs, plant starts, veggies" but not "Specializing in Asian vegetables, including
+// gailan, bok choy" — and the failures are not cosmetic, since every item becomes a
+// customer-facing filter tag. An early draft produced tags like "rotational grazing for
+// chickens" and "special occasions...etc..". Offerings are extracted by a model seam that
+// PROPOSES tags for review (F-036); code commits what a human approved.
 
 /** Weekday indices, 0 = Sunday, matching Postgres `extract(dow)` and `Date.getDay()`. */
 export const DAY = {
@@ -300,37 +306,4 @@ export function parseStocking(text: string): ParsedStocking {
   }
 
   return { cadence: "unparsed" };
-}
-
-/**
- * Split a "Generally Offers:" line into filterable items.
- *
- * Deliberately ignorant of food: it splits a list and normalizes case. No produce taxonomy
- * lives here — "what counts as a vegetable" is exactly the vocabulary CLAUDE.md keeps out of
- * business code. An item is whatever the farm called it.
- *
- * Prose is refused rather than split. Holmestead's "We place a sign at the bottom of the
- * driveway when we are open" is not a list, and comma-splitting it would manufacture tags a
- * customer could then filter for.
- */
-export function parseOfferings(text: string): string[] {
-  const t = text.trim();
-  if (t === "") return [];
-
-  // A sentence, not a list: contains a first-person or explanatory clause. Checked before
-  // splitting so prose never reaches the item path.
-  if (/\b(?:we|our|this is|please|when we|available through)\b/i.test(t)) return [];
-
-  const parts = t
-    .split(/,|\band\b|•|;/i)
-    .map((part) => part.trim().toLowerCase().replace(/\.$/, ""))
-    .filter((part) => part !== "");
-
-  const items: string[] = [];
-  for (const part of parts) {
-    // An "item" of more than four words is a sentence fragment, not a tag.
-    if (part.split(/\s+/).length > 4) continue;
-    if (!items.includes(part)) items.push(part);
-  }
-  return items;
 }

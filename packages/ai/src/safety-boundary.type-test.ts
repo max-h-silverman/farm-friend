@@ -12,6 +12,7 @@ import {
   projectFactSelection,
   projectInquiryInterpretation,
   projectInventoryExtraction,
+  projectOfferingExtraction,
   projectStockOutParse,
   type ModelSafeContext,
   type InventoryExtractionFields,
@@ -107,3 +108,25 @@ void projectStockOutParse({
   // @ts-expect-error the location is bound in code by the surface, never passed to the model
   salesLocationId: "loc-1",
 });
+
+// BYPASS 10 — the offering-extraction seam receives ONE stand's description and nothing else.
+// No farm name, no location id, no contact. A model that could name a farm could attach one
+// farm's produce to another's listing, and extraction does not need the name to do its job.
+void projectOfferingExtraction({
+  sourceText: "Eggs, plant starts, veggies and fruit",
+  // @ts-expect-error the location is bound in code by the seeder, never passed to the model
+  salesLocationId: "loc-1",
+});
+void projectOfferingExtraction({
+  sourceText: "Eggs",
+  // @ts-expect-error a farm name would let one stand's produce be attached to another
+  farmName: "Provo Farm",
+});
+
+// BYPASS 11 — an offering context belongs to its own seam. Contexts are not interchangeable
+// between seams even though both carry text, so a caller cannot route stand prose into the
+// inventory-extraction path and have it treated as a farmer's confirmed update.
+const offeringContext = projectOfferingExtraction({ sourceText: "eggs" });
+// @ts-expect-error an offering-extraction context is not an inventory-extraction context
+const misrouted: ModelSafeContext<InventoryExtractionFields> = offeringContext;
+void misrouted;
