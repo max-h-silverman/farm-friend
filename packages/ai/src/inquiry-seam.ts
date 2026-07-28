@@ -11,7 +11,7 @@
 // values. A model that wants to invent availability has nowhere to put it.
 
 import { z } from "zod";
-import { generateValidated, type LLMProvider } from "./index";
+import { generateValidated, nullAsAbsent, type LLMProvider } from "./index";
 import {
   projectFactSelection,
   projectInquiryInterpretation,
@@ -29,17 +29,17 @@ export const intentSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("lookup"),
       items: z.array(z.string().min(1)).min(1),
-      farmScope: z.string().min(1).optional(),
+      farmScope: nullAsAbsent(z.string().min(1)),
       ranking: z.string().min(1),
       // A boolean, never a message. The model may recognize a recipe/food-safety request;
       // code renders the scope statement (F-018).
-      outOfScopeRequest: z.boolean().optional(),
+      outOfScopeRequest: nullAsAbsent(z.boolean()),
       // Likewise a boolean (F-017). The model may recognize that the request needs the
       // customer's position; launch resolves no arbitrary origin over SMS, so code renders
       // the limitation and the public-map link. `.strict()` below is what makes a smuggled
       // `latitude`, `distanceMiles`, or `nearest` a visible refusal rather than a stripped
       // field — the model has no way to supply geography at all.
-      originDependent: z.boolean().optional(),
+      originDependent: nullAsAbsent(z.boolean()),
     })
     .strict(),
   // A bare signal. `question` was removed in F-018: it was the one field through which

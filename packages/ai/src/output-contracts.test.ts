@@ -32,6 +32,61 @@ const SCHEMAS: Record<keyof typeof SEAM_OUTPUT_SHAPES, z.ZodTypeAny> = {
   "offering-extraction": offeringsSchema,
 };
 
+describe("declared-optional fields accept an explicit null as absence (F-024)", () => {
+  // The second live-run failure class: instruct models near-universally emit
+  // `"quantity": null` for a value the input does not state, and `.optional()` refuses
+  // `null`. Null reads as absence ONLY where the schema already declares optionality —
+  // the same reasoning as the adapter's code-fence stripping. Unknown keys, null-valued
+  // or not, still hit the strict schema's visible refusal.
+  it("inventory: nulls in optional item fields parse as absent values", () => {
+    const parsed = interpretationSchema.parse({
+      kind: "edits",
+      additions: [
+        {
+          itemName: "tomatoes",
+          quantity: null,
+          unit: null,
+          priceText: null,
+          approximation: null,
+        },
+        { itemName: "eggs", quantity: 12, unit: "dozen", priceText: null, approximation: null },
+      ],
+      changes: [{ entryId: "e1", itemName: null, quantity: 6 }],
+      removals: [],
+    });
+    if (parsed.kind !== "edits") throw new Error("expected edits");
+    expect(parsed.additions[0]!.quantity).toBeUndefined();
+    expect(parsed.additions[0]!.approximation).toBeUndefined();
+    expect(parsed.additions[1]!.quantity).toBe(12);
+    expect(parsed.changes[0]!.itemName).toBeUndefined();
+  });
+
+  it("inventory: a null-valued UNKNOWN key is still a visible refusal, not a strip", () => {
+    const result = interpretationSchema.safeParse({
+      kind: "edits",
+      additions: [],
+      changes: [],
+      removals: [],
+      publish: null,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("intent: nulls in the optional lookup fields parse as absent values", () => {
+    const parsed = intentSchema.parse({
+      kind: "lookup",
+      items: ["bok choy"],
+      farmScope: null,
+      ranking: "freshest",
+      outOfScopeRequest: null,
+      originDependent: null,
+    });
+    if (parsed.kind !== "lookup") throw new Error("expected lookup");
+    expect(parsed.farmScope).toBeUndefined();
+    expect(parsed.outOfScopeRequest).toBeUndefined();
+  });
+});
+
 describe("seam output contracts (F-024)", () => {
   it("every documented example shape validates against its seam's real schema", () => {
     for (const [seam, shapes] of Object.entries(SEAM_OUTPUT_SHAPES)) {

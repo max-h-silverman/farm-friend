@@ -95,9 +95,11 @@ type SeamName = keyof typeof SEAM_OUTPUT_SHAPES;
  */
 const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
   "inventory-extraction":
-    "additions are items not currently listed; changes and removals refer to listed entries " +
-    "and their entryId MUST be one of the currentEntries ids. Include only details the " +
-    "message states - never invent a quantity, unit, or price. If the message is not a " +
+    "For edits, all three arrays (additions, changes, removals) are REQUIRED, each possibly " +
+    "empty. additions are items not currently listed; changes and removals refer to listed " +
+    "entries and their entryId MUST be one of the currentEntries ids. quantity is always a " +
+    'NUMBER - write "a dozen" as 12 - and goes with unit ("lb", "dozen") or is omitted; ' +
+    "include only details the message states, never invented ones. If the message is not a " +
     "readable inventory update, return the clarification shape with one short plain-ASCII " +
     "question (it is sent by SMS).",
   "inquiry-interpretation":
@@ -106,8 +108,9 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     'the most of their items, "freshest" when recency matters most, "any" otherwise. ' +
     "farmScope only when they name a specific farm. outOfScopeRequest is true when they " +
     "also ask for a recipe, preparation, or food-safety guidance. originDependent is true " +
-    "when answering depends on where the customer is. If the message is not an " +
-    "interpretable product request, return the ambiguous shape with no other fields.",
+    "ONLY when answering requires knowing where the customer is (nearest, closest, distance, " +
+    "directions). If the message is not an interpretable product request, return the " +
+    "ambiguous shape with no other fields.",
   "grounded-fact-selection":
     "factIds MUST be values from facts, ordered best match first; select only facts that " +
     "answer the request. If none fit, return the clarification shape with no other fields.",

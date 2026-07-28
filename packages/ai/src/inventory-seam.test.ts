@@ -59,6 +59,38 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     }
   });
 
+  it("treats explicit nulls in optional fields as absence, end to end", async () => {
+    // What the real model actually returns for "tomatoes, kale, and a dozen eggs"
+    // (F-024 live run, verbatim shape): nulls for every unstated optional field.
+    const provider = new StubLLMProvider({
+      "inventory-extraction": JSON.stringify({
+        kind: "edits",
+        additions: [
+          {
+            itemName: "tomatoes",
+            quantity: null,
+            unit: null,
+            priceText: null,
+            approximation: null,
+          },
+          { itemName: "eggs", quantity: 12, unit: "dozen", priceText: null, approximation: null },
+        ],
+        changes: [],
+        removals: [],
+      }),
+    });
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "tomatoes and a dozen eggs",
+      currentEntries: [],
+    });
+    expect(result.kind).toBe("edits");
+    if (result.kind === "edits") {
+      expect(result.additions).toHaveLength(2);
+      expect(result.additions[0]!.quantity).toBeUndefined();
+      expect(result.additions[1]!.quantity).toBe(12);
+    }
+  });
+
   it("rejects consequential fields the model tried to smuggle in", async () => {
     // A `publish` or `recipientHash` field is a consequence the model never owns. The
     // strict schema refuses it here; core's validator refuses it again against the snapshot.

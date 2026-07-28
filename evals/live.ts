@@ -228,7 +228,7 @@ fx("live-quality", "interprets an open-ended customer question into an executabl
 fx("live-quality", "orders a freshest-first selection with the fresh fact first", async () => {
   const result = await inquiry.select({
     items: ["bok choy"],
-    ranking: "freshest first",
+    ranking: "freshest",
     facts: SELECTION_FACTS,
   });
   const observed = JSON.stringify(result);
@@ -265,7 +265,7 @@ fx("live-quality", "renders a grounded answer only from a legitimate live select
   // End-to-end sanity: real selection → code-rendered answer with recency, no invention.
   const result = await inquiry.select({
     items: ["bok choy"],
-    ranking: "freshest first",
+    ranking: "freshest",
     facts: SELECTION_FACTS,
   });
   if (result.kind !== "selection") {

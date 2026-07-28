@@ -8,7 +8,7 @@
 // and the confirmation the farmer sees is code-rendered from typed facts.
 
 import { z } from "zod";
-import { generateValidated, type LLMProvider } from "./index";
+import { generateValidated, nullAsAbsent, type LLMProvider } from "./index";
 import { projectInventoryExtraction } from "./projections";
 
 /**
@@ -19,10 +19,10 @@ import { projectInventoryExtraction } from "./projections";
  */
 const itemFields = {
   itemName: z.string().min(1),
-  quantity: z.number().finite().optional(),
-  unit: z.string().optional(),
-  priceText: z.string().optional(),
-  approximation: z.enum(["some", "limited", "plentiful"]).optional(),
+  quantity: nullAsAbsent(z.number().finite()),
+  unit: nullAsAbsent(z.string()),
+  priceText: nullAsAbsent(z.string()),
+  approximation: nullAsAbsent(z.enum(["some", "limited", "plentiful"])),
 };
 
 // Every member is `.strict()`, INCLUDING at the top level. Zod strips unknown keys by
@@ -42,7 +42,7 @@ export const interpretationSchema = z.discriminatedUnion("kind", [
           .object({
             entryId: z.string(),
             ...itemFields,
-            itemName: itemFields.itemName.optional(),
+            itemName: nullAsAbsent(z.string().min(1)),
           })
           .strict(),
       ),
