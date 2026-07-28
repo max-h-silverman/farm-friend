@@ -74,6 +74,25 @@ credentials still permit unauthorized provider use or infrastructure access.
 - Do not copy new values into logs, documentation, issue text, or shell history.
 - Load no real production data before this is complete.
 
+**Scope verified 2026-07-28 against the live environment.** The procedure, order, and
+proof-by-effect tables are `RUNBOOK.md` §"Credential rotation". Two corrections to the problem
+statement above, both found by inspecting the real environment rather than the notes:
+
+- **The DeepInfra key is not a production credential.** `LLM_PROVIDER`, `DEEPINFRA_API_KEY`, and
+  `DEEPINFRA_MODEL` are absent from Vercel entirely, so the deployment runs the deterministic stub
+  and the key lives only in the local `.env`. It stays in rotation scope — it authorizes DeepInfra
+  spend — but it rotates in the DeepInfra console, not Vercel. That production silently runs the
+  stub is the defect **GL-019** tracks.
+- **The repository is clean; no history rewrite is needed.** `git grep` over the tracked tree finds
+  no real connection string, key, or Neon host — every secret-shaped literal is a test fixture, and
+  `.env` is gitignored and never committed. Exposure was confined to working transcripts.
+
+**Blocked on one decision (see below): rotate in place, or provision the real production project
+fresh and let the exposed credentials die with the throwaway one.** Rotating in place is only
+correct if the throwaway Hobby project becomes production; F-034 already schedules it for teardown.
+Provider-side rotation (Neon, Telnyx, DeepInfra consoles) and Vercel/GitHub secret updates all
+require Max's action or approval; no secret value may be displayed or committed.
+
 ### GL-002 — Ensure a delayed `STOP` always reaches consent ordering
 
 **Confirmed defect**

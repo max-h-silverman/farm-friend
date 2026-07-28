@@ -547,17 +547,121 @@ place (CLAUDE.md, "Simplicity and elegance").
 Vercel (web + API + scheduled jobs) against Neon Postgres. Never deploy unless explicitly asked
 (CLAUDE.md "Do not").
 
-> **⛔ Before a GO-LIVE deploy: rotate credentials first (F-034).** `DATABASE_URL`, `CRON_SECRET`,
-> `TELNYX_API_KEY` and possibly `MAGIC_LINK_SECRET` were exposed in 2026-07-27 validation
-> transcripts; rotation was deliberately deferred to go-live so it happens once. `CRON_SECRET` must
-> be changed in **two** matching places (Vercel env var + GitHub repository secret) or every
-> scheduled run 401s.
->
-> **`PHONE_HASH_SALT` must NOT be rotated** — it orphans every phone hash in the database and is
-> unrecoverable. Record it; never rotate it.
->
+> **⛔ Before a GO-LIVE deploy: rotate credentials first (F-034 / GL-001).** Credentials were
+> exposed in 2026-07-27 validation transcripts and rotation was deliberately deferred to go-live so
+> it happens once. The full scope, order, and behavioural proofs are §"Credential rotation" below.
 > This does **not** apply to ordinary validation deploys against the throwaway project.
-> Checklist: `/pm show F-034`.
+
+## Credential rotation
+
+The go-live procedure for F-034 / GL-001. Rotation is **not** an isolated maintenance task: the
+credentials in play belong to the **throwaway Hobby validation project**, so rotating them in place
+is only worth doing if that project survives. Settle the teardown question first (§"Which project
+are you rotating into?"), because a fresh project issues fresh credentials for free and makes most
+of this section moot.
+
+### The rules that constrain every step
+
+- **`PHONE_HASH_SALT` MUST NOT be rotated — ever.** It is the input to the only lookup key for every
+  phone in the system. Rotating it orphans every existing hash: consent records, contacts, flags,
+  and stock-out reports all stop resolving to their people, and the raw numbers are deliberately not
+  stored in a recoverable relationship to the old hashes. If it is ever believed compromised the
+  answer is a **designed re-hash migration under a new salt**, not a rotation. Record it; never
+  rotate it.
+- **Record every new value in a password manager at the moment it is set.** Vercel values are
+  write-only — the UI does not reveal them and `vercel env pull` returns `[SENSITIVE]`. An
+  unrecorded secret is unrecoverable.
+- **Never display a secret.** Do not echo one, do not paste one into a transcript, a commit, an
+  issue, or documentation. Set values through interactive prompts or piped stdin, not as literal
+  command arguments (a literal lands in shell history).
+- **Verify behaviourally, never from a dashboard.** `vercel env ls`'s timestamp column is *not* a
+  last-updated field, and trusting it produced a confidently wrong conclusion mid-diagnosis on
+  2026-07-27. Every credential below has a proof-by-effect.
+- **Env changes do not take effect until a redeploy.** Rotating a Vercel variable and then testing
+  the running deployment tests the *old* value. Redeploy, then verify.
+
+### Which project are you rotating into?
+
+The exposed values authenticate against the **throwaway Hobby project** (`viga2/farm-friend-web`)
+and its Neon database, both of which F-034 already schedules for teardown at go-live. Two paths:
+
+| Path | What it means |
+|---|---|
+| **Rotate in place** | Keep the throwaway project and database, reset each secret. Correct only if this project *becomes* production. |
+| **Provision fresh, then tear down** | Stand up the real production project and Neon database; every credential is new by construction, and the exposed ones die with the old project. Rotation of `DATABASE_URL`/`MAGIC_LINK_SECRET`/`CRON_SECRET` collapses into ordinary provisioning. |
+
+**The second path is the recommended one** when the throwaway project is being torn down anyway: it
+removes the exposed values rather than replacing them, and it avoids rotating the same secrets twice.
+Under it, only credentials attached to **accounts that outlive the project** still need a genuine
+reset — the Telnyx API key and the DeepInfra key.
+
+### Scope — what is actually exposed, and where it lives
+
+Verified against the live environment on 2026-07-28 rather than from the earlier notes, which
+overstated the scope in one place and understated it in another.
+
+| Credential | Where it is consumed | Rotate where | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | Vercel env; local `.env` for migrate/seed scripts | Neon console (reset the `neondb_owner` password), then Vercel | The full URL was pasted in a 2026-07-27 transcript |
+| `CRON_SECRET` | Vercel env **and** the GitHub repository secret | both, to the **same** value | A mismatch 401s every scheduled run |
+| `TELNYX_API_KEY` | Vercel env | Telnyx console | Belongs to the **Telnyx account**, so it survives a project teardown and needs a real reset either way |
+| `MAGIC_LINK_SECRET` | Vercel env | generate a new random value | Rotating invalidates every outstanding sign-in link and session — harmless pre-launch |
+| `DEEPINFRA_API_KEY` | **local `.env` only** | DeepInfra console | See the correction below |
+| `PHONE_HASH_SALT` | Vercel env | **NEVER** | See the rule above |
+
+**Correction to the earlier scope.** `DEEPINFRA_API_KEY` is **not** a production credential.
+`LLM_PROVIDER`, `DEEPINFRA_API_KEY`, and `DEEPINFRA_MODEL` are absent from the Vercel environment
+entirely, so the deployment runs the deterministic **stub** and the key exists only in the local
+`.env` used by `npm run evals:live` and `npm run offerings:propose`. It is still in rotation scope —
+it authorizes spend against the DeepInfra account — but it rotates in the DeepInfra console and the
+local `.env`, **not** in Vercel. (That production runs the stub is itself the defect GL-019 tracks.)
+
+`TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY`, `PUBLIC_BASE_URL`, and
+`SMS_PROVIDER` are **identifiers and public keys, not secrets**. They need no rotation. The ed25519
+public key is verification material; disclosing it grants nothing.
+
+**The repository itself is clean.** `git grep` over the tracked tree finds no real connection
+string, API key, or Neon host — every secret-shaped literal is a test fixture
+(`postgres://user:pass@localhost`). `.env` is gitignored and has never been committed. Exposure was
+confined to working transcripts, so **no history rewrite is required**.
+
+### Order
+
+1. **Settle the project question** above. If provisioning fresh, do that first; steps 2 and 4 become
+   provisioning rather than rotation.
+2. **`DATABASE_URL`** — reset in Neon, update Vercel, update any local `.env`. Do this before the
+   others so subsequent verification runs against the intended database.
+3. **`TELNYX_API_KEY`** — rotate in the Telnyx console, update Vercel. Required on both paths.
+4. **`MAGIC_LINK_SECRET`** — new random value into Vercel.
+5. **`CRON_SECRET`** — the same new value into **both** Vercel and `gh secret set CRON_SECRET`.
+6. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, update local `.env` only.
+7. **Redeploy**, then run every proof in the next section.
+8. **Confirm the old values no longer authenticate** (also below).
+
+### Proof by effect — required before GL-001 is marked complete
+
+Run after the redeploy. Each proves the *new* value works; the second table proves the *old* one
+does not.
+
+| Credential | Proof it works |
+|---|---|
+| `DATABASE_URL` | `GET /api/public/stands` returns **200** with the expected body |
+| `CRON_SECRET` | `gh workflow run scheduled-worker.yml`, then the run reports **HTTP 200** (the workflow checks `%{http_code}`, so a 401 fails the run rather than showing a green tick) |
+| `TELNYX_API_KEY` | a real send returns a provider message ID; or a signed inbound webhook returns **401→200** path end to end |
+| `MAGIC_LINK_SECRET` | a freshly minted link signs in |
+| `DEEPINFRA_API_KEY` | `npm run evals:live` completes (costs a few cents — needs explicit approval) |
+| every Telnyx var | an unsigned POST to `/api/sms/webhook` returns **401**, not 500 — under the three-way diagnostic, 401 proves configuration still resolves |
+
+| Old value | Proof it is dead |
+|---|---|
+| old `DATABASE_URL` | a connection attempt with it is refused |
+| old `CRON_SECRET` | `POST /api/internal/cron` with the old bearer token returns **401** |
+| old `TELNYX_API_KEY` | a request to the Telnyx API with it returns **401** |
+| old `MAGIC_LINK_SECRET` | a link minted under the old secret is refused at the callback |
+| old `DEEPINFRA_API_KEY` | a request with it returns **401** |
+
+If a path was "provision fresh, then tear down", the old-value proofs are satisfied by the teardown
+itself — but **verify the teardown actually happened**, and record which proof each row rests on.
 
 ### The production deploy sequence (done once on 2026-07-27; repeat in this order)
 
