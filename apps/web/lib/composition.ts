@@ -87,9 +87,9 @@ export interface ModelConfig {
  * is only as good as the contract review behind it — check the vendor's data-processing
  * terms first, then declare what they actually say, and cite them in the PR.
  *
- * The stub is the ONLY provider configured today; no real vendor's terms have been approved
- * through this gate yet. docs/AI_ARCHITECTURE.md §"Provider privacy gate" and
- * docs/RUNBOOK.md §"Swap a provider" carry the full procedure.
+ * DeepInfra's attestation below is the one real vendor approved through this gate.
+ * docs/AI_ARCHITECTURE.md §"Provider privacy gate" and docs/RUNBOOK.md §"Swap a provider"
+ * carry the full procedure.
  */
 const STUB_DATA_HANDLING: ProviderDataHandling = {
   trainsOnData: false,
@@ -99,34 +99,67 @@ const STUB_DATA_HANDLING: ProviderDataHandling = {
 };
 
 /**
- * DeepInfra's attested data handling — DELIBERATELY `null`. THIS IS A BLOCKING TODO (F-024).
+ * DeepInfra's attested data handling (F-024). Reviewed and directed by max, 2026-07-28.
  *
- * DeepInfra is the decided provider (F-024, max 2026-07-26), serving a mid-size open-weight
- * instruct model. The attested terms are **DeepInfra's, as the inference host** — the model
- * author's licence (Mistral's, Meta's) is not the relevant contract, because DeepInfra is who
- * receives, serves, and may log or retain the request.
+ * The attested terms are **DeepInfra's, as the inference host** — the model author's licence
+ * is not the relevant contract, because DeepInfra is who receives, serves, and may log or
+ * retain the request. Sources reviewed:
  *
- * TO UNBLOCK: read DeepInfra's data-processing terms and replace `null` with the four values
- * they actually state:
+ *   - https://docs.deepinfra.com/account/data-privacy (the operative inference terms)
+ *   - https://deepinfra.com/privacy (the general privacy policy, which defers to the above)
  *
- *   trainsOnData           — do they train on API requests/responses? Gate requires false.
- *   statefulStorage        — any provider-managed conversation, file, memory, or retrieval
- *                            store? Gate requires false; Farm Friend's calls are stateless.
- *   requestLoggingDisabled — is request/response logging off (or disable-able, and disabled)?
- *                            Gate requires true.
- *   retentionDays          — unavoidable provider-side retention, in days. Gate requires
- *                            <= MAX_APPROVED_PROVIDER_RETENTION_DAYS (30).
+ * What the terms state, verbatim, per field:
  *
- * DO NOT INFER THESE FROM MARKETING COPY, a pricing page, or another vendor's terms. They are
- * an ATTESTATION — a record that a human read the contract — not a setting that makes a vendor
- * behave. Writing `trainsOnData: false` does not stop anyone training on our data; it claims
- * someone checked. Cite the reviewed terms in the PR that fills this in.
+ *   trainsOnData: false — "We do not use data you submit to our APIs for training models,
+ *     except when using Google or Anthropic models, where the receiving company's training
+ *     policy applies." The exception is a model ROUTED to a third-party vendor's endpoints;
+ *     `resolveModelConfig` refuses those model namespaces below, so the attested value holds
+ *     for every configuration this gate can admit.
  *
- * Until then `resolveModelConfig` refuses to select DeepInfra, so no farmer or customer text
- * can reach a vendor under terms nobody has read. That refusal is the enforcement; this
- * comment is only the instructions.
+ *   statefulStorage: false — "Input data is not stored to disk during inference — it exists
+ *     only in memory while the request is being processed"; "Output data is not stored — it
+ *     is sent to you and then deleted from memory." No provider-managed conversation, file,
+ *     memory, or retrieval store exists, and the adapter sends no session identifier for one
+ *     to accumulate under. (The terms' stated storage exceptions — image-generation outputs
+ *     and bulk/async inference — are API surfaces Farm Friend does not call.)
+ *
+ *   requestLoggingDisabled: true — "We generally do not log the content of your requests. We
+ *     log metadata useful for debugging: request ID, cost, sampling parameters." Content
+ *     logging is off as the provider's default, with no toggle to mis-set; the logged
+ *     metadata carries no farmer or customer text.
+ *
+ *   retentionDays: 0 — the stated design is zero retention for real-time inference: inputs
+ *     exist only in memory during processing and outputs are deleted once returned (quoted
+ *     above). The terms state no other number.
+ *
+ * KNOWN CAVEAT, recorded so the attestation does not overclaim: DeepInfra "reserve[s] the
+ * right to log a small portion of requests when necessary for debugging or security
+ * purposes", with no stated bound. That is a discretionary exception to the zero-retention
+ * default, not a stated retention window — inventing a number for it would itself be the
+ * inference this gate forbids. It was reviewed and accepted as compatible with Farm Friend's
+ * own short-lived raw-context posture.
+ *
+ * These fields are an ATTESTATION, not a setting: they record that a human read the
+ * contract; they do not make the vendor behave. If DeepInfra's terms change, re-read them
+ * and move this block, its citation date, and the pinned test together.
  */
-const DEEPINFRA_DATA_HANDLING: ProviderDataHandling | null = null;
+const DEEPINFRA_DATA_HANDLING: ProviderDataHandling = {
+  trainsOnData: false,
+  statefulStorage: false,
+  requestLoggingDisabled: true,
+  retentionDays: 0,
+};
+
+/**
+ * Model namespaces DeepInfra serves by ROUTING to the named third-party vendor's endpoints.
+ * The attestation above is conditional on not using them — DeepInfra's terms transfer data
+ * to the receiving vendor, whose training and retention policies then apply and were never
+ * attested. Conservative by prefix: this also refuses vendor-authored open-weight models
+ * DeepInfra self-hosts (e.g. `google/gemma-*`), which is deliberate fail-closed reading of
+ * ambiguous contract language ("Google or Anthropic models") — selecting one is a re-read
+ * of the terms, not a config change.
+ */
+const THIRD_PARTY_ROUTED_MODEL_PREFIXES = ["anthropic/", "google/"];
 
 /**
  * Select the provider from configuration.
@@ -149,13 +182,18 @@ function resolveModelConfig(env: NodeJS.ProcessEnv): ModelConfig {
     const apiKey = required(env, "DEEPINFRA_API_KEY");
     const model = required(env, "DEEPINFRA_MODEL");
 
-    // Fail closed on the attestation. This is the blocking TODO above, enforced.
-    if (DEEPINFRA_DATA_HANDLING === null) {
+    // The attestation's carve-out, enforced. These namespaces route the request to a
+    // third-party vendor under that vendor's unattested terms, so admitting one would make
+    // the version-controlled attestation false for a reachable configuration.
+    const routed = THIRD_PARTY_ROUTED_MODEL_PREFIXES.find((prefix) =>
+      model.trim().toLowerCase().startsWith(prefix),
+    );
+    if (routed !== undefined) {
       throw new ConfigurationError(
-        "LLM_PROVIDER=deepinfra, but DeepInfra's data handling is not attested. " +
-          "Read their data-processing terms and fill DEEPINFRA_DATA_HANDLING in " +
-          "apps/web/lib/composition.ts (trainsOnData, statefulStorage, " +
-          "requestLoggingDisabled, retentionDays). Never infer these values.",
+        `DEEPINFRA_MODEL="${model}" is routed to a third-party vendor ("${routed}" ` +
+          "namespace): DeepInfra's attested no-training terms exclude Google and Anthropic " +
+          "models, whose own data-handling policies apply and were never attested. " +
+          "Choose a DeepInfra-hosted open-weight model, or re-read and re-attest the terms.",
       );
     }
 
