@@ -492,6 +492,43 @@ or worker state.
 
 ### GL-019 — Fail closed on production model configuration
 
+**Completed (code):** 2026-07-28 — pulled forward from P2 at Max's request, because the live
+deployment was affected right now. **Confirmed against the live environment, not inferred:**
+`vercel env ls production` shows no `LLM_PROVIDER`, `DEEPINFRA_API_KEY`, or `DEEPINFRA_MODEL` at
+all, so production has run the deterministic stub for its entire life — every model-backed journey
+degrading into a clarification while health, the webhook, and every suite stayed green.
+
+- **Fix.** `LLM_PROVIDER` is now required with **no default**, exactly like `PHONE_HASH_SALT` and
+  `CRON_SECRET`. Absent, blank, or unknown is a `ConfigurationError` at startup.
+- **Deliberately not "required in production."** The guide's wording invited environment sniffing,
+  and this codebase already refuses that pattern — `cron-auth.test.ts` asserts the cron route
+  contains no `NODE_ENV`/`VERCEL_ENV`, on the reasoning that a rule which relaxes off-production is
+  one misconfigured deploy from being wrong. That is precisely how this defect survived: the
+  default behaved identically everywhere it was tested. Max chose refuse-everywhere.
+- **The stub is unchanged and still available** — for tests, evals, and local development. It lost
+  only the ability to be selected *by accident*.
+- **Tests.** Absent and blank both throw; the stub still resolves when named explicitly; plus a
+  source assertion anchored to the selector that it reads no environment flag and carries no `??`
+  default. Sabotage-verified twice: reintroducing the old default fails both new tests, and so does
+  a "required only when `VERCEL_ENV=production`" variant.
+- **Fallout fixed honestly** rather than papered over: six fixtures and two integration suites that
+  relied on the implicit default now state `LLM_PROVIDER=stub`.
+- **`.env.example` created** (also closes **GL-033**), naming every required variable, which are
+  explicit in production, and which providers are deliberately unconfigured. No real credential;
+  verified against `.gitignore`'s un-ignore rule and scanned for credential shapes.
+- **Verified:** `npm test` **482/482** · `npm run test:integration` **297/297** · evals 11/11
+  critical, 29/29 adversarial · lint · root typecheck · `next build`.
+
+**Still open — the deployment itself.** The code now refuses to start without an explicit choice,
+which means **production will fail to boot until `LLM_PROVIDER` is set in Vercel**. Setting it
+(plus `DEEPINFRA_API_KEY` and `DEEPINFRA_MODEL` for a real provider) and redeploying is Max's
+action, tracked with GL-001's rotation since both touch the same settings. Do not deploy this commit
+before those variables exist.
+
+**Not addressed here:** "readiness must show which provider class is active." `GET /api/health` is a
+bare liveness check with no configuration awareness; building an authenticated readiness surface
+belongs to **GL-018** rather than a bespoke one here.
+
 **Confirmed risk**
 
 An absent `LLM_PROVIDER` selects the deterministic stub. A production deployment can therefore look
@@ -704,6 +741,16 @@ Status should live in one place. Contract documents may identify a capability as
 carrying rapidly stale build banners.
 
 ### GL-033 — Add the missing environment template
+
+**Completed:** 2026-07-28 — created alongside GL-019, which made the file load-bearing rather than
+merely missing: `LLM_PROVIDER` is now required, so a developer with no template cannot start the app
+at all.
+
+`.env.example` names every required variable with safe placeholder values, marks which must be
+explicit in production, carries the never-rotate warning on `PHONE_HASH_SALT` and the two-place
+requirement on `CRON_SECRET`, and states that mail (F-031) is deliberately unconfigured and fails
+closed. No real credential: verified against `.gitignore`'s `!.env.example` un-ignore rule and
+scanned for credential shapes.
 
 The runbook instructs developers to copy `.env.example`, and `.gitignore` explicitly permits that
 file, but it does not exist.

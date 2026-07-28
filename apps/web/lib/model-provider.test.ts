@@ -20,8 +20,32 @@ const baseEnv = {
 } satisfies NodeJS.ProcessEnv;
 
 describe("model provider selection (F-024)", () => {
-  it("defaults to the stub, which makes no network call", () => {
-    const config = resolveConfig({ ...baseEnv });
+  it("REFUSES to start when LLM_PROVIDER is absent (GL-019)", () => {
+    // Until this, an absent `LLM_PROVIDER` selected the stub. Production had no
+    // `LLM_PROVIDER` at all, so the deployment ran the deterministic test double against
+    // real traffic: every model-backed journey degraded into a clarification while health
+    // checks, the webhook, and every suite stayed green. Silent degradation is the failure
+    // mode this whole file exists to prevent, and the default was the hole in it.
+    //
+    // There is deliberately NO environment sniffing here — no NODE_ENV, no VERCEL_ENV. A
+    // rule that relaxes off-production is one misconfigured deploy from being live, and the
+    // codebase already refuses that pattern (`cron-auth.test.ts`). The setting is simply
+    // required, exactly as PHONE_HASH_SALT and CRON_SECRET are.
+    expect(() => resolveConfig({ ...baseEnv })).toThrow(ConfigurationError);
+    expect(() => resolveConfig({ ...baseEnv })).toThrow(/LLM_PROVIDER/);
+  });
+
+  it("refuses a blank LLM_PROVIDER rather than treating it as unset", () => {
+    // An empty Vercel variable is the shape a half-finished configuration actually takes.
+    expect(() => resolveConfig({ ...baseEnv, LLM_PROVIDER: "   " })).toThrow(
+      ConfigurationError,
+    );
+  });
+
+  it("still selects the stub when it is asked for EXPLICITLY", () => {
+    // The stub stays available for local development and tests. What it loses is the
+    // ability to be selected by accident.
+    const config = resolveConfig({ ...baseEnv, LLM_PROVIDER: "stub" });
     expect(config.model.provider).toBe("stub");
   });
 
@@ -86,6 +110,23 @@ describe("model provider selection (F-024)", () => {
     expect(() =>
       resolveConfig({ ...baseEnv, LLM_PROVIDER: "deepinfra" }),
     ).toThrow(ConfigurationError);
+  });
+
+  it("selects the provider without consulting the deployment environment (GL-019)", () => {
+    // A SOURCE assertion, anchored to the selector itself rather than to vocabulary that
+    // appears near it. The property belongs to a shape the runtime cannot show: a
+    // provider rule that reads NODE_ENV/VERCEL_ENV would behave one way in every test and
+    // another way in the one place that matters, which is precisely how production came to
+    // be running the stub unnoticed.
+    const source = readFileSync(new URL("./composition.ts", import.meta.url), "utf8");
+    const selector = source.slice(
+      source.indexOf("function resolveModelConfig"),
+      source.indexOf("function required("),
+    );
+    expect(selector.length).toBeGreaterThan(0);
+    expect(selector).not.toMatch(/NODE_ENV|VERCEL_ENV|isDev|__DEV__|isProduction/);
+    // And no default: the fallback that caused this is a `??` on the selector itself.
+    expect(selector).not.toMatch(/LLM_PROVIDER\s*(?:\?\?|\|\|)/);
   });
 });
 

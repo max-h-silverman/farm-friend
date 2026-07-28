@@ -83,7 +83,13 @@ Copy `.env.example` → `.env` and fill:
 - With `SMS_PROVIDER=telnyx`, all four are required: `TELNYX_API_KEY`,
   `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, and `TELNYX_PUBLIC_KEY` — the ed25519
   webhook verification key, without which inbound webhooks cannot be verified at all.
-- Model provider selection and model config — stub is the default in tests and evals.
+- `LLM_PROVIDER` — `stub` or `deepinfra`. **Required, no default (GL-019).** Set it to `stub` for
+  ordinary local work: the stub is still the right choice there, it simply has to be asked for.
+  Absent, blank, or unknown is a configuration error — production had no `LLM_PROVIDER` and
+  therefore ran the test double against real traffic, entirely silently, because the code supplied
+  the default. There is deliberately no environment-dependent relaxation.
+- With `LLM_PROVIDER=deepinfra`: `DEEPINFRA_API_KEY` and `DEEPINFRA_MODEL` are required, and an
+  `anthropic/`- or `google/`-namespaced model is refused (their terms were never attested).
 
 Runtime configuration is parsed and validated in the **single composition root**
 (`apps/web/lib/composition.ts`); there is no `config` package. It **fails closed**: selecting live
@@ -513,10 +519,14 @@ place (CLAUDE.md, "Simplicity and elegance").
   what this is: an operator-attested, version-controlled declaration checked in code — not a
   network audit of the vendor's actual practice.
 
-  **Which provider is configured.** `LLM_PROVIDER` selects it: `stub` (default; the deterministic
-  test/dev double, no network call) or `deepinfra`. An unknown value is a `ConfigurationError`, not
-  a fallback — a typo must never silently run the test double against real farmers. DeepInfra
-  additionally needs `DEEPINFRA_API_KEY` and `DEEPINFRA_MODEL`.
+  **Which provider is configured.** `LLM_PROVIDER` selects it: `stub` (the deterministic test/dev
+  double, no network call) or `deepinfra`. **It is required and has no default (GL-019)** — absent
+  or blank is a `ConfigurationError`, as is an unknown value, because a typo or an omission must
+  never silently run the test double against real farmers. That is not hypothetical: production ran
+  the stub for its entire life because nobody set the variable and the code defaulted to it.
+  Deliberately **not** "required only in production" — a rule that relaxes off-production behaves
+  one way everywhere it is tested and another way where it matters, which is exactly how the defect
+  survived. DeepInfra additionally needs `DEEPINFRA_API_KEY` and `DEEPINFRA_MODEL`.
 
   **DeepInfra is attested (F-024, reviewed 2026-07-28, directed by max).**
   `DEEPINFRA_ATTESTED_DATA_HANDLING` in `packages/ai/src/deepinfra.ts` — beside the adapter it
@@ -766,8 +776,17 @@ The order is the safety property: **do not point the carrier at the app before t
    | `MAGIC_LINK_SECRET` | a real generated secret (F-025a) |
    | `PUBLIC_BASE_URL` | the deployment's `https://` origin (F-032) |
    | `SMS_PROVIDER` | `telnyx` |
+   | `LLM_PROVIDER` | **required, no default (GL-019)** — `deepinfra` for a real deployment. Omitting it is now a startup error, not a silent fall back to the stub |
+   | `DEEPINFRA_API_KEY` · `DEEPINFRA_MODEL` | required when `LLM_PROVIDER=deepinfra`. An `anthropic/` or `google/` model is refused — those route to a vendor whose terms were never attested |
    | `TELNYX_API_KEY` · `TELNYX_MESSAGING_PROFILE_ID` · `TELNYX_FROM_NUMBER` | delivery credentials |
    | `TELNYX_PUBLIC_KEY` | the **ed25519 webhook verification key**; without it inbound webhooks cannot be verified at all |
+
+   > **GL-019 changed the failure mode here.** Until 2026-07-28 `LLM_PROVIDER` defaulted to `stub`,
+   > and production had never set it — so the live deployment ran the deterministic test double
+   > against real traffic while every health check, the webhook, and every suite stayed green. There
+   > is now no default and no environment sniffing: the variable is required exactly like
+   > `PHONE_HASH_SALT`. **A deployment that omits it will fail to start**, which is the point. Local
+   > development and tests keep the stub by stating `LLM_PROVIDER=stub`.
 
 4. **Verify configuration fails closed** in the deployed environment. Env vars do not take effect
    until a **redeploy**. POST an unsigned request to the live webhook and read the status — the

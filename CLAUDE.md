@@ -304,6 +304,21 @@ model on the compliance path" is structural, proven by a seam that throws. The w
 awaits them (B-004, fixed by B-009). The public map UI is built (F-017) and is model-free in its
 **module graph**, not just its handler.
 
+**`LLM_PROVIDER` is REQUIRED with no default, and production ran the stub until now (GL-019).**
+Verified against `vercel env ls`, not inferred: production has **no** `LLM_PROVIDER`,
+`DEEPINFRA_API_KEY`, or `DEEPINFRA_MODEL`, so the live deployment ran the deterministic test double
+for its entire life — every model-backed journey degrading to a clarification while health, the
+webhook, and all suites stayed green. The `?? "stub"` default was the hole. It is now
+`required(env, "LLM_PROVIDER")`, failing closed like `PHONE_HASH_SALT`. **Deliberately not "required
+in production"** — that invites the environment sniffing `cron-auth.test.ts` already forbids ("a
+guard that relaxes in development is one misconfigured deploy from being public"), and an
+environment-dependent rule is exactly what let this survive: the default behaved identically
+everywhere it was tested. max chose refuse-everywhere. The stub is unchanged and still used by
+tests, evals, and local dev — it just has to be **asked for**. A source assertion anchored to the
+selector pins both "no `??` default" and "no env flag"; sabotage-verified against the old default
+*and* against a `VERCEL_ENV === "production"` variant. **Consequence: production will not boot until
+`LLM_PROVIDER` is set in Vercel — do not deploy before that.** `.env.example` now exists (GL-033).
+
 **An abandoned dispatch claim is quarantined, never resent (GL-003).** `authorizeDispatch` commits
 `dispatching` before the body read, redaction, recipient resolution, provider call, and result
 recording — and `dispatching` was written in **one** place and read by **nothing**, while
@@ -566,7 +581,7 @@ latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `
 idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
 inventory.
 
-**Verified July 28, 2026 (`main`, this work merged):** `npm test` **479/479 across 50 files**;
+**Verified July 28, 2026 (`main`, this work merged):** `npm test` **482/482 across 50 files**;
 `npm run test:integration` **297/297 across 19 files** on real Postgres 16.12 (285 baseline + GL-002 and GL-003);
 `npm run evals`
 critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); `npm run evals:live`
