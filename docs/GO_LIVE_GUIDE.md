@@ -5,6 +5,20 @@ complete Phase 1 launch. Work through it in priority order. It is deliberately m
 than the product and architecture documents: those describe the intended product and its enduring
 rules; this document says what remains between the current repository and go-live.
 
+## Decisions made without Max
+
+Product and design calls made autonomously while working this guide, newest last. One line each, so
+they can be reviewed and reversed in one place.
+
+- **GL-004 (2026-07-28) — single-use links are a column on `admin_sessions`, not a new credential
+  table.** The session row *is* the record that the link was spent, so consume and session are one
+  insert with nothing to reconcile. Rejected the separate-table design because it would have to be
+  written when a link is *minted* — an unauthenticated write from the internet, and a per-address row
+  that recreates the membership oracle the sign-in path exists to deny. Reversible: it would mean a
+  new table plus a mint-time write path.
+- **GL-004 (2026-07-28) — a replayed link and a non-administrator return the same 401.** Naming the
+  difference would tell an attacker holding a copied link that it had been genuine.
+
 ## Status and baseline
 
 - **Review baseline:** `e96d362b4071d7fea783aaf1593fcc0dec6d44e8` on `main`, matching
@@ -218,6 +232,43 @@ Relevant code:
 - Surface stuck/ambiguous work in operator diagnostics.
 
 ### GL-004 — Make admin magic links genuinely one-use
+
+**Completed:** 2026-07-28 — `f6544a2`. Reconfirmed in full before implementing: `verifyMagicToken`
+was pure HMAC with no state, and the callback minted a session on every verification, while
+`sign-in-email.ts` had been promising "can be used once" since F-032.
+
+- **A column, not a table.** Each link carries a random 32-byte `nonce` inside its signed payload;
+  the callback stores its SHA-256 in `admin_sessions.magic_nonce_hash` under a UNIQUE INDEX, written
+  by the **same insert that creates the session**. A link being spent and a session existing are the
+  same event, so there is no second record to keep in step. A separate credential table would have
+  had to be written at **mint** time — an unauthenticated write path, and a per-address row whose
+  presence is exactly the membership oracle `/api/auth/request-link` exists to deny. Minting still
+  writes nothing.
+- **The arbiter is the index**, reached through `on conflict (magic_nonce_hash) do nothing returning
+  id`, where the empty result is the signal someone else won. Not a check-then-write: `for update`
+  cannot lock a row that does not exist yet (the B-011 lesson). Authority is re-read **before** the
+  link is spent, so a revoked operator's link is refused without being burned.
+- **Enumeration resistance preserved:** `link_already_used` and `not_an_administrator` both render
+  401, so a replayed link is not a probe for which links were genuine.
+- **Legacy tokens fail closed.** A well-signed token whose nonce is missing or malformed is rejected
+  as `malformed` rather than defaulting to a placeholder — a placeholder would give every such link
+  the same identity, so opening one would consume all of them.
+- **Migration 0006**, proven from an empty database by the integration run (7 migrations total).
+- **Sabotage, verified by the main agent by hand, not by report.** Replacing the atomic insert with
+  a read-then-write fails `survives EIGHT simultaneous uses of one link…`; downgrading the UNIQUE
+  INDEX to a plain INDEX fails **9 tests** across both DB suites. Each guard is independently
+  load-bearing.
+- **The race test was not falsifiable on its first draft**, and the sabotage is what caught it:
+  eight `Promise.all` calls through one `Db` handle queue behind its 3-connection pool, so each
+  transaction completed before the next began. Each claimant now gets its **own connection** plus a
+  barrier so all eight reach the insert together. This is the `Promise.all` rule with a pool-size
+  twist the standing rules did not previously state.
+- **Verified:** `npm test` **487/487 across 50 files** · `npm run test:integration` **311/311 across
+  19 files** on local Postgres 16 · lint · root typecheck · `next build`. Counts reproduced
+  independently from a clean checkout, not taken from the subagent's summary.
+- **Correction to a documented figure:** the web-only `npx tsc -p apps/web/tsconfig.json --noEmit`
+  baseline is **57 errors**, not the 54 recorded in `CLAUDE.md` — measured identical on clean `main`
+  via `git stash`. That is GL-005's scope.
 
 **Confirmed defect**
 
