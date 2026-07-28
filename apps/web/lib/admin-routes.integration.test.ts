@@ -53,6 +53,7 @@ describe("admin routes (integration)", () => {
   let flagsRoute: typeof import("../app/api/admin/flags/route");
   let threadRoute: typeof import("../app/api/admin/flags/[flagId]/thread/route");
   let reportsRoute: typeof import("../app/api/admin/stock-out-reports/route");
+  let standDataRoute: typeof import("../app/api/admin/stand-data-flags/route");
   let callbackRoute: typeof import("../app/api/auth/callback/route");
   let logoutRoute: typeof import("../app/api/auth/logout/route");
 
@@ -111,6 +112,7 @@ describe("admin routes (integration)", () => {
     flagsRoute = await import("../app/api/admin/flags/route");
     threadRoute = await import("../app/api/admin/flags/[flagId]/thread/route");
     reportsRoute = await import("../app/api/admin/stock-out-reports/route");
+    standDataRoute = await import("../app/api/admin/stand-data-flags/route");
     callbackRoute = await import("../app/api/auth/callback/route");
     logoutRoute = await import("../app/api/auth/logout/route");
   }, 30_000);
@@ -183,6 +185,25 @@ describe("admin routes (integration)", () => {
             request("https://ff.example/api/admin/stock-out-reports", {
               method: "POST",
               body: JSON.stringify({ reportId: randomUUID(), action: "review" }),
+            }),
+          )
+        ).status,
+      ).toBe(403);
+
+      // F-037's route, both methods, same rule: a handler that forgets its guard fails here.
+      expect(
+        (
+          await standDataRoute.GET(
+            request("https://ff.example/api/admin/stand-data-flags"),
+          )
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await standDataRoute.POST(
+            request("https://ff.example/api/admin/stand-data-flags", {
+              method: "POST",
+              body: JSON.stringify({ flagId: randomUUID(), note: "decided" }),
             }),
           )
         ).status,
@@ -645,6 +666,109 @@ describe("admin routes (integration)", () => {
         { params: { flagId } },
       );
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe("the stand-data flag queue through its route (F-037)", () => {
+    /** A seeded stand with one open data flag, the way the loader writes them. */
+    async function standDataFlag(): Promise<{ flagId: string }> {
+      const farms = await sql()`
+        insert into farms (name) values (${`Data Farm ${randomUUID()}`}) returning id
+      `;
+      const locations = await sql()`
+        insert into sales_locations (
+          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (
+          ${farms[0]?.id as string}, 'farm_stand', ${`Data Stand ${randomUUID()}`},
+          '9 Vashon Hwy', 47.42, -122.44, false, false
+        )
+        returning id
+      `;
+      const flags = await sql()`
+        insert into stand_data_flags (sales_location_id, reason, source_text)
+        values (
+          ${locations[0]?.id as string}, 'contradictory_hours',
+          'Open: 9-5 | Open: dawn to dusk'
+        )
+        returning id
+      `;
+      return { flagId: flags[0]?.id as string };
+    }
+
+    it("lists open flags and resolves one, recording the SESSION's administrator", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { flagId } = await standDataFlag();
+
+      const listed = await standDataRoute.GET(
+        request("https://ff.example/api/admin/stand-data-flags", { token }),
+      );
+      expect(listed.status).toBe(200);
+      const payload = (await listed.json()) as { flags: { flagId: string }[] };
+      expect(payload.flags.map((flag) => flag.flagId)).toContain(flagId);
+
+      const impostor = await sql()`
+        insert into administrators (email, authorized_at)
+        values (${`stand-impostor-${randomUUID()}@viga.example`}, ${at(0).toISOString()})
+        returning id
+      `;
+      const resolved = await standDataRoute.POST(
+        request("https://ff.example/api/admin/stand-data-flags", {
+          method: "POST",
+          token,
+          // Naming someone else must not make them the actor.
+          body: JSON.stringify({
+            flagId,
+            note: "confirmed with the farmer",
+            administratorId: impostor[0]?.id,
+          }),
+        }),
+      );
+      expect(resolved.status).toBe(200);
+
+      const rows = await sql()`
+        select resolution_note, resolved_by_administrator_id
+        from stand_data_flags where id = ${flagId}
+      `;
+      expect(rows[0]?.resolution_note).toBe("confirmed with the farmer");
+      expect(rows[0]?.resolved_by_administrator_id).toBe(ids.administrator);
+
+      // A second operator's decision is refused, not overwritten.
+      const again = await standDataRoute.POST(
+        request("https://ff.example/api/admin/stand-data-flags", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ flagId, note: "a different decision" }),
+        }),
+      );
+      expect(again.status).toBe(409);
+    });
+
+    it("refuses a resolution without a note, without resolving anything", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { flagId } = await standDataFlag();
+
+      for (const body of [
+        { flagId },
+        { flagId, note: "" },
+        { flagId, note: "   " },
+        { note: "decided but no flag" },
+      ]) {
+        const response = await standDataRoute.POST(
+          request("https://ff.example/api/admin/stand-data-flags", {
+            method: "POST",
+            token,
+            body: JSON.stringify(body),
+          }),
+        );
+        expect(response.status).toBe(400);
+      }
+
+      const rows = await sql()`
+        select resolved_at from stand_data_flags where id = ${flagId}
+      `;
+      expect(rows[0]?.resolved_at).toBeNull();
     });
   });
 
