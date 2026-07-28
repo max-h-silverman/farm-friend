@@ -123,6 +123,15 @@ for all six real secrets.
 **Consequence: DeepInfra calls now cost money on real traffic.** Under $1/month at launch volume,
 but no longer zero.
 
+Merged as `c0c2b4e` (PR #53, squash) and **deployed the same session** — the standing rule after a
+past session found three merged fixes production had never received. Post-deploy proof on the new
+build: health 200, stands 200, admin 403, cron 401, webhook 401 (not 500, so the new
+`required(env, "LLM_PROVIDER")` found its value), `malformed_signature` on a junk signature, and a
+**GitHub-triggered scheduled run returning 200** — which exercises `CRON_SECRET` and all four worker
+passes against the deployed code, since the workflow fails the run on any other status. The Hobby
+plan still rejects the committed one-minute cron, so the `crons` block was stripped uncommitted for
+the deploy and restored immediately (GL-017 owns settling that).
+
 ### Standing lessons
 
 - **A review artifact is a set of leads, not a spec.** Three findings were exactly right; one
