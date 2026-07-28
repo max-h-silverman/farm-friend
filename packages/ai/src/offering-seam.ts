@@ -43,7 +43,7 @@ import { projectOfferingExtraction } from "./projections";
 // projections.ts validates against this exact schema. Not part of the seam's runtime API.
 export const offeringsSchema = z
   .object({
-    items: z.array(z.string().trim().min(1).max(40)).max(24),
+    items: z.array(z.string().trim().min(1).max(40)).max(40),
   })
   .strict()
   .refine(

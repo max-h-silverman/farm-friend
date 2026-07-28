@@ -196,6 +196,23 @@ numbers** (measured; an earlier "23 + 2" undercounted the phones), which are str
 data enters without captured consent. Websites and `@handles` are deliberately **kept**: the product
 contract publishes farmer-selected web and social links, and only direct phone/email are private.
 
+**Offerings — proposed by the model, committed only after review (F-024/F-036).** Two steps,
+deliberately separated so no model output reaches the database without a human between:
+
+```bash
+DEEPINFRA_MODEL="<model-id>" npm run offerings:propose -- "<path-to-csv>" maps/offerings-proposals.json
+# max reviews/edits the file, then:
+npm run db:seed-offerings -- maps/offerings-proposals.json --dry-run
+npm run db:seed-offerings -- maps/offerings-proposals.json
+```
+
+The propose step strips contact details before any text reaches the model, passes the same
+privacy gate as the composition root (`assertDeepInfraSelectionApproved`), and writes tags
+beside the source text they came from. The seed step is idempotent on (location, item), never
+rewrites an existing tag, skips entries without an `items` array, and reports unknown stand
+names (the address-refused stands exist in the CSV but not the database). It writes
+`sales_location_offerings` only — specialties, never inventory.
+
 Geocoding happens **once, during seeding** — it is not a permanent runtime provider seam,
 and a location that cannot be resolved is an **operator task**, never a fabricated coordinate.
 With the export's coordinates in hand, no lookup is needed for these 31 stands.
@@ -501,8 +518,11 @@ place (CLAUDE.md, "Simplicity and elegance").
   a fallback — a typo must never silently run the test double against real farmers. DeepInfra
   additionally needs `DEEPINFRA_API_KEY` and `DEEPINFRA_MODEL`.
 
-  **DeepInfra is attested (F-024, reviewed 2026-07-28, directed by max).** `DEEPINFRA_DATA_HANDLING`
-  in `apps/web/lib/composition.ts` records the terms transcribed verbatim from
+  **DeepInfra is attested (F-024, reviewed 2026-07-28, directed by max).**
+  `DEEPINFRA_ATTESTED_DATA_HANDLING` in `packages/ai/src/deepinfra.ts` — beside the adapter it
+  gates, so scripts and evals that construct the provider outside the composition root approve
+  the same declaration via `assertDeepInfraSelectionApproved` — records the terms transcribed
+  verbatim from
   <https://docs.deepinfra.com/account/data-privacy>: no training on API data, stateless inference
   (inputs in memory only, outputs deleted once returned), content logging off by default (metadata
   only), zero stated retention — with the known caveat, recorded at the binding, that DeepInfra
