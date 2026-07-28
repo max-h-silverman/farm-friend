@@ -172,6 +172,21 @@ retention has a documented maximum compatible with Farm Friend's approved raw-co
 Farm Friend rejects a provider/configuration that cannot meet those requirements. Its own model-run
 record continues to exclude model input and output content.
 
+**Status: DeepInfra is attested and configured (F-024, reviewed by max 2026-07-28).**
+`DEEPINFRA_ATTESTED_DATA_HANDLING` in `packages/ai/src/deepinfra.ts` carries the declaration, and
+`assertDeepInfraSelectionApproved` is the **one** approval path — it lives beside the adapter rather
+than in the web composition root precisely because seed scripts and live evals construct the provider
+directly and would otherwise bypass a gate that lived only in composition. The values are transcribed
+verbatim from the vendor's terms with their citation beside them; source tests pin **both**, so the
+record of who read what cannot drift from the numbers it justifies.
+
+Two things this gate does that are worth generalizing to the next provider. First, **an exception in
+the terms becomes code, not a footnote**: DeepInfra's no-training clause excludes models they route to
+Google or Anthropic, so those model namespaces are refused at startup — otherwise the attestation
+would be false for a reachable configuration. Second, **the caveat is recorded rather than smoothed
+over**: DeepInfra reserves an unbounded discretionary right to log a small portion of requests, and
+inventing a retention number to bound it would be exactly the inference the gate exists to prevent.
+
 ## Seam catalog
 
 The catalog is **deliberately small** — a new seam must earn its place; prefer generalizing an
@@ -297,8 +312,35 @@ rather than downgraded, and neither inquiry projection carries the other's data.
 prove a report never mutates published inventory or ranking, and that an entry from another farm's
 stand is refused against a code-bound location.
 
-Any change touching a model seam runs evals; a provider, prompt, or context-projection change must
-pass the full suite at parity or better.
+**A third group runs against the REAL model: `npm run evals:live` (F-024).** The scripted groups
+above use a stub, and a stub reads neither the output instructions nor the schema — so it is
+structurally blind to a seam whose instructions describe the wrong job. The first live run proved
+that concretely: **every seam failed validation** while 471 unit tests and all 44 scripted evals were
+green, because the projections attached SMS-composition guidance to seams whose output is structured
+JSON and never stated the expected shape.
+
+`evals/live.ts` splits into:
+
+- **live-containment** (must pass **100%**): the two enforcement barriers, reached through *real*
+  model output. Each fixture actively invites the model to comply with an injection, so the pass
+  condition is **the barrier held**, never *the model refused* — a distinction that matters, because
+  in practice the model **did** comply (asked to include an unretrieved `factId`, it included it) and
+  membership validation rejected the whole selection.
+- **live-quality** (recorded, non-fatal): what the brain is trusted for. Observed output is printed
+  so two candidate models can be compared run against run.
+
+A live-containment failure **stops and reports**; fixtures are never edited to go green.
+
+Two supporting mechanisms keep the seams honest between live runs. `SEAM_OUTPUT_SHAPES` gives each
+seam example shapes plus semantic notes, and `output-contracts.test.ts` parses **every documented
+example through that seam's real schema** in both directions — so the prose a model reads cannot
+drift from the validator that judges it. `nullAsAbsent()` accepts an explicit `null` as absence
+**only where a schema already declares optionality**, because instruct models near-universally emit
+`"field": null` for an unstated value; a null-valued *unknown* key still hits the strict schema's
+visible refusal.
+
+Any change touching a model seam runs evals **and the live suite**; a provider, prompt, or
+context-projection change must pass the full suite at parity or better.
 
 ## Abuse / cost on public model surfaces
 
