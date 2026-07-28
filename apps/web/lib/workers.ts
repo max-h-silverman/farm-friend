@@ -5,6 +5,7 @@ import {
   authorizeDispatch,
   claimNextInboundEvent,
   recordDispatchResult,
+  recoverAbandonedDispatches,
   releaseAbandonedClaims,
   purgeExpiredBodies,
   CONFIRMATION_WINDOW_MS,
@@ -115,17 +116,17 @@ export async function runInboundPass(
     const claimed = await claimNextInboundEvent(deps.db, { senderHash, now });
     if (!claimed) continue;
 
-    if (claimed.isStale) {
-      // Fail closed: an out-of-order event never mutates newer state.
-      await claimed.finalize({
-        outcome: "rejected",
-        now: deps.clock.now(),
-        failureCode: "stale_conversation_event",
-      });
-      processed += 1;
-      continue;
-    }
-
+    // GL-002: staleness is PASSED to the router, not applied before it.
+    //
+    // This pass used to reject every stale event here, ahead of any parsing. That silently
+    // discarded a `STOP` delayed behind a newer message — a compliance failure, because
+    // consent orders itself on its own watermark and never needed the conversation one.
+    // `routeInboundMessage` owns which messages the staleness rule may refuse; it returns a
+    // `stale` outcome for those, which this loop finalizes exactly as before.
+    //
+    // Finalizing a routed stale event as `processed` cannot corrupt ordering:
+    // `claimNextInboundEvent` guards the watermark update with `!isStale`, so a late STOP
+    // never rolls the conversation watermark backwards.
     try {
       const routed = await routeInboundMessage(
         {
@@ -148,8 +149,21 @@ export async function runInboundPass(
           occurredAt: claimed.occurredAt,
           providerEventId: claimed.providerEventId,
           inboxEventId: claimed.inboxEventId,
+          isStale: claimed.isStale,
         },
       );
+
+      if (routed.outcome.kind === "stale") {
+        // Fail closed: an out-of-order event never mutates newer conversation state. The
+        // router produced no replies and no durable consequence for it.
+        await claimed.finalize({
+          outcome: "rejected",
+          now: deps.clock.now(),
+          failureCode: routed.outcome.failureCode,
+        });
+        processed += 1;
+        continue;
+      }
 
       await queueReplies(
         deps.db,
@@ -222,15 +236,46 @@ async function activateAcceptedPrompt(
  *
  * `outboxWorkIds` is optional and exists for tests driving specific rows; a pass with no
  * argument enumerates its own due work, which is what the scheduler calls.
+ *
+ * ## Abandoned claims (GL-003)
+ *
+ * The claim commits `dispatching` before the body read, redaction, recipient resolution,
+ * provider call, and result recording — every one of which can throw, and the process can
+ * die outright. Two defenses, and they are deliberately different in kind:
+ *
+ *   - **Per-row isolation.** A throw is caught around each row so ONE poisoned message
+ *     cannot abort the pass and block every other sender's reply. The row is left
+ *     `dispatching` rather than guessed at.
+ *   - **A durable lease.** `recoverAbandonedDispatches` resolves rows stranded past
+ *     `DISPATCH_LEASE_MS` into `ambiguous`. That is the honest state: we do not know whether
+ *     the provider accepted the message, so it is never resent and never silently dropped.
+ *
+ * The catch cannot substitute for the lease — a killed process runs no catch block — and the
+ * lease cannot substitute for the catch, which is why both exist.
  */
 export async function runOutboundPass(
   deps: OutboundWorkerDeps,
   outboxWorkIds?: string[],
-): Promise<{ sent: number; suppressed: number; ambiguous: number }> {
+): Promise<{
+  sent: number;
+  suppressed: number;
+  ambiguous: number;
+  failed: number;
+  recovered: number;
+}> {
   const limit = deps.maxMessages ?? 25;
   let sent = 0;
   let suppressed = 0;
   let ambiguous = 0;
+  let failed = 0;
+
+  // Before claiming anything new, resolve claims a previous pass abandoned. Running it
+  // first means a stranded row is quarantined in the same pass that would otherwise walk
+  // past it, and it is bounded like every other pass.
+  const recovered = await recoverAbandonedDispatches(deps.context.db, {
+    now: deps.clock.now(),
+    limit,
+  });
 
   const work =
     outboxWorkIds ??
@@ -246,47 +291,63 @@ export async function runOutboundPass(
     }
     if (claim.status !== "authorized") continue;
 
-    const work = await deps.context.db.sql`
-      select recipient_hash, body from outbox_work where id = ${outboxWorkId}
-    `;
-    const recipientHash = work[0]?.recipient_hash as string;
-    const body = work[0]?.body as string;
+    try {
+      const work = await deps.context.db.sql`
+        select recipient_hash, body from outbox_work where id = ${outboxWorkId}
+      `;
+      const recipientHash = work[0]?.recipient_hash as string;
+      const body = work[0]?.body as string;
 
-    // The provider call is outside every transaction.
-    const result = await deps.context.sendSms({
-      recipientHash,
-      body: redactOutbound(body),
-      idempotencyKey: outboxWorkId,
-    });
+      // The provider call is outside every transaction.
+      const result = await deps.context.sendSms({
+        recipientHash,
+        body: redactOutbound(body),
+        idempotencyKey: outboxWorkId,
+      });
 
-    await recordDispatchResult(deps.context.db, {
-      dispatchAttemptId: claim.dispatchAttemptId,
-      outcome: result.outcome,
-      providerMessageId:
-        result.outcome === "accepted" ? result.providerMessageId : undefined,
-      errorCode: result.outcome === "accepted" ? undefined : result.errorCode,
-      // B-010: carry the provider's own code and sentence into the row an operator reads.
-      // Diagnostics only — nothing here changes what the dispatcher decides.
-      providerCode: result.outcome === "accepted" ? undefined : result.providerCode,
-      providerErrorDetail:
-        result.outcome === "accepted" ? undefined : result.errorDetail,
-      now: deps.clock.now(),
-    });
+      await recordDispatchResult(deps.context.db, {
+        dispatchAttemptId: claim.dispatchAttemptId,
+        outcome: result.outcome,
+        providerMessageId:
+          result.outcome === "accepted" ? result.providerMessageId : undefined,
+        errorCode: result.outcome === "accepted" ? undefined : result.errorCode,
+        // B-010: carry the provider's own code and sentence into the row an operator reads.
+        // Diagnostics only — nothing here changes what the dispatcher decides.
+        providerCode: result.outcome === "accepted" ? undefined : result.providerCode,
+        providerErrorDetail:
+          result.outcome === "accepted" ? undefined : result.errorDetail,
+        now: deps.clock.now(),
+      });
 
-    if (result.outcome === "accepted") {
-      // The provider accepted this prompt, so the confirmation window opens now. A
-      // non-confirmation message matches no open proposal and this is a no-op.
-      await activateAcceptedPrompt(
-        deps.context.db,
-        outboxWorkId,
-        deps.clock.now(),
-      );
-      sent += 1;
+      if (result.outcome === "accepted") {
+        // The provider accepted this prompt, so the confirmation window opens now. A
+        // non-confirmation message matches no open proposal and this is a no-op.
+        await activateAcceptedPrompt(
+          deps.context.db,
+          outboxWorkId,
+          deps.clock.now(),
+        );
+        sent += 1;
+      }
+      if (result.outcome === "ambiguous") ambiguous += 1;
+    } catch {
+      // GL-003 — isolate the row, never the pass.
+      //
+      // Deliberately NOT resolved here. The throw may have come from `sendSms` itself, in
+      // which case the provider's view of this message is unknown: writing a terminal state
+      // now would either claim a delivery that did not happen or requeue one that did. The
+      // row stays `dispatching` and the lease resolves it as `ambiguous` — the state that
+      // honestly says "we do not know" — after enough time has passed that no in-flight
+      // call could still land.
+      //
+      // Nothing is logged: the failure carries a recipient correlation, and the durable row
+      // is where an operator reads this. Counted so the pass result stops overstating
+      // success (GL-016 will give this a content-free diagnostic).
+      failed += 1;
     }
-    if (result.outcome === "ambiguous") ambiguous += 1;
   }
 
-  return { sent, suppressed, ambiguous };
+  return { sent, suppressed, ambiguous, failed, recovered };
 }
 
 export interface RetentionWorkerDeps {

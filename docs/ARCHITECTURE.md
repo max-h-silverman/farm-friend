@@ -142,6 +142,18 @@ arbitrarily reordered conversation.
 wins, and `STOP` wins an exact timestamp tie, so intervening free text cannot make a consent command
 stale and an older delayed `START` cannot undo a newer `STOP`.
 
+**Conversation staleness applies only to what mutates conversation state, and the router — not the
+worker — decides that** (GL-002). The two watermarks are independent, so the conversation one has no
+standing over a compliance keyword: `routeInboundMessage` parses compliance keywords **before** the
+staleness gate and applies the gate to free text and confirmation tokens only. A `STOP` delayed
+behind a newer processed message therefore still reaches `applyConsentTransition` and still
+suppresses later proactive dispatch. Finalizing such an event as `processed` cannot corrupt
+ordering: `claimNextInboundEvent` advances the conversation watermark only for a non-stale event.
+
+This was a real defect, not a hypothetical: `runInboundPass` used to reject every stale event ahead
+of any parsing, so a delayed opt-out was discarded as `stale_conversation_event` while the sender
+was recorded as still subscribed.
+
 ## Launch SMS consent
 
 Launch VIGA Farm Friend is one registered operational SMS program. Each recipient has one current
@@ -263,6 +275,24 @@ accepted is recorded as **ambiguous** and is not automatically resent unless Tel
 separately verified outbound idempotency facility. `message.sent` and `message.finalized` events
 advance delivery state monotonically by provider occurrence time; late events never regress a
 terminal result.
+
+**An abandoned authorization is quarantined, never resent or silently dropped** (GL-003). The claim
+commits `dispatching` before the body read, redaction, recipient resolution, provider call, and
+result recording — all of which can throw, and the process can die outright. Two defenses of
+different kinds, because neither substitutes for the other:
+
+- **Per-row isolation in the pass.** A throw is caught around each row, so one poisoned message
+  cannot abort the pass and block every other sender's reply. The row is left `dispatching` rather
+  than guessed at, and the pass counts it as `failed`.
+- **A durable lease.** `recoverAbandonedDispatches` resolves rows stranded past `DISPATCH_LEASE_MS`
+  (10 minutes) into **`ambiguous`** — the state that honestly says "we do not know whether the
+  provider accepted it." It runs first on each outbound pass, claims with `for update skip locked`
+  so concurrent passes partition rather than double-resolve, and resolves the open attempt with
+  `error_code = 'dispatch_lease_expired'` so it stops reading as in flight.
+
+A killed process runs no catch block, and a lease cannot isolate a row mid-pass. Recovery
+deliberately never returns work to `queued`: that would resend a message a real person may already
+be holding.
 
 ## Provider seams
 

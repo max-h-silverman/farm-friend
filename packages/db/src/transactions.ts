@@ -34,6 +34,21 @@ export const DEFAULT_CLAIM_TTL_MS = 5 * 60 * 1000;
 /** Telnyx dispatch attempts are bounded by the schema; keep the policy in one place. */
 export const MAX_DISPATCH_ATTEMPTS = 3;
 
+/**
+ * How long a dispatch authorization may stay unresolved before it is recoverable (GL-003).
+ *
+ * `authorizeDispatch` commits `dispatching` before the worker reads the body, resolves a
+ * number, calls the provider, and records the outcome. If the process dies in that window
+ * the row has no other way back — outbound enumeration selects `queued` only.
+ *
+ * Generous on purpose. The deadline must clear the slowest plausible provider call plus the
+ * worker's own retry, because expiring a lease on a call that is merely slow would quarantine
+ * work that is about to succeed. Bounded recovery matters more than fast recovery here: the
+ * consequence of waiting is a delayed reply, and the consequence of rushing is a duplicate
+ * SMS to a real person.
+ */
+export const DISPATCH_LEASE_MS = 10 * 60 * 1000;
+
 type Sql = ReturnType<typeof postgres>;
 type Tx = postgres.TransactionSql<Record<string, unknown>>;
 
@@ -1057,6 +1072,81 @@ export async function recordDispatchResult(
     }
     return { retryable };
   }) as Promise<{ retryable: boolean }>;
+}
+
+/**
+ * Quarantine dispatch claims abandoned past their lease (GL-003).
+ *
+ * ## Why these rows exist at all
+ *
+ * `authorizeDispatch` commits `state = 'dispatching'` and an `authorized` attempt, and only
+ * then does the worker read the body, resolve the recipient's number, call the provider, and
+ * record the result. Every one of those steps can throw, and the process can simply die. The
+ * row is then stranded: `releaseAbandonedClaims` recovers inbound events only, and outbound
+ * enumeration selects `queued`, so nothing ever looks at it again. The reply is never sent,
+ * never retried, and invisible to an operator.
+ *
+ * ## Why the outcome is `ambiguous` and never `queued`
+ *
+ * We do not know whether the provider accepted the message before we lost the thread. The
+ * carrier may already have delivered it to a real person's handset. Returning the row to
+ * `queued` would resend it — the one failure mode this system refuses everywhere else
+ * (`recordDispatchResult` quarantines a genuinely ambiguous provider result for exactly this
+ * reason). So recovery resolves the row into that same existing state rather than inventing a
+ * new one, and a recovered row is never re-authorized. An operator decides what to do with it.
+ *
+ * A resend would be safe only with verified provider-side idempotency over our key. Telnyx
+ * offers no such guarantee we have tested, so this does not assume one.
+ *
+ * ## Exactly once under concurrent passes
+ *
+ * `for update skip locked` over the expired rows: two passes partition the work instead of
+ * both resolving the same row or blocking on it. The `state = 'dispatching'` filter inside
+ * the same transaction is what makes a second pass a no-op rather than a double write.
+ *
+ * Returns a COUNT only — outbound work correlates to a recipient, so nothing identifying
+ * leaves this function.
+ */
+export async function recoverAbandonedDispatches(
+  db: Db,
+  input: { now: Date; limit?: number },
+): Promise<number> {
+  const limit = input.limit ?? 25;
+  const deadline = new Date(input.now.getTime() - DISPATCH_LEASE_MS);
+
+  return driver(db).begin(async (tx) => {
+    const stranded = await tx`
+      select id from outbox_work
+      where state = 'dispatching'
+        and dispatch_authorized_at is not null
+        and dispatch_authorized_at <= ${deadline}
+      order by dispatch_authorized_at asc
+      limit ${limit}
+      for update skip locked
+    `;
+    if (stranded.length === 0) return 0;
+
+    const ids = stranded.map((row) => (row as Record<string, unknown>).id as string);
+
+    // Resolve the open attempt too. Left `authorized`, it reads as still in flight forever
+    // and would corrupt any operator diagnostic counting outstanding sends. The error code
+    // is a fixed machine token, not provider text: no provider ever answered us.
+    await tx`
+      update outbox_dispatch_attempts
+      set state = 'ambiguous', completed_at = ${input.now},
+          error_code = 'dispatch_lease_expired'
+      where outbox_work_id = any(${ids}) and state = 'authorized'
+    `;
+
+    const recovered = await tx`
+      update outbox_work
+      set state = 'ambiguous', completed_at = ${input.now}
+      where id = any(${ids}) and state = 'dispatching'
+      returning id
+    `;
+
+    return recovered.length;
+  }) as Promise<number>;
 }
 
 /**

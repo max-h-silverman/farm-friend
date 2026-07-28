@@ -24,6 +24,9 @@ const baseEnv = {
   MAGIC_LINK_SECRET: "test-magic-secret",
   PUBLIC_BASE_URL: "https://ff.example",
   SMS_PROVIDER: "simulator",
+  // Required since GL-019: there is no default provider, so a fixture that omits this
+  // is an unconfigured app rather than a stubbed one.
+  LLM_PROVIDER: "stub",
 } satisfies NodeJS.ProcessEnv;
 
 describe("scheduled worker configuration fails closed", () => {

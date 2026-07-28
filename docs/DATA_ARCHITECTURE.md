@@ -110,6 +110,10 @@ These are **database-level** requirements, not application conventions:
   entry.
 - **One ordinary stateful claim per sender** — concurrent workers cannot claim overlapping
   conversation work for one sender. An abandoned claim is recovered on the same inbox row.
+- **An abandoned dispatch authorization is recoverable and resolves as ambiguous** — outbound work
+  authorized but never resolved carries `dispatch_authorized_at`, and past a fixed lease it becomes
+  `ambiguous` rather than being retried or left `dispatching` forever. It is never returned to
+  `queued`: the provider may already have delivered the message (GL-003).
 - **One open inventory confirmation per sender** — a partial uniqueness constraint prevents
   overlapping proposals from making generic `YES`/`NO` ambiguous. `NO` and expiry create no
   revision; `YES` creates the immutable revision and entries only after the transaction rechecks

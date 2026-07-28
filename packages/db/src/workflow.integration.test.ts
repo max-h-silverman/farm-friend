@@ -13,8 +13,10 @@ import {
   claimNextInboundEvent,
   confirmInventoryPublication,
   createDb,
+  DISPATCH_LEASE_MS,
   openOrReviseProposal,
   recordDispatchResult,
+  recoverAbandonedDispatches,
   releaseAbandonedClaims,
   type Db,
 } from "./index";
@@ -928,6 +930,146 @@ describe("authoritative SMS transactions (integration)", () => {
         now: at(60),
       });
       expect(reclaim.status).not.toBe("authorized");
+    });
+
+    describe("an abandoned dispatch claim is recovered, never resent (GL-003)", () => {
+      // The defect: `authorizeDispatch` commits `dispatching` and an `authorized` attempt
+      // BEFORE the worker reads the body, resolves a phone, calls Telnyx, and records the
+      // outcome. A crash or throw anywhere in that window left the row `dispatching`
+      // forever — `releaseAbandonedClaims` only ever touched inbound events, and outbound
+      // enumeration selects `queued` only. Nothing read the state, so the reply was never
+      // sent, never retried, and never visible to an operator.
+      //
+      // Recovery must resolve it as AMBIGUOUS, not `queued`. Farm Friend cannot know
+      // whether the provider accepted the message before the process died, and a
+      // reply the farmer already received must not be sent twice. That is exactly what
+      // `ambiguous` already means here, so this reuses it rather than inventing a state.
+
+      it("leaves a fresh authorized claim alone", async () => {
+        const workId = await queueWork("wf-lease-fresh");
+        const claim = await authorizeDispatch(database(), {
+          outboxWorkId: workId,
+          now: at(1),
+        });
+        expect(claim.status).toBe("authorized");
+
+        // One minute in, well inside the lease: the worker is plausibly still calling out.
+        const recovered = await recoverAbandonedDispatches(database(), { now: at(2) });
+
+        expect(recovered).toBe(0);
+        const row = await client()`select state from outbox_work where id = ${workId}`;
+        expect(row[0]?.state).toBe("dispatching");
+      });
+
+      it("quarantines a claim past its deadline as ambiguous", async () => {
+        const workId = await queueWork("wf-lease-abandoned");
+        const claim = await authorizeDispatch(database(), {
+          outboxWorkId: workId,
+          now: at(1),
+        });
+        if (claim.status !== "authorized") throw new Error("expected authorization");
+
+        const recovered = await recoverAbandonedDispatches(database(), {
+          now: new Date(at(1).getTime() + DISPATCH_LEASE_MS + 1),
+        });
+
+        expect(recovered).toBe(1);
+        const row = await client()`
+          select state, completed_at from outbox_work where id = ${workId}
+        `;
+        expect(row[0]?.state).toBe("ambiguous");
+        expect(row[0]?.completed_at).not.toBeNull();
+
+        // The attempt is resolved too, so it stops reading as still in flight, and it
+        // carries a reason an operator can see.
+        const attempt = await client()`
+          select state, error_code from outbox_dispatch_attempts
+          where id = ${claim.dispatchAttemptId}
+        `;
+        expect(attempt[0]?.state).toBe("ambiguous");
+        expect(attempt[0]?.error_code).toBe("dispatch_lease_expired");
+      });
+
+      it("NEVER re-authorizes recovered work — the provider may have accepted it", async () => {
+        const workId = await queueWork("wf-lease-no-resend");
+        const claim = await authorizeDispatch(database(), {
+          outboxWorkId: workId,
+          now: at(1),
+        });
+        if (claim.status !== "authorized") throw new Error("expected authorization");
+
+        await recoverAbandonedDispatches(database(), {
+          now: new Date(at(1).getTime() + DISPATCH_LEASE_MS + 1),
+        });
+
+        // This is the whole safety property. A recovered claim that returned to `queued`
+        // would resend an SMS the farmer may already be holding.
+        const reclaim = await authorizeDispatch(database(), {
+          outboxWorkId: workId,
+          now: at(600),
+        });
+        expect(reclaim.status).not.toBe("authorized");
+
+        const attempts = await client()`
+          select count(*)::integer as count from outbox_dispatch_attempts
+          where outbox_work_id = ${workId}
+        `;
+        expect(attempts[0]?.count).toBe(1);
+      });
+
+      it("does not touch work that already reached a terminal state", async () => {
+        const workId = await queueWork("wf-lease-terminal");
+        const claim = await authorizeDispatch(database(), {
+          outboxWorkId: workId,
+          now: at(1),
+        });
+        if (claim.status !== "authorized") throw new Error("expected authorization");
+        await recordDispatchResult(database(), {
+          dispatchAttemptId: claim.dispatchAttemptId,
+          outcome: "accepted",
+          providerMessageId: "prov-lease-terminal",
+          now: at(2),
+        });
+
+        const recovered = await recoverAbandonedDispatches(database(), {
+          now: new Date(at(1).getTime() + DISPATCH_LEASE_MS + 1),
+        });
+
+        expect(recovered).toBe(0);
+        const row = await client()`select state from outbox_work where id = ${workId}`;
+        expect(row[0]?.state).toBe("sent");
+      });
+
+      it("recovers each abandoned claim exactly once under concurrent passes", async () => {
+        // Distinct rows per claimant, so the contention is genuine (the F-037 lesson: a
+        // shared upstream row can serialize everything and make the test unfalsifiable).
+        const workIds = await Promise.all(
+          [0, 1, 2, 3, 4, 5, 6, 7].map((n) => queueWork(`wf-lease-race-${n}`)),
+        );
+        for (const workId of workIds) {
+          const claim = await authorizeDispatch(database(), {
+            outboxWorkId: workId,
+            now: at(1),
+          });
+          if (claim.status !== "authorized") throw new Error("expected authorization");
+        }
+
+        const now = new Date(at(1).getTime() + DISPATCH_LEASE_MS + 1);
+        const passes = await Promise.all([
+          recoverAbandonedDispatches(database(), { now }),
+          recoverAbandonedDispatches(database(), { now }),
+          recoverAbandonedDispatches(database(), { now }),
+          recoverAbandonedDispatches(database(), { now }),
+        ]);
+
+        // Every row recovered, and no row recovered twice.
+        expect(passes.reduce((sum, n) => sum + n, 0)).toBe(workIds.length);
+        const attempts = await client()`
+          select count(*)::integer as count from outbox_dispatch_attempts
+          where outbox_work_id = any(${workIds}) and state = 'ambiguous'
+        `;
+        expect(attempts[0]?.count).toBe(workIds.length);
+      });
     });
 
     it("applies out-of-order delivery events monotonically", async () => {

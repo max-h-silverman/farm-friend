@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
 import { createInquiryModel, createInventoryInterpreter } from "@farm-friend/ai";
 import { FixedClock, hashPhone } from "@farm-friend/core";
-import { createDb, type Db } from "@farm-friend/db";
+import { authorizeDispatch, createDb, type Db } from "@farm-friend/db";
 import { runInboundPass } from "./workers";
 
 // F-023 — inbound SMS routed END TO END, from a validly signed webhook POST to the durable
@@ -119,6 +119,9 @@ describe("inbound routing end to end (integration)", () => {
     // are set so `appContext()` resolves at all.
     process.env.MAGIC_LINK_SECRET = "test-magic-secret";
     process.env.PUBLIC_BASE_URL = "https://ff.example";
+    // GL-019: no default provider. These suites drive deterministic paths and assert no
+    // model is reached, so the stub is the right choice — it now has to be stated.
+    process.env.LLM_PROVIDER = "stub";
     process.env.SMS_PROVIDER = "telnyx";
     process.env.TELNYX_API_KEY = "test-api-key";
     process.env.TELNYX_MESSAGING_PROFILE_ID = "test-profile";
@@ -525,6 +528,110 @@ describe("inbound routing end to end (integration)", () => {
       `;
       expect(rejected).toHaveLength(1);
       expect(rejected[0]?.failure_code).toBe("stale_conversation_event");
+    });
+
+    it("a DELAYED STOP still unsubscribes, even behind a newer processed message (GL-002)", async () => {
+      // The failure this pins down: conversation staleness was rejecting events BEFORE they
+      // were parsed, so a STOP delayed in the carrier network — arriving after a newer
+      // ordinary message had already advanced the conversation watermark — was discarded as
+      // `stale_conversation_event` and never reached `applyConsentTransition` at all.
+      //
+      // That is a compliance failure, not an ordering nicety: the sender said STOP, the
+      // carrier delivered it, and Farm Friend recorded them as still subscribed.
+      //
+      // Consent has its own watermark (`consent_transition_watermarks`), entirely separate
+      // from `sender_states.conversation_occurred_at`, and it does its own ordering with STOP
+      // winning an exact tie. So a late STOP is safe to route; only the conversation
+      // watermark had any objection to it, and consent is not conversation state.
+      await deliverInbound({ fromPhone: customerPhone, text: "JOIN", occurredAt: at(5) });
+      await runPassWithForbiddenModel();
+
+      // A newer ordinary message is fully processed and advances the conversation watermark.
+      await deliverInbound({
+        fromPhone: customerPhone,
+        text: "HELP",
+        occurredAt: at(30),
+      });
+      await runPassWithForbiddenModel();
+
+      // The STOP is OLDER than that watermark: this is the delayed-delivery case.
+      await deliverInbound({
+        fromPhone: customerPhone,
+        text: "STOP",
+        occurredAt: at(20),
+      });
+      const provider = await runPassWithForbiddenModel();
+
+      // 1. Consent actually changed — the durable consequence, not the return value.
+      const consent = await client()`
+        select state from sms_consents where recipient_hash = ${customerHash}
+      `;
+      expect(consent[0]?.state).toBe("stopped");
+
+      // 2. It was processed, not rejected as stale.
+      const stopEvent = await client()`
+        select event.state, event.failure_code
+        from provider_inbox_events as event
+        join sms_messages as message on message.id = event.message_id
+        where message.body = 'STOP'
+      `;
+      expect(stopEvent[0]?.state).toBe("processed");
+      expect(stopEvent[0]?.failure_code).toBeNull();
+
+      // 3. Still no model call: a delayed STOP is routed deterministically like any other.
+      expect(provider.calls).toBe(0);
+
+      // 4. The point of all of it — a later proactive send is now suppressed. Consent that
+      //    changes state but does not reach the dispatch guard would be a paper opt-out.
+      const outboxId = randomUUID();
+      await client()`
+        insert into outbox_work (
+          id, recipient_hash, logical_key, message_category, body, body_expires_at,
+          state, available_at, created_at
+        ) values (
+          ${outboxId}, ${customerHash}, ${`gl002-proactive-${outboxId}`},
+          'inventory_prompt', 'Anything fresh at your stand today?', ${at(60 * 24 * 30)},
+          'queued', ${at(40)}, ${at(40)}
+        )
+      `;
+      const authorization = await authorizeDispatch(database(), {
+        outboxWorkId: outboxId,
+        now: at(41),
+      });
+      expect(authorization.status).toBe("suppressed");
+    });
+
+    it("a delayed STOP does NOT resurrect stale ordinary conversation handling", async () => {
+      // The guard on the fix. Routing a late consent command must not become "route
+      // everything late": an ordinary message and a confirmation token that arrive behind a
+      // newer processed event are still refused, because those DO mutate conversation state
+      // and have no independent watermark to order them.
+      await deliverInbound({
+        fromPhone: customerPhone,
+        text: "HELP",
+        occurredAt: at(30),
+      });
+      await runPassWithForbiddenModel();
+
+      for (const text of ["what do you have?", "YES"]) {
+        await deliverInbound({ fromPhone: customerPhone, text, occurredAt: at(10) });
+      }
+      const provider = await runPassWithForbiddenModel();
+      await runPassWithForbiddenModel();
+
+      const rejected = await client()`
+        select event.failure_code
+        from provider_inbox_events as event
+        join sms_messages as message on message.id = event.message_id
+        where event.state = 'rejected'
+        order by message.body
+      `;
+      expect(rejected).toHaveLength(2);
+      expect(rejected.map((row) => row.failure_code)).toEqual([
+        "stale_conversation_event",
+        "stale_conversation_event",
+      ]);
+      expect(provider.calls).toBe(0);
     });
 
     it("concurrent passes over one sender claim the event exactly once", async () => {

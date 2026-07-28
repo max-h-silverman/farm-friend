@@ -62,8 +62,13 @@ guarantee holds — check the code and the test.
   FLAG safety rail.
 
 [docs/README.md](docs/README.md) is the index (*building X → read these*).
+**[docs/GO_LIVE_GUIDE.md](docs/GO_LIVE_GUIDE.md) is the prioritized work order to launch** — the
+`GL-###` items, their priority bands, and the verification ladder. It controls **work order**; it
+does not override the product contract, and its findings are leads to reconfirm against the code,
+not a spec (one named a production credential that was not one). An item is open unless it carries
+a `**Completed:**` line.
 [docs/RUNBOOK.md](docs/RUNBOOK.md) is the operate/extend guide (local dev, env, migrations,
-seeding, evals, deploy, Telnyx webhook requirements, and **how to extend**).
+seeding, evals, deploy, Telnyx webhook requirements, **credential rotation**, and **how to extend**).
 [docs/ADMIN_OPERATIONS.md](docs/ADMIN_OPERATIONS.md) is the VIGA operator guide.
 [docs/SESSION_LOG.md](docs/SESSION_LOG.md) is build history — a **historical record** describing
 decisions the clean-room contract has since superseded. The live snapshot of what's true is
@@ -304,6 +309,34 @@ model on the compliance path" is structural, proven by a seam that throws. The w
 awaits them (B-004, fixed by B-009). The public map UI is built (F-017) and is model-free in its
 **module graph**, not just its handler.
 
+**`LLM_PROVIDER` is REQUIRED with no default (GL-019).** `required(env, "LLM_PROVIDER")`, failing
+closed like `PHONE_HASH_SALT`; absent/blank/unknown is a startup error. **Deliberately not "required
+in production"** — an environment-dependent rule is what let this hide: production had no
+`LLM_PROVIDER` and ran the deterministic stub its entire life, silently, while every suite stayed
+green. The stub is unchanged and still used by tests/evals/local dev; it just has to be **asked
+for**. A source assertion anchored to the selector pins "no `??` default" and "no env flag".
+`.env.example` exists (GL-033). Production is now set to `deepinfra` +
+`mistralai/Mistral-Small-24B-Instruct-2501` — **so model calls now cost money on real traffic.**
+
+**Conversation staleness belongs to the ROUTER, and covers only what mutates conversation state
+(GL-002).** The two watermarks are independent, so the conversation one has no standing over a
+compliance keyword: `routeInboundMessage` parses compliance **before** the gate, applying it to free
+text and confirmation tokens only. Finalizing a routed stale event `processed` is safe because
+`claimNextInboundEvent` advances the watermark only when `!isStale`. Before this, a `STOP` delayed
+behind a newer message was discarded as stale and the sender stayed `active`. The test asserts the
+opt-out reaches `authorizeDispatch` as `suppressed` — consent that never reaches the dispatch guard
+is a paper opt-out.
+
+**An abandoned dispatch claim is quarantined, never resent (GL-003).** `dispatching` was written in
+one place and read by **nothing**, and `runOutboundPass` had no error handling — so a throw both
+stranded the row forever *and* aborted every other sender's reply. Two defenses, neither
+substituting for the other: a per-row `catch` (a lease cannot isolate a row mid-pass) and
+`recoverAbandonedDispatches` / `DISPATCH_LEASE_MS` = 10 min (a killed process runs no catch block).
+Recovery resolves to **`ambiguous`** — already the "we do not know if the provider accepted it"
+state, so **no migration was needed** — never `queued`, which would resend an SMS someone may hold.
+`for update skip locked`; the open attempt gets `error_code = 'dispatch_lease_expired'`. **No
+operator view of quarantined work yet** — deliberately left to GL-016/GL-018.
+
 **`waitUntil` is load-bearing (B-009).** A bare `void` is invisible to the Vercel runtime, which
 suspends the invocation when the handler returns — in production that silently dropped *every*
 inbound message. **No behavioural test in vitest can see this**: Node resolves floating promises, so
@@ -465,11 +498,18 @@ that code commits after review. **B-013:** `listPublicStands` now LEFT-joins inv
 nobody has confirmed is visible with `asOf`/`recencyLabel`/`isStale` **absent together** — the map
 cannot render "updated just now" for a confirmation that never happened.
 
-**Deployed and verified in production 2026-07-28** (`ea4889b`, PR #51 — F-037; preceded same day by
-`a1e6fb7` PR #49 and `b47c564` PR #50, each deployed on merge). Verified by effect: health
-`{"ok":true}`, cron **401**, webhook **401**, `/api/admin/stand-data-flags` **403** on both methods.
+**Deployed and verified in production 2026-07-28** (PR #53 — GL-002/003/019/033; preceded same day
+by `ea4889b` PR #51, `a1e6fb7` PR #49, `b47c564` PR #50). Verified by effect: health `{"ok":true}`,
+cron **401**, webhook **401**, `/api/public/stands` 200, admin **403**.
 The webhook's 401 is the load-bearing check after any config-touching change: under the three-way
-diagnostic, 401 rather than 500 proves configuration still resolves.
+diagnostic, 401 rather than 500 proves configuration still resolves. Sharper still, a deliberately
+malformed signature returning **`malformed_signature`** proves `TELNYX_PUBLIC_KEY` decoded to a
+valid 32-byte ed25519 key rather than merely being non-empty.
+**Production env now carries the model provider** (`LLM_PROVIDER=deepinfra`, `DEEPINFRA_MODEL`,
+`DEEPINFRA_API_KEY`), and four needlessly-Sensitive vars were un-marked (`SMS_PROVIDER`,
+`PUBLIC_BASE_URL`, `TELNYX_PUBLIC_KEY`, `TELNYX_MESSAGING_PROFILE_ID`) so their values can be read
+back — **Vercel's Sensitive flag is one-way**, so un-marking means delete + re-add, and the cost of
+setting it on a non-secret is losing the ability to confirm what production runs.
 Earlier (`468859a`, PR #48; `d49394c`, PR #47). Migration **0005** applied
 (6 total; both tables, 4 enums, 12 columns confirmed by query). **B-013 proven by effect**: a probe
 stand with zero inventory was returned by `/api/public/stands` with `items: []` and **no `updated`
@@ -540,12 +580,19 @@ latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `
 idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
 inventory.
 
-**Verified July 28, 2026 (`main`, this work merged):** `npm test` **479/479 across 50 files**;
-`npm run test:integration` **285/285 across 18 files** on real Postgres 16.12; `npm run evals`
+**Verified July 28, 2026 (`main`, this work merged):** `npm test` **482/482 across 50 files**;
+`npm run test:integration` **297/297 across 19 files** on real Postgres 16.12 (285 baseline + GL-002 and GL-003);
+`npm run evals`
 critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); `npm run evals:live`
 containment **4/4** and quality **6/6** on Mistral Small 24B; typecheck + lint pass; `next build`
 clean. Migration **0005** proven from an empty database by the integration run.
-Newest session-log entry: the model finally runs, and it breaks everything the stub could not.
+**`npm run typecheck` does NOT cover `apps/web`** — the root `tsconfig.json` references only the
+four packages, so a green root typecheck says nothing about the web workspace. Running
+`npx tsc -p apps/web/tsconfig.json --noEmit` directly reports **54 errors**, all in web *test* files
+(postgres transaction-stub typing), measured identical before and after GL-002. That is GL-005's
+open work; until it lands, "typecheck passes" is a claim about four packages, not the repository.
+Newest session-log entry: three defects the green suites could not see, and production was running
+the stub.
 
 **A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a
 *different* named test each; stashing the branch reproduced the hang on clean `main` (the connection
@@ -582,12 +629,19 @@ supply what production never creates.
   graph. **Farmer-authored web submission: a THIRD case, not what F-019 blocked** — a farmer editing
   their own listing is the same act as texting an update. Needs farmer web auth (does not exist) and
   must route through the same confirmation gate. `extractOfferings` is transport-agnostic for this.
-- **F-034 — ROTATE EVERY EXPOSED CREDENTIAL. Hard blocker on F-029; do not go live without it.**
-  `DATABASE_URL` (the full Neon URL was pasted in a transcript), `CRON_SECRET`, `TELNYX_API_KEY`, and
-  possibly `MAGIC_LINK_SECRET` were all exposed during 2026-07-27 validation. **max deliberately
-  deferred rotation to go-live** (2026-07-27) so it happens once rather than twice — sound *only*
-  while this stays a throwaway project with no real numbers in the database. **The moment real
-  farmer or customer numbers exist, this becomes urgent, not deferred.**
+- **F-034 / GL-001 — ROTATE EVERY EXPOSED CREDENTIAL. Hard blocker on F-029; do not go live without
+  it.** `DATABASE_URL` (the full Neon URL was pasted in a transcript), `CRON_SECRET`,
+  `TELNYX_API_KEY`, `DEEPINFRA_API_KEY`, and possibly `MAGIC_LINK_SECRET` were exposed during
+  2026-07-27 validation. **max deferred rotation again on 2026-07-28** — sound *only* while the
+  database holds no real numbers. **The moment real farmer or customer numbers exist, this becomes
+  urgent, not deferred.** Scope re-verified against the live environment 2026-07-28; procedure,
+  order, and proof-by-effect tables are **RUNBOOK §"Credential rotation"**. Two corrections from
+  that check: `DEEPINFRA_API_KEY` rotates in the **DeepInfra console and local `.env` only** (it was
+  never a Vercel var), and **the repository is clean** — every secret-shaped literal in the tracked
+  tree is a test fixture and `.env` was never committed, so **no history rewrite is owed**.
+  max decided **rotate in place** (2026-07-28): the ex-throwaway Vercel project and its Neon database
+  become production, so F-034's "tear down the project" line is withdrawn — its stale
+  `throwaway/hobby-deploy-test` **branch** is still owed a deletion.
   `CRON_SECRET` lives in **two** places that must match — the Vercel env var and the GitHub
   repository secret — or every scheduled run 401s.
   **`PHONE_HASH_SALT` MUST NOT BE ROTATED, ever.** It is the input to the only lookup key for every

@@ -109,9 +109,24 @@ const STUB_DATA_HANDLING: ProviderDataHandling = {
  *
  * An unrecognized value is an error rather than a fallback: a typo in a production
  * environment variable must not silently run the scripted test double against real farmers.
+ *
+ * ## There is no default, and no environment sniffing (GL-019)
+ *
+ * `LLM_PROVIDER` used to default to `"stub"` when absent. Production had no `LLM_PROVIDER`
+ * set at all, so the live deployment ran the deterministic test double against real traffic:
+ * every model-backed journey degraded into a clarification, while health checks, the
+ * webhook, and every suite stayed green. Nothing anywhere reported a problem, because from
+ * the code's point of view nothing was wrong — the default had been chosen.
+ *
+ * So the selection is simply REQUIRED, exactly like `PHONE_HASH_SALT` and `CRON_SECRET`.
+ * Deliberately not "required in production": a rule that relaxes off-production behaves one
+ * way everywhere it is tested and another way in the one place that matters, which is how
+ * this defect survived. `cron-auth.test.ts` refuses the same pattern for the same reason.
+ * The cost is one line in a local `.env`; the stub is still fully available, it just has to
+ * be ASKED for.
  */
 function resolveModelConfig(env: NodeJS.ProcessEnv): ModelConfig {
-  const selected = (env.LLM_PROVIDER ?? "stub").trim().toLowerCase();
+  const selected = required(env, "LLM_PROVIDER").trim().toLowerCase();
 
   if (selected === "stub") {
     return { provider: "stub", dataHandling: STUB_DATA_HANDLING };

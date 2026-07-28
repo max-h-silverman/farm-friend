@@ -92,6 +92,13 @@ resend request. `STOP` and `START` use a separate consent-transition watermark: 
 provider-time command wins, and `STOP` wins an exact timestamp tie. An older delayed `START`
 therefore cannot restore consent after a newer `STOP`.
 
+Because the two watermarks are independent, **conversation staleness never refuses a compliance
+keyword** (GL-002). Deterministic routing parses compliance *before* the staleness gate and applies
+that gate to free text and confirmation tokens only, so a `STOP` delayed in the carrier network
+still reaches consent and still suppresses later proactive dispatch. This is stated because the
+opposite once shipped: the worker refused stale events before parsing them, and a delayed opt-out
+was discarded while the sender remained recorded as subscribed.
+
 ### The FLAG safety rail
 
 `FLAG` **pauses the thread** and **creates a review item** for the VIGA administrator (the
