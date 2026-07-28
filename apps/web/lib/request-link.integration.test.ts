@@ -129,7 +129,44 @@ describe("sign-in link request (integration)", () => {
 
     const token = decodeURIComponent(sent[0]?.text.match(/token=([^\s&]+)/)?.[1] as string);
     const verified = verifyMagicToken(token, magicSecret, clock);
-    expect(verified).toEqual({ ok: true, email: "live@viga.example" });
+    expect(verified).toEqual({
+      ok: true,
+      email: "live@viga.example",
+      // GL-004 — the identity that makes the link one-use. It is minted HERE, at issue time,
+      // and is what the callback consumes.
+      nonce: expect.stringMatching(/^[0-9a-f]{64}$/),
+    });
+  });
+
+  it("gives every mailed link its own single-use identity", async () => {
+    // Two links requested by the same administrator at the SAME instant on a fixed clock —
+    // every other claim is identical, so if the nonce were derived rather than random these
+    // would be the same string, and using one would consume both.
+    await handleRequestLinkRequest(post("live@viga.example"), deps());
+    await handleRequestLinkRequest(post("live@viga.example"), deps());
+    expect(sent).toHaveLength(2);
+
+    const nonces = sent.map((message) => {
+      const token = decodeURIComponent(message.text.match(/token=([^\s&]+)/)?.[1] as string);
+      const verified = verifyMagicToken(token, magicSecret, clock);
+      if (!verified.ok) throw new Error("a mailed link must verify");
+      return verified.nonce;
+    });
+    expect(nonces[0]).not.toBe(nonces[1]);
+  });
+
+  it("keeps the raw nonce out of the mail body", async () => {
+    // The nonce is a component of a bearer credential, and the whole link is deliberately
+    // confined to one place in the message. A second appearance — a "reference id", a
+    // tracking parameter — would be a second copy of a live secret in the mailbox.
+    await handleRequestLinkRequest(post("live@viga.example"), deps());
+    const body = sent[0]?.text as string;
+    const token = decodeURIComponent(body.match(/token=([^\s&]+)/)?.[1] as string);
+    const verified = verifyMagicToken(token, magicSecret, clock);
+    if (!verified.ok) throw new Error("a mailed link must verify");
+
+    // The nonce appears nowhere as a bare value; it exists only inside the signed token.
+    expect(body).not.toContain(verified.nonce);
   });
 
   it("issues a link that expires in fifteen minutes", async () => {

@@ -46,24 +46,55 @@ export interface CreateAdminSessionInput {
   issuedAt: Date;
   /** Defaults to the core session TTL. */
   expiresAt?: Date;
+  /**
+   * The HASH of the magic link this session is being minted from, if there was one
+   * (GL-004). Supplying it CONSUMES that link: the insert carries a unique index, so a
+   * second session for the same link is refused by the database rather than by a rule
+   * anyone has to remember. Absent for a session that came from no link — bootstrap and
+   * test paths — which stay unconstrained because NULLs are distinct in a unique index.
+   */
+  magicNonceHash?: string;
 }
 
+export type CreateAdminSessionResult =
+  | { status: "created" }
+  | { status: "not_an_administrator" }
+  | { status: "link_already_used" };
+
 /**
- * Persist a session for an administrator who has just proven their identity.
+ * Persist a session for an administrator who has just proven their identity, consuming the
+ * magic link that proved it.
  *
- * The caller supplies the hash, never the token: this module cannot leak a credential it
- * was never given.
+ * The caller supplies hashes, never tokens: this module cannot leak a credential it was
+ * never given.
+ *
+ * **The single-use arbiter is the unique index, reached through this one insert.** The
+ * tempting shape — look up whether the nonce has been used, then insert — is two acts, and
+ * two concurrent callbacks both observe "unused" before either writes. A `select … for
+ * update` does not rescue it either: `for update` locks rows that EXIST, and the first use
+ * of a link has no row to lock (the same reasoning B-011 needed). So the exclusion lives in
+ * `on conflict … do nothing returning id`, where the EMPTY result IS the signal that
+ * another use won the race. Without `returning`, winner and loser are indistinguishable.
+ *
+ * Order matters: authority is re-read BEFORE the link is spent, so a revoked operator's link
+ * is refused without being burned. A stranger replaying links against revoked administrators
+ * therefore cannot destroy credentials they do not hold.
  */
 export async function createAdminSession(
   db: Db,
   input: CreateAdminSessionInput,
-): Promise<{ status: "created" } | { status: "not_an_administrator" }> {
+): Promise<CreateAdminSessionResult> {
   const expiresAt =
     input.expiresAt ?? new Date(input.issuedAt.getTime() + ADMIN_SESSION_TTL_MS);
 
   return driver(db).begin(async (tx) => {
     // A session may only be issued to a LIVE administrator. Checking here as well as at
     // login keeps the invariant with the write rather than with one caller.
+    //
+    // Deliberately NOT `for update`. Nothing here mutates the administrator, and locking it
+    // would serialize every concurrent use of one operator's link upstream of the index that
+    // is supposed to decide — which would make the race test unfalsifiable while proving
+    // nothing about single use (the F-037 lesson).
     const administrator = await tx`
       select id from administrators
       where id = ${input.administratorId} and revoked_at is null
@@ -72,11 +103,20 @@ export async function createAdminSession(
       return { status: "not_an_administrator" as const };
     }
 
-    await tx`
-      insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
+    const inserted = await tx`
+      insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at,
+        magic_nonce_hash)
       values (${input.tokenHash}, ${input.administratorId},
-        ${input.issuedAt.toISOString()}, ${expiresAt.toISOString()})
+        ${input.issuedAt.toISOString()}, ${expiresAt.toISOString()},
+        ${input.magicNonceHash ?? null})
+      on conflict (magic_nonce_hash) do nothing
+      returning id
     `;
+    if (inserted.length === 0) {
+      // The link had already been spent. Nothing was written, and the session minted by
+      // whoever used it first is untouched — a refused replay must not sign an operator out.
+      return { status: "link_already_used" as const };
+    }
     return { status: "created" as const };
   });
 }

@@ -135,11 +135,26 @@ email address, and the administrator lookup — not the link — is what confers
 1. Run the bootstrap script above once per environment, against that environment's database.
 2. The operator opens `/admin/login` and enters that address.
 3. `POST /api/auth/request-link` mints a 15-minute link and hands it to the mail seam.
-4. Opening the link hits `/api/auth/callback`, which re-checks the administrator row and mints the
-   durable session.
+4. Opening the link hits `/api/auth/callback`, which re-checks the administrator row, mints the
+   durable session, and **consumes the link**.
 
 **Step 3 does not deliver mail yet** — the seam fails closed pending F-031. Until a provider is
 configured, mint a link out of band with `issueMagicToken` and give it to the operator directly.
+
+**A link is ONE-USE (GL-004).** Every link carries a random `nonce` covered by its signature, and
+step 4 records that nonce's SHA-256 in `admin_sessions.magic_nonce_hash` — in the *same insert*
+that creates the session, under a UNIQUE index. So the session row **is** the record that the link
+was spent; there is no second table to keep in step and no window between consuming and minting. A
+second use, including a simultaneous one, loses the `on conflict … do nothing returning id` race
+and gets the same 401 as a forged link. Consequences worth knowing when operating this:
+
+- A link that fails because the administrator was revoked is **not** burned — authority is
+  re-checked before the link is spent, so a stranger cannot destroy links by replaying them.
+- A refused replay never disturbs the session the first use created. Someone with a copied link
+  cannot sign an operator out.
+- Expiry is unchanged and still independent: an unused link past 15 minutes is dead.
+- Minting still writes **nothing**. The row appears only when a link is opened, which is what keeps
+  the public request endpoint free of a per-address write (see the oracle note below).
 
 Two properties of the request endpoint to preserve when changing it, both proven by tests in
 `apps/web/lib/request-link.test.ts`:
