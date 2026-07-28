@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
 import { createInquiryModel, createInventoryInterpreter } from "@farm-friend/ai";
 import { SystemClock, hashPhone } from "@farm-friend/core";
-import { createDb, type Db } from "@farm-friend/db";
+import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { createLastMileSender } from "@farm-friend/sms";
 import type { AppContext } from "./composition";
 import { kickSenderPasses } from "./kick";
@@ -61,8 +61,8 @@ class ForbiddenProvider implements LLMProvider {
 }
 
 describe("inbound reply latency (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
   let keys: KeyPair;
@@ -154,7 +154,7 @@ describe("inbound reply latency (integration)", () => {
     }
   }, 30_000);
 
-  function client(): ReturnType<typeof postgres> {
+  function client(): Sql {
     if (!sql) throw new Error("test database is not initialized");
     return sql;
   }

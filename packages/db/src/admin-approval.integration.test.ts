@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import type { Sql } from "./sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   ADMIN_SESSION_TTL_MS,
@@ -49,8 +50,8 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 }
 
 describe("farm approval and admin sessions (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let client: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let client: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
 
@@ -62,7 +63,7 @@ describe("farm approval and admin sessions (integration)", () => {
   const clockAt = (time: Date) => ({ now: () => time });
 
   const ids: Record<string, string> = {};
-  const sql = () => client as ReturnType<typeof postgres>;
+  const sql = () => client as Sql;
   const handle = () => db as Db;
 
   /**

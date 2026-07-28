@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { hashPhone } from "@farm-friend/core";
 import { parseTelnyxEvent, verifyTelnyxSignature } from "@farm-friend/sms";
-import { acceptProviderEvent, createDb, type Db } from "@farm-friend/db";
+import { acceptProviderEvent, createDb, type Db, type Sql } from "@farm-friend/db";
 
 // F-014 — verified ingress end to end: signature over the exact raw bytes, then the
 // minimized durable projection, before acknowledgement. This exercises the real
@@ -28,8 +28,8 @@ function requiredDatabaseUrl(): string {
 }
 
 describe("verified SMS ingress (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
   let keys: KeyPair;
@@ -76,7 +76,7 @@ describe("verified SMS ingress (integration)", () => {
     }
   }, 30_000);
 
-  function client(): ReturnType<typeof postgres> {
+  function client(): Sql {
     if (!sql) throw new Error("test database is not initialized");
     return sql;
   }

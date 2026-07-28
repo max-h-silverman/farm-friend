@@ -40,14 +40,14 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 }
 
 describe("sign-in link request (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let client: ReturnType<typeof postgres> | undefined;
+  let adminClient: import("@farm-friend/db").Sql | undefined;
+  let client: import("@farm-friend/db").Sql | undefined;
   let testDatabaseName: string | undefined;
   let findAdministratorByEmail: typeof import("@farm-friend/db").findAdministratorByEmail;
   let db: import("@farm-friend/db").Db | undefined;
 
   const magicSecret = "integration-magic-secret";
-  const sql = () => client as ReturnType<typeof postgres>;
+  const sql = () => client as import("@farm-friend/db").Sql;
   let sent: MailMessage[];
   let clock: FixedClock;
 

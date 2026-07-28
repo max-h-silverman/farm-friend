@@ -11,7 +11,7 @@ import {
   type ModelSafeContext,
 } from "@farm-friend/ai";
 import { createPublicActionThrottle, FixedClock } from "@farm-friend/core";
-import { createDb, type Db } from "@farm-friend/db";
+import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
 import { handleStandsRequest, listPublicStands } from "./public-listing";
 import { handleStockOutReport, handleStockOutRequest } from "./public-stockout";
@@ -67,11 +67,23 @@ class ScriptedProvider implements LLMProvider {
 }
 
 describe("public web surface boundary (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
-  const ids: Record<string, string> = {};
+  // Keys are NAMED rather than `Record<string, string>` (GL-005). Under
+  // `noUncheckedIndexedAccess` an index signature yields `string | undefined` on every read,
+  // so `ids.location` — assigned in `beforeEach` and unconditionally present — still read as
+  // possibly-absent and could not be bound as a SQL parameter or passed where a `string` is
+  // required. Naming the fixture's actual keys states what the setup guarantees, and a typo
+  // in a key now fails to compile instead of silently reading `undefined`.
+  const ids = {} as {
+    contact: string;
+    farm: string;
+    location: string;
+    revision: string;
+    entry: string;
+  };
 
   beforeAll(async () => {
     const baseUrl = process.env.DATABASE_URL;
@@ -103,7 +115,7 @@ describe("public web surface boundary (integration)", () => {
     }
   }, 30_000);
 
-  function client(): ReturnType<typeof postgres> {
+  function client(): Sql {
     if (!sql) throw new Error("test database is not initialized");
     return sql;
   }

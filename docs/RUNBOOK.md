@@ -44,7 +44,7 @@ not inlined there).
 
 ```
 npm install                 # install all workspaces
-npm run typecheck           # tsc across workspaces — proves the static provenance barrier
+npm run typecheck           # tsc across ALL workspaces incl. apps/web — proves the provenance barrier
 npm run lint                # lint across workspaces
 npm test                    # vitest unit — pure core logic, no DB/SMS/LLM (seams injected)
 npm run test:integration    # vitest against Postgres — data invariants (requires DATABASE_URL)
@@ -56,6 +56,35 @@ constructors or outbound guard in ordinary code **fails `tsc`** (the branded saf
 redacted-outbound types). This proves provenance, not runtime content safety; workflow tests and
 hostile evals verify the runtime barrier but are not themselves enforcement. See
 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) §safety boundary.
+
+### What "across workspaces" means, and the three layers (GL-005)
+
+`npm run typecheck` runs **two** halves and fails if either does:
+
+| Script | Covers | How |
+| --- | --- | --- |
+| `typecheck:packages` | `packages/core`, `db`, `sms`, `ai` | `tsc -b` over the root `tsconfig.json` project references |
+| `typecheck:web` | `apps/web` | `tsc -p tsconfig.json --noEmit` in the web workspace |
+
+Two halves rather than one because `apps/web/tsconfig.json` sets `composite: false` (Next.js owns
+that config), and `tsc -b` can only reference **composite** projects. Making web composite to force
+it into the reference graph would mean fighting the framework's generated config on every upgrade;
+delegating to the workspace's own script is the smaller, more durable seam.
+
+**This was untrue until GL-005.** The root script was a bare `tsc -b`, and the root `tsconfig.json`
+references only the four packages — so `apps/web` was never typechecked at all, and held **57 real
+type errors** while this document said "across workspaces". Nothing reported it, because the command
+that was supposed to report it exited 0. `packages/core/src/typecheck-coverage.test.ts` now asserts
+the wiring against the manifests, so the claim and the command cannot drift apart again.
+
+**`next build` remains a SEPARATE layer, deliberately.** The two check different things and neither
+subsumes the other:
+
+- `npm run typecheck` covers **test files**, which `next build` never compiles.
+- `npm run build --workspace @farm-friend/web` covers **route and manifest conventions** and the
+  real bundle graph, which `tsc -p` does not model.
+
+Run both. A green typecheck is not a green build, and a green build is not a green typecheck.
 
 ## Environment
 

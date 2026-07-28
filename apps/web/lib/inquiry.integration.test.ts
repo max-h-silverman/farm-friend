@@ -11,7 +11,7 @@ import {
   type ModelSafeContext,
 } from "@farm-friend/ai";
 import { FixedClock } from "@farm-friend/core";
-import { createDb, type Db } from "@farm-friend/db";
+import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { containsRawPhone } from "@farm-friend/sms";
 import { answerInquiry } from "./inquiry";
 import { recordStockOutReport } from "./stockout";
@@ -46,11 +46,24 @@ class ScriptedProvider implements LLMProvider {
 }
 
 describe("customer inquiry and stock-out reporting (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
-  const ids: Record<string, string> = {};
+  // Named keys rather than an index signature — see the note in
+  // public-surface.integration.test.ts (GL-005). `noUncheckedIndexedAccess` makes every
+  // index read `string | undefined`, which cannot be bound as a SQL parameter. The two
+  // farms are seeded through a `${key}Farm` / `${key}Location` loop over an `as const`
+  // tuple, so those computed keys resolve against these names rather than widening.
+  const ids = {} as {
+    farmerContact: string;
+    otherFarmerContact: string;
+    adminContact: string;
+    alphaFarm: string;
+    betaFarm: string;
+    alphaLocation: string;
+    betaLocation: string;
+  };
 
   beforeAll(async () => {
     const baseUrl = process.env.DATABASE_URL;
@@ -80,7 +93,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     }
   }, 30_000);
 
-  function client(): ReturnType<typeof postgres> {
+  function client(): Sql {
     if (!sql) throw new Error("test database is not initialized");
     return sql;
   }

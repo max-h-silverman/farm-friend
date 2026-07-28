@@ -6,8 +6,8 @@ import type {
   LaunchMessageCategory,
 } from "@farm-friend/core";
 import { confirmationEligibility, isProactiveSendPermitted } from "@farm-friend/core";
-import type postgres from "postgres";
 import type { Db } from "./index";
+import type { Sql, Tx } from "./sql";
 
 // The authoritative SMS transactions (F-014).
 //
@@ -49,8 +49,6 @@ export const MAX_DISPATCH_ATTEMPTS = 3;
  */
 export const DISPATCH_LEASE_MS = 10 * 60 * 1000;
 
-type Sql = ReturnType<typeof postgres>;
-type Tx = postgres.TransactionSql<Record<string, unknown>>;
 
 function driver(db: Db): Sql {
   return db.sql;

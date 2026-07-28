@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FixedClock } from "@farm-friend/core";
-import { DISPATCH_LEASE_MS, createDb, type Db } from "@farm-friend/db";
+import { DISPATCH_LEASE_MS, createDb, type Db, type Sql } from "@farm-friend/db";
 import type { AppContext } from "./composition";
 import { runOutboundPass } from "./workers";
 
@@ -46,8 +46,8 @@ const at = (minutes: number) => new Date(T0.getTime() + minutes * 60_000);
 const BODY_EXPIRES_AT = at(48 * 60);
 
 describe("abandoned dispatch recovery (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
 

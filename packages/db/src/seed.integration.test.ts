@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import type { Sql } from "./sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedOfferings, seedStands, type SeedStandInput } from "./seed";
 
@@ -29,8 +30,8 @@ function testDatabaseUrl(baseUrl: string, name: string): string {
 }
 
 describe("seeding VIGA's stands (B-002)", () => {
-  let adminClient: ReturnType<typeof postgres>;
-  let client: ReturnType<typeof postgres>;
+  let adminClient: Sql;
+  let client: Sql;
   let testDatabaseName: string;
 
   beforeAll(async () => {

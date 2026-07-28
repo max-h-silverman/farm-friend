@@ -44,6 +44,23 @@ export class ConfigurationError extends Error {
   }
 }
 
+/**
+ * What configuration resolution actually reads: named variables that are strings or absent.
+ *
+ * Deliberately NOT `NodeJS.ProcessEnv` (GL-005). Nothing below does anything with `env`
+ * beyond `env[name]`, but `ProcessEnv` demands `NODE_ENV` be present, so an honest test
+ * fixture listing exactly the variables under test did not typecheck — and the only way to
+ * satisfy it was to add a variable the code never reads, or to cast the lie away. Thirty-two
+ * such errors sat in `apps/web` unseen while the root typecheck did not reference that
+ * workspace.
+ *
+ * A function should demand the narrowest thing it consumes. `process.env` still satisfies
+ * this, so every production caller is unchanged, while a fixture can now name only the
+ * variables the case is about. `resolveSmsConfig` in `@farm-friend/sms` already took exactly
+ * this shape — this makes the two agree rather than adding a third convention.
+ */
+export type EnvVars = Record<string, string | undefined>;
+
 export interface AppConfig {
   databaseUrl: string;
   phoneSalt: string;
@@ -125,7 +142,7 @@ const STUB_DATA_HANDLING: ProviderDataHandling = {
  * The cost is one line in a local `.env`; the stub is still fully available, it just has to
  * be ASKED for.
  */
-function resolveModelConfig(env: NodeJS.ProcessEnv): ModelConfig {
+function resolveModelConfig(env: EnvVars): ModelConfig {
   const selected = required(env, "LLM_PROVIDER").trim().toLowerCase();
 
   if (selected === "stub") {
@@ -165,7 +182,7 @@ function resolveModelConfig(env: NodeJS.ProcessEnv): ModelConfig {
   );
 }
 
-function required(env: NodeJS.ProcessEnv, name: string): string {
+function required(env: EnvVars, name: string): string {
   const value = env[name];
   if (value === undefined || value.trim() === "") {
     throw new ConfigurationError(`${name} is required`);
@@ -181,7 +198,7 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
  * and nothing in the logs explaining why. Plaintext `http` is refused outside localhost
  * because the link is a bearer credential and must not travel in cleartext.
  */
-function resolvePublicBaseUrl(env: NodeJS.ProcessEnv): string {
+function resolvePublicBaseUrl(env: EnvVars): string {
   const raw = required(env, "PUBLIC_BASE_URL").trim();
 
   let url: URL;
@@ -205,7 +222,7 @@ function resolvePublicBaseUrl(env: NodeJS.ProcessEnv): string {
 }
 
 /** Resolve and validate runtime configuration, or throw before anything starts. */
-export function resolveConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+export function resolveConfig(env: EnvVars = process.env): AppConfig {
   const sms = resolveSmsConfig(env);
   if (!sms.ok) {
     throw new ConfigurationError(
@@ -359,7 +376,7 @@ function createSimulatorTransport(): ProviderTransport {
 }
 
 /** Construct the application context. Throws if configuration is incomplete. */
-export function createAppContext(env: NodeJS.ProcessEnv = process.env): AppContext {
+export function createAppContext(env: EnvVars = process.env): AppContext {
   const config = resolveConfig(env);
   // The same pool and clock the public read surface uses — one mechanism, two consumers.
   const db = sharedDb(config.databaseUrl);

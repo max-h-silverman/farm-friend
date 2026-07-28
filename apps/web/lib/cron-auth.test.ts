@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ConfigurationError, resolveConfig } from "./composition";
+import { ConfigurationError, resolveConfig, type EnvVars } from "./composition";
 
 // F-023 — the scheduled-worker trigger fails CLOSED.
 //
@@ -27,7 +27,7 @@ const baseEnv = {
   // Required since GL-019: there is no default provider, so a fixture that omits this
   // is an unconfigured app rather than a stubbed one.
   LLM_PROVIDER: "stub",
-} satisfies NodeJS.ProcessEnv;
+} satisfies EnvVars;
 
 describe("scheduled worker configuration fails closed", () => {
   it("resolves when CRON_SECRET is present", () => {

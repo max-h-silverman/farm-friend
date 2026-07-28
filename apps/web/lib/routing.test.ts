@@ -52,18 +52,26 @@ function recordingDb(rows: Record<string, unknown>[] = []): {
     return Promise.resolve(rows);
   };
 
-  const sql = record as unknown as Db["sql"] & {
-    begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
-  };
   // The real transactions run against real Postgres in routing.integration.test.ts. Here
   // `begin` only has to let the chosen handler run far enough to record WHICH tables it
   // touched — routing order is what these tests own.
-  sql.begin = (fn: (tx: unknown) => Promise<unknown>) => {
-    const tx = record as unknown as { json: (v: unknown) => unknown };
-    tx.json = (value: unknown) => value;
-    return fn(tx);
-  };
+  //
+  // GL-005: `begin` is attached to the recorder BEFORE any cast, and the single widening to
+  // `Db["sql"]` happens once, at the boundary. It used to be written as
+  // `record as unknown as Db["sql"] & { begin: … }` followed by `sql.begin = …`, which named
+  // an intersection nothing can inhabit: the driver's real `begin` is overloaded, and no
+  // one-argument function is assignable to it, so the assignment could never typecheck.
+  // Casting the finished stub states the honest thing — this is a stand-in, deliberately
+  // narrower than the driver — instead of claiming it satisfies a signature it does not.
+  const stub = Object.assign(record, {
+    begin: (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = record as unknown as { json: (v: unknown) => unknown };
+      tx.json = (value: unknown) => value;
+      return fn(tx);
+    },
+  });
 
+  const sql = stub as unknown as Db["sql"];
   return { db: { sql, orm: {}, close: async () => {} } as unknown as Db, queries };
 }
 
@@ -170,14 +178,14 @@ describe("deterministic routing order (Golden Rule #2)", () => {
         if (text.includes("from sms_consents")) return Promise.resolve([{ state }]);
         return Promise.resolve([]);
       };
-      const sql = record as unknown as Db["sql"] & {
-        begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
-      };
-      sql.begin = (fn: (tx: unknown) => Promise<unknown>) => {
-        const tx = record as unknown as { json: (v: unknown) => unknown };
-        tx.json = (value: unknown) => value;
-        return fn(tx);
-      };
+      // Attached before the cast, then widened once — see `recordingDb` above (GL-005).
+      const sql = Object.assign(record, {
+        begin: (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = record as unknown as { json: (v: unknown) => unknown };
+          tx.json = (value: unknown) => value;
+          return fn(tx);
+        },
+      }) as unknown as Db["sql"];
       return {
         db: { sql, orm: {}, close: async () => {} } as unknown as Db,
         queries,
@@ -248,14 +256,14 @@ describe("deterministic routing order (Golden Rule #2)", () => {
         }
         return Promise.resolve([]);
       };
-      const sql = record as unknown as Db["sql"] & {
-        begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>;
-      };
-      sql.begin = (fn: (tx: unknown) => Promise<unknown>) => {
-        const tx = record as unknown as { json: (v: unknown) => unknown };
-        tx.json = (value: unknown) => value;
-        return fn(tx);
-      };
+      // Attached before the cast, then widened once — see `recordingDb` above (GL-005).
+      const sql = Object.assign(record, {
+        begin: (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = record as unknown as { json: (v: unknown) => unknown };
+          tx.json = (value: unknown) => value;
+          return fn(tx);
+        },
+      }) as unknown as Db["sql"];
       const db = { sql, orm: {}, close: async () => {} } as unknown as Db;
 
       const result = await routeInboundMessage(

@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import type { Sql } from "./sql";
 import {
   afterAll,
   beforeAll,
@@ -62,8 +63,8 @@ const expectedTables = [
 ];
 
 describe("clean launch database foundation (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let client: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let client: Sql | undefined;
   let testDatabaseName: string | undefined;
   let emptyTableCount = -1;
 
@@ -114,7 +115,7 @@ describe("clean launch database foundation (integration)", () => {
     }
   }, 30_000);
 
-  function db(): ReturnType<typeof postgres> {
+  function db(): Sql {
     if (!client) {
       throw new Error("test database is not initialized");
     }

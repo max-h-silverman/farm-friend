@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import postgres from "postgres";
+import type { Sql } from "./sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { describeTarget } from "./connection-target";
 
@@ -42,7 +43,7 @@ function runMigrate(env: Record<string, string | undefined>) {
 }
 
 describe("migrate script (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
   let testDatabaseName: string | undefined;
   let url: string;
 

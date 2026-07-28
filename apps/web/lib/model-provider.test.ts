@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ConfigurationError, resolveConfig } from "./composition";
+import { ConfigurationError, resolveConfig, type EnvVars } from "./composition";
 
 // F-024 — the provider is selectable by configuration, and an UNATTESTED provider cannot run.
 //
@@ -17,7 +17,7 @@ const baseEnv = {
   MAGIC_LINK_SECRET: "magic",
   PUBLIC_BASE_URL: "https://farmfriend.example",
   SMS_PROVIDER: "simulator",
-} satisfies NodeJS.ProcessEnv;
+} satisfies EnvVars;
 
 describe("model provider selection (F-024)", () => {
   it("REFUSES to start when LLM_PROVIDER is absent (GL-019)", () => {
