@@ -234,8 +234,91 @@ describe("administrator identity and sessions (integration)", () => {
       "expires_at",
       "id",
       "issued_at",
+      "magic_nonce_hash",
       "revoked_at",
       "token_hash",
     ]);
+  });
+
+  // GL-004 — the magic link is a ONE-USE credential.
+  //
+  // The consume record is a column on `admin_sessions` under a unique index, because a link
+  // being used and a session existing are the SAME event: the session row IS the record that
+  // the link was spent. The database owns the exclusion; nothing above it decides.
+
+  describe("one-use magic links", () => {
+    it("permits at most one session per magic-link nonce", async () => {
+      const admin = await db()`
+        insert into administrators (email, authorized_at)
+        values ('nonce-unique@viga.example', ${t0}) returning id
+      `;
+      const administratorId = admin[0]?.id as string;
+
+      await db()`
+        insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at,
+          magic_nonce_hash)
+        values (${hash("1")}, ${administratorId}, ${t0}, ${t1}, ${hash("9")})
+      `;
+
+      // A DIFFERENT session token — this is exactly the replay: the same link opened twice
+      // mints fresh session material each time, so nothing but the nonce can refuse it.
+      await expect(
+        db()`
+          insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at,
+            magic_nonce_hash)
+          values (${hash("2")}, ${administratorId}, ${t0}, ${t1}, ${hash("9")})
+        `,
+      ).rejects.toThrow(/admin_sessions_one_per_magic_nonce/);
+    });
+
+    it("stores only a hashed nonce, never the nonce itself", async () => {
+      const admin = await db()`
+        insert into administrators (email, authorized_at)
+        values ('nonce-shape@viga.example', ${t0}) returning id
+      `;
+      const administratorId = admin[0]?.id as string;
+
+      // Same bar as the session token hash: a short or non-hex value means the raw nonce was
+      // stored, or truncated to something enumerable.
+      await expect(
+        db()`
+          insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at,
+            magic_nonce_hash)
+          values (${hash("3")}, ${administratorId}, ${t0}, ${t1}, 'short')
+        `,
+      ).rejects.toThrow(/admin_sessions_magic_nonce_hash_shape/);
+
+      await expect(
+        db()`
+          insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at,
+            magic_nonce_hash)
+          values (${hash("4")}, ${administratorId}, ${t0}, ${t1},
+            ${"NOTHEX".repeat(11).slice(0, 64)})
+        `,
+      ).rejects.toThrow(/admin_sessions_magic_nonce_hash_shape/);
+    });
+
+    it("still permits sessions that came from no link at all", async () => {
+      // The bootstrap and test paths mint sessions directly. A NULL nonce must stay legal,
+      // and — because Postgres treats NULLs as distinct in a unique index — many of them
+      // must coexist without colliding with each other.
+      const admin = await db()`
+        insert into administrators (email, authorized_at)
+        values ('no-link@viga.example', ${t0}) returning id
+      `;
+      const administratorId = admin[0]?.id as string;
+
+      for (const seed of ["5", "6", "7"]) {
+        await db()`
+          insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
+          values (${hash(seed)}, ${administratorId}, ${t0}, ${t1})
+        `;
+      }
+      const rows = await db()`
+        select count(*)::int as n from admin_sessions
+        where administrator_id = ${administratorId} and magic_nonce_hash is null
+      `;
+      expect(rows[0]?.n).toBe(3);
+    });
   });
 });

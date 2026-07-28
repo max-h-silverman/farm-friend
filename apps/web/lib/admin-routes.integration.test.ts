@@ -355,6 +355,109 @@ describe("admin routes (integration)", () => {
         ).status,
       ).toBe(200);
     });
+
+    // GL-004 — one link, one session. The email has always said "can be used once"; until
+    // this item nothing enforced it, so a link that was forwarded, logged by a mail gateway,
+    // or left in a shared inbox stayed a working credential for its whole 15 minutes.
+
+    it("refuses a link that has already been used, with no second session", async () => {
+      const link = issueMagicToken(
+        "route-admin@viga.example",
+        magicSecret,
+        { now: () => new Date() },
+        60_000,
+      );
+      const url = `https://ff.example/api/auth/callback?token=${link}`;
+
+      const first = await callbackRoute.GET(request(url));
+      expect(first.status).toBe(303);
+      const firstCookie = first.headers.get("set-cookie") ?? "";
+      const firstSession = /ff_admin_session=([0-9a-f]{64})/.exec(firstCookie)?.[1];
+      expect(firstSession).toBeDefined();
+
+      const before = await sql()`select count(*)::int as n from admin_sessions`;
+
+      // Same link, still well inside its window, replayed.
+      const replay = await callbackRoute.GET(request(url));
+
+      // Indistinguishable from any other refusal — a distinct status would tell whoever holds
+      // a copied link that it was genuine and merely spent, which is the same disclosure the
+      // stranger case refuses to make.
+      expect(replay.status).toBe(401);
+      expect(replay.headers.get("set-cookie")).toBeNull();
+
+      const after = await sql()`select count(*)::int as n from admin_sessions`;
+      expect(after[0]?.n).toBe(before[0]?.n);
+
+      // The operator's real session survives the replay: a burnt link must not log them out.
+      expect(
+        (
+          await farmsRoute.GET(
+            request("https://ff.example/api/admin/farms", { token: firstSession }),
+          )
+        ).status,
+      ).toBe(200);
+    });
+
+    it("mints one session when a link is opened EIGHT times at once", async () => {
+      // The real shape of a replay is often concurrent — a mail scanner and the operator
+      // opening the same link within milliseconds. A check-then-write would let several
+      // through.
+      const link = issueMagicToken(
+        "route-admin@viga.example",
+        magicSecret,
+        { now: () => new Date() },
+        60_000,
+      );
+      const url = `https://ff.example/api/auth/callback?token=${link}`;
+      const before = await sql()`select count(*)::int as n from admin_sessions`;
+
+      const responses = await Promise.all(
+        Array.from({ length: 8 }, () => callbackRoute.GET(request(url))),
+      );
+
+      expect(responses.filter((r) => r.status === 303)).toHaveLength(1);
+      expect(responses.filter((r) => r.status === 401)).toHaveLength(7);
+
+      const after = await sql()`select count(*)::int as n from admin_sessions`;
+      expect(after[0]?.n).toBe((before[0]?.n as number) + 1);
+    });
+
+    it("gives two separate links two separate sessions", async () => {
+      // Single use is per LINK, not per administrator: an operator who requests a second link
+      // because the first was slow must still be able to sign in with it.
+      const clock = { now: () => new Date() };
+      const a = issueMagicToken("route-admin@viga.example", magicSecret, clock, 60_000);
+      const b = issueMagicToken("route-admin@viga.example", magicSecret, clock, 60_000);
+
+      const first = await callbackRoute.GET(
+        request(`https://ff.example/api/auth/callback?token=${a}`),
+      );
+      const second = await callbackRoute.GET(
+        request(`https://ff.example/api/auth/callback?token=${b}`),
+      );
+      expect(first.status).toBe(303);
+      expect(second.status).toBe(303);
+      expect(second.headers.get("set-cookie")).not.toBe(first.headers.get("set-cookie"));
+    });
+
+    it("refuses an expired link that was never used", async () => {
+      // Expiry did not become the weaker check. An unspent link past its window is still dead,
+      // and consuming nothing.
+      const expired = issueMagicToken(
+        "route-admin@viga.example",
+        magicSecret,
+        { now: () => new Date(Date.now() - 120_000) },
+        60_000,
+      );
+      const before = await sql()`select count(*)::int as n from admin_sessions`;
+      const response = await callbackRoute.GET(
+        request(`https://ff.example/api/auth/callback?token=${expired}`),
+      );
+      expect(response.status).toBe(401);
+      const after = await sql()`select count(*)::int as n from admin_sessions`;
+      expect(after[0]?.n).toBe(before[0]?.n);
+    });
   });
 
   describe("approval through the route", () => {

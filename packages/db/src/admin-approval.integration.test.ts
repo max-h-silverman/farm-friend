@@ -448,4 +448,211 @@ describe("farm approval and admin sessions (integration)", () => {
       expect(result.status).toBe("not_an_administrator");
     });
   });
+
+  // GL-004 — a magic link may mint exactly one session, ever.
+  //
+  // The link was a stateless signed claim, so every callback inside its 15-minute window
+  // minted a fresh session: a link forwarded, logged by a mail gateway, or read from a shared
+  // inbox was a reusable credential for as long as it had not expired. The email had been
+  // promising "can be used once" the whole time.
+  //
+  // What decides it is the UNIQUE INDEX on `admin_sessions.magic_nonce_hash`, reached through
+  // the same insert that creates the session — so the consume and the session are one atomic
+  // act with nothing between them to interleave. A read-then-write here would be two acts and
+  // would let two callbacks both observe "unused."
+
+  describe("one-use magic links", () => {
+    const nonceFor = (seed: string) => seed.repeat(64).slice(0, 64);
+
+    it("mints a session the first time a link is opened", async () => {
+      const token = issueSessionToken();
+      const result = await createAdminSession(handle(), {
+        tokenHash: hashSessionToken(token),
+        administratorId: ids.administrator as string,
+        issuedAt: at(20),
+        magicNonceHash: nonceFor("a"),
+      });
+      expect(result.status).toBe("created");
+
+      // And it is a real session, not a bare row.
+      const principal = await resolveAdminSession(handle(), {
+        tokenHash: hashSessionToken(token),
+        now: at(20),
+      });
+      expect(principal?.roles).toEqual(["admin"]);
+    });
+
+    it("refuses the SECOND use of one link, creating no session", async () => {
+      const nonce = nonceFor("b");
+      const first = issueSessionToken();
+      expect(
+        (
+          await createAdminSession(handle(), {
+            tokenHash: hashSessionToken(first),
+            administratorId: ids.administrator as string,
+            issuedAt: at(21),
+            magicNonceHash: nonce,
+          })
+        ).status,
+      ).toBe("created");
+
+      // The replay: the same link, opened again, well inside its window. It mints new session
+      // material — so only the spent nonce can refuse it.
+      const replay = issueSessionToken();
+      const second = await createAdminSession(handle(), {
+        tokenHash: hashSessionToken(replay),
+        administratorId: ids.administrator as string,
+        issuedAt: at(21),
+        magicNonceHash: nonce,
+      });
+      expect(second.status).toBe("link_already_used");
+
+      // No session was created, and the replay's token authorizes nothing.
+      expect(
+        await resolveAdminSession(handle(), {
+          tokenHash: hashSessionToken(replay),
+          now: at(21),
+        }),
+      ).toBeNull();
+      const rows = await sql()`
+        select count(*)::int as n from admin_sessions where magic_nonce_hash = ${nonce}
+      `;
+      expect(rows[0]?.n).toBe(1);
+
+      // The session the FIRST use minted is untouched — a refused replay must not log the
+      // operator out, or an attacker with a copied link could deny them the admin surface.
+      expect(
+        await resolveAdminSession(handle(), {
+          tokenHash: hashSessionToken(first),
+          now: at(21),
+        }),
+      ).not.toBeNull();
+    });
+
+    it("survives EIGHT simultaneous uses of one link with exactly one session", async () => {
+      // The race a read-then-write cannot survive: eight callbacks all observe an unused
+      // nonce, then all eight insert.
+      //
+      // Making this test able to FAIL took two corrections, both of which the house rules
+      // predict and the first draft got wrong anyway:
+      //
+      //  - `Promise.all` over one shared `Db` does NOT contend. That handle's pool holds
+      //    three connections, so eight calls queue behind them and each transaction finishes
+      //    before the next begins. A read-then-write sabotage passed this suite untouched.
+      //    Each claimant therefore gets its OWN handle — its own connection — which is also
+      //    what production looks like: eight separate serverless invocations.
+      //  - They deliberately SHARE an administrator, because that is the real scenario: one
+      //    operator's link opened eight times. `createAdminSession`'s authority read must
+      //    therefore not be a `for update`, or that lock would serialize every claimant
+      //    upstream of the index meant to decide, and this test would prove nothing about
+      //    single use (the F-037 lesson).
+      //
+      // Even with distinct connections, eight short transactions may not interleave on every
+      // run. The barrier below removes the luck: every claimant blocks until all eight have
+      // started, so they reach the insert together.
+      const nonce = nonceFor("c");
+      const url = testDatabaseUrl(requiredDatabaseUrl(), testDatabaseName as string);
+      const handles = Array.from({ length: 8 }, () => createDb(url));
+      const claimants = Array.from({ length: 8 }, () => issueSessionToken());
+
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let arrived = 0;
+
+      try {
+        const results = await Promise.all(
+          handles.map(async (claimantDb, index) => {
+            arrived += 1;
+            if (arrived === handles.length) release();
+            await gate;
+            return createAdminSession(claimantDb, {
+              tokenHash: hashSessionToken(claimants[index] as string),
+              administratorId: ids.administrator as string,
+              issuedAt: at(22),
+              magicNonceHash: nonce,
+            });
+          }),
+        );
+
+        const created = results.filter((r) => r.status === "created");
+        const refused = results.filter((r) => r.status === "link_already_used");
+        expect(created).toHaveLength(1);
+        expect(refused).toHaveLength(7);
+      } finally {
+        await Promise.all(handles.map((claimantDb) => claimantDb.close()));
+      }
+
+      const rows = await sql()`
+        select count(*)::int as n from admin_sessions where magic_nonce_hash = ${nonce}
+      `;
+      expect(rows[0]?.n).toBe(1);
+
+      // And exactly one of the eight browsers can actually sign in.
+      const authorizing = await Promise.all(
+        claimants.map(async (token) =>
+          (await resolveAdminSession(handle(), {
+            tokenHash: hashSessionToken(token),
+            now: at(22),
+          })) !== null,
+        ),
+      );
+      expect(authorizing.filter(Boolean)).toHaveLength(1);
+    });
+
+    it("consumes nothing when the administrator is not live", async () => {
+      // Order matters: authority is checked before the link is spent, so a revoked operator's
+      // link is not silently burned. If they are reinstated the link still works until it
+      // expires — and, more importantly, a stranger cannot burn links by replaying them
+      // against revoked administrators.
+      const admin = await sql()`
+        insert into administrators (email, authorized_at)
+        values ('burned@viga.example', ${t0.toISOString()}) returning id
+      `;
+      const administratorId = admin[0]?.id as string;
+      await sql()`
+        update administrators set revoked_at = ${at(13).toISOString()}
+        where id = ${administratorId}
+      `;
+
+      const nonce = nonceFor("d");
+      const refused = await createAdminSession(handle(), {
+        tokenHash: hashSessionToken(issueSessionToken()),
+        administratorId,
+        issuedAt: at(23),
+        magicNonceHash: nonce,
+      });
+      expect(refused.status).toBe("not_an_administrator");
+
+      const rows = await sql()`
+        select count(*)::int as n from admin_sessions where magic_nonce_hash = ${nonce}
+      `;
+      expect(rows[0]?.n).toBe(0);
+    });
+
+    it("leaves link-less sessions unaffected by each other", async () => {
+      // Bootstrap and test paths mint sessions with no link behind them. Many such sessions
+      // must coexist: NULLs are distinct in a unique index, and if that ever stopped being
+      // true the second direct session in a process would fail.
+      const before = await sql()`
+        select count(*)::int as n from admin_sessions where magic_nonce_hash is null
+      `;
+      for (let i = 0; i < 3; i += 1) {
+        expect(
+          (
+            await createAdminSession(handle(), {
+              tokenHash: hashSessionToken(issueSessionToken()),
+              administratorId: ids.administrator as string,
+              issuedAt: at(24),
+            })
+          ).status,
+        ).toBe("created");
+      }
+      const after = await sql()`
+        select count(*)::int as n from admin_sessions where magic_nonce_hash is null
+      `;
+      expect(after[0]?.n).toBe((before[0]?.n as number) + 3);
+    });
+  });
 });

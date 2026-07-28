@@ -271,6 +271,12 @@ export const adminSessions = pgTable(
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // GL-004. The SHA-256 of the magic link this session was minted from — never the nonce
+    // itself. The unique index below is what makes a link one-use: a link being spent and a
+    // session existing are the same event, so the session row IS the consume record and the
+    // two cannot drift apart. NULL for a session that came from no link (bootstrap, tests);
+    // NULLs are distinct in a unique index, so any number coexist.
+    magicNonceHash: text("magic_nonce_hash"),
   },
   (table) => ({
     tokenHashUnique: unique("admin_sessions_token_hash_unique").on(
@@ -278,6 +284,15 @@ export const adminSessions = pgTable(
     ),
     administratorLookup: index("admin_sessions_administrator").on(
       table.administratorId,
+    ),
+    // The single-use guarantee. Not a rule the application remembers to apply — the database
+    // refuses the second session, so a check-then-write above it cannot let a race through.
+    oneSessionPerMagicNonce: uniqueIndex(
+      "admin_sessions_one_per_magic_nonce",
+    ).on(table.magicNonceHash),
+    magicNonceHashShape: check(
+      "admin_sessions_magic_nonce_hash_shape",
+      sql`${table.magicNonceHash} is null or ${table.magicNonceHash} ~ '^[0-9a-f]{64}$'`,
     ),
     // 32 random bytes hex-encoded. A short value here would mean the token was stored
     // rather than hashed, or truncated to something enumerable.
