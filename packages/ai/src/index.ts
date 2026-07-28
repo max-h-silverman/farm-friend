@@ -66,6 +66,7 @@ export class StubLLMProvider implements LLMProvider {
   }
 }
 
+export * from "./deepinfra";
 export * from "./inventory-seam";
 export * from "./inquiry-seam";
 export * from "./offering-seam";

@@ -1,5 +1,6 @@
 import {
   assertProviderApproved,
+  createDeepInfraProvider,
   createInquiryModel,
   createInventoryInterpreter,
   createStockOutModel,
@@ -68,9 +69,11 @@ export interface AppConfig {
 
 export interface ModelConfig {
   /** Which provider to construct. `stub` is the deterministic test/dev provider. */
-  provider: "stub";
+  provider: "stub" | "deepinfra";
   /** The declared data-handling terms this provider is approved under. */
   dataHandling: ProviderDataHandling;
+  /** Live-provider credentials. Absent for the stub, which makes no network call. */
+  deepinfra?: { apiKey: string; model: string };
 }
 
 /**
@@ -95,10 +98,77 @@ const STUB_DATA_HANDLING: ProviderDataHandling = {
   retentionDays: 0,
 };
 
-function resolveModelConfig(_env: NodeJS.ProcessEnv): ModelConfig {
-  // Launch configures exactly one provider. Adding a second is a seam/provider change that
-  // must re-run the privacy gate and the full eval suite (docs/RUNBOOK.md §how to extend).
-  return { provider: "stub", dataHandling: STUB_DATA_HANDLING };
+/**
+ * DeepInfra's attested data handling — DELIBERATELY `null`. THIS IS A BLOCKING TODO (F-024).
+ *
+ * DeepInfra is the decided provider (F-024, max 2026-07-26), serving a mid-size open-weight
+ * instruct model. The attested terms are **DeepInfra's, as the inference host** — the model
+ * author's licence (Mistral's, Meta's) is not the relevant contract, because DeepInfra is who
+ * receives, serves, and may log or retain the request.
+ *
+ * TO UNBLOCK: read DeepInfra's data-processing terms and replace `null` with the four values
+ * they actually state:
+ *
+ *   trainsOnData           — do they train on API requests/responses? Gate requires false.
+ *   statefulStorage        — any provider-managed conversation, file, memory, or retrieval
+ *                            store? Gate requires false; Farm Friend's calls are stateless.
+ *   requestLoggingDisabled — is request/response logging off (or disable-able, and disabled)?
+ *                            Gate requires true.
+ *   retentionDays          — unavoidable provider-side retention, in days. Gate requires
+ *                            <= MAX_APPROVED_PROVIDER_RETENTION_DAYS (30).
+ *
+ * DO NOT INFER THESE FROM MARKETING COPY, a pricing page, or another vendor's terms. They are
+ * an ATTESTATION — a record that a human read the contract — not a setting that makes a vendor
+ * behave. Writing `trainsOnData: false` does not stop anyone training on our data; it claims
+ * someone checked. Cite the reviewed terms in the PR that fills this in.
+ *
+ * Until then `resolveModelConfig` refuses to select DeepInfra, so no farmer or customer text
+ * can reach a vendor under terms nobody has read. That refusal is the enforcement; this
+ * comment is only the instructions.
+ */
+const DEEPINFRA_DATA_HANDLING: ProviderDataHandling | null = null;
+
+/**
+ * Select the provider from configuration.
+ *
+ * `LLM_PROVIDER` is now REAL. It previously appeared in `.env.example` while this function
+ * hard-coded the stub and never read the environment — a knob that looked live and did
+ * nothing, which is worse than no knob at all (F-024).
+ *
+ * An unrecognized value is an error rather than a fallback: a typo in a production
+ * environment variable must not silently run the scripted test double against real farmers.
+ */
+function resolveModelConfig(env: NodeJS.ProcessEnv): ModelConfig {
+  const selected = (env.LLM_PROVIDER ?? "stub").trim().toLowerCase();
+
+  if (selected === "stub") {
+    return { provider: "stub", dataHandling: STUB_DATA_HANDLING };
+  }
+
+  if (selected === "deepinfra") {
+    const apiKey = required(env, "DEEPINFRA_API_KEY");
+    const model = required(env, "DEEPINFRA_MODEL");
+
+    // Fail closed on the attestation. This is the blocking TODO above, enforced.
+    if (DEEPINFRA_DATA_HANDLING === null) {
+      throw new ConfigurationError(
+        "LLM_PROVIDER=deepinfra, but DeepInfra's data handling is not attested. " +
+          "Read their data-processing terms and fill DEEPINFRA_DATA_HANDLING in " +
+          "apps/web/lib/composition.ts (trainsOnData, statefulStorage, " +
+          "requestLoggingDisabled, retentionDays). Never infer these values.",
+      );
+    }
+
+    return {
+      provider: "deepinfra",
+      dataHandling: DEEPINFRA_DATA_HANDLING,
+      deepinfra: { apiKey, model },
+    };
+  }
+
+  throw new ConfigurationError(
+    `LLM_PROVIDER="${selected}" is not a known provider (expected "stub" or "deepinfra")`,
+  );
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -306,8 +376,12 @@ export function createAppContext(env: NodeJS.ProcessEnv = process.env): AppConte
       : createSimulatorTransport();
 
   // The provider receives no database or repository capability — only what a projection
-  // hands it at call time.
-  const provider = new StubLLMProvider({});
+  // hands it at call time. Which one is constructed is configuration; what either is
+  // TRUSTED with is identical, because the harness owns every consequence either way.
+  const provider =
+    config.model.provider === "deepinfra" && config.model.deepinfra !== undefined
+      ? createDeepInfraProvider(config.model.deepinfra)
+      : new StubLLMProvider({});
   const clock = sharedClock();
 
   return {

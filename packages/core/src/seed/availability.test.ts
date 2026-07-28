@@ -198,6 +198,47 @@ describe("parseSeason", () => {
   });
 });
 
+describe("parseStocking — weekday RANGES versus lists", () => {
+  // Found by seeding the real corpus (B-002): Green Ears states "Stocking Days: Thursday -
+  // Sunday", which is a RANGE — Thursday, Friday, Saturday, Sunday. Collecting weekday words
+  // read it as the two-element list {Thursday, Sunday}, silently dropping Friday and
+  // Saturday. The stand then never matches a customer filtering for Friday, and nothing
+  // anywhere reports an error: the map is simply, quietly wrong about two days.
+  //
+  // The distinction is the separator: a dash is a range, "and"/"," is a list.
+
+  it("expands a dashed weekday range to every day it covers", () => {
+    expect(parseStocking("Thursday - Sunday")).toEqual({
+      cadence: "specific_days",
+      days: [DAY.sunday, DAY.thursday, DAY.friday, DAY.saturday].sort((a, b) => a - b),
+    });
+  });
+
+  it("wraps a range that crosses the end of the week", () => {
+    // Saturday - Monday is Sat, Sun, Mon — not an empty or reversed set.
+    expect(parseStocking("Saturday - Monday")).toEqual({
+      cadence: "specific_days",
+      days: [DAY.sunday, DAY.monday, DAY.saturday].sort((a, b) => a - b),
+    });
+  });
+
+  it("still reads 'and' as a LIST, not a range", () => {
+    // Regression guard: "Saturday and Sunday" must stay two days, not expand to six.
+    expect(parseStocking("Saturday and Sunday")).toEqual({
+      cadence: "specific_days",
+      days: [DAY.sunday, DAY.saturday],
+    });
+    expect(parseStocking("Mondays and Fridays")).toEqual({
+      cadence: "specific_days",
+      days: [DAY.monday, DAY.friday],
+    });
+  });
+
+  it("reads a single day as itself", () => {
+    expect(parseStocking("Friday")).toEqual({ cadence: "specific_days", days: [DAY.friday] });
+  });
+});
+
 describe("parseStocking", () => {
   it("reads plain daily cadences", () => {
     for (const text of ["Daily", "Daily restock", "generally daily", "Stocking daily"]) {
