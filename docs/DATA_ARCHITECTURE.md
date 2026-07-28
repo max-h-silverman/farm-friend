@@ -56,6 +56,23 @@ render an honest "updated X ago" without a second provenance axis.
 - **structured public listing facts** — including payment methods and VIGA Farm Bucks acceptance or
   eligibility as **read-only facts**, plus farmer-selected web/social links and an optional photo
   or short biography.
+- **structured availability** (F-035) — season, days of week, time of day, and restocking cadence as
+  **queryable columns rather than prose**, so "what is open right now" is a filter and not a text
+  scan. Kinds that are not clock times (`dawn_to_dusk`, `daylight_hours`) and cadences that are not
+  schedules (`variable`, `as_needed`) are **first-class enum values, not missing data** — on an
+  unattended honor-system stand they are the truthful answer, and a clock time would invent
+  precision the farmer never stated. The farmer's own wording is kept verbatim beside them as
+  **display-only text that is never filtered on**, so a caveat like "Saturday and Sunday when
+  available" survives without the structured fields overstating it. `year_round` is distinct from an
+  absent season: "always open" and "never recorded" are different facts.
+- **stand specialties** (F-035) — what a location *usually* carries, held separately from inventory
+  revisions. The separation is **structural, not conventional**: a revision requires a farmer
+  authorization and a VIGA approval, so a seeder or an ingest path cannot fabricate a confirmation
+  by writing one. Specialties carry no confirmation time and must never be rendered as current
+  availability.
+- **stand data flags** (F-035) — where a contradiction in seeded source data waits for a human.
+  Distinct from the customer-message `flags` table, which is keyed to a contact and an inbox event a
+  seed flag has neither of. One open flag per (location, reason); resolved flags stay as history.
 - **inventory revisions and inventory entries** — a revision is an immutable published version of a
   location's inventory; entries are the items in it, with quantity/unit/price text or an
   approximate label. Revisions have no draft state and are created only by successful confirmation.

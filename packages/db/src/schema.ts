@@ -31,6 +31,88 @@ export const inventoryApproximation = pgEnum("inventory_approximation", [
   "limited",
   "plentiful",
 ]);
+
+// F-035 — stand availability as FILTERABLE data rather than free-form text.
+//
+// VIGA's existing map states hours, season, and restocking in one prose blob per stand
+// ("Open: March-November. 7 days a week, dawn to dusk"). That blob conflates three
+// independent facts, which is why the current map cannot answer "what is open right now" —
+// the unfilterable text CLAUDE.md names as a founding motivation for Farm Friend.
+//
+// Every value below occurs in the real VIGA export. The set is meant to GROW: when a stand
+// describes itself in a way none of these capture, the answer is a new enum value plus a
+// migration, never a free-text escape hatch that quietly restores the blob.
+
+/**
+ * How a stand states its time of day.
+ *
+ * `dawn_to_dusk` and `daylight_hours` are FIRST-CLASS values, not degraded clock times. On
+ * an unattended honor-system stand they are the more truthful answer, and they are not
+ * equivalent to any fixed pair of hours: dusk on Vashon moves by ~6 hours across the season,
+ * so storing them as 06:00–20:00 would invent a precision the farmer never stated.
+ */
+export const openHoursKind = pgEnum("open_hours_kind", [
+  "dawn_to_dusk",
+  "daylight_hours",
+  /** 24/7, "24hrs", "24 hours" — the stand is never closed within its season. */
+  "all_day",
+  /** Explicit clock times; `open_from` / `open_until` carry them. */
+  "clock_range",
+  /** A clock opening that runs until dusk ("10AM - Dusk"); `open_from` carries the start. */
+  "until_dusk",
+  /** Not a schedule at all — the customer must arrange a visit. */
+  "by_appointment",
+]);
+
+/**
+ * How a stand states its season.
+ *
+ * `year_round` is distinct from a null season on purpose: "open all year" and "we don't know
+ * this stand's season" are different facts, and a filter must be able to tell them apart.
+ */
+export const seasonKind = pgEnum("season_kind", [
+  "year_round",
+  /** Explicit endpoints; the four `season_*_month` / `season_*_day` columns carry them. */
+  "date_range",
+  /** "Spring-fall", "Summer" — resolved at QUERY time from one shared constant. */
+  "named_season",
+  /** A stated start with no stated end ("June 1, 2026 - TBD"). */
+  "open_ended",
+]);
+
+/**
+ * How often a stand is restocked — what drives "best selection" answers.
+ *
+ * `variable`, `as_needed`, and `intermittent` are real answers, not missing data. "We restock
+ * as stock runs low" is an honest description of an honor-system stand, and modelling it as
+ * NULL would make it indistinguishable from a stand we simply failed to ask.
+ */
+export const stockingCadence = pgEnum("stocking_cadence", [
+  "daily",
+  /** Specific weekdays; `stocking_days` carries which. */
+  "specific_days",
+  "variable",
+  "as_needed",
+  "intermittent",
+]);
+
+/**
+ * Why a seeded stand needs a human to look at it.
+ *
+ * The seeder never guesses. Where VIGA's source text contradicts itself or leaves a fact
+ * open, it picks the more specific reading, records it, and raises one of these for an
+ * operator or the farmer to settle.
+ */
+export const standDataFlagReason = pgEnum("stand_data_flag_reason", [
+  /** Two `Open:` lines that disagree (Green Ears states both April–July and unqualified). */
+  "contradictory_hours",
+  /** A season with no stated end ("June 1, 2026 - TBD"). */
+  "season_unresolved",
+  /** The source text did not parse into any enum value; nothing was stored for it. */
+  "unparsed_availability",
+  /** The source's most recent note suggests the stand may not be operating. */
+  "possibly_closed",
+]);
 export const inboxProcessingState = pgEnum("inbox_processing_state", [
   "pending",
   "processing",
@@ -366,7 +448,46 @@ export const salesLocations = pgTable(
     publicAddress: text("public_address").notNull(),
     publicLatitude: doublePrecision("public_latitude").notNull(),
     publicLongitude: doublePrecision("public_longitude").notNull(),
+    /**
+     * The farmer's own words about when they are open, preserved verbatim.
+     *
+     * DISPLAY ONLY — never filtered on (F-035). Sherman Creek's "Saturday and Sunday when
+     * available" and Aeggy's "mostly on Tuesdays and Saturdays" carry caveats no day set can
+     * hold, and dropping them would make the map more confident than the farmer was. The
+     * structured columns below answer queries; this sentence is shown beside them.
+     */
     hoursText: text("hours_text"),
+
+    // F-035 — the structured availability. Each column answers a question the prose cannot.
+    seasonKind: seasonKind("season_kind"),
+    /** Inclusive endpoints, set only when `season_kind = 'date_range'`. */
+    seasonStartMonth: integer("season_start_month"),
+    seasonStartDay: integer("season_start_day"),
+    seasonEndMonth: integer("season_end_month"),
+    seasonEndDay: integer("season_end_day"),
+    /**
+     * "spring" | "summer" | "fall" | "winter", possibly hyphenated ("spring-fall"), set only
+     * when `season_kind = 'named_season'`. Resolved to months at QUERY time from one
+     * documented constant, never expanded here — so a VIGA correction to what "summer" means
+     * on Vashon changes one constant instead of requiring a re-seed.
+     */
+    seasonNames: text("season_names").array(),
+
+    openHoursKind: openHoursKind("open_hours_kind"),
+    /** Minutes past midnight; set when the kind is `clock_range` or `until_dusk`. */
+    openFromMinutes: integer("open_from_minutes"),
+    /** Minutes past midnight; set only when the kind is `clock_range`. */
+    openUntilMinutes: integer("open_until_minutes"),
+    /**
+     * Which weekdays the stand is open, 0 = Sunday. NULL means "not stated" — distinct from
+     * an empty array, which would claim the stand is open on no day at all.
+     */
+    openDays: integer("open_days").array(),
+
+    stockingCadence: stockingCadence("stocking_cadence"),
+    /** Which weekdays restocking happens, 0 = Sunday. Set with `specific_days`. */
+    stockingDays: integer("stocking_days").array(),
+
     isPublic: boolean("is_public").notNull().default(true),
     farmBucksAccepted: boolean("farm_bucks_accepted").notNull(),
     farmBucksEligible: boolean("farm_bucks_eligible").notNull(),
@@ -397,6 +518,215 @@ export const salesLocations = pgTable(
     acceptanceRequiresEligibility: check(
       "sales_locations_farm_bucks_acceptance_requires_eligibility",
       sql`not ${table.farmBucksAccepted} or ${table.farmBucksEligible}`,
+    ),
+
+    // F-035 — the enums are only worth having if the DATABASE enforces that each kind
+    // carries exactly the detail it needs. Without these, a `date_range` with no dates or a
+    // `clock_range` with no times would load silently and every reader would need a defensive
+    // branch for a state the seeder should never have produced.
+    coherentSeason: check(
+      "sales_locations_coherent_season",
+      sql`
+        (
+          ${table.seasonKind} is null
+          and ${table.seasonStartMonth} is null and ${table.seasonStartDay} is null
+          and ${table.seasonEndMonth} is null and ${table.seasonEndDay} is null
+          and ${table.seasonNames} is null
+        )
+        or (
+          ${table.seasonKind} = 'year_round'
+          and ${table.seasonStartMonth} is null and ${table.seasonEndMonth} is null
+          and ${table.seasonNames} is null
+        )
+        or (
+          ${table.seasonKind} = 'date_range'
+          and ${table.seasonStartMonth} is not null and ${table.seasonStartDay} is not null
+          and ${table.seasonEndMonth} is not null and ${table.seasonEndDay} is not null
+          and ${table.seasonNames} is null
+        )
+        or (
+          ${table.seasonKind} = 'named_season'
+          and ${table.seasonNames} is not null
+          and coalesce(array_length(${table.seasonNames}, 1), 0) > 0
+          and ${table.seasonStartMonth} is null and ${table.seasonEndMonth} is null
+        )
+        or (
+          ${table.seasonKind} = 'open_ended'
+          and ${table.seasonStartMonth} is not null and ${table.seasonStartDay} is not null
+          and ${table.seasonEndMonth} is null and ${table.seasonEndDay} is null
+          and ${table.seasonNames} is null
+        )
+      `,
+    ),
+    validSeasonDates: check(
+      "sales_locations_valid_season_dates",
+      sql`
+        (${table.seasonStartMonth} is null or ${table.seasonStartMonth} between 1 and 12)
+        and (${table.seasonEndMonth} is null or ${table.seasonEndMonth} between 1 and 12)
+        and (${table.seasonStartDay} is null or ${table.seasonStartDay} between 1 and 31)
+        and (${table.seasonEndDay} is null or ${table.seasonEndDay} between 1 and 31)
+      `,
+    ),
+    coherentOpenHours: check(
+      "sales_locations_coherent_open_hours",
+      sql`
+        (
+          ${table.openHoursKind} is null
+          and ${table.openFromMinutes} is null and ${table.openUntilMinutes} is null
+        )
+        or (
+          ${table.openHoursKind} in ('dawn_to_dusk', 'daylight_hours', 'all_day', 'by_appointment')
+          and ${table.openFromMinutes} is null and ${table.openUntilMinutes} is null
+        )
+        or (
+          ${table.openHoursKind} = 'clock_range'
+          and ${table.openFromMinutes} is not null and ${table.openUntilMinutes} is not null
+        )
+        or (
+          ${table.openHoursKind} = 'until_dusk'
+          and ${table.openFromMinutes} is not null and ${table.openUntilMinutes} is null
+        )
+      `,
+    ),
+    validOpenMinutes: check(
+      "sales_locations_valid_open_minutes",
+      sql`
+        (${table.openFromMinutes} is null or ${table.openFromMinutes} between 0 and 1439)
+        and (${table.openUntilMinutes} is null or ${table.openUntilMinutes} between 0 and 1439)
+      `,
+    ),
+    // A day array must contain only real weekdays. An EMPTY array is refused outright: it
+    // would assert "open on no day", which no stand means and which NULL already expresses.
+    //
+    // `coalesce` is load-bearing. `array_length(array[]::integer[], 1)` returns NULL — not 0 —
+    // so a bare `between 1 and 7` evaluates to NULL on the empty array, and a CHECK constraint
+    // PASSES on NULL. The first draft of this constraint admitted the exact value it was
+    // written to forbid; the test caught it.
+    validOpenDays: check(
+      "sales_locations_valid_open_days",
+      sql`
+        ${table.openDays} is null
+        or (
+          coalesce(array_length(${table.openDays}, 1), 0) between 1 and 7
+          and ${table.openDays} <@ array[0,1,2,3,4,5,6]
+        )
+      `,
+    ),
+    validStockingDays: check(
+      "sales_locations_valid_stocking_days",
+      sql`
+        ${table.stockingDays} is null
+        or (
+          coalesce(array_length(${table.stockingDays}, 1), 0) between 1 and 7
+          and ${table.stockingDays} <@ array[0,1,2,3,4,5,6]
+        )
+      `,
+    ),
+    // `specific_days` without the days is the one incoherent cadence: it promises a set the
+    // reader then cannot find. Every other cadence carries no day list by definition.
+    coherentStockingCadence: check(
+      "sales_locations_coherent_stocking_cadence",
+      sql`
+        (${table.stockingCadence} = 'specific_days') = (${table.stockingDays} is not null)
+        or (${table.stockingCadence} is null and ${table.stockingDays} is null)
+      `,
+    ),
+  }),
+);
+
+/**
+ * What a stand USUALLY has — its specialties, not its current stock (F-035).
+ *
+ * These are two different facts and they live in two different tables on purpose.
+ * `inventory_revisions` is CURRENT STOCK: it requires `published_by_authorization_id` and
+ * `farm_approval_id`, so writing one demands a verified farmer and a VIGA approval. The
+ * seeder has neither and structurally cannot fabricate them — which is exactly why
+ * specialties needed their own home rather than a `kind` column on the revision table. A
+ * flag there would have let seeded rows satisfy `one_current_per_location` and render as
+ * though a farmer had just confirmed them.
+ *
+ * Seeded from VIGA's "Generally Offers:" text and never from its dated update lines. The
+ * public surface must label these as what a stand USUALLY carries — never as confirmed
+ * availability, which only a farmer's own SMS establishes (Golden Rule #1, #4).
+ */
+export const salesLocationOfferings = pgTable(
+  "sales_location_offerings",
+  {
+    salesLocationId: uuid("sales_location_id").notNull(),
+    /** A single item as the farm describes it: "eggs", "lamb", "plant starts". */
+    item: text("item").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => ({
+    salesLocationReference: foreignKey({
+      name: "sales_location_offerings_location_fk",
+      columns: [table.salesLocationId],
+      foreignColumns: [salesLocations.id],
+    }).onDelete("cascade"),
+    pk: primaryKey({
+      name: "sales_location_offerings_pk",
+      columns: [table.salesLocationId, table.item],
+    }),
+    itemNotBlank: check(
+      "sales_location_offerings_item_not_blank",
+      sql`length(trim(${table.item})) > 0`,
+    ),
+    nonnegativeSortOrder: check(
+      "sales_location_offerings_nonnegative_sort_order",
+      sql`${table.sortOrder} >= 0`,
+    ),
+  }),
+);
+
+/**
+ * A seeded stand whose source data needs a human decision (F-035, B-002).
+ *
+ * Deliberately NOT the existing `flags` table: that one is keyed to `contact_hash` and
+ * `inbox_event_id` — a customer-message safety rail with a thread viewer attached. A seed
+ * flag has neither, and forcing one in would break the coherence its operator surface
+ * depends on. Same idea, different subject, so a separate small table rather than a nullable
+ * mess in a table that means something else.
+ *
+ * The seeder resolves contradictions by picking the more specific reading and raising one of
+ * these — it never silently guesses, and never drops the conflict on the floor.
+ */
+export const standDataFlags = pgTable(
+  "stand_data_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    salesLocationId: uuid("sales_location_id")
+      .notNull()
+      .references(() => salesLocations.id, { onDelete: "cascade" }),
+    reason: standDataFlagReason("reason").notNull(),
+    /** The source text that could not be resolved, so an operator can see what was meant. */
+    sourceText: text("source_text").notNull(),
+    /** What the seeder stored instead, in words. Null when it stored nothing. */
+    resolutionNote: text("resolution_note"),
+    resolvedByAdministratorId: uuid("resolved_by_administrator_id").references(
+      () => administrators.id,
+      { onDelete: "restrict" },
+    ),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    // One open flag per (location, reason): re-running the seeder must not pile up duplicate
+    // copies of the same unresolved question. Resolved flags stay as history.
+    oneOpenPerReason: uniqueIndex("stand_data_flags_one_open_per_reason")
+      .on(table.salesLocationId, table.reason)
+      .where(sql`${table.resolvedAt} is null`),
+    sourceTextNotBlank: check(
+      "stand_data_flags_source_text_not_blank",
+      sql`length(trim(${table.sourceText})) > 0`,
+    ),
+    coherentResolution: check(
+      "stand_data_flags_coherent_resolution",
+      sql`
+        (${table.resolvedAt} is null and ${table.resolvedByAdministratorId} is null)
+        or (${table.resolvedAt} is not null and ${table.resolvedByAdministratorId} is not null)
+      `,
     ),
   }),
 );

@@ -36,6 +36,13 @@
       "when": 1785300000000,
       "tag": "0004_provider_error_detail",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785400000000,
+      "tag": "0005_structured_stand_availability",
+      "breakpoints": true
     }
   ]
 }

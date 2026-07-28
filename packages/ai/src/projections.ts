@@ -266,3 +266,44 @@ export function projectStockOutParse(input: {
     outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
   } as ModelSafeContext<StockOutParseFields>;
 }
+
+export interface OfferingExtractionFields {
+  /** One stand's free-form description of what it typically carries. */
+  readonly sourceText: string;
+}
+
+/**
+ * Project the offering-extraction seam (F-035/F-036): one stand's "Generally Offers" prose.
+ *
+ * WHY THIS SEAM EXISTS. A regex can split "eggs, plant starts, veggies" but not
+ * "Specializing in Asian vegetables, including gailan, bok choy, perilla" — and the failures
+ * are not cosmetic, because every extracted item becomes a customer-facing filter tag. A
+ * deterministic draft produced tags like "rotational grazing for chickens", "special
+ * occasions...etc..", and "plums ijuly)". Deciding that "Asian vegetables" is an offering and
+ * "but following organic practices" is not requires reading the sentence.
+ *
+ * WHAT IT IS TRUSTED WITH, AND WHAT IT IS NOT. It proposes item TAGS from text VIGA already
+ * publishes. It never writes them: the seeder records proposals for human review and code
+ * commits what was approved (Golden Rule #3). Proposed tags describe what a stand USUALLY
+ * carries — they are never current stock, which only a farmer's own confirmed SMS establishes.
+ *
+ * The projection carries the description ALONE. No farm name, no location id, no contact, no
+ * neighbouring stand's text. A model that could name a farm could attach one farm's produce to
+ * another's listing, and the extraction task does not need the name to do its job.
+ *
+ * Note this seam is reachable from a build-time ingest script and, if F-036's farmer web form
+ * lands, from a farmer editing their OWN listing. It is never reachable from anonymous public
+ * discovery — that would be the model-backed web inquiry surface F-019 removed.
+ */
+export function projectOfferingExtraction(input: {
+  sourceText: string;
+}): ModelSafeContext<OfferingExtractionFields> {
+  const fields: OfferingExtractionFields = {
+    sourceText: assertNoRawPhone(input.sourceText, "sourceText"),
+  };
+
+  return {
+    seam: "offering-extraction",
+    fields,
+  } as ModelSafeContext<OfferingExtractionFields>;
+}

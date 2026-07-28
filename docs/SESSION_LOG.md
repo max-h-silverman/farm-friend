@@ -11,7 +11,133 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-27 (latest) — the callbacks nothing read, and a rule enforced twice
+## 2026-07-28 (latest) — the deploy that never happened, and structure for the map
+
+B-012 verified in production, then the seed tranche: a reader bug hiding behind the seeder gap,
+migration 0005, and one model seam that replaced a regex the corpus disproved.
+
+### B-012's callbacks were pending because the code was never deployed
+
+The session opened by verifying B-012 by effect, the way F-026's purge was verified. The query
+returned the same numbers as the day before: `message_received` 21/21 `processed`,
+`message_sent` 9 + `message_finalized` 11 **all `pending`**. `outbox_work.delivery_status` NULL
+across all 21 rows.
+
+The scheduler itself was healthy — that was the useful negative control. Workflow runs returned
+HTTP 200, and `sms_messages` showed **0 expired bodies still present**, so F-026's purge was
+demonstrably executing against real data. A working scheduler running three-pass code looks
+exactly like a broken fourth pass.
+
+`gh api .../deployments` gave it away: production was serving **`9292961`** (B-007, 03:58Z), a
+build from ~10 hours *before* `f16ef8f` merged. B-010 and B-011 had never been deployed either.
+Corroboration without touching the code: migration 0004's columns were present (migrations are
+applied separately via `npm run db:migrate`) while `provider_code` was populated on **0 of 35**
+dispatch attempts — the schema was ahead of the application.
+
+Deployed `ff75000` with `npx vercel --prod`, crons block stripped uncommitted and restored
+immediately. One `workflow_dispatch` run later: all 20 callbacks `processed`, `delivery_status`
+`delivered` on 11 rows, `finalized_at` set on every applied event, and **zero** callbacks against
+the 5 failed + 5 ambiguous rows — correctly untouched, since the carrier never sent callbacks for
+sends that never succeeded.
+
+**A CLI deploy creates no GitHub deployment record**, so that API reports the last *Git
+integration* SHA and is not evidence of what production runs. Verify the deployed build by
+effect. Also observed: the `*/5` workflow actually fires **roughly hourly** (23:41, 22:32, 21:20,
+01:08) — GitHub drops most slots, exactly as the workflow's own comment predicts.
+
+### The seeder alone would not have fixed the empty map (B-013)
+
+`listPublicStands` **inner**-joined `inventory_revisions`, so a location with no current revision
+produced no row. B-002's own acceptance criterion — "every stand exists and is discoverable, and
+no stand has a published inventory revision" — was unsatisfiable against that reader. Seeding 31
+stands with zero inventory (the decided behavior) would have left the map exactly as empty, with a
+green seed test. Second defect behind one symptom, the same shape as F-023 and F-026 before it.
+
+The fix is a left join plus `nulls last`, and making `asOf`/`recencyLabel`/`isStale` optional
+**together** so a stand nobody confirmed cannot render "updated just now". The UI already had an
+`items-empty` branch — but it claimed *"the farmer confirmed this stand is empty"*, which for a
+seeded stand is a confirmation nobody made. Now it distinguishes the two.
+
+Sabotage found a gap in my own test: reverting `nulls last` **passed** the first draft, which
+asserted membership but not order. Postgres sorts NULLs FIRST under `desc`, so unconfirmed stands
+would have led the map ahead of freshly-confirmed ones. Added the ordering assertion.
+
+### Two kinds of inventory, and why the separation is structural
+
+max's framing: a stand has **specialties** ("usually has eggs, lamb") and **current stock** ("has
+strawberries today"). These got two tables, and the reason is not stylistic —
+`inventory_revisions` requires `published_by_authorization_id` and `farm_approval_id`, so the
+seeder **structurally cannot** write current stock without fabricating a farmer and their consent.
+A `kind` column on the revision table would have let seeded rows satisfy
+`one_current_per_location` and render as confirmed.
+
+### Enums from the corpus, not from a guess
+
+max's call: enumerate the values that actually occur and expand when new ones appear. Extracted
+from all 31 stands — `open_hours_kind`, `season_kind`, `stocking_cadence`, plus a day set.
+
+`dawn_to_dusk` and `daylight_hours` are **first-class values, not degraded clock times**: dusk on
+Vashon moves ~6 hours across the season, so 06:00–20:00 would invent precision the farmer never
+stated — the same fabrication class as inventing a coordinate. Likewise `variable`/`as_needed`
+are real answers, not NULL. `year_round` stays distinct from a null season so a filter can tell
+"always open" from "never asked". Named seasons resolve at **query time** from one meteorological
+constant, so a VIGA correction changes a constant rather than requiring a re-seed.
+
+**A real defect the constraint tests caught:** `array_length(array[]::integer[], 1)` returns
+**NULL**, not 0, so `between 1 and 7` evaluated to NULL on an empty array — and a CHECK constraint
+**passes** on NULL. The first draft admitted the exact value it was written to forbid. Fixed with
+`coalesce(..., 0)`.
+
+### `not_stated` vs `unparsed` — the corpus forced the distinction
+
+The availability parser's first draft flagged **12 of 31** stands. Ten were fine: "May 1 - Nov 1"
+and "All year, All days" are not unreadable hours, they are stands that never stated a time of
+day. Conflating "no hours recorded" (a fact) with "hours I could not read" (a defect) buried the
+genuine ambiguities. After splitting them: **12 flags → 1**, and that one is real (Holmestead's
+"Mid April Weekends", a month with no range end).
+
+Two regex defects the tests caught: `(sun|mon|tues?|…)(?:day|s)?` matched neither "Mondays" (the
+group cannot take both `day` and `s`) nor "Saturday" (`sat` matches, then `urday` fails the word
+boundary).
+
+### The regex that the corpus disproved, replaced by a seam
+
+Offerings were the one job deterministic parsing could not do. Run against the real data it
+produced customer-facing filter tags including `rotational grazing for chickens`, `special
+occasions...etc..`, `but following organic practices`, and `plums ijuly)`. Distinguishing an
+offering from a farming-practice clause requires reading the sentence.
+
+`parseOfferings` was **deleted** — not left beside the seam — and replaced by
+`offering-extraction`. The model proposes tags; the seeder records them for review; code commits.
+The projection carries **one stand's description alone**: no farm name, no location id, no
+contact. `.strict()` refuses output carrying `publish` or `salesLocationId` rather than stripping
+it, so a model attempting a consequence is visible. Provider failure stays distinguishable from an
+empty proposal — returning `[]` on failure would record "this stand offers nothing", a claim
+nobody made.
+
+Four adversarial fixtures (25 → 29), each sabotage-proved. One is not hypothetical: the projection
+**fails closed on a raw phone in source text**, and VIGA's export carries two phone numbers.
+
+Availability parsing stayed deterministic and needed no model — measured, not assumed.
+
+### Where the model may and may not run (F-036)
+
+max asked whether the map's filter should have an LLM component. Split into three cases so the
+approval status of each is explicit: **seed-time** (built today), **query-time on the public map**
+(blocked — that is the anonymous surface F-019 removed, and CLAUDE.md's Do-not list names it), and
+**farmer-authored web submission** (a third case, *not* what F-019 blocked — a farmer editing
+their own listing is the same act as texting an update, just a different transport; needs farmer
+web auth, which does not exist, and must route through the same confirmation gate).
+
+### Owed
+
+The seam is built but **cannot run**: F-024's provider is still the stub. Seeding the 31 stands
+waits on a real provider, or lands availability-only with offerings filled in later. max chose to
+make the provider decision at the start of the next session, then run the seam.
+
+---
+
+## 2026-07-27 — the callbacks nothing read, and a rule enforced twice
 
 B-012, found the day before while verifying the scheduler by effect. One bounded pass, and a
 sabotage sequence that corrected the test rather than the code.

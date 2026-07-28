@@ -106,4 +106,44 @@ describe("buildMapView", () => {
     expect(view.staleCount).toBe(0);
     expect(view.sortedByDistance).toBe(false);
   });
+
+  describe("a stand nobody has confirmed yet (B-013)", () => {
+    // B-002 seeds VIGA's stands with zero inventory, so `updated`/`stale` are ABSENT rather
+    // than stale-but-present. The view model must not treat "never confirmed" as "fresh".
+    const unconfirmed: PublicStandPayload = {
+      id: "unconfirmed",
+      farmName: "Gamma Farm",
+      locationName: "Gamma Stand",
+      address: "3 East Road",
+      latitude: 47.46,
+      longitude: -122.4594,
+      items: [],
+    };
+
+    it("is kept on the map", () => {
+      const view = buildMapView([...stands, unconfirmed], null);
+      expect(view.stands.map((s) => s.id)).toContain("unconfirmed");
+    });
+
+    it("is NOT counted as stale", () => {
+      // "Stale" means a farmer confirmed something and it has aged. Nothing was confirmed
+      // here, so counting it would inflate the up-front warning and tell customers a
+      // listing went out of date when no listing ever existed.
+      expect(buildMapView([unconfirmed], null).staleCount).toBe(0);
+      expect(buildMapView([...stands, unconfirmed], null).staleCount).toBe(1);
+    });
+
+    it("still gets a routing link — location is known even when stock is not", () => {
+      // The address and coordinates come from the seed and are real. Whether anyone has
+      // confirmed produce is a different question from whether the stand can be found.
+      const view = buildMapView([unconfirmed], null);
+      expect(view.stands[0]!.routingLink).not.toBeNull();
+    });
+
+    it("carries no recency fields to render", () => {
+      const view = buildMapView([unconfirmed], null);
+      expect(view.stands[0]!.updated).toBeUndefined();
+      expect(view.stands[0]!.stale).toBeUndefined();
+    });
+  });
 });

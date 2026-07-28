@@ -220,6 +220,116 @@ describe("public web surface boundary (integration)", () => {
     ids.entry = entry[0]?.id as string;
   });
 
+  describe("a stand nobody has confirmed yet (B-013)", () => {
+    // B-002 seeds ~31 VIGA stands with ZERO inventory, deliberately: seeding the old map's
+    // dated text would render a year-old note as though a farmer had just confirmed it.
+    // That decision only produces a usable map if a stand with no revision is VISIBLE.
+    //
+    // It was not. `listPublicStands` inner-joined `inventory_revisions`, so a location with
+    // no current revision produced no row at all and never reached the map. B-002's own
+    // acceptance criterion — "every stand exists and is discoverable, and no stand has a
+    // published inventory revision" — was unsatisfiable against that reader.
+    //
+    // The product reason is the same one that keeps a STALE listing visible: the honor-system
+    // premise is that an unattended stand with unknown stock is still worth showing. "We
+    // don't know" and "we know it's old" are both honest; disappearing is not.
+
+    /** Strip the seeded stand's revision, leaving a location with no inventory at all. */
+    async function removeAllRevisions(): Promise<void> {
+      await client()`truncate table inventory_entries, inventory_revisions restart identity cascade`;
+    }
+
+    it("is listed, with no items", async () => {
+      await removeAllRevisions();
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      // The assertion that fails against an inner join: the stand is PRESENT.
+      expect(stands).toHaveLength(1);
+      expect(stands[0]!.factId).toBe(ids.location);
+      expect(stands[0]!.farmName).toBe("Provo Farms");
+      expect(stands[0]!.locationName).toBe("Provo Stand");
+      expect(stands[0]!.items).toEqual([]);
+    });
+
+    it("carries NO recency, because nobody has confirmed anything", async () => {
+      await removeAllRevisions();
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      // The load-bearing half. A stand with no revision has no "updated X ago" and no
+      // staleness verdict — rendering either would manufacture a confirmation that never
+      // happened, which is the exact failure mode B-002's zero-inventory decision exists to
+      // avoid. `undefined` is the only honest value; a default date or "just now" is a lie.
+      expect(stands[0]!.asOf).toBeUndefined();
+      expect(stands[0]!.recencyLabel).toBeUndefined();
+      expect(stands[0]!.isStale).toBeUndefined();
+    });
+
+    it("serves that stand over HTTP without inventing a recency string", async () => {
+      await removeAllRevisions();
+
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as {
+        stands: { id: string; updated?: unknown; stale?: unknown; items: unknown[] }[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.stands).toHaveLength(1);
+      expect(body.stands[0]!.id).toBe(ids.location);
+      expect(body.stands[0]!.items).toEqual([]);
+
+      // Absent, not null and not an empty string: the map view decides how to present "no
+      // confirmation yet", and it can only do that if the field is genuinely missing.
+      expect(body.stands[0]!.updated).toBeUndefined();
+      expect(body.stands[0]!.stale).toBeUndefined();
+
+      // Nothing anywhere in the serialized payload claims a confirmation.
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toMatch(/updated/i);
+      expect(serialized).not.toMatch(/ago|just now/i);
+    });
+
+    it("lists confirmed and unconfirmed stands together, distinguishing them", async () => {
+      // The real seeded shape: most stands have no listing, a few do. Both must appear, and
+      // the difference between them must survive into the payload — otherwise the map either
+      // hides the majority or flattens "confirmed 3 hours ago" into "we have no idea".
+      const second = await client()`
+        insert into sales_locations (
+          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (${ids.farm}, 'farm_stand', 'Unseeded Stand', '456 Vashon Hwy',
+                47.4480, -122.4600, false, true)
+        returning id
+      `;
+      const unconfirmedId = second[0]?.id as string;
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands).toHaveLength(2);
+
+      // ORDER MATTERS, and it is easy to get silently wrong: Postgres sorts NULLs FIRST
+      // under `desc`, so without an explicit `nulls last` every never-confirmed stand would
+      // lead the map ahead of a stand confirmed minutes ago. With B-002 seeding ~31 stands
+      // that all start unconfirmed, that would open the map on the stands carrying the least
+      // information. The confirmed stand comes first.
+      expect(stands.map((s) => s.factId)).toEqual([ids.location, unconfirmedId]);
+
+      const byId = new Map(stands.map((s) => [s.factId, s]));
+
+      const confirmed = byId.get(ids.location)!;
+      expect(confirmed.items.map((i) => i.itemName)).toEqual(["kale"]);
+      expect(confirmed.asOf).toEqual(hoursAgo(3));
+      expect(confirmed.recencyLabel).toBeDefined();
+
+      const unconfirmed = byId.get(unconfirmedId)!;
+      expect(unconfirmed.items).toEqual([]);
+      expect(unconfirmed.asOf).toBeUndefined();
+      expect(unconfirmed.recencyLabel).toBeUndefined();
+    });
+  });
+
   describe("public discovery is model-free", () => {
     it("lists published stands without ever calling a model", async () => {
       // The whole composition's model capability is a provider that THROWS. Discovery

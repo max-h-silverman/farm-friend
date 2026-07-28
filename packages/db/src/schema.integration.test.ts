@@ -51,11 +51,13 @@ const expectedTables = [
   "outbox_dispatch_attempts",
   "outbox_work",
   "provider_inbox_events",
+  "sales_location_offerings",
   "sales_location_payment_methods",
   "sales_locations",
   "sender_states",
   "sms_consents",
   "sms_messages",
+  "stand_data_flags",
   "stock_out_reports",
 ];
 
@@ -901,5 +903,324 @@ describe("clean launch database foundation (integration)", () => {
       "started_at",
       "completed_at",
     ]);
+  });
+
+  describe("structured stand availability (F-035)", () => {
+    // The enums are only worth having if the DATABASE refuses an incoherent combination.
+    // Otherwise a `date_range` with no dates loads silently and every reader downstream needs
+    // a defensive branch for a state that should never have been written.
+    //
+    // Each test here inserts a row that a careless seeder could plausibly produce.
+
+    /** A minimal valid location, with F-035 fields supplied by the caller. */
+    async function insertLocation(
+      fields: Record<string, unknown>,
+    ): Promise<void> {
+      const columns = Object.keys(fields);
+      const base = `insert into sales_locations (
+        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        farm_bucks_accepted, farm_bucks_eligible${columns.length ? ", " + columns.map((c) => `"${c}"`).join(", ") : ""}
+      ) values (
+        '${storedId("farm")}', 'farm_stand', 'Constraint Probe ${randomUUID()}', '9 Probe Way',
+        47.45, -122.46, false, true${columns.length ? ", " + columns.map((_, i) => `$${i + 1}`).join(", ") : ""}
+      )`;
+      await db().unsafe(base, Object.values(fields) as never[]);
+    }
+
+    it("accepts every open-hours kind with exactly the detail it needs", async () => {
+      // The relative kinds carry no clock times — that is the point of having them.
+      for (const kind of ["dawn_to_dusk", "daylight_hours", "all_day", "by_appointment"]) {
+        await expect(insertLocation({ open_hours_kind: kind })).resolves.not.toThrow();
+      }
+      await expect(
+        insertLocation({
+          open_hours_kind: "clock_range",
+          open_from_minutes: 600,
+          open_until_minutes: 1140,
+        }),
+      ).resolves.not.toThrow();
+      // `until_dusk` has a start but deliberately no end.
+      await expect(
+        insertLocation({ open_hours_kind: "until_dusk", open_from_minutes: 600 }),
+      ).resolves.not.toThrow();
+    });
+
+    it("refuses a clock range with no clock times", async () => {
+      await expect(insertLocation({ open_hours_kind: "clock_range" })).rejects.toThrow();
+    });
+
+    it("refuses clock times on a kind that has none", async () => {
+      // The failure this prevents: storing dawn-to-dusk as 06:00–20:00 and thereby inventing
+      // a precision the farmer never stated. Dusk on Vashon moves ~6 hours across the season.
+      await expect(
+        insertLocation({ open_hours_kind: "dawn_to_dusk", open_from_minutes: 360 }),
+      ).rejects.toThrow();
+      await expect(
+        insertLocation({ open_hours_kind: "all_day", open_until_minutes: 1200 }),
+      ).rejects.toThrow();
+    });
+
+    it("refuses an out-of-range time of day", async () => {
+      await expect(
+        insertLocation({
+          open_hours_kind: "clock_range",
+          open_from_minutes: 600,
+          open_until_minutes: 1440,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it("accepts each season kind with its own required detail", async () => {
+      await expect(insertLocation({ season_kind: "year_round" })).resolves.not.toThrow();
+      await expect(
+        insertLocation({
+          season_kind: "date_range",
+          season_start_month: 5,
+          season_start_day: 1,
+          season_end_month: 11,
+          season_end_day: 1,
+        }),
+      ).resolves.not.toThrow();
+      await expect(
+        insertLocation({ season_kind: "named_season", season_names: ["spring", "fall"] }),
+      ).resolves.not.toThrow();
+      await expect(
+        insertLocation({
+          season_kind: "open_ended",
+          season_start_month: 6,
+          season_start_day: 1,
+        }),
+      ).resolves.not.toThrow();
+    });
+
+    it("refuses a date range missing an endpoint", async () => {
+      await expect(
+        insertLocation({
+          season_kind: "date_range",
+          season_start_month: 5,
+          season_start_day: 1,
+          season_end_month: 11,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it("refuses an open-ended season that carries an end", async () => {
+      // "June 1 - TBD" means the end is genuinely unknown. Storing one would be an invention.
+      await expect(
+        insertLocation({
+          season_kind: "open_ended",
+          season_start_month: 6,
+          season_start_day: 1,
+          season_end_month: 10,
+          season_end_day: 15,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it("refuses a named season with no names, and a month out of range", async () => {
+      await expect(insertLocation({ season_kind: "named_season" })).rejects.toThrow();
+      await expect(
+        insertLocation({
+          season_kind: "date_range",
+          season_start_month: 13,
+          season_start_day: 1,
+          season_end_month: 11,
+          season_end_day: 1,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it("keeps year_round distinct from an unknown season", async () => {
+      // Both are legal, and they mean different things: "open all year" is a fact, a null
+      // season is an absence. A filter must be able to tell them apart, so `year_round`
+      // exists as a value rather than being encoded as null-null.
+      await expect(insertLocation({ season_kind: "year_round" })).resolves.not.toThrow();
+      await expect(insertLocation({})).resolves.not.toThrow();
+
+      const rows = await db()`
+        select count(*) filter (where season_kind = 'year_round')::integer as year_round,
+               count(*) filter (where season_kind is null)::integer as unknown_season
+        from sales_locations
+      `;
+      expect(rows[0]!.year_round as number).toBeGreaterThan(0);
+      expect(rows[0]!.unknown_season as number).toBeGreaterThan(0);
+    });
+
+    it("refuses a year_round season that also carries dates", async () => {
+      await expect(
+        insertLocation({
+          season_kind: "year_round",
+          season_start_month: 3,
+          season_start_day: 1,
+        }),
+      ).rejects.toThrow();
+    });
+
+    it("requires days exactly when the cadence is specific_days", async () => {
+      await expect(
+        insertLocation({ stocking_cadence: "specific_days", stocking_days: [2, 5] }),
+      ).resolves.not.toThrow();
+      // Promising specific days without saying which is the one incoherent cadence.
+      await expect(
+        insertLocation({ stocking_cadence: "specific_days" }),
+      ).rejects.toThrow();
+      await expect(
+        insertLocation({ stocking_cadence: "daily", stocking_days: [2] }),
+      ).rejects.toThrow();
+    });
+
+    it("treats variable, as_needed and intermittent as real answers", async () => {
+      // Not missing data. "We restock as stock runs low" is an honest description of an
+      // honor-system stand, and as NULL it would be indistinguishable from never having asked.
+      for (const cadence of ["variable", "as_needed", "intermittent", "daily"]) {
+        await expect(
+          insertLocation({ stocking_cadence: cadence }),
+        ).resolves.not.toThrow();
+      }
+    });
+
+    it("refuses an empty or invalid day set", async () => {
+      // An empty array asserts "open on no day", which no stand means and which NULL
+      // ("not stated") already expresses.
+      await expect(insertLocation({ open_days: [] })).rejects.toThrow();
+      await expect(insertLocation({ open_days: [7] })).rejects.toThrow();
+      await expect(insertLocation({ open_days: [0, 6] })).resolves.not.toThrow();
+    });
+  });
+
+  describe("specialties are not current stock (F-035)", () => {
+    // A location of this suite's own, deliberately never given an inventory revision. The
+    // shared `ids.location` accumulates one from the workflow tests above, and reusing it
+    // would make these assertions depend on test ORDER — the exact fragility that makes a
+    // suite pass for the wrong reason.
+    let unconfirmedLocation = "";
+
+    beforeAll(async () => {
+      const rows = await db()`
+        insert into sales_locations (
+          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (${storedId("farm")}, 'farm_stand', 'Specialty Probe Stand', '11 Specialty Way',
+                47.44, -122.47, false, true)
+        returning id
+      `;
+      unconfirmedLocation = rows[0]?.id as string;
+    });
+
+    it("stores offerings against a location without any inventory revision", async () => {
+      // The whole point of the separate table: a stand can advertise what it USUALLY has
+      // without any farmer having confirmed anything today.
+      await db()`
+        insert into sales_location_offerings (sales_location_id, item, sort_order)
+        values (${unconfirmedLocation}, 'eggs', 0), (${unconfirmedLocation}, 'lamb', 1)
+      `;
+
+      const rows = await db()`
+        select o.item
+        from sales_location_offerings o
+        left join inventory_revisions r
+          on r.sales_location_id = o.sales_location_id and r.is_current
+        where o.sales_location_id = ${unconfirmedLocation} and r.id is null
+        order by o.sort_order
+      `;
+      expect(rows.map((r) => r.item)).toEqual(["eggs", "lamb"]);
+    });
+
+    it("refuses a blank offering and duplicate items", async () => {
+      await expect(
+        db()`
+          insert into sales_location_offerings (sales_location_id, item)
+          values (${unconfirmedLocation}, '   ')
+        `,
+      ).rejects.toThrow();
+      // The primary key makes re-seeding safe rather than duplicative.
+      await expect(
+        db()`
+          insert into sales_location_offerings (sales_location_id, item)
+          values (${unconfirmedLocation}, 'eggs')
+        `,
+      ).rejects.toThrow();
+    });
+
+    it("cannot make a stand look confirmed", async () => {
+      // The load-bearing separation. `listPublicStands` and the SMS inquiry both dereference
+      // `inventory_revisions` for confirmed availability; offerings live in a table neither
+      // joins for that purpose. Writing specialties must therefore leave the stand with NO
+      // current revision — which is what lets B-002 seed VIGA's stands without fabricating a
+      // confirmation no farmer made.
+      const revisions = await db()`
+        select count(*)::integer as count
+        from inventory_revisions
+        where sales_location_id = ${unconfirmedLocation} and is_current
+      `;
+      const offerings = await db()`
+        select count(*)::integer as count
+        from sales_location_offerings
+        where sales_location_id = ${unconfirmedLocation}
+      `;
+      expect(offerings[0]!.count as number).toBeGreaterThan(0);
+      expect(revisions[0]!.count as number).toBe(0);
+    });
+  });
+
+  describe("stand data flags (F-035)", () => {
+    // Its own location, for the same reason as the specialties suite: the shared fixture
+    // carries state from earlier tests and reusing it couples these assertions to test order.
+    let flagLocation = "";
+
+    beforeAll(async () => {
+      const rows = await db()`
+        insert into sales_locations (
+          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (${storedId("farm")}, 'farm_stand', 'Flag Probe Stand', '12 Flag Way',
+                47.43, -122.48, false, true)
+        returning id
+      `;
+      flagLocation = rows[0]?.id as string;
+    });
+
+    it("holds one OPEN flag per reason but keeps resolved ones as history", async () => {
+      await db()`
+        insert into stand_data_flags (sales_location_id, reason, source_text)
+        values (${flagLocation}, 'contradictory_hours', 'Open: April - July / Open Thursday - Sunday')
+      `;
+      // Re-running the seeder must not pile up duplicates of the same open question.
+      await expect(
+        db()`
+          insert into stand_data_flags (sales_location_id, reason, source_text)
+          values (${flagLocation}, 'contradictory_hours', 'Open: April - July / Open Thursday - Sunday')
+        `,
+      ).rejects.toThrow();
+
+      // A different reason for the same stand is a different question, and is allowed.
+      await expect(
+        db()`
+          insert into stand_data_flags (sales_location_id, reason, source_text)
+          values (${flagLocation}, 'season_unresolved', 'Open: June 1, 2026 - TBD')
+        `,
+      ).resolves.not.toThrow();
+    });
+
+    it("requires a resolver and a time together, or neither", async () => {
+      await expect(
+        db()`
+          insert into stand_data_flags (sales_location_id, reason, source_text, resolved_at)
+          values (${flagLocation}, 'possibly_closed', '7/9/2026 Update: Closed', ${now})
+        `,
+      ).rejects.toThrow();
+    });
+
+    it("refuses a flag with no source text", async () => {
+      // The operator's whole job here is reading what the source actually said.
+      await expect(
+        db()`
+          insert into stand_data_flags (sales_location_id, reason, source_text)
+          values (${flagLocation}, 'unparsed_availability', '  ')
+        `,
+      ).rejects.toThrow();
+    });
   });
 });

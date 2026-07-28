@@ -373,9 +373,10 @@ assertion's first draft survived its own sabotage by matching the word "status" 
 file, so it is now anchored to the comparison. Interval is `*/5` and is **not** equivalent to
 Vercel's one minute — GitHub schedules are best-effort and droppable; acceptable only because the
 kick front-runs live traffic. **Delete the workflow when Pro lands**, never run both.
-The retention purge has **never been verified by effect**; every observed pass reported `0/0/0`
-because nothing was eligible. **That verification is still owed** — set a `body_expires_at` in the
-past and confirm the purge clears it. A 401 looks identical to success in any scheduler's UI.
+**Observed 2026-07-28: the `*/5` schedule actually fires roughly HOURLY** (23:41, 22:32, 21:20,
+01:08) — GitHub drops most slots. Tolerable because the kick front-runs live traffic, but "wait for
+the next pass" is an hour-scale plan, not a five-minute one. A 401 looks identical to success in any
+scheduler's UI, which is why the run checks `%{http_code}`.
 
 **One worker mechanism, two triggers; one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
 is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` required, no default, no
@@ -418,10 +419,9 @@ deploying requires stripping the `crons` block from the working tree *uncommitte
 after — never the stale `throwaway/hobby-deploy-test` branch. **Tear down the project and that branch
 before go-live.**
 **Consequence: GitHub's "Vercel" check is permanently RED on every commit and PR**, `main` included
-(4f74e6a, a989172, 459a3a7, and PR #46 all failed identically) — the committed one-minute cron the
-Hobby plan rejects. It is **not** a signal about the change under review, and B-012 was merged past
-it deliberately. A check nobody can distinguish from a real failure is worth removing when the plan
-question is settled at go-live; until then, judge PRs by the local suites.
+— the committed one-minute cron the Hobby plan rejects. It is **not** a signal about the change
+under review; PRs are merged past it deliberately. Judge PRs by the local suites until the plan
+question is settled at go-live.
 
 **The webhook's config diagnostic is three-way, not two-way** (the RUNBOOK step-4 framing is wrong).
 `route.ts` calls `appContext()` before the provider check, and `resolveConfig` **throws** on a missing
@@ -438,28 +438,58 @@ plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only plac
 asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
 statements**, so external packages named in *config files* are outside its design.
 
-**Verified July 27, 2026 (`main`, B-012 merged):** `npm test` **402/402 across 43 files**;
-`npm run test:integration` **240/240 across 17 files** on real Postgres 16.12; `npm run evals`
-critical **11/11**, advisory 4/4, adversarial 25/25; typecheck + lint pass; `next build` clean.
-Migration **0004** proven from an empty database by the integration run. **B-012 was not verified
-against the live deployment** — the pass is proven locally and by wiring assertion, but no scheduled
-production run has been observed applying a real callback. Verify by effect: the standing
-`message_sent`/`message_finalized` rows should move `pending` → `processed` on the next `*/5` run.
-Newest session-log entry: the delivery callbacks nothing read. Entries older than
-the newest eight now live in `docs/SESSION_LOG_ARCHIVE.md` (rotated at 31 entries / 152k chars).
+**Structured stand data is built; the seed itself is not (F-035, B-013).** Migration **0005** adds
+three availability enums (`open_hours_kind`, `season_kind`, `stocking_cadence`), a day set, and two
+tables. **Specialties and current stock are separate by construction:**
+`sales_location_offerings` holds what a stand *usually* carries, while `inventory_revisions`
+requires `published_by_authorization_id` + `farm_approval_id` — so a seeder structurally cannot
+fabricate a confirmation. `stand_data_flags` is where a contradiction goes for an operator (not the
+`flags` table, which is keyed to `contact_hash`/`inbox_event_id` a seed flag has neither of).
+`dawn_to_dusk`/`daylight_hours` and `variable`/`as_needed` are **first-class enum values, not
+missing data**; named seasons resolve at **query time** from one meteorological constant.
+`packages/core/src/seed/availability.ts` parses hours/season/stocking deterministically and
+separates **`not_stated`** (a fact) from **`unparsed`** (a defect needing a human) — 1 flag across
+31 stands. Offerings are **not** parsed: a regex produced tags like "rotational grazing for
+chickens", so `parseOfferings` was deleted for the `offering-extraction` seam, which proposes tags
+that code commits after review. **B-013:** `listPublicStands` now LEFT-joins inventory, so a stand
+nobody has confirmed is visible with `asOf`/`recencyLabel`/`isStale` **absent together** — the map
+cannot render "updated just now" for a confirmation that never happened.
+
+**Verified July 28, 2026 (`main`, F-035 + B-013 merged):** `npm test` **432/432 across 45 files**;
+`npm run test:integration` **263/263 across 17 files** on real Postgres 16.12; `npm run evals`
+critical **11/11**, advisory 4/4, adversarial **29/29**; typecheck + lint pass; `next build` clean.
+Migration **0005** proven from an empty database by the integration run.
+Newest session-log entry: the deploy that never happened, and structure for the map. Entries older
+than the newest eight live in `docs/SESSION_LOG_ARCHIVE.md` (rotated at 31 entries / 152k chars).
 
 ### Open work — each needs separate implementation authorization
 
 Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
 supply what production never creates.
 
-- **F-024 — the configured provider is the stub.** **Decided:** DeepInfra on a mid-size instruct model;
-  the attested terms are **DeepInfra's** as inference host. The attestation is a **blocking TODO until
-  max reads their data-processing terms** — never infer those values. An adversarial eval failure
-  **stops and reports**; no fixture edits to go green.
-- **B-002 — no seed utility**, so the map renders empty and inquiry retrieval finds nothing.
-  **Decided:** typed TypeScript data file, zero inventory, no phone numbers, addresses only with
-  seed-time coordinate lookup. **Blocked on max's ~30-stand list**; do not build speculatively.
+- **F-024 — the configured provider is the stub. Now blocks F-035's ingest too.** **Decided:**
+  DeepInfra on a mid-size instruct model; the attested terms are **DeepInfra's** as inference host.
+  The attestation is a **blocking TODO until max reads their data-processing terms** — never infer
+  those values. An adversarial eval failure **stops and reports**; no fixture edits to go green.
+  **max's next session opens with this decision, then runs the offering seam.**
+- **B-002 — the seeder is not written; everything it needs now is.** The **~30-stand list arrived**
+  as VIGA's CSV export (31 stands, real WKT coordinates, so the planned seed-time geocoding is
+  unnecessary). Migration 0005 and the parser landed; what remains is the loader itself.
+  **Decisions that still stand:** zero inventory (seeding dated text would fabricate a confirmation
+  nobody made — Green Ears' most recent note reads "Closed"), no phone numbers, idempotent,
+  refuses constraint violations rather than coercing. **Superseded:** "no CSV, transcribe by hand"
+  — that rested on effort, and the CSV also carries coordinates the manual path would have lacked.
+  The CSV holds **23 emails + 2 phone numbers** that must be stripped; the offering projection
+  fails closed on a raw phone, proven by eval.
+- **F-035 / B-013 — schema, parser, and seam are merged.** What is NOT done: the loader, and the
+  `stand_data_flags` admin surface. Known flags awaiting the seeder: **Green Ears** (two
+  contradictory `Open:` lines plus a "Closed" note) and **Morgan Hill** ("June 1, 2026 - TBD").
+- **F-036 — where the model may run.** **Seed-time: built** (`offering-extraction`).
+  **Query-time on the public map: BLOCKED** — that is the anonymous surface F-019 removed and the
+  Do-not list names; `public-surface-model-free.test.ts` polices the import graph.
+  **Farmer-authored web submission: a THIRD case, not what F-019 blocked** — a farmer editing their
+  own listing is the same act as texting an update. Needs farmer web auth (does not exist) and must
+  route through the same confirmation gate. `extractOfferings` is transport-agnostic for this.
 - **F-034 — ROTATE EVERY EXPOSED CREDENTIAL. Hard blocker on F-029; do not go live without it.**
   `DATABASE_URL` (the full Neon URL was pasted in a transcript), `CRON_SECRET`, `TELNYX_API_KEY`, and
   possibly `MAGIC_LINK_SECRET` were all exposed during 2026-07-27 validation. **max deliberately
@@ -487,23 +517,21 @@ supply what production never creates.
   returns `400` on every send. **What remains for go-live is not the SMS path** — it is **F-034
   (credential rotation, a hard blocker)**, tearing down the throwaway project and branch, B-002 seed
   data, F-024 a real model provider, and F-031 mail delivery.
-- **B-012 — FIXED and merged (`f16ef8f`, PR #46), integration-verified. Production verification by
-  effect is STILL OWED** — the standing `message_sent`/`message_finalized` rows should move
-  `pending` → `processed` on a `*/5` run; not yet observed.
-  `runDeliveryPass` is the **fourth** bounded pass on the one cron trigger;
-  `applyPendingDeliveryEvents` claims a bounded batch `for update skip locked` and applies each
-  through `applyDeliveryEvent`. The zero-caller singular wrapper is deleted. **Not** the per-sender
-  inbound path — a delivery callback carries no sender, the projection check forbids one, and the
-  one-claim-per-sender index is scoped to `message_received`; routing it through the sender lock
-  would serialize carrier traffic behind a farmer's conversation and could advance a conversation
-  watermark from an outbound event, making that sender's next real message look stale.
-  **The duplicate-event rule is enforced TWICE** — the `guard_outbox_delivery_watermark` trigger
-  (migration 0001) returns `OLD` on a repeated `delivery_event_id`, *and* `applyDeliveryEvent` guards
-  it in TS — so removing either alone changes nothing observable and **no single-point sabotage can
-  fail a test of it**. The test uses a **non-terminal** first status, since a terminal one lets the
-  trigger's "terminal result cannot be replaced" branch enforce it for the wrong reason. An
-  orphaned-callback path was designed then **deleted as unreachable**: the projection check plus an
-  `on delete restrict` FK make a delivery event correlating to nothing impossible to construct.
+- **B-012 — DONE. Production-verified by effect 2026-07-28.** All 20 standing callbacks moved
+  `pending` → `processed` in one real scheduled pass; `outbox_work.delivery_status` became
+  `delivered` on 11 rows, `finalized_at` set on every applied event, and the 5 failed + 5 ambiguous
+  rows carry **zero** callbacks — correctly untouched, since the carrier never sent callbacks for
+  sends that never succeeded. **It had never run because the code was never deployed:** production
+  served `9292961` (B-007, 03:58Z), ~10h before `f16ef8f` merged, so B-010 and B-011 were undeployed
+  too. The scheduler was healthy throughout (the purge was executing), which is what made the cause
+  non-obvious. **A CLI deploy creates no GitHub deployment record**, so `gh api .../deployments`
+  reports the last *Git-integration* SHA and is never evidence of what production runs — verify by
+  effect. B-010 stays unverified by effect: `provider_code` is populated on 0 of 35 attempts,
+  correctly, since it writes only on new failing attempts and does not backfill.
+  `runDeliveryPass` is the **fourth** bounded pass on the one cron trigger, deliberately **not** the
+  per-sender inbound path (a delivery callback carries no sender; the projection check forbids one).
+  **The duplicate-event rule is enforced TWICE** — a migration-0001 trigger *and* `applyDeliveryEvent`
+  — so **no single-point sabotage can fail a test of it**. Design rationale: session log 2026-07-27.
 - **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
   that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
   Verified: suppression is enforced **independently of the profile's auto-response fields**, so
@@ -518,16 +546,11 @@ supply what production never creates.
   consulted, so Golden Rule #2 is untouched. `STOP` still applies from every state; `START` is
   honoured from every state (it is the one word that lifts a block we cannot see).
   The rule lives **inside `applyConsentTransition`'s `for update` lock** (`firstTimeOnly`), never in
-  the caller — a caller-side read-then-write would let two concurrent JOINs both see "no record".
-  It keys on the **`sms_consents` row, not the watermark**, and a refused JOIN advances **no**
-  watermark, or it could mask a later legitimate START. `ConsentTransitionResult.refusal`
-  (`stale` | `already_enrolled`) disambiguates `applied: false`; routing keys on the **reason**, and
-  keying on `!applied` **passed the whole routing suite** until a stale-JOIN fixture existed.
-  `ALREADY_JOINED_RESPONSE` (114 chars, one segment) tells the farmer to text START — deliberately
-  **not** a registered 10DLC auto-response, so it is editable without touching the carrier
-  registration. **Honest limit: while the block is active that reply is itself 409'd and never
-  arrives.** The remaining work is farmer-facing, not code — onboarding material must say **START**,
-  not JOIN, for returning after an opt-out.
+  the caller, and keys on the **`sms_consents` row, not the watermark**; a refused JOIN advances no
+  watermark. `ALREADY_JOINED_RESPONSE` is **not** registered 10DLC copy, so it stays editable.
+  **Honest limit: while the block is active that reply is itself 409'd and never arrives.** Full
+  rationale: session log 2026-07-27. **Remaining work is farmer-facing, not code — onboarding
+  material must say START, not JOIN, for returning after an opt-out.**
 - **B-010 — FIXED and merged, integration-verified.** `outbox_dispatch_attempts` now carries
   `provider_code` (validated machine token) and `provider_error_detail` (phone-masked, 500-char
   bounded) via migration **0004**; `summarizeProviderError` never throws, so a malformed error body
@@ -598,6 +621,19 @@ while production dropped every message. Node semantics ≠ serverless lifecycle,
 rather than the code, assert it against the **source** — that is what `kick-survival.test.ts`,
 `cron-schedule.test.ts`, `cron-auth.test.ts` and `workspace-manifests.test.ts` all are — and verify
 the real thing by **effect** in the deployment.
+
+**SQL's NULL semantics silently invert a guard.** Two instances this session. A CHECK constraint
+**passes** on NULL, and `array_length(array[]::integer[], 1)` returns NULL rather than 0 — so
+`array_length(days,1) between 1 and 7` admitted the empty array it was written to forbid; use
+`coalesce(…, 0)`. Separately, Postgres sorts NULLs **FIRST** under `order by … desc`, so a left
+join without `nulls last` puts never-confirmed rows ahead of freshly-confirmed ones. Both were
+caught only because a test asserted the specific value, not the general shape.
+
+**Measure a deterministic approach against the real corpus before defending it.** The availability
+parser looked adequate until it ran over all 31 stands and flagged 12 — ten of them spuriously,
+because it conflated "not stated" with "unparsed". The offerings parser looked adequate until the
+corpus produced customer-facing tags like "rotational grazing for chickens" and "plums ijuly)".
+The corpus decided both questions in minutes; arguing from the code would not have.
 
 **A source-reading test can match its own import statement — or any other incidental text.**
 `kick-survival.test.ts` first asserted `/waitUntil\s*\(/` over the whole file and **survived

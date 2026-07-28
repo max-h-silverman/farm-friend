@@ -164,12 +164,22 @@ was last confirmed. Stands seed empty and render the honest "no current listing"
 It also seeds **no phone numbers** — `farmer_authorizations` requires captured SMS consent, so phones
 arrive through onboarding, never a bulk roster load.
 
-**Status: the utility does not exist yet** (B-002). VIGA's ~30 stands will be transcribed by hand
-rather than imported from the map's KML; the existing free-form map text is the unfilterable content
-Farm Friend replaces, not data to carry forward.
+**Status: the loader does not exist yet** (B-002); everything it needs now does. VIGA's export
+arrived as a CSV of **31 stands with real WKT coordinates**, which supersedes the earlier
+"transcribe by hand" plan — that rested on effort, and the export also carries coordinates a manual
+transcription would have lacked. Migration **0005** and
+`packages/core/src/seed/availability.ts` have landed; what remains is the loader itself.
+
+The free-form map text is still **not** data to carry forward wholesale — it is the unfilterable
+content Farm Friend replaces. The seeder **structures** it (season, days, hours, cadence,
+specialties) and **discards** the dated update lines, which are stale inventory: Green Ears' most
+recent note reads "Closed" and Peak Moon's reads "Thank you for a great season". Seeding either
+would publish a year-old claim as current. The export also carries **23 email addresses and 2 phone
+numbers**, which are stripped — no contact data enters without captured consent.
 
 Geocoding happens **once, during seeding** — it is not a permanent runtime provider seam,
 and a location that cannot be resolved is an **operator task**, never a fabricated coordinate.
+With the export's coordinates in hand, no lookup is needed for these 31 stands.
 Optional public-web browser geolocation is transient and used only for approximate proximity to
 those validated coordinates; it is not persisted or sent to the model. Destination-only Google
 Maps links delegate origin resolution and routing. SMS does not resolve arbitrary customer origins.
@@ -441,6 +451,18 @@ smuggled consequential field is a visible refusal, not a silent strip),
 do), and `evals/hostile.ts` with the hostile group in `apps/web/lib/interpretation.integration.test.ts`
 (step 6). Add the new projection's own bypass assertions to
 `packages/ai/src/safety-boundary.type-test.ts`.
+
+**For a smaller worked example, read `offering-extraction`** (F-035): `projectOfferingExtraction`
+plus `packages/ai/src/offering-seam.ts` is the whole seam in ~90 lines, and its four fixtures in
+`evals/hostile.ts` show the minimum a new seam owes — refusing a smuggled consequential field,
+withholding everything but the task text under injection, keeping provider failure distinguishable
+from an empty answer, and failing closed on a raw phone in its input.
+
+**Before writing a seam, check a deterministic version against real data first.** F-035's
+availability parsing needed no model once "not stated" was separated from "unparsed"; offerings did,
+because a regex could not tell an offering from a farming-practice clause. The corpus settled both
+questions in minutes. A seam that a measured deterministic path would have covered does not earn its
+place (CLAUDE.md, "Simplicity and elegance").
 
 ### Swap a provider
 
