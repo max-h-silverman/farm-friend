@@ -104,6 +104,32 @@ before this item is marked complete.
 
 ### GL-002 — Ensure a delayed `STOP` always reaches consent ordering
 
+**Completed:** 2026-07-28 — reconfirmed against the code, fixed test-first, and sabotage-verified in
+both directions. The defect was real and reproduced before the fix: a delayed `STOP` left consent
+`active`.
+
+- **Fix.** `routeInboundMessage` now receives staleness as an input and owns the decision, parsing
+  compliance keywords **before** the gate and applying it to free text and confirmation tokens only.
+  `runInboundPass` no longer pre-empts routing; it finalizes a `stale` outcome exactly as before.
+  This is the staleness rule scoped to the state it protects, **not** an exception carved out for
+  STOP — consent ordering stays in `applyConsentTransition` under its own watermark and lock, and
+  nothing re-implements it.
+- **Why finalizing a routed stale event as `processed` is safe.** `claimNextInboundEvent` guards the
+  watermark update with `!isStale`, so a late STOP cannot roll the conversation watermark backwards.
+- **Tests** (`apps/web/lib/routing.integration.test.ts`, real Postgres). The required scenario:
+  a newer ordinary message is processed and advances the watermark, an older `STOP` arrives after,
+  and it must change consent **and** suppress a later proactive dispatch — asserted through
+  `authorizeDispatch` returning `suppressed`, so a paper opt-out cannot pass. Plus a guard test that
+  a stale free-text message and a stale `YES` are **still** refused, and the model is still never
+  reached on either path.
+- **Sabotage, both directions.** Moving the gate back ahead of compliance parsing fails the
+  delayed-STOP test and nothing else; deleting the gate entirely fails the two stale-refusal tests.
+  The fix is pinned on both sides rather than merely passing.
+- **Verified:** `npm test` 479/479 · `npm run test:integration` **287/287** (was 285; +2 new) on
+  local Postgres 16.12 · `npm run evals` critical 11/11, adversarial 29/29, advisory 4/4 · lint ·
+  root typecheck · `next build`. Web-only `tsc` shows **54 errors before and after this change**,
+  none in the touched files — that is the pre-existing GL-005 condition, not a regression.
+
 **Confirmed defect**
 
 `claimNextInboundEvent` marks an event stale against the ordinary conversation watermark.

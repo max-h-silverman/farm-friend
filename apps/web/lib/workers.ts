@@ -115,17 +115,17 @@ export async function runInboundPass(
     const claimed = await claimNextInboundEvent(deps.db, { senderHash, now });
     if (!claimed) continue;
 
-    if (claimed.isStale) {
-      // Fail closed: an out-of-order event never mutates newer state.
-      await claimed.finalize({
-        outcome: "rejected",
-        now: deps.clock.now(),
-        failureCode: "stale_conversation_event",
-      });
-      processed += 1;
-      continue;
-    }
-
+    // GL-002: staleness is PASSED to the router, not applied before it.
+    //
+    // This pass used to reject every stale event here, ahead of any parsing. That silently
+    // discarded a `STOP` delayed behind a newer message — a compliance failure, because
+    // consent orders itself on its own watermark and never needed the conversation one.
+    // `routeInboundMessage` owns which messages the staleness rule may refuse; it returns a
+    // `stale` outcome for those, which this loop finalizes exactly as before.
+    //
+    // Finalizing a routed stale event as `processed` cannot corrupt ordering:
+    // `claimNextInboundEvent` guards the watermark update with `!isStale`, so a late STOP
+    // never rolls the conversation watermark backwards.
     try {
       const routed = await routeInboundMessage(
         {
@@ -148,8 +148,21 @@ export async function runInboundPass(
           occurredAt: claimed.occurredAt,
           providerEventId: claimed.providerEventId,
           inboxEventId: claimed.inboxEventId,
+          isStale: claimed.isStale,
         },
       );
+
+      if (routed.outcome.kind === "stale") {
+        // Fail closed: an out-of-order event never mutates newer conversation state. The
+        // router produced no replies and no durable consequence for it.
+        await claimed.finalize({
+          outcome: "rejected",
+          now: deps.clock.now(),
+          failureCode: routed.outcome.failureCode,
+        });
+        processed += 1;
+        continue;
+      }
 
       await queueReplies(
         deps.db,

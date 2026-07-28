@@ -304,6 +304,18 @@ model on the compliance path" is structural, proven by a seam that throws. The w
 awaits them (B-004, fixed by B-009). The public map UI is built (F-017) and is model-free in its
 **module graph**, not just its handler.
 
+**Conversation staleness belongs to the ROUTER, and covers only what mutates conversation state
+(GL-002).** `runInboundPass` used to reject every stale event before parsing it, which silently
+discarded a `STOP` delayed behind a newer message — the sender opted out and Farm Friend recorded
+them `active`. The two watermarks are independent, so the conversation one has no standing over a
+compliance keyword: `routeInboundMessage` parses compliance **before** the gate and applies the gate
+to free text and confirmation tokens only. Finalizing a routed stale event `processed` is safe
+because `claimNextInboundEvent` advances the watermark only when `!isStale`. The integration test
+asserts the opt-out reaches `authorizeDispatch` as `suppressed` — consent that changes state without
+reaching the dispatch guard would be a paper opt-out. **Sabotage-verified in both directions**:
+restoring the old order fails only the delayed-STOP test; deleting the gate fails only the two
+stale-refusal tests.
+
 **`waitUntil` is load-bearing (B-009).** A bare `void` is invisible to the Vercel runtime, which
 suspends the invocation when the handler returns — in production that silently dropped *every*
 inbound message. **No behavioural test in vitest can see this**: Node resolves floating promises, so
@@ -541,10 +553,16 @@ idempotent on (location, item), never rewrites an existing tag, reports unknown 
 inventory.
 
 **Verified July 28, 2026 (`main`, this work merged):** `npm test` **479/479 across 50 files**;
-`npm run test:integration` **285/285 across 18 files** on real Postgres 16.12; `npm run evals`
+`npm run test:integration` **287/287 across 18 files** on real Postgres 16.12 (285 + GL-002's two);
+`npm run evals`
 critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); `npm run evals:live`
 containment **4/4** and quality **6/6** on Mistral Small 24B; typecheck + lint pass; `next build`
 clean. Migration **0005** proven from an empty database by the integration run.
+**`npm run typecheck` does NOT cover `apps/web`** — the root `tsconfig.json` references only the
+four packages, so a green root typecheck says nothing about the web workspace. Running
+`npx tsc -p apps/web/tsconfig.json --noEmit` directly reports **54 errors**, all in web *test* files
+(postgres transaction-stub typing), measured identical before and after GL-002. That is GL-005's
+open work; until it lands, "typecheck passes" is a claim about four packages, not the repository.
 Newest session-log entry: the model finally runs, and it breaks everything the stub could not.
 
 **A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a

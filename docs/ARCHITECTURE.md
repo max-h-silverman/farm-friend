@@ -142,6 +142,18 @@ arbitrarily reordered conversation.
 wins, and `STOP` wins an exact timestamp tie, so intervening free text cannot make a consent command
 stale and an older delayed `START` cannot undo a newer `STOP`.
 
+**Conversation staleness applies only to what mutates conversation state, and the router — not the
+worker — decides that** (GL-002). The two watermarks are independent, so the conversation one has no
+standing over a compliance keyword: `routeInboundMessage` parses compliance keywords **before** the
+staleness gate and applies the gate to free text and confirmation tokens only. A `STOP` delayed
+behind a newer processed message therefore still reaches `applyConsentTransition` and still
+suppresses later proactive dispatch. Finalizing such an event as `processed` cannot corrupt
+ordering: `claimNextInboundEvent` advances the conversation watermark only for a non-stale event.
+
+This was a real defect, not a hypothetical: `runInboundPass` used to reject every stale event ahead
+of any parsing, so a delayed opt-out was discarded as `stale_conversation_event` while the sender
+was recorded as still subscribed.
+
 ## Launch SMS consent
 
 Launch VIGA Farm Friend is one registered operational SMS program. Each recipient has one current

@@ -55,7 +55,12 @@ export type RouteOutcome =
   | { kind: "help" }
   | { kind: "flag"; flagId: string }
   | { kind: "confirmation"; status: string }
-  | { kind: "free_text"; handled: "farmer" | "customer" | "none" };
+  | { kind: "free_text"; handled: "farmer" | "customer" | "none" }
+  /**
+   * A stale event this router declined to act on. The caller finalizes it as `rejected`
+   * with this code; see `routeInboundMessage` for why the decision lives here.
+   */
+  | { kind: "stale"; failureCode: "stale_conversation_event" };
 
 export interface RouteResult {
   outcome: RouteOutcome;
@@ -88,6 +93,14 @@ export interface RouteInput {
   occurredAt: Date;
   providerEventId: string;
   inboxEventId: string;
+  /**
+   * True when this event is older than the sender's accepted CONVERSATION watermark.
+   *
+   * Deliberately advisory rather than a veto the caller applies: which messages that fact
+   * may refuse is a routing decision, and routing decisions live in this module. See
+   * `routeInboundMessage`.
+   */
+  isStale?: boolean;
 }
 
 /** The auto-response a registered compliance keyword owes its sender. */
@@ -116,10 +129,34 @@ export const FLAG_ACKNOWLEDGEMENT =
   "Reply STOP to opt out at any time.";
 
 /**
- * Route one claimed, non-stale inbound event to its owning handler.
+ * Route one claimed inbound event to its owning handler.
  *
  * The caller (`runInboundPass`) owns the claim and the finalize; this owns only the
  * decision and the durable consequence of it.
+ *
+ * ## Why staleness is decided HERE and not by the caller (GL-002)
+ *
+ * `runInboundPass` used to reject every stale event before calling this function. That was
+ * a real compliance defect: a `STOP` delayed in the carrier network, arriving after a newer
+ * ordinary message had advanced the sender's conversation watermark, was discarded as
+ * `stale_conversation_event` and never reached `applyConsentTransition`. The sender had
+ * opted out; Farm Friend recorded them as still subscribed. A coordinator at a desk does not
+ * throw away an opt-out because a later letter was opened first.
+ *
+ * The staleness rule is sound, but it is about CONVERSATION state — "an out-of-order event
+ * must not mutate newer state." Its scope is therefore exactly the messages that mutate
+ * conversation state:
+ *
+ *   - **Free text** mutates it (proposals, inquiries, interpretation) → still refused.
+ *   - **Confirmation tokens** are bound to a specific open proposal version → still refused.
+ *   - **Compliance keywords own no conversation state.** Consent orders itself on
+ *     `consent_transition_watermarks`, an independent watermark where an older START can
+ *     never undo a newer STOP and STOP wins an exact tie. FLAG is an append-only safety
+ *     rail. Neither can corrupt newer state by arriving late, so neither is refused.
+ *
+ * So this is not an exception carved out for STOP — it is the staleness rule applied to the
+ * state it actually protects. Consent ordering stays where it always was, in
+ * `applyConsentTransition`, under its own lock; nothing here re-implements it.
  */
 export async function routeInboundMessage(
   deps: RouteDeps,
@@ -132,8 +169,18 @@ export async function routeInboundMessage(
   // STEP 1-3 — deterministic parsing, before any model call.
   const command = parseCommand(body);
 
+  // Compliance keywords are exempt from conversation staleness (see the contract above) and
+  // are therefore checked BEFORE it — the ordering that makes a delayed STOP reach consent.
   if (command.kind === "compliance") {
     return routeCompliance(deps, input, command.keyword);
+  }
+
+  // Everything below mutates conversation state, so a stale event fails closed here.
+  if (input.isStale === true) {
+    return {
+      outcome: { kind: "stale", failureCode: "stale_conversation_event" },
+      replies: [],
+    };
   }
 
   if (command.kind === "commitment") {
