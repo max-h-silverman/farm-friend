@@ -87,11 +87,20 @@ statement above, both found by inspecting the real environment rather than the n
   no real connection string, key, or Neon host — every secret-shaped literal is a test fixture, and
   `.env` is gitignored and never committed. Exposure was confined to working transcripts.
 
-**Blocked on one decision (see below): rotate in place, or provision the real production project
-fresh and let the exposed credentials die with the throwaway one.** Rotating in place is only
-correct if the throwaway Hobby project becomes production; F-034 already schedules it for teardown.
-Provider-side rotation (Neon, Telnyx, DeepInfra consoles) and Vercel/GitHub secret updates all
-require Max's action or approval; no secret value may be displayed or committed.
+**Decided 2026-07-28 — rotate in place.** The current Vercel project and Neon database become
+production, so the throwaway-teardown line in F-034 no longer applies to them. The stale
+`throwaway/hobby-deploy-test` branch is still owed a deletion.
+
+**Deferred by Max 2026-07-28 — OPEN, and still a hard blocker on go-live.** The remaining work is
+entirely provider-console action Max performs (Neon, Telnyx, and DeepInfra consoles, plus `vercel
+env add` and `gh secret set`), followed by a redeploy and the proof-by-effect tables. Nothing else
+in this guide depends on it, so later items proceed — but **no real farmer or customer data may be
+loaded, and no live testing with real numbers may begin, until this closes.** That constraint is the
+whole reason the deferral is safe: it holds only while the database stays unseeded.
+
+Ready when Max is: `RUNBOOK.md` §"Credential rotation" carries the order, the two-place
+`CRON_SECRET` requirement, the never-rotate `PHONE_HASH_SALT` rule, and the proofs that must pass
+before this item is marked complete.
 
 ### GL-002 — Ensure a delayed `STOP` always reaches consent ordering
 

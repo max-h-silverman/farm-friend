@@ -580,20 +580,17 @@ of this section moot.
 - **Env changes do not take effect until a redeploy.** Rotating a Vercel variable and then testing
   the running deployment tests the *old* value. Redeploy, then verify.
 
-### Which project are you rotating into?
+### Which project are you rotating into? — settled
 
-The exposed values authenticate against the **throwaway Hobby project** (`viga2/farm-friend-web`)
-and its Neon database, both of which F-034 already schedules for teardown at go-live. Two paths:
+**Rotate in place** (max, 2026-07-28). The project that began as the throwaway Hobby validation
+deployment (`viga2/farm-friend-web`) and its Neon database **become production**, so every secret
+below gets a genuine reset rather than dying with a discarded project. F-034's "tear down the
+throwaway Vercel project" line no longer applies; its stale `throwaway/hobby-deploy-test` **branch**
+is still owed a deletion.
 
-| Path | What it means |
-|---|---|
-| **Rotate in place** | Keep the throwaway project and database, reset each secret. Correct only if this project *becomes* production. |
-| **Provision fresh, then tear down** | Stand up the real production project and Neon database; every credential is new by construction, and the exposed ones die with the old project. Rotation of `DATABASE_URL`/`MAGIC_LINK_SECRET`/`CRON_SECRET` collapses into ordinary provisioning. |
-
-**The second path is the recommended one** when the throwaway project is being torn down anyway: it
-removes the exposed values rather than replacing them, and it avoids rotating the same secrets twice.
-Under it, only credentials attached to **accounts that outlive the project** still need a genuine
-reset — the Telnyx API key and the DeepInfra key.
+The plan question is separate and still open: the committed one-minute cron in `apps/web/vercel.json`
+exceeds the Hobby cap, which is why deploys strip it and why GitHub's workflow is currently the only
+schedule. GL-017 settles that.
 
 ### Scope — what is actually exposed, and where it lives
 
