@@ -27,6 +27,12 @@ where any of them disagrees with the handoff, the handoff wins.
 5. **[SMS_COMPLIANCE.md](SMS_COMPLIANCE.md)** — keywords, consent, required behavior, the FLAG
    safety rail.
 
+## Go-live work
+
+- **[GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md)** — the prioritized work order from the July 28, 2026
+  whole-codebase architectural review: confirmed defects, missing launch journeys, resilience and
+  housekeeping work, verification gates, and go-live exit criteria.
+
 ## Review handoffs
 
 - **[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md)** —
