@@ -1200,15 +1200,25 @@ describe("operator review queues (integration)", () => {
       expect(rows[0]?.resolved_at).toBeNull();
     });
 
-    it("serializes concurrent resolutions so exactly one wins", async () => {
+    it("serializes concurrent resolutions by DIFFERENT operators so exactly one wins", async () => {
       const flagId = await openStandDataFlag();
 
-      // Eight simultaneous claimants, for the same reason the flag-disposal race uses eight.
+      // Eight simultaneous claimants — and eight DISTINCT administrators. With one shared
+      // administrator, the authority re-read's `for update` on that single admin row
+      // serializes every transaction before the flag lock is ever contended, and the test
+      // passes with the flag lock deleted (sabotage-proven). Distinct operators are also
+      // the real scenario: "a second operator gets 409, not a silent overwrite."
+      const admins = await client()`
+        insert into administrators (email, authorized_at)
+        select 'racer-' || n || '@viga.example', ${T0}
+        from generate_series(1, 8) as n
+        returning id
+      `;
       const attempts = await Promise.all(
-        Array.from({ length: 8 }, (_, index) =>
+        admins.map((admin, index) =>
           resolveStandDataFlag(database(), {
             flagId,
-            administratorId: id("administrator"),
+            administratorId: admin.id as string,
             resolutionNote: `claimant-${index}`,
             occurredAt: at(3 * HOUR),
           }),
@@ -1216,6 +1226,7 @@ describe("operator review queues (integration)", () => {
       );
 
       expect(attempts.filter((a) => a.status === "resolved")).toHaveLength(1);
+      expect(attempts.filter((a) => a.status === "already_resolved")).toHaveLength(7);
       const audits = await client()`
         select count(*)::integer as count from audit_events where subject_id = ${flagId}
       `;
