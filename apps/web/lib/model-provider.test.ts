@@ -99,14 +99,20 @@ describe("the DeepInfra attestation is filled and CITED (F-024)", () => {
   // beside the values, so the record of who read what can never drift away from the numbers
   // it justifies.
   //
-  // Anchored to the construct it claims to prove (the attestation binding and the citation
-  // lines in its doc comment), never to nearby vocabulary.
-  const source = readFileSync(join(__dirname, "composition.ts"), "utf8");
+  // The attestation lives beside the adapter it gates (packages/ai/src/deepinfra.ts), so
+  // scripts and evals that construct the provider outside the composition root approve the
+  // same declaration. Anchored to the construct it claims to prove (the attestation binding
+  // and the citation lines in its doc comment), never to nearby vocabulary.
+  const source = readFileSync(
+    join(__dirname, "../../../packages/ai/src/deepinfra.ts"),
+    "utf8",
+  );
 
   it("declares the four attested values, no longer null", () => {
-    const binding = /const DEEPINFRA_DATA_HANDLING: ProviderDataHandling = \{([\s\S]*?)\};/.exec(
-      source,
-    );
+    const binding =
+      /const DEEPINFRA_ATTESTED_DATA_HANDLING: ProviderDataHandling = \{([\s\S]*?)\};/.exec(
+        source,
+      );
     expect(binding).not.toBeNull();
     const body = binding![1]!;
     expect(body).toMatch(/trainsOnData:\s*false/);
@@ -118,9 +124,10 @@ describe("the DeepInfra attestation is filled and CITED (F-024)", () => {
   it("cites the reviewed terms and the review date beside the values", () => {
     // The citation is the attestation's evidence. The URL and date must appear in the
     // comment block immediately preceding the binding, not merely somewhere in the file.
-    const withComment = /\/\*\*(?:(?!\*\/)[\s\S])*\*\/\s*const DEEPINFRA_DATA_HANDLING/.exec(
-      source,
-    );
+    const withComment =
+      /\/\*\*(?:(?!\*\/)[\s\S])*\*\/\s*export const DEEPINFRA_ATTESTED_DATA_HANDLING/.exec(
+        source,
+      );
     expect(withComment).not.toBeNull();
     const comment = withComment![0]!;
     expect(comment).toContain("docs.deepinfra.com/account/data-privacy");

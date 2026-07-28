@@ -18,6 +18,101 @@
 
 import type { LLMProvider } from "./index";
 import type { ModelSafeContext } from "./projections";
+import {
+  assertProviderApproved,
+  ProviderGateError,
+  type ProviderDataHandling,
+} from "./provider-gate";
+
+/**
+ * DeepInfra's attested data handling (F-024). Reviewed and directed by max, 2026-07-28.
+ *
+ * Lives beside the adapter it gates, so EVERY consumer — the web composition root, seed
+ * scripts, live evals — approves the same declaration through
+ * `assertDeepInfraSelectionApproved` below rather than each carrying its own copy.
+ *
+ * The attested terms are **DeepInfra's, as the inference host** — the model author's licence
+ * is not the relevant contract, because DeepInfra is who receives, serves, and may log or
+ * retain the request. Sources reviewed:
+ *
+ *   - https://docs.deepinfra.com/account/data-privacy (the operative inference terms)
+ *   - https://deepinfra.com/privacy (the general privacy policy, which defers to the above)
+ *
+ * What the terms state, verbatim, per field:
+ *
+ *   trainsOnData: false — "We do not use data you submit to our APIs for training models,
+ *     except when using Google or Anthropic models, where the receiving company's training
+ *     policy applies." The exception is a model ROUTED to a third-party vendor's endpoints;
+ *     `assertDeepInfraSelectionApproved` refuses those model namespaces, so the attested
+ *     value holds for every configuration the gate can admit.
+ *
+ *   statefulStorage: false — "Input data is not stored to disk during inference — it exists
+ *     only in memory while the request is being processed"; "Output data is not stored — it
+ *     is sent to you and then deleted from memory." No provider-managed conversation, file,
+ *     memory, or retrieval store exists, and the adapter sends no session identifier for one
+ *     to accumulate under. (The terms' stated storage exceptions — image-generation outputs
+ *     and bulk/async inference — are API surfaces Farm Friend does not call.)
+ *
+ *   requestLoggingDisabled: true — "We generally do not log the content of your requests. We
+ *     log metadata useful for debugging: request ID, cost, sampling parameters." Content
+ *     logging is off as the provider's default, with no toggle to mis-set; the logged
+ *     metadata carries no farmer or customer text.
+ *
+ *   retentionDays: 0 — the stated design is zero retention for real-time inference: inputs
+ *     exist only in memory during processing and outputs are deleted once returned (quoted
+ *     above). The terms state no other number.
+ *
+ * KNOWN CAVEAT, recorded so the attestation does not overclaim: DeepInfra "reserve[s] the
+ * right to log a small portion of requests when necessary for debugging or security
+ * purposes", with no stated bound. That is a discretionary exception to the zero-retention
+ * default, not a stated retention window — inventing a number for it would itself be the
+ * inference this gate forbids. It was reviewed and accepted as compatible with Farm Friend's
+ * own short-lived raw-context posture.
+ *
+ * These fields are an ATTESTATION, not a setting: they record that a human read the
+ * contract; they do not make the vendor behave. If DeepInfra's terms change, re-read them
+ * and move this block, its citation date, and the pinned test together.
+ */
+export const DEEPINFRA_ATTESTED_DATA_HANDLING: ProviderDataHandling = {
+  trainsOnData: false,
+  statefulStorage: false,
+  requestLoggingDisabled: true,
+  retentionDays: 0,
+};
+
+/**
+ * Model namespaces DeepInfra serves by ROUTING to the named third-party vendor's endpoints.
+ * The attestation above is conditional on not using them — DeepInfra's terms transfer data
+ * to the receiving vendor, whose training and retention policies then apply and were never
+ * attested. Conservative by prefix: this also refuses vendor-authored open-weight models
+ * DeepInfra self-hosts (e.g. `google/gemma-*`), which is deliberate fail-closed reading of
+ * ambiguous contract language ("Google or Anthropic models") — selecting one is a re-read
+ * of the terms, not a config change.
+ */
+export const DEEPINFRA_THIRD_PARTY_ROUTED_MODEL_PREFIXES = ["anthropic/", "google/"];
+
+/**
+ * Approve a DeepInfra selection through the privacy gate, or throw.
+ *
+ * The one sanctioned pre-flight for ANY code that constructs this adapter. Checks the
+ * attested declaration against the gate's requirements and refuses a model the attestation
+ * does not cover, so no consumer can quietly route farmer or customer text to a vendor
+ * whose terms nobody read.
+ */
+export function assertDeepInfraSelectionApproved(model: string): void {
+  const routed = DEEPINFRA_THIRD_PARTY_ROUTED_MODEL_PREFIXES.find((prefix) =>
+    model.trim().toLowerCase().startsWith(prefix),
+  );
+  if (routed !== undefined) {
+    throw new ProviderGateError(
+      `DEEPINFRA_MODEL="${model}" is routed to a third-party vendor ("${routed}" ` +
+        "namespace): DeepInfra's attested no-training terms exclude Google and Anthropic " +
+        "models, whose own data-handling policies apply and were never attested. " +
+        "Choose a DeepInfra-hosted open-weight model, or re-read and re-attest the terms.",
+    );
+  }
+  assertProviderApproved("deepinfra", DEEPINFRA_ATTESTED_DATA_HANDLING);
+}
 
 /** How long a single model call may take before it is abandoned. */
 const REQUEST_TIMEOUT_MS = 20_000;

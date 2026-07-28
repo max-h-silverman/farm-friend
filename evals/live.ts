@@ -20,6 +20,7 @@
 // (DEEPINFRA_API_KEY comes from .env via --env-file; a real environment value wins.)
 
 import {
+  assertDeepInfraSelectionApproved,
   createDeepInfraProvider,
   createInquiryModel,
   createInventoryInterpreter,
@@ -50,6 +51,9 @@ function requireEnv(name: string): string {
 }
 
 const model = requireEnv("DEEPINFRA_MODEL");
+// The same privacy gate the composition root enforces: an unattested or third-party-routed
+// selection must not run here either, eval or not.
+assertDeepInfraSelectionApproved(model);
 const provider = createDeepInfraProvider({
   apiKey: requireEnv("DEEPINFRA_API_KEY"),
   model,
