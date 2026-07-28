@@ -11,7 +11,129 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-28 (latest) — the model finally runs, and it breaks everything the stub could not
+## 2026-07-28 (latest) — three defects the green suites could not see, and production was running the stub
+
+First tranche off `docs/GO_LIVE_GUIDE.md`. GL-002, GL-003, GL-019 and GL-033 closed; GL-001
+scoped and deferred by max. Every finding was reconfirmed against the code before being fixed —
+the guide is a review artifact, not a spec, and one of its claims was wrong.
+
+### GL-001 — the scope was wrong in both directions, and the repo was never leaking
+
+Checking the live environment instead of the notes corrected two things. **The DeepInfra key is
+not a production credential**: `LLM_PROVIDER`, `DEEPINFRA_API_KEY`, and `DEEPINFRA_MODEL` were
+absent from Vercel entirely. It rotates in the DeepInfra console, not Vercel — and that absence
+turned out to be a live defect in its own right (GL-019, below). **The repository is clean**:
+`git grep` over the tracked tree finds no real connection string, key, or Neon host; every
+secret-shaped literal is a test fixture and `.env` has never been committed. So rotation is the
+complete remedy — no history rewrite, nothing published to recall.
+
+The procedure now lives in RUNBOOK §"Credential rotation" with proof-by-effect tables for both the
+new values and the old. max decided **rotate in place** — the throwaway Hobby project and its Neon
+database become production, so F-034's "tear down the project" line is withdrawn (its stale branch
+is still owed a deletion) — then **deferred the rotation itself**. Sound only while the database
+stays unseeded; that constraint is now written into the item rather than assumed.
+
+### GL-002 — a delayed STOP was silently discarded
+
+`runInboundPass` rejected every stale event *before* parsing it. So a `STOP` delayed in the carrier
+network, arriving after a newer ordinary message had advanced the conversation watermark, was
+finalized `stale_conversation_event` and never reached `applyConsentTransition`. The sender opted
+out; Farm Friend recorded them active and would have kept sending.
+
+The staleness rule was sound but **scoped wrong**. It protects *conversation* state, and the two
+watermarks are independent — consent orders itself on `consent_transition_watermarks`, where an
+older START cannot undo a newer STOP and STOP wins an exact tie. The conversation watermark
+therefore has no standing over a compliance keyword.
+
+So the fix is not an exception carved out for STOP; it is the rule applied to the state it actually
+protects. `routeInboundMessage` takes staleness as an input and owns the decision: compliance
+parsed **before** the gate, the gate applied to free text and confirmation tokens only. Consent
+ordering is untouched. Finalizing a routed stale event `processed` is safe because
+`claimNextInboundEvent` already guards the watermark update with `!isStale`.
+
+The test asserts the opt-out comes back from `authorizeDispatch` as **`suppressed`** — consent that
+changes state without reaching the dispatch guard is a paper opt-out. Sabotage both ways: restoring
+the old order fails only the delayed-STOP test; deleting the gate fails only the two stale-refusal
+tests.
+
+### GL-003 — two holes, not one
+
+`authorizeDispatch` commits `dispatching` before the body read, redaction, recipient resolution,
+provider call, and result recording. `dispatching` was written in **exactly one place and read by
+nothing** — `releaseAbandonedClaims` recovers inbound events only, outbound enumeration selects
+`queued`. And `runOutboundPass` had **no error handling at all**, so one throw aborted the whole
+pass and blocked every other sender's reply.
+
+Two defenses, deliberately different in kind, because neither substitutes for the other: a per-row
+`catch` (a lease cannot isolate a row mid-pass) and a durable 10-minute lease (a killed process
+runs no catch block).
+
+Recovery resolves to **`ambiguous`**, never `queued`. We cannot know whether the provider accepted
+the message before we lost the thread, and requeueing would resend an SMS a real person may already
+be holding. That is precisely what `ambiguous` already meant here, so it reuses the state and
+**needed no migration** — the elegant path was also the correct one. The lease is deliberately
+generous: expiring it on a merely slow call would quarantine work about to succeed, and a delayed
+reply is a smaller harm than a duplicate message.
+
+**Deliberately not built:** an operator view of quarantined work. The state is durable and
+queryable; somewhere to *read* it belongs with GL-016/GL-018, and the dependency is noted in both
+items rather than becoming a third bespoke surface.
+
+### GL-019 — production had been running the test double its whole life
+
+Pulled forward from P2 at max's request, because it was affecting the live site right then.
+`resolveModelConfig` defaulted to `"stub"` when `LLM_PROVIDER` was absent, and production never had
+it set. Every model-backed journey degraded into a clarification while health checks, the webhook,
+and all 479 tests stayed green — because from the code's point of view nothing was wrong. The
+default had been chosen.
+
+The guide asked for "explicit provider selection **in production**," which invites environment
+sniffing. This codebase already refuses that: `cron-auth.test.ts` asserts the cron route contains
+no `NODE_ENV`/`VERCEL_ENV`, on the reasoning that a guard which relaxes in development is one
+misconfigured deploy from being public. **That is exactly how this defect survived** — the default
+behaved identically everywhere it was tested. Put to max, who chose **refuse everywhere**:
+`LLM_PROVIDER` is now required with no default, like `PHONE_HASH_SALT`. The stub is unchanged and
+still used by tests, evals, and local dev; it lost only the ability to be selected by accident.
+
+Six unit fixtures and two integration suites relied on the implicit default. They now state
+`LLM_PROVIDER=stub` — the assertion was not loosened to accommodate them. A source assertion
+anchored to the selector pins both "no `??` default" and "no env flag"; sabotage-verified against
+the old default *and* against a `VERCEL_ENV === "production"` variant.
+
+`.env.example` was created (**GL-033**), which this change turned from merely missing into
+load-bearing: without it a developer cannot start the app.
+
+### Production configuration, verified by effect
+
+max set `LLM_PROVIDER=deepinfra`, `DEEPINFRA_MODEL=mistralai/Mistral-Small-24B-Instruct-2501`, and
+`DEEPINFRA_API_KEY` in Vercel, and un-marked four variables that were needlessly **Sensitive**
+(`SMS_PROVIDER`, `PUBLIC_BASE_URL`, `TELNYX_PUBLIC_KEY`, `TELNYX_MESSAGING_PROFILE_ID` — a provider
+name, a public origin, verification material, and an identifier). Vercel's Sensitive flag is
+one-way, so each had to be deleted and re-added; the cost of the flag is losing the ability to
+confirm what production is set to.
+
+Verified after redeploy: health 200, cron 401, stands 200, admin 403, and webhook **401 rather than
+500** — under the three-way diagnostic that proves every Telnyx credential still resolves. The
+sharper check: a deliberately malformed signature returns **`malformed_signature`**, which means
+the handler loaded `TELNYX_PUBLIC_KEY` and decoded it as a valid 32-byte ed25519 key before
+rejecting the junk. "Non-empty" and "correct" look identical in a dashboard; this distinguishes
+them. `vercel env pull` now reads back the four un-marked values and still returns `[SENSITIVE]`
+for all six real secrets.
+
+**Consequence: DeepInfra calls now cost money on real traffic.** Under $1/month at launch volume,
+but no longer zero.
+
+### Standing lessons
+
+- **A review artifact is a set of leads, not a spec.** Three findings were exactly right; one
+  named a production credential that was not one, and the discrepancy was itself the bigger defect.
+- **"Required in production" is a smell.** A rule that relaxes off-production behaves one way
+  everywhere it is tested and another way where it matters — the shape that hid GL-019 for the
+  deployment's entire life.
+- **Reuse the state that already means what you need.** GL-003 wanted a quarantine outcome and
+  `ambiguous` already was one, so a defect that looked like it needed a migration needed none.
+
+## 2026-07-28 — the model finally runs, and it breaks everything the stub could not
 
 F-024 closed: the DeepInfra attestation filled from the real terms, the first live-model run, the
 three defects it exposed that 471 green unit tests could not, the offering seam over the real
