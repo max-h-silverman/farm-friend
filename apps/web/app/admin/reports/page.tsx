@@ -44,6 +44,7 @@ export default async function ReportsPage() {
       <nav className="admin-nav">
         <Link href="/admin">Farm approval</Link>
         <Link href="/admin/flags">Flag review</Link>
+        <Link href="/admin/stand-data">Stand data</Link>
       </nav>
 
       <p className="admin-note">

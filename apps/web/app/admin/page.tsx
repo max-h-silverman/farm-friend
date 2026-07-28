@@ -59,6 +59,7 @@ export default async function AdminPage() {
       <nav className="admin-nav">
         <Link href="/admin/flags">Flag review</Link>
         <Link href="/admin/reports">Stock-out reports</Link>
+        <Link href="/admin/stand-data">Stand data</Link>
       </nav>
 
       <p className="admin-note">

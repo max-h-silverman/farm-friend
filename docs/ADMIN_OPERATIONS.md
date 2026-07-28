@@ -7,10 +7,11 @@ admin.
 > **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
 > is the settled contract.
 >
-> **Status: built (F-025a + F-030).** Sign-in, durable sessions, server-side role lookup,
-> **farm approval/revocation**, the **flag review queue with its thread viewer**, and the
-> **stock-out report queue** are built and tested. What remains unbuilt is the exceptions
-> surface and a way to *send* a sign-in link (F-031) — each is marked below.
+> **Status: built (F-025a + F-030 + F-037).** Sign-in, durable sessions, server-side role
+> lookup, **farm approval/revocation**, the **flag review queue with its thread viewer**, the
+> **stock-out report queue**, and the **stand-data question queue** are built and tested. What
+> remains unbuilt is the exceptions surface and a way to *send* a sign-in link (F-031) — each
+> is marked below.
 
 ## The administrator role
 
@@ -70,6 +71,7 @@ daily data entry, the product has failed its north star.
 | Farm approval | **Built** (F-025a) — `/admin` | Verify a farm and **approve it for publication** — recorded separately from the farmer completing onboarding |
 | Flag review + thread viewer | **Built** (F-030) — `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | **Built** (F-030) — `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
+| Stand-data questions | **Built** (F-037) — `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
 | Exceptions | **Not built** | Handle requests the system cannot safely handle, with audit |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
@@ -113,6 +115,18 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   disposed of exactly once, so a second operator gets a conflict rather than silently overwriting
   the first one's decision. `FLAG` is a **Farm Friend product safety feature**, not a
   carrier-mandated keyword.
+- **Answer a stand-data question:** open `/admin/stand-data`. When VIGA's export contradicts itself
+  or states something the loader cannot resolve — two different `Open:` lines, an unresolvable
+  season, a dated note saying the stand closed — the loader records the question rather than
+  guessing, and this is where it surfaces. Each item names the stand, the reason in plain words, and
+  the **source text** verbatim. Resolving requires a **note saying what you decided**; without it the
+  queue would be a dismiss button and the audit record would say nothing. Resolution is **final and
+  happens exactly once** — a second operator gets a conflict, not a silent overwrite.
+  **Resolving records a decision; it does not edit the listing.** There is deliberately no action
+  here that changes hours, season, offerings, or inventory: correcting a listing is a different
+  capability with its own authority story, and the temptation to "fix it while I'm here" is exactly
+  how a decision queue becomes an unaudited editing surface. The integration suite pins this with a
+  byte-equality snapshot of every listing field across a resolution.
 - **Inspect a thread:** the thread viewer shows that sender's retained inbound messages, oldest
   first, with the flagged one marked. The sender appears **masked** — `(•••) •••-0701` — and the raw
   number never leaves the database: the query selects only the last four digits. A message whose body

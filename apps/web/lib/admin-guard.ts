@@ -61,6 +61,7 @@ export function statusForWriteResult(result: string): number {
   switch (result) {
     case "disposed":
     case "triaged":
+    case "resolved":
       return 200;
     case "unknown_flag":
     case "unknown_report":
