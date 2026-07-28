@@ -48,7 +48,7 @@ export interface PublicReadContext {
  * model package back into this graph.
  */
 export function publicReadContext(
-  env: NodeJS.ProcessEnv = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): PublicReadContext {
   const databaseUrl = env.DATABASE_URL;
   if (databaseUrl === undefined || databaseUrl.trim() === "") {

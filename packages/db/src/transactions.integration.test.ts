@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import type { Sql } from "./sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // F-014 — the authoritative transaction surface the forward migration must support:
@@ -31,8 +32,8 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 }
 
 describe("authoritative SMS transaction schema (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let client: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let client: Sql | undefined;
   let testDatabaseName: string | undefined;
 
   const ids: Record<string, string> = {};
@@ -125,7 +126,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
     }
   }, 30_000);
 
-  function db(): ReturnType<typeof postgres> {
+  function db(): Sql {
     if (!client) {
       throw new Error("test database is not initialized");
     }

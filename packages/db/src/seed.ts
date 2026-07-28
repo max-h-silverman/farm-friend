@@ -1,4 +1,4 @@
-import type postgres from "postgres";
+import type { Sql } from "./sql";
 
 // B-002 — loading VIGA's reference stand data.
 //
@@ -19,8 +19,6 @@ import type postgres from "postgres";
 // transaction. An out-of-range coordinate aborts the batch; nothing is clamped, defaulted, or
 // rounded into validity. A partially seeded corpus is recoverable; a stand at a plausible
 // wrong address sends a customer to a stranger's driveway.
-
-type Sql = ReturnType<typeof postgres>;
 
 export type SeededSeason =
   | { kind: "year_round" }

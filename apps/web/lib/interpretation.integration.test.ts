@@ -14,7 +14,7 @@ import {
   type LLMProvider,
   type ModelSafeContext,
 } from "@farm-friend/ai";
-import { createDb, type Db } from "@farm-friend/db";
+import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { containsRawPhone } from "@farm-friend/sms";
 import { applyInterpretedInventory } from "./interpretation";
 
@@ -48,11 +48,19 @@ class HostileProvider implements LLMProvider {
 }
 
 describe("interpreted inventory → pending proposal (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
-  const ids: Record<string, string> = {};
+  // Named keys rather than an index signature — see the note in
+  // public-surface.integration.test.ts (GL-005). `noUncheckedIndexedAccess` makes every
+  // index read `string | undefined`, which cannot be bound as a SQL parameter.
+  const ids = {} as {
+    farmerContact: string;
+    adminContact: string;
+    farm: string;
+    location: string;
+  };
 
   beforeAll(async () => {
     const baseUrl = process.env.DATABASE_URL;
@@ -86,7 +94,7 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     }
   }, 30_000);
 
-  function client(): ReturnType<typeof postgres> {
+  function client(): Sql {
     if (!sql) throw new Error("test database is not initialized");
     return sql;
   }

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import type { Sql } from "./sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // F-025a — the durable constraints under administrator identity and sessions.
@@ -32,8 +33,8 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 }
 
 describe("administrator identity and sessions (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let client: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let client: Sql | undefined;
   let testDatabaseName: string | undefined;
 
   // Clock-derived, never a date literal (B-003 tripwire).
@@ -44,7 +45,7 @@ describe("administrator identity and sessions (integration)", () => {
   const t1 = offset(1);
   const t2 = offset(2);
 
-  const db = () => client as ReturnType<typeof postgres>;
+  const db = () => client as Sql;
   const hash = (seed: string) => seed.repeat(64).slice(0, 64);
 
   beforeAll(async () => {

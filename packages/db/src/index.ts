@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
+import type { Sql } from "./sql";
 
 export * from "./schema";
 export { schema };
@@ -8,12 +9,13 @@ export { schema };
 export * from "./transactions";
 export * from "./admin";
 export * from "./review";
+export type { Sql } from "./sql";
 
 export interface Db {
   /** Drizzle query builder over the launch schema. */
   readonly orm: ReturnType<typeof drizzle<typeof schema>>;
   /** The underlying driver, used for row locks and transactional workflow SQL. */
-  readonly sql: ReturnType<typeof postgres>;
+  readonly sql: Sql;
   close(): Promise<void>;
 }
 

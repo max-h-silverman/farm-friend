@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import type { Sql } from "./sql";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   acceptProviderEvent,
@@ -56,8 +57,8 @@ const at = (minutesFromT0: number) =>
 const BODY_EXPIRES_AT = at(48 * 60);
 
 describe("delivery callback application (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
 
@@ -88,7 +89,7 @@ describe("delivery callback application (integration)", () => {
     }
   }, 30_000);
 
-  function client(): ReturnType<typeof postgres> {
+  function client(): Sql {
     if (!sql) throw new Error("test database is not initialized");
     return sql;
   }

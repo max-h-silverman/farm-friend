@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
+import type { Sql } from "./sql";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createDb, purgeExpiredBodies, type Db } from "./index";
 
@@ -61,8 +62,8 @@ const EXPIRES_LATE = at(1000 * HOUR);
 const PURGE_AT = at(10 * HOUR);
 
 describe("raw-context retention purge (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
   const ids: Record<string, string> = {};
@@ -100,7 +101,7 @@ describe("raw-context retention purge (integration)", () => {
     }
   }, 30_000);
 
-  function client(): ReturnType<typeof postgres> {
+  function client(): Sql {
     if (!sql) throw new Error("test database is not initialized");
     return sql;
   }

@@ -4,8 +4,8 @@ import {
   type Principal,
   type Role,
 } from "@farm-friend/core";
-import type postgres from "postgres";
 import type { Db } from "./index";
+import type { Sql } from "./sql";
 
 // The operator surface's durable writes (F-025a).
 //
@@ -20,8 +20,6 @@ import type { Db } from "./index";
 // Approval is deliberately a SEPARATE act from a farmer completing onboarding (the
 // coordinator at a desk does not let an applicant approve themselves), and revocation is
 // recorded rather than deleted, because the audit trail is the point.
-
-type Sql = ReturnType<typeof postgres>;
 
 function driver(db: Db): Sql {
   return db.sql;

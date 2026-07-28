@@ -1,6 +1,6 @@
 import { maskPhoneSuffix } from "@farm-friend/core";
-import type postgres from "postgres";
 import type { Db } from "./index";
+import type { Sql } from "./sql";
 
 // The operator review queues (F-030): the flag rail's human half, and the reader customer
 // stock-out reports never had.
@@ -31,8 +31,6 @@ import type { Db } from "./index";
 // **Phones are masked at the QUERY, not in the renderer.** Each projection selects
 // `right(phone_e164, 4)`, so the full number is never materialized in application memory and
 // the admin surface never becomes a second reader of the send path's column.
-
-type Sql = ReturnType<typeof postgres>;
 
 function driver(db: Db): Sql {
   return db.sql;

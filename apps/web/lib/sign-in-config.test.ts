@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createUnconfiguredMailSender, MailNotConfiguredError } from "@farm-friend/core";
-import { ConfigurationError, resolveConfig } from "./composition";
+import { ConfigurationError, resolveConfig, type EnvVars } from "./composition";
 
 // F-032 — sign-in configuration fails CLOSED.
 //
@@ -24,7 +24,7 @@ const baseEnv = {
   // Required since GL-019: there is no default provider, so a fixture that omits this
   // is an unconfigured app rather than a stubbed one.
   LLM_PROVIDER: "stub",
-} satisfies NodeJS.ProcessEnv;
+} satisfies EnvVars;
 
 describe("sign-in configuration fails closed", () => {
   it("resolves when both values are present", () => {

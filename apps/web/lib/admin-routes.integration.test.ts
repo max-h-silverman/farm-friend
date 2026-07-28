@@ -9,7 +9,7 @@ import {
   issueMagicToken,
   issueSessionToken,
 } from "@farm-friend/core";
-import { createAdminSession } from "@farm-friend/db";
+import { createAdminSession, type Sql } from "@farm-friend/db";
 import { ADMIN_SESSION_COOKIE } from "./admin-auth";
 
 // F-025a — the admin HTTP surface, against a real database.
@@ -37,15 +37,15 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 }
 
 describe("admin routes (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let client: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let client: Sql | undefined;
   let testDatabaseName: string | undefined;
 
   const anchor = Date.now() - 24 * 60 * 60 * 1000;
   const at = (hours: number) => new Date(anchor + hours * 60 * 60 * 1000);
   const magicSecret = "test-magic-secret";
   const ids: Record<string, string> = {};
-  const sql = () => client as ReturnType<typeof postgres>;
+  const sql = () => client as Sql;
 
   // Routes are imported AFTER the environment points at the throwaway database, because
   // `publicReadContext` caches its pool on first use.

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
 import { createInquiryModel, createInventoryInterpreter } from "@farm-friend/ai";
 import { FixedClock, hashPhone } from "@farm-friend/core";
-import { authorizeDispatch, createDb, type Db } from "@farm-friend/db";
+import { authorizeDispatch, createDb, type Db, type Sql } from "@farm-friend/db";
 import { runInboundPass } from "./workers";
 
 // F-023 — inbound SMS routed END TO END, from a validly signed webhook POST to the durable
@@ -71,8 +71,8 @@ class ScriptedProvider implements LLMProvider {
 }
 
 describe("inbound routing end to end (integration)", () => {
-  let adminClient: ReturnType<typeof postgres> | undefined;
-  let sql: ReturnType<typeof postgres> | undefined;
+  let adminClient: Sql | undefined;
+  let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
   let keys: KeyPair;
@@ -143,7 +143,7 @@ describe("inbound routing end to end (integration)", () => {
     }
   }, 30_000);
 
-  function client(): ReturnType<typeof postgres> {
+  function client(): Sql {
     if (!sql) throw new Error("test database is not initialized");
     return sql;
   }
