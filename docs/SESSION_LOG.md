@@ -106,9 +106,23 @@ otherwise, but stashing is the fast way to prove whose defect it is.
 evals critical 11/11 + advisory 4/4 + adversarial 29/29 with **no fixture touched**,
 typecheck/lint/`next build` clean.
 
-**Owed:** the `stand_data_flags` admin surface (the 3 seeded flags are visible only by SQL, so a
-VIGA operator cannot resolve them), max's decision on the 3 address-less stands, and — once the
-attestation lands — evals against the real model plus the cost/rate-limit check.
+**Released:** merged as `468859a` (PR #48, squash) and deployed with `npx vercel --prod`, crons
+block stripped uncommitted and restored immediately. Verified **by effect**, since a CLI deploy
+creates no GitHub deployment record: health `{"ok":true}`, cron **401**, webhook **401** — the last
+being the useful one, because the three-way diagnostic makes 401 (not 500) proof that config still
+resolves after the `resolveModelConfig` rewrite. The permanently-red Vercel check was confirmed red
+on `main` itself before merging past it.
+
+**Production is deliberately NOT seeded** (max, this session). `/api/public/stands` returns
+`{"stands":[]}`. Seeding waits on three things so the corpus is loaded once rather than corrected
+after: the 3 missing addresses, offerings pending F-024, and — the real constraint — **F-034
+credential rotation, still deferred while the production `DATABASE_URL` sits exposed in two
+transcripts**. That deferral is sound only while there is no real data in the database, and 28 real
+VIGA stands moves that line.
+
+**Owed:** **F-037** (filed this session) — the `stand_data_flags` operator surface, since the
+seeder now raises flags nobody can act on; addresses for the 3 refused stands; and, once the
+attestation lands, evals against the real model plus the cost/rate-limit check.
 
 ---
 

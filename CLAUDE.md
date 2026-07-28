@@ -455,7 +455,11 @@ that code commits after review. **B-013:** `listPublicStands` now LEFT-joins inv
 nobody has confirmed is visible with `asOf`/`recencyLabel`/`isStale` **absent together** — the map
 cannot render "updated just now" for a confirmation that never happened.
 
-**Deployed and verified in production 2026-07-28** (`d49394c`, PR #47). Migration **0005** applied
+**Deployed and verified in production 2026-07-28** (`468859a`, PR #48 — B-002 + F-024). Verified by
+effect: health `{"ok":true}`, cron **401**, webhook **401**. That last one is the load-bearing check
+after this change: under the three-way diagnostic, 401 rather than 500 proves configuration still
+resolves after `resolveModelConfig` was rewritten to read `LLM_PROVIDER`.
+Previously (`d49394c`, PR #47). Migration **0005** applied
 (6 total; both tables, 4 enums, 12 columns confirmed by query). **B-013 proven by effect**: a probe
 stand with zero inventory was returned by `/api/public/stands` with `items: []` and **no `updated`
 or `stale` keys** — invisible under the old inner join. Probe removed; the endpoint reads
@@ -522,9 +526,18 @@ supply what production never creates.
   missing street address, 3 flags, idempotent on re-run. What remains is **max's call on the 3
   refused stands** (Farmers Market, Breathing Meadows, Open Gate Lamb — no address in the export;
   an address must come from VIGA, never be invented) and offerings, which wait on F-024.
-- **F-035 / B-013 — schema, parser, seam, and now the loader are done.** What is NOT done: the
-  `stand_data_flags` **admin surface**. The 3 seeded flags are visible only by SQL today, so a
-  VIGA operator cannot yet see or resolve them — that is the next build after F-024 unblocks.
+  **PRODUCTION IS DELIBERATELY NOT SEEDED** (decided 2026-07-28): `/api/public/stands` returns
+  `{"stands":[]}` and the loader has run only locally. Seeding waits on the 3 addresses, offerings,
+  and — the real constraint — **F-034 rotation**, since the deferral is sound only while no real
+  data is in that database and 28 real stands moves that line. The loader is idempotent, so seeding
+  later and re-running for the last 3 adds without duplicating.
+- **F-037 — the `stand_data_flags` operator surface (NEW, filed 2026-07-28).** The seeder now raises
+  flags nobody can act on: the 3 are visible only by SQL. Follow `review.ts`'s pattern — one shared
+  guard, dispose-once under a row lock (409 on the second operator), audit event in the same commit,
+  and prove by byte-equality snapshot that resolving a flag cannot change a published listing.
+  Fully buildable now; needs no external input.
+- **F-035 / B-013 — schema, parser, seam, and now the loader are all done.** The remaining gap is
+  F-037 above.
 - **F-036 — where the model may run.** **Seed-time: built** (`offering-extraction`).
   **Query-time on the public map: BLOCKED** — that is the anonymous surface F-019 removed and the
   Do-not list names; `public-surface-model-free.test.ts` polices the import graph.
