@@ -10,9 +10,11 @@ not inlined there).
 > **Status (2026-07-26).** The four-package baseline, the launch schema and its migrations, the
 > composition root, verified+persisting SMS ingress, the authoritative workflow transactions, the
 > retention purge, the public map, the admin sign-in/farm-approval surface, and the flag/stock-out
-> review queues (F-030) all exist. Still **not** built: the seed utility (B-002), a real model
-> provider (F-024 — the stub is configured), sign-in link delivery by email (F-031), and go-live
-> (F-029).
+> review queues (F-030) all exist — as does the **seed loader (B-002)**, which has run against
+> VIGA's real export (28 of 31 stands; 3 lack a street address). Still **not** built: sign-in link
+> delivery by email (F-031), the `stand_data_flags` admin surface, and go-live (F-029). The
+> DeepInfra adapter exists but **the stub is still the configured provider** (F-024): selecting
+> DeepInfra throws until its data-handling terms are attested.
 > Where a step below names a path or script that does not exist yet, it is the **contract the
 > corresponding work builds to**, not a description of today; CLAUDE.md "Current State" is the live
 > snapshot.
@@ -164,18 +166,35 @@ was last confirmed. Stands seed empty and render the honest "no current listing"
 It also seeds **no phone numbers** — `farmer_authorizations` requires captured SMS consent, so phones
 arrive through onboarding, never a bulk roster load.
 
-**Status: the loader does not exist yet** (B-002); everything it needs now does. VIGA's export
-arrived as a CSV of **31 stands with real WKT coordinates**, which supersedes the earlier
-"transcribe by hand" plan — that rested on effort, and the export also carries coordinates a manual
-transcription would have lacked. Migration **0005** and
-`packages/core/src/seed/availability.ts` have landed; what remains is the loader itself.
+**Status: the loader is BUILT (B-002).** Run it with:
+
+```bash
+npm run db:seed -- "<path-to-csv>" --dry-run   # report only, writes nothing
+npm run db:seed -- "<path-to-csv>"             # apply
+```
+
+It is **idempotent** (keyed on stand name; a second run skips what exists and never updates it, so a
+farmer's own later correction is not reverted to the CSV) and **refuses rather than coerces** — the
+whole batch is one transaction, and an out-of-range coordinate aborts it instead of being clamped.
+
+Against VIGA's real export: **28 of 31 stands seeded, 3 flags raised**. The 3 not seeded — Vashon
+Island Farmers Market, Breathing Meadows Farm, Open Gate Lamb and Grazing — state **no street
+address**, and `public_address` is NOT NULL; inventing one is the fabrication F-017 forbids, so they
+are reported as operator tasks awaiting an address from VIGA.
+
+**The export is malformed CSV and no standard parser reads it.** Each `description` is unquoted and
+spans raw newlines until the next `"POINT (` line, so a conventional reader returns **285 rows for
+31 stands** and attaches every address and `Open:` line to the *following* farm — silently.
+`packages/core/src/seed/stand-csv.ts` anchors records to the `"POINT (` literal instead.
 
 The free-form map text is still **not** data to carry forward wholesale — it is the unfilterable
 content Farm Friend replaces. The seeder **structures** it (season, days, hours, cadence,
 specialties) and **discards** the dated update lines, which are stale inventory: Green Ears' most
 recent note reads "Closed" and Peak Moon's reads "Thank you for a great season". Seeding either
-would publish a year-old claim as current. The export also carries **23 email addresses and 2 phone
-numbers**, which are stripped — no contact data enters without captured consent.
+would publish a year-old claim as current. The export also carries **22 email addresses and 4 phone
+numbers** (measured; an earlier "23 + 2" undercounted the phones), which are stripped — no contact
+data enters without captured consent. Websites and `@handles` are deliberately **kept**: the product
+contract publishes farmer-selected web and social links, and only direct phone/email are private.
 
 Geocoding happens **once, during seeding** — it is not a permanent runtime provider seam,
 and a location that cannot be resolved is an **operator task**, never a fabricated coordinate.
@@ -476,6 +495,21 @@ place (CLAUDE.md, "Simplicity and elegance").
   and **throws** on any violation, so a provider that cannot meet the terms never constructs. Note
   what this is: an operator-attested, version-controlled declaration checked in code — not a
   network audit of the vendor's actual practice.
+
+  **Which provider is configured.** `LLM_PROVIDER` selects it: `stub` (default; the deterministic
+  test/dev double, no network call) or `deepinfra`. An unknown value is a `ConfigurationError`, not
+  a fallback — a typo must never silently run the test double against real farmers. DeepInfra
+  additionally needs `DEEPINFRA_API_KEY` and `DEEPINFRA_MODEL`.
+
+  **DeepInfra is decided but NOT yet attested (F-024).** `DEEPINFRA_DATA_HANDLING` in
+  `apps/web/lib/composition.ts` is `null`, so selecting `LLM_PROVIDER=deepinfra` **throws** a
+  `ConfigurationError` naming the four terms. To unblock, read DeepInfra's data-processing terms —
+  they are the *inference host's*, not the model author's licence — and replace `null` with what
+  they actually state, citing them in the PR. **Never infer these from marketing copy**; the field
+  is a record that a human read the contract, not a switch that changes vendor behaviour. Two tests
+  anchored to the `null` literal fail if it is filled with guessed values. After attesting, run
+  `npm run evals` against the real model: critical and adversarial must stay at 100%, and a failing
+  adversarial fixture **stops and reports** rather than being edited to go green.
 - **SMS:** implement the transport (send + **signature verification**); the redaction guard
   continues to normalize avoidable Unicode and block raw phones. After the provider accepts a send,
   record encoding, character count, and estimated billable segments — **by recipient hash, never

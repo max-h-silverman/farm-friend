@@ -257,15 +257,38 @@ export function parseSeason(text: string): ParsedSeason {
  * opening of "Saturday" and then fails its trailing word boundary, so the day is silently
  * missed. The optional `s` handles "Mondays and Fridays", which the corpus writes plural.
  */
+const WEEKDAY_WORD = String.raw`(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|wed|thurs|thu|fri|sat)s?`;
+
 function weekdaysIn(text: string): number[] {
   const found = new Set<number>();
-  const wordPattern =
-    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tues|tue|wed|thurs|thu|fri|sat)s?\b/gi;
+
+  // A DASHED RANGE FIRST. "Thursday - Sunday" means Thu, Fri, Sat, Sun — four days, not the
+  // two whose names appear. Collecting weekday words alone silently dropped the interior
+  // days, so Green Ears was stocked "Thursday - Sunday" but invisible to a customer
+  // filtering for Friday, with nothing reporting an error. Found by seeding the real corpus.
+  const rangePattern = new RegExp(
+    `\\b${WEEKDAY_WORD}\\s*(?:-|–|—|to|thru|through)\\s*${WEEKDAY_WORD}\\b`,
+    "gi",
+  );
+  for (const match of text.matchAll(rangePattern)) {
+    const from = WEEKDAY_WORDS[match[1]!.toLowerCase()];
+    const to = WEEKDAY_WORDS[match[2]!.toLowerCase()];
+    if (from === undefined || to === undefined) continue;
+    // Walk forward, wrapping through the end of the week: "Saturday - Monday" is Sat, Sun,
+    // Mon. Bounded by 7 so a malformed pair cannot loop forever.
+    for (let i = 0, day = from; i < 7; i++, day = (day + 1) % 7) {
+      found.add(day);
+      if (day === to) break;
+    }
+  }
+
+  // Then any remaining individually named days ("Mondays and Fridays"), which are a LIST.
+  const wordPattern = new RegExp(`\\b${WEEKDAY_WORD}\\b`, "gi");
   for (const match of text.matchAll(wordPattern)) {
-    const key = match[1]!.toLowerCase();
-    const day = WEEKDAY_WORDS[key];
+    const day = WEEKDAY_WORDS[match[1]!.toLowerCase()];
     if (day !== undefined) found.add(day);
   }
+
   return [...found].sort((a, b) => a - b);
 }
 

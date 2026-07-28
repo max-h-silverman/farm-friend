@@ -1,0 +1,180 @@
+import { describe, expect, it, vi } from "vitest";
+import { createDeepInfraProvider } from "./deepinfra";
+import { generateValidated } from "./index";
+import { projectOfferingExtraction } from "./projections";
+import { z } from "zod";
+
+// F-024. These tests exercise the adapter against a fake transport rather than the network:
+// the point is the REQUEST it builds and how it treats the response, which is exactly what
+// CLAUDE.md's "an unexported seam is an untested seam" rule says must be covered. B-010's
+// discarded error detail survived precisely because the real-I/O parsing path had no test.
+
+function fakeFetch(body: unknown, init: { ok?: boolean; status?: number } = {}) {
+  return vi.fn(
+    async (_url: string | URL | Request, _init?: RequestInit) =>
+      ({
+        ok: init.ok ?? true,
+        status: init.status ?? 200,
+        json: async () => body,
+      }) as unknown as Response,
+  );
+}
+
+/** The request body the adapter sent on its first call, parsed. */
+function sentBody(fetchImpl: ReturnType<typeof fakeFetch>): string {
+  const init = fetchImpl.mock.calls[0]?.[1];
+  if (init?.body === undefined || init.body === null) {
+    throw new Error("the adapter sent no request body");
+  }
+  return String(init.body);
+}
+
+function completion(content: string) {
+  return { choices: [{ message: { content } }] };
+}
+
+const context = projectOfferingExtraction({ sourceText: "eggs and plant starts" });
+
+describe("the DeepInfra adapter", () => {
+  it("sends the projected context and returns the model's JSON", async () => {
+    const fetchImpl = fakeFetch(completion('{"items":["eggs"]}'));
+    const provider = createDeepInfraProvider({
+      apiKey: "secret-key",
+      model: "some-instruct-model",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const raw = await provider.generateJson(context, "offerings");
+    expect(JSON.parse(raw)).toEqual({ items: ["eggs"] });
+
+    expect(String(fetchImpl.mock.calls[0]![0])).toContain("/chat/completions");
+    const sent = JSON.parse(sentBody(fetchImpl));
+    expect(sent.model).toBe("some-instruct-model");
+    // Deterministic decoding: evals are only meaningful against a stable decode.
+    expect(sent.temperature).toBe(0);
+  });
+
+  it("sends NO conversation, thread, or session identifier — calls are stateless", async () => {
+    const fetchImpl = fakeFetch(completion("{}"));
+    const provider = createDeepInfraProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await provider.generateJson(context, "offerings");
+
+    const sent = JSON.parse(sentBody(fetchImpl));
+    // `statefulStorage: false` is attested to the gate; nothing here may quietly rely on
+    // provider-side state, so no key that would create it may be sent.
+    for (const forbidden of [
+      "conversation_id",
+      "thread_id",
+      "session_id",
+      "user",
+      "store",
+      "previous_response_id",
+    ]) {
+      expect(sent).not.toHaveProperty(forbidden);
+    }
+    // Exactly one system turn and one user turn — no prior conversation replayed.
+    expect(sent.messages).toHaveLength(2);
+  });
+
+  it("sends only what the projection carried, never a wider record", async () => {
+    const fetchImpl = fakeFetch(completion("{}"));
+    const provider = createDeepInfraProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await provider.generateJson(
+      projectOfferingExtraction({ sourceText: "eggs" }),
+      "offerings",
+    );
+
+    const body = sentBody(fetchImpl);
+    expect(body).toContain("eggs");
+    // The projection is the only source of model input; nothing else can ride along.
+    expect(body).not.toContain("phone");
+    expect(body).not.toContain("contact_hash");
+  });
+
+  it("never puts the API key anywhere but the authorization header", async () => {
+    const fetchImpl = fakeFetch(completion("{}"));
+    const provider = createDeepInfraProvider({
+      apiKey: "super-secret-key",
+      model: "m",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await provider.generateJson(context, "offerings");
+
+    expect(String(fetchImpl.mock.calls[0]![0])).not.toContain("super-secret-key");
+    expect(sentBody(fetchImpl)).not.toContain("super-secret-key");
+  });
+
+  it("strips a markdown fence, a near-universal instruct-model habit", async () => {
+    const fetchImpl = fakeFetch(
+      completion('```json\n{"items":["eggs"]}\n```'),
+    );
+    const provider = createDeepInfraProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    expect(JSON.parse(await provider.generateJson(context, "offerings"))).toEqual({
+      items: ["eggs"],
+    });
+  });
+
+  it("throws WITHOUT echoing the response body, which may carry sender text", async () => {
+    const fetchImpl = fakeFetch(
+      { error: "context included: my number is 206-555-0100" },
+      { ok: false, status: 400 },
+    );
+    const provider = createDeepInfraProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await expect(provider.generateJson(context, "offerings")).rejects.toThrow(
+      /deepinfra responded 400/,
+    );
+    // The thrown message must not become a log line carrying a sender's phone number.
+    await provider
+      .generateJson(context, "offerings")
+      .catch((error: Error) => {
+        expect(error.message).not.toContain("206-555-0100");
+      });
+  });
+
+  it("surfaces a provider failure as provider_error, never as a guessed value", async () => {
+    const fetchImpl = fakeFetch({}, { ok: false, status: 500 });
+    const provider = createDeepInfraProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    const result = await generateValidated(
+      provider,
+      context,
+      "offerings",
+      z.object({ items: z.array(z.string()) }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("provider_error");
+  });
+
+  it("treats a missing message content as a failure rather than empty output", async () => {
+    const fetchImpl = fakeFetch({ choices: [{}] });
+    const provider = createDeepInfraProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await expect(provider.generateJson(context, "offerings")).rejects.toThrow(
+      /no message content/,
+    );
+  });
+});

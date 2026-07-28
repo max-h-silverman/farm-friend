@@ -438,7 +438,7 @@ plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only plac
 asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
 statements**, so external packages named in *config files* are outside its design.
 
-**Structured stand data is built; the seed itself is not (F-035, B-013).** Migration **0005** adds
+**Structured stand data (F-035, B-013); the loader now exists too — see B-002 above.** Migration **0005** adds
 three availability enums (`open_hours_kind`, `season_kind`, `stocking_cadence`), a day set, and two
 tables. **Specialties and current stock are separate by construction:**
 `sales_location_offerings` holds what a stand *usually* carries, while `inventory_revisions`
@@ -459,39 +459,72 @@ cannot render "updated just now" for a confirmation that never happened.
 (6 total; both tables, 4 enums, 12 columns confirmed by query). **B-013 proven by effect**: a probe
 stand with zero inventory was returned by `/api/public/stands` with `items: []` and **no `updated`
 or `stale` keys** — invisible under the old inner join. Probe removed; the endpoint reads
-`{"stands":[]}` because no stands are seeded yet. A scheduled run returned 200 against the new
+`{"stands":[]}` because **production has not been seeded** (the loader has only been run against
+local databases; seeding production is a separate, deliberate step). A scheduled run returned 200 against the new
 build. **Deploy immediately after every merge** — this session opened by finding three merged fixes
 (B-010, B-011, B-012) that production had never received.
 
-**Verified July 28, 2026 (`main`, F-035 + B-013 merged):** `npm test` **432/432 across 45 files**;
-`npm run test:integration` **263/263 across 17 files** on real Postgres 16.12; `npm run evals`
-critical **11/11**, advisory 4/4, adversarial **29/29**; typecheck + lint pass; `next build` clean.
-Migration **0005** proven from an empty database by the integration run.
-Newest session-log entry: the deploy that never happened, and structure for the map. Entries older
-than the newest eight live in `docs/SESSION_LOG_ARCHIVE.md` (rotated at 31 entries / 152k chars).
+**The seeder is BUILT and has loaded the real corpus (B-002).** `npm run db:seed -- <csv>
+[--dry-run]` — **28 of 31 stands seeded, 3 flags**; a second run seeds 0 / skips 28. Zero inventory
+is **structural**, proven against a real seeded database: `inventory_revisions`, `inventory_entries`,
+`contacts`, `farmer_authorizations`, `farm_approvals` all **0**, because the seeder cannot produce
+the authorization + approval those rows require. Four documented facts were wrong — see the session
+log for each:
+- **The CSV is malformed.** Descriptions are UNQUOTED across raw newlines, so a standard parser
+  yields **285 rows for 31 stands**, misattributing every address and `Open:` line to the wrong farm.
+  `packages/core/src/seed/stand-csv.ts` anchors records to the `"POINT (` literal.
+- **PII is 22 emails + 4 PHONES**, not 23 + 2 — undercounted in the dangerous direction. Stripped;
+  0 leaks across every seeded text column. Websites and `@handles` are kept (the contract publishes
+  those).
+- **3 stands are REFUSED, not seeded** — Farmers Market, Breathing Meadows, Open Gate Lamb state no
+  street address, and `public_address` is NOT NULL. Inventing one is forbidden (F-017). **Awaiting
+  addresses from VIGA.**
+- **The flags are Green Ears + HOLMESTEAD**, not Morgan Hill — whose "June 1, 2026 - TBD" parses
+  correctly as `open_ended`. Holmestead's "Mid April Weekends" is genuinely `season_unresolved`.
+
+**Seeding found a real parser defect (fixed test-first).** `parseStocking` read the RANGE "Thursday
+- Sunday" as {Thu, Sun}, dropping Fri/Sat — Green Ears was invisible to a Friday filter with nothing
+reporting an error. Ranges now expand (wrapping across the week end); "and" lists stay lists.
+Sabotage-verified, as were idempotency, whole-batch rollback, and refusal-without-coercion.
+
+**F-024: the adapter is built; the attestation BLOCKS, by code.** `LLM_PROVIDER` is now real
+(`stub` | `deepinfra`) — it previously sat in `.env.example` while `resolveModelConfig` hard-coded
+the stub and never read it; an unknown value now throws rather than silently running the test double.
+**`DEEPINFRA_DATA_HANDLING` is `null` and selecting `deepinfra` THROWS**, naming all four gate terms,
+so no farmer or customer text reaches a vendor whose terms nobody has read. Enforced by two
+source-asserting tests anchored to the `null` literal, sabotage-verified against guessed values. The
+offering seam therefore did NOT run; `sales_location_offerings` is correctly empty.
+
+**Verified July 28, 2026 (`main`, this work merged):** `npm test` **471/471 across 49 files**;
+`npm run test:integration` **273/273 across 18 files** on real Postgres 16.12; `npm run evals`
+critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); typecheck + lint pass;
+`next build` clean. Migration **0005** proven from an empty database by the integration run.
+Newest session-log entry: the seeder meets the real file, and a provider that refuses to start.
+
+**A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a
+*different* named test each; stashing the branch reproduced the hang on clean `main` (the connection
+was out). A named failing test is still a real defect until shown otherwise — but `git stash` is the
+cheap way to prove whose it is. Session-log entries older than the newest eight live in
+`docs/SESSION_LOG_ARCHIVE.md` (rotated at 31 entries / 152k chars).
 
 ### Open work — each needs separate implementation authorization
 
 Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
 supply what production never creates.
 
-- **F-024 — the configured provider is the stub. Now blocks F-035's ingest too.** **Decided:**
+- **F-024 — the adapter is BUILT; the attestation is the one thing left, and it is max's.** Decided:
   DeepInfra on a mid-size instruct model; the attested terms are **DeepInfra's** as inference host.
-  The attestation is a **blocking TODO until max reads their data-processing terms** — never infer
-  those values. An adversarial eval failure **stops and reports**; no fixture edits to go green.
-  **max's next session opens with this decision, then runs the offering seam.**
-- **B-002 — the seeder is not written; everything it needs now is.** The **~30-stand list arrived**
-  as VIGA's CSV export (31 stands, real WKT coordinates, so the planned seed-time geocoding is
-  unnecessary). Migration 0005 and the parser landed; what remains is the loader itself.
-  **Decisions that still stand:** zero inventory (seeding dated text would fabricate a confirmation
-  nobody made — Green Ears' most recent note reads "Closed"), no phone numbers, idempotent,
-  refuses constraint violations rather than coercing. **Superseded:** "no CSV, transcribe by hand"
-  — that rested on effort, and the CSV also carries coordinates the manual path would have lacked.
-  The CSV holds **23 emails + 2 phone numbers** that must be stripped; the offering projection
-  fails closed on a raw phone, proven by eval.
-- **F-035 / B-013 — schema, parser, and seam are merged.** What is NOT done: the loader, and the
-  `stand_data_flags` admin surface. Known flags awaiting the seeder: **Green Ears** (two
-  contradictory `Open:` lines plus a "Closed" note) and **Morgan Hill** ("June 1, 2026 - TBD").
+  `DEEPINFRA_DATA_HANDLING` is `null` and selecting the provider **throws** — enforced by tests, not
+  a comment. **Next session opens by reading DeepInfra's data-processing terms and filling the four
+  values**, then running evals against the real model and the offering seam. Never infer those
+  values. An adversarial eval failure **stops and reports**; no fixture edits to go green.
+- **B-002 — the loader is BUILT and has run against the real corpus.** 28 seeded, 3 refused for a
+  missing street address, 3 flags, idempotent on re-run. What remains is **max's call on the 3
+  refused stands** (Farmers Market, Breathing Meadows, Open Gate Lamb — no address in the export;
+  an address must come from VIGA, never be invented) and offerings, which wait on F-024.
+- **F-035 / B-013 — schema, parser, seam, and now the loader are done.** What is NOT done: the
+  `stand_data_flags` **admin surface**. The 3 seeded flags are visible only by SQL today, so a
+  VIGA operator cannot yet see or resolve them — that is the next build after F-024 unblocks.
 - **F-036 — where the model may run.** **Seed-time: built** (`offering-extraction`).
   **Query-time on the public map: BLOCKED** — that is the anonymous surface F-019 removed and the
   Do-not list names; `public-surface-model-free.test.ts` polices the import graph.

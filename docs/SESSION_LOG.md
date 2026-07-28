@@ -11,7 +11,108 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-28 (latest) — the deploy that never happened, and structure for the map
+## 2026-07-28 (latest) — the seeder meets the real file, and a provider that refuses to start
+
+F-024's adapter built behind an enforced attestation block, and B-002's loader run against VIGA's
+actual export — which turned out to disagree with the documentation in four places, three of them
+the dangerous direction.
+
+### The CSV is malformed, and a standard parser reads it wrong in silence
+
+The docs said "31 stands, real WKT coordinates". True, but not the whole shape. Each stand's
+`description` field is **unquoted and spans raw newlines**, running until the next `"POINT (`
+line. Python's `csv.DictReader` on this exact file returns **285 rows for 31 stands**, and every
+continuation line — addresses, `Open:` lines, update notes — is attributed to the *following*
+farm. Nothing downstream would have noticed: the availability parser would happily read a season
+off the neighbouring stand's text and produce a confident, wrong map.
+
+`packages/core/src/seed/stand-csv.ts` anchors records to the `"POINT (` literal instead of to
+line count. The first naive parse is preserved in the test file's comment, because the failure is
+invisible and worth a warning to whoever touches this next.
+
+### The PII count was wrong in the direction that matters
+
+Documented: 23 emails + 2 phone numbers. Actual, measured against the corpus: **22 unique emails
++ 4 phone numbers** (Northbourne, Peach Tree Hill, Vashon Garlic, Venison Valley). The email
+figure was a raw-occurrence count; the phone figure was simply half. For a stripper, undercounting
+is the failure direction — two numbers would have shipped.
+
+Stripping keeps websites and `@handles` deliberately: the product contract publishes
+farmer-selected web and social links, and only direct phone/email are private. Over-stripping
+would have deleted facts VIGA intends to show. Verified by scanning every seeded text column in a
+real database: **0 leaks**.
+
+### Seeding found a real parser defect that no unit test would have
+
+`parseStocking` read the **range** "Thursday - Sunday" as the two-element list {Thu, Sun},
+dropping Friday and Saturday. Green Ears is stocked Thursday through Sunday and was invisible to a
+customer filtering for Friday — with nothing reporting an error, because `specific_days` with two
+days is a perfectly valid result. The `and` forms ("Saturday and Sunday") were always correct,
+which is why the corpus was needed to expose it: the distinction is the *separator*.
+
+Fixed test-first: dashed ranges expand, wrapping across the end of the week ("Saturday - Monday"
+is Sat/Sun/Mon), while `and` lists stay lists. Sabotage-verified. This is the third time the rule
+"measure against the real corpus before defending the code" has paid out on this parser.
+
+### The flags are Green Ears and Holmestead — not Morgan Hill
+
+The docs predicted Green Ears + Morgan Hill. Morgan Hill's "June 1, 2026 - TBD" **parses
+correctly** as `open_ended` — the parser models the unknown end rather than guessing one, which is
+exactly the designed behaviour, so it needs no human. The real second flag is **Holmestead
+Farms**, whose "Mid April Weekends" states a start with no end and is genuinely unresolvable
+(`season_unresolved`). Green Ears carries both `contradictory_hours` (two different `Open:` lines)
+and `possibly_closed` ("7/9/2026 Update: Closed").
+
+### Three stands refused rather than given an invented address
+
+`public_address` is NOT NULL, and the Farmers Market, Breathing Meadows Farm and Open Gate Lamb
+state no street address in the export. Inventing one is the coordinate-fabrication failure F-017
+forbids, so the loader **refuses them and reports them** as operator tasks. 28 of 31 seeded.
+Getting those three addresses from VIGA is max's call.
+
+### Zero inventory is structural, not merely omitted
+
+The seeder cannot fabricate a farmer's confirmation because `inventory_revisions` requires
+`published_by_authorization_id` + `farm_approval_id`, and the seeder creates neither. Proven
+against a real seeded database rather than asserted: revisions, entries, contacts, authorizations
+and approvals are all **0**. Idempotency (second run: seeded 0, skipped 28), whole-batch rollback,
+and constraint-refusal-without-coercion are each sabotage-verified.
+
+### F-024: the block is enforced, not commented
+
+The adapter is built and `LLM_PROVIDER` is finally **real** — it had been sitting in
+`.env.example` advertising `stub|openweight` while `resolveModelConfig` hard-coded the stub and
+never read the environment. An unknown value now throws rather than silently running the scripted
+test double against real farmers.
+
+`DEEPINFRA_DATA_HANDLING` is `null` and selecting the provider **throws a ConfigurationError
+naming all four gate terms**. The point is that the attestation TODO is enforced by code and tests
+rather than by a comment someone might overwrite: two source-asserting tests anchored to the
+`null` literal, sabotage-verified by filling in plausible-looking values (3 tests fail). Per
+CLAUDE.md an agent must never infer those values from marketing copy — so the offering seam did
+**not** run this session, and `sales_location_offerings` is correctly empty. That is the honest
+state, not an unfinished one.
+
+### A hung suite that was the internet, and how it was ruled out
+
+Two integration runs timed out mid-suite, each with a *different* named failing test. A failure
+that moves between runs is the tell for environment rather than logic — and `git stash` settled it
+cheaply: the hang reproduced on **clean `main` with the branch stashed**, so it was never a
+regression from this work. max confirmed the connection had dropped. It recovered on its own and
+the suite then ran in 13.5s. Worth keeping: a named failing test is a real defect until shown
+otherwise, but stashing is the fast way to prove whose defect it is.
+
+**Verified:** unit 471/471 (49 files), integration 273/273 (18 files) on real Postgres 16.12,
+evals critical 11/11 + advisory 4/4 + adversarial 29/29 with **no fixture touched**,
+typecheck/lint/`next build` clean.
+
+**Owed:** the `stand_data_flags` admin surface (the 3 seeded flags are visible only by SQL, so a
+VIGA operator cannot resolve them), max's decision on the 3 address-less stands, and — once the
+attestation lands — evals against the real model plus the cost/rate-limit check.
+
+---
+
+## 2026-07-28 — the deploy that never happened, and structure for the map
 
 B-012 verified in production, then the seed tranche: a reader bug hiding behind the seeder gap,
 migration 0005, and one model seam that replaced a regex the corpus disproved.
