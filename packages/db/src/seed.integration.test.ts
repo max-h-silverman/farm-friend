@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { seedStands, type SeedStandInput } from "./seed";
+import { seedOfferings, seedStands, type SeedStandInput } from "./seed";
 
 // B-002 — the seeder, proven against real constraints.
 //
@@ -205,5 +205,70 @@ describe("seeding VIGA's stands (B-002)", () => {
       from sales_locations l where l.name = 'Alpha Farm'
     `;
     expect(rows[0]!.revisions).toBe(0);
+  });
+
+  // F-024/F-036 — committing HUMAN-APPROVED offering tags. The model only ever proposed
+  // them; this loader is the "code commits what was approved" half, and it writes
+  // specialties, never inventory — the same structural separation the stand seeder proves.
+  describe("seeding approved offerings", () => {
+    it("commits approved tags for a known stand, in review order", async () => {
+      const result = await seedOfferings(client, [
+        { standName: "Alpha Farm", items: ["eggs", "bok choy", "cut flowers"] },
+      ]);
+      expect(result.inserted).toBe(3);
+      expect(result.unknownStands).toEqual([]);
+
+      const rows = await client`
+        select o.item, o.sort_order
+        from sales_location_offerings o
+        join sales_locations l on l.id = o.sales_location_id
+        where l.name = 'Alpha Farm'
+        order by o.sort_order
+      `;
+      expect(rows.map((row) => row.item)).toEqual(["eggs", "bok choy", "cut flowers"]);
+      expect(rows.map((row) => row.sort_order)).toEqual([0, 1, 2]);
+    });
+
+    it("is idempotent and never rewrites an existing tag set", async () => {
+      const result = await seedOfferings(client, [
+        { standName: "Alpha Farm", items: ["eggs", "raspberries"] },
+      ]);
+      // "eggs" already exists and is left alone; only the genuinely new tag lands.
+      expect(result.inserted).toBe(1);
+      expect(result.skipped).toBe(1);
+
+      const rows = await client`
+        select count(*)::integer as count
+        from sales_location_offerings o
+        join sales_locations l on l.id = o.sales_location_id
+        where l.name = 'Alpha Farm'
+      `;
+      expect(rows[0]!.count).toBe(4);
+    });
+
+    it("reports an unknown stand rather than silently dropping or inventing it", async () => {
+      // The 3 address-refused stands exist in the CSV but not the database; an approved
+      // file naming one must surface that, while known stands still commit.
+      const result = await seedOfferings(client, [
+        { standName: "No Such Stand", items: ["eggs"] },
+        { standName: "Beta Farm", items: ["lamb"] },
+      ]);
+      expect(result.unknownStands).toEqual(["No Such Stand"]);
+      expect(result.inserted).toBe(1);
+
+      const beta = await client`
+        select o.item from sales_location_offerings o
+        join sales_locations l on l.id = o.sales_location_id
+        where l.name = 'Beta Farm'
+      `;
+      expect(beta.map((row) => row.item)).toEqual(["lamb"]);
+    });
+
+    it("writes NO inventory — offerings are specialties, never a confirmation", async () => {
+      const revisions = await client`select count(*)::integer as count from inventory_revisions`;
+      expect(revisions[0]!.count).toBe(0);
+      const entries = await client`select count(*)::integer as count from inventory_entries`;
+      expect(entries[0]!.count).toBe(0);
+    });
   });
 });
