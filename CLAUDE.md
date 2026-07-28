@@ -586,11 +586,13 @@ inventory.
 critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); `npm run evals:live`
 containment **4/4** and quality **6/6** on Mistral Small 24B; typecheck + lint pass; `next build`
 clean. Migration **0005** proven from an empty database by the integration run.
-**`npm run typecheck` does NOT cover `apps/web`** — the root `tsconfig.json` references only the
-four packages, so a green root typecheck says nothing about the web workspace. Running
-`npx tsc -p apps/web/tsconfig.json --noEmit` directly reports **54 errors**, all in web *test* files
-(postgres transaction-stub typing), measured identical before and after GL-002. That is GL-005's
-open work; until it lands, "typecheck passes" is a claim about four packages, not the repository.
+**`npm run typecheck` NOW COVERS `apps/web` (GL-005).** It is `typecheck:packages && typecheck:web`
+— two halves, because `apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference
+it. The 57 web errors it had never seen are fixed at **0**, none suppressed. Seventeen were a latent
+**production** defect: `ReturnType<typeof postgres>` resolves the wrong overload against an
+unresolved generic and collapses the type map to `never`, so `sql`…${id}`` failed to typecheck while
+working at runtime. `Sql`/`Tx` now live once in `packages/db/src/sql.ts`. Proven by sabotage: a
+`TS2322` in a web file exits **1** under the root typecheck and **0** under the old bare `tsc -b`.
 Newest session-log entry: three defects the green suites could not see, and production was running
 the stub.
 

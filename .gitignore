@@ -12,3 +12,6 @@ coverage/
 ios/
 android/
 .vercel
+
+# Agent worktrees — scratch checkouts, never part of the repository.
+.claude/worktrees/

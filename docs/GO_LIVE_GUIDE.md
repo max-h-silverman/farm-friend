@@ -292,6 +292,41 @@ Relevant code:
 
 ### GL-005 — Make the typecheck cover what its name claims
 
+**Completed:** 2026-07-28 — `72bdac8`. **57 web errors → 0**, none suppressed.
+
+- **Wiring:** root `typecheck` is now `typecheck:packages && typecheck:web`. Two halves rather than
+  one project graph because `apps/web/tsconfig.json` sets `composite: false` — Next owns that file,
+  and `tsc -b` can only reference composite projects, so making web composite means fighting the
+  framework's generated config on every upgrade.
+- **The 17 TS2769 errors were a latent PRODUCTION defect, not test scaffolding.**
+  `type Sql = ReturnType<typeof postgres>` picks the *last* of two overloads and evaluates its
+  conditional against the **unresolved** generic, collapsing the type map to `never` — so the tagged
+  template accepted **no parameters at all**. `sql`select ${id}`` failed to typecheck while working
+  perfectly at runtime. That alias was redeclared in four modules; it now lives once in
+  `packages/db/src/sql.ts`, alongside `Tx`, which had separately drifted to a contravariantly
+  incompatible type map (`unknown` vs `never`).
+- **The 27 `ProcessEnv` errors were fixed by narrowing the production signature, not the test.**
+  `resolveConfig`/`createAppContext` now take `Record<string, string | undefined>` — which is all
+  they ever read, and which `resolveSmsConfig` in `packages/sms` already used, so this made two
+  conventions agree rather than adding a third. Every production caller uses the `process.env`
+  default and is unchanged.
+- **Nothing suppressed:** zero `@ts-expect-error`, `any`, `exclude` globs, or `skipLibCheck`
+  widening added. The 18 pre-existing `@ts-expect-error`s are all safety-boundary type tests
+  asserting that a bypass *fails*; none are in `apps/web`.
+- **Sabotage, run by the main agent by hand on a file the subagent never saw** (GL-004's callback
+  route, merged after this branch was cut): a deliberate `TS2322` makes the root typecheck exit
+  **1**, while the old bare `tsc -b` exits **0** on the identical error. That contrast is the proof
+  the previous check was blind, not merely incomplete.
+- `packages/core/src/typecheck-coverage.test.ts` fails if a future workspace lands in neither half —
+  aimed at the *next* instance of this defect.
+- **Verified after merging with GL-004:** `npm test` **493/493 across 51 files** ·
+  `npm run test:integration` **311/311 across 19 files** · lint · root typecheck exit 0 ·
+  `next build` clean, still its own layer.
+- **A subagent report that did not survive checking:** it reported that `npm run lint` exits 0 while
+  printing errors, and proposed a new item. It does not — a deliberate unused import produces
+  `✖ 1 problem` and **exit 1**. The likely cause is reading a piped exit status rather than the
+  command's. No item filed.
+
 **Confirmed defect**
 
 The root `npm run typecheck` runs `tsc -b`, but the root `tsconfig.json` references only
