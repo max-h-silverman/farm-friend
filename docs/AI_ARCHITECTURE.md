@@ -117,9 +117,9 @@ One narrow task interface, with:
   acquire context outside that projection.
 
 The approved launch projections are listed below. A projection is **built only when its seam has
-a real consumer** — the zen-desk rule. Today that is inventory extraction
-(`projectInventoryExtraction`); the rest are approved designs their owning items will construct,
-and there is deliberately no generic assembler standing in for them in the meantime.
+a real consumer** — the zen-desk rule. Five are built; message classification remains unbuilt and
+unprojected because it has no caller, and there is deliberately no generic assembler standing in
+for it in the meantime.
 
 | Seam | Permitted model input | Built? |
 |---|---|---|
@@ -127,7 +127,23 @@ and there is deliberately no generic assembler standing in for them in the meant
 | stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location | **yes** |
 | inquiry interpretation | the current customer SMS request | **yes** |
 | grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts | **yes** |
+| offering extraction | one stand's public "generally offers" description, alone | **yes** |
 | message classification, if retained | the current sender's message only | no — F-012 |
+
+**Offering extraction is the one seam that does not run on a message** (F-035/F-036). It reads
+VIGA's published stand prose at ingest time and proposes the item tags a stand *usually* carries;
+the seeder records them for review and code commits what a human approved. It exists because a
+deterministic parser could not tell an offering from a farming-practice clause — measured against
+the real 31-stand corpus, it produced customer-facing tags like "rotational grazing for chickens"
+and "but following organic practices".
+
+Its projection carries **one description and nothing else** — no farm name, no location id, no
+contact — so a model cannot attach one farm's produce to another's listing. Proposed tags land in
+`sales_location_offerings` (what a stand usually has) and **never** in `inventory_revisions`, which
+requires a farmer authorization and a farm approval this path structurally cannot produce. It is
+reachable from a build-time script and, if a farmer web form is built, from a farmer editing their
+**own** listing; it is never reachable from anonymous public discovery, which stays model-free
+(F-019, policed by `apps/web/lib/public-surface-model-free.test.ts`).
 
 The two inquiry projections are deliberately **disjoint**, and this is load-bearing rather than
 incidental. Interpretation receives the customer's question and **no retrieved facts**: it decides
