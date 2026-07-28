@@ -501,15 +501,20 @@ place (CLAUDE.md, "Simplicity and elegance").
   a fallback — a typo must never silently run the test double against real farmers. DeepInfra
   additionally needs `DEEPINFRA_API_KEY` and `DEEPINFRA_MODEL`.
 
-  **DeepInfra is decided but NOT yet attested (F-024).** `DEEPINFRA_DATA_HANDLING` in
-  `apps/web/lib/composition.ts` is `null`, so selecting `LLM_PROVIDER=deepinfra` **throws** a
-  `ConfigurationError` naming the four terms. To unblock, read DeepInfra's data-processing terms —
-  they are the *inference host's*, not the model author's licence — and replace `null` with what
-  they actually state, citing them in the PR. **Never infer these from marketing copy**; the field
-  is a record that a human read the contract, not a switch that changes vendor behaviour. Two tests
-  anchored to the `null` literal fail if it is filled with guessed values. After attesting, run
-  `npm run evals` against the real model: critical and adversarial must stay at 100%, and a failing
-  adversarial fixture **stops and reports** rather than being edited to go green.
+  **DeepInfra is attested (F-024, reviewed 2026-07-28, directed by max).** `DEEPINFRA_DATA_HANDLING`
+  in `apps/web/lib/composition.ts` records the terms transcribed verbatim from
+  <https://docs.deepinfra.com/account/data-privacy>: no training on API data, stateless inference
+  (inputs in memory only, outputs deleted once returned), content logging off by default (metadata
+  only), zero stated retention — with the known caveat, recorded at the binding, that DeepInfra
+  reserves an unbounded discretionary right to log "a small portion of requests" for
+  debugging/security. The terms are the *inference host's*, not the model author's licence.
+  **The attestation's carve-out is enforced in code**: DeepInfra's no-training clause excludes
+  Google and Anthropic models (routed to those vendors' endpoints), so an `anthropic/` or `google/`
+  `DEEPINFRA_MODEL` is a startup `ConfigurationError`. Source tests pin the four values *and their
+  citation* — changing either alone fails. If DeepInfra's terms change, re-read them and move the
+  binding, citation date, and pinned test together. After attesting, run `npm run evals` against
+  the real model: critical and adversarial must stay at 100%, and a failing adversarial fixture
+  **stops and reports** rather than being edited to go green.
 - **SMS:** implement the transport (send + **signature verification**); the redaction guard
   continues to normalize avoidable Unicode and block raw phones. After the provider accepts a send,
   record encoding, character count, and estimated billable segments — **by recipient hash, never
