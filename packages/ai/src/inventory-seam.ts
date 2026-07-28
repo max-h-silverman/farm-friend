@@ -30,7 +30,9 @@ const itemFields = {
 // or `recipientHash` instead of refusing the output that tried to carry it. Stripping
 // would still be safe — code owns publication regardless — but "the model attempted a
 // consequence" must be a visible refusal, not an invisible cleanup.
-const interpretationSchema = z.discriminatedUnion("kind", [
+// Exported for output-contracts.test.ts, which proves the documented example shapes in
+// projections.ts validate against this exact schema. Not part of the seam's runtime API.
+export const interpretationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("edits"),

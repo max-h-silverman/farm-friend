@@ -22,7 +22,9 @@ import {
 
 // Strict everywhere: a smuggled `answerText` or `recipient` must be a visible refusal, not a
 // silently stripped field. Ranking is validated again in core against what code can execute.
-const intentSchema = z.discriminatedUnion("kind", [
+// The three schemas are exported for output-contracts.test.ts, which proves the documented
+// example shapes in projections.ts validate against them. Not part of the seams' runtime API.
+export const intentSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("lookup"),
@@ -45,14 +47,14 @@ const intentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("ambiguous") }).strict(),
 ]);
 
-const selectionSchema = z.discriminatedUnion("kind", [
+export const selectionSchema = z.discriminatedUnion("kind", [
   // Identifiers only. There is deliberately no field here that could carry prose.
   z.object({ kind: z.literal("selection"), factIds: z.array(z.string()) }).strict(),
   // Likewise a bare signal (F-018) — code renders the question.
   z.object({ kind: z.literal("clarification") }).strict(),
 ]);
 
-const stockOutSchema = z.discriminatedUnion("kind", [
+export const stockOutSchema = z.discriminatedUnion("kind", [
   // A listed item, chosen by opaque ID from the code-bound location's entries.
   z.object({ kind: z.literal("listed"), entryId: z.string().min(1) }).strict(),
   // Or normalized text for something the stand does not currently list.

@@ -20,7 +20,8 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "db:migrate": "tsx packages/db/scripts/migrate.ts",
     "db:seed": "tsx packages/db/scripts/seed-stands.ts",
-    "evals": "node --import tsx evals/run.ts"
+    "evals": "node --import tsx evals/run.ts",
+    "evals:live": "node --env-file=.env --import tsx evals/live.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
