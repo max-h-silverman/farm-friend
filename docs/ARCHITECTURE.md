@@ -276,6 +276,24 @@ separately verified outbound idempotency facility. `message.sent` and `message.f
 advance delivery state monotonically by provider occurrence time; late events never regress a
 terminal result.
 
+**An abandoned authorization is quarantined, never resent or silently dropped** (GL-003). The claim
+commits `dispatching` before the body read, redaction, recipient resolution, provider call, and
+result recording — all of which can throw, and the process can die outright. Two defenses of
+different kinds, because neither substitutes for the other:
+
+- **Per-row isolation in the pass.** A throw is caught around each row, so one poisoned message
+  cannot abort the pass and block every other sender's reply. The row is left `dispatching` rather
+  than guessed at, and the pass counts it as `failed`.
+- **A durable lease.** `recoverAbandonedDispatches` resolves rows stranded past `DISPATCH_LEASE_MS`
+  (10 minutes) into **`ambiguous`** — the state that honestly says "we do not know whether the
+  provider accepted it." It runs first on each outbound pass, claims with `for update skip locked`
+  so concurrent passes partition rather than double-resolve, and resolves the open attempt with
+  `error_code = 'dispatch_lease_expired'` so it stops reading as in flight.
+
+A killed process runs no catch block, and a lease cannot isolate a row mid-pass. Recovery
+deliberately never returns work to `queued`: that would resend a message a real person may already
+be holding.
+
 ## Provider seams
 
 Narrow interfaces so I/O is swappable and tests are hermetic:

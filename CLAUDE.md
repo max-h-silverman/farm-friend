@@ -304,6 +304,20 @@ model on the compliance path" is structural, proven by a seam that throws. The w
 awaits them (B-004, fixed by B-009). The public map UI is built (F-017) and is model-free in its
 **module graph**, not just its handler.
 
+**An abandoned dispatch claim is quarantined, never resent (GL-003).** `authorizeDispatch` commits
+`dispatching` before the body read, redaction, recipient resolution, provider call, and result
+recording — and `dispatching` was written in **one** place and read by **nothing**, while
+`runOutboundPass` had no error handling at all. So a throw both stranded that row forever *and*
+aborted every other sender's reply in the same pass. Two defenses, neither substituting for the
+other: a per-row `catch` (a lease cannot isolate a row mid-pass) and `recoverAbandonedDispatches`
+with `DISPATCH_LEASE_MS` = 10 min (a killed process runs no catch block). Recovery resolves to
+**`ambiguous`** — the state that already means "we do not know whether the provider accepted it" —
+so **no migration was needed**, and never to `queued`, which would resend an SMS a real person may
+already hold. Claims with `for update skip locked`; the open attempt gets
+`error_code = 'dispatch_lease_expired'`. Sabotage-verified three ways: requeueing fails 3 tests,
+unwiring the pass call fails the end-to-end test, removing the deadline fails the two "leave a slow
+call alone" tests. **No operator view of quarantined work yet** — deliberately left to GL-016/GL-018.
+
 **Conversation staleness belongs to the ROUTER, and covers only what mutates conversation state
 (GL-002).** `runInboundPass` used to reject every stale event before parsing it, which silently
 discarded a `STOP` delayed behind a newer message — the sender opted out and Farm Friend recorded
@@ -553,7 +567,7 @@ idempotent on (location, item), never rewrites an existing tag, reports unknown 
 inventory.
 
 **Verified July 28, 2026 (`main`, this work merged):** `npm test` **479/479 across 50 files**;
-`npm run test:integration` **287/287 across 18 files** on real Postgres 16.12 (285 + GL-002's two);
+`npm run test:integration` **297/297 across 19 files** on real Postgres 16.12 (285 baseline + GL-002 and GL-003);
 `npm run evals`
 critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); `npm run evals:live`
 containment **4/4** and quality **6/6** on Mistral Small 24B; typecheck + lint pass; `next build`

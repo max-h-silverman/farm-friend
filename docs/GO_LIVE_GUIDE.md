@@ -158,6 +158,40 @@ Relevant code:
 
 ### GL-003 — Recover abandoned outbound dispatch claims
 
+**Completed:** 2026-07-28 — reconfirmed against the code, fixed test-first, sabotage-verified three
+ways. The defect was real: `dispatching` was written in exactly one place and read by nothing, and
+`runOutboundPass` had no error handling at all, so a throw aborted the entire pass.
+
+- **Durable lease.** `DISPATCH_LEASE_MS` (10 minutes) plus `recoverAbandonedDispatches`, which runs
+  first on every outbound pass. Deliberately generous: expiring a lease on a merely slow provider
+  call would quarantine work about to succeed, and a delayed reply is a smaller harm than a
+  duplicate SMS to a real person.
+- **Quarantined as `ambiguous`, never `queued`.** We cannot know whether the provider accepted the
+  message before we lost the thread, and that is precisely what `ambiguous` already means here — so
+  this reuses the existing state and needs **no migration**. Recovered work is never re-authorized.
+- **Per-row isolation.** A throw is now caught around each row, so one poisoned message cannot block
+  every other sender's reply. The row is left `dispatching` rather than guessed at; the lease
+  resolves it. A killed process runs no catch block and a lease cannot isolate a row mid-pass, which
+  is why both exist.
+- **Tests** — 5 in `packages/db/src/workflow.integration.test.ts` (fresh claim untouched, expired
+  claim quarantined with attempt resolved, never re-authorized, terminal work untouched, exactly
+  once under 4 concurrent passes over 8 distinct rows) and 5 in the new
+  `apps/web/lib/dispatch-recovery.integration.test.ts` (throw at the transport and at recipient
+  resolution, one poisoned row does not abort the pass, end-to-end recovery through the real
+  `runOutboundPass`, and a merely-slow claim left alone).
+- **Sabotage.** Requeueing instead of quarantining fails 3 tests; removing the recovery call from
+  the pass fails the end-to-end wiring test; removing the deadline fails the two "leave it alone"
+  tests. Each guard is independently load-bearing.
+- **Verified:** `npm test` 479/479 · `npm run test:integration` **297/297 across 19 files** · lint ·
+  root typecheck · `next build`.
+
+**Partial — one required outcome is deliberately deferred.** "Surface stuck/ambiguous work in
+operator diagnostics" is only half done: `runOutboundPass` now returns `failed` and `recovered`
+counts, and the cron route already serializes its whole result, so the counts reach the scheduled
+pass response. There is **no operator-facing view** of quarantined work — that belongs with GL-016's
+failure diagnostics and GL-018's readiness endpoint rather than a third bespoke surface here. The
+durable state is correct and queryable; what is missing is somewhere to read it.
+
 **Confirmed defect**
 
 `authorizeDispatch` commits `outbox_work.state = 'dispatching'` and an `authorized` attempt before
@@ -414,6 +448,12 @@ permanently failing event can retry forever without an operator-visible reason.
 - Define a bounded poison-work policy and an operator recovery action.
 - Preserve durable retry for transient failure without silently losing the event.
 
+**Inherited from GL-003:** the outbound pass already returns `failed` and `recovered` counts, and
+quarantined dispatches are durable and queryable (`outbox_work.state = 'ambiguous'` with
+`outbox_dispatch_attempts.error_code = 'dispatch_lease_expired'`). What GL-003 deliberately did not
+build is anywhere for an operator to *read* that — it belongs here and in GL-018, not in a third
+bespoke surface.
+
 ### GL-017 — Prove scheduler capacity and choose one production scheduler
 
 **Confirmed risk**
@@ -446,6 +486,9 @@ or worker state.
   message content.
 - Alert on abandoned dispatches, poison inbound work, growing pending queues, repeated provider
   failures, and retention not running.
+
+**Inherited from GL-003:** abandoned dispatches are already quarantined durably and identifiable by
+`outbox_dispatch_attempts.error_code = 'dispatch_lease_expired'`. This item owns exposing them.
 
 ### GL-019 — Fail closed on production model configuration
 
