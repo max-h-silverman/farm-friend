@@ -455,6 +455,14 @@ that code commits after review. **B-013:** `listPublicStands` now LEFT-joins inv
 nobody has confirmed is visible with `asOf`/`recencyLabel`/`isStale` **absent together** — the map
 cannot render "updated just now" for a confirmation that never happened.
 
+**Deployed and verified in production 2026-07-28** (`d49394c`, PR #47). Migration **0005** applied
+(6 total; both tables, 4 enums, 12 columns confirmed by query). **B-013 proven by effect**: a probe
+stand with zero inventory was returned by `/api/public/stands` with `items: []` and **no `updated`
+or `stale` keys** — invisible under the old inner join. Probe removed; the endpoint reads
+`{"stands":[]}` because no stands are seeded yet. A scheduled run returned 200 against the new
+build. **Deploy immediately after every merge** — this session opened by finding three merged fixes
+(B-010, B-011, B-012) that production had never received.
+
 **Verified July 28, 2026 (`main`, F-035 + B-013 merged):** `npm test` **432/432 across 45 files**;
 `npm run test:integration` **263/263 across 17 files** on real Postgres 16.12; `npm run evals`
 critical **11/11**, advisory 4/4, adversarial **29/29**; typecheck + lint pass; `next build` clean.

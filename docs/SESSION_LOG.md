@@ -129,6 +129,22 @@ approval status of each is explicit: **seed-time** (built today), **query-time o
 their own listing is the same act as texting an update, just a different transport; needs farmer
 web auth, which does not exist, and must route through the same confirmation gate).
 
+### Released and verified in production
+
+Merged as `d49394c` (PR #47). Migration **0005** applied to production and verified by effect —
+6 migrations, both new tables, all 4 enums, all 12 new columns. The app deployed with
+`npx vercel --prod` (first invocation errored transiently on a concurrent build; the retry came
+back `READY`), crons block stripped uncommitted and restored immediately.
+
+**B-013 verified by effect in production, not inferred.** A probe stand with zero inventory was
+inserted directly and `GET /api/public/stands` returned it with `items: []` and **no `updated` or
+`stale` keys at all** — against the old inner join it would have been invisible. Probe deleted; the
+endpoint is back to `{"stands":[]}` because the database has no stands yet, which is the seeder's
+job. A scheduled worker run returned 200 against the deployed build.
+
+Deploying immediately after the merge was deliberate: this session opened by finding three merged
+fixes that had never been deployed, and the lesson only counts if it changes what gets done.
+
 ### Owed
 
 The seam is built but **cannot run**: F-024's provider is still the stub. Seeding the 31 stands
