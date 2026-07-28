@@ -266,6 +266,131 @@ export async function readFlaggedThread(
   };
 }
 
+export interface StandDataFlagRow {
+  flagId: string;
+  salesLocationId: string;
+  standName: string;
+  reason: string;
+  /** The export text that needs a human decision, verbatim. */
+  sourceText: string;
+  resolutionNote: string | null;
+  resolvedByEmail: string | null;
+  resolvedAt: Date | null;
+  createdAt: Date;
+}
+
+/**
+ * The stand-data flag queue (F-037): the seeder's unresolved questions about VIGA's export —
+ * contradictory hours, an unresolvable season, a possible closure. Until this reader the
+ * seeded flags were visible only by SQL. Oldest first, like every queue here.
+ *
+ * Nothing in these rows is private: the source text is VIGA's own published description,
+ * already contact-stripped at seed time, and the resolver is named by email like every other
+ * disposition.
+ */
+export async function listStandDataFlags(
+  db: Db,
+  input: { status: ReviewQueueFilter },
+): Promise<StandDataFlagRow[]> {
+  const openOnly = input.status === "open";
+  const rows = await driver(db)`
+    select
+      flag.id, flag.sales_location_id, flag.reason, flag.source_text,
+      flag.resolution_note, flag.resolved_at, flag.created_at,
+      location.name as stand_name,
+      administrator.email as resolved_by_email
+    from stand_data_flags as flag
+    join sales_locations as location on location.id = flag.sales_location_id
+    left join administrators as administrator
+      on administrator.id = flag.resolved_by_administrator_id
+    where ${openOnly ? driver(db)`flag.resolved_at is null` : driver(db)`true`}
+    order by flag.created_at asc, flag.id asc
+  `;
+
+  return rows.map((row) => ({
+    flagId: row.id as string,
+    salesLocationId: row.sales_location_id as string,
+    standName: row.stand_name as string,
+    reason: row.reason as string,
+    sourceText: row.source_text as string,
+    resolutionNote: (row.resolution_note as string | null) ?? null,
+    resolvedByEmail: (row.resolved_by_email as string | null) ?? null,
+    resolvedAt:
+      row.resolved_at === null ? null : new Date(row.resolved_at as string),
+    createdAt: new Date(row.created_at as string),
+  }));
+}
+
+export interface ResolveStandDataFlagInput {
+  flagId: string;
+  administratorId: string;
+  /** What the operator decided, in their own words. Required: a bare "resolved" with no
+   *  record of the decision would make the queue a dismiss button. */
+  resolutionNote: string;
+  occurredAt: Date;
+}
+
+export type ResolveStandDataFlagResult =
+  | { status: "resolved" }
+  | { status: "already_resolved" }
+  | { status: "unknown_flag" }
+  | { status: "not_an_administrator" };
+
+/**
+ * Resolve a stand-data flag, recording who decided what and when.
+ *
+ * Resolution records a DECISION about the data question; it deliberately cannot act on it.
+ * There is no write path from here to `sales_locations`, `sales_location_offerings`, or
+ * inventory — the temptation is "fix the hours while I'm here", and an operator edit to a
+ * listing is a different, not-yet-built capability with its own authority story. The
+ * integration suite pins this with a byte-equality snapshot of the whole listing.
+ *
+ * Resolution happens EXACTLY ONCE, under the same lock discipline as `disposeFlag`: the row
+ * is locked, `resolved_at` re-read under that lock, and a second operator is refused rather
+ * than silently overwriting the first operator's recorded decision.
+ */
+export async function resolveStandDataFlag(
+  db: Db,
+  input: ResolveStandDataFlagInput,
+): Promise<ResolveStandDataFlagResult> {
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators
+      where id = ${input.administratorId} and revoked_at is null
+      for update
+    `;
+    if (administrator.length === 0) {
+      return { status: "not_an_administrator" as const };
+    }
+
+    const existing = await tx`
+      select resolved_at from stand_data_flags where id = ${input.flagId} for update
+    `;
+    const flag = existing[0];
+    if (flag === undefined) return { status: "unknown_flag" as const };
+    if (flag.resolved_at !== null) return { status: "already_resolved" as const };
+
+    await tx`
+      update stand_data_flags
+      set resolution_note = ${input.resolutionNote},
+          resolved_by_administrator_id = ${input.administratorId},
+          resolved_at = ${input.occurredAt.toISOString()}
+      where id = ${input.flagId}
+    `;
+
+    await tx`
+      insert into audit_events (action, actor_administrator_id, subject_type, subject_id,
+        occurred_at)
+      values (
+        'stand_data_flag_resolved', ${input.administratorId}, 'stand_data_flag',
+        ${input.flagId}, ${input.occurredAt.toISOString()}
+      )
+    `;
+
+    return { status: "resolved" as const };
+  });
+}
+
 export interface StockOutReportRow {
   reportId: string;
   farmId: string;

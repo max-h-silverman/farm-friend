@@ -8,9 +8,11 @@ import {
   createDb,
   disposeFlag,
   listFlagsForReview,
+  listStandDataFlags,
   listStockOutReports,
   purgeExpiredBodies,
   readFlaggedThread,
+  resolveStandDataFlag,
   triageStockOutReport,
   type Db,
 } from "./index";
@@ -1074,6 +1076,202 @@ describe("operator review queues (integration)", () => {
         select is_current from inventory_revisions where id = ${revisions[0]?.id as string}
       `;
       expect(current[0]?.is_current).toBe(true);
+    });
+  });
+
+  // ── Stand data flags (F-037) ──────────────────────────────────────────────────
+  //
+  // The seeder raises these when VIGA's export needs a human decision (contradictory hours,
+  // an unresolvable season, a possible closure). Until this surface, the 3 real flags were
+  // visible only by SQL. Same disciplines as the queues above: authority re-read inside the
+  // writing transaction, the audit event in the same commit, disposal exactly once under a
+  // row lock, and no path from resolution to anything a customer sees.
+
+  describe("stand data flags (F-037)", () => {
+    /** A flag the way the seeder writes one. */
+    async function openStandDataFlag(input?: {
+      reason?: string;
+      sourceText?: string;
+    }): Promise<string> {
+      const rows = await client()`
+        insert into stand_data_flags (sales_location_id, reason, source_text)
+        values (
+          ${id("location")},
+          ${input?.reason ?? "contradictory_hours"},
+          ${input?.sourceText ?? "Open: 9-5 | Open: dawn to dusk"}
+        )
+        returning id
+      `;
+      return rows[0]?.id as string;
+    }
+
+    it("lists an open flag with its stand, reason, and the text needing a decision", async () => {
+      const flagId = await openStandDataFlag();
+
+      const open = await listStandDataFlags(database(), { status: "open" });
+      expect(open).toHaveLength(1);
+      expect(open[0]).toMatchObject({
+        flagId,
+        standName: "Provo Farms Stand",
+        reason: "contradictory_hours",
+        sourceText: "Open: 9-5 | Open: dawn to dusk",
+        resolutionNote: null,
+        resolvedByEmail: null,
+        resolvedAt: null,
+      });
+    });
+
+    it("resolves exactly once, with the note and the audit event in the same commit", async () => {
+      const flagId = await openStandDataFlag();
+
+      const first = await resolveStandDataFlag(database(), {
+        flagId,
+        administratorId: id("administrator"),
+        resolutionNote: "confirmed with the farmer: dawn to dusk",
+        occurredAt: at(2 * HOUR),
+      });
+      const second = await resolveStandDataFlag(database(), {
+        flagId,
+        administratorId: id("administrator"),
+        resolutionNote: "a second operator's decision",
+        occurredAt: at(3 * HOUR),
+      });
+
+      expect(first.status).toBe("resolved");
+      // The second decision is REFUSED, not silently overwritten: the first operator's
+      // recorded decision is an audit fact.
+      expect(second.status).toBe("already_resolved");
+
+      const rows = await client()`
+        select resolution_note, resolved_by_administrator_id, resolved_at
+        from stand_data_flags where id = ${flagId}
+      `;
+      expect(rows[0]?.resolution_note).toBe("confirmed with the farmer: dawn to dusk");
+      expect(rows[0]?.resolved_by_administrator_id).toBe(id("administrator"));
+      expect(rows[0]?.resolved_at).not.toBeNull();
+
+      const audits = await client()`
+        select action, actor_administrator_id from audit_events
+        where subject_id = ${flagId}
+      `;
+      expect(audits).toHaveLength(1);
+      expect(audits[0]?.action).toBe("stand_data_flag_resolved");
+      expect(audits[0]?.actor_administrator_id).toBe(id("administrator"));
+    });
+
+    it("a resolved flag leaves the open queue and stays visible under ?status=all", async () => {
+      const flagId = await openStandDataFlag();
+      await resolveStandDataFlag(database(), {
+        flagId,
+        administratorId: id("administrator"),
+        resolutionNote: "done",
+        occurredAt: at(2 * HOUR),
+      });
+
+      expect(await listStandDataFlags(database(), { status: "open" })).toHaveLength(0);
+      const all = await listStandDataFlags(database(), { status: "all" });
+      expect(all).toHaveLength(1);
+      expect(all[0]?.resolvedByEmail).toBe("review-admin@viga.example");
+    });
+
+    it("refuses an unknown flag and a revoked administrator", async () => {
+      const unknown = await resolveStandDataFlag(database(), {
+        flagId: randomUUID(),
+        administratorId: id("administrator"),
+        resolutionNote: "n/a",
+        occurredAt: at(2 * HOUR),
+      });
+      expect(unknown.status).toBe("unknown_flag");
+
+      const flagId = await openStandDataFlag();
+      await client()`
+        update administrators set revoked_at = ${at(HOUR)} where id = ${id("administrator")}
+      `;
+      const revoked = await resolveStandDataFlag(database(), {
+        flagId,
+        administratorId: id("administrator"),
+        resolutionNote: "should not land",
+        occurredAt: at(2 * HOUR),
+      });
+      expect(revoked.status).toBe("not_an_administrator");
+      const rows = await client()`
+        select resolved_at from stand_data_flags where id = ${flagId}
+      `;
+      expect(rows[0]?.resolved_at).toBeNull();
+    });
+
+    it("serializes concurrent resolutions so exactly one wins", async () => {
+      const flagId = await openStandDataFlag();
+
+      // Eight simultaneous claimants, for the same reason the flag-disposal race uses eight.
+      const attempts = await Promise.all(
+        Array.from({ length: 8 }, (_, index) =>
+          resolveStandDataFlag(database(), {
+            flagId,
+            administratorId: id("administrator"),
+            resolutionNote: `claimant-${index}`,
+            occurredAt: at(3 * HOUR),
+          }),
+        ),
+      );
+
+      expect(attempts.filter((a) => a.status === "resolved")).toHaveLength(1);
+      const audits = await client()`
+        select count(*)::integer as count from audit_events where subject_id = ${flagId}
+      `;
+      expect(audits[0]?.count).toBe(1);
+    });
+
+    it("leaves the LISTING byte-identical across resolution — availability included", async () => {
+      // The stand-data snapshot is wider than the published-inventory one above, because a
+      // stand-data flag is ABOUT the listing's availability columns: the temptation is
+      // "resolve the contradiction by fixing the hours while I'm here", and this pins that
+      // resolution records a decision without touching what any customer sees.
+      async function listingState(): Promise<string> {
+        const rows = await client()`
+          select
+            coalesce((
+              select json_agg(json_build_object(
+                'id', l.id, 'name', l.name, 'address', l.public_address,
+                'hours', l.hours_text, 'seasonKind', l.season_kind,
+                'openKind', l.open_hours_kind, 'from', l.open_from_minutes,
+                'until', l.open_until_minutes, 'cadence', l.stocking_cadence,
+                'days', l.stocking_days, 'public', l.is_public
+              ) order by l.id)
+              from sales_locations l
+            ), '[]'::json)::text as locations,
+            coalesce((
+              select json_agg(json_build_object(
+                'location', o.sales_location_id, 'item', o.item, 'sort', o.sort_order
+              ) order by o.sales_location_id, o.item)
+              from sales_location_offerings o
+            ), '[]'::json)::text as offerings,
+            coalesce((
+              select json_agg(json_build_object('id', r.id, 'current', r.is_current)
+                order by r.id)
+              from inventory_revisions r
+            ), '[]'::json)::text as revisions
+        `;
+        return JSON.stringify(rows[0]);
+      }
+
+      await client()`
+        insert into sales_location_offerings (sales_location_id, item, sort_order)
+        values (${id("location")}, 'bok choy', 0), (${id("location")}, 'eggs', 1)
+      `;
+      const flagId = await openStandDataFlag();
+
+      const before = await listingState();
+      expect(before).toContain("bok choy");
+
+      await resolveStandDataFlag(database(), {
+        flagId,
+        administratorId: id("administrator"),
+        resolutionNote: "hours confirmed; no listing change",
+        occurredAt: at(2 * HOUR),
+      });
+
+      expect(await listingState()).toBe(before);
     });
   });
 });
