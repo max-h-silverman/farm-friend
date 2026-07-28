@@ -25,35 +25,53 @@ describe("model provider selection (F-024)", () => {
     expect(config.model.provider).toBe("stub");
   });
 
-  it("selects deepinfra when LLM_PROVIDER names it", () => {
+  it("selects deepinfra when LLM_PROVIDER names it, under the attested terms", () => {
     // The knob F-024 requires to become real: `.env.example` advertised `LLM_PROVIDER` while
     // `resolveModelConfig` ignored it entirely, so the documented setting did nothing.
-    expect(() =>
-      resolveConfig({
-        ...baseEnv,
-        LLM_PROVIDER: "deepinfra",
-        DEEPINFRA_API_KEY: "key",
-        DEEPINFRA_MODEL: "some-model",
-      }),
-    ).toThrow(ConfigurationError);
+    const config = resolveConfig({
+      ...baseEnv,
+      LLM_PROVIDER: "deepinfra",
+      DEEPINFRA_API_KEY: "key",
+      DEEPINFRA_MODEL: "mistralai/Mistral-Small-24B-Instruct-2501",
+    });
+    expect(config.model.provider).toBe("deepinfra");
+    expect(config.model.deepinfra).toEqual({
+      apiKey: "key",
+      model: "mistralai/Mistral-Small-24B-Instruct-2501",
+    });
+    // The attested values, pinned. These are a transcription of DeepInfra's data-privacy
+    // documentation (reviewed 2026-07-28, cited at the attestation binding in
+    // composition.ts) — changing any of them means the terms were re-read, and this test
+    // plus the citation must move together.
+    expect(config.model.dataHandling).toEqual({
+      trainsOnData: false,
+      statefulStorage: false,
+      requestLoggingDisabled: true,
+      retentionDays: 0,
+    });
   });
 
-  it("REFUSES deepinfra while its data-handling terms are unattested", () => {
-    // The blocking TODO, enforced rather than commented. Until max reads DeepInfra's
-    // data-processing terms and fills the four values in, selecting it must fail closed.
-    let thrown: unknown;
-    try {
-      resolveConfig({
-        ...baseEnv,
-        LLM_PROVIDER: "deepinfra",
-        DEEPINFRA_API_KEY: "key",
-        DEEPINFRA_MODEL: "some-model",
-      });
-    } catch (error) {
-      thrown = error;
+  it("REFUSES a model DeepInfra routes to a third-party vendor", () => {
+    // The attestation's own carve-out, enforced. DeepInfra's terms state they do not train
+    // on API data "except when using Google or Anthropic models", where data is transferred
+    // to that vendor's endpoints under that vendor's policy. Those terms were NOT attested,
+    // so a DEEPINFRA_MODEL under either namespace must fail closed at startup — otherwise
+    // the version-controlled attestation is false for a reachable configuration.
+    for (const model of ["anthropic/claude-4-sonnet", "google/gemini-2.5-flash"]) {
+      let thrown: unknown;
+      try {
+        resolveConfig({
+          ...baseEnv,
+          LLM_PROVIDER: "deepinfra",
+          DEEPINFRA_API_KEY: "key",
+          DEEPINFRA_MODEL: model,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(ConfigurationError);
+      expect((thrown as Error).message).toMatch(/third[- ]party|routed/i);
     }
-    expect(thrown).toBeInstanceOf(ConfigurationError);
-    expect((thrown as Error).message).toMatch(/attest/i);
   });
 
   it("rejects an unknown provider name rather than falling back to the stub", () => {
@@ -71,32 +89,49 @@ describe("model provider selection (F-024)", () => {
   });
 });
 
-describe("the DeepInfra attestation is unfilled and marked (F-024)", () => {
+describe("the DeepInfra attestation is filled and CITED (F-024)", () => {
   // A SOURCE assertion, in the family of kick-survival.test.ts and cron-schedule.test.ts,
   // and for the same reason: the property belongs to a human process (someone reading a
-  // vendor contract), not to runtime behaviour. What it prevents is an agent — or a hurried
-  // human — quietly replacing `null` with plausible-looking values that no one verified.
+  // vendor contract), not to runtime behaviour. Before 2026-07-28 this block pinned the
+  // binding to `null` so no agent could fill it with plausible guesses. max read DeepInfra's
+  // data-processing terms and directed the fill (2026-07-28), so the pinned property is now
+  // the inverse: the attestation must carry its CITATION — the reviewed source and date —
+  // beside the values, so the record of who read what can never drift away from the numbers
+  // it justifies.
   //
-  // Anchored to the construct it claims to prove (the null literal in the DeepInfra
-  // attestation binding), never to nearby vocabulary. A loose /TODO/ over the whole file
-  // would be satisfied by any unrelated comment, which is exactly the failure recorded twice
-  // in CLAUDE.md's standing rules.
-  const source = readFileSync(join(__dirname, "composition.ts"), "utf8");
+  // The attestation lives beside the adapter it gates (packages/ai/src/deepinfra.ts), so
+  // scripts and evals that construct the provider outside the composition root approve the
+  // same declaration. Anchored to the construct it claims to prove (the attestation binding
+  // and the citation lines in its doc comment), never to nearby vocabulary.
+  const source = readFileSync(
+    join(__dirname, "../../../packages/ai/src/deepinfra.ts"),
+    "utf8",
+  );
 
-  it("declares the DeepInfra terms as null, not as guessed values", () => {
-    expect(source).toMatch(
-      /DEEPINFRA_DATA_HANDLING:\s*ProviderDataHandling\s*\|\s*null\s*=\s*null\s*;/,
-    );
+  it("declares the four attested values, no longer null", () => {
+    const binding =
+      /const DEEPINFRA_ATTESTED_DATA_HANDLING: ProviderDataHandling = \{([\s\S]*?)\};/.exec(
+        source,
+      );
+    expect(binding).not.toBeNull();
+    const body = binding![1]!;
+    expect(body).toMatch(/trainsOnData:\s*false/);
+    expect(body).toMatch(/statefulStorage:\s*false/);
+    expect(body).toMatch(/requestLoggingDisabled:\s*true/);
+    expect(body).toMatch(/retentionDays:\s*0/);
   });
 
-  it("names all four gate terms in the TODO so the reviewer knows what to fill", () => {
-    for (const term of [
-      "trainsOnData",
-      "statefulStorage",
-      "requestLoggingDisabled",
-      "retentionDays",
-    ]) {
-      expect(source).toContain(term);
-    }
+  it("cites the reviewed terms and the review date beside the values", () => {
+    // The citation is the attestation's evidence. The URL and date must appear in the
+    // comment block immediately preceding the binding, not merely somewhere in the file.
+    const withComment =
+      /\/\*\*(?:(?!\*\/)[\s\S])*\*\/\s*export const DEEPINFRA_ATTESTED_DATA_HANDLING/.exec(
+        source,
+      );
+    expect(withComment).not.toBeNull();
+    const comment = withComment![0]!;
+    expect(comment).toContain("docs.deepinfra.com/account/data-privacy");
+    expect(comment).toContain("deepinfra.com/privacy");
+    expect(comment).toContain("2026-07-28");
   });
 });

@@ -91,6 +91,24 @@ describe("extractOfferings", () => {
     expect(result).toEqual({ ok: true, items: ["eggs"] });
   });
 
+  it("accepts a large legitimate list — the corpus has a 26-item stand", async () => {
+    // Venison Valley Farm & Creamery genuinely offers ~26 things (a creamery plus a produce
+    // partner), and the original 24-item cap refused the whole real extraction. The cap
+    // exists to stop degenerate hundred-tag outputs, not real stands; the corpus set its
+    // floor. Sixty items must still refuse.
+    const twentySix = Array.from({ length: 26 }, (_, i) => `item ${i}`);
+    const accepted = await extractOfferings(new Scripted(JSON.stringify({ items: twentySix })), {
+      sourceText: "a large real stand",
+    });
+    expect(accepted.ok).toBe(true);
+
+    const sixty = Array.from({ length: 60 }, (_, i) => `item ${i}`);
+    const refused = await extractOfferings(new Scripted(JSON.stringify({ items: sixty })), {
+      sourceText: "a degenerate output",
+    });
+    expect(refused.ok).toBe(false);
+  });
+
   it("returns not-ok when the provider fails, rather than an empty list", async () => {
     // An empty list and a failed call are different facts. Returning `[]` on failure would
     // record "this stand offers nothing" — a claim nobody made — and the seeder would commit

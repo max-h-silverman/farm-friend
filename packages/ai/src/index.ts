@@ -1,7 +1,26 @@
-import type { z } from "zod";
+import { z } from "zod";
 import type { ModelSafeContext } from "./projections";
 
 export * from "./projections";
+
+/**
+ * Wrap a declared-OPTIONAL schema field so an explicit JSON `null` reads as "absent".
+ *
+ * Instruct models near-universally emit `"field": null` for a value the input does not
+ * state, and `.optional()` refuses `null` — the first live run failed every real
+ * extraction on exactly this (F-024). Same reasoning as the adapter's code-fence
+ * stripping: a formatting idiom, not a content decision. It applies ONLY where a schema
+ * already declares optionality; unknown keys, null-valued or not, still hit the strict
+ * schema's visible refusal.
+ */
+export function nullAsAbsent<T extends z.ZodTypeAny>(
+  schema: T,
+): z.ZodEffects<z.ZodOptional<T>, z.output<T> | undefined, z.input<T> | null | undefined> {
+  return z.preprocess(
+    (value) => value ?? undefined,
+    schema.optional(),
+  ) as z.ZodEffects<z.ZodOptional<T>, z.output<T> | undefined, z.input<T> | null | undefined>;
+}
 
 /** Result of a validated model call. `ok=false` carries the reason a seam should clarify/flag. */
 export type GenerateResult<T> =
@@ -29,12 +48,12 @@ export interface LLMProvider {
  * This is the package's public model-call entry point. The low-level `generateJson` is
  * reachable only through a `ModelSafeContext`, which only a projection can construct.
  */
-export async function generateValidated<T>(
+export async function generateValidated<S extends z.ZodTypeAny>(
   provider: LLMProvider,
   ctx: ModelSafeContext,
   schemaName: string,
-  schema: z.ZodType<T>,
-): Promise<GenerateResult<T>> {
+  schema: S,
+): Promise<GenerateResult<z.output<S>>> {
   for (let attempt = 0; attempt <= 1; attempt++) {
     let raw: string;
     try {

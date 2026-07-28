@@ -51,11 +51,87 @@ export type ModelSafeContext<T = unknown> = {
   readonly outputInstructions?: string;
 } & { readonly [modelSafeBrand]: true };
 
-export const COORDINATOR_SMS_OUTPUT_INSTRUCTIONS =
-  "Write a concise SMS reply. Prefer one GSM-7 segment (160 septets) when practical. " +
-  "Use plain ASCII punctuation and no emoji unless the content intentionally requires one. " +
-  "Preserve important details and user-provided names, addresses, and meaning; never truncate " +
-  "useful information solely to meet the one-segment preference.";
+/**
+ * Per-seam output contracts (F-024).
+ *
+ * The first live-model run returned {"smsReply":"..."} from every seam and failed every
+ * schema: the projections attached SMS-composition guidance to seams whose output is
+ * structured JSON, and nothing told the model what shape was wanted. Every scripted suite
+ * stayed green because the stub reads neither the instructions nor the schema — the
+ * cooperative-stub blindness the audit warned about, caught by evals/live.ts.
+ *
+ * Each entry lists example shapes the seam's schema ACCEPTS. `output-contracts.test.ts`
+ * parses every example through the real schema, so this prose cannot drift from the
+ * validator. Instructions are QUALITY, never enforcement: a model that ignores them meets
+ * the same validation and rendering barriers as ever (Golden Rule #6).
+ */
+export const SEAM_OUTPUT_SHAPES = {
+  "inventory-extraction": [
+    '{"kind":"edits","additions":[{"itemName":"tomatoes","quantity":12,"unit":"lb","priceText":"$4/lb","approximation":"plentiful"}],"changes":[{"entryId":"e1","quantity":6}],"removals":[{"entryId":"e2"}]}',
+    '{"kind":"clear_all"}',
+    '{"kind":"clarification","question":"Could you list what your stand has right now?"}',
+  ],
+  "inquiry-interpretation": [
+    '{"kind":"lookup","items":["bok choy","green beans"],"farmScope":"Provo Farms","ranking":"freshest","outOfScopeRequest":false,"originDependent":false}',
+    '{"kind":"ambiguous"}',
+  ],
+  "grounded-fact-selection": [
+    '{"kind":"selection","factIds":["loc-1","loc-2"]}',
+    '{"kind":"clarification"}',
+  ],
+  "stock-out-parse": [
+    '{"kind":"listed","entryId":"e1"}',
+    '{"kind":"unlisted","itemText":"strawberries"}',
+    '{"kind":"unclear"}',
+  ],
+  "offering-extraction": ['{"items":["eggs","bok choy","cut flowers"]}'],
+} as const;
+
+type SeamName = keyof typeof SEAM_OUTPUT_SHAPES;
+
+/**
+ * Seam-specific guidance beside the shapes. Semantic help only — nothing here is relied on:
+ * ranking membership, ID membership, and field allow-lists are all re-validated in code.
+ */
+const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
+  "inventory-extraction":
+    "For edits, all three arrays (additions, changes, removals) are REQUIRED, each possibly " +
+    "empty. additions are items not currently listed; changes and removals refer to listed " +
+    "entries and their entryId MUST be one of the currentEntries ids. quantity is always a " +
+    'NUMBER - write "a dozen" as 12 - and goes with unit ("lb", "dozen") or is omitted; ' +
+    "include only details the message states, never invented ones. If the message is not a " +
+    "readable inventory update, return the clarification shape with one short plain-ASCII " +
+    "question (it is sent by SMS).",
+  "inquiry-interpretation":
+    "items are the product words the customer asks about, as plain nouns. ranking MUST be " +
+    'exactly "freshest", "coverage", or "any": "coverage" when they want places carrying ' +
+    'the most of their items, "freshest" when recency matters most, "any" otherwise. ' +
+    "farmScope only when they name a specific farm. outOfScopeRequest is true when they " +
+    "also ask for a recipe, preparation, or food-safety guidance. originDependent is true " +
+    "ONLY when answering requires knowing where the customer is (nearest, closest, distance, " +
+    "directions). If the message is not an interpretable product request, return the " +
+    "ambiguous shape with no other fields.",
+  "grounded-fact-selection":
+    "factIds MUST be values from facts, ordered best match first; select only facts that " +
+    "answer the request. If none fit, return the clarification shape with no other fields.",
+  "stock-out-parse":
+    "If the text names an item matching one of listedItems, return listed with that " +
+    "entryId. If it clearly names an item that is not listed, return unlisted with the " +
+    "item's name as itemText. Otherwise return unclear.",
+  "offering-extraction":
+    "items are short customer-facing product tags - at most four words each - for what the " +
+    "text says the stand offers. Exclude farming practices, certifications, schedules, " +
+    "contact details, and commentary. When the text names no products, return an empty " +
+    "items array.",
+};
+
+function outputInstructionsFor(seam: SeamName): string {
+  return [
+    "Return ONLY one JSON object, matching exactly one of these shapes (values are examples):",
+    ...SEAM_OUTPUT_SHAPES[seam],
+    SEAM_OUTPUT_NOTES[seam],
+  ].join("\n");
+}
 
 /** A projection refused to build a context. Fail closed: no model call happens. */
 export class ProjectionError extends Error {
@@ -145,7 +221,7 @@ export function projectInventoryExtraction(input: {
   return {
     seam: "inventory-extraction",
     fields,
-    outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
+    outputInstructions: outputInstructionsFor("inventory-extraction"),
   } as ModelSafeContext<InventoryExtractionFields>;
 }
 
@@ -168,7 +244,7 @@ export function projectInquiryInterpretation(input: {
   return {
     seam: "inquiry-interpretation",
     fields: { taskText: input.taskText },
-    outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
+    outputInstructions: outputInstructionsFor("inquiry-interpretation"),
   } as ModelSafeContext<InquiryInterpretationFields>;
 }
 
@@ -222,7 +298,7 @@ export function projectFactSelection(input: {
   return {
     seam: "grounded-fact-selection",
     fields,
-    outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
+    outputInstructions: outputInstructionsFor("grounded-fact-selection"),
   } as ModelSafeContext<FactSelectionFields>;
 }
 
@@ -263,7 +339,7 @@ export function projectStockOutParse(input: {
   return {
     seam: "stock-out-parse",
     fields,
-    outputInstructions: COORDINATOR_SMS_OUTPUT_INSTRUCTIONS,
+    outputInstructions: outputInstructionsFor("stock-out-parse"),
   } as ModelSafeContext<StockOutParseFields>;
 }
 
@@ -305,5 +381,6 @@ export function projectOfferingExtraction(input: {
   return {
     seam: "offering-extraction",
     fields,
+    outputInstructions: outputInstructionsFor("offering-extraction"),
   } as ModelSafeContext<OfferingExtractionFields>;
 }

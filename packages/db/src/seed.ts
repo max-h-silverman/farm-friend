@@ -117,6 +117,69 @@ function openHoursColumns(hours: SeededOpenHours) {
   }
 }
 
+export interface SeedOfferingInput {
+  /** The stand's name — the same natural key the stand seeder uses. */
+  standName: string;
+  /** Human-approved tags, in review order. */
+  items: string[];
+}
+
+export interface SeedOfferingsResult {
+  inserted: number;
+  /** Tags that already existed and were left alone. */
+  skipped: number;
+  /** Approved-file names with no matching sales location. Reported, never invented. */
+  unknownStands: string[];
+}
+
+/**
+ * Commit HUMAN-APPROVED offering tags (F-024/F-036).
+ *
+ * The model only ever PROPOSED these; this is the "code commits what was approved" half of
+ * the offering seam's contract. It writes `sales_location_offerings` — specialties, what a
+ * stand usually carries — and is structurally incapable of touching inventory, which needs
+ * an authorization and approval this path does not have.
+ *
+ * Idempotent on the (location, item) key, and it never rewrites an existing tag: once live,
+ * a farmer or operator may have edited their tags, and a re-run must not revert that. An
+ * unknown stand name is reported rather than silently dropped — the address-refused stands
+ * legitimately exist in the CSV but not the database.
+ */
+export async function seedOfferings(
+  sql: Sql,
+  offerings: SeedOfferingInput[],
+): Promise<SeedOfferingsResult> {
+  let inserted = 0;
+  let skipped = 0;
+  const unknownStands: string[] = [];
+
+  await sql.begin(async (tx) => {
+    for (const offering of offerings) {
+      const location = await tx`
+        select id from sales_locations where name = ${offering.standName} limit 1
+      `;
+      if (location.length === 0) {
+        unknownStands.push(offering.standName);
+        continue;
+      }
+      const locationId = location[0]!.id as string;
+
+      for (const [index, item] of offering.items.entries()) {
+        const result = await tx`
+          insert into sales_location_offerings (sales_location_id, item, sort_order)
+          values (${locationId}, ${item}, ${index})
+          on conflict do nothing
+          returning item
+        `;
+        if (result.length > 0) inserted++;
+        else skipped++;
+      }
+    }
+  });
+
+  return { inserted, skipped, unknownStands };
+}
+
 /**
  * Seed stands into the database.
  *

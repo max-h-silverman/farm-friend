@@ -8,7 +8,7 @@
 // and the confirmation the farmer sees is code-rendered from typed facts.
 
 import { z } from "zod";
-import { generateValidated, type LLMProvider } from "./index";
+import { generateValidated, nullAsAbsent, type LLMProvider } from "./index";
 import { projectInventoryExtraction } from "./projections";
 
 /**
@@ -19,10 +19,10 @@ import { projectInventoryExtraction } from "./projections";
  */
 const itemFields = {
   itemName: z.string().min(1),
-  quantity: z.number().finite().optional(),
-  unit: z.string().optional(),
-  priceText: z.string().optional(),
-  approximation: z.enum(["some", "limited", "plentiful"]).optional(),
+  quantity: nullAsAbsent(z.number().finite()),
+  unit: nullAsAbsent(z.string()),
+  priceText: nullAsAbsent(z.string()),
+  approximation: nullAsAbsent(z.enum(["some", "limited", "plentiful"])),
 };
 
 // Every member is `.strict()`, INCLUDING at the top level. Zod strips unknown keys by
@@ -30,7 +30,9 @@ const itemFields = {
 // or `recipientHash` instead of refusing the output that tried to carry it. Stripping
 // would still be safe — code owns publication regardless — but "the model attempted a
 // consequence" must be a visible refusal, not an invisible cleanup.
-const interpretationSchema = z.discriminatedUnion("kind", [
+// Exported for output-contracts.test.ts, which proves the documented example shapes in
+// projections.ts validate against this exact schema. Not part of the seam's runtime API.
+export const interpretationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("edits"),
@@ -40,7 +42,7 @@ const interpretationSchema = z.discriminatedUnion("kind", [
           .object({
             entryId: z.string(),
             ...itemFields,
-            itemName: itemFields.itemName.optional(),
+            itemName: nullAsAbsent(z.string().min(1)),
           })
           .strict(),
       ),
