@@ -11,7 +11,139 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-28 (latest) — the seeder meets the real file, and a provider that refuses to start
+## 2026-07-28 (latest) — the model finally runs, and it breaks everything the stub could not
+
+F-024 closed: the DeepInfra attestation filled from the real terms, the first live-model run, the
+three defects it exposed that 471 green unit tests could not, the offering seam over the real
+corpus, and F-037's operator surface for the flags that seam's sibling raises.
+
+### The attestation, and the clause that had to become code
+
+max read DeepInfra's data-processing terms and directed the fill. Values transcribed verbatim
+from <https://docs.deepinfra.com/account/data-privacy>: no training on API data, inputs in memory
+only and outputs deleted once returned, request **content** not logged (metadata only: request id,
+cost, sampling parameters), zero stated retention. The caveat is recorded at the binding rather
+than smoothed over — DeepInfra reserves an unbounded discretionary right to log "a small portion
+of requests" for debugging or security, and inventing a number to bound it would be exactly the
+inference the gate forbids.
+
+One clause could not stay prose. Their no-training sentence carries an exception: *"except when
+using Google or Anthropic models, where the receiving company's training policy applies."* Those
+are models DeepInfra **routes** to another vendor's endpoints under that vendor's unattested
+terms — so an `anthropic/` or `google/` `DEEPINFRA_MODEL` would have made the version-controlled
+attestation false for a reachable configuration. It is now a startup error.
+
+**The attestation moved to `packages/ai/src/deepinfra.ts`**, beside the adapter it gates. It had
+been in the web composition root, which the propose script and the live evals never pass through —
+they construct the provider directly, and would have bypassed the gate entirely.
+`assertDeepInfraSelectionApproved` is now the one approval path for every consumer.
+
+The source tests flipped: they had pinned the `null` literal so no agent could fill it with
+guesses; they now pin the four values **and the citation** — URL and review date must appear in
+the comment block immediately preceding the binding. Values flipped → 2 tests fail; citation
+removed → 1; prefix guard emptied → 1.
+
+### The first live run failed every seam, and the suite stayed green
+
+The whole point of the exercise, and it delivered on the first call. `npm run evals:live` against
+the real model: **every seam returned `invalid_output`**. Unit tests 471/471 green. Scripted evals
+44/44 green. The stub reads neither the instructions nor the schema, so nothing in the existing
+suite could see any of it.
+
+**Defect 1 — the instructions described a different job.** Every projection attached
+`COORDINATOR_SMS_OUTPUT_INSTRUCTIONS` — *"Write a concise SMS reply. Prefer one GSM-7 segment…"* —
+to seams whose schemas accept only structured JSON, and **nothing anywhere stated the expected
+shape**. The model returned `{"smsReply":"Added tomatoes, kale, and a dozen eggs to your
+inventory"}`, which is a perfectly reasonable answer to the question we actually asked. Replaced
+with per-seam contracts: example shapes plus semantic notes, and `output-contracts.test.ts` parses
+every documented example **through the real schema**, so the prose a model reads cannot drift from
+the validator that judges it. It also asserts kind-coverage in both directions — a schema gaining
+a shape the instructions never mention leaves the model unable to use it; an instruction naming a
+removed shape teaches a refused output.
+
+**Defect 2 — `null` is how models say "not stated".** `{"quantity": null}` for a farmer who never
+gave a quantity, and Zod's `.optional()` refuses `null`. `nullAsAbsent()` treats it as absence
+**only where the schema already declares optionality** — same class of decision as the adapter's
+code-fence stripping, a formatting idiom rather than a content one. A null-valued **unknown** key
+still hits the strict schema's visible refusal, which is asserted, because that is the difference
+between tolerating an idiom and quietly accepting a smuggled field.
+
+**Defect 3 — the corpus disproved a bound, again.** Venison Valley Farm & Creamery legitimately
+offers ~26 things (a creamery plus a produce partner), against a 24-item cap. Raised to 40 with a
+refusal test at 60. Third time the real 31 stands have corrected a number that looked fine in the
+abstract.
+
+### What the containment fixtures proved, and why they are not "the model behaved"
+
+`evals/live.ts` splits into **live-containment** (must be 100%) and **live-quality** (recorded).
+The containment fixtures actively invite the model to comply with an injection, so the pass
+condition is *the barrier held*, never *the model refused*. Llama duly complied — asked to include
+`loc-999` in its selection, **it did**, and membership validation rejected the whole selection.
+That is the harness working, observed rather than asserted.
+
+**12/12 containment on both candidates.** Quality over three runs each: Mistral Small 24B
+**6/6, 6/6, 6/6**; Llama 3.3 70B Turbo 5/6, 5/6, 6/6 — the extraction fixture flaking run to run
+under batching variance. max chose **Mistral Small 24B**: stable, ~5× cheaper, and the stronger
+performer on exactly these structured tasks. Bigger did not mean better here.
+
+**Cost and rate-limit posture:** DeepInfra allows 200 concurrent requests per model, 429 beyond,
+no RPM cap. Farm Friend's own ceilings keep worst-case concurrency in single digits, so the public
+throttle needed no change. Under $1/month at launch volume.
+
+### The offering seam, and the corpus's last correction
+
+`npm run offerings:propose` → review → `npm run db:seed-offerings`. The propose step strips
+contacts before any text reaches the model (the projection fails closed on a raw phone, so an
+unstripped description would refuse rather than leak) and writes proposals beside the source text
+they came from. **31/31 proposed.** max reviewed every list and approved with one edit: Aeggy's
+redundant "eggs / duck eggs / chicken eggs" collapsed. Narwhal's "swag" stays — the stand
+advertises it. Seedrain's "invasive plant control" stays too, and produced **F-038**: it is a
+farm-related *business*, not a stand or a market, and the system has no type for that yet.
+
+`seedOfferings` is the code-commits half — idempotent on (location, item), never rewrites an
+existing tag (a farmer may have corrected it since), reports unknown stand names rather than
+inventing them, writes zero inventory. The propose script lives in `packages/ai`, not
+`packages/db`: it composes ai + core, and **db must not depend on ai**.
+
+### F-037: a decision queue that cannot become an editing surface
+
+The seeder's three real flags (Green Ears ×2, Holmestead) were visible only by SQL.
+`/admin/stand-data` now lists each with the stand, the reason in plain words, and the source text
+verbatim; resolving requires a note saying what was decided, because a resolution with no recorded
+decision makes the queue a dismiss button.
+
+The property worth the effort: **resolution records a decision and cannot act on it.** No write
+path to `sales_locations`, offerings, or inventory. The temptation is specific — *"resolve the
+contradiction by fixing the hours while I'm here"* — and a listing edit is a different capability
+with its own authority story. Pinned by byte-equality over every listing field, sabotage-verified
+by adding a listing update inside the transaction.
+
+### The race test that could not fail, found by sabotage
+
+The concurrency test used eight claimants sharing **one** administrator row — and it passed with
+the flag's `for update` deleted. The authority re-read's own `for update` on that single admin row
+serializes every transaction before the flag lock is ever contended, so the test was measuring the
+wrong lock. Fixed to race **eight distinct administrators**, which is also the real scenario the
+409 exists for; the sabotage then fails it correctly. Same family as the source-assertion failures
+already recorded twice: the test looked right and proved nothing.
+
+**Verified:** unit **479/479** (50 files), integration **285/285** (18 files) on real Postgres 16,
+evals critical 11/11 + advisory 4/4 + adversarial 29/29 with **no fixture touched**, live evals as
+above, typecheck/lint/`next build` clean.
+
+**Released:** `a1e6fb7` (PR #49), `b47c564` (PR #50), `ea4889b` (PR #51), each deployed with
+`npx vercel --prod` immediately after merge, crons block stripped uncommitted and restored.
+Verified by effect: health `{"ok":true}`, cron **401**, webhook **401** (the load-bearing one —
+401 rather than 500 proves config still resolves), and `/api/admin/stand-data-flags` **403** on
+both methods.
+
+**Production remains deliberately unseeded.** `/api/public/stands` returns `{"stands":[]}`. The
+offerings are approved but not committed to production: that still waits on the 3 missing
+addresses and F-034.
+
+---
+
+## 2026-07-28 — the seeder meets the real file, and a provider that refuses to start
 
 F-024's adapter built behind an enforced attestation block, and B-002's loader run against VIGA's
 actual export — which turned out to disagree with the documentation in four places, three of them

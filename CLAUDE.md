@@ -222,8 +222,11 @@ cooperative stubs. Suites:
   token predating its current prompt cannot commit; confirmation rechecks farmer authority and VIGA
   approval, commits exactly once, and expires.
 - **A model seam:** trace it in AI_ARCHITECTURE.md; keep durable writes/recipient/consent out of
-  model output; run the **swap test**; run evals. **To add a seam or a program, or swap a provider,
-  follow docs/RUNBOOK.md "how to extend."**
+  model output; run the **swap test**; run evals **and `npm run evals:live`** — the scripted suite
+  uses a stub that reads neither your instructions nor your schema, so it cannot see an output
+  contract that describes the wrong job. Give the seam an entry in `SEAM_OUTPUT_SHAPES` (its
+  examples are parsed through the real schema, so they cannot drift). **To add a seam or a program,
+  or swap a provider, follow docs/RUNBOOK.md "how to extend."**
 - **A new query/list:** after any approved semantic interpretation, run retrieval in code before
   grounded fact selection; label recency; carry stable fact identifiers; accept only selected IDs
   from the retrieved set; render factual text in code.
@@ -246,7 +249,11 @@ cooperative stubs. Suites:
 ## Commands
 
 - `npm test` · `npm run test:integration` · `npm run typecheck` · `npm run lint` · `npm run evals`
-- Migrations / seeding / deploy: see docs/RUNBOOK.md (deploy only when asked).
+- `npm run evals:live` — the REAL model through the real seams (needs `DEEPINFRA_MODEL`;
+  `DEEPINFRA_API_KEY` comes from `.env`). Required for any change to a seam's projection, schema, or
+  output contract: a cooperative stub cannot see what a real model returns. `live-containment` must
+  be 100% and a failure **stops and reports**.
+- Migrations / seeding / offerings / deploy: see docs/RUNBOOK.md (deploy only when asked).
 
 ## Skills
 
@@ -303,15 +310,18 @@ inbound message. **No behavioural test in vitest can see this**: Node resolves f
 the whole kick suite passed throughout. `apps/web/lib/kick-survival.test.ts` therefore asserts the
 registration against the route **source**. Claim latency after the fix: *never* → **4–8s**.
 
-**The operator surface is built: sign-in request, approval, flag review, stock-out triage (F-025a,
-F-030, F-032).**
+**The operator surface is built: sign-in request, approval, flag review, stock-out triage, stand-data
+questions (F-025a, F-030, F-032, F-037).**
 Administrator identity is **email** (migration 0003; `contact_id` is optional and not the identity),
 sign-in is a magic link whose verification proves an address and whose `administrators` lookup — not
 the link — confers authority, so login is **not** first-user-wins. A session is a durable row storing
 only the token's **hash**; `resolvePrincipal` re-looks-up roles per request, so revoking an
-administrator or session takes effect on the **next request**. Three screens: `/admin` approves farms,
+administrator or session takes effect on the **next request**. Four screens: `/admin` approves farms,
 `/admin/flags` resolves or dismisses flags and shows the flagged thread, `/admin/reports` triages
-stock-out reports. All four API routes share **one** guard (`apps/web/lib/admin-guard.ts`); the writes
+stock-out reports, `/admin/stand-data` answers the seeder's data questions (F-037: the 3 seeded flags
+were visible only by SQL; resolving requires a **note**, and **cannot edit the listing** — no write
+path to `sales_locations`, offerings, or inventory, pinned by byte-equality over every listing field
+and sabotage-verified). All five API routes share **one** guard (`apps/web/lib/admin-guard.ts`); the writes
 live in `packages/db/src/admin.ts` and `review.ts`, which re-read administrator authority **inside**
 each transaction and write the audit event in the same commit. The acting administrator comes from the
 session, never the request body. Flags and reports dispose **exactly once** under a row lock — a
@@ -455,11 +465,12 @@ that code commits after review. **B-013:** `listPublicStands` now LEFT-joins inv
 nobody has confirmed is visible with `asOf`/`recencyLabel`/`isStale` **absent together** — the map
 cannot render "updated just now" for a confirmation that never happened.
 
-**Deployed and verified in production 2026-07-28** (`468859a`, PR #48 — B-002 + F-024). Verified by
-effect: health `{"ok":true}`, cron **401**, webhook **401**. That last one is the load-bearing check
-after this change: under the three-way diagnostic, 401 rather than 500 proves configuration still
-resolves after `resolveModelConfig` was rewritten to read `LLM_PROVIDER`.
-Previously (`d49394c`, PR #47). Migration **0005** applied
+**Deployed and verified in production 2026-07-28** (`ea4889b`, PR #51 — F-037; preceded same day by
+`a1e6fb7` PR #49 and `b47c564` PR #50, each deployed on merge). Verified by effect: health
+`{"ok":true}`, cron **401**, webhook **401**, `/api/admin/stand-data-flags` **403** on both methods.
+The webhook's 401 is the load-bearing check after any config-touching change: under the three-way
+diagnostic, 401 rather than 500 proves configuration still resolves.
+Earlier (`468859a`, PR #48; `d49394c`, PR #47). Migration **0005** applied
 (6 total; both tables, 4 enums, 12 columns confirmed by query). **B-013 proven by effect**: a probe
 stand with zero inventory was returned by `/api/public/stands` with `items: []` and **no `updated`
 or `stale` keys** — invisible under the old inner join. Probe removed; the endpoint reads
@@ -491,19 +502,50 @@ log for each:
 reporting an error. Ranges now expand (wrapping across the week end); "and" lists stay lists.
 Sabotage-verified, as were idempotency, whole-batch rollback, and refusal-without-coercion.
 
-**F-024: the adapter is built; the attestation BLOCKS, by code.** `LLM_PROVIDER` is now real
-(`stub` | `deepinfra`) — it previously sat in `.env.example` while `resolveModelConfig` hard-coded
-the stub and never read it; an unknown value now throws rather than silently running the test double.
-**`DEEPINFRA_DATA_HANDLING` is `null` and selecting `deepinfra` THROWS**, naming all four gate terms,
-so no farmer or customer text reaches a vendor whose terms nobody has read. Enforced by two
-source-asserting tests anchored to the `null` literal, sabotage-verified against guessed values. The
-offering seam therefore did NOT run; `sales_location_offerings` is correctly empty.
+**F-024 is DONE: DeepInfra is attested, and the model has actually run.** `LLM_PROVIDER` is real
+(`stub` | `deepinfra`); an unknown value throws rather than silently running the test double.
+`DEEPINFRA_ATTESTED_DATA_HANDLING` lives in `packages/ai/src/deepinfra.ts` — **beside the adapter it
+gates**, because the propose script and live evals construct the provider outside the web
+composition root and would have bypassed a gate that lived there. `assertDeepInfraSelectionApproved`
+is the one approval path. Values transcribed verbatim from docs.deepinfra.com/account/data-privacy
+(reviewed by max 2026-07-28): no training, no storage beyond the request, content logging off,
+retention 0 — with the recorded caveat that DeepInfra reserves an **unbounded** right to log "a small
+portion of requests". Their no-training clause **excludes Google/Anthropic-routed models**, so an
+`anthropic/` or `google/` `DEEPINFRA_MODEL` is a startup error. Source tests pin the values **and the
+citation** (URL + date in the preceding comment block); sabotage-verified three ways.
+**Model: Mistral Small 24B** (max, 2026-07-28) — containment 12/12 and quality 18/18 across three
+runs, vs Llama 3.3 70B's 12/12 and 16/18, at ~5× less cost. Bigger was not better.
 
-**Verified July 28, 2026 (`main`, this work merged):** `npm test` **471/471 across 49 files**;
-`npm run test:integration` **273/273 across 18 files** on real Postgres 16.12; `npm run evals`
-critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); typecheck + lint pass;
-`next build` clean. Migration **0005** proven from an empty database by the integration run.
-Newest session-log entry: the seeder meets the real file, and a provider that refuses to start.
+**The first live-model run failed EVERY seam while 471 unit tests stayed green.** The class of
+defect the stub structurally cannot see, now caught by `evals/live.ts` (`npm run evals:live`,
+`live-containment` must be 100% and a failure **stops and reports**). Three real defects:
+(1) projections attached SMS-composition guidance ("Write a concise SMS reply…") to seams whose
+output is structured JSON and **never stated the expected shape** — the model returned
+`{"smsReply":…}`; fixed with per-seam contracts in `SEAM_OUTPUT_SHAPES`, whose examples
+`output-contracts.test.ts` parses **through the real schema** so prose cannot drift from the
+validator; (2) models emit `"field": null` for unstated optionals and `.optional()` refuses null —
+`nullAsAbsent()` applies **only where optionality is already declared**, and a null-valued *unknown*
+key still hits the strict refusal; (3) the corpus raised the offering cap from 24 to 40 (Venison
+Valley legitimately lists 26). **Containment held throughout**: asked to select `loc-999`, Llama
+complied and membership validation rejected it.
+**DeepInfra limits: 200 concurrent per model, 429 beyond, no RPM cap** — far above Farm Friend's own
+ceilings, so the public throttle needed no change. Under $1/month at launch volume.
+
+**Offerings: proposed, reviewed, approved — not yet in any production database.**
+`npm run offerings:propose` (model proposes; contacts stripped first; gate asserted) →
+`npm run db:seed-offerings` (code commits). The propose script lives in `packages/ai` because it
+composes ai + core and **db must not depend on ai**. 31/31 proposed; max approved 2026-07-28 with one
+edit (Aeggy's redundant eggs collapsed), keeping Narwhal's "swag" and Seedrain's service entry — the
+latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `seedOfferings` is
+idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
+inventory.
+
+**Verified July 28, 2026 (`main`, this work merged):** `npm test` **479/479 across 50 files**;
+`npm run test:integration` **285/285 across 18 files** on real Postgres 16.12; `npm run evals`
+critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); `npm run evals:live`
+containment **4/4** and quality **6/6** on Mistral Small 24B; typecheck + lint pass; `next build`
+clean. Migration **0005** proven from an empty database by the integration run.
+Newest session-log entry: the model finally runs, and it breaks everything the stub could not.
 
 **A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a
 *different* named test each; stashing the branch reproduced the hang on clean `main` (the connection
@@ -516,34 +558,30 @@ cheap way to prove whose it is. Session-log entries older than the newest eight 
 Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
 supply what production never creates.
 
-- **F-024 — the adapter is BUILT; the attestation is the one thing left, and it is max's.** Decided:
-  DeepInfra on a mid-size instruct model; the attested terms are **DeepInfra's** as inference host.
-  `DEEPINFRA_DATA_HANDLING` is `null` and selecting the provider **throws** — enforced by tests, not
-  a comment. **Next session opens by reading DeepInfra's data-processing terms and filling the four
-  values**, then running evals against the real model and the offering seam. Never infer those
-  values. An adversarial eval failure **stops and reports**; no fixture edits to go green.
-- **B-002 — the loader is BUILT and has run against the real corpus.** 28 seeded, 3 refused for a
-  missing street address, 3 flags, idempotent on re-run. What remains is **max's call on the 3
-  refused stands** (Farmers Market, Breathing Meadows, Open Gate Lamb — no address in the export;
-  an address must come from VIGA, never be invented) and offerings, which wait on F-024.
+- **B-002 — the loader has run; offerings are approved; production is still unseeded by decision.**
+  28 seeded locally, 3 refused for a missing street address, 3 flags, idempotent on re-run.
+  What remains is **max's call on the 3 refused stands** (Farmers Market, Breathing Meadows, Open
+  Gate Lamb — no address in the export; an address must come from VIGA, **never** be invented).
   **PRODUCTION IS DELIBERATELY NOT SEEDED** (decided 2026-07-28): `/api/public/stands` returns
-  `{"stands":[]}` and the loader has run only locally. Seeding waits on the 3 addresses, offerings,
-  and — the real constraint — **F-034 rotation**, since the deferral is sound only while no real
-  data is in that database and 28 real stands moves that line. The loader is idempotent, so seeding
+  `{"stands":[]}` and both loaders have run only locally. Seeding waits on the 3 addresses and —
+  the real constraint — **F-034 rotation**, since the deferral is sound only while no real data is
+  in that database and 28 real stands moves that line. Both loaders are idempotent, so seeding
   later and re-running for the last 3 adds without duplicating.
-- **F-037 — the `stand_data_flags` operator surface (NEW, filed 2026-07-28).** The seeder now raises
-  flags nobody can act on: the 3 are visible only by SQL. Follow `review.ts`'s pattern — one shared
-  guard, dispose-once under a row lock (409 on the second operator), audit event in the same commit,
-  and prove by byte-equality snapshot that resolving a flag cannot change a published listing.
-  Fully buildable now; needs no external input.
-- **F-035 / B-013 — schema, parser, seam, and now the loader are all done.** The remaining gap is
-  F-037 above.
-- **F-036 — where the model may run.** **Seed-time: built** (`offering-extraction`).
-  **Query-time on the public map: BLOCKED** — that is the anonymous surface F-019 removed and the
-  Do-not list names; `public-surface-model-free.test.ts` polices the import graph.
-  **Farmer-authored web submission: a THIRD case, not what F-019 blocked** — a farmer editing their
-  own listing is the same act as texting an update. Needs farmer web auth (does not exist) and must
-  route through the same confirmation gate. `extractOfferings` is transport-agnostic for this.
+- **F-038 — farm-related businesses as a location type (NEW, filed 2026-07-28).** Seedrain /
+  Garden Cycles offers *services*, not produce, and `sales_locations.kind` admits only
+  `farm_stand | farmers_market` — so it is currently typed as a farm stand, which is wrong. The
+  legacy map legend already treated "farm with no farm stand" as its own class. Scope when picked
+  up: a third enum **value** (not a parallel mechanism), its map presentation, the seeder's
+  classification, and the product decision about whether this type participates in SMS inventory
+  at all (a service business has no "current stock").
+- **F-035 / B-013 / F-037 — all done.** Schema, parser, seam, loader, and the operator surface for
+  the flags the seeder raises.
+- **F-036 — where the model may run.** **Seed-time: built and RUN** (`offering-extraction`, 31/31
+  proposed and approved). **Query-time on the public map: BLOCKED** — that is the anonymous surface
+  F-019 removed and the Do-not list names; `public-surface-model-free.test.ts` polices the import
+  graph. **Farmer-authored web submission: a THIRD case, not what F-019 blocked** — a farmer editing
+  their own listing is the same act as texting an update. Needs farmer web auth (does not exist) and
+  must route through the same confirmation gate. `extractOfferings` is transport-agnostic for this.
 - **F-034 — ROTATE EVERY EXPOSED CREDENTIAL. Hard blocker on F-029; do not go live without it.**
   `DATABASE_URL` (the full Neon URL was pasted in a transcript), `CRON_SECRET`, `TELNYX_API_KEY`, and
   possibly `MAGIC_LINK_SECRET` were all exposed during 2026-07-27 validation. **max deliberately
@@ -682,6 +720,23 @@ the real thing by **effect** in the deployment.
 `coalesce(…, 0)`. Separately, Postgres sorts NULLs **FIRST** under `order by … desc`, so a left
 join without `nulls last` puts never-confirmed rows ahead of freshly-confirmed ones. Both were
 caught only because a test asserted the specific value, not the general shape.
+
+**A cooperative stub cannot see what the real model does.** F-024's first live run failed **every**
+seam while 471 unit tests and 44 scripted evals were green: the projections attached SMS-composition
+guidance to JSON-extraction seams and never stated the expected output shape, and the stub reads
+neither the instructions nor the schema. Same family as B-009 (local runtime ≠ deployed runtime) and
+B-005–B-008 (hoisted `node_modules` ≠ isolated install). **When a property belongs to something
+outside the test double — a platform, an install, a real model — assert it against the real thing.**
+`evals/live.ts` is that assertion for the model seams; `output-contracts.test.ts` is the cheap
+follow-up that keeps the instructions and the validator from drifting apart.
+
+**A shared lock upstream can make a downstream lock's test unfalsifiable.** F-037's race test used
+eight claimants sharing **one** administrator row, and passed with the flag's `for update` deleted:
+the authority re-read's own `for update` on that single admin row serialized every transaction
+before the flag lock was ever contended. The test measured the wrong lock. **Give each concurrent
+claimant its own upstream row** — which is also the real scenario a 409 exists for. This is the
+`Promise.all` lesson one level deeper: genuine contention needs distinct actors, not just distinct
+calls.
 
 **Measure a deterministic approach against the real corpus before defending it.** The availability
 parser looked adequate until it ran over all 31 stands and flagged 12 — ten of them spuriously,
