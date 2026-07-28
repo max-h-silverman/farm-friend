@@ -106,16 +106,26 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                     </li>
                   ))}
                 </ul>
-              ) : (
+              ) : stand.updated !== undefined ? (
                 <p className="items-empty">
                   The farmer confirmed this stand is empty right now.
                 </p>
+              ) : (
+                // No items AND no confirmation are a different fact from a confirmed-empty
+                // stand, and saying "the farmer confirmed" here would invent the one thing
+                // B-002's zero-inventory seed exists to avoid: a confirmation nobody made.
+                <p className="items-empty">
+                  No listing yet — this stand hasn’t been updated through Farm Friend. It may
+                  still have produce out.
+                </p>
               )}
 
-              <p className={stand.stale ? "recency recency-stale" : "recency"}>
-                {stand.stale ? <strong>May be out of date — </strong> : null}
-                {stand.updated}
-              </p>
+              {stand.updated !== undefined ? (
+                <p className={stand.stale ? "recency recency-stale" : "recency"}>
+                  {stand.stale ? <strong>May be out of date — </strong> : null}
+                  {stand.updated}
+                </p>
+              ) : null}
 
               <p className="address">{stand.address}</p>
               {stand.routingLink !== null ? (

@@ -25,9 +25,15 @@ export interface PublicStandPayload {
   address: string;
   latitude: number;
   longitude: number;
-  /** Code-rendered on the server by the same helper the SMS answer uses. */
-  updated: string;
-  stale: boolean;
+  /**
+   * Code-rendered on the server by the same helper the SMS answer uses.
+   *
+   * **Absent when no farmer has ever confirmed this stand** (B-013) — a seeded stand starts
+   * that way. Optional here so the compiler forces every renderer to decide what to show
+   * instead of silently emitting an empty recency line.
+   */
+  updated?: string;
+  stale?: boolean;
   items: {
     itemName: string;
     quantity?: number;

@@ -37,20 +37,43 @@ export interface PublicStand {
   publicAddress: string;
   latitude: number;
   longitude: number;
-  /** When the farmer last confirmed this inventory. */
-  asOf: Date;
-  /** Code-rendered recency, identical in wording to the SMS answer. */
-  recencyLabel: string;
-  /** True when the listing must be shown WITH a prominent staleness warning. */
-  isStale: boolean;
+  /**
+   * When the farmer last confirmed this inventory.
+   *
+   * **Absent when no farmer has confirmed anything yet** (B-013). A seeded stand starts in
+   * exactly that state, and the three recency fields are optional TOGETHER so it is not
+   * possible to render "updated just now" for a confirmation that never happened. A default
+   * date here would be indistinguishable from a real one downstream.
+   */
+  asOf?: Date;
+  /** Code-rendered recency, identical in wording to the SMS answer. Absent with `asOf`. */
+  recencyLabel?: string;
+  /**
+   * True when the listing must be shown WITH a prominent staleness warning.
+   *
+   * Absent — not `false` — when there is nothing to be stale about. "Never confirmed" and
+   * "confirmed recently" are different facts, and collapsing them to `false` would claim the
+   * second.
+   */
+  isStale?: boolean;
   items: PublicStandItem[];
 }
 
 /**
- * Every public sales location with a current published revision, ordered by recency.
+ * Every public sales location, ordered most-recently-confirmed first.
  *
  * A stale listing is returned flagged, never filtered out: the honor-system reality is that
  * old information plus an honest warning beats a blank map.
+ *
+ * **A stand with no current revision is returned too** (B-013), with no recency and no items.
+ * The join to `inventory_revisions` is LEFT for that reason. It used to be an inner join,
+ * which silently made every unconfirmed stand invisible — and since B-002 seeds VIGA's stands
+ * with zero inventory by design, that would have left the map empty with a green seed test.
+ * The product rule is the same one that keeps stale listings visible: "we don't know" is an
+ * honest thing to show; disappearing is not.
+ *
+ * Ordering puts confirmed stands first, newest confirmation leading, and never-confirmed
+ * stands last (`nulls last`) rather than sorting them as though they were infinitely old.
  */
 export async function listPublicStands(
   deps: PublicListingDeps,
@@ -71,11 +94,11 @@ export async function listPublicStands(
       e.approximation as approximation
     from sales_locations l
     join farms f on f.id = l.farm_id
-    join inventory_revisions r
+    left join inventory_revisions r
       on r.sales_location_id = l.id and r.is_current
     left join inventory_entries e on e.inventory_revision_id = r.id
     where l.is_public
-    order by r.published_at desc, l.id asc, e.sort_order asc
+    order by r.published_at desc nulls last, l.id asc, e.sort_order asc
   `;
 
   const now = deps.clock.now();
@@ -87,7 +110,12 @@ export async function listPublicStands(
 
     let stand = byLocation.get(locationId);
     if (!stand) {
-      const asOf = row.published_at as Date;
+      // `published_at` is null exactly when the left join found no current revision. The
+      // three recency fields are then omitted TOGETHER — spreading them conditionally rather
+      // than assigning `undefined` keeps them absent from the object, so a downstream
+      // `"asOf" in stand` check and JSON serialization both agree that nothing was confirmed.
+      const publishedAt = row.published_at as Date | null;
+      const asOf = publishedAt ?? undefined;
       stand = {
         factId: locationId,
         farmName: row.farm_name as string,
@@ -95,9 +123,13 @@ export async function listPublicStands(
         publicAddress: row.public_address as string,
         latitude: Number(row.public_latitude),
         longitude: Number(row.public_longitude),
-        asOf,
-        recencyLabel: renderRecency(asOf, now),
-        isStale: isStale(asOf, now),
+        ...(asOf
+          ? {
+              asOf,
+              recencyLabel: renderRecency(asOf, now),
+              isStale: isStale(asOf, now),
+            }
+          : {}),
         items: [],
       };
       byLocation.set(locationId, stand);
@@ -142,10 +174,14 @@ export async function handleStandsRequest(
       address: stand.publicAddress,
       latitude: stand.latitude,
       longitude: stand.longitude,
-      // Recency is rendered by code and always present. A stale stand stays listed WITH
-      // its warning rather than disappearing.
-      updated: stand.recencyLabel,
-      stale: stand.isStale,
+      // Recency is rendered by code, and is present exactly when a farmer has confirmed
+      // something. A stale stand stays listed WITH its warning rather than disappearing; a
+      // never-confirmed stand is listed with these fields ABSENT (B-013) rather than with a
+      // fabricated "updated" string. Omitting the keys — instead of sending null — is what
+      // lets the map view distinguish "no confirmation yet" from "confirmed long ago".
+      ...(stand.recencyLabel !== undefined
+        ? { updated: stand.recencyLabel, stale: stand.isStale }
+        : {}),
       items: stand.items,
     })),
   });
