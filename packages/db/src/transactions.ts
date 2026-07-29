@@ -564,11 +564,57 @@ export interface OpenProposalResult {
   /**
    * Record that Telnyx accepted the current confirmation prompt. This starts the
    * 12-hour window; before it, no token can consume the proposal.
+   *
+   * Fixture convenience only: it creates the prompt row a real dispatcher would already
+   * have created, then performs the activation through `activateAcceptedPrompt` — the
+   * SAME function the outbound worker calls. There is one activation writer (GL-035).
    */
   activate(input: {
     providerAcceptedAt: Date;
     outboxLogicalKey: string;
   }): Promise<void>;
+}
+
+/**
+ * Start the confirmation window for a proposal whose prompt the provider just accepted.
+ *
+ * **This is the only writer of a proposal's activation state.** It is called by the
+ * outbound worker when Telnyx accepts a dispatch, and by `OpenProposalResult.activate`
+ * so tests exercise the production write rather than a synthetic parallel one (GL-035).
+ *
+ * This is what makes "a token predating its prompt cannot commit" true in production: a
+ * proposal is committable only from the moment the provider accepted the prompt describing
+ * the version being confirmed. Before this runs, `confirmationEligibility` reports
+ * `not_activated` and a `YES` commits nothing.
+ *
+ * `activated_version` is copied from `proposal_version` **in SQL**, so the version recorded
+ * is the one the row holds at write time — a read-then-write could record a version that a
+ * concurrent revision had already superseded.
+ *
+ * The guards make this safe to call after ANY accepted dispatch: it matches only an `open`
+ * proposal belonging to the outbox row's own recipient, and only where that row is an
+ * `inventory_confirmation`. A non-confirmation message matches nothing and is a no-op.
+ */
+export async function activateAcceptedPrompt(
+  db: Db,
+  outboxWorkId: string,
+  acceptedAt: Date,
+): Promise<void> {
+  await driver(db)`
+    update inventory_publication_proposals
+    set activation_outbox_id = ${outboxWorkId},
+        activated_version = proposal_version,
+        activated_at = ${acceptedAt},
+        expires_at = ${new Date(acceptedAt.getTime() + CONFIRMATION_WINDOW_MS)},
+        updated_at = ${acceptedAt}
+    where state = 'open'
+      and sender_hash = (
+        select recipient_hash from outbox_work where id = ${outboxWorkId}
+      )
+      and (
+        select message_category from outbox_work where id = ${outboxWorkId}
+      ) = 'inventory_confirmation'
+  `;
 }
 
 /**
@@ -658,35 +704,26 @@ export async function openOrReviseProposal(
   return {
     ...opened,
     async activate({ providerAcceptedAt, outboxLogicalKey }) {
-      await sql.begin(async (tx) => {
-        const prompt = await tx`
-          insert into outbox_work (
-            logical_key, recipient_hash, message_category, body, body_expires_at,
-            available_at, state, dispatch_authorized_at, completed_at, created_at
-          )
-          values (
-            ${outboxLogicalKey}, ${input.senderHash}, 'inventory_confirmation',
-            'Confirm this inventory', ${new Date(providerAcceptedAt.getTime() + DEFAULT_BODY_TTL_MS)},
-            ${providerAcceptedAt}, 'sent', ${providerAcceptedAt}, ${providerAcceptedAt},
-            ${providerAcceptedAt}
-          )
-          on conflict (logical_key) do update set logical_key = excluded.logical_key
-          returning id
-        `;
-        const version = await tx`
-          select proposal_version from inventory_publication_proposals
-          where id = ${opened.proposalId}
-        `;
-        await tx`
-          update inventory_publication_proposals
-          set activation_outbox_id = ${prompt[0]?.id as string},
-              activated_version = ${version[0]?.proposal_version as number},
-              activated_at = ${providerAcceptedAt},
-              expires_at = ${new Date(providerAcceptedAt.getTime() + CONFIRMATION_WINDOW_MS)},
-              updated_at = ${providerAcceptedAt}
-          where id = ${opened.proposalId}
-        `;
-      });
+      // Fixture setup: the dispatched prompt row. In production the outbound worker has
+      // already queued and sent this; here it is stood up directly so a test can reach
+      // the activation without running a dispatch pass.
+      const prompt = await sql`
+        insert into outbox_work (
+          logical_key, recipient_hash, message_category, body, body_expires_at,
+          available_at, state, dispatch_authorized_at, completed_at, created_at
+        )
+        values (
+          ${outboxLogicalKey}, ${input.senderHash}, 'inventory_confirmation',
+          'Confirm this inventory', ${new Date(providerAcceptedAt.getTime() + DEFAULT_BODY_TTL_MS)},
+          ${providerAcceptedAt}, 'sent', ${providerAcceptedAt}, ${providerAcceptedAt},
+          ${providerAcceptedAt}
+        )
+        on conflict (logical_key) do update set logical_key = excluded.logical_key
+        returning id
+      `;
+
+      // The activation itself is production's, not a parallel one (GL-035).
+      await activateAcceptedPrompt(db, prompt[0]?.id as string, providerAcceptedAt);
     },
   };
 }

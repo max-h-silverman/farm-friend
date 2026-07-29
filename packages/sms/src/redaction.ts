@@ -2,9 +2,10 @@
 // See docs/AI_ARCHITECTURE.md §"The code-enforced safety boundary and its verification."
 //
 // STATIC PROVENANCE: `RedactedOutbound` is a branded type whose ONLY public constructor is
-// `redactOutbound`. `SmsTransport.send` accepts only a `RedactedOutbound`, so you cannot send
-// an SMS without going through the guard — there is no value of the right type to pass
-// otherwise. This proves PROVENANCE (it came from the guard), NOT content.
+// `redactOutbound`. `LastMileSendInput.body` — the production send path, built by
+// `createLastMileSender` — accepts only a `RedactedOutbound`, so you cannot send an SMS
+// without going through the guard: there is no value of the right type to pass otherwise.
+// This proves PROVENANCE (it came from the guard), NOT content.
 //
 // RUNTIME ENFORCEMENT: `redactOutbound` normalizes avoidable typographic Unicode so every
 // sendable body gets cost-safe segmentation, and refuses the NAMED RAW-PHONE CLASS below even
@@ -48,7 +49,7 @@ const RAW_PHONE_RE = new RegExp(RAW_PHONE_PATTERN);
 /**
  * The outbound guard. Normalizes avoidable typographic Unicode, then refuses the named
  * raw-phone class; otherwise stamps the normalized body with the brand. This is the ONLY way
- * to produce a `RedactedOutbound`, so `SmsTransport.send` cannot be reached with an
+ * to produce a `RedactedOutbound`, so the last-mile sender cannot be reached with an
  * unprocessed string. It is not a general private-value detector — see the file header.
  */
 export function redactOutbound(body: string): RedactedOutbound {

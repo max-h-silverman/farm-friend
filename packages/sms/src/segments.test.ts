@@ -1,10 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import {
-  estimateSmsSegments,
-  normalizeAvoidableSmsUnicode,
-  redactOutbound,
-  SmsSimulator,
-} from "./index";
+import { describe, expect, it } from "vitest";
+import { estimateSmsSegments, normalizeAvoidableSmsUnicode, redactOutbound } from "./index";
 
 describe("SMS segment estimation", () => {
   it("estimates a basic GSM-7 message under 160 characters as one segment", () => {
@@ -55,21 +50,8 @@ describe("SMS segment estimation", () => {
     expect(normalized).toContain("🌱");
   });
 
-  it("logs cost metrics without logging message content", async () => {
-    const logger = vi.fn();
-    const simulator = new SmsSimulator(logger);
-
-    await simulator.send({
-      toPhoneHash: "recipient-hash",
-      body: redactOutbound("Reply YES to publish."),
-    });
-
-    expect(logger).toHaveBeenCalledWith({
-      toPhoneHash: "recipient-hash",
-      encoding: "GSM-7",
-      characterCount: 21,
-      encodingUnitCount: 21,
-      segmentCount: 1,
-    });
-  });
+  // GL-035: the content-free metrics assertion that used to sit here exercised
+  // `SmsSimulator`, a delivery path production never took, so it proved nothing about what
+  // Farm Friend actually sends. Segment metrics on the REAL send path are GL-021's required
+  // outcome; the estimator above is the machinery that item attaches, and it stays tested.
 });

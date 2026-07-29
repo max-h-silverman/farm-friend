@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   containsRawPhone,
+  createLastMileSender,
   OutboundRedactionError,
   redactOutbound,
-  SmsSimulator,
-  type OutboundMessage,
+  type LastMileSendInput,
 } from "./index";
 
 // These tests demonstrate the guard's NARROW behavior: brand provenance and the named
@@ -22,10 +22,15 @@ describe("outbound guard — runtime enforcement of the named raw-phone class", 
 
   it("passes a clean message and stamps the brand", () => {
     const body = redactOutbound("Provo Farms: tomatoes, kale, eggs. Still right? Reply YES.");
-    // Type-level: `body` is RedactedOutbound, so it's accepted by send() below (compile guard).
-    const msg: OutboundMessage = { toPhoneHash: "abc", body };
+    // Type-level: `body` is RedactedOutbound, so it satisfies the production send input
+    // (compile guard). See safety-boundary.type-test.ts for the bypass assertions.
+    const input: LastMileSendInput = {
+      recipientHash: "abc",
+      body,
+      idempotencyKey: "outbox-1",
+    };
     expect(typeof body).toBe("string");
-    expect(msg.body).toContain("Provo Farms");
+    expect(input.body).toContain("Provo Farms");
   });
 
   it("does not claim to detect private values outside the named class", () => {
@@ -70,10 +75,28 @@ describe("outbound guard — runtime enforcement of the named raw-phone class", 
     );
   });
 
-  it("only a RedactedOutbound can be sent (the simulator records it)", async () => {
-    const sim = new SmsSimulator(() => {});
-    await sim.send({ toPhoneHash: "abc", body: redactOutbound("Reply YES to publish.") });
-    expect(sim.sent).toHaveLength(1);
-    expect(sim.sent[0]!.toPhoneHash).toBe("abc");
+  // GL-035: asserted against the PRODUCTION send path. This used to run through
+  // `SmsSimulator`, a parallel transport nothing in production wired, so it demonstrated
+  // the guard on code that never executed. `createLastMileSender` is what the web
+  // composition root builds, so the body reaching the provider here is the same value that
+  // would reach Telnyx.
+  it("only a guard-produced body reaches the provider transport", async () => {
+    const seen: string[] = [];
+    const send = createLastMileSender({
+      resolver: { resolveForDelivery: async () => "+12065550000" },
+      transport: async ({ body }) => {
+        seen.push(body);
+        return { providerMessageId: "prov-1" };
+      },
+    });
+
+    const result = await send({
+      recipientHash: "abc",
+      body: redactOutbound("Reply YES to publish."),
+      idempotencyKey: "outbox-1",
+    });
+
+    expect(result.outcome).toBe("accepted");
+    expect(seen).toEqual(["Reply YES to publish."]);
   });
 });

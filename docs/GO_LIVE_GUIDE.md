@@ -689,9 +689,14 @@ string/array bounds, and the live request has no output-token limit.
 
 **Confirmed risk**
 
-The GSM/UCS-2 estimator and metrics logger are attached to the legacy `SmsSimulator`. Production
-uses `createLastMileSender` and does not estimate, log, or cap segments. Long model-derived
-confirmation text can therefore create unexpected billable messages.
+Production uses `createLastMileSender` and does not estimate, log, or cap segments. Long
+model-derived confirmation text can therefore create unexpected billable messages.
+
+GL-035 removed the legacy `SmsSimulator` the estimator and metrics logger used to hang off, and
+deleted the metrics logger with it — it had no other caller. `estimateSmsSegments` and
+`normalizeAvoidableSmsUnicode` survive in `packages/sms/src/segments.ts` and are the machinery this
+item attaches to the real send path; the normalizer is already on it, via the outbound guard.
+There is now exactly one send seam to attach to.
 
 **Required outcome**
 
@@ -909,6 +914,43 @@ Candidates identified by the review:
 
 Delete dead mechanisms or make the production path their real consumer. Do not preserve duplicate
 concepts merely because tests use them.
+
+**Completed:** 2026-07-28 — each candidate reconfirmed against the code first; two of the three
+findings above were wrong in detail, and the corrections changed what was done.
+
+- **`roles.ts` — NARROWED, not deleted.** The finding's premise ("production uses the durable
+  guard *instead*") is false: production reaches this module constantly. `admin-guard.ts` — the
+  one guard all five admin API routes share — calls `requireRole` and `AuthorizationError`, the
+  four admin pages call `hasRole`, and `packages/db/src/admin.ts` returns a `Principal` typed by
+  `Role`. What was actually dead is the multi-level vocabulary: nothing anywhere produced or
+  required `staff` or `farmer`, so the `IMPLIES` table could never fire. `Role` is now `"admin"`
+  alone. Deleting the module would have deleted the live admin authority check.
+- **SMS — the parallel path was real, and it was where the SAFETY PROOF lived.** `SmsTransport` is
+  *not* the live seam, contrary to the finding: `createLastMileSender` takes a `ProviderTransport`
+  (a plain function type in `delivery.ts`), and that is what the composition root wires Telnyx
+  into. `SmsTransport`/`OutboundMessage`/`SmsSimulator`/`SentMessage` and the segment-metrics
+  logger were reachable only from this package's own tests — deleted. The consequential part:
+  `safety-boundary.type-test.ts`, the Golden Rule #6 layer-1 compile guard, asserted the branded
+  outbound type against `OutboundMessage`, so the static provenance barrier was proven on a path
+  production never took. It is re-anchored to `LastMileSendInput`, and sabotage-verified — erasing
+  the brand now fails the typecheck on both bypass assertions. `estimateSmsSegments` and
+  `normalizeAvoidableSmsUnicode` were KEPT: GL-021 attaches the first to the real send path and
+  the outbound guard already calls the second.
+- **`activate()` — deduplicated into one writer.** Confirmed: two code paths wrote the same
+  activation state and only the worker's ran in production, so a divergence between them was
+  invisible. They had already diverged — the test path read `proposal_version` in a separate query
+  and guarded on nothing, while production copies it in SQL and matches on `state = 'open'` plus
+  recipient plus `inventory_confirmation`. Production's version is now the exported
+  `activateAcceptedPrompt` in `packages/db/src/transactions.ts`; the worker calls it and
+  `OpenProposalResult.activate` calls it after creating the prompt row a dispatcher would have
+  created. Tests adapted to production, never the reverse. Sabotage-verified: breaking the shared
+  write fails **12 integration tests** across three files, which it did not do before.
+
+Verified on this branch: `npm test` **491/491 across 52 files** (−6 from 497: the roles suite lost
+five cases with the roles that no longer exist, and one simulator metrics test was deleted rather
+than rewritten against a path GL-021 will build); `npm run test:integration` **311/311 across 19
+files** on real Postgres 16; `npm run typecheck`, `npm run lint`, and `npx next build` all exit 0;
+`npm run evals` critical **11/11**, adversarial **29/29**, advisory 4/4.
 
 ### GL-036 — Keep historical logs out of the normal reading path
 
