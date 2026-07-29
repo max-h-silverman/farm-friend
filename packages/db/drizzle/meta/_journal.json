@@ -50,6 +50,13 @@
       "when": 1785500000000,
       "tag": "0006_one_use_magic_links",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785352095637,
+      "tag": "0007_steep_infant_terrible",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,8 @@ const stands: PublicStandPayload[] = [
     id: "fresh-far",
     farmName: "Alpha Farm",
     locationName: "Alpha Stand",
+    visitability: "visitable",
+    offeringType: "produce",
     address: "1 North Road",
     latitude: 47.6,
     longitude: -122.4594,
@@ -23,6 +25,8 @@ const stands: PublicStandPayload[] = [
     id: "stale-near",
     farmName: "Beta Farm",
     locationName: "Beta Stand",
+    visitability: "visitable",
+    offeringType: "produce",
     address: "2 South Road",
     latitude: 47.45,
     longitude: -122.4594,
@@ -114,6 +118,8 @@ describe("buildMapView", () => {
       id: "unconfirmed",
       farmName: "Gamma Farm",
       locationName: "Gamma Stand",
+      visitability: "visitable",
+      offeringType: "produce",
       address: "3 East Road",
       latitude: 47.46,
       longitude: -122.4594,
@@ -144,6 +150,89 @@ describe("buildMapView", () => {
       const view = buildMapView([unconfirmed], null);
       expect(view.stands[0]!.updated).toBeUndefined();
       expect(view.stands[0]!.stale).toBeUndefined();
+    });
+  });
+
+  describe("a farm you contact rather than visit (F-038)", () => {
+    // Open Gate Lamb: sells by order, no stand, no address, no coordinates. Listed on the map
+    // by max's decision (2026-07-29) — clearly marked, not hidden — because a VIGA member
+    // absent from the island's only guide is invisible.
+    //
+    // Distinct from B-013 above in the way that matters here: an unconfirmed stand HAS a
+    // location and only lacks stock, so it still gets a routing link. This one has no location
+    // at all, so a routing link would be a route to nowhere.
+    const contactOnly: PublicStandPayload = {
+      id: "contact-only",
+      farmName: "Open Gate Lamb and Grazing",
+      locationName: "Open Gate Lamb and Grazing",
+      visitability: "contact_only",
+      offeringType: "by_order",
+      items: [],
+    };
+
+    it("is kept on the map", () => {
+      const view = buildMapView([...stands, contactOnly], null);
+      expect(view.stands.map((s) => s.id)).toContain("contact-only");
+    });
+
+    it("gets NO routing link, because there is nowhere to route to", () => {
+      // The concrete harm this prevents: `Number(null)` is 0, so the un-fixed reader produced
+      // coordinates 0,0 — a pin in the Atlantic Ocean off Africa — and a routing link that
+      // would navigate a customer toward it.
+      const view = buildMapView([contactOnly], null);
+      expect(view.stands[0]!.routingLink).toBeNull();
+    });
+
+    it("gets no distance even when the customer shared a position", () => {
+      // Distance from a known point to an unknown one is not a number. Emitting 0, or a
+      // distance computed against 0,0, would sort this farm to the top as the "nearest".
+      const view = buildMapView([...stands, contactOnly], ORIGIN);
+      const stand = view.stands.find((s) => s.id === "contact-only")!;
+      expect(stand.distanceMiles).toBeUndefined();
+      expect(stand.distanceLabel).toBeUndefined();
+    });
+
+    it("never sorts ahead of real stands when distances are known", () => {
+      // The ordering consequence of the previous test. A contact-only farm has no distance,
+      // so it must fall BEHIND every stand that has one rather than leading the list.
+      const view = buildMapView([...stands, contactOnly], ORIGIN);
+      expect(view.stands[view.stands.length - 1]!.id).toBe("contact-only");
+    });
+
+    it("is NOT counted as stale", () => {
+      expect(buildMapView([contactOnly], null).staleCount).toBe(0);
+    });
+
+    it("shows published stock when it has some — the two facts are independent", () => {
+      // max's decision, 2026-07-29: ANY farm may participate in SMS inventory. Open Gate Lamb
+      // sells goods with real seasonal availability ("butchering in July and November"), so
+      // "no place to visit" must never be read as "nothing to publish". A view model that
+      // suppressed items for contact-only farms would silently remove a farmer's published
+      // listing — Golden Rule #1 territory, since only the farmer owns that state.
+      const withStock: PublicStandPayload = {
+        ...contactOnly,
+        updated: "updated 2 hours ago",
+        stale: false,
+        items: [{ itemName: "Lamb shares", priceText: "$180 half" }],
+      };
+
+      const view = buildMapView([withStock], null);
+
+      expect(view.stands[0]!.items.map((i) => i.itemName)).toEqual([
+        "Lamb shares",
+      ]);
+      expect(view.stands[0]!.updated).toBe("updated 2 hours ago");
+      // Still no route, though — stock and location remain independent.
+      expect(view.stands[0]!.routingLink).toBeNull();
+    });
+
+    it("carries the two properties through for the UI to mark it", () => {
+      // The UI needs these to say "order by contact — no stand to visit". Without them it
+      // would have to infer the case from a missing address, which is how a renderer ends up
+      // printing an empty address line.
+      const view = buildMapView([contactOnly], null);
+      expect(view.stands[0]!.visitability).toBe("contact_only");
+      expect(view.stands[0]!.offeringType).toBe("by_order");
     });
   });
 });

@@ -26,6 +26,37 @@ export const salesLocationKind = pgEnum("sales_location_kind", [
   "farm_stand",
   "farmers_market",
 ]);
+
+// F-038 — two independent properties of a sales location, not a third `kind` value.
+//
+// The 2026 form export holds two members that are not ordinary stands, and they differ from
+// each other in a way one enum cannot carry:
+//
+//   Seedrain / Garden Cycles    a street address, but sells SERVICES — nothing to browse
+//   Open Gate Lamb and Grazing  NO address at all ("On island delivery for orders over $50")
+//
+// A single `kind` value would need one entry per combination, which is the parallel-mechanism
+// creep the zen-desk rule forbids. Two orthogonal properties describe both, and every existing
+// stand keeps its meaning as `visitable` + `produce`.
+
+/** Whether there is a place to go. Decides whether an address and coordinates are required. */
+export const salesLocationVisitability = pgEnum(
+  "sales_location_visitability",
+  ["visitable", "contact_only"],
+);
+
+/**
+ * What the farm provides.
+ *
+ * `by_order` is a real third case, not a synonym for `services`: Open Gate Lamb sells goods
+ * with genuine seasonal availability ("butchering in July and November"), which a service
+ * business does not have. Whether either participates in SMS inventory is still an open
+ * product question — this column records the fact, it does not decide the behaviour.
+ */
+export const salesLocationOfferingType = pgEnum(
+  "sales_location_offering_type",
+  ["produce", "services", "by_order"],
+);
 export const inventoryApproximation = pgEnum("inventory_approximation", [
   "some",
   "limited",
@@ -460,9 +491,29 @@ export const salesLocations = pgTable(
       .references(() => farms.id, { onDelete: "restrict" }),
     kind: salesLocationKind("kind").notNull(),
     name: text("name").notNull(),
-    publicAddress: text("public_address").notNull(),
-    publicLatitude: doublePrecision("public_latitude").notNull(),
-    publicLongitude: doublePrecision("public_longitude").notNull(),
+    /**
+     * F-038. Both default to the pre-F-038 meaning, so every stand seeded before this
+     * migration keeps exactly the classification it already had. A default of anything else
+     * would silently reclassify 28 real listings.
+     */
+    visitability: salesLocationVisitability("visitability")
+      .notNull()
+      .default("visitable"),
+    offeringType: salesLocationOfferingType("offering_type")
+      .notNull()
+      .default("produce"),
+
+    /**
+     * Present only for a `visitable` location — see `coherentVisitability` below.
+     *
+     * These were `NOT NULL` before F-038, which is precisely why the seeder refused Open Gate
+     * Lamb: it has no stand to visit, so there is no address to record and inventing one is
+     * forbidden. The column-level requirement is now a conditional constraint instead, so the
+     * database still refuses a visitable stand with no address.
+     */
+    publicAddress: text("public_address"),
+    publicLatitude: doublePrecision("public_latitude"),
+    publicLongitude: doublePrecision("public_longitude"),
     /**
      * The farmer's own words about when they are open, preserved verbatim.
      *
@@ -522,13 +573,52 @@ export const salesLocations = pgTable(
       "sales_locations_name_not_blank",
       sql`length(trim(${table.name})) > 0`,
     ),
+    /**
+     * Still refuses a blank address — a nullable column must not turn "   " into a legal one.
+     * Written `is null or …` so the NULL case is stated explicitly rather than relying on a
+     * CHECK's silent pass on NULL; `coherentVisitability` is what forbids the null when the
+     * location is visitable.
+     */
     addressNotBlank: check(
       "sales_locations_address_not_blank",
-      sql`length(trim(${table.publicAddress})) > 0`,
+      sql`${table.publicAddress} is null or length(trim(${table.publicAddress})) > 0`,
     ),
     validCoordinates: check(
       "sales_locations_valid_coordinates",
-      sql`${table.publicLatitude} between -90 and 90 and ${table.publicLongitude} between -180 and 180`,
+      sql`
+        (${table.publicLatitude} is null or ${table.publicLatitude} between -90 and 90)
+        and (${table.publicLongitude} is null or ${table.publicLongitude} between -180 and 180)
+      `,
+    ),
+    /**
+     * F-038 — the load-bearing invariant. All-or-nothing in BOTH directions.
+     *
+     * `visitable` requires an address and a complete coordinate pair: without them the map
+     * cannot place the stand, so "visitable" would be a promise the system cannot keep. Half a
+     * coordinate pair is refused too — latitude alone puts a pin in the ocean.
+     *
+     * `contact_only` requires all three to be ABSENT, which is the direction that actually
+     * protects customers. The old map export carries real coordinates for Open Gate Lamb even
+     * though it has no stand; seeding those would put a pin on the map that sends someone
+     * driving to a place with nothing to buy. The database refuses that rather than trusting
+     * every future loader and admin screen to remember.
+     */
+    coherentVisitability: check(
+      "sales_locations_coherent_visitability",
+      sql`
+        (
+          ${table.visitability} = 'visitable'
+          and ${table.publicAddress} is not null
+          and ${table.publicLatitude} is not null
+          and ${table.publicLongitude} is not null
+        )
+        or (
+          ${table.visitability} = 'contact_only'
+          and ${table.publicAddress} is null
+          and ${table.publicLatitude} is null
+          and ${table.publicLongitude} is null
+        )
+      `,
     ),
     acceptanceRequiresEligibility: check(
       "sales_locations_farm_bucks_acceptance_requires_eligibility",

@@ -243,10 +243,22 @@ It is **idempotent** (keyed on stand name; a second run skips what exists and ne
 farmer's own later correction is not reverted to the CSV) and **refuses rather than coerces** — the
 whole batch is one transaction, and an out-of-range coordinate aborts it instead of being clamped.
 
-Against VIGA's real export: **28 of 31 stands seeded, 3 flags raised**. The 3 not seeded — Vashon
-Island Farmers Market, Breathing Meadows Farm, Open Gate Lamb and Grazing — state **no street
-address**, and `public_address` is NOT NULL; inventing one is the fabrication F-017 forbids, so they
-are reported as operator tasks awaiting an address from VIGA.
+Against VIGA's map export: **28 of 31 stands seeded, 3 flags raised**. The 3 not seeded — Vashon
+Island Farmers Market, Breathing Meadows Farm, Open Gate Lamb and Grazing — stated **no street
+address**, and inventing one is the fabrication F-017 forbids, so they were reported as operator
+tasks.
+
+**All three are now resolved, and the seed SOURCE has changed (2026-07-29).** Farmers Market has an
+address from max (17519 Vashon Hwy SW); Breathing Meadows and Open Gate Lamb are **`contact_only`**
+under F-038 and need none — neither is a visitable location. `public_address` is **no longer
+NOT NULL** (migration 0007): it is required for a `visitable` location and forbidden for a
+`contact_only` one, enforced by `sales_locations_coherent_visitability`.
+
+The primary source is now the **2026 form responses** export
+(`packages/core/src/seed/form-responses.ts`) — well-formed, one row per farm, with hours, season,
+and stocking as separate columns. **It carries no coordinates**, so the map export remains required
+input for those and for farms that did not submit a 2026 form. The seed join over both is not yet
+built; the loader still reads the map export alone.
 
 **The export is malformed CSV and no standard parser reads it.** Each `description` is unquoted and
 spans raw newlines until the next `"POINT (` line, so a conventional reader returns **285 rows for
@@ -630,15 +642,24 @@ DIGEST=$(gcloud artifacts docker images describe \
   --format='value(image_summary.digest)' --project farm-friend-vashon)
 
 # 3. Plan, and ASSERT the plan before applying. `validate` only proves the config parses; these
-#    assertions prove the worker is internal-only, nothing is held warm, and no credential
-#    reached state. Each one is sabotage-verified.
+#    assertions prove the worker is internal-only, nothing is held warm, no credential
+#    reached state, and both services carry the rotation marker. Each one is sabotage-verified.
 cd infra
 tofu plan -var="image_digest=$DIGEST" -out=/tmp/tf.plan
 tofu show -json /tmp/tf.plan | python3 plan-assertions.py
 
 # 4. Apply (provisions; needs approval).
 tofu apply /tmp/tf.plan
+
+# 5. ASSERT BY EFFECT that every serving container is newer than every secret it consumes.
+#    Reads only metadata (revision and version creation times) — never a secret value.
+#    Step 4 passing does NOT imply this: an apply that leaves the revision template
+#    unchanged creates no revision, and that is exactly how B-021 happened.
+python3 deploy_assertions.py
 ```
+
+**Delete the plan file when you are done** (`rm /tmp/tf.plan`). A plan is not as sensitive as
+state, but it describes the whole deployment and there is no reason to leave it in `/tmp`.
 
 Migrations are still `npm run db:migrate` with `DATABASE_URL` pointed at the target, run
 **before** promoting a build so production never runs code ahead of its schema.
@@ -838,32 +859,66 @@ This is the order actually used on 2026-07-29; repeat it if a future rotation is
    `gcloud secrets versions add farm-friend-magic-link-secret`.
 4. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, then **both** Secret Manager and local
    `.env`. Updating one leaves the other authenticating with a dead key.
-5. **Redeploy** — `tofu plan` / assertions / `apply`. Without this the running containers still hold
+5. **Bump `rotation_applied_at` in `infra/terraform.tfvars`** — `date -u +%Y-%m-%dT%H-%M`. Do this
+   in the *same* change as the version add. This is the step whose absence caused **B-021**:
+   Cloud Run resolves `version = "latest"` at container start, so an apply that leaves the revision
+   template byte-identical creates **no new revision**, and every running container keeps the value
+   it read at boot. The apply still reports changes and still succeeds — on 2026-07-29 it said
+   "2 to change" and applied cleanly while both services kept the pre-rotation `DATABASE_URL`
+   against an already-reset Neon password. Changing this value changes the template, which forces
+   the revision, which re-reads every secret.
+6. **Redeploy** — `tofu plan` / assertions / `apply`. Without this the running containers still hold
    the old values, and after a Neon reset that means production is serving on a **revoked**
    password. Keep the gap short.
-6. **Verify by effect**, then confirm the old values no longer authenticate (both below).
+7. **Run `python3 infra/deploy_assertions.py`** — it fails unless every serving revision is newer
+   than every secret version it consumes. This is the check that would have caught B-021 in seconds:
+   the stale revision was created 16:09:26 and the secret version 16:35:29, 26 minutes later.
+   **A green apply is not a restart.** Compare the revision's creation time against the secret
+   version's and treat an older revision as "not applied", whatever any endpoint returns.
+8. **Verify by effect**, then confirm the old values no longer authenticate (both below).
 
 ### Proof by effect — required before GL-001 is marked complete
 
 Run after the redeploy. Each proves the *new* value works; the second table proves the *old* one
 does not.
 
+**Before reading any row below, run `python3 infra/deploy_assertions.py`.** If a serving revision
+predates a secret version, every proof in this table is meaningless — the container under test is
+still running the old credential, and several of these checks will happily pass anyway.
+
 | Credential | Proof it works |
 |---|---|
-| `DATABASE_URL` | `GET /api/public/stands` returns **200** with the expected body |
-| `CRON_SECRET` | `gh workflow run scheduled-worker.yml`, then the run reports **HTTP 200** (the workflow checks `%{http_code}`, so a 401 fails the run rather than showing a green tick) |
+| `DATABASE_URL` | a **cold** container serves a request that opens a NEW connection. `GET /api/public/stands` alone is **not** proof — see the trap below |
 | `TELNYX_API_KEY` | a real send returns a provider message ID; or a signed inbound webhook returns **401→200** path end to end |
 | `MAGIC_LINK_SECRET` | a freshly minted link signs in |
-| `DEEPINFRA_API_KEY` | `npm run evals:live` completes (costs a few cents — needs explicit approval) |
+| `DEEPINFRA_API_KEY` | `npm run evals:live` completes (costs a few cents — needs explicit approval). Note it runs **locally** against `.env` and proves nothing about the deployment |
 | every Telnyx var | an unsigned POST to `/api/sms/webhook` returns **401**, not 500 — under the three-way diagnostic, 401 proves configuration still resolves |
 
 | Old value | Proof it is dead |
 |---|---|
-| old `DATABASE_URL` | a connection attempt with it is refused |
-| old `CRON_SECRET` | `POST /api/internal/cron` with the old bearer token returns **401** |
+| old `DATABASE_URL` | a connection attempt with it is refused (`password authentication failed`) |
 | old `TELNYX_API_KEY` | a request to the Telnyx API with it returns **401** |
 | old `MAGIC_LINK_SECRET` | a link minted under the old secret is refused at the callback |
 | old `DEEPINFRA_API_KEY` | a request with it returns **401** |
+
+`CRON_SECRET` is deliberately absent from both tables: it no longer exists. Cloud Scheduler
+authenticates with OIDC against IAM, so there is no shared credential to rotate.
+
+#### Three checks that looked like proof and were not (B-021)
+
+All three were run on 2026-07-29, all three passed, and production was broken the whole time.
+
+- **`GET /api/public/stands` returning `{"stands":[]}`.** Served by a **warm** container whose
+  pooled connections predated the Neon reset. *A warm connection survives a password change* —
+  only a NEW connection re-authenticates. An empty array is also indistinguishable from a
+  genuinely empty table, which production's is.
+- **A scheduler run returning 200.** That reading was taken *before* the rotation apply and
+  carried forward as if current. Re-read it after, or it is not evidence.
+- **`npm run evals:live` passing 6/6.** It runs **locally**, against local `.env`, and never
+  touches the deployment.
+
+The general rule: **verify against a container you know started after the rotation, on a path that
+opens a new connection.** `deploy_assertions.py` is that check, mechanised.
 
 If a path was "provision fresh, then tear down", the old-value proofs are satisfied by the teardown
 itself — but **verify the teardown actually happened**, and record which proof each row rests on.

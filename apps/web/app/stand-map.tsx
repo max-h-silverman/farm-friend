@@ -110,6 +110,15 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                 <p className="items-empty">
                   The farmer confirmed this stand is empty right now.
                 </p>
+              ) : stand.visitability === "contact_only" ? (
+                // F-038 — same "nobody has confirmed anything" fact, but the reassurance that
+                // fits a roadside stand ("it may still have produce out") is wrong here: there
+                // is no stand to have produce out. ANY farm may publish inventory (max,
+                // 2026-07-29), so this says nothing has been published *yet* rather than
+                // implying this farm never publishes.
+                <p className="items-empty">
+                  No current listing — contact this farm to ask what’s available.
+                </p>
               ) : (
                 // No items AND no confirmation are a different fact from a confirmed-empty
                 // stand, and saying "the farmer confirmed" here would invent the one thing
@@ -127,7 +136,20 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                 </p>
               ) : null}
 
-              <p className="address">{stand.address}</p>
+              {/*
+                F-038 — a farm you contact rather than visit says so, in place of an address.
+                Rendering `stand.address` unconditionally printed an EMPTY line here, which
+                reads as a stand whose address nobody bothered to fill in. Open Gate Lamb has
+                no stand at all; saying that plainly is the honest version, and it is the whole
+                reason these farms are listed rather than hidden.
+              */}
+              {stand.address !== undefined ? (
+                <p className="address">{stand.address}</p>
+              ) : (
+                <p className="address address-contact-only">
+                  <strong>No stand to visit</strong> — order by contacting this farm.
+                </p>
+              )}
               {stand.routingLink !== null ? (
                 <a
                   className="directions"

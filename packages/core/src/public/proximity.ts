@@ -112,8 +112,14 @@ export function destinationRoutingLink(
   return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
-/** Anything carrying a public coordinate — a stand, in practice. */
-export interface Locatable extends PublicCoordinates {
+/**
+ * Anything that may carry a public coordinate — a stand, in practice.
+ *
+ * The coordinates are OPTIONAL because of F-038: a contact-only farm (Open Gate Lamb sells by
+ * order and has no stand) has no location at all. It still appears on the map, so this function
+ * has to accept it and answer honestly rather than compute a distance from nothing.
+ */
+export interface Locatable extends Partial<PublicCoordinates> {
   factId: string;
 }
 
@@ -152,8 +158,32 @@ export function withApproximateDistance<T extends Locatable>(
 
   return stands
     .map((stand) => {
-      const distanceMiles = straightLineMiles(from, stand);
+      // F-038 — a stand with no coordinates gets no distance, not a distance of zero.
+      // `straightLineMiles` against an absent coordinate returns NaN, and NaN in the
+      // comparator below makes the sort order-dependent, so an unlocatable farm could surface
+      // anywhere in the list — including first, presented as the nearest place to shop.
+      const { latitude, longitude } = stand;
+      if (
+        latitude === undefined ||
+        longitude === undefined ||
+        !isPlausibleOrigin({ latitude, longitude })
+      ) {
+        return { ...stand } as WithDistance<T>;
+      }
+      const distanceMiles = straightLineMiles(from, { latitude, longitude });
       return { ...stand, distanceMiles, distanceLabel: renderDistance(distanceMiles) };
     })
-    .sort((a, b) => a.distanceMiles - b.distanceMiles || a.factId.localeCompare(b.factId));
+    .sort((a, b) => {
+      // Undistanced stands sort LAST, never interleaved and never first. Same reasoning as
+      // `nulls last` in the listing query: "we don't know where this is" must not be treated
+      // as "this is at the origin".
+      const left = a.distanceMiles;
+      const right = b.distanceMiles;
+      if (left === undefined && right === undefined) {
+        return a.factId.localeCompare(b.factId);
+      }
+      if (left === undefined) return 1;
+      if (right === undefined) return -1;
+      return left - right || a.factId.localeCompare(b.factId);
+    });
 }

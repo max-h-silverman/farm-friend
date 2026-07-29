@@ -137,6 +137,32 @@ describe("withApproximateDistance", () => {
     expect(result.every((s) => s.distanceMiles === undefined)).toBe(true);
   });
 
+  it("keeps a stand with NO coordinates, undistanced and last (F-038)", () => {
+    // A contact-only farm (Open Gate Lamb) has no coordinates at all. Distance from a known
+    // point to an unknown one is not a number, so it gets none — and it must fall BEHIND every
+    // stand that has a real distance rather than leading the list.
+    //
+    // The failure this pins is arithmetic, not typing: `straightLineMiles` against `undefined`
+    // yields NaN, and NaN in a comparator makes `sort` order-dependent, so the unlocatable
+    // farm can surface anywhere — including first, presented as the nearest place to shop.
+    const withUnlocatable = [
+      ...stands,
+      { factId: "contact-only", latitude: undefined, longitude: undefined },
+    ];
+
+    const result = withApproximateDistance(withUnlocatable, VASHON);
+
+    expect(result.map((s) => s.factId)).toEqual([
+      "near",
+      "middle",
+      "far",
+      "contact-only",
+    ]);
+    const unlocatable = result.find((s) => s.factId === "contact-only")!;
+    expect(unlocatable.distanceMiles).toBeUndefined();
+    expect(unlocatable.distanceLabel).toBeUndefined();
+  });
+
   it("does not mutate or retain the caller's stands or origin", () => {
     const origin = { ...VASHON };
     const input = stands.map((s) => ({ ...s }));

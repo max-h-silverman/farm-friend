@@ -104,6 +104,36 @@ variable "telnyx_from_number" {
   }
 }
 
+variable "rotation_applied_at" {
+  description = <<-EOT
+    A rotation marker, e.g. `2026-07-29T17-35`. Bumped whenever a secret VERSION is added.
+
+    Cloud Run binds `version = "latest"` at CONTAINER START, so `gcloud secrets versions add`
+    changes nothing about what is serving and an apply only helps if it alters the revision
+    template. On 2026-07-29 it did not: the apply reported "2 to change", applied cleanly, and
+    produced no new revision after the secrets landed. Both services kept the pre-rotation
+    `DATABASE_URL` against an already-reset Neon password and production was down ~25 minutes
+    (B-021). Changing this value changes the template, which forces a new revision, which is
+    what makes the container re-read every secret.
+
+    It exists as a VARIABLE rather than a hand-run `gcloud run services update` because the
+    emergency fix used exactly that command, and the env var it injected then existed only on
+    the live services — so every subsequent `tofu plan` reported "2 to change" wanting to strip
+    it. That standing drift is what made a no-op apply look like a real one. Declared here, the
+    config round-trips and a clean tree plans clean.
+
+    This does NOT replace `infra/deploy_assertions.py`, which verifies by effect that each
+    serving revision is newer than every secret version it consumes. This forces the revision;
+    that proves one happened. A forgotten bump here is precisely what the assertion catches.
+  EOT
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}$", var.rotation_applied_at))
+    error_message = "rotation_applied_at must look like 2026-07-29T17-35 (UTC, colons replaced by dashes, as `date -u +%Y-%m-%dT%H-%M` produces)."
+  }
+}
+
 variable "cloud_run_host_suffix" {
   description = <<-EOT
     The per-project Cloud Run host suffix, e.g. `p5mfxfp5za-uw` in

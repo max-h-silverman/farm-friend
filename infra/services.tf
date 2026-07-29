@@ -38,6 +38,16 @@ locals {
     TELNYX_FROM_NUMBER          = var.telnyx_from_number
     TELNYX_PUBLIC_KEY           = var.telnyx_public_key
     PUBLIC_BASE_URL             = local.web_url
+
+    # ROTATION_APPLIED_AT — the reason a rotated secret reaches running containers at all.
+    #
+    # The application never reads this. Its only job is to be part of the revision template:
+    # `version = "latest"` is resolved when a container STARTS, so adding a secret version
+    # changes nothing that is already running, and an apply that leaves the template identical
+    # creates no revision to re-read it. Bumping this value changes the template, which forces
+    # a new revision, which re-resolves every secret. See `variables.tf` for the B-021 outage
+    # this comes from.
+    ROTATION_APPLIED_AT = var.rotation_applied_at
   }
 
   # PUBLIC_BASE_URL — BOTH services need it, and it is always the PUBLIC service's URL.

@@ -342,6 +342,93 @@ describe("public web surface boundary (integration)", () => {
     });
   });
 
+  describe("a farm you contact rather than visit (F-038)", () => {
+    // Open Gate Lamb sells by order and states its address as "On island delivery for orders
+    // over $50" — there is no place to go. max's decision (2026-07-29): list it, clearly marked
+    // as not-a-stand, rather than hiding it behind a filter or dropping it.
+    //
+    // The danger this guards is specific and physical. The LEGACY map export carries real
+    // coordinates for Open Gate Lamb, so the easy failure is a pin on the map that sends a
+    // customer driving to a farm with nothing to buy. Migration 0007 makes that unrepresentable
+    // in the database; these tests prove the READER does not reintroduce it with a placeholder.
+    //
+    // Same shape as B-013 above: the fields are absent TOGETHER, never defaulted. `"null"` as a
+    // street address or `NaN` as a latitude would both survive `as string` / `Number()` casts
+    // and reach the map without a single type error.
+
+    async function insertContactOnly(name: string): Promise<string> {
+      const rows = await client()`
+        insert into sales_locations (
+          farm_id, kind, name, visitability, offering_type,
+          public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (${ids.farm}, 'farm_stand', ${name}, 'contact_only', 'by_order',
+                null, null, null, false, false)
+        returning id
+      `;
+      return rows[0]?.id as string;
+    }
+
+    it("is listed on the map alongside visitable stands", async () => {
+      const contactOnlyId = await insertContactOnly("Open Gate Lamb and Grazing");
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      // Listed, not hidden — the product decision. Dropping it would make a VIGA member
+      // invisible to the island's only guide.
+      expect(stands.map((s) => s.factId)).toContain(contactOnlyId);
+    });
+
+    it("carries NO address and NO coordinates, rather than placeholders", async () => {
+      const contactOnlyId = await insertContactOnly("Open Gate Lamb and Grazing");
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const contactOnly = stands.find((s) => s.factId === contactOnlyId)!;
+
+      // The load-bearing half. `undefined` is the only honest value; the string "null" and
+      // `NaN` both render as a location on a map.
+      expect(contactOnly.publicAddress).toBeUndefined();
+      expect(contactOnly.latitude).toBeUndefined();
+      expect(contactOnly.longitude).toBeUndefined();
+      expect(contactOnly.visitability).toBe("contact_only");
+      expect(contactOnly.offeringType).toBe("by_order");
+    });
+
+    it("never serializes a null-ish address or a NaN coordinate over HTTP", async () => {
+      await insertContactOnly("Open Gate Lamb and Grazing");
+
+      const response = await handleStandsRequest({
+        db: db!,
+        clock: new FixedClock(T0),
+      });
+      const serialized = JSON.stringify(await response.json());
+
+      // Whole-payload assertions, the same technique the privacy tests use. A cast that
+      // stringifies NULL produces exactly these, and each would place a pin or print an
+      // address line that does not exist.
+      expect(serialized).not.toMatch(/"null"/);
+      expect(serialized).not.toMatch(/"undefined"/);
+      expect(serialized).not.toMatch(/NaN/);
+      expect(serialized).not.toMatch(/"address"\s*:\s*null/);
+    });
+
+    it("still carries address and coordinates for an ordinary visitable stand", async () => {
+      // The other direction: making the fields optional must not quietly drop them from the
+      // stands that DO have them, which is 30 of the 32 real farms.
+      await insertContactOnly("Open Gate Lamb and Grazing");
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const visitable = stands.find((s) => s.factId === ids.location)!;
+
+      expect(visitable.publicAddress).toBe("123 Vashon Hwy");
+      expect(typeof visitable.latitude).toBe("number");
+      expect(Number.isFinite(visitable.latitude)).toBe(true);
+      expect(visitable.visitability).toBe("visitable");
+      expect(visitable.offeringType).toBe("produce");
+    });
+  });
+
   describe("public discovery is model-free", () => {
     it("lists published stands without ever calling a model", async () => {
       // The whole composition's model capability is a provider that THROWS. Discovery

@@ -34,9 +34,23 @@ export interface PublicStand {
   factId: string;
   farmName: string;
   locationName: string;
-  publicAddress: string;
-  latitude: number;
-  longitude: number;
+  /**
+   * Where to go — present only for a `visitable` location (F-038).
+   *
+   * **Absent, all three together, for a `contact_only` farm.** Open Gate Lamb sells by order
+   * and has no stand to visit, so there is no address and no pin. The optionality is not
+   * cosmetic: the reader previously cast these (`as string`, `Number(...)`), and against a NULL
+   * that produced the address `null` with coordinates `0, 0` — a pin in the Atlantic Ocean off
+   * the coast of Africa, with no type error anywhere. Migration 0007 makes the state
+   * unrepresentable in the database; these optional fields keep the reader from reinventing it.
+   */
+  publicAddress?: string;
+  latitude?: number;
+  longitude?: number;
+  /** Whether there is a place to go at all (F-038). */
+  visitability: "visitable" | "contact_only";
+  /** What the farm provides (F-038) — produce, services, or goods by order. */
+  offeringType: "produce" | "services" | "by_order";
   /**
    * When the farmer last confirmed this inventory.
    *
@@ -85,6 +99,8 @@ export async function listPublicStands(
       l.public_address as public_address,
       l.public_latitude as public_latitude,
       l.public_longitude as public_longitude,
+      l.visitability as visitability,
+      l.offering_type as offering_type,
       f.name as farm_name,
       r.published_at as published_at,
       e.item_name as item_name,
@@ -116,13 +132,29 @@ export async function listPublicStands(
       // `"asOf" in stand` check and JSON serialization both agree that nothing was confirmed.
       const publishedAt = row.published_at as Date | null;
       const asOf = publishedAt ?? undefined;
+
+      // F-038 — the place fields are spread conditionally, exactly like the recency fields
+      // below, so a contact-only farm carries no address key at all rather than a null one.
+      // Read from the database's own answer (`visitability`) rather than by testing whether
+      // the address happens to be null, so the constraint and the reader cannot disagree.
+      const address = row.public_address as string | null;
+      const latitude = row.public_latitude as number | null;
+      const longitude = row.public_longitude as number | null;
+      const isVisitable = row.visitability === "visitable";
+
       stand = {
         factId: locationId,
         farmName: row.farm_name as string,
         locationName: row.location_name as string,
-        publicAddress: row.public_address as string,
-        latitude: Number(row.public_latitude),
-        longitude: Number(row.public_longitude),
+        visitability: row.visitability as "visitable" | "contact_only",
+        offeringType: row.offering_type as "produce" | "services" | "by_order",
+        ...(isVisitable && address !== null && latitude !== null && longitude !== null
+          ? {
+              publicAddress: address,
+              latitude: Number(latitude),
+              longitude: Number(longitude),
+            }
+          : {}),
         ...(asOf
           ? {
               asOf,
@@ -171,9 +203,20 @@ export async function handleStandsRequest(
       id: stand.factId,
       farmName: stand.farmName,
       locationName: stand.locationName,
-      address: stand.publicAddress,
-      latitude: stand.latitude,
-      longitude: stand.longitude,
+      visitability: stand.visitability,
+      offeringType: stand.offeringType,
+      // F-038 — omitted TOGETHER for a contact-only farm, never serialized as null. A client
+      // reading `address: null` would print an empty address line; `latitude: 0` would drop a
+      // pin in the Atlantic. Absence is the only honest encoding of "there is nowhere to go".
+      ...(stand.publicAddress !== undefined &&
+      stand.latitude !== undefined &&
+      stand.longitude !== undefined
+        ? {
+            address: stand.publicAddress,
+            latitude: stand.latitude,
+            longitude: stand.longitude,
+          }
+        : {}),
       // Recency is rendered by code, and is present exactly when a farmer has confirmed
       // something. A stale stand stays listed WITH its warning rather than disappearing; a
       // never-confirmed stand is listed with these fields ABSENT (B-013) rather than with a

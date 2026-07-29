@@ -11,7 +11,151 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-29 (latest) — the cutover is thrown: B-009 re-proven, Vercel torn down, F-034 closed
+## 2026-07-29 (latest) — B-021 closed, F-038's schema and map built, F-040 filed
+
+Three tranches: finish B-021's two owed follow-ups, build F-038 on the strength of a new data
+export, and settle the farmer-onboarding design that F-038's questions kept running into.
+
+### B-021: the drift was never mysterious, and the annotation design was a trap
+
+The "persistent `tofu plan` drift" had an ordinary cause. The emergency
+`gcloud run services update` that ended the outage injected `ROTATION_APPLIED_AT` onto the **live
+services only**, so every subsequent plan wanted to strip it. That standing "2 to change" is
+exactly what made the no-op apply look real. It is now a declared variable in `common_env`, so the
+config round-trips; what remains in a clean-tree plan is **provenance only** —
+`client`/`client_version = "gcloud"` annotations and a top-level `scaling` block the CLI wrote —
+confirmed by diffing the plan JSON field by field, and self-clearing on the next apply.
+
+**The prevention flipped mid-investigation, on evidence.** B-021's notes preferred a revision
+annotation carrying secret version IDs, and so did I: it *prevents* rather than detects. Building
+it requires resolving `latest` to a version number, which needs
+`data.google_secret_manager_secret_version` — and that data source pulls the secret's **cleartext
+payload** into the plan and into state. A probe put a **live Neon password** in `prior_state`,
+caught by `plan-assertions.py`'s existing "no postgres connection string" check. The metadata-only
+data source carries no version number, and the Google provider implements no `ephemeral` resource.
+The tfvars variant reintroduces silent staleness one level up.
+
+So the design is a **timestamp comparison** — `infra/deploy_assertions.py`, every serving revision
+newer than every enabled secret version it consumes. Both sides are metadata with no path to a
+payload. It reads `latestReadyRevisionName`, not `latestCreated`, because a revision that failed
+its startup probe exists but serves nothing. Ties fail closed, every stale service is reported, and
+**an empty lookup is a failure rather than a pass** — the "green because it looked at nothing"
+shape this repo keeps finding.
+
+`test_deploy_assertions.py` exists because **the live project is healthy and cannot produce the
+failing case**; the B-021 timeline (revision 16:09:26 vs. secret 16:35:29) is a fixture. Three
+sabotages verified. `plan-assertions.py` went 24 → 29, anchored to the **secret mounts** rather
+than the variable's name, so a service that stops mounting secrets is legitimately exempt.
+
+### F-038: two properties, and an address is what makes a farm visitable
+
+A new export landed mid-session — the **2026 Google Forms responses**, 32 rows, well-formed,
+2026-current, with hours/season/stocking as separate columns. It also contains a case the original
+F-038 filing did not have: **Open Gate Lamb's address cell reads "On island delivery for orders
+over $50"** — not missing data, but a farmer saying there is nowhere to visit.
+
+That settled the model. Seedrain has an address and sells *services*; Open Gate Lamb has **no
+address at all**. One enum cannot carry both without a value per combination, so: **two independent
+properties**, `visitability` and `offering_type`, migration 0007, both defaulting to the pre-F-038
+meaning so no seeded listing is reclassified. `coherent_visitability` is all-or-nothing in **both**
+directions; the `contact_only` direction is the one that protects customers, since the legacy map
+export carries real coordinates for Open Gate Lamb.
+
+**max corrected a wrong proposal here, and the correction matters.** Asked about Breathing Meadows
+— which has coordinates and says "Open only by appointment" — I proposed relaxing the constraint so
+a pin could exist without an address, calling coordinates the load-bearing fact. max: *"an address
+is needed for visitability."* Right, and my reasoning was backwards — a coordinate says where a
+farm *is*, an address says where a customer can *go*; they collapse into one fact only for an
+ordinary stand. And "by appointment" means a customer specifically **cannot** turn up, which is the
+definition of a farm you contact first. So Breathing Meadows is `contact_only`, loses its pin, and
+**the constraint as originally built was already correct** — the proposed relaxation would have
+introduced the bug. Recorded because the wrong turn was mine and the data was on max's side.
+
+"By appointment" is deliberately **not** a tracked type: one instance in 32, and the same language
+appears at Lavender Hill and Ostara, which have ordinary stands. It is a fact about *arranging a
+visit*, not about whether a place exists — folding it in reproduces the combination explosion the
+two-property split avoids.
+
+### Two silent map defects, both found by writing the test first
+
+`public-listing.ts` cast with `as string` and `Number(...)`. Against a NULL that produced address
+`null` and coordinates **0, 0 — a pin in the Atlantic off Africa** — with **no type error
+anywhere**. `Number(null)` is `0`, not NaN, which is why nothing caught it.
+
+Worse, `withApproximateDistance` then sorted that farm **first**: distance to an absent coordinate
+is NaN, and NaN in a comparator makes `sort` order-dependent, so the unlocatable farm surfaced as
+the *nearest place to shop*. Fixed by spreading place fields conditionally (the B-013 shape) and
+sorting undistanced stands last — the `nulls last` reasoning one level up. Both sabotage-verified.
+
+### "Any farm may publish" — a decision to build nothing, so it became a tripwire
+
+max settled F-038's open product question: **participation is not gated on farm type.** Onboarding
+captures typical offerings as reference; current stock is separate and may be empty.
+
+Verified rather than assumed — the only `sales_location_kind` reference outside schema and seeder
+is a type alias, and every `kind ===` hit is an unrelated discriminated union. So the decision
+required almost no code, which is exactly the property that erodes silently: a future "skip service
+businesses" would look sensible and quietly remove a farmer's ability to publish.
+`architecture.test.ts` now fails if any publication-path source compares against a location-type
+enum **value**. It flagged `public-listing.ts` on its first run — a false positive, since the read
+path decides *display* — which is what narrowed the scan to the claim actually being made. That
+exclusion is itself guarded: both excluded files must stay free of any durable write.
+
+### The form reader, measured against the corpus rather than argued from the code
+
+**31 stands — 30 visitable, 1 `contact_only`, 2 needing review, 1 refused.** Address classification
+is **inverted on purpose**: assume any stated address is real, look only for a stated
+*non-location*. My first instinct — match what looks like an address — had already flagged Littlest
+Bird Farm's "15624 115th AV SW" as address-less because the pattern did not know "AV". Spurious,
+and in the dangerous direction. Same lesson the availability parser learned with ten false flags.
+
+Corpus edge cases: **Pacific Crest** states two addresses and labels them, so `(farmstand)` wins —
+publishing the mailing address is wrong in the way a customer discovers by driving there.
+**Sweet Alyssum** ("Bank Road, East of Town") and **Peak Moon** ("300' north of 28815 Vashon Hwy
+SW") are followable by a person but yield no coordinate, so they stay visitable, keep the farmer's
+words, and carry `addressNeedsReview`. **Forest Garden Farm**'s entire submission is `(same info as
+last year)` plus a name — refused here, resolvable from the map export.
+
+**The two sources are complementary, not competing.** The form file has **no coordinates at all**;
+the map export has them plus the farms that did not submit. So switching sources means the seeder
+takes *both* — a material correction to the earlier "switch to the form file" framing.
+
+Five sabotages, including **flagging everything for review**, which also fails — so the flag cannot
+decay into noise.
+
+### F-040: identity and channel are different questions
+
+The gap: **`farmer_authorizations` has no writer outside tests.** Every insert in the tree is a
+fixture. Publishing needs that authorization *plus* a farm approval; the approval has an operator
+screen, the authorization has none — so a real farmer texting an update falls through to the
+*customer* branch, and nothing reports why. A green suite cannot see this, because every test hands
+itself the thing a real farmer has no way to get.
+
+I first framed the design question as "pick a channel." max's answer — *"some farmers may prefer
+web form, some prefer text… help me come up with a good system"* — was the better question, and the
+fix was separating **identity** (a one-time trust step: VIGA always approves, either side may
+start) from **channel** (SMS, texted link, or bookmarked form; all landing on the same confirmation
+gate). No passwords: the phone is the identity, reusing F-032's magic-link mechanism.
+
+max chose a bookmarked link that **never expires until revoked**, which makes revocation the only
+safety net. Recorded with its consequence: revocation must take effect on the next request, VIGA
+must be able to see and revoke every farmer, and the blast radius is bounded by construction — a
+leaked link can at worst *propose* a wrong listing on one stand.
+
+### Verified
+
+`npm test` **552/552 across 56 files**; `npm run test:integration` **327/327 across 20 files** on
+real Postgres 16, all **8** migrations from empty; typecheck 0 errors; lint clean;
+`infra/plan-assertions.py` **29/29**; `infra/test_deploy_assertions.py` **10/10**; `tofu validate`
+clean; `deploy_assertions.py` passes against live production. Evals **not** re-run — no seam
+projection, schema, or output contract changed. B-020's deadlock did not reproduce across three
+integration runs.
+
+Merged to `main`; migration 0007 applied to production and `tofu apply` run (see the wrap report).
+
+---
+
+## 2026-07-29 — the cutover is thrown: B-009 re-proven, Vercel torn down, F-034 closed
 
 The migration's remaining three legs, in one pass: point Telnyx at Cloud Run, **prove the B-009
 class by effect on the new runtime**, and retire everything the migration superseded. Then

@@ -22,9 +22,20 @@ export interface PublicStandPayload {
   id: string;
   farmName: string;
   locationName: string;
-  address: string;
-  latitude: number;
-  longitude: number;
+  /**
+   * Where to go — present, all three together, only for a `visitable` location (F-038).
+   *
+   * **Absent for a contact-only farm.** Open Gate Lamb sells by order and has no stand, so
+   * there is nowhere to route to. Optional here so the compiler forces every renderer to
+   * decide what to show rather than printing an empty address line or dropping a pin at 0,0.
+   */
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  /** Whether there is a place to go at all (F-038). */
+  visitability: "visitable" | "contact_only";
+  /** What the farm provides (F-038) — produce, services, or goods by order. */
+  offeringType: "produce" | "services" | "by_order";
   /**
    * Code-rendered on the server by the same helper the SMS answer uses.
    *
@@ -84,10 +95,16 @@ export function buildMapView(
     staleCount: stands.filter((stand) => stand.stale).length,
     stands: located.map(({ factId: _factId, ...stand }) => ({
       ...stand,
-      routingLink: destinationRoutingLink({
-        latitude: stand.latitude,
-        longitude: stand.longitude,
-      }),
+      // F-038 — no coordinates means no route. `destinationRoutingLink` already refuses an
+      // implausible coordinate, but it cannot be handed `undefined`, and defaulting to 0 here
+      // would ask it to route to the Gulf of Guinea.
+      routingLink:
+        stand.latitude !== undefined && stand.longitude !== undefined
+          ? destinationRoutingLink({
+              latitude: stand.latitude,
+              longitude: stand.longitude,
+            })
+          : null,
     })),
   };
 }
