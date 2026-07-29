@@ -643,6 +643,42 @@ tofu apply /tmp/tf.plan
 Migrations are still `npm run db:migrate` with `DATABASE_URL` pointed at the target, run
 **before** promoting a build so production never runs code ahead of its schema.
 
+### Proving post-response work actually runs (the B-009 class)
+
+`scripts/prove-post-response-work.ts` proves, **by effect on the database**, that a message which
+has been acknowledged is actually processed — the property that belongs to the platform rather than
+the code, and therefore the one no vitest suite can establish. It was run at the 2026-07-29 cutover
+and all three checks passed. Re-run it after **any change to the runtime, the queue, or the
+scheduler** — not after ordinary application changes.
+
+It needs a signed request, and Telnyx's private key is not ours, so running it means temporarily
+pointing `telnyx_public_key` (plain config in `infra/terraform.tfvars`, never a secret) at a
+throwaway keypair and applying, then restoring. **While that revision is live the number rejects
+genuine inbound SMS**, so do it in a quiet window and restore immediately.
+
+```bash
+PROOF_BASE_URL=https://farm-friend-web-p5mfxfp5za-uw.a.run.app \
+PROOF_PRIVATE_KEY='<base64 pkcs8 ed25519 private key>' \
+DATABASE_URL='<production Neon URL>' \
+PHONE_HASH_SALT='<the deployed salt>' \
+npx tsx scripts/prove-post-response-work.ts
+```
+
+Two things that make it trustworthy, both of which cost a real defect to learn:
+
+- **Sabotage it first.** Run it against the deployment still carrying Telnyx's real key: checks 1
+  and 2 must FAIL with `ack=401`. A proof that cannot fail proves nothing, and this one is easy to
+  make vacuous.
+- **`PHONE_HASH_SALT` must be the DEPLOYED salt.** Check 3 inserts an inbox row directly, and the
+  scheduled pass only acts on a hash the deployment would itself have produced. A test salt yields a
+  row nothing ever claims — indistinguishable from the failure the check exists to detect.
+
+Verify the restore **behaviourally**, never by reading the value back: the throwaway key must return
+`signature_mismatch`, and the webhook must answer **401** rather than 500/503.
+
+The script cleans up nothing by itself. Remove its rows afterwards under a guard that refuses if any
+contact outside the reserved `+1206555` fictional range exists, and re-check the fingerprint.
+
 > **⛔ Before a GO-LIVE deploy: rotate credentials first (F-034 / GL-001).** Credentials were
 > exposed in 2026-07-27 validation transcripts and rotation was deliberately deferred to go-live so
 > it happens once. The full scope, order, and behavioural proofs are §"Credential rotation" below.
@@ -689,11 +725,15 @@ of this section moot.
 
 ### Which project are you rotating into? — settled
 
-**Rotate in place** (max, 2026-07-28). The project that began as the throwaway Hobby validation
-deployment (`viga2/farm-friend-web`) and its Neon database **become production**, so every secret
-below gets a genuine reset rather than dying with a discarded project. F-034's "tear down the
-throwaway Vercel project" line no longer applies; its stale `throwaway/hobby-deploy-test` **branch**
-is still owed a deletion.
+**Rotate in place** (max, 2026-07-28). The Neon database that began as the throwaway Hobby
+validation deployment's **is** production, so every secret below gets a genuine reset rather than
+dying with a discarded project.
+
+**The Vercel side of this is now moot (2026-07-29).** The Vercel project and its environment
+variables are deleted, so there is no second place holding any of these values and nothing to keep
+in sync; both stale branches are deleted too. Rotation is now entirely a Secret Manager operation:
+`gcloud secrets versions add <name> --data-file=-`, then redeploy so the revision picks up the new
+version. What remains in scope is **`DATABASE_URL`** and **`DEEPINFRA_API_KEY`**.
 
 **Superseded by the GCP migration (2026-07-29).** The plan question that sat here — Hobby rejecting
 the one-minute cron — is gone with Vercel: Cloud Scheduler runs a real minute schedule and neither
@@ -706,14 +746,63 @@ does not apply there.
 Verified against the live environment on 2026-07-28 rather than from the earlier notes, which
 overstated the scope in one place and understated it in another.
 
-| Credential | Where it is consumed | Rotate where | Notes |
+**ROTATION WAS PERFORMED 2026-07-29 (F-034 / GL-001 closed).** The table below is the current
+state, not a to-do list. Every "Vercel env" in the earlier revision is obsolete — that project is
+deleted, so Secret Manager plus local `.env` is now the whole surface.
+
+| Credential | Where it is consumed | Rotate where | State |
 |---|---|---|---|
-| `DATABASE_URL` | Vercel env; local `.env` for migrate/seed scripts | Neon console (reset the `neondb_owner` password), then Vercel | The full URL was pasted in a 2026-07-27 transcript |
+| `DATABASE_URL` | Secret Manager `farm-friend-database-url`; local `.env` for migrate/seed/evals | Neon console (reset the `neondb_owner` password), then both places | **ROTATED 2026-07-29.** Old password confirmed dead by effect (`password authentication failed`). Production host is the **direct**, non-pooled one |
+| `DEEPINFRA_API_KEY` | Secret Manager `farm-friend-deepinfra-api-key` **and** local `.env` | DeepInfra console, then **both** places | **ROTATED 2026-07-29.** Old key confirmed dead by effect (401). See the two-places note below |
+| `MAGIC_LINK_SECRET` | Secret Manager `farm-friend-magic-link-secret` | generate a new random value | **ROTATED 2026-07-29** (`openssl rand -base64 48`). Invalidates every outstanding sign-in link and session — harmless pre-launch |
+| `TELNYX_API_KEY` | Secret Manager `farm-friend-telnyx-api-key` | Telnyx console | Already re-fetched from the console during the migration; the stale legacy copies were deleted in the teardown |
 | `CRON_SECRET` | **GONE** — no longer exists | nothing to rotate | Replaced by Cloud Scheduler OIDC + IAM; it was one credential in two places that had to match, where a mismatch 401s and a 401 looks like success in any scheduler UI |
-| `TELNYX_API_KEY` | Vercel env | Telnyx console | Belongs to the **Telnyx account**, so it survives a project teardown and needs a real reset either way |
-| `MAGIC_LINK_SECRET` | Vercel env | generate a new random value | Rotating invalidates every outstanding sign-in link and session — harmless pre-launch |
-| `DEEPINFRA_API_KEY` | Vercel env **and** local `.env` | DeepInfra console, then **both** places | See the note below |
-| `PHONE_HASH_SALT` | Secret Manager `farm-friend-phone-hash-salt` | **NEVER** | See the rule above — and the 2026-07-29 note below, where the old value was LOST because Vercel marked it Sensitive |
+| `PHONE_HASH_SALT` | Secret Manager `farm-friend-phone-hash-salt` | **NEVER** | Untouched, deliberately. It is the input to the only lookup key for every phone; rotating it orphans every hash with no way back |
+
+**Secret Manager uses `version = "latest"`, but a running container does NOT pick that up.** Cloud
+Run reads secrets **at container start**, so `version = "latest"` binds at startup and a running
+container never re-reads it. `gcloud secrets versions add` alone changes nothing already serving.
+
+**⛔ A green `tofu apply` is NOT a restart — this broke production on 2026-07-29 (B-021).** An apply
+that does not alter the revision template creates **no new revision**, so the containers keep the
+old secret. It happened exactly this way: secret version 2 landed at 16:35:29 while the newest
+revision dated from 16:09:26, and every database call failed `28P01 password authentication failed`
+against a Neon password that had already been reset. The apply reported "2 to change" and looked
+entirely successful.
+
+**The check that actually settles it — compare timestamps, not endpoints:**
+
+```bash
+gcloud run revisions describe <svc>-<rev> --region us-west1 --project farm-friend-vashon \
+  --format='value(metadata.creationTimestamp)'
+gcloud secrets versions describe <n> --secret=<secret> --project farm-friend-vashon \
+  --format='value(createTime)'
+```
+
+**If the revision is OLDER than the secret version, nothing has picked the value up** — whatever any
+endpoint returns. Force a new revision with
+`gcloud run services update <svc> --region us-west1 --update-env-vars=ROTATION_APPLIED_AT=<stamp>`.
+
+**Verify by effect against a container you know started AFTERWARDS, on a path that opens a NEW
+connection.** Three checks that looked like proof on 2026-07-29 and were not:
+
+- `/api/public/stands` → `{"stands":[]}` came from a **warm container** whose pooled connections
+  predated the reset. A warm connection keeps working after the password behind it changes; only a
+  new connection re-authenticates. An empty array is also indistinguishable from an empty table.
+- A scheduler **200** that was read from *before* the rotation apply and carried forward as current.
+- `npm run evals:live` passing 6/6 — it runs **locally against local `.env`** and never touches the
+  deployment.
+
+The honest check is a **forced scheduled run whose effect appears in the database**, on a revision
+newer than the secret. For the model key, `evals:live` does prove the key itself — but note a
+*containment* pass alone is not evidence, because a refused call counts as contained: that run went
+`live-quality: 0/6` with `provider_error` before the key was right, then 6/6 after.
+
+**A quiet no-op nearly shipped a revoked key.** The first `.env` edit used a regex requiring
+`KEY="value"`, but `DEEPINFRA_API_KEY` is written **unquoted** in that file, so the substitution
+matched nothing, reported success, and left the old key in place — caught only because the live
+evals then failed against the real provider. Any scripted edit to `.env` must assert its match count
+(`if n != 1: refuse`) rather than trusting that a replacement happened.
 
 **`DEEPINFRA_API_KEY` is consumed in two places, and an earlier revision of this table said one.**
 It was once local-only, because the deployment had no `LLM_PROVIDER` at all and silently ran the
@@ -735,16 +824,24 @@ confined to working transcripts, so **no history rewrite is required**.
 
 ### Order
 
-1. **Settle the project question** above. If provisioning fresh, do that first; steps 2 and 4 become
-   provisioning rather than rotation.
-2. **`DATABASE_URL`** — reset in Neon, update Vercel, update any local `.env`. Do this before the
-   others so subsequent verification runs against the intended database.
-3. **`TELNYX_API_KEY`** — rotate in the Telnyx console, update Vercel. Required on both paths.
-4. **`MAGIC_LINK_SECRET`** — new random value into Vercel.
-5. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, then update **Vercel and** local
-   `.env`. Missing the Vercel half leaves production calling the model with a revoked key.
-6. **Redeploy**, then run every proof in the next section.
-7. **Confirm the old values no longer authenticate** (also below).
+This is the order actually used on 2026-07-29; repeat it if a future rotation is needed.
+
+1. **Get the new values first, and verify each one BEFORE storing it.** A new Neon password and a
+   new DeepInfra key both require a browser; neither can be reset with an API key we hold. Connect
+   with the new database URL and fingerprint it (`neondb`, expected migration count) and call the
+   **production model** with the new key. Storing an unverified value means diagnosing a broken
+   deployment instead of a bad credential.
+2. **`DATABASE_URL`** — reset in Neon, then `gcloud secrets versions add farm-friend-database-url`,
+   then local `.env`. Do this before the others so later verification runs against the intended
+   database.
+3. **`MAGIC_LINK_SECRET`** — `openssl rand -base64 48` into
+   `gcloud secrets versions add farm-friend-magic-link-secret`.
+4. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, then **both** Secret Manager and local
+   `.env`. Updating one leaves the other authenticating with a dead key.
+5. **Redeploy** — `tofu plan` / assertions / `apply`. Without this the running containers still hold
+   the old values, and after a Neon reset that means production is serving on a **revoked**
+   password. Keep the gap short.
+6. **Verify by effect**, then confirm the old values no longer authenticate (both below).
 
 ### Proof by effect — required before GL-001 is marked complete
 
@@ -771,34 +868,29 @@ does not.
 If a path was "provision fresh, then tear down", the old-value proofs are satisfied by the teardown
 itself — but **verify the teardown actually happened**, and record which proof each row rests on.
 
-### The production deploy sequence (done once on 2026-07-27; repeat in this order)
+### The production deploy sequence
 
 **Order matters.** A migration adding columns the new code writes must land *before* that code
 deploys, or every affected write fails in the gap. 0004 (B-010) was exactly this case.
 
 ```bash
-# 1. Migration FIRST.
+# 1. Migration FIRST. Use the DIRECT (non-pooled) Neon string for DDL.
 DATABASE_URL='<production Neon URL>' npm run db:migrate
 
-# 2. Deploy. Hobby rejects vercel.json's one-minute cron, so strip the block UNCOMMITTED,
-#    deploy from the local checkout (the CLI uploads from disk), then restore it.
-#    Never commit the stripped file; `cron-schedule.test.ts` failing is the intended guard.
-npx vercel --prod
-git checkout apps/web/vercel.json
-
-# 3. The scheduler's secret, if not already set. Must be the SAME value as the deployment's
-#    CRON_SECRET env var, or every run 401s.
-gh secret set CRON_SECRET
-
-# 4. Fire a run rather than waiting: gh workflow run scheduled-worker.yml
+# 2. Build, plan, assert, apply — the four steps in §Deploy above. Never a tag, always a digest.
 ```
 
-**Because the deployed build carries no `crons` block, the GitHub workflow is production's ONLY
-scheduled trigger.** The `waitUntil` kick is best-effort and owns no guarantee.
+**Cloud Scheduler (`farm-friend-recovery`, every minute) is the scheduled trigger**, and Cloud
+Tasks is the per-message fast path. Neither `vercel.json`'s `crons` block nor the GitHub
+`scheduled-worker.yml` workflow exists any more — both were deleted in the migration, and
+reintroducing either is the defect `cron-schedule.test.ts` guards against. `CRON_SECRET` is gone
+too: the worker is reached by OIDC against internal ingress with IAM `run.invoker`.
 
-**Then verify by effect — a green Actions run is not proof.** The workflow does check
-`%{http_code}`, so a stale secret fails visibly; but only F-026's purge, which runs on this trigger
-alone, proves the *passes* executed:
+Fire a scheduled run rather than waiting:
+`gcloud scheduler jobs run farm-friend-recovery --location=us-west1 --project farm-friend-vashon`
+
+**Then verify by effect — a 200 from the scheduler is not proof the passes did anything.** Only
+F-026's purge, which runs on this trigger alone, proves that:
 
 ```sql
 -- Make one body eligible. Excludes threads under open flag review, so the exemption is not

@@ -11,7 +11,163 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-29 (latest) — the GCP migration: Farm Friend is live on Cloud Run, and a lost salt
+## 2026-07-29 (latest) — the cutover is thrown: B-009 re-proven, Vercel torn down, F-034 closed
+
+The migration's remaining three legs, in one pass: point Telnyx at Cloud Run, **prove the B-009
+class by effect on the new runtime**, and retire everything the migration superseded. Then
+credential rotation, which max chose to fold into this work rather than defer a fourth time.
+
+### The webhook switch, and a timestamp that lied again
+
+`PATCH /messaging_profiles/<id>` returned the new `webhook_url` **and the old `updated_at`**. An
+independent re-read showed the write had landed and the timestamp moved. Same shape as the
+`vercel env ls` trap: **a write's echo of its own payload is not confirmation, and a dashboard
+timestamp is not a last-updated field.** Re-read from a separate request or believe nothing.
+
+max chose to switch **before** proving durability, accepting that real texts could land on an
+unproven runtime; volume is zero and no farmer has the number, so the window was small. Recorded
+because it was a deliberate trade, not an oversight.
+
+### B-009 is not inherited — proving it took a key swap, and the sabotage came first
+
+The standing rule is that a property belonging to the *platform* is proven **by effect in the
+deployment**. Cloud Run's container lifecycle is a new runtime for "does post-response work actually
+run", so the Vercel-era fix proves nothing here. `scripts/prove-post-response-work.ts` runs three
+checks against the database — fast path, cold start, and a message whose task was **never created**
+recovered by the schedule — and **searches for the B-009 signature** (committed + acknowledged +
+never claimed) rather than assuming it absent. All three passed; claim-to-finalize was ~1s.
+
+**Signing is the obstacle worth recording.** Telnyx's private key is not ours, so a genuinely signed
+request needs the deployment to trust a key we hold. `TELNYX_PUBLIC_KEY` is plain config, not a
+secret, so the proof ran against a revision carrying a throwaway public key — with max's explicit
+approval, because **while that revision is live the number rejects genuine inbound SMS**. Restored
+immediately and verified *behaviourally*: the throwaway key now returns `signature_mismatch`.
+
+**The sabotage ran before the proof, not after.** Against the deployment still trusting Telnyx's real
+key, checks 1–2 failed `ack=401` while check 3 passed on its own merits (it needs no signature).
+That is what makes the harness credible rather than decorative.
+
+**Writing it caught two defects in itself**, either of which would have made it lie:
+`provider_inbox_events` has no `body`/`processed_at` column (it is `state`/`finalized_at`; the body
+lives in `sms_messages`), and `hashPhone` is **HMAC-SHA256 under `PHONE_HASH_SALT`**, not a bare
+digest — a test salt yields a row nothing ever claims, *indistinguishable from the failure the check
+exists to detect*. Checking a harness against the real schema before running it is cheap; a proof
+that quietly measures nothing is not.
+
+Incidentally proven: the **full round trip works on this runtime**. A proof message's reply was
+dispatched through Telnyx and its delivery callbacks returned through the new webhook URL — two
+inbox rows I had not created, identified before cleanup rather than assumed to be noise.
+
+### The record was wrong about the legacy data — again, and in the dangerous direction
+
+The migration plan recorded, as max's decision, that the legacy project held no real data, and
+deliberately **not** as a verified fact. Reading it found **37 Firestore documents**: 19 users, 3
+farms, 5 messages, 8 agent decisions, 1 flag, and a `pending_users` row with `source: "join"`, a real
+approval timestamp, and — unlike every user and farm row — **no `test_data` flag**. Auth held 1
+account.
+
+max confirmed test data and approved deletion. It was archived first to
+`~/farm-friend-legacy-archive/` (Firestore + Auth + non-secret manifests), and the delete **refused
+to run** unless a re-read fingerprint matched exactly and the archive held all 37 docs. This is the
+second time "assumed empty" was wrong in this project; the first was the reset script that found 6
+volunteers and 2 farms with phone numbers. **The rule keeps paying for itself.**
+
+Two smaller plan claims were also stale: the seven legacy schedulers were already `PAUSED`, not
+still firing, and the always-warm charge ended with the services rather than needing `minScale=0`.
+
+### Teardown
+
+Deleted: the Vercel project and its env vars (Telnyx re-confirmed pointing elsewhere first), both
+stale branches (`throwaway/hobby-deploy-test` **and** `f-019-sms-only-inquiry-boundary` — the second
+was not on anyone's list), 17 legacy functions plus the 15 Cloud Run services behind them, 7 legacy
+schedulers, 6 unreferenced legacy secrets including the STALE `TELNYX_API_KEY` that returned 401,
+the Firestore/Auth contents, and the empty `farm-friend-497422` project. `farm-friend-vashon` now
+holds **only** Farm Friend. Verified afterwards by listing each resource type and by every live
+surface still answering correctly.
+
+### F-034: rotation, and two traps
+
+max reversed the third deferral and folded rotation into this session. `DATABASE_URL`,
+`DEEPINFRA_API_KEY`, and `MAGIC_LINK_SECRET` rotated; **`PHONE_HASH_SALT` untouched, deliberately**.
+Old values confirmed dead **by effect** — `password authentication failed` and 401 — never by
+assuming a console did what it said.
+
+**Trap 1: `version = "latest"` does not reach a running container.** Cloud Run reads secrets at
+container start, so between the Neon password reset and the redeploy, production was serving on a
+**revoked** password. `gcloud secrets versions add` alone changes nothing already running; the
+redeploy is the step that applies a rotation.
+
+**Trap 2: a scripted `.env` edit silently did nothing.** The regex assumed `KEY="value"`, but
+`DEEPINFRA_API_KEY` is written **unquoted** in that file — so the substitution matched zero lines,
+reported success, and left the dead key in place. It surfaced only when `evals:live` returned
+`provider_error` on all six quality cases. **`live-containment` still read 4/4 through that
+failure**, because a refused call counts as contained — so a containment-only pass is *not* evidence
+the model path works. The corrected edit asserts its match count and refuses on anything but exactly
+1. New values were verified *before* being stored, so a bad credential could not later be
+misdiagnosed as a broken deployment.
+
+`keys.txt` (how the values were supplied) was **untracked but not gitignored** — a `git add -A`
+would have committed it. Deleted, and the tracked tree greps clean for both new values.
+
+### Then a real handset broke it, twenty minutes after the synthetic proof passed
+
+max texted `Help` at the end of the session as the real-handset check. It committed, and then sat at
+`state=pending` for 75+ seconds with no reply — **the exact B-009 signature, on real traffic, on a
+runtime I had just proven**. It was not B-009. Every database call was failing
+`28P01 password authentication failed`: the rotation's new `DATABASE_URL` had never reached the
+containers.
+
+`gcloud secrets versions add` wrote version 2 at **16:35:29**. The newest revision was created at
+**16:09:26** — twenty-six minutes *earlier*. Cloud Run reads secrets **at container start**, so
+`version = "latest"` binds at startup and never re-reads; the `tofu apply` I ran after adding the
+versions altered nothing in the revision template, created no new revision, and reported "2 to
+change" while changing nothing that mattered. **A green apply is not a restart.** Filed as **B-021**.
+
+**The humbling part is how the verification missed it**, because the checks were the right *kind*
+(by effect, not by reading a value back) and still proved nothing:
+
+- `/api/public/stands` → `{"stands":[]}` came from a **warm container** whose pooled connections
+  predated the Neon reset. *A warm connection keeps working after the password behind it changes* —
+  only a new connection re-authenticates. And an empty array is indistinguishable from an empty table.
+- The scheduler **200** I cited was read *before* the rotation apply and carried forward as current.
+- `evals:live` 6/6 runs **locally against local `.env`** and never touches the deployment at all.
+
+The check that settles it is a timestamp comparison: **revision creation time vs. secret version
+create time.** An older revision means nothing picked the value up, whatever any endpoint returns.
+
+Forcing revisions (worker 00006 / web 00005) fixed it, and the stuck message was recovered by the
+very next scheduled pass — inbound `processed`, reply `sent` with a real provider message ID,
+`accepted`, 2 delivery callbacks back through the Cloud Run webhook, and `sms_consents` correctly
+**empty** because HELP does not move consent. **The full round trip is now proven on real traffic,
+not just synthetic.**
+
+Two things this leaves: production now holds **one real phone number** (max's), which is the event
+F-034 named as closing the exposure window — rotation landed first, so the order held. And a
+**persistent `tofu plan` drift** reporting "2 to change" on a clean tree is still unexplained; until
+it is, "the plan showed changes" is not evidence a deploy did anything. Both on B-021.
+
+**The standing lesson, sharpened: a synthetic end-to-end proof and real traffic are not the same
+runtime either.** `prove-post-response-work.ts` passed at 09:08 against a container started before
+the rotation, so it proved the durability property honestly and told me nothing about the
+credential. It took a handset to find it — the same family as B-009 (local ≠ deployed), B-005–B-008
+(hoisted ≠ isolated install), and F-024 (stub ≠ real model), one level further out.
+
+### Verified
+
+`npm test` **528/528 across 55 files**; `npm run test:integration` **311/311 across 19 files** on
+real Postgres; typecheck and lint clean; `npm run evals:live` **containment 4/4, quality 6/6** on the
+rotated key. `npm run evals` not re-run — no seam projection, schema, or output contract changed.
+`infra/plan-assertions.py` 24/24 on both applies. **Live round trip verified by a real handset** (see
+above), on revisions worker 00006 / web 00005.
+
+**One pre-existing flake recorded, not waved off.** An integration run failed
+`a verified STOP unsubscribes end to end and calls no model` with PostgresError **40P01 deadlock** on
+a fixture `truncate`, and passed on rerun. This branch changes no application or test code, so the
+flake lives on `main`; the contention is between suites' truncates, not in Farm Friend's locking.
+
+---
+
+## 2026-07-29 — the GCP migration: Farm Friend is live on Cloud Run, and a lost salt
 
 Vercel → Google Cloud Run, per `docs/GCP_MIGRATION_PLAN.md`. The driver was cost and licensing, not
 a defect: Hobby is restricted to non-commercial personal use and Farm Friend does not qualify, so
