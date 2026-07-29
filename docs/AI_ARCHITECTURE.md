@@ -5,34 +5,9 @@ between what the model does and what code owns, the **static/runtime safety boun
 verification**, validation, evals, and data minimization. Data shapes are in
 [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md); routing is in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-> **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
-> is the settled contract; where this doc disagrees, the handoff wins.
->
-> **Status: partly enforced, partly requirements.** Read each claim below against the code.
->
-> **F-015 made the boundary executable for the one seam that has a real consumer today —
-> inventory extraction.** The public generic assembler is **deleted**; `packages/ai` exposes only
-> `projectInventoryExtraction`, which constructs its minimal record field by field from named
-> arguments, so a wider caller row cannot widen model context. The low-level provider call is not
-> exported, so no caller outside `packages/ai` can reach a model except through a named seam; the
-> type test asserts each bypass is a compile error. The adapter is constructed over the provider
-> alone — no db, repository, or record loader. The provider privacy gate (no training, stateless,
-> logging disabled, bounded retention) is asserted at the composition root and fails closed. The
-> adversarial eval group and a hostile full-path integration group now run a **hostile** model
-> across projection → validation → code rendering → durable state, inspecting both the captured
-> provider context and the resulting rows.
->
-> **F-013 completed the customer-facing half.** Inquiry interpretation, code-owned retrieval and
-> ranking, grounded fact selection, and the code-rendered answer now exist, as does the code-bound
-> web/QR stock-out path whose farmer recipient is resolved in code from the bound location. The
-> model never authors customer-facing factual text: selection returns identifiers, and
-> `packages/core/src/inquiry/answer.ts` dereferences authoritative values and renders names, items,
-> recency, and stale warnings. Empty retrieval is code-rendered **without** a selection call.
->
-> **Still requirements awaiting their owning item:** message classification has no projection and
-> no consumer (F-012). The configured provider is still the deterministic stub; no live vendor
-> adapter exists, so the gate has been exercised but no real vendor's terms have been approved
-> through it.
+> This document states the **enduring AI contract** — the trust boundary Farm Friend must hold
+> whichever model sits behind it. It carries no build status: what is actually built, configured,
+> and open lives in [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
 
 ## The trust contract — an LLM-brain in a harness
 
@@ -121,16 +96,19 @@ a real consumer** — the zen-desk rule. Five are built; message classification 
 unprojected because it has no caller, and there is deliberately no generic assembler standing in
 for it in the meantime.
 
-| Seam | Permitted model input | Built? |
-|---|---|---|
-| inventory extraction | the current farmer message, plus opaque entry IDs and public item names for the farmer's own location | **yes** |
-| stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location | **yes** |
-| inquiry interpretation | the current customer SMS request | **yes** |
-| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts | **yes** |
-| offering extraction | one stand's public "generally offers" description, alone | **yes** |
-| message classification, if retained | the current sender's message only | no — F-012 |
+| Seam | Permitted model input |
+|---|---|
+| inventory extraction | the current farmer message, plus opaque entry IDs and public item names for the farmer's own location |
+| stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
+| inquiry interpretation | the current customer SMS request |
+| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
+| offering extraction | one stand's public "generally offers" description, alone |
 
-**Offering extraction is the one seam that does not run on a message** (F-035/F-036). It reads
+A **message-classification** seam has been repeatedly considered and is deliberately absent: it has
+no defined consumer and no safe consequence, so it would be a projection nothing acts on. It gets a
+projection when a launch workflow needs one, not before.
+
+**Offering extraction is the one seam that does not run on a message.** It reads
 VIGA's published stand prose at ingest time and proposes the item tags a stand *usually* carries;
 the seeder records them for review and code commits what a human approved. It exists because a
 deterministic parser could not tell an offering from a farming-practice clause — measured against
@@ -172,8 +150,9 @@ retention has a documented maximum compatible with Farm Friend's approved raw-co
 Farm Friend rejects a provider/configuration that cannot meet those requirements. Its own model-run
 record continues to exclude model input and output content.
 
-**Status: DeepInfra is attested and configured (F-024, reviewed by max 2026-07-28).**
-`DEEPINFRA_ATTESTED_DATA_HANDLING` in `packages/ai/src/deepinfra.ts` carries the declaration, and
+**The gate is code beside the adapter, never a footnote in this document.**
+`DEEPINFRA_ATTESTED_DATA_HANDLING` in `packages/ai/src/deepinfra.ts` carries the declaration for the
+currently attested vendor (DeepInfra, terms read by max 2026-07-28), and
 `assertDeepInfraSelectionApproved` is the **one** approval path — it lives beside the adapter rather
 than in the web composition root precisely because seed scripts and live evals construct the provider
 directly and would otherwise bypass a gate that lived only in composition. The values are transcribed
@@ -252,6 +231,15 @@ dereferences the authoritative values, and renders the factual answer and recenc
 is code-rendered without a grounded-selection call.
 Model-supplied values or prose are not accepted as evidence.
 
+**"Retrieval-first" means retrieval before grounded *fact selection* and factual rendering — not
+before *semantic interpretation*.** The distinction is settled and load-bearing in both directions.
+Interpreting the request must come first, because retrieval needs to know what to look for; letting
+the model see retrieved facts before it has decided what to look up would invite it to answer from
+context instead of selecting from evidence. So the fixed order is: deterministic routing → model
+interprets → code validates and retrieves → model selects/orders IDs from that exact set → code
+validates membership and renders. Reading "retrieval-first" as "retrieve before any model call"
+would make open-ended customer intent unimplementable and is the wrong reading.
+
 ## The code-enforced safety boundary and its verification
 
 Because we ingest **untrusted public SMS** (a prime prompt-injection vector), **safety is enforced
@@ -296,28 +284,28 @@ Evals run against the stub provider in **critical** and **advisory** groups:
 - **advisory**: extraction quality, stock-out item parsing, inquiry interpretation, and
   clarification.
 
-**Done (F-015), for the inventory-extraction seam.** `evals/hostile.ts` and the hostile group in
-`apps/web/lib/interpretation.integration.test.ts` use **hostile models that select unknown
-identifiers, invent stock, demand contact data, and attempt to smuggle a publication or recipient
-decision into output**. They capture the context at the provider seam *and* the resulting durable
-rows, rather than asserting on helpers. Structurally valid selections outside the retrieved set are
-rejected; a smuggled consequential field is a visible refusal rather than a silent strip; and an
-invention reaches at most a code-rendered confirmation the farmer must approve.
+**A hostile model, never a cooperative one.** `evals/hostile.ts` and the hostile group in
+`apps/web/lib/interpretation.integration.test.ts` use models that **select unknown identifiers,
+invent stock, demand contact data, and attempt to smuggle a publication or recipient decision into
+output**. They capture the context at the provider seam *and* the resulting durable rows, rather than
+asserting on helpers — a helper fixture is not boundary proof. Required outcomes: structurally valid
+selections outside the retrieved set are rejected; a smuggled consequential field is a **visible
+refusal**, never a silent strip; and an invention reaches at most a code-rendered confirmation the
+farmer must approve.
 
-**Done (F-013), for the inquiry and stock-out seams.** The adversarial group proves a selection
-outside the retrieved set is rejected, a smuggled factual string (`answerText`, `recency`,
-`distance`, `directions`) is a visible refusal rather than a stripped field, the delivered answer
-contains only code-rendered retrieved values, an unexecutable ranking interpretation is refused
-rather than downgraded, and neither inquiry projection carries the other's data. Integration tests
-prove a report never mutates published inventory or ranking, and that an entry from another farm's
-stand is refused against a code-bound location.
+For the inquiry and stock-out seams the adversarial group must additionally prove that a smuggled
+factual string (`answerText`, `recency`, `distance`, `directions`) is a visible refusal rather than a
+stripped field, the delivered answer contains only code-rendered retrieved values, an unexecutable
+ranking interpretation is refused rather than downgraded, and neither inquiry projection carries the
+other's data. Integration tests prove a report never mutates published inventory or ranking, and that
+an entry from another farm's stand is refused against a code-bound location.
 
-**A third group runs against the REAL model: `npm run evals:live` (F-024).** The scripted groups
+**A third group runs against the REAL model: `npm run evals:live`.** The scripted groups
 above use a stub, and a stub reads neither the output instructions nor the schema — so it is
 structurally blind to a seam whose instructions describe the wrong job. The first live run proved
-that concretely: **every seam failed validation** while 471 unit tests and all 44 scripted evals were
-green, because the projections attached SMS-composition guidance to seams whose output is structured
-JSON and never stated the expected shape.
+that concretely: **every seam failed validation** while the entire unit suite and every scripted eval
+were green, because the projections attached SMS-composition guidance to seams whose output is
+structured JSON and never stated the expected shape.
 
 `evals/live.ts` splits into:
 
@@ -349,7 +337,7 @@ defined in [ARCHITECTURE.md](ARCHITECTURE.md). Normal public map/listing lookup 
 never artificially capped. Natural-language customer inquiry is SMS-only at launch and uses the
 SMS sender/frequency controls.
 
-**Built (F-019).** It is the *only* public model surface, and that is enforced by the public
+It is the *only* public model surface, and that is enforced by the public
 route's dependency set rather than promised: `handleStandsRequest` takes `db` + `clock` and has no
 seam to hand a model to. The integration suite invokes it with a provider that **throws on any
 call**, so "model-free" means the surface works with no model available — not that a cooperative

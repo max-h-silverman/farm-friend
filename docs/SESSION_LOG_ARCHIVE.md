@@ -5,10 +5,9 @@ Rotated out of [SESSION_LOG.md](SESSION_LOG.md) on 2026-07-27, when the live log
 keeps the eight most recent entries; everything older lives here.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
-clean-room reset, and
-[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md) is
-the design authority that superseded much of it. Where an entry here disagrees with the
-handoff or with [../CLAUDE.md](../CLAUDE.md) "Current State", those win.
+clean-room reset, whose decisions superseded much of it; the current contract lives in the
+architecture documents ([README.md](README.md) is the index). Where an entry here disagrees with the
+current architecture documents or with [../CLAUDE.md](../CLAUDE.md) "Current State", those win.
 
 ---
 

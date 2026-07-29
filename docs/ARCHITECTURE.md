@@ -5,22 +5,9 @@ workflows, provider seams, and the invariants the code must enforce. Product rat
 [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md); data in [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md); AI in
 [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md).
 
-> **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
-> is the settled contract; where this doc disagrees, the handoff wins.
->
-> **Status: partly implemented; the rest are requirements.** The package boundary and dependency
-> direction are enforced by an architecture test. The clean launch schema, its initial migration,
-> and the F-014 forward migration are verified from an empty throwaway Postgres database.
-> **Implemented and proven by real-Postgres tests (F-014):** raw-body webhook signature
-> verification, the minimized provider inbox with one event-ID deduplication path, per-sender
-> claiming and recovery, fail-closed stale ordering, the separate STOP/START consent watermark, one
-> open confirmation-gated proposal, exactly-once publication with authority and approval rechecked
-> under lock, the dispatch-claim STOP boundary, bounded retries, ambiguous quarantine, monotonic
-> delivery, the composition root, and the live Telnyx adapter. **Not implemented:** the customer
-> inquiry and stock-out paths, retention, authentication beyond a token check, and the model
-> privacy boundary — the inventory interpreter is a typed port exercised only with deterministic
-> fakes. Statements about unimplemented areas are **requirements** until executable code and a test
-> prove them; do not cite this doc as evidence that an unproven guarantee holds.
+> This document states the **enduring system contract** — what must be true of Farm Friend's
+> architecture. It carries no build status: what is actually built, deployed, and open lives in
+> [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
 
 ## Design stance: the zen desk
 
@@ -34,6 +21,20 @@ zen desk"). In this system that looks like:
 - **One small, fixed routing order** — not special cases scattered across handlers.
 - **Each concept lives in exactly one place** — a behavior has one owner, a fact has one doc. When
   a change makes something redundant, delete it in the same change.
+- **Complexity must buy down a *named* launch risk.** If a proposed component cannot name the
+  invariant it enforces and the failure it prevents, delete it. "Earns its place" is not a feeling;
+  it is a sentence someone can check.
+
+**Excluded infrastructure — a settled architectural decision, not an omission.** The approved
+baseline is one Next.js application, one Postgres database, the four packages, Telnyx, and one
+model provider. That shape is sufficient for every launch invariant, so Farm Friend deliberately has
+**no** event bus, Kafka, event sourcing, workflow engine, distributed lock, separate queueing
+service, microservice, policy engine, DLP or taint-tracking product, general PII detector, vector
+database, program-enrollment platform, command DSL, or additional workspace package. Reaching for
+one of these is the signal that a mechanism has been generalized past its real consumer: a Postgres
+inbox/outbox with row locks, one typed projection per seam, one open confirmation, and one
+deterministic renderer are what close these invariants. Adding any of them requires naming the
+launch requirement the current shape is incapable of.
 
 ## Stack
 
@@ -72,9 +73,9 @@ core -> no other package
 `core` defines the ports; `db`, `sms`, and `ai` implement them. **`core` imports no other
 workspace package** — that is what keeps product rules testable without I/O.
 
-> *Verified current boundary:* `packages/core/package.json` has no workspace dependency, core source
-> imports no workspace adapter, and the architecture test permits workspace edges only in the
-> direction above. The composition root and adapter implementations remain later work.
+`packages/core/src/architecture.test.ts` enforces this: `core`'s manifest may declare no workspace
+dependency, core source may import no workspace adapter, and workspace edges are permitted only in
+the direction above.
 
 **One composition root** in `apps/web` constructs the database, model, SMS, and other
 adapters and injects them into the authoritative workflows. Runtime configuration is folded into
@@ -88,16 +89,17 @@ permanent map package, gleaning artifacts, or tenancy machinery.
 
 - **Public web:** the model-free map render + listing/filter experience, ungated and embeddable in
   VIGA's site; optional transient browser-origin proximity; per-stand pages; destination routing
-  links; and the QR stock-out web form. Anonymous, no signup. There is no launch natural-language
-  web inquiry. *Built (F-019):* `GET /api/public/stands` serves discovery with **no model seam in
-  its dependency set**, and `POST /api/public/stock-out` is the one public model-backed handler,
-  behind the throttle. *Built (F-017):* the map UI at `apps/web/app/page.tsx` renders those same
+  links; and the QR stock-out web form. Anonymous, no signup. There is **no launch natural-language
+  web inquiry**.
+  `GET /api/public/stands` serves discovery and the map UI at `apps/web/app/page.tsx` renders those
   published records — every card carries code-rendered recency, and a stale listing stays visible
   with a warning. Optional browser geolocation sorts by approximate straight-line distance in the
-  browser; destination-only Google Maps links delegate routing. The public read path imports
-  `lib/public-context.ts` (db + clock) rather than the full composition root, so **no model seam is
-  reachable from its module graph** — asserted by `lib/public-surface-model-free.test.ts`, which
-  walks the transitive imports of both public entry points.
+  browser; destination-only Google Maps links delegate routing.
+  `POST /api/public/stock-out` is the one public model-backed handler, behind the throttle.
+  **The model-free property is structural, not a convention:** the public read path imports
+  `lib/public-context.ts` (db + clock) rather than the full composition root, so no model seam is
+  reachable from its module graph — asserted by `lib/public-surface-model-free.test.ts`, which walks
+  the transitive imports of both public entry points.
 - **Farmer account:** sign-in → onboarding, inventory updates, profile, and preferences.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
@@ -170,7 +172,7 @@ later proactive notifications. Launch stores no follow-up interest and has no sc
 Every proactive non-required dispatch requires active launch consent. Universal `STOP` applies
 across all Farm Friend messaging and uses the ordered transition and dispatch boundary above.
 
-**Executable (F-016).** The consent meaning is one pure predicate,
+**One predicate, one place.** The consent meaning is one pure predicate,
 `isProactiveSendPermitted` in `packages/core/src/sms/consent.ts`, which the dispatch claim in
 `authorizeDispatch` consults — so the rule lives in one place and takes no database or model. It
 requires **active** consent for a proactive send: an absent consent row means the recipient never
@@ -182,6 +184,14 @@ provenance and in whether an existing record blocks them (`JOIN` alone is first-
 first-time rule is enforced inside `applyConsentTransition` by an `insert … on conflict do nothing
 returning` against `sms_consents`' primary key — **not** by a read, and not by the watermark's
 `for update`, which cannot lock a row that does not exist yet.
+
+**Deterministic code decides three things about every outbound message, and the model decides none
+of them: who may receive it, whether launch-program consent permits it, and whether it exceeds the
+recipient's message-frequency limits.** The first two are enforced at the dispatch claim today. The
+third is a **requirement not yet built**: the farmer's preferred prompt cadence and any rate cap are
+a recorded-but-unresolved launch decision (PRODUCT_BRIEF §unresolved), and when they are set the cap
+belongs beside `isProactiveSendPermitted` at the same dispatch boundary — never in a prompt, never in
+model output, and never as a second consent mechanism.
 
 Future programs require their own disclosed enrollment when they are approved and built. Launch has
 no program discriminator, future-program enrollment row, `JOIN <program>` grammar, or general
@@ -226,8 +236,13 @@ change suspends token acceptance until Telnyx accepts the new prompt.
 The structured proposal is a distinct pending payload, not a draft inventory revision. Inventory
 revisions are immutable published history. `NO` or expiry creates no revision. A successful `YES`
 transaction creates the new revision and entries, makes it current, and supersedes the prior
-current revision. Full-snapshot versus patch proposal semantics remain a separate unresolved
-decision; either must produce one complete published revision at confirmation.
+current revision.
+
+**Patch language in, complete snapshot out.** Farmers speak in edits — add this, drop that, it's all
+gone — so the interpreter returns typed edits against the current published snapshot, and code
+applies them to produce the *complete* pending snapshot the farmer is shown. Omission preserves an
+item; it never deletes one. `YES` publishes exactly that snapshot, so there is no durable delta,
+patch log, or replay mechanism, and confirmation always yields one complete immutable revision.
 
 The confirmation transaction locks the sender and pending row, verifies the prompt/version and
 expiry, rechecks current farmer authority and VIGA approval, conditionally consumes the pending row
@@ -320,11 +335,11 @@ Narrow interfaces so I/O is swappable and tests are hermetic:
   [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) "The trust contract."
 - **Clock** — injected time, so recency and expiry are deterministically testable.
 
-Geocoding is a **one-time seeding concern**, not a permanent provider seam. *Executable as of
-F-017:* the `MapProvider` interface and its coordinate-inventing `StubMapProvider` — which
-fabricated deterministic pseudo-coordinates near Vashon for **any** address string — are deleted,
-and `packages/core/src/architecture.test.ts` fails if either name, a `geocode(` call, or a mapping
-/geocoding/routing dependency reappears in any workspace.
+Geocoding is a **one-time seeding concern**, not a permanent provider seam. There is no `MapProvider`
+interface and no coordinate-inventing stub — an earlier one fabricated deterministic
+pseudo-coordinates near Vashon for **any** address string, which is exactly the fabrication an
+unresolved location must never receive. `packages/core/src/architecture.test.ts` fails if either name,
+a `geocode(` call, or a mapping/geocoding/routing dependency reappears in any workspace.
 
 Their replacement is arithmetic, not a provider: `packages/core/src/public/proximity.ts` is a pure
 module (haversine distance, coordinate validation, destination-link construction) with no network
@@ -351,11 +366,11 @@ one mechanism on **separate budgets** — sharing a single instance would let an
 traffic from a shared NAT exhaust a real operator's ability to sign in, an availability failure on
 the admin surface's recovery path.
 
-**Built (F-019, generalized in F-032).** `createPublicActionThrottle` in
+`createPublicActionThrottle` in
 `packages/core/src/public/throttle.ts` is a sliding per-client window over the injected `Clock`; the
 composition root constructs both instances (stock-out 5 / 60s; sign-in 3 / 15min). It was
-`createModelCallThrottle` until F-032 — the mechanism was always general and only the name was
-model-specific, so it was renamed rather than duplicated.
+`createModelCallThrottle` until the sign-in path arrived — the mechanism was always general and only
+the name was model-specific, so it was renamed rather than duplicated.
 `apps/web/lib/client-signal.ts` derives the bucket key by hashing the **leftmost**
 `x-forwarded-for` hop with the deployment salt — so no raw address reaches the throttle map, and
 appending a hop cannot buy a fresh budget. The key is a **cost bucket, never identity**: it is not
@@ -391,5 +406,7 @@ live in `apps/web/lib/` because Next.js permits only its own fields as route exp
    prompt; type/workflow/adversarial tests verify those barriers but are not a third enforcement
    layer.
 
-Full statements and the "why" live in [CLAUDE.md](../CLAUDE.md) Golden Rules. Each invariant is a
-**requirement awaiting executable proof**, not a description of current behavior.
+Full statements and the "why" live in [CLAUDE.md](../CLAUDE.md) Golden Rules. **An invariant is only
+real once a test can fail when it breaks** — a doc sentence, a code comment, or a green check is a
+claim, not proof. Sabotage the mechanism and confirm the suite goes red before believing any of
+these; that discipline has repeatedly caught guards that were already inert.

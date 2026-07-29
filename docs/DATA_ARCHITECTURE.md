@@ -3,25 +3,15 @@
 The *data* source of truth: the minimum durable records, the constraints the database must
 enforce, privacy/retention, and the model-run audit MAY-store list.
 
-> **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
-> is the settled contract; where this doc disagrees, the handoff wins.
+> This document states the **enduring data contract** — the durable records Farm Friend must keep and
+> the constraints the database must enforce. It carries no build status: what is actually built,
+> migrated, and open lives in [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
 >
-> **Status: schema, transaction path, and retention purge implemented.**
-> `packages/db/src/schema.ts`, `drizzle/0000_clean_launch.sql`, and the F-014 forward migration
-> `drizzle/0001_authoritative_transactions.sql` contain the launch records and constraints below.
-> The real-Postgres integration harness creates an empty throwaway database, applies every
-> committed migration, reruns the journal as a no-op, and exercises the checks, foreign keys,
-> partial uniqueness, and published-history guards. **F-014 implements and proves** the repository
-> transactions for sender claiming and recovery, conversation ordering, consent ordering,
-> confirmation/publication with authority and approval rechecks, dispatch authorization, and
-> delivery monotonicity. **F-026 implements and proves** raw-context retention:
-> `purgeExpiredBodies` (`packages/db/src/transactions.ts`) clears expired bodies on the scheduled
-> trigger and honors the flagged-thread exemption, proven against real Postgres in
-> `packages/db/src/retention.integration.test.ts`. **F-025a implements and proves** administrator
-> identity, durable sessions, and farm approval/revocation (`drizzle/0003_admin_identity_and_sessions.sql`,
-> `packages/db/src/admin.ts`), including the constraint that publication for an unapproved farm is
-> refused when no fixture pre-inserts the approval row. The private-report and stock-out alerting
-> paths owned by F-013 remain requirements.
+> **A constraint here is a claim until a test can fail on it.** The real-Postgres integration harness
+> is what makes these real: it creates an empty throwaway database, applies every committed migration
+> in order, reruns the journal as a no-op, and exercises the checks, foreign keys, partial uniqueness,
+> and published-history guards against live constraints. A guarantee proven only by a repository
+> function — never by the constraint itself — is not proven.
 
 ## Scope discipline
 

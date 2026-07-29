@@ -5,11 +5,30 @@
 **Audited repository baseline:** clean `main` at `2cb39e4`, including PR #7  
 **PM reset commit:** `da7e223` in `/Users/max/pm`
 
-> This is the handoff and audit reference for the clean-room design session. The existing
-> architecture documents remain useful evidence of the previous design, but they are not design
-> authority where they conflict with this document or with decisions recorded here.
+> # ⚠ HISTORICAL RECORD — NOT design authority, NOT current status.
+>
+> **Retired as the living design authority on 2026-07-28 (GL-031).** This is a **dated record of how
+> the clean-room reset was decided** in July 2026, preserved so the *reasoning* behind a settled
+> decision can be found. It is frozen: do not update it, do not cite it as a requirement, and do not
+> resolve a disagreement in its favor.
+>
+> **The enduring contract it settled now lives in the documents that own it**, which are current and
+> authoritative:
+> [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) (product) · [ARCHITECTURE.md](ARCHITECTURE.md) (system) ·
+> [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) (durable data) ·
+> [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) (model trust boundary) ·
+> [SMS_COMPLIANCE.md](SMS_COMPLIANCE.md) (consent and carrier).
+> What is actually **built** is [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
+>
+> **Much of what follows is now false as a description of the repository.** The Phase 3 audit below
+> describes code that has since been deleted or built, the refactor proposal has been carried out,
+> the "unresolved launch decisions" list has largely been decided, and the session-resumption
+> procedure describes a design session that ended. Read it as history, not instruction.
 
-## How to resume in a fresh session
+## How the clean-room session was run
+
+*Procedure from July 2026, recorded for provenance. That session is over; this is not a live
+workflow.*
 
 1. Read this document before the existing Farm Friend architecture documents.
 2. Do not repeat the product discovery or clean-room derivation unless the user changes a settled
@@ -277,10 +296,11 @@ enrollment state, scoped `MUTE`, service, or package.
 
 ### Design-authority and live-state ownership — F-020
 
-Approved July 25, 2026:
+Approved July 25, 2026. **Superseded 2026-07-28 by GL-031** — the first bullet no longer holds;
+authority moved to the owning documents named in the banner above. The rest still holds.
 
-- This handoff remains the single stable design authority. It contains the settled contract,
-  approved decisions, dated audit provenance, and stable decision ownership.
+- ~~This handoff remains the single stable design authority.~~ **Superseded:** the handoff is a
+  historical record. Each owning document is authoritative for its own domain.
 - `CLAUDE.md` "Current State & Open Items" is the sole repository-local live snapshot and names the
   current review/build boundary.
 - The Farm Friend PM backlog owns current item status.

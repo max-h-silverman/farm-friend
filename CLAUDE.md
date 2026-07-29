@@ -36,17 +36,15 @@ harness — *"if the brain were swapped for a weaker, or hostile, one tomorrow, 
 survive?"* Everything that must survive lives in the harness. Full contract:
 [docs/AI_ARCHITECTURE.md](docs/AI_ARCHITECTURE.md) "The trust contract."
 
-## Status: clean-room contract settled — rebuild underway
+## The documents and what each one owns
 
-**[docs/CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](docs/CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
-is the design authority.** Read it before the other architecture docs. It carries the settled
-product contract, the approved four-package architecture baseline, a repository audit, and the
-refactor direction. Where any other doc disagrees with it, **the handoff wins**.
+**Each architecture doc is authoritative for its own domain.** There is no master document above
+them; where two disagree, the one that *owns* the subject wins. **None of them carries build
+status** — that lives in exactly one place, "Current State & Open Items" at the bottom of this file.
 
-**Read the architecture docs as requirements, not as status.** A Phase 3 audit found the repository
-is an over-specified foundation whose documented safety claims executable code does not enforce.
-Each doc now carries a status note naming its own gaps. Do not cite a doc as evidence that a
-guarantee holds — check the code and the test.
+**Read a contract doc as a requirement, not as evidence.** A doc sentence, a code comment, a test
+name, and a green check are all *claims*. Do not cite one as proof that a guarantee holds — check
+the code and the test, and sabotage the test to confirm it can fail.
 
 - **[docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md)** — the *product*: north star, canonical launch
   journeys, actors, honor-system reality, privacy posture, launch scope and non-goals.
@@ -70,9 +68,15 @@ a `**Completed:**` line.
 [docs/RUNBOOK.md](docs/RUNBOOK.md) is the operate/extend guide (local dev, env, migrations,
 seeding, evals, deploy, Telnyx webhook requirements, **credential rotation**, and **how to extend**).
 [docs/ADMIN_OPERATIONS.md](docs/ADMIN_OPERATIONS.md) is the VIGA operator guide.
-[docs/SESSION_LOG.md](docs/SESSION_LOG.md) is build history — a **historical record** describing
-decisions the clean-room contract has since superseded. The live snapshot of what's true is
-"Current State" below.
+
+**Historical records — do NOT load these to orient.** They are dated, frozen, and not authority:
+`docs/CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md` and
+`docs/ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md` (the July 2026 reset and its adversarial review —
+retired as authority 2026-07-28; the contract they settled now lives in the docs above), and
+**[docs/SESSION_LOG.md](docs/SESSION_LOG.md)** with its
+[archive](docs/SESSION_LOG_ARCHIVE.md) (dated build history; entries older than the newest eight
+rotate into the archive). Open one **deliberately**, to answer "why was this decided" or to dig into
+a past defect — never as startup context. What is true *now* is "Current State" below.
 
 ---
 
@@ -125,9 +129,10 @@ question rather than guessing.
 
 For agents starting cold. **Work is chunked in the `/pm` backlog and built across sessions;
 `/session-wrap` carries continuity.** The loop for a non-trivial change:
-1. **Orient.** Read this file + the handoff + the area's architecture docs (docs/README.md is the
-   index). `/pm list` to see what's open, `/pm show <ID>` for acceptance criteria. Read "Current
-   State" below for what's live vs. skeleton.
+1. **Orient.** Read this file + the area's architecture docs (docs/README.md is the index). `/pm
+   list` to see what's open, `/pm show <ID>` for acceptance criteria. Read "Current State" below for
+   what's live vs. skeleton. **Do not load the historical records** — session logs and the two
+   handoffs are for answering a specific "why", not for orienting.
 2. **Claim.** `/pm status <ID> in progress`; branch off `main` (**never work on `main`**), named
    for the item (`f-011-…`).
 3. **Test-first, then build.** Write the failing test before the behavior (TDD below).
@@ -380,8 +385,9 @@ well as JSON. `createModelCallThrottle` is now `createPublicActionThrottle` — 
 consumers, separate budgets.
 
 **The model never authors customer-facing factual text or writes durable state.** It interprets and
-selects identifiers; code retrieves, validates membership, and renders. Four seams have explicit
-disjoint projections; the low-level provider call is unexported. `ambiguous`/`clarification` and the
+selects identifiers; code retrieves, validates membership, and renders. **Five** seams have explicit
+disjoint projections (the four message seams plus `offering-extraction`, which runs at seed time on
+public stand prose); the low-level provider call is unexported. `ambiguous`/`clarification` and the
 two scope boundaries (`outOfScopeRequest`, `originDependent`) are **bare signals carrying no words** —
 code renders the text. A ranking operation needing an origin is refused, never downgraded.
 

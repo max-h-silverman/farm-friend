@@ -1,35 +1,17 @@
 # Farm Friend — SMS Compliance
 
 Keywords, consent, required behavior, and the FLAG safety rail. SMS is the **critical path** daily
-driver; **A2P 10DLC is assumed approved by launch** (Eat Vashon week). All copy here is
-**provisional** until the campaign is registered. Routing mechanics are in
-[ARCHITECTURE.md](ARCHITECTURE.md); consent data in [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md).
+driver. Routing mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md); consent data in
+[DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md).
 
-> **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
-> is the settled contract; where this doc disagrees, the handoff wins.
+> This document states the **enduring consent and carrier contract**. It carries no build status:
+> what is actually built, registered, and open lives in [../CLAUDE.md](../CLAUDE.md) "Current State
+> & Open Items".
 >
-> **Status: consent model executable (F-016); one external question open.** The launch-program
-> consent decision is now a pure predicate in `packages/core/src/sms/consent.ts` enforced at the
-> outbox dispatch claim, and it requires **active** consent rather than merely "not stopped."
-> F-014 implements
-> verified ingress, durable minimized persistence, per-sender serialization, the separate
-> provider-time STOP/START consent watermark, and the dispatch-claim consent boundary, all proven
-> by real-Postgres tests. F-012 aligned the keyword set: the parser derives its tables from the
-> registered opt-out/opt-in/help lists, `STOPALL` now opts out globally, and the obsolete
-> `OUT`/`IGNORE` tokens are gone from the parser, the registered artifact, and public copy.
-> **Resolved 2026-07-26 — no resubmission was required.** The live console registers two sample
-> messages, both using `YES`/`NO`; the "Message 3" that advertised `OUT`/`IGNORE` existed only in
-> `docs/TELNYX_10DLC_FIELD_VALUES.txt`, which was a draft misread as a record of registered copy.
-> That file is now a transcript of live console state — **change the console first, then transcribe.**
-> The HELP auto-response was also corrected to route to `board@vigavashon.org`, so the campaign's
-> declared `Embedded Phone Number: No` is truthful.
-> **Routed as of F-023.** Persisted inbound events now reach `parseCommand` through
-> `runInboundPass` → `apps/web/lib/routing.ts`, driven by the scheduled worker route
-> (`/api/internal/cron`, docs/RUNBOOK.md §"Scheduled work"). A verified `STOP` unsubscribes end to
-> end, and `apps/web/lib/routing.integration.test.ts` proves it from a signed webhook POST to the
-> durable consent row with a model that throws if it is ever reached. The registered opt-in,
-> opt-out, and help auto-responses live in `packages/core/src/sms/auto-responses.ts`, transcribed
-> from the console record and drift-tested against it in both directions.
+> **Registered copy is transcribed, never authored here.** The opt-in, opt-out, and help
+> auto-responses live once in `packages/core/src/sms/auto-responses.ts` and are drift-tested
+> character-for-character against `docs/TELNYX_10DLC_FIELD_VALUES.txt`, which is a **transcript of
+> live console state**. Change the carrier console first, then transcribe — never the reverse.
 
 ## Deterministic keyword handling (code, before any model call)
 
@@ -104,11 +86,12 @@ was discarded while the sender remained recorded as subscribed.
 `FLAG` **pauses the thread** and **creates a review item** for the VIGA administrator (the
 human-handoff). `FLAG` is handled by code, upstream of any model call.
 
-**The review half is built (F-030).** `/admin/flags` lists open flags and resolves or dismisses
-them, and its thread viewer shows the flagged sender's retained messages with the phone masked — so
-the pre-launch gate this rail represents is satisfied. Both dispositions record the acting
-administrator and, because the retention exemption is keyed on `flags.status = 'open'`, both release
-the thread's expired bodies to the next purge pass.
+**A flag must be disposable, or retention never terminates.** `/admin/flags` lists open flags and
+resolves or dismisses them, and its thread viewer shows the flagged sender's retained messages with
+the phone masked. Both dispositions record the acting administrator and, because the retention
+exemption is keyed on `flags.status = 'open'`, **both** release the thread's expired bodies to the
+next purge pass — a rail that could only be resolved, never dismissed, would exempt a dismissed
+thread from retention forever.
 
 `FLAG` is a **Farm Friend product safety feature**. It must **not** be represented as a
 carrier-mandated keyword in campaign registration or public compliance copy.

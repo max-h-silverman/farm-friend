@@ -4,20 +4,10 @@ Cold-start guide: with only [../CLAUDE.md](../CLAUDE.md) and this file, a develo
 run the suites, and start the web app. Also the **how-to-extend** guide (referenced from CLAUDE.md,
 not inlined there).
 
-> **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
-> is the settled contract.
->
-> **Status (2026-07-26).** The four-package baseline, the launch schema and its migrations, the
-> composition root, verified+persisting SMS ingress, the authoritative workflow transactions, the
-> retention purge, the public map, the admin sign-in/farm-approval surface, and the flag/stock-out
-> review queues (F-030) all exist — as does the **seed loader (B-002)**, which has run against
-> VIGA's real export (28 of 31 stands; 3 lack a street address). Still **not** built: sign-in link
-> delivery by email (F-031), the `stand_data_flags` admin surface, and go-live (F-029). The
-> DeepInfra adapter exists but **the stub is still the configured provider** (F-024): selecting
-> DeepInfra throws until its data-handling terms are attested.
-> Where a step below names a path or script that does not exist yet, it is the **contract the
-> corresponding work builds to**, not a description of today; CLAUDE.md "Current State" is the live
-> snapshot.
+> This is the **operate-and-extend** guide: how to run, migrate, seed, evaluate, rotate, and deploy.
+> It carries no build status — what is actually built, deployed, and open lives in
+> [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items". Check there before trusting that a step
+> below has a working counterpart in the deployment.
 
 ## Prerequisites
 
@@ -238,7 +228,7 @@ was last confirmed. Stands seed empty and render the honest "no current listing"
 It also seeds **no phone numbers** — `farmer_authorizations` requires captured SMS consent, so phones
 arrive through onboarding, never a bulk roster load.
 
-**Status: the loader is BUILT (B-002).** Run it with:
+Run it with:
 
 ```bash
 npm run db:seed -- "<path-to-csv>" --dry-run   # report only, writes nothing
@@ -679,15 +669,17 @@ overstated the scope in one place and understated it in another.
 | `CRON_SECRET` | Vercel env **and** the GitHub repository secret | both, to the **same** value | A mismatch 401s every scheduled run |
 | `TELNYX_API_KEY` | Vercel env | Telnyx console | Belongs to the **Telnyx account**, so it survives a project teardown and needs a real reset either way |
 | `MAGIC_LINK_SECRET` | Vercel env | generate a new random value | Rotating invalidates every outstanding sign-in link and session — harmless pre-launch |
-| `DEEPINFRA_API_KEY` | **local `.env` only** | DeepInfra console | See the correction below |
+| `DEEPINFRA_API_KEY` | Vercel env **and** local `.env` | DeepInfra console, then **both** places | See the note below |
 | `PHONE_HASH_SALT` | Vercel env | **NEVER** | See the rule above |
 
-**Correction to the earlier scope.** `DEEPINFRA_API_KEY` is **not** a production credential.
-`LLM_PROVIDER`, `DEEPINFRA_API_KEY`, and `DEEPINFRA_MODEL` are absent from the Vercel environment
-entirely, so the deployment runs the deterministic **stub** and the key exists only in the local
-`.env` used by `npm run evals:live` and `npm run offerings:propose`. It is still in rotation scope —
-it authorizes spend against the DeepInfra account — but it rotates in the DeepInfra console and the
-local `.env`, **not** in Vercel. (That production runs the stub is itself the defect GL-019 tracks.)
+**`DEEPINFRA_API_KEY` is consumed in two places, and an earlier revision of this table said one.**
+It was once local-only, because the deployment had no `LLM_PROVIDER` at all and silently ran the
+deterministic stub. That is no longer true: production selects a live provider, so the key now
+authorizes **spend on real traffic** as well as the local `.env` used by `npm run evals:live` and
+`npm run offerings:propose`. Rotate it in the DeepInfra console and then update **both** the Vercel
+environment and local `.env` — updating one leaves the other authenticating with a dead key.
+**Confirm which places actually carry it before rotating**, rather than trusting this table: read the
+value back from Vercel where the variable is not marked Sensitive, and otherwise verify by effect.
 
 `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY`, `PUBLIC_BASE_URL`, and
 `SMS_PROVIDER` are **identifiers and public keys, not secrets**. They need no rotation. The ed25519
@@ -707,7 +699,8 @@ confined to working transcripts, so **no history rewrite is required**.
 3. **`TELNYX_API_KEY`** — rotate in the Telnyx console, update Vercel. Required on both paths.
 4. **`MAGIC_LINK_SECRET`** — new random value into Vercel.
 5. **`CRON_SECRET`** — the same new value into **both** Vercel and `gh secret set CRON_SECRET`.
-6. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, update local `.env` only.
+6. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, then update **Vercel and** local
+   `.env`. Missing the Vercel half leaves production calling the model with a revoked key.
 7. **Redeploy**, then run every proof in the next section.
 8. **Confirm the old values no longer authenticate** (also below).
 

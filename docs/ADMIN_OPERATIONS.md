@@ -4,14 +4,9 @@ The VIGA operator guide: the administrator role, the admin surfaces, and operato
 is a **first-class requirement** — non-technical VIGA staff run oversight through a guided web
 admin.
 
-> **Design authority.** [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)
-> is the settled contract.
->
-> **Status: built (F-025a + F-030 + F-037).** Sign-in, durable sessions, server-side role
-> lookup, **farm approval/revocation**, the **flag review queue with its thread viewer**, the
-> **stock-out report queue**, and the **stand-data question queue** are built and tested. What
-> remains unbuilt is the exceptions surface and a way to *send* a sign-in link (F-031) — each
-> is marked below.
+> This is the **VIGA operator guide** — the administrator model and the surfaces that serve it. It
+> carries no build status: what is actually built and open lives in [../CLAUDE.md](../CLAUDE.md)
+> "Current State & Open Items".
 
 ## The administrator role
 

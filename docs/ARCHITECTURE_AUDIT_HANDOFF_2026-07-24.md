@@ -6,13 +6,24 @@
 **Purpose:** preserve the independent review of the clean-room reset so it can be adjudicated in
 a fresh session.
 
-> **Status: review input, not design authority.**
-> [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md) remains
-> the settled contract. This document records findings and proposed corrections. A recommendation
-> here changes the contract only after explicit review and agreement.
+> # ⚠ HISTORICAL RECORD — NOT design authority, NOT current status.
 >
-> No application code, schema, PM item, or settled architecture decision was changed as part of
-> this audit.
+> A **dated adversarial review** of the July 2026 clean-room reset, preserved so the reasoning behind
+> a settled decision can be found. It is frozen: do not update it and do not cite it as a
+> requirement. It changed no code, schema, or PM item at the time.
+>
+> **Its findings have since been adjudicated and built.** Every "genuinely unresolved decision" it
+> lists has been decided, and the guarantees it called unenforced are now enforced by code and
+> tests — so the repository it describes no longer exists. Read it as history.
+>
+> Its one enduring contribution, the **spiral-staircase constraint** against over-architecting, now
+> lives in [ARCHITECTURE.md](ARCHITECTURE.md) "Design stance" and CLAUDE.md "Simplicity and
+> elegance — the zen desk", which are current.
+>
+> Current authority: [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) · [ARCHITECTURE.md](ARCHITECTURE.md) ·
+> [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) · [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) ·
+> [SMS_COMPLIANCE.md](SMS_COMPLIANCE.md). Current build state:
+> [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
 
 ## Executive verdict
 
