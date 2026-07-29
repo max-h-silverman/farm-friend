@@ -7,6 +7,12 @@ export** is still required for those and for farms that did not submit a 2026 fo
 (`stand-csv.ts`, which anchors records to the `"POINT (` literal because that file is malformed).
 Neither file alone can seed a visitable location.
 
+**The two are joined by NAME** (`match-stands.ts`), on an **exact normalized key** rather than a
+similarity score — a fuzzy matcher measured over this corpus ranked Lavender Hill Farm against Flora
+Hill Farm, which would have published one farm's address for another. A missed pair is reported and
+resolved by a human; a wrongly joined one is silently wrong. Measured: 27 of 35 farms matched across
+both files, 33 seedable, 2 refused for having no resolvable coordinate.
+
 The existing VIGA map/form export is **reference input** for the one-time seed loader. It is not
 migration data and establishes no compatibility, lifecycle, claim, or provenance model.
 

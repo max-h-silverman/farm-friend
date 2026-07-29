@@ -49,9 +49,17 @@ export interface SeedStandFlag {
 
 export interface SeedStandInput {
   name: string;
-  address: string;
-  longitude: number;
-  latitude: number;
+  /**
+   * Address and coordinates are present together or absent together — the shape
+   * `sales_locations_coherent_visitability` enforces (F-038).
+   *
+   * A `contact_only` farm has none of the three: Open Gate Lamb delivers only, and the legacy
+   * map export's coordinates for it must not be seeded. Optional here rather than three
+   * separate optionals so the type mirrors the constraint.
+   */
+  place?: { address: string; longitude: number; latitude: number };
+  visitability: "visitable" | "contact_only";
+  offeringType: "produce" | "services" | "by_order";
   kind: "farm_stand" | "farmers_market";
   /** The farmer's own words, kept for display and never filtered on. */
   hoursText?: string;
@@ -214,14 +222,16 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
       const locationRows = await tx`
         insert into sales_locations (
           farm_id, kind, name, public_address, public_latitude, public_longitude,
+          visitability, offering_type,
           hours_text, is_public, farm_bucks_accepted, farm_bucks_eligible,
           season_kind, season_start_month, season_start_day, season_end_month,
           season_end_day, season_names,
           open_hours_kind, open_from_minutes, open_until_minutes,
           stocking_cadence, stocking_days
         ) values (
-          ${farmId}, ${stand.kind}, ${stand.name}, ${stand.address},
-          ${stand.latitude}, ${stand.longitude},
+          ${farmId}, ${stand.kind}, ${stand.name}, ${stand.place?.address ?? null},
+          ${stand.place?.latitude ?? null}, ${stand.place?.longitude ?? null},
+          ${stand.visitability}, ${stand.offeringType},
           ${stand.hoursText ?? null}, true,
           ${stand.farmBucksAccepted ?? false}, ${stand.farmBucksEligible ?? false},
           ${season.kind}, ${season.startMonth}, ${season.startDay},

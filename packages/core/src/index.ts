@@ -16,5 +16,8 @@ export * from "./auth/roles";
 export * from "./auth/session";
 export * from "./auth/sign-in-email";
 export * from "./seed/availability";
+export * from "./seed/form-responses";
+export * from "./seed/match-stands";
+export * from "./seed/offering-type";
 export * from "./seed/stand-csv";
 export * from "./seed/stand-fields";

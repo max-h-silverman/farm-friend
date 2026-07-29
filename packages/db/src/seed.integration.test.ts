@@ -54,9 +54,9 @@ describe("seeding VIGA's stands (B-002)", () => {
   const sample = (): SeedStandInput[] => [
     {
       name: "Alpha Farm",
-      address: "1 Example Rd SW",
-      longitude: -122.45,
-      latitude: 47.46,
+      place: { address: "1 Example Rd SW", longitude: -122.45, latitude: 47.46 },
+      visitability: "visitable",
+      offeringType: "produce",
       kind: "farm_stand",
       hoursText: "Open: March to December",
       season: { kind: "date_range", startMonth: 3, startDay: 1, endMonth: 12, endDay: 31 },
@@ -66,9 +66,9 @@ describe("seeding VIGA's stands (B-002)", () => {
     },
     {
       name: "Beta Farm",
-      address: "2 Example Rd SW",
-      longitude: -122.5,
-      latitude: 47.4,
+      place: { address: "2 Example Rd SW", longitude: -122.5, latitude: 47.4 },
+      visitability: "visitable",
+      offeringType: "produce",
       kind: "farm_stand",
       hoursText: "Open: contradictory",
       season: { kind: "not_stated" },
@@ -94,6 +94,71 @@ describe("seeding VIGA's stands (B-002)", () => {
     expect(rows[0]!.farm_name).toBe("Alpha Farm");
     expect(rows[0]!.is_public).toBe(true);
     expect(Number(rows[0]!.public_longitude)).toBeCloseTo(-122.45, 6);
+  });
+
+  it("seeds a contact_only farm with NO pin, against the real constraint (F-038)", async () => {
+    // The honesty property the whole join exists to protect. Open Gate Lamb delivers only, and
+    // the legacy map export HAS real coordinates for it — seeding them would put a pin on a farm
+    // with nothing to buy and no expectation of visitors.
+    //
+    // Asserted against `sales_locations_coherent_visitability` rather than against the seeder's
+    // own bookkeeping: the database is what makes address and coordinates all-or-nothing, so a
+    // future change that started copying the map's point through would fail HERE even if every
+    // unit test kept passing.
+    const result = await seedStands(client, [
+      {
+        name: "Delivery Only Farm",
+        visitability: "contact_only",
+        offeringType: "by_order",
+        kind: "farm_stand",
+        season: { kind: "not_stated" },
+        openHours: { kind: "not_stated" },
+        stocking: { cadence: "not_stated" },
+        flags: [],
+      },
+    ]);
+    expect(result.seeded).toBe(1);
+
+    const rows = await client`
+      select visitability, offering_type, public_address, public_latitude, public_longitude,
+             is_public
+      from sales_locations where name = 'Delivery Only Farm'
+    `;
+    expect(rows[0]!.visitability).toBe("contact_only");
+    expect(rows[0]!.offering_type).toBe("by_order");
+    // All three absent TOGETHER — the shape the constraint enforces.
+    expect(rows[0]!.public_address).toBeNull();
+    expect(rows[0]!.public_latitude).toBeNull();
+    expect(rows[0]!.public_longitude).toBeNull();
+    // Still discoverable. Not visitable is not the same as not listed.
+    expect(rows[0]!.is_public).toBe(true);
+  });
+
+  it("REFUSES a contact_only farm carrying coordinates, rather than storing half of it", async () => {
+    // The reverse direction, which is the one that would hurt a customer: a farm marked
+    // contact-only but pinned anyway. `coherent_visitability` forbids it in both directions, so
+    // the seeder cannot produce this row even by mistake.
+    await expect(
+      seedStands(client, [
+        {
+          name: "Incoherent Farm",
+          visitability: "contact_only",
+          offeringType: "produce",
+          // A point with no address: exactly what copying the map export through would produce.
+          place: { address: "", longitude: -122.45, latitude: 47.46 },
+          kind: "farm_stand",
+          season: { kind: "not_stated" },
+          openHours: { kind: "not_stated" },
+          stocking: { cadence: "not_stated" },
+          flags: [],
+        },
+      ]),
+    ).rejects.toThrow();
+
+    const rows = await client`
+      select count(*)::integer as count from sales_locations where name = 'Incoherent Farm'
+    `;
+    expect(rows[0]!.count).toBe(0);
   });
 
   it("seeds ZERO inventory — a seeder cannot fabricate a farmer's confirmation", async () => {
@@ -167,8 +232,7 @@ describe("seeding VIGA's stands (B-002)", () => {
         {
           ...sample()[0]!,
           name: "Bad Coordinate Farm",
-          address: "3 Example Rd SW",
-          latitude: 991,
+          place: { address: "3 Example Rd SW", longitude: -122.45, latitude: 991 },
         },
       ]),
     ).rejects.toThrow();
@@ -183,8 +247,16 @@ describe("seeding VIGA's stands (B-002)", () => {
     const before = await client`select count(*)::integer as count from sales_locations`;
     await expect(
       seedStands(client, [
-        { ...sample()[0]!, name: "Good Farm", address: "4 Example Rd SW" },
-        { ...sample()[0]!, name: "Doomed Farm", address: "5 Example Rd SW", latitude: 991 },
+        {
+          ...sample()[0]!,
+          name: "Good Farm",
+          place: { address: "4 Example Rd SW", longitude: -122.45, latitude: 47.46 },
+        },
+        {
+          ...sample()[0]!,
+          name: "Doomed Farm",
+          place: { address: "5 Example Rd SW", longitude: -122.45, latitude: 991 },
+        },
       ]),
     ).rejects.toThrow();
 

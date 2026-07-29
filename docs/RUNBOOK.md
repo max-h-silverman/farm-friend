@@ -232,33 +232,57 @@ was last confirmed. Stands seed empty and render the honest "no current listing"
 It also seeds **no phone numbers** — `farmer_authorizations` requires captured SMS consent, so phones
 arrive through onboarding, never a bulk roster load.
 
-Run it with:
+**It takes BOTH exports**, because neither can seed a visitable location alone: the form has the
+2026-current details and **no coordinates at all**, the map export has the coordinates and the farms
+that submitted no form.
 
 ```bash
-npm run db:seed -- "<path-to-csv>" --dry-run   # report only, writes nothing
-npm run db:seed -- "<path-to-csv>"             # apply
+npm run db:seed -- --form "<form.csv>" --map "<map.csv>" --dry-run   # report only, writes nothing
+npm run db:seed -- --form "<form.csv>" --map "<map.csv>"             # apply
 ```
 
 It is **idempotent** (keyed on stand name; a second run skips what exists and never updates it, so a
 farmer's own later correction is not reverted to the CSV) and **refuses rather than coerces** — the
 whole batch is one transaction, and an out-of-range coordinate aborts it instead of being clamped.
 
-Against VIGA's map export: **28 of 31 stands seeded, 3 flags raised**. The 3 not seeded — Vashon
-Island Farmers Market, Breathing Meadows Farm, Open Gate Lamb and Grazing — stated **no street
-address**, and inventing one is the fabrication F-017 forbids, so they were reported as operator
-tasks.
+**Measured over the real corpus (2026-07-29): 33 stands seeded, 2 refused, 3 flags raised.**
+31 visitable with a pin, 2 `contact_only` with none. `public_address` is **no longer NOT NULL**
+(migration 0007): required for a `visitable` location, forbidden for a `contact_only` one, enforced
+by `sales_locations_coherent_visitability`.
 
-**All three are now resolved, and the seed SOURCE has changed (2026-07-29).** Farmers Market has an
-address from max (17519 Vashon Hwy SW); Breathing Meadows and Open Gate Lamb are **`contact_only`**
-under F-038 and need none — neither is a visitable location. `public_address` is **no longer
-NOT NULL** (migration 0007): it is required for a `visitable` location and forbidden for a
-`contact_only` one, enforced by `sales_locations_coherent_visitability`.
-
-The primary source is now the **2026 form responses** export
+The primary source is the **2026 form responses** export
 (`packages/core/src/seed/form-responses.ts`) — well-formed, one row per farm, with hours, season,
-and stocking as separate columns. **It carries no coordinates**, so the map export remains required
-input for those and for farms that did not submit a 2026 form. The seed join over both is not yet
-built; the loader still reads the map export alone.
+and stocking as separate columns. The **map export** supplies coordinates and the farms that did not
+submit a 2026 form.
+
+**The join is by NAME, and the names differ between the files** — `packages/core/src/seed/
+match-stands.ts`. Measured: **27 of 35 farms matched across both files**, 4 form-only, 4 map-only.
+The key is an **exact normalized identity** (annotations, curly apostrophes and NBSP normalized,
+generic words like "Farm"/"Stand" dropped), **never a similarity score**: a Jaccard matcher run over
+the real corpus ranked **Lavender Hill Farm against Flora Hill Farm** as its best candidate, and any
+threshold loose enough to catch the true pairs would have seeded Lavender Hill at Flora Hill's
+coordinates — a published address sending a customer to a stranger's driveway, with every test green.
+A pair the exact key misses becomes a **reported refusal** a human resolves; a wrongly joined pair is
+a silently wrong address, so the failure direction is chosen deliberately.
+
+**The 2 refused are both genuinely unplaceable**, and neither is seeded without a point (F-017):
+
+| Farm | Why |
+|---|---|
+| Lavender Hill Farm | in no map row; "SW 238th St" does not exist in OpenStreetMap on Vashon, so no coordinate could be resolved |
+| Sweet Alyssum Farm | in no map row; "Bank Road, East of Town" is a road with no number — followable by a person, not resolvable to a point |
+
+Three inputs live in the seed script as **data, not rules**: coordinates looked up once for
+**Farmstad** and **Handpicked Homestead** (2026 farms that postdate the map export — a *seed-time*
+lookup is permitted; a **runtime** geocoder is what F-017 forbids), max's address for **Vashon Island
+Farmers Market**, and the F-038 decision that **Breathing Meadows** is `contact_only` ("Open only by
+appointment" — a customer specifically cannot turn up, so its map-export coordinates are deliberately
+not seeded).
+
+**What a farm sells is classified from the farmer's own words** (`seed/offering-type.ts`), never from
+its name: Seedrain is `services` ("advice and services for invasive plant control") and Open Gate Lamb
+is `by_order`. The other 31 are `produce`. `offering_type` and `visitability` are **independent** —
+Seedrain has a street address and sells services; Open Gate Lamb has neither address nor pin.
 
 **The export is malformed CSV and no standard parser reads it.** Each `description` is unquoted and
 spans raw newlines until the next `"POINT (` line, so a conventional reader returns **285 rows for

@@ -1,28 +1,35 @@
-// B-002 — seed VIGA's farm-stand export.
+// B-002 / F-038 — seed VIGA's farm-stand corpus from BOTH exports.
 //
-//   npm run db:seed -- <path-to-csv>            # apply
-//   npm run db:seed -- <path-to-csv> --dry-run  # report only, write nothing
+//   npm run db:seed -- --form <form.csv> --map <map.csv> [--dry-run]
 //
-// This is the composition point for the seed path: it reads the export, strips contact
-// details, extracts the labelled fields, parses availability, and hands typed values to
-// `seedStands`. Every interpretation step lives in a tested module in `@farm-friend/core`;
-// this script only wires them together and reports.
+// TWO FILES, because neither can seed a visitable location alone:
+//
+//   form responses  →  2026-current details (hours, season, stocking, website, social), and
+//                      NO COORDINATES AT ALL
+//   map export      →  coordinates, and the farms that did not submit a 2026 form
+//
+// This is the composition point: it reads both, joins them by name (`match-stands.ts`), parses
+// availability, classifies what each farm sells, and hands typed values to `seedStands`. Every
+// interpretation step lives in a tested module in `@farm-friend/core`; this script wires them
+// together and REPORTS — including the match rate, which is the number that says whether the
+// join actually worked. A silent "seeded 28" tells you nothing about the four it dropped.
 //
 // OFFERINGS ARE NOT SEEDED HERE. What a stand usually carries comes from the
-// `offering-extraction` model seam (F-036), which proposes tags a human approves before code
-// commits them. That path is blocked until a real provider is attested (F-024), and a stand
-// with no offerings is a correct intermediate state — B-013 makes it visible on the map with
-// no recency claim. Nothing about this script fabricates one in the meantime.
+// `offering-extraction` model seam (F-036): the model proposes, a human approves, and
+// `npm run db:seed-offerings` commits the approved artifact. Two separate, re-runnable steps.
 
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
 import {
-  extractStandFields,
+  classifyOfferingType,
+  joinStandSources,
+  parseFormResponses,
   parseOpenHours,
   parseSeason,
   parseStandCsv,
   parseStocking,
   stripContactDetails,
+  type JoinedStand,
   type ParsedSeason,
   type ParsedOpenHours,
 } from "@farm-friend/core";
@@ -34,16 +41,49 @@ import {
   type SeededSeason,
 } from "../src/seed";
 
-/** Find the stand's street address. Never invented: an absent one refuses the stand. */
-function findAddress(description: string): string | undefined {
-  for (const line of description.split("\n")) {
-    const trimmed = line.trim();
-    // A street address begins with a house number, or is one of the corpus's descriptive
-    // "Entrance is ..." directions.
-    if (/^\d+\s+\S/.test(trimmed) || /^entrance\b/i.test(trimmed)) return trimmed;
-  }
-  return undefined;
-}
+/**
+ * Coordinates for farms that submitted a 2026 form but appear in NO map row.
+ *
+ * Three such farms: they state real street addresses, so they are genuinely visitable, but the
+ * legacy map export predates them and has no point. A seed-time lookup is explicitly permitted
+ * (B-002 — the prohibition is on a RUNTIME geocoder, and F-017's tripwire still forbids one);
+ * these were resolved once against OpenStreetMap and verified by max.
+ *
+ * They live here as data rather than in the join, because they are an input to the corpus, not
+ * a rule about it. A farm that later appears in a refreshed map export simply stops needing its
+ * entry — the join prefers the export.
+ *
+ * Lavender Hill Farm is deliberately ABSENT: SW 238th St does not exist in OpenStreetMap on
+ * Vashon at all, so no point could be resolved. It is refused and reported rather than guessed
+ * — which is the whole rule (F-017).
+ */
+const SUPPLEMENTAL_COORDINATES: Record<string, { latitude: number; longitude: number }> = {
+  Farmstad: { latitude: 47.4727554, longitude: -122.489797 },
+  "Handpicked Homestead": { latitude: 47.4271197, longitude: -122.4710309 },
+};
+
+/**
+ * The one address max supplied by hand, for a farm in neither file's usable form.
+ *
+ * Vashon Island Farmers Market is in the map export with coordinates but states no street
+ * address in its description, and a market does not submit a member farm-stand form.
+ */
+const SUPPLEMENTAL_ADDRESSES: Record<string, string> = {
+  "Vashon Island Farmers Market": "17519 Vashon Hwy SW",
+};
+
+/**
+ * Farms the map export gives coordinates for that are NOT visitable (F-038, max 2026-07-29).
+ *
+ * Breathing Meadows submitted no 2026 form, and its map description says "Open only by
+ * appointment" — a customer specifically cannot turn up, which is the definition of a farm you
+ * contact first. Its coordinates are deliberately not seeded: a pin you cannot visit is what
+ * sends someone driving to a farm that is not expecting them.
+ *
+ * This is a stated product decision about a farm with no form, not an inference. A farm that
+ * submits a 2026 form classifies itself from its own Address answer, in `form-responses.ts`.
+ */
+const CONTACT_ONLY_BY_DECISION = new Set(["Breathing Meadows Farm"]);
 
 function toSeededSeason(parsed: ParsedSeason): SeededSeason | null {
   switch (parsed.kind) {
@@ -90,12 +130,132 @@ function toSeededHours(parsed: ParsedOpenHours): SeededOpenHours | null {
   }
 }
 
-async function main(): Promise<void> {
-  const [csvPath, ...rest] = process.argv.slice(2);
-  const dryRun = rest.includes("--dry-run");
+/**
+ * Turn one joined farm into a seedable row.
+ *
+ * The FORM is authoritative for availability when it submitted one — those are separate,
+ * structured columns rather than prose the availability parser has to pick apart. A map-only
+ * farm falls back to its description's `Open:` lines, which is what the original loader did for
+ * the whole corpus.
+ */
+function toSeedInput(stand: JoinedStand): {
+  input?: SeedStandInput;
+  refusal?: { name: string; reason: string };
+} {
+  const flags: SeedStandFlag[] = [];
 
-  if (!csvPath) {
-    console.error("usage: npm run db:seed -- <path-to-csv> [--dry-run]");
+  // Availability text: the form's own columns first, the map description's prose second.
+  const seasonText = stand.form?.openSeasonText ?? "";
+  const hoursText = stand.form?.openHoursText ?? "";
+  const stockingText = stand.form?.stockingText ?? "";
+
+  const mapDescription =
+    stand.map === undefined ? "" : stripContactDetails(stand.map.description);
+
+  const parsedSeason = parseSeason(seasonText || mapDescription);
+  const parsedHours = parseOpenHours(hoursText || mapDescription);
+  const parsedStocking = parseStocking(stockingText || mapDescription);
+
+  let season = toSeededSeason(parsedSeason);
+  if (season === null) {
+    flags.push({ reason: "season_unresolved", sourceText: seasonText || mapDescription });
+    season = { kind: "not_stated" };
+  }
+
+  let openHours = toSeededHours(parsedHours);
+  if (openHours === null) {
+    flags.push({ reason: "unparsed_availability", sourceText: hoursText || mapDescription });
+    openHours = { kind: "not_stated" };
+  }
+
+  // An address the farmer stated but no geocoder can resolve ("Bank Road, East of Town") is a
+  // question for an operator, not a reason to drop the stand.
+  if (stand.form?.addressNeedsReview === true) {
+    flags.push({
+      reason: "unparsed_availability",
+      sourceText: `address needs review: ${stand.publicAddress ?? "(none)"}`,
+    });
+  }
+
+  const offeringType = classifyOfferingType({
+    ...(stand.form?.generalInformation !== undefined
+      ? { generalInformation: stand.form.generalInformation }
+      : {}),
+    ...(stand.form?.extraNotes !== undefined ? { extraNotes: stand.form.extraNotes } : {}),
+    ...(stockingText !== "" ? { stockingText } : {}),
+  });
+
+  const base = {
+    name: stand.name,
+    kind: /farmers\s*market/i.test(stand.name)
+      ? ("farmers_market" as const)
+      : ("farm_stand" as const),
+    offeringType,
+    ...(hoursText !== "" ? { hoursText } : {}),
+    season,
+    openHours,
+    stocking:
+      parsedStocking.cadence === "unparsed"
+        ? { cadence: "not_stated" as const }
+        : {
+            cadence: parsedStocking.cadence,
+            ...(parsedStocking.days ? { days: parsedStocking.days } : {}),
+          },
+    flags,
+  };
+
+  if (
+    stand.visitability === "contact_only" ||
+    CONTACT_ONLY_BY_DECISION.has(stand.name)
+  ) {
+    // No address, no point — and none taken from the map export even when it has one.
+    return { input: { ...base, visitability: "contact_only" } };
+  }
+
+  const address = stand.publicAddress ?? SUPPLEMENTAL_ADDRESSES[stand.name];
+  const point =
+    stand.latitude !== undefined && stand.longitude !== undefined
+      ? { latitude: stand.latitude, longitude: stand.longitude }
+      : SUPPLEMENTAL_COORDINATES[stand.name];
+
+  if (address === undefined) {
+    return {
+      refusal: { name: stand.name, reason: "visitable stand states no street address" },
+    };
+  }
+  if (point === undefined) {
+    return {
+      refusal: {
+        name: stand.name,
+        reason: "visitable stand has no coordinate, and a point is never invented",
+      },
+    };
+  }
+
+  return {
+    input: {
+      ...base,
+      visitability: "visitable",
+      place: { address, latitude: point.latitude, longitude: point.longitude },
+    },
+  };
+}
+
+function argValue(flag: string): string | undefined {
+  const index = process.argv.indexOf(flag);
+  return index === -1 ? undefined : process.argv[index + 1];
+}
+
+async function main(): Promise<void> {
+  const formPath = argValue("--form");
+  const mapPath = argValue("--map");
+  const dryRun = process.argv.includes("--dry-run");
+
+  if (!formPath || !mapPath) {
+    console.error(
+      "usage: npm run db:seed -- --form <form.csv> --map <map.csv> [--dry-run]\n" +
+        "  both files are required: the form has the details, the map export has the coordinates",
+    );
     process.exit(1);
   }
 
@@ -105,83 +265,52 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const { stands: raw, rejected } = parseStandCsv(readFileSync(csvPath, "utf8"));
+  const form = parseFormResponses(readFileSync(formPath, "utf8"));
+  const map = parseStandCsv(readFileSync(mapPath, "utf8"));
+
+  const { joined, refused: joinRefused } = joinStandSources({
+    form: form.stands,
+    formRejected: form.rejected,
+    map: map.stands,
+  });
+
   const inputs: SeedStandInput[] = [];
-  const refused: { name: string; reason: string }[] = [...rejected];
+  const refused = [...map.rejected, ...joinRefused];
 
-  for (const stand of raw) {
-    // Contact details are stripped BEFORE anything else reads the text, so no later step
-    // can copy an email or phone number into a column.
-    const description = stripContactDetails(stand.description);
-    const fields = extractStandFields(description);
-
-    const address = findAddress(description);
-    if (address === undefined) {
-      // No address, and inventing one is out of the question (F-017). An operator resolves
-      // it; the stand is reported, never silently dropped.
-      refused.push({ name: stand.name, reason: "no street address in the export" });
-      continue;
-    }
-
-    const flags: SeedStandFlag[] = [];
-    const openText = fields.openText ?? "";
-
-    const parsedSeason = parseSeason(openText);
-    const parsedHours = parseOpenHours(openText);
-    const parsedStocking = parseStocking(fields.stockingText ?? "");
-
-    let season = toSeededSeason(parsedSeason);
-    if (season === null) {
-      flags.push({ reason: "season_unresolved", sourceText: openText });
-      season = { kind: "not_stated" };
-    }
-
-    let openHours = toSeededHours(parsedHours);
-    if (openHours === null) {
-      flags.push({ reason: "unparsed_availability", sourceText: openText });
-      openHours = { kind: "not_stated" };
-    }
-
-    // More than one `Open:` line means the stand states two different things. The seeder
-    // never picks a winner — it seeds the first and hands the conflict to an operator.
-    if (fields.openTexts.length > 1) {
-      flags.push({
-        reason: "contradictory_hours",
-        sourceText: fields.openTexts.join(" | "),
-      });
-    }
-
-    if (fields.closureNote !== undefined) {
-      flags.push({ reason: "possibly_closed", sourceText: fields.closureNote });
-    }
-
-    inputs.push({
-      name: stand.name,
-      address,
-      longitude: stand.longitude,
-      latitude: stand.latitude,
-      kind: /farmers\s*market/i.test(stand.name) ? "farmers_market" : "farm_stand",
-      ...(fields.openText !== undefined ? { hoursText: fields.openText } : {}),
-      season,
-      openHours,
-      stocking:
-        parsedStocking.cadence === "unparsed"
-          ? { cadence: "not_stated" }
-          : {
-              cadence: parsedStocking.cadence,
-              ...(parsedStocking.days ? { days: parsedStocking.days } : {}),
-            },
-      flags,
-    });
+  for (const stand of joined) {
+    const { input, refusal } = toSeedInput(stand);
+    if (refusal) refused.push(refusal);
+    else if (input) inputs.push(input);
   }
 
-  const flagged = inputs.filter((stand) => stand.flags.length > 0);
-  console.log(`parsed ${inputs.length} stands, ${refused.length} refused`);
+  // THE MATCH RATE. The join is the fiddly part of this seeder and the one most likely to be
+  // silently wrong, so it is reported rather than assumed: a farm matched to the wrong row gets
+  // a real address that is not its own. `form_and_map` is the count that actually exercised the
+  // name matcher.
+  const bySource = (source: JoinedStand["source"]) =>
+    joined.filter((stand) => stand.source === source).length;
+
+  console.log(
+    `form export: ${form.stands.length} stands, ${form.rejected.length} unreadable\n` +
+      `map export:  ${map.stands.length} stands, ${map.rejected.length} unreadable\n` +
+      `joined:      ${joined.length} (${bySource("form_and_map")} matched across both files, ` +
+      `${bySource("form")} form only, ${bySource("map_only")} map only)`,
+  );
+
+  const contactOnly = inputs.filter((stand) => stand.visitability === "contact_only");
+  const nonProduce = inputs.filter((stand) => stand.offeringType !== "produce");
+  console.log(
+    `seedable:    ${inputs.length} (${contactOnly.length} contact-only, ` +
+      `${nonProduce.length} not a produce stand), ${refused.length} refused`,
+  );
+
   for (const item of refused) console.log(`  REFUSED  ${item.name}: ${item.reason}`);
-  for (const stand of flagged) {
-    console.log(
-      `  FLAGGED  ${stand.name}: ${stand.flags.map((f) => f.reason).join(", ")}`,
-    );
+  for (const stand of nonProduce) {
+    console.log(`  TYPE     ${stand.name}: ${stand.offeringType}`);
+  }
+  for (const stand of contactOnly) console.log(`  CONTACT  ${stand.name}: no pin`);
+  for (const stand of inputs.filter((s) => s.flags.length > 0)) {
+    console.log(`  FLAGGED  ${stand.name}: ${stand.flags.map((f) => f.reason).join(", ")}`);
   }
 
   if (dryRun) {
