@@ -342,11 +342,19 @@ state, so **no migration was needed** — never `queued`, which would resend an 
 `for update skip locked`; the open attempt gets `error_code = 'dispatch_lease_expired'`. **No
 operator view of quarantined work yet** — deliberately left to GL-016/GL-018.
 
-**`waitUntil` is load-bearing (B-009).** A bare `void` is invisible to the Vercel runtime, which
-suspends the invocation when the handler returns — in production that silently dropped *every*
-inbound message. **No behavioural test in vitest can see this**: Node resolves floating promises, so
-the whole kick suite passed throughout. `apps/web/lib/kick-survival.test.ts` therefore asserts the
-registration against the route **source**. Claim latency after the fix: *never* → **4–8s**.
+**Post-response work is a DURABLE QUEUE, not a platform primitive (B-009, then the GCP migration).**
+B-009 was a floating promise the Vercel runtime never knew about: every inbound message committed,
+acknowledged, then silently abandoned, while the whole kick suite stayed green because Node resolves
+floating promises. `waitUntil` fixed it imperfectly — a registered promise still shared the function
+timeout and was cancelled when it elapsed. On Cloud Run there is no `waitUntil` and no equivalent, so
+the webhook now commits, **enqueues a durable Cloud Task, and awaits that enqueue** before returning
+200. **The await direction inverts**: the awaited thing is the task CREATION, one bounded call, and
+awaiting it is what makes the work durable before the handler returns; a fire-and-forget enqueue
+would be B-009 again. `enqueueSenderWork` never throws and never retries — a queue outage must not
+turn a successful ingress into a 5xx that makes Telnyx retry a message already accepted.
+`kick-survival.test.ts`/`kick-wiring.test.ts` are re-anchored to that contract (the defect class
+survives; only its mechanism changed) and strip **comments as well as imports**, because a
+prohibition once matched the comment explaining it.
 
 **The operator surface is built: sign-in request, approval, flag review, stock-out triage, stand-data
 questions (F-025a, F-030, F-032, F-037).**
@@ -404,43 +412,33 @@ viewer mask at the **query** (`right(phone_e164, 4)`), so the full number never 
 `maskPhoneSuffix` **throws** on anything longer rather than truncating. Asserted by tests that grep
 whole serialized responses for an E.164 and for any 64-hex run.
 
-**The external scheduler is LIVE, and the retention purge has now actually run in production.**
-Verified by effect on 2026-07-27, not by a dashboard: a body with `body_expires_at` in the past was
-cleared by a real scheduled pass — `body` and `body_expires_at` both NULL, the `sms_messages` row
-itself intact, and **exactly 1 of 21 bodies touched**. Before this, F-026's purge had never executed
-against real data (every observed pass reported `0/0/0` because nothing was eligible), so a privacy
-commitment moved from unenforced to demonstrated.
-`.github/workflows/scheduled-worker.yml` on `*/5` is the trigger; `CRON_SECRET` is set as a
-repository secret and a manual run returns 200. **The deployed build still has no `crons` block**
-(stripped for the Hobby deploy), so this workflow is production's *only* scheduled trigger — the
-`waitUntil` kick remains best-effort and owns no guarantee. Migration **0004** is applied to
-production (both B-010 columns present, 5 migrations total).
-`apps/web/lib/external-scheduler.test.ts` polices the workflow (source-asserting, same family as
-`cron-schedule.test.ts`); its central assertion is that the run **checks `%{http_code}` against 200**,
-because a bare `curl` exits 0 on a 401 and a stale secret would show green checkmarks forever. That
-assertion's first draft survived its own sabotage by matching the word "status" elsewhere in the
-file, so it is now anchored to the comparison. Interval is `*/5` and is **not** equivalent to
-Vercel's one minute — GitHub schedules are best-effort and droppable; acceptable only because the
-kick front-runs live traffic. **Delete the workflow when Pro lands**, never run both.
-**Observed 2026-07-28: the `*/5` schedule actually fires roughly HOURLY** (23:41, 22:32, 21:20,
-01:08) — GitHub drops most slots. Tolerable because the kick front-runs live traffic, but "wait for
-the next pass" is an hour-scale plan, not a five-minute one. A 401 looks identical to success in any
-scheduler's UI, which is why the run checks `%{http_code}`.
+**The scheduled pass is Cloud Scheduler, and the retention purge has run in production.** Verified by
+effect on 2026-07-27 (under the old scheduler): a body with `body_expires_at` in the past was cleared
+by a real pass — `body` and `body_expires_at` both NULL, the row intact, exactly 1 of 21 bodies
+touched. `infra/work.tf` now owns the trigger: a real one-minute schedule POSTing with OIDC. It
+replaced two mechanisms that each failed differently — `vercel.json`'s cron, which Hobby rejected so
+every deploy stripped it and the deployed system ran **no scheduled pass at all**, and the GitHub
+Actions workflow added to cover that, whose `*/5` schedule was observed firing roughly **hourly**.
+Both are deleted; do not reintroduce either.
 
-**One worker mechanism, two triggers; one consent program, one keyword source.** `apps/web/app/api/internal/cron/route.ts`
-is the single authenticated trigger for every *scheduled* pass (`CRON_SECRET` required, no default, no
-dev bypass) and the **only** trigger for F-026's retention purge. **Four bounded passes** run there:
-inbound, outbound, delivery (B-012), retention — each enumerating its own work and returning counts.
-`apps/web/vercel.json` is what
-actually schedules it (B-005 — it was missing entirely while the RUNBOOK documented it);
-`cron-schedule.test.ts` asserts that config against the route it names, because the failure is
-silent: the kick keeps replies fast while nothing recovers what it drops and the purge never runs.
-`npm run db:migrate` applies migrations to a deployed database (B-006 — there was no way to migrate
-at all; the RUNBOOK claimed the build did it). Deliberately not a build hook: that would migrate on
-every preview deploy and rollback, including production from a branch build. The webhook's B-004 kick
-(`apps/web/lib/kick.ts`) calls the same passes sooner for one sender and **owns no guarantee** — every
-failure swallowed, each pass budgeted, cron recovers whatever it misses. Removing the kick entirely
-must fail only latency tests, never durability ones. `isProactiveSendPermitted` is the single consent
+**One worker mechanism, two triggers; one consent program, one keyword source.**
+`apps/web/app/api/internal/cron/route.ts` is the single trigger for every *scheduled* pass and the
+**only** trigger for F-026's retention purge. **Four bounded passes** run there: inbound, outbound,
+delivery (B-012), retention — each enumerating its own work and returning counts. It is **worker-only
+and POST-only**: reached through Cloud Scheduler's OIDC against an internal-ingress service with IAM
+`run.invoker`, guarded in-process by `DEPLOYMENT_ROLE` as a **second** door that runs *before*
+`appContext()` and answers **404** (never 403 — 403 confirms the route exists). **`CRON_SECRET` is
+gone**, removed rather than kept beside IAM: it was one credential in two places that had to match,
+where a mismatch returns 401 and a 401 looks identical to success in any scheduler's UI.
+`POST /api/internal/kick` is the Cloud Tasks target — the same two passes scoped to one sender, same
+guards, and it **owns no guarantee**; removing it entirely must fail only latency tests, never
+durability ones. `npm run db:migrate` applies migrations to a deployed database (B-006). Deliberately
+not a build hook: that would migrate on every preview deploy and rollback. Registered keywords and
+auto-response copy are stated once in `packages/core/src/sms/` and tested character-for-character
+against `docs/TELNYX_10DLC_FIELD_VALUES.txt`, a **transcript of live console state** — change the
+console first, then transcribe. `ALREADY_JOINED_RESPONSE` (B-011) lives beside those three but is
+**not** registered copy and must never be transcribed into that block.
+`isProactiveSendPermitted` is the single consent
 predicate; **active** consent is required
 for a proactive send. Registered keywords and auto-response copy are stated once in
 `packages/core/src/sms/` and tested character-for-character against
@@ -455,22 +453,26 @@ text and must never be transcribed into that block.
 reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
 fixture uses a date literal instead of a clock-derived offset (B-003).
 
-**Farm Friend is deployed** (throwaway Hobby validation, not F-029 go-live):
-https://farm-friend-web.vercel.app. Verified by live request — health `{"ok":true}`,
-`/api/public/stands` `{"stands":[]}` against real Neon, cron **401** with no/wrong secret, admin API
-**403** unauthenticated, sign-in responses **byte-identical** across addresses, throttle firing.
-**Telnyx is now configured** (`SMS_PROVIDER=telnyx` + four credentials): the webhook answers **401**
-where it answered 503, and all five signature-rejection paths return 401 — including
-`signature_mismatch`, which proves `TELNYX_PUBLIC_KEY` decodes to a valid 32-byte ed25519 key rather
-than merely being non-empty. Deploy with `npx vercel --prod` from a local checkout; the Git
-integration built a stale commit three times. **Hobby rejects `vercel.json`'s one-minute cron**, so
-deploying requires stripping the `crons` block from the working tree *uncommitted* and restoring it
-after — never the stale `throwaway/hobby-deploy-test` branch. **Tear down the project and that branch
-before go-live.**
-**Consequence: GitHub's "Vercel" check is permanently RED on every commit and PR**, `main` included
-— the committed one-minute cron the Hobby plan rejects. It is **not** a signal about the change
-under review; PRs are merged past it deliberately. Judge PRs by the local suites until the plan
-question is settled at go-live.
+**Farm Friend is deployed on GOOGLE CLOUD RUN** (2026-07-29):
+https://farm-friend-web-p5mfxfp5za-uw.a.run.app. Verified by live request — health `{"ok":true}`,
+`/api/public/stands` `{"stands":[]}` against real Neon, admin **403**, `/api/internal/{cron,kick}`
+**404 on the public service**, the worker **unreachable from the internet**, webhook **401** (not
+500/503), and a scheduled pass returning **200**. **One image, two services, one digest**:
+`farm-friend-web` (public ingress) and `farm-friend-worker` (internal + IAM) differ only by
+`DEPLOYMENT_ROLE`, so they cannot drift. Deploy = `gcloud builds submit --config cloudbuild.yaml`,
+then `tofu plan`, then **`infra/plan-assertions.py` (24 checks)**, then apply — RUNBOOK §Deploy.
+Terraform owns infrastructure but **never secret values or the image**: values go in with
+`gcloud secrets versions add`, because anything through Terraform lands in state.
+**Vercel is superseded but NOT torn down** — the project, its env vars, and the stale
+`throwaway/hobby-deploy-test` branch are all still owed a deletion, and **Telnyx's webhook still
+points at Vercel** until the cutover is finished.
+**Cloud Run URLs are `SERVICE-<opaque>-<shortregion>.a.run.app`**, e.g.
+`farm-friend-worker-p5mfxfp5za-uw` — *not* the project number and *not* the full region. The suffix
+is an explicit Terraform input (`cloud_run_host_suffix`) because reading `.uri` back is a
+self-cycle: every service needs `PUBLIC_BASE_URL`, including the **worker**, whose `resolveConfig`
+fails closed without it and crashed every scheduled run when it was set on the web service alone.
+A wrong URL here is **silent** — tasks and scheduled runs 404 forever while every service looks
+healthy — which is why three plan assertions pin it.
 
 **The webhook's config diagnostic is three-way, not two-way** (the RUNBOOK step-4 framing is wrong).
 `route.ts` calls `appContext()` before the provider check, and `resolveConfig` **throws** on a missing
@@ -504,28 +506,22 @@ that code commits after review. **B-013:** `listPublicStands` now LEFT-joins inv
 nobody has confirmed is visible with `asOf`/`recencyLabel`/`isStale` **absent together** — the map
 cannot render "updated just now" for a confirmation that never happened.
 
-**Deployed and verified in production 2026-07-28 — latest is `2fff957`** (GL-004/005/006, pushed
-straight to `main`; earlier same day PR #53 GL-002/003/019/033, `ea4889b` PR #51, `a1e6fb7` PR #49,
-`b47c564` PR #50). **Migration 0006 applied to production — 7 total.** Applied *before* promoting the
-build, so production never ran code ahead of its schema. Verified by effect: 7 migrations,
-`magic_nonce_hash` present and nullable, `admin_sessions_one_per_magic_nonce` created; health
-`{"ok":true}`, cron **401**, webhook **401**, `/api/public/stands` 200, admin **403**; sign-in **202
-for every address** and the callback **401** (not 500) on a garbage token.
-**The production `DATABASE_URL` must come from max** — `vercel env pull` returns `[SENSITIVE]`, so
-migrating is never self-service. **Fingerprint the target before any migration**: `neondb`, 21
-`sms_messages` / 21 `outbox_work` rows, 0 stands is production. Use the **direct (non-pooled)** Neon
-string for DDL.
-**Production holds 0 administrators**, so GL-004's one-use replay is proven by the integration suite
-and local sabotage, *not* end to end against the deployment.
+**Deployed to Cloud Run 2026-07-29 — latest is `579b184`** (the GCP migration, five commits on
+`gcp-migration`). **All 7 migrations applied; the production database is now EMPTY of phone data.**
+Verified by effect after the wipe: 0 contacts, 0 raw numbers, 0 stands, schema intact at 7
+migrations, 0 administrators.
+**The production `DATABASE_URL` must come from max**, and is in local `.env`. **Fingerprint before
+any migration**: `neondb`, **0** contacts / 0 stands / 7 migrations is production *now* (it was
+2 contacts / 21 `sms_messages` / 21 `outbox_work` before the 2026-07-29 wipe). Use the **direct
+(non-pooled)** Neon string for DDL.
 The webhook's 401 is the load-bearing check after any config-touching change: under the three-way
-diagnostic, 401 rather than 500 proves configuration still resolves. Sharper still, a deliberately
-malformed signature returning **`malformed_signature`** proves `TELNYX_PUBLIC_KEY` decoded to a
-valid 32-byte ed25519 key rather than merely being non-empty.
-**Production env now carries the model provider** (`LLM_PROVIDER=deepinfra`, `DEEPINFRA_MODEL`,
-`DEEPINFRA_API_KEY`), and four needlessly-Sensitive vars were un-marked (`SMS_PROVIDER`,
-`PUBLIC_BASE_URL`, `TELNYX_PUBLIC_KEY`, `TELNYX_MESSAGING_PROFILE_ID`) so their values can be read
-back — **Vercel's Sensitive flag is one-way**, so un-marking means delete + re-add, and the cost of
-setting it on a non-secret is losing the ability to confirm what production runs.
+diagnostic, 401 rather than 500 proves configuration still resolves — including that
+`TELNYX_PUBLIC_KEY` decoded to a valid 32-byte ed25519 key rather than merely being non-empty.
+**Secret Manager values CAN be read back**, unlike Vercel's — which is what made the lost
+`PHONE_HASH_SALT` unrecoverable there. Five `farm-friend-*` secrets each hold one version.
+**The legacy `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` secrets in this project are STALE** (May 25): the
+API key returns **401** against the live Telnyx API, so the migration plan's claim that they hold
+current credentials is **wrong** — never copy from them.
 Earlier (`468859a`, PR #48; `d49394c`, PR #47). Migration **0005** applied
 (6 total; both tables, 4 enums, 12 columns confirmed by query). **B-013 proven by effect**: a probe
 stand with zero inventory was returned by `/api/public/stands` with `items: []` and **no `updated`
@@ -596,13 +592,14 @@ latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `
 idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
 inventory.
 
-**Verified July 28, 2026 (`main`, this work pushed):** `npm test` **498/498 across 53 files**;
+**Verified July 29, 2026 (`gcp-migration`, merged):** `npm test` **528/528 across 55 files**;
 `npm run test:integration` **311/311 across 19 files** on real Postgres 16 (all **7** migrations
-applied from an empty database); `npm run evals` critical **11/11**, advisory 4/4, adversarial
-**29/29** (no fixture touched); lint, root typecheck, and `next build` all exit 0. Counts are from
-runs on the **merged** result, not on the branches — neither agent tested the combination.
-`npm run evals:live` was **not** re-run this session — no seam projection, schema, or output
-contract changed; its last result stands (containment 4/4, quality 6/6 on Mistral Small 24B).
+applied from an empty database); lint, root typecheck, and `next build` all exit 0;
+`tofu fmt`/`validate` clean and **`infra/plan-assertions.py` 24/24**; the container builds in Cloud
+Build (**1m35s**) and the standalone smoke test passes. `npm run evals` was **not** re-run — no seam
+projection, schema, or output contract changed; its last result stands (critical 11/11, advisory
+4/4, adversarial 29/29). `npm run evals:live` likewise unchanged (containment 4/4, quality 6/6 on
+Mistral Small 24B).
 
 **`npm run typecheck` COVERS `apps/web` (GL-005).** It is `typecheck:packages && typecheck:web` —
 two halves, because `apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference it.
@@ -700,11 +697,33 @@ supply what production never creates.
   graph. **Farmer-authored web submission: a THIRD case, not what F-019 blocked** — a farmer editing
   their own listing is the same act as texting an update. Needs farmer web auth (does not exist) and
   must route through the same confirmation gate. `extractOfferings` is transport-agnostic for this.
+- **GCP CUTOVER — the deployment is live; the switch has NOT been thrown.** Cloud Run serves and
+  every surface verifies, but **Telnyx's webhook still points at Vercel**, so real inbound SMS
+  still lands there. Remaining, in order: point the Telnyx webhook at the Cloud Run URL, prove the
+  **B-009 class by effect on this runtime** (a signed inbound message whose Cloud Task is observed
+  to drive the pass to completion — `provider_inbox_events.claimed_at` non-NULL and downstream rows
+  present; then the same after a forced cold start; then a message whose task was never created,
+  recovered by the schedule), then tear down Vercel, the `throwaway/hobby-deploy-test` branch, the
+  legacy Firebase functions/schedulers/secrets, and the stray `farm-friend-497422` project.
+  **"Safer by design" is a claim, not evidence** — Cloud Run's container lifecycle is a new runtime
+  for "does post-response work actually run", so it starts unproven.
+- **F-039 (NEW, filed 2026-07-29) — one-tap "add Farm Friend to contacts" via a served vCard.**
+  Every SMS journey starts by typing a number off a sign. A `text/vcard` route built from
+  `TELNYX_FROM_NUMBER` (never a literal, so it cannot drift from the sending number) opens the
+  native add-contact sheet on iOS and Android. No database, no model, no consent implication —
+  saving a contact is **not** `JOIN` and the copy must not imply it is. The display name is
+  max's/VIGA's call.
 - **F-034 / GL-001 — ROTATE EVERY EXPOSED CREDENTIAL. Hard blocker on F-029; do not go live without
   it.** `DATABASE_URL` (the full Neon URL was pasted in a transcript), `CRON_SECRET`,
   `TELNYX_API_KEY`, `DEEPINFRA_API_KEY`, and possibly `MAGIC_LINK_SECRET` were exposed during
-  2026-07-27 validation. **max deferred rotation again on 2026-07-28** — sound *only* while the
-  database holds no real numbers. **The moment real farmer or customer numbers exist, this becomes
+  2026-07-27 validation. **max deferred rotation a third time on 2026-07-29** — and the deferral is
+  now *more* defensible than before, because the 2026-07-29 wipe left the database holding **zero**
+  phone numbers, so an exposed `DATABASE_URL` reaches nothing personal. **Partially overtaken by
+  events**: `CRON_SECRET` no longer exists (replaced by OIDC + IAM), `MAGIC_LINK_SECRET` was
+  regenerated fresh for GCP, and `TELNYX_API_KEY` was **re-fetched from the Telnyx console** during
+  the migration — so what remains is `DATABASE_URL` and `DEEPINFRA_API_KEY`. Seeding B-002's 28
+  stands does **not** close the window (stand data is public); **the first real inbound SMS does**,
+  because it writes a real number into `contacts`. **The moment real farmer or customer numbers exist, this becomes
   urgent, not deferred.** Scope re-verified against the live environment 2026-07-28; procedure,
   order, and proof-by-effect tables are **RUNBOOK §"Credential rotation"**. Two corrections from
   that check: **the repository is clean** — every secret-shaped literal in the tracked tree is a
@@ -740,21 +759,14 @@ supply what production never creates.
   returns `400` on every send. **What remains for go-live is not the SMS path** — it is **F-034
   (credential rotation, a hard blocker)**, tearing down the throwaway project and branch, B-002 seed
   data, F-024 a real model provider, and F-031 mail delivery.
-- **B-012 — DONE. Production-verified by effect 2026-07-28.** All 20 standing callbacks moved
-  `pending` → `processed` in one real scheduled pass; `outbox_work.delivery_status` became
-  `delivered` on 11 rows, `finalized_at` set on every applied event, and the 5 failed + 5 ambiguous
-  rows carry **zero** callbacks — correctly untouched, since the carrier never sent callbacks for
-  sends that never succeeded. **It had never run because the code was never deployed:** production
-  served `9292961` (B-007, 03:58Z), ~10h before `f16ef8f` merged, so B-010 and B-011 were undeployed
-  too. The scheduler was healthy throughout (the purge was executing), which is what made the cause
-  non-obvious. **A CLI deploy creates no GitHub deployment record**, so `gh api .../deployments`
-  reports the last *Git-integration* SHA and is never evidence of what production runs — verify by
-  effect. B-010 stays unverified by effect: `provider_code` is populated on 0 of 35 attempts,
-  correctly, since it writes only on new failing attempts and does not backfill.
-  `runDeliveryPass` is the **fourth** bounded pass on the one cron trigger, deliberately **not** the
-  per-sender inbound path (a delivery callback carries no sender; the projection check forbids one).
-  **The duplicate-event rule is enforced TWICE** — a migration-0001 trigger *and* `applyDeliveryEvent`
-  — so **no single-point sabotage can fail a test of it**. Design rationale: session log 2026-07-27.
+- **B-012 / B-010 — both DONE and production-verified; full narrative in the session log
+  (2026-07-27/28).** Two durable lessons kept here: **a CLI deploy creates no GitHub deployment
+  record**, so `gh api .../deployments` reports the last *Git-integration* SHA and is never evidence
+  of what production runs — verify by effect. And **an unexported seam is an untested seam**:
+  `createTelnyxTransport` was module-private, so the one path that parses a real provider error had
+  no test and silently discarded it, because everything above used the never-failing simulator.
+  The duplicate-delivery-event rule is enforced **twice** (a migration-0001 trigger *and*
+  `applyDeliveryEvent`), so no single-point sabotage can fail a test of it.
 - **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
   that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
   Verified: suppression is enforced **independently of the profile's auto-response fields**, so
@@ -774,15 +786,6 @@ supply what production never creates.
   **Honest limit: while the block is active that reply is itself 409'd and never arrives.** Full
   rationale: session log 2026-07-27. **Remaining work is farmer-facing, not code — onboarding
   material must say START, not JOIN, for returning after an opt-out.**
-- **B-010 — FIXED and merged, integration-verified.** `outbox_dispatch_attempts` now carries
-  `provider_code` (validated machine token) and `provider_error_detail` (phone-masked, 500-char
-  bounded) via migration **0004**; `summarizeProviderError` never throws, so a malformed error body
-  cannot break the send path. Nothing branches on either — `errorCode` is still what the retry policy
-  reads. The item's own privacy question is answered: the real 40300 body **does** echo both E.164
-  numbers, so phones are *masked* rather than the class being dropped, reusing the outbound guard's
-  `PHONE_BODY` via `maskRawPhones`. `createTelnyxTransport` was **unexported and untested** — that is
-  how the discard survived, since everything above it used the never-failing simulator. Triage query
-  is in RUNBOOK §"Failure triage".
 - **B-008 — lint does not run in deployed builds.** `apps/web` omits `@typescript-eslint/eslint-plugin`
   and `@typescript-eslint/parser`, so the plugin fails to load and Next skips lint non-fatally: the
   build goes green with the gate silently absent. Two-line manifest fix; the real work is extending
