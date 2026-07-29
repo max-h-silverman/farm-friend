@@ -455,9 +455,12 @@ fixture uses a date literal instead of a clock-derived offset (B-003).
 
 **Farm Friend is deployed on GOOGLE CLOUD RUN** (2026-07-29):
 https://farm-friend-web-p5mfxfp5za-uw.a.run.app. Verified by live request — health `{"ok":true}`,
-`/api/public/stands` `{"stands":[]}` against real Neon, admin **403**, `/api/internal/{cron,kick}`
-**404 on the public service**, the worker **unreachable from the internet**, webhook **401** (not
-500/503), and a scheduled pass returning **200**. **One image, two services, one digest**:
+`/api/public/stands` returning the **35 seeded stands** against real Neon,
+`/api/internal/{cron,kick}` **404 on the public service**, the worker **unreachable from the
+internet**, webhook **401** (not 500/503), and a scheduled pass returning **200**.
+**`/admin` returns 200, not 403** (the record said 403): it is the public sign-in page and leaks
+nothing — no farm names, no E.164, no hashes. The **403 belongs to the admin API routes**.
+**One image, two services, one digest**:
 `farm-friend-web` (public ingress) and `farm-friend-worker` (internal + IAM) differ only by
 `DEPLOYMENT_ROLE`, so they cannot drift. Deploy = `gcloud builds submit --config cloudbuild.yaml`,
 then `tofu plan`, then **`infra/plan-assertions.py` (24 checks)**, then apply — RUNBOOK §Deploy.
@@ -530,37 +533,33 @@ The legacy `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` secrets were **STALE** (May 25; 
 401 against the live Telnyx API, so the migration plan's claim that they held current credentials was
 wrong) and were **deleted in the 2026-07-29 teardown** along with the other four unreferenced legacy
 secrets. Only the five `farm-friend-*` secrets remain, all of them live.
-Earlier (`468859a`, PR #48; `d49394c`, PR #47). Migration **0005** applied
-(6 total; both tables, 4 enums, 12 columns confirmed by query). **B-013 proven by effect**: a probe
-stand with zero inventory was returned by `/api/public/stands` with `items: []` and **no `updated`
-or `stale` keys** — invisible under the old inner join. Probe removed; the endpoint reads
-`{"stands":[]}` because **production has not been seeded** (the loader has only been run against
-local databases; seeding production is a separate, deliberate step). A scheduled run returned 200 against the new
-build. **Deploy immediately after every merge** — this session opened by finding three merged fixes
-(B-010, B-011, B-012) that production had never received.
+**Deploy immediately after every merge** — three merged fixes (B-010/011/012) once sat undeployed,
+and B-002's seed found the same class again: **a forced restart is NOT a deploy.** B-021's rotation
+restart created a new revision of the **existing image**, so F-038's merged reader fix never shipped
+and production served a `contact_only` farm at **0,0 — a pin in the Atlantic**. Invisible until a
+`contact_only` row existed. Compare the revision's creation time against the merge, never the count.
 
-**The seeder is BUILT and has loaded the real corpus (B-002).** `npm run db:seed -- <csv>
-[--dry-run]` — **28 of 31 stands seeded, 3 flags**; a second run seeds 0 / skips 28. Zero inventory
-is **structural**, proven against a real seeded database: `inventory_revisions`, `inventory_entries`,
-`contacts`, `farmer_authorizations`, `farm_approvals` all **0**, because the seeder cannot produce
-the authorization + approval those rows require. Four documented facts were wrong — see the session
-log for each:
-- **The CSV is malformed.** Descriptions are UNQUOTED across raw newlines, so a standard parser
-  yields **285 rows for 31 stands**, misattributing every address and `Open:` line to the wrong farm.
-  `packages/core/src/seed/stand-csv.ts` anchors records to the `"POINT (` literal.
-- **PII is 22 emails + 4 PHONES**, not 23 + 2 — undercounted in the dangerous direction. Stripped;
-  0 leaks across every seeded text column. Websites and `@handles` are kept (the contract publishes
-  those).
-- **3 stands are REFUSED, not seeded** — Farmers Market, Breathing Meadows, Open Gate Lamb state no
-  street address, and `public_address` is NOT NULL. Inventing one is forbidden (F-017). **Awaiting
-  addresses from VIGA.**
-- **The flags are Green Ears + HOLMESTEAD**, not Morgan Hill — whose "June 1, 2026 - TBD" parses
-  correctly as `open_ended`. Holmestead's "Mid April Weekends" is genuinely `season_unresolved`.
+**PRODUCTION IS SEEDED: 35 stands, 2026-07-29 (B-002 DONE).**
+`npm run db:seed -- --form <form.csv> --map <map.csv> [--dry-run]` — **both files required**: the
+form has the 2026 details and **no coordinates**, the map export has coordinates and the farms that
+submitted no form. Verified by effect against `neondb` and the live endpoint: **33 visitable with a
+pin, 2 `contact_only` with none**, 4 flags, **0** names carrying VIGA's annotation, **0** PII, **0**
+pins at 0,0, **0** recency claims. Structural invariants held — `inventory_revisions`,
+`inventory_entries`, `farmer_authorizations`, `farm_approvals` all **0**; `contacts` still **1**.
+Idempotent: a second run seeds 0 / skips 35. **Offerings are NOT seeded** —
+`sales_location_offerings` is 0 in production; that is the separate `npm run db:seed-offerings` step.
 
-**Seeding found a real parser defect (fixed test-first).** `parseStocking` read the RANGE "Thursday
-- Sunday" as {Thu, Sun}, dropping Fri/Sat — Green Ears was invisible to a Friday filter with nothing
-reporting an error. Ranges now expand (wrapping across the week end); "and" lists stay lists.
-Sabotage-verified, as were idempotency, whole-batch rollback, and refusal-without-coercion.
+**The join is an EXACT normalized key, never a similarity score** (`seed/match-stands.ts`). Measured
+over the real corpus, a Jaccard matcher ranked **Lavender Hill Farm against Flora Hill Farm** as its
+best candidate — any threshold loose enough to catch the four true pairs (Aeggy's/Aeggy's Farm,
+Provo Farms/Provo Farm, Olive Farm/Olive Farm Stand, Flora Hill/Flora Hill Farm) would have seeded
+one farm at another's coordinates, with every test green. 27 of 35 matched across both files, 0
+false. A missed pair is a **reported refusal** a human resolves; a wrongly joined pair is a silently
+wrong address. `matchStandName` (destroys information, for comparison) and `standDisplayName`
+(preserves the farmer's own punctuation, for storage) are deliberately separate.
+`seed/offering-type.ts` classifies from the **farmer's own words**, never a farm name — and must not
+read **"self-service"** as a service business, which mislabelled a cut-flower stand.
+Both loaders REFUSE rather than coerce: an unplaceable stand is reported, never given a point (F-017).
 
 **F-024 is DONE: DeepInfra is attested, and the model has actually run.** `LLM_PROVIDER` is real
 (`stub` | `deepinfra`); an unknown value throws rather than silently running the test double.
@@ -600,10 +599,11 @@ latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `
 idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
 inventory.
 
-**Verified July 29, 2026 (`f-038-visitability-and-offering-type`, merged):** `npm test`
-**556/556 across 57 files**; `npm run test:integration` **327/327 across 20 files** on real
+**Verified July 29, 2026 (`b-002-seed-join`, merged):** `npm test`
+**575/575 across 59 files**; `npm run test:integration` **329/329 across 20 files** on real
 Postgres 16 (all **8** migrations applied from an empty database); lint and root typecheck exit 0;
-**`infra/plan-assertions.py` 29/29** and `infra/test_deploy_assertions.py` **10/10**.
+**`infra/plan-assertions.py` 29/29**, `infra/deploy_assertions.py` PASSED, and
+`infra/test_deploy_assertions.py` **10/10**.
 `npm run evals` / `evals:live` were **not** re-run — no seam projection, schema, or output contract
 changed; last results stand (`evals` critical 11/11, advisory 4/4, adversarial 29/29;
 `evals:live` containment 4/4, quality 6/6 on Mistral Small 24B).
@@ -670,45 +670,31 @@ Five sections fixed; JOIN stays as the first-time call to action. Registered 10D
 up under GL-034 — **low value**: Telnyx auto-answers STOP/START in its own copy and enforces its
 block list independently, so neither changes what an opted-out user experiences.
 
-Newest session-log entry: B-021's follow-ups closed, F-038's schema/map/form-reader built, F-040
-filed — and two silent map defects (a pin at 0,0; the unlocatable farm sorting as "nearest").
+Newest session-log entry: B-002 closed — the seed join (an exact key, because a fuzzy one matched
+Lavender Hill to Flora Hill), production seeded with 35 stands, and a **stale deployment** found by
+seeding: a merged fix that a rotation restart never shipped.
 
 **A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a
 *different* named test each; stashing the branch reproduced the hang on clean `main` (the connection
 was out). A named failing test is still a real defect until shown otherwise — but `git stash` is the
 cheap way to prove whose it is. Session-log entries older than the newest eight live in
-`docs/SESSION_LOG_ARCHIVE.md` (rotated at 31 entries / 152k chars).
+`docs/SESSION_LOG_ARCHIVE.md` (rotate once the log passes ~150k chars; last done 2026-07-29,
+leaving 8 entries in the log and 34 archived).
 
 ### Open work — each needs separate implementation authorization
 
 Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
 supply what production never creates.
 
-- **B-002 — NOTHING IS WAITING ON VIGA ANY MORE. The seed SOURCE changed; the join is what's left.**
-  A second export arrived: **`2026 Farm Stand Information (Responses)`** — 32 rows, one per farm,
-  **well-formed**, 2026-current, with hours / season / stocking / website / social as **separate
-  columns** instead of the map export's one prose blob. max's call: **switch to it.**
-  **But the two sources are COMPLEMENTARY, not competing** — the form file has **no coordinates at
-  all**, and the map export has them plus the farms that did not submit a 2026 form. So the seeder
-  takes **both**: form for details, map export for coordinates and gap-filling. Neither file alone
-  can seed a visitable location.
-  `packages/core/src/seed/form-responses.ts` is built and **measured against the real corpus**:
-  **31 stands — 30 visitable, 1 `contact_only`, 2 needing human review, 1 refused.**
-  Address classification is **INVERTED on purpose**: assume any stated address is real and look
-  only for the farmer describing a **non-location** (delivery, appointment, order). A hand-written
-  address pattern flagged Littlest Bird Farm's "15624 115th AV SW" as address-less — spurious, and
-  in the dangerous direction, since it would have dropped a real stand off the map. Failing safe
-  keeps the pin; `coherent_visitability` catches a genuinely empty one.
-  Corpus edge cases handled (detail in the session log): Pacific Crest labels **two** addresses and
-  the `(farmstand)` one wins; Sweet Alyssum and Peak Moon are followable but unlocatable, so they
-  carry `addressNeedsReview` rather than an invented point; Forest Garden Farm is refused here and
-  resolvable from the map export. The **three formerly-refused stands are all resolved** — Farmers
-  Market has an address from max (**17519 Vashon Hwy SW**), the other two are `contact_only`.
-  **PRODUCTION IS STILL DELIBERATELY NOT SEEDED** — `/api/public/stands` returns `{"stands":[]}`
-  and both loaders have run only locally. It now waits **only on the seed join itself**, not on any
-  external input. Both loaders are idempotent, so a later run adds without duplicating.
-- **F-038 — farms you CONTACT rather than VISIT. Schema, map, and the form reader are DONE; the
-  seed join is what remains.** Not a third `kind` value: **two independent properties**, because
+- **B-002 — DONE (2026-07-29). Production is seeded with 35 stands.** Both readers, the join, the
+  classifier, and the loader are built and measured against the real corpus; see the snapshot above
+  and the session log. **The only unseeded piece is offerings** — `sales_location_offerings` is 0 in
+  production, closed by `npm run db:seed-offerings -- maps/offerings-proposals.json` (the artifact is
+  already reviewed and approved). Two stands still carry a `season_unresolved`/`unparsed_availability`
+  flag for a VIGA operator, which is the flag surface working as designed, not a defect.
+- **F-038 — farms you CONTACT rather than VISIT. DONE (2026-07-29), seeder included.** Both
+  `contact_only` farms are live with no pin, and the two non-produce farms are classified from their
+  own form text. Not a third `kind` value: **two independent properties**, because
   one enum cannot carry both cases — Seedrain has an address but sells *services*; Open Gate Lamb
   has **no address at all** ("On island delivery for orders over $50"). Migration **0007** adds
   `visitability` (`visitable | contact_only`) and `offering_type` (`produce | services |
