@@ -127,7 +127,20 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                 </p>
               ) : null}
 
-              <p className="address">{stand.address}</p>
+              {/*
+                F-038 — a farm you contact rather than visit says so, in place of an address.
+                Rendering `stand.address` unconditionally printed an EMPTY line here, which
+                reads as a stand whose address nobody bothered to fill in. Open Gate Lamb has
+                no stand at all; saying that plainly is the honest version, and it is the whole
+                reason these farms are listed rather than hidden.
+              */}
+              {stand.address !== undefined ? (
+                <p className="address">{stand.address}</p>
+              ) : (
+                <p className="address address-contact-only">
+                  <strong>No stand to visit</strong> — contact this farm directly to order.
+                </p>
+              )}
               {stand.routingLink !== null ? (
                 <a
                   className="directions"

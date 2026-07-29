@@ -25,9 +25,19 @@ export default async function HomePage() {
     id: stand.factId,
     farmName: stand.farmName,
     locationName: stand.locationName,
-    address: stand.publicAddress,
-    latitude: stand.latitude,
-    longitude: stand.longitude,
+    visitability: stand.visitability,
+    offeringType: stand.offeringType,
+    // F-038 — spread together, so a contact-only farm carries no address key at all rather
+    // than an undefined one. Matches how the API serializes it.
+    ...(stand.publicAddress !== undefined &&
+    stand.latitude !== undefined &&
+    stand.longitude !== undefined
+      ? {
+          address: stand.publicAddress,
+          latitude: stand.latitude,
+          longitude: stand.longitude,
+        }
+      : {}),
     updated: stand.recencyLabel,
     stale: stand.isStale,
     items: stand.items,
