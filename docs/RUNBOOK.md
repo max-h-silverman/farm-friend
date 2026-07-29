@@ -662,7 +662,27 @@ python3 deploy_assertions.py
 state, but it describes the whole deployment and there is no reason to leave it in `/tmp`.
 
 Migrations are still `npm run db:migrate` with `DATABASE_URL` pointed at the target, run
-**before** promoting a build so production never runs code ahead of its schema.
+**before** promoting a build so production never runs code ahead of its schema. Use the **direct**
+(non-pooled) Neon string for DDL.
+
+> **⚠️ `"migrations applied"` IS NOT PROOF — verify by effect (B-022).** Drizzle applies a migration
+> only when its journal `when` **exceeds** the newest already-applied `created_at`; an earlier *or
+> equal* timestamp is treated as already done, with **no warning and exit 0**. On 2026-07-29
+> migration 0007 was silently skipped in production this way while the command reported success.
+> No suite can catch it — test databases are built from empty, where file order wins.
+>
+> After every migrate against a real database, **query the schema for what the migration was
+> supposed to change**:
+>
+> ```sql
+> select count(*) from drizzle.__drizzle_migrations;                 -- expected count?
+> select column_name, is_nullable from information_schema.columns
+>   where table_name = '<table>' and column_name in ('<new columns>');
+> select conname from pg_constraint where conname = '<new constraint>';
+> ```
+>
+> `packages/core/src/migration-ordering.test.ts` prevents the *cause* (non-monotonic timestamps);
+> this check catches everything else that makes a migrate a no-op.
 
 ### Proving post-response work actually runs (the B-009 class)
 

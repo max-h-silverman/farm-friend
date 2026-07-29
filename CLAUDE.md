@@ -511,13 +511,13 @@ cannot render "updated just now" for a confirmation that never happened.
 
 **Deployed to Cloud Run 2026-07-29; revisions `farm-friend-worker-00006` / `farm-friend-web-00005`**
 (forced after the rotation — see B-021; the Terraform-created revisions predated the new secret
-versions and served a revoked password). **All 7 migrations applied.**
+versions and served a revoked password). **All 8 migrations applied** (0007 on 2026-07-29).
 **A REAL HANDSET HAS NOW COMPLETED THE ROUND TRIP ON THIS RUNTIME (2026-07-29).** max texted `Help`:
 committed → routed to the registered HELP copy → dispatched with a real provider message ID →
 `accepted` → 2 delivery callbacks returned through the Cloud Run webhook. `sms_consents` stayed
 empty, which is correct — HELP does not move consent.
 **So production now holds ONE REAL PHONE NUMBER** (max's, in `contacts`). Fingerprint is
-`neondb`, **1** contact / 0 stands / 7 migrations. It was 0 contacts before that message, and
+`neondb`, **1** contact / 0 stands / **8** migrations. It was 0 contacts before that message, and
 2 contacts / 21 `sms_messages` before the 2026-07-29 wipe. This is the event F-034 named as closing
 the credential-exposure window — rotation landed first, so the order held. Use the **direct
 (non-pooled)** Neon string for DDL.
@@ -601,7 +601,7 @@ idempotent on (location, item), never rewrites an existing tag, reports unknown 
 inventory.
 
 **Verified July 29, 2026 (`f-038-visitability-and-offering-type`, merged):** `npm test`
-**552/552 across 56 files**; `npm run test:integration` **327/327 across 20 files** on real
+**556/556 across 57 files**; `npm run test:integration` **327/327 across 20 files** on real
 Postgres 16 (all **8** migrations applied from an empty database); lint and root typecheck exit 0;
 **`infra/plan-assertions.py` 29/29** and `infra/test_deploy_assertions.py` **10/10**.
 `npm run evals` / `evals:live` were **not** re-run — no seam projection, schema, or output contract
@@ -813,10 +813,17 @@ supply what production never creates.
   *The drift* was never mysterious: the emergency `gcloud run services update` that ended the
   outage injected `ROTATION_APPLIED_AT` onto the live services only, so every plan wanted to strip
   it. It is now a declared variable (`rotation_applied_at`, validated `2026-07-29T17-35` shape) in
-  `common_env`, so the config round-trips. What remains in a clean-tree plan is **provenance only**
-  — `client`/`client_version = "gcloud"` annotations and a top-level `scaling` block the CLI wrote —
-  confirmed by diffing the plan JSON field by field: no container, image, env, secret, or ingress
-  change. It self-clears on the next apply.
+  `common_env`, so the config round-trips. The `gcloud` provenance annotations
+  (`client`/`client_version`) cleared on the 2026-07-29 apply, as expected.
+  **A PERMANENT 2-resource plan noise remains, and it is NOT our config: the top-level `scaling`
+  block.** The API returns `{manual_instance_count: 0, min_instance_count: 0}`, the config omits the
+  block, so the provider plans to null it and the API echoes the defaults back — it **never
+  converges**, and applying it again changes nothing. Confirmed by diffing the plan JSON field by
+  field, twice, before and after an apply: no container, image, env, secret, or ingress change.
+  **So "the plan shows 2 to change" is the expected steady state.** Read the plan's CONTENTS, never
+  its count — that conflation is what made B-021's no-op apply look real. `scaling` alone is noise;
+  anything else in the diff is a genuine change. `min_instance_count = 0` is unaffected either way,
+  and `plan-assertions.py` still checks it under `template.scaling`.
   *The prevention* is **`infra/deploy_assertions.py`** (run after apply; RUNBOOK §Deploy step 5):
   every serving revision must be **newer** than every enabled secret version it consumes. It reads
   `latestReadyRevisionName`, not `latestCreated` — a revision that failed its startup probe exists
@@ -948,6 +955,17 @@ while production dropped every message. Node semantics ≠ serverless lifecycle,
 rather than the code, assert it against the **source** — that is what `kick-survival.test.ts`,
 `cron-schedule.test.ts`, `cron-auth.test.ts` and `workspace-manifests.test.ts` all are — and verify
 the real thing by **effect** in the deployment.
+
+**A migration with an out-of-order timestamp is SILENTLY SKIPPED, and `db:migrate` reports
+success.** Drizzle applies a migration only when its journal `when` exceeds the newest applied
+`created_at` (`pg-core/dialect.js`: `created_at < folderMillis`); an earlier — or **equal** —
+timestamp is treated as already done, with no warning and exit 0. Migration 0007's generated value
+fell *before* 0006's hand-rounded one, so production silently stayed on 7 while the command said
+"migrations applied". **No suite could see it**: every test database is built from EMPTY, where file
+order wins and out-of-order timestamps are invisible; it is reachable only on a partially migrated
+database, i.e. production. `packages/core/src/migration-ordering.test.ts` is the guard.
+Same family as B-009 and B-005–B-008 — **and the reason the rule below is "verify by effect, never
+by the success message."**
 
 **SQL's NULL semantics silently invert a guard.** Two instances this session. A CHECK constraint
 **passes** on NULL, and `array_length(array[]::integer[], 1)` returns NULL rather than 0 — so
