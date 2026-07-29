@@ -144,14 +144,53 @@ leaked link can at worst *propose* a wrong listing on one stand.
 
 ### Verified
 
-`npm test` **552/552 across 56 files**; `npm run test:integration` **327/327 across 20 files** on
+`npm test` **556/556 across 57 files**; `npm run test:integration` **327/327 across 20 files** on
 real Postgres 16, all **8** migrations from empty; typecheck 0 errors; lint clean;
 `infra/plan-assertions.py` **29/29**; `infra/test_deploy_assertions.py` **10/10**; `tofu validate`
 clean; `deploy_assertions.py` passes against live production. Evals **not** re-run — no seam
 projection, schema, or output contract changed. B-020's deadlock did not reproduce across three
 integration runs.
 
-Merged to `main`; migration 0007 applied to production and `tofu apply` run (see the wrap report).
+### The wrap found a silent production defect: migration 0007 was skipped
+
+`npm run db:migrate` printed the target, printed **"migrations applied"**, exited 0 — and changed
+nothing. Verifying by effect (not by the message) showed still 7 migrations, `public_address` still
+NOT NULL, `coherent_visitability` absent.
+
+**Cause: 0007's generated `when` was 1785352095637, OLDER than 0006's hand-rounded 1785500000000.**
+Drizzle applies a migration only when its journal timestamp exceeds the newest already-applied
+`created_at` (`pg-core/dialect.js`: `Number(lastDbMigration.created_at) < migration.folderMillis`).
+Earlier timestamps are treated as already done, with no warning and no non-zero exit. Migrations
+0002–0006 carry hand-rounded values; drizzle-kit generated a real clock value that fell before them.
+
+**No suite could have caught it.** Every test database is built from EMPTY, where each migration is
+compared against the row just inserted, so file order wins and out-of-order timestamps are
+invisible. "All 8 migrations from an empty database" is genuinely green and genuinely blind here.
+The defect is reachable only on a **partially migrated** database — which is to say production.
+
+Fixed by renumbering 0007 to 1785600000000 (the same spacing as its neighbours; the snapshot chain
+is UUID-based and unaffected), then re-applying and **verifying by effect**: 8 migrations, the two
+new columns present, the three place columns nullable, the constraint present, and a `contact_only`
+row carrying an address **refused by the database** inside a rolled-back transaction. Fingerprint
+unchanged at 1 contact / 0 stands.
+`packages/core/src/migration-ordering.test.ts` now fails on any non-increasing timestamp, and
+treats a TIE as a defect too, because the comparison is `<`.
+
+### The Terraform drift, finally pinned
+
+The `gcloud` provenance annotations cleared on the apply. What remains is **permanent and not ours**:
+the top-level `scaling` block, where the API returns `{manual_instance_count: 0,
+min_instance_count: 0}` and the config omits the block, so the provider plans to null it and the API
+echoes the defaults back. It never converges. So **"2 to change" is the expected steady state** —
+read the plan's contents, never its count, which is precisely the conflation that made the original
+no-op apply look real.
+
+The apply created **no new revision** (00005/00006 still serving), correctly: `ROTATION_APPLIED_AT`
+already held that value from the emergency fix, so the template was unchanged.
+`deploy_assertions.py` passes against production.
+
+Merged to `main` as `1df55df`; migration 0007 applied and verified by effect; `tofu apply` run with
+plan assertions 29/29.
 
 ---
 
