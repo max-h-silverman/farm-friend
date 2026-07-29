@@ -1,6 +1,11 @@
 # Transition Farm Friend from Vercel to GCP
 
-**Status:** Approved — implementation not started  
+**Status:** **COMPLETE — cutover and retirement both done 2026-07-29.** This document is now a
+historical record of the migration's reasoning, not a work order. Build status lives in CLAUDE.md
+"Current State"; the operating procedure lives in RUNBOOK §Deploy. Two notes for anyone reading it
+as evidence: the "Retirement" section's premise that the legacy project held no real data was
+**wrong** — reading Firestore found 37 documents, archived before deletion — and the seven legacy
+schedulers were already `PAUSED` by the time retirement ran, not still firing as recorded below.  
 **Prepared:** 2026-07-28  
 **Reviewed:** 2026-07-28 (claims verified against the live projects; see "Verification of this plan")
 

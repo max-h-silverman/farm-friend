@@ -463,9 +463,12 @@ https://farm-friend-web-p5mfxfp5za-uw.a.run.app. Verified by live request — he
 then `tofu plan`, then **`infra/plan-assertions.py` (24 checks)**, then apply — RUNBOOK §Deploy.
 Terraform owns infrastructure but **never secret values or the image**: values go in with
 `gcloud secrets versions add`, because anything through Terraform lands in state.
-**Vercel is superseded but NOT torn down** — the project, its env vars, and the stale
-`throwaway/hobby-deploy-test` branch are all still owed a deletion, and **Telnyx's webhook still
-points at Vercel** until the cutover is finished.
+**THE CUTOVER IS COMPLETE (2026-07-29) and Vercel is GONE.** Telnyx's webhook points at
+`https://farm-friend-web-p5mfxfp5za-uw.a.run.app/api/sms/webhook` — confirmed by an independent
+re-read, because the PATCH response echoed the new URL while still reporting the OLD `updated_at`
+(the same "a dashboard timestamp is not a last-updated field" trap as `vercel env ls`). The Vercel
+project and its env vars are deleted, as are both stale branches
+(`throwaway/hobby-deploy-test`, `f-019-sms-only-inquiry-boundary`); only `main` remains on origin.
 **Cloud Run URLs are `SERVICE-<opaque>-<shortregion>.a.run.app`**, e.g.
 `farm-friend-worker-p5mfxfp5za-uw` — *not* the project number and *not* the full region. The suffix
 is an explicit Terraform input (`cloud_run_host_suffix`) because reading `.uri` back is a
@@ -519,9 +522,10 @@ diagnostic, 401 rather than 500 proves configuration still resolves — includin
 `TELNYX_PUBLIC_KEY` decoded to a valid 32-byte ed25519 key rather than merely being non-empty.
 **Secret Manager values CAN be read back**, unlike Vercel's — which is what made the lost
 `PHONE_HASH_SALT` unrecoverable there. Five `farm-friend-*` secrets each hold one version.
-**The legacy `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` secrets in this project are STALE** (May 25): the
-API key returns **401** against the live Telnyx API, so the migration plan's claim that they hold
-current credentials is **wrong** — never copy from them.
+The legacy `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` secrets were **STALE** (May 25; the API key returned
+401 against the live Telnyx API, so the migration plan's claim that they held current credentials was
+wrong) and were **deleted in the 2026-07-29 teardown** along with the other four unreferenced legacy
+secrets. Only the five `farm-friend-*` secrets remain, all of them live.
 Earlier (`468859a`, PR #48; `d49394c`, PR #47). Migration **0005** applied
 (6 total; both tables, 4 enums, 12 columns confirmed by query). **B-013 proven by effect**: a probe
 stand with zero inventory was returned by `/api/public/stands` with `items: []` and **no `updated`
@@ -697,16 +701,33 @@ supply what production never creates.
   graph. **Farmer-authored web submission: a THIRD case, not what F-019 blocked** — a farmer editing
   their own listing is the same act as texting an update. Needs farmer web auth (does not exist) and
   must route through the same confirmation gate. `extractOfferings` is transport-agnostic for this.
-- **GCP CUTOVER — the deployment is live; the switch has NOT been thrown.** Cloud Run serves and
-  every surface verifies, but **Telnyx's webhook still points at Vercel**, so real inbound SMS
-  still lands there. Remaining, in order: point the Telnyx webhook at the Cloud Run URL, prove the
-  **B-009 class by effect on this runtime** (a signed inbound message whose Cloud Task is observed
-  to drive the pass to completion — `provider_inbox_events.claimed_at` non-NULL and downstream rows
-  present; then the same after a forced cold start; then a message whose task was never created,
-  recovered by the schedule), then tear down Vercel, the `throwaway/hobby-deploy-test` branch, the
-  legacy Firebase functions/schedulers/secrets, and the stray `farm-friend-497422` project.
-  **"Safer by design" is a claim, not evidence** — Cloud Run's container lifecycle is a new runtime
-  for "does post-response work actually run", so it starts unproven.
+- **GCP CUTOVER — DONE (2026-07-29), including the B-009 proof and the teardown.** Telnyx points at
+  Cloud Run; Vercel, both stale branches, all 17 legacy functions, the 7 legacy schedulers, the 6
+  unreferenced legacy secrets, the legacy Firestore/Auth contents, and the stray
+  `farm-friend-497422` project are all deleted. `farm-friend-vashon` now holds **only** Farm Friend:
+  two Cloud Run services, one queue, one scheduler, five `farm-friend-*` secrets.
+  **The B-009 class is PROVEN BY EFFECT on this runtime, not inherited** —
+  `scripts/prove-post-response-work.ts`, three checks against the database:
+  a signed message returns 200 and its task drives the pass to `state=processed` with
+  `claimed_at` non-NULL and the outbound row present (~1s); the same on a just-started container;
+  and a message whose task was **never created** recovered by the every-minute schedule. The script
+  **searches for the B-009 signature** (committed + acknowledged + never claimed) rather than
+  assuming it absent. **Sabotage-verified, sabotage first**: run against the deployment trusting
+  Telnyx's real key, checks 1–2 fail `ack=401` while 3 still passes on its own merits.
+  Signing needs a key we hold, so the proof runs against a revision carrying a throwaway
+  `TELNYX_PUBLIC_KEY` (plain config, never a secret) — restore is verified **behaviourally**, by the
+  throwaway key then returning `signature_mismatch`. Rerunning it requires that same key swap;
+  it is not a suite you can point at production as-is.
+  Incidentally proven: the **full round trip works on Cloud Run** — a proof message's reply was
+  dispatched through Telnyx and its delivery callbacks returned through the new webhook URL.
+  Proof rows were removed under a guard that aborts if any contact outside the reserved
+  `+1206555` fictional range exists; the fingerprint is back to 0 contacts / 0 stands / 7 migrations.
+  **The record said the legacy project held no real data; reading it found 37 Firestore documents**
+  — 19 users, 3 farms, 5 messages, and a `pending_users` row with `source: "join"` and no
+  `test_data` flag. max confirmed it was test data and approved deletion; it was archived first to
+  `~/farm-friend-legacy-archive/` (Firestore + Auth + non-secret manifests), and the delete
+  refused to run unless the re-read fingerprint matched and the archive held all 37 docs. **The
+  standing rule earned its keep again: "assumed empty" was wrong, and only reading it showed that.**
 - **F-039 (NEW, filed 2026-07-29) — one-tap "add Farm Friend to contacts" via a served vCard.**
   Every SMS journey starts by typing a number off a sign. A `text/vcard` route built from
   `TELNYX_FROM_NUMBER` (never a literal, so it cannot drift from the sending number) opens the
@@ -735,11 +756,15 @@ supply what production never creates.
   the key while production kept calling the model with it** — every seam failing in the deployment
   while local evals stayed green. All three corrected 2026-07-28. Confirm a variable's presence in
   Vercel before rotating rather than trusting any table, including this one.
-  max decided **rotate in place** (2026-07-28): the ex-throwaway Vercel project and its Neon database
-  become production, so F-034's "tear down the project" line is withdrawn — its stale
-  `throwaway/hobby-deploy-test` **branch** is still owed a deletion.
-  `CRON_SECRET` lives in **two** places that must match — the Vercel env var and the GitHub
-  repository secret — or every scheduled run 401s.
+  **Scope shrank again on 2026-07-29**: the teardown deleted the Vercel project (so there is no
+  Vercel env var left to rotate anywhere) and the stale legacy `TELNYX_*` secrets. What remains is
+  **`DATABASE_URL` and `DEEPINFRA_API_KEY`**, both in Secret Manager, both rotated by
+  `gcloud secrets versions add` + a redeploy. Both stale branches are deleted.
+  `CRON_SECRET` no longer exists in any form — it was replaced by OIDC + IAM, and the
+  GitHub-secret/Vercel-var pair that had to match is gone with the Vercel project.
+  **max chose on 2026-07-29 to rotate as part of the cutover work** (reversing the third deferral),
+  so this is live work, not a deferred item — but note the window has NOT yet been forced open:
+  the database still holds **zero** phone numbers.
   **`PHONE_HASH_SALT` MUST NOT BE ROTATED, ever.** It is the input to the only lookup key for every
   phone in the system; rotating it orphans every hash with no way back. If it is ever believed
   compromised the answer is a designed re-hash migration, not a rotation. Record it, never rotate it.
