@@ -243,10 +243,22 @@ It is **idempotent** (keyed on stand name; a second run skips what exists and ne
 farmer's own later correction is not reverted to the CSV) and **refuses rather than coerces** — the
 whole batch is one transaction, and an out-of-range coordinate aborts it instead of being clamped.
 
-Against VIGA's real export: **28 of 31 stands seeded, 3 flags raised**. The 3 not seeded — Vashon
-Island Farmers Market, Breathing Meadows Farm, Open Gate Lamb and Grazing — state **no street
-address**, and `public_address` is NOT NULL; inventing one is the fabrication F-017 forbids, so they
-are reported as operator tasks awaiting an address from VIGA.
+Against VIGA's map export: **28 of 31 stands seeded, 3 flags raised**. The 3 not seeded — Vashon
+Island Farmers Market, Breathing Meadows Farm, Open Gate Lamb and Grazing — stated **no street
+address**, and inventing one is the fabrication F-017 forbids, so they were reported as operator
+tasks.
+
+**All three are now resolved, and the seed SOURCE has changed (2026-07-29).** Farmers Market has an
+address from max (17519 Vashon Hwy SW); Breathing Meadows and Open Gate Lamb are **`contact_only`**
+under F-038 and need none — neither is a visitable location. `public_address` is **no longer
+NOT NULL** (migration 0007): it is required for a `visitable` location and forbidden for a
+`contact_only` one, enforced by `sales_locations_coherent_visitability`.
+
+The primary source is now the **2026 form responses** export
+(`packages/core/src/seed/form-responses.ts`) — well-formed, one row per farm, with hours, season,
+and stocking as separate columns. **It carries no coordinates**, so the map export remains required
+input for those and for farms that did not submit a 2026 form. The seed join over both is not yet
+built; the loader still reads the map export alone.
 
 **The export is malformed CSV and no standard parser reads it.** Each `description` is unquoted and
 spans raw newlines until the next `"POINT (` line, so a conventional reader returns **285 rows for

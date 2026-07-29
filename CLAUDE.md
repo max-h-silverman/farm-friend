@@ -600,15 +600,17 @@ latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `
 idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
 inventory.
 
-**Verified July 29, 2026 (`gcp-cutover`, merged):** `npm test` **528/528 across 55 files**;
-`npm run test:integration` **311/311 across 19 files** on real Postgres 16 (all **7** migrations
-applied from an empty database); lint and root typecheck exit 0; **`infra/plan-assertions.py`
-24/24** on both applies. `npm run evals:live` **containment 4/4, quality 6/6** on Mistral Small 24B,
-re-run after the key rotation. `npm run evals` was **not** re-run — no seam projection, schema, or
-output contract changed; its last result stands (critical 11/11, advisory 4/4, adversarial 29/29).
-**One pre-existing flake, on `main` not this branch**: an integration run failed `a verified STOP
-unsubscribes end to end and calls no model` with PostgresError **40P01 deadlock** on a fixture
-`truncate` and passed on rerun — contention between suites' truncates, not Farm Friend's locking.
+**Verified July 29, 2026 (`f-038-visitability-and-offering-type`, merged):** `npm test`
+**552/552 across 56 files**; `npm run test:integration` **327/327 across 20 files** on real
+Postgres 16 (all **8** migrations applied from an empty database); lint and root typecheck exit 0;
+**`infra/plan-assertions.py` 29/29** and `infra/test_deploy_assertions.py` **10/10**.
+`npm run evals` / `evals:live` were **not** re-run — no seam projection, schema, or output contract
+changed; last results stand (`evals` critical 11/11, advisory 4/4, adversarial 29/29;
+`evals:live` containment 4/4, quality 6/6 on Mistral Small 24B).
+**A pre-existing integration flake exists on `main`**: `a verified STOP unsubscribes end to end and
+calls no model` has failed once with PostgresError **40P01 deadlock** on a fixture `truncate` and
+passed on rerun — contention between suites' truncates, not Farm Friend's locking (B-020). It did
+**not** reproduce across three full runs this session.
 
 **`npm run typecheck` COVERS `apps/web` (GL-005).** It is `typecheck:packages && typecheck:web` —
 two halves, because `apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference it.
@@ -668,8 +670,8 @@ Five sections fixed; JOIN stays as the first-time call to action. Registered 10D
 up under GL-034 — **low value**: Telnyx auto-answers STOP/START in its own copy and enforces its
 block list independently, so neither changes what an opted-out user experiences.
 
-Newest session-log entry: the housekeeping checkpoint — GL-031/032/034/035/036 closed, and a
-rotation procedure that would have broken production.
+Newest session-log entry: B-021's follow-ups closed, F-038's schema/map/form-reader built, F-040
+filed — and two silent map defects (a pin at 0,0; the unlocatable farm sorting as "nearest").
 
 **A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a
 *different* named test each; stashing the branch reproduced the hang on clean `main` (the connection
@@ -682,22 +684,54 @@ cheap way to prove whose it is. Session-log entries older than the newest eight 
 Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
 supply what production never creates.
 
-- **B-002 — the loader has run; offerings are approved; production is still unseeded by decision.**
-  28 seeded locally, 3 refused for a missing street address, 3 flags, idempotent on re-run.
-  What remains is **max's call on the 3 refused stands** (Farmers Market, Breathing Meadows, Open
-  Gate Lamb — no address in the export; an address must come from VIGA, **never** be invented).
-  **PRODUCTION IS DELIBERATELY NOT SEEDED** (decided 2026-07-28): `/api/public/stands` returns
-  `{"stands":[]}` and both loaders have run only locally. Seeding waits on the 3 addresses and —
-  the real constraint — **F-034 rotation**, since the deferral is sound only while no real data is
-  in that database and 28 real stands moves that line. Both loaders are idempotent, so seeding
-  later and re-running for the last 3 adds without duplicating.
-- **F-038 — farm-related businesses as a location type (NEW, filed 2026-07-28).** Seedrain /
-  Garden Cycles offers *services*, not produce, and `sales_locations.kind` admits only
-  `farm_stand | farmers_market` — so it is currently typed as a farm stand, which is wrong. The
-  legacy map legend already treated "farm with no farm stand" as its own class. Scope when picked
-  up: a third enum **value** (not a parallel mechanism), its map presentation, the seeder's
-  classification, and the product decision about whether this type participates in SMS inventory
-  at all (a service business has no "current stock").
+- **B-002 — NOTHING IS WAITING ON VIGA ANY MORE. The seed SOURCE changed; the join is what's left.**
+  A second export arrived: **`2026 Farm Stand Information (Responses)`** — 32 rows, one per farm,
+  **well-formed**, 2026-current, with hours / season / stocking / website / social as **separate
+  columns** instead of the map export's one prose blob. max's call: **switch to it.**
+  **But the two sources are COMPLEMENTARY, not competing** — the form file has **no coordinates at
+  all**, and the map export has them plus the farms that did not submit a 2026 form. So the seeder
+  takes **both**: form for details, map export for coordinates and gap-filling. Neither file alone
+  can seed a visitable location.
+  `packages/core/src/seed/form-responses.ts` is built and **measured against the real corpus**:
+  **31 stands — 30 visitable, 1 `contact_only`, 2 needing human review, 1 refused.**
+  Address classification is **INVERTED on purpose**: assume any stated address is real and look
+  only for the farmer describing a **non-location** (delivery, appointment, order). A hand-written
+  address pattern flagged Littlest Bird Farm's "15624 115th AV SW" as address-less — spurious, and
+  in the dangerous direction, since it would have dropped a real stand off the map. Failing safe
+  keeps the pin; `coherent_visitability` catches a genuinely empty one.
+  Corpus edge cases handled (detail in the session log): Pacific Crest labels **two** addresses and
+  the `(farmstand)` one wins; Sweet Alyssum and Peak Moon are followable but unlocatable, so they
+  carry `addressNeedsReview` rather than an invented point; Forest Garden Farm is refused here and
+  resolvable from the map export. The **three formerly-refused stands are all resolved** — Farmers
+  Market has an address from max (**17519 Vashon Hwy SW**), the other two are `contact_only`.
+  **PRODUCTION IS STILL DELIBERATELY NOT SEEDED** — `/api/public/stands` returns `{"stands":[]}`
+  and both loaders have run only locally. It now waits **only on the seed join itself**, not on any
+  external input. Both loaders are idempotent, so a later run adds without duplicating.
+- **F-038 — farms you CONTACT rather than VISIT. Schema, map, and the form reader are DONE; the
+  seed join is what remains.** Not a third `kind` value: **two independent properties**, because
+  one enum cannot carry both cases — Seedrain has an address but sells *services*; Open Gate Lamb
+  has **no address at all** ("On island delivery for orders over $50"). Migration **0007** adds
+  `visitability` (`visitable | contact_only`) and `offering_type` (`produce | services |
+  by_order`), both defaulting to the pre-F-038 meaning so no seeded listing is reclassified, and
+  `coherent_visitability` enforces **all-or-nothing in both directions**. The `contact_only`
+  direction is the one that protects customers: the legacy map export carries real coordinates for
+  Open Gate Lamb, and seeding them would pin a farm with nothing to buy.
+  **An ADDRESS is what visitability requires — not coordinates** (max, correcting a wrong proposal
+  mid-session). A coordinate says where a farm *is*; an address says where a customer can *go*. So
+  **Breathing Meadows is `contact_only` and gets no pin** — "Open only by appointment" means a
+  customer specifically cannot turn up. **"By appointment" is NOT a tracked type**: one instance in
+  32, and the same language appears at Lavender Hill and Ostara, which have ordinary stands.
+  `hours_text` already carries the farmer's words verbatim.
+  **ANY farm may publish SMS inventory** (max) — gated on the farmer authorization plus farm
+  approval, never on farm type. Verified, not assumed, and now a tripwire: `architecture.test.ts`
+  fails if any publication-path source compares against a location-type enum **value**, anchored to
+  the comparison construct rather than the vocabulary. The read path is excluded because it decides
+  *display*, and that exclusion is itself guarded — both excluded files must stay write-free.
+  **Two silent reader defects this exposed, both fixed:** `Number(null)` is **0**, not NaN, so an
+  address-less farm rendered at **0,0 — a pin in the Atlantic** — with no type error; and
+  `withApproximateDistance` sorted that farm **first**, as the nearest place to shop, because NaN
+  in a comparator makes the sort order-dependent. Place fields are now spread conditionally and
+  omitted together (the B-013 shape); undistanced stands sort last.
 - **F-035 / B-013 / F-037 — all done.** Schema, parser, seam, loader, and the operator surface for
   the flags the seeder raises.
 - **F-036 — where the model may run.** **Seed-time: built and RUN** (`offering-extraction`, 31/31
@@ -739,6 +773,27 @@ supply what production never creates.
   native add-contact sheet on iOS and Android. No database, no model, no consent implication —
   saving a contact is **not** `JOIN` and the copy must not imply it is. The display name is
   max's/VIGA's call.
+- **F-040 (NEW, filed 2026-07-29, HIGH) — farmer onboarding. The design is settled; nothing is
+  built.** The gap between a working SMS round trip and a usable product: **`farmer_authorizations`
+  has no writer outside tests** — verified, every insert in the tree is a fixture. Publishing needs
+  that authorization **plus** a farm approval; the approval has an operator screen, the
+  authorization has no path at all. So a real farmer who texts an update falls through to the
+  *customer* branch, and nothing reports why.
+  **The design (max, 2026-07-29) separates identity from channel** — conflating them is what forced
+  a false "pick a channel" choice. *Identity* is a one-time trust step: **VIGA always approves**
+  (a phone proves possession of a phone, not ownership of a farm), and **either side may start it**
+  — VIGA sets a farmer up, or a farmer texts to join a queue VIGA acts on. On approval Farm Friend
+  **texts the farmer** that they can start (consent must already exist; approval is never consent).
+  *Channel* is where farmers differ: **SMS, a texted link, and a bookmarked web form**, all landing
+  on the **same confirmation gate** — the web path gets no bypass. **No passwords**: the phone is
+  the identity, reusing F-032's magic-link mechanism rather than adding a second auth system.
+  Emailed links are out of scope (blocked on F-031).
+  **max chose a link that never expires until revoked**, which makes revocation the ONLY safety
+  net — so it must be real: VIGA can see and revoke every farmer, revocation takes effect on the
+  **next request** (never cached into the link), and the blast radius is bounded by construction —
+  a leaked link can at worst *propose* a wrong listing on ONE stand, never change farm ownership,
+  alter authorization, reach another farm, read another actor's data, or publish without
+  confirmation. Deliberately not built: farmer passwords, and farmer-authored *offerings* edits.
 - **F-034 / GL-001 — DONE 2026-07-29. Every exposed credential is rotated and the old values are
   confirmed dead BY EFFECT.** This is no longer a blocker on F-029.
   `DATABASE_URL` (Neon `neondb_owner` password reset — the old one now returns
