@@ -746,14 +746,36 @@ does not apply there.
 Verified against the live environment on 2026-07-28 rather than from the earlier notes, which
 overstated the scope in one place and understated it in another.
 
-| Credential | Where it is consumed | Rotate where | Notes |
+**ROTATION WAS PERFORMED 2026-07-29 (F-034 / GL-001 closed).** The table below is the current
+state, not a to-do list. Every "Vercel env" in the earlier revision is obsolete — that project is
+deleted, so Secret Manager plus local `.env` is now the whole surface.
+
+| Credential | Where it is consumed | Rotate where | State |
 |---|---|---|---|
-| `DATABASE_URL` | Vercel env; local `.env` for migrate/seed scripts | Neon console (reset the `neondb_owner` password), then Vercel | The full URL was pasted in a 2026-07-27 transcript |
+| `DATABASE_URL` | Secret Manager `farm-friend-database-url`; local `.env` for migrate/seed/evals | Neon console (reset the `neondb_owner` password), then both places | **ROTATED 2026-07-29.** Old password confirmed dead by effect (`password authentication failed`). Production host is the **direct**, non-pooled one |
+| `DEEPINFRA_API_KEY` | Secret Manager `farm-friend-deepinfra-api-key` **and** local `.env` | DeepInfra console, then **both** places | **ROTATED 2026-07-29.** Old key confirmed dead by effect (401). See the two-places note below |
+| `MAGIC_LINK_SECRET` | Secret Manager `farm-friend-magic-link-secret` | generate a new random value | **ROTATED 2026-07-29** (`openssl rand -base64 48`). Invalidates every outstanding sign-in link and session — harmless pre-launch |
+| `TELNYX_API_KEY` | Secret Manager `farm-friend-telnyx-api-key` | Telnyx console | Already re-fetched from the console during the migration; the stale legacy copies were deleted in the teardown |
 | `CRON_SECRET` | **GONE** — no longer exists | nothing to rotate | Replaced by Cloud Scheduler OIDC + IAM; it was one credential in two places that had to match, where a mismatch 401s and a 401 looks like success in any scheduler UI |
-| `TELNYX_API_KEY` | Vercel env | Telnyx console | Belongs to the **Telnyx account**, so it survives a project teardown and needs a real reset either way |
-| `MAGIC_LINK_SECRET` | Vercel env | generate a new random value | Rotating invalidates every outstanding sign-in link and session — harmless pre-launch |
-| `DEEPINFRA_API_KEY` | Vercel env **and** local `.env` | DeepInfra console, then **both** places | See the note below |
-| `PHONE_HASH_SALT` | Secret Manager `farm-friend-phone-hash-salt` | **NEVER** | See the rule above — and the 2026-07-29 note below, where the old value was LOST because Vercel marked it Sensitive |
+| `PHONE_HASH_SALT` | Secret Manager `farm-friend-phone-hash-salt` | **NEVER** | Untouched, deliberately. It is the input to the only lookup key for every phone; rotating it orphans every hash with no way back |
+
+**Secret Manager uses `version = "latest"`, but a running container does NOT pick that up.** Cloud
+Run reads secrets at container start, so `gcloud secrets versions add` alone changes nothing that is
+already serving — a redeploy (new revision) is what applies it. `tofu plan` still shows 2 changes
+after a version add, and that apply is the step that matters.
+
+**Verify by effect, and pick a check that actually touches the credential.** A service returning
+health 200 proves only that it started. `/api/public/stands` returning `{"stands":[]}` is a real
+query through the new password, and a forced `farm-friend-recovery` run proves the worker's copy
+works too. For the model key, `npm run evals:live` is the check — and note that a *containment*
+pass alone is not evidence, because a refused call counts as contained: the run that mattered went
+`live-quality: 0/6` with `provider_error` on every case before the key was right, then 6/6 after.
+
+**A quiet no-op nearly shipped a revoked key.** The first `.env` edit used a regex requiring
+`KEY="value"`, but `DEEPINFRA_API_KEY` is written **unquoted** in that file, so the substitution
+matched nothing, reported success, and left the old key in place — caught only because the live
+evals then failed against the real provider. Any scripted edit to `.env` must assert its match count
+(`if n != 1: refuse`) rather than trusting that a replacement happened.
 
 **`DEEPINFRA_API_KEY` is consumed in two places, and an earlier revision of this table said one.**
 It was once local-only, because the deployment had no `LLM_PROVIDER` at all and silently ran the
@@ -775,16 +797,24 @@ confined to working transcripts, so **no history rewrite is required**.
 
 ### Order
 
-1. **Settle the project question** above. If provisioning fresh, do that first; steps 2 and 4 become
-   provisioning rather than rotation.
-2. **`DATABASE_URL`** — reset in Neon, update Vercel, update any local `.env`. Do this before the
-   others so subsequent verification runs against the intended database.
-3. **`TELNYX_API_KEY`** — rotate in the Telnyx console, update Vercel. Required on both paths.
-4. **`MAGIC_LINK_SECRET`** — new random value into Vercel.
-5. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, then update **Vercel and** local
-   `.env`. Missing the Vercel half leaves production calling the model with a revoked key.
-6. **Redeploy**, then run every proof in the next section.
-7. **Confirm the old values no longer authenticate** (also below).
+This is the order actually used on 2026-07-29; repeat it if a future rotation is needed.
+
+1. **Get the new values first, and verify each one BEFORE storing it.** A new Neon password and a
+   new DeepInfra key both require a browser; neither can be reset with an API key we hold. Connect
+   with the new database URL and fingerprint it (`neondb`, expected migration count) and call the
+   **production model** with the new key. Storing an unverified value means diagnosing a broken
+   deployment instead of a bad credential.
+2. **`DATABASE_URL`** — reset in Neon, then `gcloud secrets versions add farm-friend-database-url`,
+   then local `.env`. Do this before the others so later verification runs against the intended
+   database.
+3. **`MAGIC_LINK_SECRET`** — `openssl rand -base64 48` into
+   `gcloud secrets versions add farm-friend-magic-link-secret`.
+4. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, then **both** Secret Manager and local
+   `.env`. Updating one leaves the other authenticating with a dead key.
+5. **Redeploy** — `tofu plan` / assertions / `apply`. Without this the running containers still hold
+   the old values, and after a Neon reset that means production is serving on a **revoked**
+   password. Keep the gap short.
+6. **Verify by effect**, then confirm the old values no longer authenticate (both below).
 
 ### Proof by effect — required before GL-001 is marked complete
 

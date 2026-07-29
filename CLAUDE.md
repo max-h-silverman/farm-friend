@@ -734,15 +734,27 @@ supply what production never creates.
   native add-contact sheet on iOS and Android. No database, no model, no consent implication —
   saving a contact is **not** `JOIN` and the copy must not imply it is. The display name is
   max's/VIGA's call.
-- **F-034 / GL-001 — ROTATE EVERY EXPOSED CREDENTIAL. Hard blocker on F-029; do not go live without
-  it.** `DATABASE_URL` (the full Neon URL was pasted in a transcript), `CRON_SECRET`,
-  `TELNYX_API_KEY`, `DEEPINFRA_API_KEY`, and possibly `MAGIC_LINK_SECRET` were exposed during
-  2026-07-27 validation. **max deferred rotation a third time on 2026-07-29** — and the deferral is
-  now *more* defensible than before, because the 2026-07-29 wipe left the database holding **zero**
-  phone numbers, so an exposed `DATABASE_URL` reaches nothing personal. **Partially overtaken by
-  events**: `CRON_SECRET` no longer exists (replaced by OIDC + IAM), `MAGIC_LINK_SECRET` was
-  regenerated fresh for GCP, and `TELNYX_API_KEY` was **re-fetched from the Telnyx console** during
-  the migration — so what remains is `DATABASE_URL` and `DEEPINFRA_API_KEY`. Seeding B-002's 28
+- **F-034 / GL-001 — DONE 2026-07-29. Every exposed credential is rotated and the old values are
+  confirmed dead BY EFFECT.** This is no longer a blocker on F-029.
+  `DATABASE_URL` (Neon `neondb_owner` password reset — the old one now returns
+  `password authentication failed`), `DEEPINFRA_API_KEY` (old key returns **401**), and
+  `MAGIC_LINK_SECRET` (fresh `openssl rand -base64 48`) all rotated into Secret Manager **and**
+  local `.env`, then applied by redeploy. `CRON_SECRET` no longer exists (OIDC + IAM);
+  `TELNYX_API_KEY` was re-fetched from the console during the migration and its stale legacy copies
+  were deleted in the teardown. **`PHONE_HASH_SALT` was NOT rotated and must never be.**
+  Verified by effect on the deployment: `/api/public/stands` → `{"stands":[]}` is a real query
+  through the new password, a forced scheduled run returns 200 (the worker's copy works too), and
+  `npm run evals:live` is **containment 4/4, quality 6/6** on the new model key.
+  **Two traps worth keeping.** (1) `version = "latest"` does **not** reach a running container —
+  Cloud Run reads secrets at start, so between the Neon reset and the redeploy production is serving
+  on a *revoked* password; keep that gap short. (2) A scripted `.env` edit whose regex assumed
+  `KEY="value"` silently matched nothing on the **unquoted** `DEEPINFRA_API_KEY` line, reported
+  success, and left the dead key in place — caught only when live evals returned `provider_error`
+  on every quality case. **A containment-only pass is not evidence there**: a refused call counts as
+  contained, so containment read 4/4 while quality read 0/6. Assert the match count.
+  Historical scope, kept because the reasoning recurs: exposure happened during
+  2026-07-27 validation, rotation was deferred three times, and the deferral was sound only while
+  the database held zero phone numbers. Seeding B-002's 28
   stands does **not** close the window (stand data is public); **the first real inbound SMS does**,
   because it writes a real number into `contacts`. **The moment real farmer or customer numbers exist, this becomes
   urgent, not deferred.** Scope re-verified against the live environment 2026-07-28; procedure,
