@@ -760,16 +760,43 @@ deleted, so Secret Manager plus local `.env` is now the whole surface.
 | `PHONE_HASH_SALT` | Secret Manager `farm-friend-phone-hash-salt` | **NEVER** | Untouched, deliberately. It is the input to the only lookup key for every phone; rotating it orphans every hash with no way back |
 
 **Secret Manager uses `version = "latest"`, but a running container does NOT pick that up.** Cloud
-Run reads secrets at container start, so `gcloud secrets versions add` alone changes nothing that is
-already serving — a redeploy (new revision) is what applies it. `tofu plan` still shows 2 changes
-after a version add, and that apply is the step that matters.
+Run reads secrets **at container start**, so `version = "latest"` binds at startup and a running
+container never re-reads it. `gcloud secrets versions add` alone changes nothing already serving.
 
-**Verify by effect, and pick a check that actually touches the credential.** A service returning
-health 200 proves only that it started. `/api/public/stands` returning `{"stands":[]}` is a real
-query through the new password, and a forced `farm-friend-recovery` run proves the worker's copy
-works too. For the model key, `npm run evals:live` is the check — and note that a *containment*
-pass alone is not evidence, because a refused call counts as contained: the run that mattered went
-`live-quality: 0/6` with `provider_error` on every case before the key was right, then 6/6 after.
+**⛔ A green `tofu apply` is NOT a restart — this broke production on 2026-07-29 (B-021).** An apply
+that does not alter the revision template creates **no new revision**, so the containers keep the
+old secret. It happened exactly this way: secret version 2 landed at 16:35:29 while the newest
+revision dated from 16:09:26, and every database call failed `28P01 password authentication failed`
+against a Neon password that had already been reset. The apply reported "2 to change" and looked
+entirely successful.
+
+**The check that actually settles it — compare timestamps, not endpoints:**
+
+```bash
+gcloud run revisions describe <svc>-<rev> --region us-west1 --project farm-friend-vashon \
+  --format='value(metadata.creationTimestamp)'
+gcloud secrets versions describe <n> --secret=<secret> --project farm-friend-vashon \
+  --format='value(createTime)'
+```
+
+**If the revision is OLDER than the secret version, nothing has picked the value up** — whatever any
+endpoint returns. Force a new revision with
+`gcloud run services update <svc> --region us-west1 --update-env-vars=ROTATION_APPLIED_AT=<stamp>`.
+
+**Verify by effect against a container you know started AFTERWARDS, on a path that opens a NEW
+connection.** Three checks that looked like proof on 2026-07-29 and were not:
+
+- `/api/public/stands` → `{"stands":[]}` came from a **warm container** whose pooled connections
+  predated the reset. A warm connection keeps working after the password behind it changes; only a
+  new connection re-authenticates. An empty array is also indistinguishable from an empty table.
+- A scheduler **200** that was read from *before* the rotation apply and carried forward as current.
+- `npm run evals:live` passing 6/6 — it runs **locally against local `.env`** and never touches the
+  deployment.
+
+The honest check is a **forced scheduled run whose effect appears in the database**, on a revision
+newer than the secret. For the model key, `evals:live` does prove the key itself — but note a
+*containment* pass alone is not evidence, because a refused call counts as contained: that run went
+`live-quality: 0/6` with `provider_error` before the key was right, then 6/6 after.
 
 **A quiet no-op nearly shipped a revoked key.** The first `.env` edit used a regex requiring
 `KEY="value"`, but `DEEPINFRA_API_KEY` is written **unquoted** in that file, so the substitution
