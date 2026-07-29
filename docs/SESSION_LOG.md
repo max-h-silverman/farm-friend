@@ -109,6 +109,36 @@ Also corrected mid-session: the main agent committed the three agent worktree di
 repo by accident (`git add -A` swept them in). Removed from the commit and `.claude/worktrees/`
 added to `.gitignore` so it cannot recur.
 
+### Deployed and migrated, verified by effect
+
+Pushed straight to `main` (max's call — the work was already verified, and the repo's Vercel check
+is permanently red for unrelated reasons). Migration **0006** applied to production and the CLI
+deploy promoted, in that order, so production never ran code ahead of its schema.
+
+The connection string came from max — **Vercel's `DATABASE_URL` is unreadable** (`vercel env pull`
+returns `[SENSITIVE]`), which is a standing constraint, not a one-off. Before migrating, the target
+was **fingerprinted** rather than trusted: `neondb`, 6 migrations applied, 21 `sms_messages` and 21
+`outbox_work` rows from live testing, 0 stands. That is unmistakably production and not a copy — the
+discipline the reset-script near-miss taught. max used the **direct (non-pooled)** Neon string, which
+is the right endpoint for DDL and does not affect what the app runs.
+
+Proof by effect after the deploy: 7 migrations, `magic_nonce_hash` present and nullable,
+`admin_sessions_one_per_magic_nonce` created; health 200, `/api/public/stands` 200 `{"stands":[]}`,
+cron **401**, webhook **401**, admin **403**. The webhook's 401 rather than 500 is the load-bearing
+check — under the three-way diagnostic it proves configuration still resolves. Sign-in returned
+**202 for every address**, including a real administrator address, a stranger, and a malformed one,
+so enumeration resistance survived; the callback answered **401** to a garbage token rather than
+500, which is what a schema mismatch would have produced.
+
+`apps/web/vercel.json`'s one-minute `crons` block was stripped **uncommitted** for the Hobby deploy
+and restored immediately after, per the standing procedure.
+
+**Honest limit on the GL-004 proof:** production holds **0 administrators**, so the one-use replay
+was not exercised end to end against the live deployment. It is proven by the integration suite and
+by hand-run sabotage locally, and the deployed code path is confirmed only as far as "does not error
+against the real schema." Closing that gap needs a bootstrapped administrator, which is a deliberate
+authorization grant rather than wrap housekeeping.
+
 ---
 
 ## 2026-07-28 — three defects the green suites could not see, and production was running the stub

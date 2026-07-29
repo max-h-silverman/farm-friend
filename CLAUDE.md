@@ -498,9 +498,19 @@ that code commits after review. **B-013:** `listPublicStands` now LEFT-joins inv
 nobody has confirmed is visible with `asOf`/`recencyLabel`/`isStale` **absent together** — the map
 cannot render "updated just now" for a confirmation that never happened.
 
-**Deployed and verified in production 2026-07-28** (PR #53 — GL-002/003/019/033; preceded same day
-by `ea4889b` PR #51, `a1e6fb7` PR #49, `b47c564` PR #50). Verified by effect: health `{"ok":true}`,
-cron **401**, webhook **401**, `/api/public/stands` 200, admin **403**.
+**Deployed and verified in production 2026-07-28 — latest is `2fff957`** (GL-004/005/006, pushed
+straight to `main`; earlier same day PR #53 GL-002/003/019/033, `ea4889b` PR #51, `a1e6fb7` PR #49,
+`b47c564` PR #50). **Migration 0006 applied to production — 7 total.** Applied *before* promoting the
+build, so production never ran code ahead of its schema. Verified by effect: 7 migrations,
+`magic_nonce_hash` present and nullable, `admin_sessions_one_per_magic_nonce` created; health
+`{"ok":true}`, cron **401**, webhook **401**, `/api/public/stands` 200, admin **403**; sign-in **202
+for every address** and the callback **401** (not 500) on a garbage token.
+**The production `DATABASE_URL` must come from max** — `vercel env pull` returns `[SENSITIVE]`, so
+migrating is never self-service. **Fingerprint the target before any migration**: `neondb`, 21
+`sms_messages` / 21 `outbox_work` rows, 0 stands is production. Use the **direct (non-pooled)** Neon
+string for DDL.
+**Production holds 0 administrators**, so GL-004's one-use replay is proven by the integration suite
+and local sabotage, *not* end to end against the deployment.
 The webhook's 401 is the load-bearing check after any config-touching change: under the three-way
 diagnostic, 401 rather than 500 proves configuration still resolves. Sharper still, a deliberately
 malformed signature returning **`malformed_signature`** proves `TELNYX_PUBLIC_KEY` decoded to a
