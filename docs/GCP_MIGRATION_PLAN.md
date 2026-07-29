@@ -213,6 +213,22 @@ from the same project, keeping the worker off the public internet.
 blocker on go-live and this plan already says to rotate rather than copy exposed values, so the two
 are the same act — performed once, against the new environment, rather than twice.
 
+> **DEFERRED AGAIN by max, 2026-07-28** (the third such deferral). The migration proceeds carrying
+> the existing exposed credentials across to GCP, and rotation happens later as its own act.
+>
+> The deferral is **sound today and its soundness is conditional, not permanent**: production holds
+> no real farmer or customer phone numbers (`/api/public/stands` returns `{"stands":[]}`, 0 stands
+> seeded), so an exposed `DATABASE_URL` currently reaches a database with nothing personal in it.
+> **B-002 seeding 28 real stands does not by itself change this** — stand data is public — but the
+> first real inbound SMS does, because that writes a real number into `contacts`. At that moment
+> this stops being a deferral and becomes an incident waiting to happen.
+>
+> The cost of deferring is that the work is done twice: once now (carry the values across) and once
+> later (rotate them), rather than once during cutover. That is the trade max accepted, recorded so
+> the next session does not re-argue it.
+>
+> **Still a hard blocker on F-029 go-live.** Nothing here relaxes that.
+
 - Scope: `DATABASE_URL`, `TELNYX_API_KEY`, `DEEPINFRA_API_KEY`, and possibly `MAGIC_LINK_SECRET`.
   `CRON_SECRET` **disappears** rather than rotating: the internal cron route stops using a shared
   secret and becomes worker-only under IAM, which also removes the GitHub-secret/Vercel-var pair
@@ -282,12 +298,20 @@ Required proof, by effect on the database, before cutover completes:
   - Obsolete secret versions and `gcf-artifacts` images.
   - The stray `farm-friend-497422` project, after confirming it is empty.
 
-**Archive before deleting, and treat the legacy data as real.** The previous Farm Friend held
-actual community data — a reset script written for a database *assumed* empty in fact found 6
-volunteers, 17 messages, and 2 farms with phone numbers, and only its row-count guard prevented the
-loss. Read the actual contents of Firestore and Auth first, export them, verify the export, and
-only then delete. Make the destructive step require explicit confirmation **and** fingerprint its
-target, so a mistyped project or connection string fails instead of erasing something else.
+**Archive before deleting.** The standing caution here came from a real incident: a reset script
+written for a database *assumed* empty in fact found 6 volunteers, 17 messages, and 2 farms with
+phone numbers, and only its row-count guard prevented the loss.
+
+> **max states the legacy project holds no real data (2026-07-28).** Recorded as the owner's
+> decision, which is what authorizes deletion. It is deliberately **not** recorded as a verified
+> fact — nothing in this session read Firestore or Auth to confirm it, and the incident above is
+> precisely a case where "assumed empty" was wrong.
+>
+> So the procedure is unchanged in the one way that matters: **read the actual contents
+> immediately before deleting, and let a non-empty result stop the deletion** rather than proceed
+> on the assumption. That costs one query and converts an assumption into an observation. Make the
+> destructive step require explicit confirmation **and** fingerprint its target, so a mistyped
+> project fails instead of erasing something else.
 - Verify zero legacy invocations, no remaining always-warm instances, no external endpoint still
   references Vercel/legacy functions, and the expected monthly billing baseline.
 

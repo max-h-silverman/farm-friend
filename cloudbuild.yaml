@@ -1,0 +1,63 @@
+# Build and publish the Farm Friend image.
+#
+#   gcloud builds submit --config cloudbuild.yaml --project farm-friend-vashon
+#
+# This BUILDS AND PUSHES. It never deploys — a deploy is an explicit Terraform apply with the
+# resulting digest, so that promoting a build is always a deliberate act and the two Cloud Run
+# services can never end up on different code.
+#
+# The build itself is the isolated install this repo has repeatedly been unable to test
+# locally. B-005 through B-008 were all packaging defects that passed every check from the
+# repo root — npm workspaces hoists, so a missing or misdeclared dependency resolves anyway —
+# and failed only where there is no hoisted tree to fall back on. That is exactly here.
+
+steps:
+  # Build. `--build-arg BUILDKIT_INLINE_CACHE` plus the `--cache-from` below reuses layers
+  # across builds, which matters because the deps stage installs the whole workspace.
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - --tag=$_IMAGE:$SHORT_SHA
+      - --tag=$_IMAGE:latest
+      - --cache-from=$_IMAGE:latest
+      - --build-arg=BUILDKIT_INLINE_CACHE=1
+      - .
+
+  # Push both tags. The digest is what Terraform consumes; the tags exist for humans reading
+  # the registry, and `latest` additionally seeds the layer cache for the next build.
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args: [push, --all-tags, $_IMAGE]
+
+  # Print the digest, which is the only thing that should be pasted into a deploy.
+  #
+  # A tag is deliberately NOT enough: it can be repointed between two applies, which would let
+  # the web service and the worker run different code against one database. `image_digest` in
+  # Terraform refuses anything that is not a full sha256.
+  - name: gcr.io/cloud-builders/gcloud
+    id: digest
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        DIGEST=$(gcloud artifacts docker images describe "$_IMAGE:$SHORT_SHA" \
+          --format='value(image_summary.digest)')
+        echo ""
+        echo "=================================================================="
+        echo "  Image digest — pass this to Terraform:"
+        echo ""
+        echo "    tofu plan -var=\"image_digest=$$DIGEST\""
+        echo "=================================================================="
+
+substitutions:
+  _IMAGE: us-west1-docker.pkg.dev/$PROJECT_ID/farm-friend/farm-friend
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+
+# The workspace install and Next build are the slow parts; 20 minutes is generous headroom so
+# a cold cache does not fail the build.
+timeout: 1200s
