@@ -18,6 +18,11 @@ they can be reviewed and reversed in one place.
   new table plus a mint-time write path.
 - **GL-004 (2026-07-28) — a replayed link and a non-administrator return the same 401.** Naming the
   difference would tell an attacker holding a copied link that it had been genuine.
+- **GL-006 (2026-07-28) — repaired the migration metadata with ONE current snapshot rather than
+  reconstructing all five missing ones.** drizzle-kit only ever diffs against the newest snapshot,
+  so the rest are historical convenience; inventing five point-in-time schema pictures nobody can
+  verify against a database would be fabricating evidence rather than repairing metadata. Reversible
+  if a future tool version needs the full chain.
 
 ## Status and baseline
 
@@ -342,6 +347,42 @@ A direct `npx tsc -p apps/web/tsconfig.json --noEmit` currently fails across web
 - Update the runbook so “typecheck across workspaces” becomes true.
 
 ### GL-006 — Repair migration generator metadata
+
+**Completed:** 2026-07-28 — `1a5d525`. Reconfirmed by reproducing it first: a generation trial
+against the unchanged schema stopped and asked *"Is message_category column in outbox_work table
+created or renamed from another column?"* — `message_category` was added by migration `0002`.
+
+- **The lead was right, and had grown by one.** Seven migrations are journaled (`0000`–`0006`,
+  `0006` arriving with GL-004 this session) while snapshots stopped at `0001`. Snapshot `0001`
+  describes 22 tables; the schema has 25 — `admin_sessions`, `sales_location_offerings`, and
+  `stand_data_flags` were invisible to the generator.
+- **Applying was never affected**, which is what kept this invisible: the integration suite builds a
+  database from empty and applies all seven on every run. Only *generation* was untrustworthy, and
+  the danger is not that the tool errors out — it is that a wrong answer to a rename prompt writes a
+  plausible migration that re-creates existing tables or renames a column out from under production
+  data.
+- **The repair is one file:** a `0006_snapshot.json` describing the current schema, chained onto
+  `0001`. drizzle-kit 0.22.8 diffs against `snapshots[snapshots.length - 1]` **only**
+  (`preparePrevSnapshot`), and enumerates snapshots from the directory listing rather than the
+  journal — so intermediate snapshots are historical convenience, not correctness. Reconstructing
+  five point-in-time pictures nobody can verify against a database would be **fabricating evidence
+  rather than repairing metadata**, so it was deliberately not done. The tripwire asserts the rule
+  the tool actually has, not a stricter invented one.
+- **Verified the regenerated metadata agrees with the applied SQL**: the tables and enums it adds
+  over `0001` are exactly what `0002`–`0006` create (`message_category`, `admin_sessions`, the
+  stand-availability enums, `magic_nonce_hash`). No divergence between code schema and database
+  schema was found.
+- **No `.sql` file changed** — the md5 over all seven is byte-identical before and after
+  (`bebb13d3…`). The commit adds two files and modifies none.
+- **Headline proof:** the generation trial now reports **"No schema changes, nothing to migrate"**,
+  with no rename prompts and no new migration file.
+- **Tripwire** `packages/core/src/migration-metadata.test.ts`, sabotage-verified four ways: removing
+  the `0006` snapshot fails 2 assertions and names the 3 missing tables; journaling an `0007`
+  without a snapshot fails the newest-migration check (the **forward-looking** case, aimed at the
+  next instance); a duplicated `prevId` fails the collision check.
+- **Verified:** `npm test` **497/497 across 52 files** · `npm run test:integration` **311/311 across
+  19 files** on local Postgres 16, all 7 migrations applied from empty · lint, root typecheck, and
+  `next build` all exit 0.
 
 **Confirmed defect**
 
