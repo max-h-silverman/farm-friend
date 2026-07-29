@@ -754,9 +754,29 @@ supply what production never creates.
   password. Fixed by forcing revisions (worker 00006 / web 00005); the stuck message was recovered
   by the next scheduled pass. **A green apply is not a restart — compare the revision's creation
   time against the secret version's, and treat an older revision as "not applied" whatever any
-  endpoint returns.** Two follow-ups stay open on B-021: a persistent `tofu plan` drift that reports
-  "2 to change" on a clean tree (which is what made the no-op apply look real), and a deploy-path
-  assertion so this cannot recur.
+  endpoint returns.** **Both B-021 follow-ups are now CLOSED.**
+  *The drift* was never mysterious: the emergency `gcloud run services update` that ended the
+  outage injected `ROTATION_APPLIED_AT` onto the live services only, so every plan wanted to strip
+  it. It is now a declared variable (`rotation_applied_at`, validated `2026-07-29T17-35` shape) in
+  `common_env`, so the config round-trips. What remains in a clean-tree plan is **provenance only**
+  — `client`/`client_version = "gcloud"` annotations and a top-level `scaling` block the CLI wrote —
+  confirmed by diffing the plan JSON field by field: no container, image, env, secret, or ingress
+  change. It self-clears on the next apply.
+  *The prevention* is **`infra/deploy_assertions.py`** (run after apply; RUNBOOK §Deploy step 5):
+  every serving revision must be **newer** than every enabled secret version it consumes. It reads
+  `latestReadyRevisionName`, not `latestCreated` — a revision that failed its startup probe exists
+  but serves nothing. Ties fail closed, every stale service is reported (not just the first), and an
+  **empty lookup is a failure, never a pass**. Tested by `infra/test_deploy_assertions.py` (10/10)
+  because the live project is healthy and *cannot* produce the failing case; the B-021 timeline
+  (revision 16:09:26 vs. secret 16:35:29) is a fixture. Three sabotages verified.
+  **The revision-annotation design was tried first and REJECTED on evidence**: resolving `latest` to
+  a version number needs `data.google_secret_manager_secret_version`, which pulls the **cleartext
+  payload** into plan and state — a probe put a live Neon password in `prior_state`, caught by the
+  existing "no postgres connection string" assertion. Metadata-only carries no version number, and
+  the Google provider has no `ephemeral` resource. Timestamps need none of that.
+  `plan-assertions.py` is now **29 checks** (was 24): both services mount secrets, both carry the
+  rotation marker, and both carry the **same** one — anchored to the secret mounts, not to the
+  variable's name.
   **Three checks that looked like proof and were not**: `/api/public/stands` (served by a **warm**
   container whose pooled connections predated the reset — a warm connection survives a password
   change), a scheduler 200 read from *before* the apply, and `evals:live` (which runs **locally**

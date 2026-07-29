@@ -24,3 +24,7 @@ infra/.terraform.lock.hcl
 *.tfstate.*
 *.tfplan
 infra/terraform.tfvars
+
+# Python bytecode from the infra assertion scripts
+__pycache__/
+*.pyc

@@ -198,6 +198,52 @@ def main() -> int:
           bool(worker_env.get("PUBLIC_BASE_URL")),
           "absent — the worker fails closed on every scheduled run")
 
+    print("\nSecret rotation reaches containers")
+    # B-021. Cloud Run resolves `version = "latest"` at CONTAINER START, so adding a secret
+    # version changes nothing that is already running and an apply that leaves the revision
+    # template byte-identical creates no revision to re-read it. Production served a
+    # pre-rotation DATABASE_URL for ~25 minutes that way, against an already-reset Neon
+    # password, while the apply that was supposed to fix it reported "2 to change" and applied
+    # cleanly.
+    #
+    # ROTATION_APPLIED_AT is what makes the template change. Anchored to the SECRET MOUNTS
+    # rather than to the variable's name: the property is "a service that mounts secrets
+    # carries a rotation marker", so a service that stopped mounting secrets is legitimately
+    # exempt and a service that gained one is caught. Asserting the variable exists in the
+    # config would prove only that someone wrote the word.
+    for name, svc in (("web", web), ("worker", worker)):
+        container = ((svc.get("template") or [{}])[0].get("containers") or [{}])[0]
+        envs = container.get("env") or []
+        mounts_secret = any(
+            isinstance(e, dict) and e.get("value_source") for e in envs
+        )
+        marker = next(
+            (e.get("value") for e in envs
+             if isinstance(e, dict) and e.get("name") == "ROTATION_APPLIED_AT"),
+            None,
+        )
+        check(f"{name} mounts its secrets from Secret Manager", mounts_secret,
+              "no value_source env — secrets would have to come from somewhere else")
+        check(f"{name} carries a rotation marker so a new version forces a new revision",
+              bool(marker),
+              "ROTATION_APPLIED_AT absent — `gcloud secrets versions add` would leave this "
+              "container serving the old value (B-021)")
+
+    # Both services must carry the SAME marker. They share one image and one digest; a marker
+    # bumped on one alone would restart one service and leave the other on the old secret —
+    # which is the B-021 failure surviving on half the deployment.
+    markers = {
+        next(
+            (e.get("value") for e in
+             (((s.get("template") or [{}])[0].get("containers") or [{}])[0].get("env") or [])
+             if isinstance(e, dict) and e.get("name") == "ROTATION_APPLIED_AT"),
+            None,
+        )
+        for s in (web, worker)
+    }
+    check("both services carry the same rotation marker", len(markers) == 1,
+          f"markers={markers} — a marker bumped on one service restarts only that one")
+
     print("\nIAM")
     members = by_type(plan, "google_project_iam_member")
     broad = {"roles/owner", "roles/editor", "roles/secretmanager.secretAccessor"}
