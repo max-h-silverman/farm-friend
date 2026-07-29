@@ -1,68 +1,20 @@
-import type { RedactedOutbound } from "./redaction";
-import { estimateSmsSegments, type SmsSegmentEstimate } from "./segments";
-
 export * from "./redaction";
 export * from "./segments";
 export * from "./telnyx";
 export * from "./delivery";
 export * from "./provider-error";
 
-export interface OutboundMessage {
-  toPhoneHash: string; // recipient keyed by hash, never raw
-  body: RedactedOutbound; // compile guard: only the redaction guard can produce this
-}
-
-export interface SentMessage {
-  toPhoneHash: string;
-  body: string;
-  sentAt: Date;
-}
-
-export interface OutboundSmsMetrics extends SmsSegmentEstimate {
-  toPhoneHash: string;
-}
-
-export type SmsMetricsLogger = (metrics: OutboundSmsMetrics) => void;
-
-const consoleMetricsLogger: SmsMetricsLogger = (metrics) => {
-  console.info("sms.outbound", metrics);
-};
-
-/** Log only the recipient hash and cost-relevant body measurements, never message content. */
-export function logOutboundSmsMetrics(
-  msg: OutboundMessage,
-  logger: SmsMetricsLogger = consoleMetricsLogger,
-): void {
-  logger({
-    toPhoneHash: msg.toPhoneHash,
-    ...estimateSmsSegments(msg.body),
-  });
-}
-
-/** The SMS provider seam. `send` accepts only a RedactedOutbound (compile guard); the
- *  concrete transport still receives an already-scanned body (runtime guard). */
-export interface SmsTransport {
-  send(msg: OutboundMessage): Promise<void>;
-  /** Start carrier verification for a number (stubbed in Phase 0). */
-  verify(phoneHash: string): Promise<void>;
-}
-
-/** In-memory simulator for tests and the local SMS end-to-end. Records what was sent. */
-export class SmsSimulator implements SmsTransport {
-  readonly sent: SentMessage[] = [];
-
-  constructor(private readonly metricsLogger: SmsMetricsLogger = consoleMetricsLogger) {}
-
-  async send(msg: OutboundMessage): Promise<void> {
-    logOutboundSmsMetrics(msg, this.metricsLogger);
-    this.sent.push({
-      toPhoneHash: msg.toPhoneHash,
-      body: msg.body,
-      sentAt: new Date(),
-    });
-  }
-
-  async verify(_phoneHash: string): Promise<void> {
-    // no-op in the simulator
-  }
-}
+// The SMS package's outbound surface is `./delivery`: `createLastMileSender` takes a
+// `ProviderTransport`, and the web composition root wires the real Telnyx transport into
+// it. There is ONE send seam (GL-035).
+//
+// A second one used to live here — `SmsTransport`/`OutboundMessage`/`SmsSimulator` plus a
+// metrics logger only the simulator called. Nothing in production referenced any of it; it
+// was reachable only from this package's own tests, and it was where the outbound compile
+// guard was asserted, so the safety proof described a path that never ran. Deleted rather
+// than kept as a test double: `createLastMileSender`'s seam is a plain function, so a test
+// fake for it is one arrow function, not a class.
+//
+// `estimateSmsSegments` and `normalizeAvoidableSmsUnicode` survive in `./segments` and are
+// NOT part of what was removed. The normalizer is on the real path already (the outbound
+// guard calls it); the estimator is the machinery GL-021 attaches to the real send path.

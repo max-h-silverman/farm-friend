@@ -32,8 +32,8 @@ function driver(db: Db): Sql {
  * launch, so there is nothing to look up — and a list that cannot vary cannot be widened by
  * a bad row, a join, or a future column.
  *
- * `admin` already implies `staff` through `hasRole`; stating both here would be a second
- * way to say one thing.
+ * `Role` admits exactly this one value (GL-035), so this constant and the type say the same
+ * thing in one place rather than two.
  */
 const ADMINISTRATOR_ROLES: readonly Role[] = ["admin"];
 

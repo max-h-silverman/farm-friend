@@ -1,6 +1,7 @@
 import type { Clock, InventoryInterpreter } from "@farm-friend/core";
 import type { InquiryModel } from "@farm-friend/ai";
 import {
+  activateAcceptedPrompt,
   applyPendingDeliveryEvents,
   authorizeDispatch,
   claimNextInboundEvent,
@@ -8,7 +9,6 @@ import {
   recoverAbandonedDispatches,
   releaseAbandonedClaims,
   purgeExpiredBodies,
-  CONFIRMATION_WINDOW_MS,
   type Db,
   type DeliveryPassResult,
   type RetentionPassResult,
@@ -198,36 +198,6 @@ async function queuedOutboxWorkIds(db: Db, now: Date, limit: number): Promise<st
     limit ${limit}
   `;
   return rows.map((row) => (row as Record<string, unknown>).id as string);
-}
-
-/**
- * Start the confirmation window for a proposal whose prompt the provider just accepted.
- *
- * This is what makes "a token predating its prompt cannot commit" true in production: a
- * proposal is committable only from the moment Telnyx accepted the prompt describing the
- * version being confirmed. Before this runs, `confirmationEligibility` reports
- * `not_activated` and a `YES` commits nothing.
- */
-async function activateAcceptedPrompt(
-  db: Db,
-  outboxWorkId: string,
-  acceptedAt: Date,
-): Promise<void> {
-  await db.sql`
-    update inventory_publication_proposals
-    set activation_outbox_id = ${outboxWorkId},
-        activated_version = proposal_version,
-        activated_at = ${acceptedAt},
-        expires_at = ${new Date(acceptedAt.getTime() + CONFIRMATION_WINDOW_MS)},
-        updated_at = ${acceptedAt}
-    where state = 'open'
-      and sender_hash = (
-        select recipient_hash from outbox_work where id = ${outboxWorkId}
-      )
-      and (
-        select message_category from outbox_work where id = ${outboxWorkId}
-      ) = 'inventory_confirmation'
-  `;
 }
 
 /**

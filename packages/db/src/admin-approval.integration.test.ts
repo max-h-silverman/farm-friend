@@ -309,7 +309,12 @@ describe("farm approval and admin sessions (integration)", () => {
     it("NEVER grants farmer capability to an administrator (Golden Rule #1)", async () => {
       // The farmer owns published state. An operator role must not silently confer the
       // ability to act as a farm's owner — so the role lookup must be incapable of
-      // returning "farmer", not merely uninclined to.
+      // returning anything but "admin", not merely uninclined to.
+      //
+      // GL-035: `Role` no longer HAS a "farmer" value, so the strongest available runtime
+      // statement is exact equality — the roles are `["admin"]` and nothing else. Asserting
+      // absence of a specific extra value would be weaker anyway: it passes for any other
+      // widening. Exact equality fails for every one.
       const token = issueSessionToken();
       await createAdminSession(handle(), {
         tokenHash: hashSessionToken(token),
@@ -321,7 +326,7 @@ describe("farm approval and admin sessions (integration)", () => {
         tokenHash: hashSessionToken(token),
         now: at(10),
       });
-      expect(principal?.roles).not.toContain("farmer");
+      expect(principal?.roles).toEqual(["admin"]);
 
       // Even when the same person is ALSO an authorized farmer on a farm: the session is an
       // administrator session, and its roles come from the administrator record alone.
@@ -333,7 +338,6 @@ describe("farm approval and admin sessions (integration)", () => {
         tokenHash: hashSessionToken(token),
         now: at(10),
       });
-      expect(alsoFarmer?.roles).not.toContain("farmer");
       expect(alsoFarmer?.roles).toEqual(["admin"]);
       await sql()`
         update administrators set contact_id = null
