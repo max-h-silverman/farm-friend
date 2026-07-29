@@ -1,5 +1,9 @@
 import { appContext } from "../../../../lib/composition";
 import {
+  isInternalSurfaceEnabled,
+  resolveDeploymentRole,
+} from "../../../../lib/deployment-role";
+import {
   runDeliveryPass,
   runInboundPass,
   runOutboundPass,
@@ -8,16 +12,29 @@ import {
 
 // The scheduled worker trigger (F-023, docs/RUNBOOK.md §"Scheduled work").
 //
-// ONE authenticated internal route runs every scheduled pass: inbound routing, outbound
-// dispatch, B-012 delivery-callback application, and the F-026 retention purge. A new
-// scheduled job adds its call below — one mechanism, not a second cron surface per job.
+// ONE internal route runs every scheduled pass: inbound routing, outbound dispatch, B-012
+// delivery-callback application, and the F-026 retention purge. A new scheduled job adds its
+// call below — one mechanism, not a second cron surface per job.
 //
-// Authentication is a shared secret, required with NO default and NO local-only bypass.
-// An environment-dependent auth branch is exactly the conditional safety Golden Rule #6
-// rejects: a route that skips its check outside production is one misconfigured deploy away
-// from being public. `resolveConfig` throws when CRON_SECRET is absent, so a deployment
-// missing it fails closed at startup rather than serving an unauthenticated worker endpoint.
-// `cron-auth.test.ts` reads this file and fails if such a branch ever appears.
+// ## Authentication moved OUT of this process, and that is a strengthening
+//
+// This route used to verify a shared `CRON_SECRET` bearer token. On Cloud Run it is reached
+// only through Cloud Scheduler's OIDC identity against an internal-ingress service with IAM
+// `run.invoker` — enforced by Google, before the request reaches this container, and not
+// something application code can weaken by accident.
+//
+// The shared secret is gone rather than kept alongside, deliberately. It was a credential
+// living in two places that had to match — the Vercel env var and the GitHub repository
+// secret — where a mismatch produced a 401 that looks identical to success in any
+// scheduler's UI, and a rotation could silently stop every scheduled pass. Keeping a second
+// authenticator "just in case" would preserve exactly that failure mode while adding nothing:
+// a caller who cannot pass IAM never reaches this code to present a token.
+//
+// What remains in-process is the role guard below — a second closed door, not the first, so
+// that a Terraform mistake exposing the worker publicly still meets a refusal. It is checked
+// BEFORE `appContext()` so the public deployment never even builds a database pool for a
+// route it does not serve, and returns 404 rather than 403 to leave no hint the surface
+// exists there.
 //
 // Each pass enumerates its own work. That is what makes this route callable at all: while
 // the workers took caller-supplied ID lists, no scheduler could invoke them, which is why
@@ -25,40 +42,12 @@ import {
 
 export const dynamic = "force-dynamic";
 
-/**
- * Constant-time comparison, so a token cannot be recovered byte-by-byte from response
- * timing. Length is compared first because an early return on differing lengths leaks only
- * the length, which the attacker already controls.
- */
-function secretMatches(provided: string, expected: string): boolean {
-  if (provided.length !== expected.length) return false;
-  let difference = 0;
-  for (let index = 0; index < provided.length; index += 1) {
-    difference |= provided.charCodeAt(index) ^ expected.charCodeAt(index);
+async function runScheduledWork(): Promise<Response> {
+  if (!isInternalSurfaceEnabled(resolveDeploymentRole())) {
+    return new Response("Not Found", { status: 404 });
   }
-  return difference === 0;
-}
 
-/**
- * Read the caller's bearer token. Vercel Cron sends `Authorization: Bearer <secret>`;
- * the same header is what an operator uses to run a pass by hand.
- */
-function bearerToken(req: Request): string | null {
-  const header = req.headers.get("authorization");
-  if (!header) return null;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1]! : null;
-}
-
-async function runScheduledWork(req: Request): Promise<Response> {
   const context = appContext();
-
-  const provided = bearerToken(req);
-  if (provided === null || !secretMatches(provided, context.config.cronSecret)) {
-    // No detail about which half failed, and no hint that the route exists at all beyond
-    // the status itself.
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  }
 
   // Inbound first: a STOP that arrives in this pass should suppress still-queued proactive
   // work in the SAME pass rather than waiting for the next one. `authorizeDispatch`
@@ -104,12 +93,11 @@ async function runScheduledWork(req: Request): Promise<Response> {
   );
 }
 
-/** Vercel Cron issues GET. */
-export async function GET(req: Request): Promise<Response> {
-  return runScheduledWork(req);
-}
-
-/** POST is accepted so an operator can trigger a pass with the same contract. */
-export async function POST(req: Request): Promise<Response> {
-  return runScheduledWork(req);
+/**
+ * POST only. Cloud Scheduler is configured to POST, and dropping GET removes a surface that
+ * existed only because Vercel Cron issued GET — a route reachable by a plain browser
+ * navigation is a worse shape for something that drives consent transitions and outbound SMS.
+ */
+export async function POST(): Promise<Response> {
+  return runScheduledWork();
 }

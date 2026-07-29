@@ -114,7 +114,6 @@ describe("inbound routing end to end (integration)", () => {
     // webhook without a verification key.
     process.env.DATABASE_URL = url.toString();
     process.env.PHONE_HASH_SALT = phoneSalt;
-    process.env.CRON_SECRET = "test-cron-secret";
     // Required by the composition root since F-032. Nothing on the SMS path uses them; they
     // are set so `appContext()` resolves at all.
     process.env.MAGIC_LINK_SECRET = "test-magic-secret";

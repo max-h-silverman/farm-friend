@@ -22,6 +22,14 @@ import {
 import { type Db } from "@farm-friend/db";
 import { sharedClock, sharedDb } from "./public-context";
 import {
+  createNoopImmediateWork,
+  type ImmediateWorkQueue,
+} from "./immediate-work";
+import {
+  createCloudTasksQueue,
+  metadataAccessToken,
+} from "./immediate-work-cloud-tasks";
+import {
   createLastMileSender,
   resolveSmsConfig,
   summarizeProviderError,
@@ -64,12 +72,6 @@ export type EnvVars = Record<string, string | undefined>;
 export interface AppConfig {
   databaseUrl: string;
   phoneSalt: string;
-  /**
-   * Shared secret guarding the internal scheduled-worker route. Required with no default:
-   * the workers apply consent transitions and send SMS, so an unauthenticated trigger is a
-   * remote way to drive real messaging. There is deliberately no development bypass.
-   */
-  cronSecret: string;
   /**
    * Signs admin sign-in links. Required with no default: a guessable value would let anyone
    * forge a link, and the administrator lookup behind it is the only thing standing between
@@ -135,10 +137,11 @@ const STUB_DATA_HANDLING: ProviderDataHandling = {
  * webhook, and every suite stayed green. Nothing anywhere reported a problem, because from
  * the code's point of view nothing was wrong — the default had been chosen.
  *
- * So the selection is simply REQUIRED, exactly like `PHONE_HASH_SALT` and `CRON_SECRET`.
+ * So the selection is simply REQUIRED, exactly like `PHONE_HASH_SALT`.
  * Deliberately not "required in production": a rule that relaxes off-production behaves one
  * way everywhere it is tested and another way in the one place that matters, which is how
- * this defect survived. `cron-auth.test.ts` refuses the same pattern for the same reason.
+ * this defect survived. `cron-auth.test.ts` refuses the same pattern for the same reason,
+ * now against the deployment-role guard that replaced the shared cron secret.
  * The cost is one line in a local `.env`; the stub is still fully available, it just has to
  * be ASKED for.
  */
@@ -238,8 +241,6 @@ export function resolveConfig(env: EnvVars = process.env): AppConfig {
     databaseUrl: required(env, "DATABASE_URL"),
     // The phone hash is the only lookup/log key, so its salt is mandatory.
     phoneSalt: required(env, "PHONE_HASH_SALT"),
-    // The scheduled-worker trigger drives consent and outbound SMS; it never runs open.
-    cronSecret: required(env, "CRON_SECRET"),
     // Signs sign-in links. A guessable value forges authority over the admin surface.
     magicLinkSecret: required(env, "MAGIC_LINK_SECRET"),
     publicBaseUrl: resolvePublicBaseUrl(env),
@@ -280,6 +281,13 @@ export interface AppContext {
   signInThrottle: PublicActionThrottle;
   /** Sends the one transactional message Farm Friend has. Fails closed until F-031. */
   mail: MailSender;
+  /**
+   * The durable fast path from "a message arrived" to "the reply is sent" — the Cloud Tasks
+   * queue that replaced `waitUntil`. Absent configuration yields a queue that refuses, and
+   * `enqueueSenderWork` turns that refusal into `enqueued: false` rather than an error: a
+   * deployment with no queue runs on the scheduled pass alone, which is correct but slower.
+   */
+  immediateWork: ImmediateWorkQueue;
   close(): Promise<void>;
 }
 
@@ -368,6 +376,55 @@ export function createTelnyxTransport(config: {
   };
 }
 
+/**
+ * Build the immediate-work queue from configuration.
+ *
+ * ALL FIVE VARIABLES OR NONE. A partially configured queue is the dangerous state: it looks
+ * configured, constructs without complaint, and then fails every enqueue at runtime, leaving
+ * the deployment silently dependent on the scheduled pass while an operator believes the fast
+ * path is live. So a partial configuration is a startup error, and a fully absent one is the
+ * legitimate "no queue here" case that local development and tests use.
+ *
+ * This is the same lesson as GL-019, where `LLM_PROVIDER` defaulting to `stub` let production
+ * run the test double for its entire life with every check green. A missing knob must be
+ * loud; only a deliberately empty one may be quiet.
+ */
+function resolveImmediateWork(env: EnvVars): ImmediateWorkQueue {
+  const names = [
+    "CLOUD_TASKS_PROJECT",
+    "CLOUD_TASKS_LOCATION",
+    "CLOUD_TASKS_QUEUE",
+    "CLOUD_TASKS_TARGET_URL",
+    "CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT",
+  ] as const;
+
+  const present = names.filter((name) => (env[name] ?? "").trim() !== "");
+  if (present.length === 0) return createNoopImmediateWork();
+
+  if (present.length !== names.length) {
+    const missing = names.filter((name) => !present.includes(name));
+    throw new ConfigurationError(
+      `the Cloud Tasks queue is partially configured (missing: ${missing.join(", ")}). ` +
+        "Set all five variables or none — a partial configuration fails every enqueue at " +
+        "runtime while appearing to be configured.",
+    );
+  }
+
+  return createCloudTasksQueue(
+    {
+      project: required(env, "CLOUD_TASKS_PROJECT"),
+      location: required(env, "CLOUD_TASKS_LOCATION"),
+      queue: required(env, "CLOUD_TASKS_QUEUE"),
+      targetUrl: required(env, "CLOUD_TASKS_TARGET_URL"),
+      invokerServiceAccount: required(env, "CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT"),
+    },
+    {
+      transport: (url, init) => fetch(url, init),
+      accessToken: metadataAccessToken,
+    },
+  );
+}
+
 /** In-process transport for local development and the SMS simulator. */
 function createSimulatorTransport(): ProviderTransport {
   return async ({ idempotencyKey }) => ({
@@ -418,6 +475,7 @@ export function createAppContext(env: EnvVars = process.env): AppContext {
     // Fails closed until F-031 selects a provider and records its attested data handling.
     // Nothing here claims a vendor's terms; the seam simply refuses to send.
     mail: createUnconfiguredMailSender(),
+    immediateWork: resolveImmediateWork(env),
     sendSms: createLastMileSender({
       resolver: createPhoneResolver(db),
       transport,
