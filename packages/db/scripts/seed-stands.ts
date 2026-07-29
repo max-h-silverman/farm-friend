@@ -23,6 +23,7 @@ import { readFileSync } from "node:fs";
 import {
   classifyOfferingType,
   joinStandSources,
+  matchStandName,
   parseFormResponses,
   parseOpenHours,
   parseSeason,
@@ -53,13 +54,16 @@ import {
  * a rule about it. A farm that later appears in a refreshed map export simply stops needing its
  * entry — the join prefers the export.
  *
- * Lavender Hill Farm is deliberately ABSENT: SW 238th St does not exist in OpenStreetMap on
- * Vashon at all, so no point could be resolved. It is refused and reported rather than guessed
- * — which is the whole rule (F-017).
+ * The last two came from max directly (2026-07-29) after the seeder refused them: neither address
+ * resolves to a point automatically — "SW 238th St" is absent from OpenStreetMap on Vashon, and
+ * "Bank Road, East of Town" names a road with no number. That is the refusal working as designed:
+ * it surfaced two real stands for a human to place, rather than guessing a point or dropping them.
  */
 const SUPPLEMENTAL_COORDINATES: Record<string, { latitude: number; longitude: number }> = {
   Farmstad: { latitude: 47.4727554, longitude: -122.489797 },
   "Handpicked Homestead": { latitude: 47.4271197, longitude: -122.4710309 },
+  "Lavender Hill Farm": { latitude: 47.390774975247844, longitude: -122.4686159601207 },
+  "Sweet Alyssum Farm": { latitude: 47.44714371286876, longitude: -122.45352178222176 },
 };
 
 /**
@@ -83,7 +87,24 @@ const SUPPLEMENTAL_ADDRESSES: Record<string, string> = {
  * This is a stated product decision about a farm with no form, not an inference. A farm that
  * submits a 2026 form classifies itself from its own Address answer, in `form-responses.ts`.
  */
-const CONTACT_ONLY_BY_DECISION = new Set(["Breathing Meadows Farm"]);
+const CONTACT_ONLY_BY_DECISION = ["Breathing Meadows Farm"];
+
+// Re-key each table by match key at module load. Building them here rather than writing
+// normalized keys by hand keeps the tables readable as the farm names a person recognizes, and
+// means a typo'd key throws at startup rather than silently failing to match.
+const supplementalCoordinates = new Map(
+  Object.entries(SUPPLEMENTAL_COORDINATES).map(([name, point]) => [
+    matchStandName(name),
+    point,
+  ]),
+);
+const supplementalAddresses = new Map(
+  Object.entries(SUPPLEMENTAL_ADDRESSES).map(([name, address]) => [
+    matchStandName(name),
+    address,
+  ]),
+);
+const contactOnlyByDecision = new Set(CONTACT_ONLY_BY_DECISION.map(matchStandName));
 
 function toSeededSeason(parsed: ParsedSeason): SeededSeason | null {
   switch (parsed.kind) {
@@ -206,17 +227,22 @@ function toSeedInput(stand: JoinedStand): {
 
   if (
     stand.visitability === "contact_only" ||
-    CONTACT_ONLY_BY_DECISION.has(stand.name)
+    contactOnlyByDecision.has(matchStandName(stand.name))
   ) {
     // No address, no point — and none taken from the map export even when it has one.
     return { input: { ...base, visitability: "contact_only" } };
   }
 
-  const address = stand.publicAddress ?? SUPPLEMENTAL_ADDRESSES[stand.name];
+  // Supplements are looked up through the SAME normalization the join matches on, never by raw
+  // name. Two of these farms carry VIGA's inline annotation ("Lavender Hill Farm *does not accept
+  // VIGA Bucks*"), so a raw-string lookup misses them silently — the entry is present, the farm
+  // is still refused, and nothing reports the mismatch. That happened on the first attempt here.
+  const key = matchStandName(stand.name);
+  const address = stand.publicAddress ?? supplementalAddresses.get(key);
   const point =
     stand.latitude !== undefined && stand.longitude !== undefined
       ? { latitude: stand.latitude, longitude: stand.longitude }
-      : SUPPLEMENTAL_COORDINATES[stand.name];
+      : supplementalCoordinates.get(key);
 
   if (address === undefined) {
     return {

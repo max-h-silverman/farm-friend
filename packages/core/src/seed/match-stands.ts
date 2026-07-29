@@ -79,6 +79,21 @@ export function matchStandName(name: string): string {
   return key;
 }
 
+/**
+ * The farm's name as a CUSTOMER should see it.
+ *
+ * Strips only VIGA's editorial annotation, leaving the farmer's own punctuation untouched. Four
+ * farms carry one in the 2026 export, and seeding it verbatim would render "Flora Hill *does not
+ * accept VIGA Bucks*" as the farm's name on the map — a payment policy presented as what the farm
+ * calls itself, and in the wrong place besides: Farm Bucks acceptance has its own columns.
+ *
+ * Distinct from `matchStandName`, and deliberately so. That one destroys information to compare
+ * two spreadsheets; this one is what gets STORED, so it must preserve everything a farmer chose.
+ */
+export function standDisplayName(name: string): string {
+  return name.replace(ANNOTATION, " ").replace(/\s+/g, " ").trim();
+}
+
 /** A farm with its details resolved and, when it is visitable, its point. */
 export interface JoinedStand {
   name: string;
@@ -184,7 +199,7 @@ export function joinStandSources(input: JoinInput): JoinResult {
     // send a customer to a farm with nothing to buy and no expectation of visitors (F-038).
     if (form.visitability === "contact_only") {
       joined.push({
-        name: form.name,
+        name: standDisplayName(form.name),
         visitability: "contact_only",
         source: map === undefined ? "form" : "form_and_map",
         form,
@@ -200,7 +215,7 @@ export function joinStandSources(input: JoinInput): JoinResult {
     //
     // A stand that still has no point by then IS refused there. Nothing invents one (F-017).
     joined.push({
-      name: form.name,
+      name: standDisplayName(form.name),
       visitability: "visitable",
       ...(form.publicAddress !== undefined ? { publicAddress: form.publicAddress } : {}),
       ...(map !== undefined
@@ -233,7 +248,7 @@ export function joinStandSources(input: JoinInput): JoinResult {
     consumedMapKeys.add(key);
     consumedFormKeys.add(key);
     joined.push({
-      name: rejected.name,
+      name: standDisplayName(rejected.name),
       visitability: "visitable",
       publicAddress: address,
       latitude: map.latitude,
@@ -253,7 +268,7 @@ export function joinStandSources(input: JoinInput): JoinResult {
     // to invent). The join reports what the export contains; the seeder decides.
     const address = addressFromDescription(map.description);
     joined.push({
-      name: map.name,
+      name: standDisplayName(map.name),
       visitability: "visitable",
       ...(address !== undefined ? { publicAddress: address } : {}),
       latitude: map.latitude,

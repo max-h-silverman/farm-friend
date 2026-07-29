@@ -57,6 +57,35 @@ describe("classifyOfferingType", () => {
     ).toBe("produce");
   });
 
+  it("does NOT read 'self-service' as a service business", () => {
+    // A real corpus defect, caught the moment this farm stopped being refused for want of a
+    // coordinate. "All self-service, cash or venmo please" contains the word "service", and the
+    // pattern matched it — classifying a CUT-FLOWER stand as a service business.
+    //
+    // The direction matters: self-service is the defining trait of an unattended honor-system
+    // stand, which is most of this corpus. Reading it as "sells services" would mislabel the
+    // most ordinary farms as the rarest type, and on the map tell customers there is nothing
+    // to buy at a stand full of bouquets.
+    expect(
+      classifyOfferingType({
+        generalInformation:
+          "Sweet Alyssum Farm offers fresh cut flowers! Grab-and-go bouquets are stocked " +
+          "Fridays through the weekend. The You-Pick garden opens once flowers are ready " +
+          "(late June?), and stays open everyday until the flowers fade in September. " +
+          "All self-service, cash or venmo please.",
+        stockingText: "Bouquets stocked Fridays through weekend",
+      }),
+    ).toBe("produce");
+
+    // The near-miss forms, so the fix cannot be a fixture-shaped special case.
+    expect(classifyOfferingType({ generalInformation: "Self service stand" })).toBe(
+      "produce",
+    );
+    expect(classifyOfferingType({ generalInformation: "Fully self-serviced honor box" })).toBe(
+      "produce",
+    );
+  });
+
   it("prefers services over by_order when a farm states both", () => {
     // A service business that also takes bookings is still a service business. Fixing the
     // precedence here means it is stated once, rather than depending on evaluation order.

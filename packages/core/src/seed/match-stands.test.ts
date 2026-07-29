@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchStandName, joinStandSources } from "./match-stands";
+import { matchStandName, standDisplayName, joinStandSources } from "./match-stands";
 
 // B-002 — joining the 2026 form export to the map export.
 //
@@ -70,11 +70,59 @@ describe("matchStandName", () => {
     expect(matchStandName("Olive Farm Stand")).toBe("olive");
   });
 
+  it("is usable as a lookup key for hand-supplied seed data", () => {
+    // The supplemental coordinate/address tables in the seeder are keyed by this function, not by
+    // the raw name. Two of the four farms needing a hand-supplied point carry VIGA's inline
+    // annotation — "Lavender Hill Farm *does not accept VIGA Bucks*" — so a raw-string table
+    // silently misses them, which is exactly what happened on the first attempt: the entry was
+    // present, the farm was still refused, and nothing reported a mismatch.
+    //
+    // Keying both sides through the matcher means a supplement is found however the name is
+    // written down, which is the same normalization the join itself relies on.
+    expect(matchStandName("Lavender Hill Farm *does not accept VIGA Bucks*")).toBe(
+      matchStandName("Lavender Hill Farm"),
+    );
+    expect(matchStandName("Sweet Alyssum Farm *does not accept VIGA Bucks*")).toBe(
+      matchStandName("Sweet Alyssum"),
+    );
+    expect(matchStandName("Vashon Island Farmers Market")).toBe(
+      matchStandName("vashon island farmers market"),
+    );
+  });
+
   it("refuses to collapse a name to nothing", () => {
     // "Farm Stand" is entirely generic words. Stripping them all leaves an empty key that would
     // match every other empty key — one silent equivalence class swallowing unrelated farms.
     expect(() => matchStandName("Farm Stand")).toThrow(/generic/i);
     expect(() => matchStandName("   ")).toThrow(/generic/i);
+  });
+});
+
+describe("standDisplayName", () => {
+  it("strips VIGA's inline annotation, which is not part of the farm's name", () => {
+    // Four farms carry it in the 2026 export. Seeded verbatim, the map would render
+    // "Flora Hill *does not accept VIGA Bucks*" as the farm's NAME — an editorial note about
+    // payment presented as what the farm calls itself.
+    //
+    // It is also the wrong home for the fact: Farm Bucks acceptance has its own columns, and a
+    // name is not where a customer should have to read policy.
+    expect(standDisplayName("Flora Hill *does not accept VIGA Bucks*")).toBe("Flora Hill");
+    expect(standDisplayName("Lavender Hill Farm *does not accept VIGA Bucks*")).toBe(
+      "Lavender Hill Farm",
+    );
+    expect(standDisplayName("Sweet Alyssum Farm *does not accept VIGA Bucks*")).toBe(
+      "Sweet Alyssum Farm",
+    );
+  });
+
+  it("leaves an ordinary name untouched, including its own punctuation", () => {
+    // The apostrophes and ampersands are the farmers' own and must survive verbatim — only the
+    // annotation is editorial.
+    expect(standDisplayName("Aeggy's Farm")).toBe("Aeggy's Farm");
+    expect(standDisplayName("Ostara Farm & Flowers")).toBe("Ostara Farm & Flowers");
+    expect(standDisplayName("Bart’s Cart")).toBe("Bart’s Cart");
+    // Trailing whitespace from the export, but nothing else changed.
+    expect(standDisplayName("Sherman Creek Farm ")).toBe("Sherman Creek Farm");
   });
 });
 

@@ -28,8 +28,15 @@ export interface OfferingTypeSource {
  *
  * Anchored to the noun a farmer uses for the thing being sold ("services", "consulting"), not to
  * the topic. "Advice" alone is too weak — a produce stand may well offer growing advice.
+ *
+ * The leading exclusion is load-bearing, not defensive tidying. "All self-service, cash or venmo
+ * please" describes an unattended honor-system stand — the defining trait of most of this corpus
+ * — and it contains the word "service". Without the exclusion a cut-flower farm classified as a
+ * service business, which on the map tells customers there is nothing to buy at a stand full of
+ * bouquets. Matching the most ordinary farms as the rarest type is the worst available direction
+ * to be wrong in.
  */
-const SERVICES = /\b(services?|consult(?:ing|ation)s?|advice and services)\b/i;
+const SERVICES = /(?<!\bself[-\s])\b(services?|consult(?:ing|ation)s?)\b/i;
 
 /**
  * Goods that exist only once a customer asks for them.
