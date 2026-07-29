@@ -166,6 +166,38 @@ def main() -> int:
               (retry.get("max_attempts") or 0) > 1,
               f"max_attempts={retry.get('max_attempts')}")
 
+    print("\nService URLs")
+    # The host suffix is an explicit input (see variables.tf), so a wrong value would point the
+    # queue and the scheduler at URLs that do not exist — and that failure is SILENT: tasks and
+    # scheduled runs 404 forever while every service looks healthy. Assert that what the web
+    # service was told to call matches what the worker actually is.
+    web_env = {
+        e["name"]: e.get("value")
+        for e in ((web.get("template") or [{}])[0].get("containers") or [{}])[0].get("env", [])
+        if isinstance(e, dict) and e.get("value")
+    }
+    target = web_env.get("CLOUD_TASKS_TARGET_URL", "")
+    worker_name = worker.get("name", "farm-friend-worker")
+    check("the task target points at the worker service",
+          worker_name in target and target.endswith("/api/internal/kick"),
+          f"CLOUD_TASKS_TARGET_URL={target}")
+
+    check("both services agree on the public base url",
+          bool(web_env.get("PUBLIC_BASE_URL", "").startswith("https://")),
+          f"PUBLIC_BASE_URL={web_env.get('PUBLIC_BASE_URL')}")
+
+    # The worker needs PUBLIC_BASE_URL too — `resolveConfig` requires it before any pass runs,
+    # and omitting it crashed every scheduled run with a ConfigurationError that only the
+    # worker's logs revealed.
+    worker_env = {
+        e["name"]: e.get("value")
+        for e in ((worker.get("template") or [{}])[0].get("containers") or [{}])[0].get("env", [])
+        if isinstance(e, dict) and e.get("value")
+    }
+    check("the worker also has PUBLIC_BASE_URL",
+          bool(worker_env.get("PUBLIC_BASE_URL")),
+          "absent — the worker fails closed on every scheduled run")
+
     print("\nIAM")
     members = by_type(plan, "google_project_iam_member")
     broad = {"roles/owner", "roles/editor", "roles/secretmanager.secretAccessor"}

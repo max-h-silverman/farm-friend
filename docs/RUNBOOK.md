@@ -81,8 +81,12 @@ Run both. A green typecheck is not a green build, and a green build is not a gre
 Copy `.env.example` → `.env` and fill:
 - `DATABASE_URL` — Postgres/Neon connection (integration tests + migrations).
 - `PHONE_HASH_SALT` — required; the phone hash is the only lookup/log key.
-- `CRON_SECRET` — shared secret guarding the scheduled-worker route. **Required, no default, no
-  local-only bypass** (see "Scheduled work" below).
+- `DEPLOYMENT_ROLE` — `web` or `worker`. Absent means `web`, which is the surface that REFUSES
+  `/api/internal/*`; a misspelled value is a startup error. (There is no `CRON_SECRET` any more —
+  see "Scheduled work" below.)
+- `CLOUD_TASKS_*` — five variables, **all or none**. A partial set is a startup error: it would
+  look configured, construct without complaint, and fail every enqueue at runtime. Absent entirely
+  is the legitimate "no queue here" case that local development uses.
 - `MAGIC_LINK_SECRET` — signs admin sign-in links. **Required, no default**: the callback returns
   503 rather than verifying signatures against a guessable value, because that would be an open
   door to the farm-approval surface.
@@ -320,10 +324,10 @@ to end reply and proves a kick racing a concurrent cron pass cannot double-proce
 Exclusion is the existing per-sender row lock in `claimNextInboundEvent`; the kick adds no new
 concurrency control, it just arrives at the same lock from a second direction.
 
-**One** authenticated internal route runs every scheduled pass:
+**One** internal route runs every scheduled pass, reachable only on the worker service:
 
 ```
-GET|POST /api/internal/cron      Authorization: Bearer $CRON_SECRET
+POST /api/internal/cron          Cloud Scheduler OIDC + IAM run.invoker; worker role only
 ```
 
 It runs four bounded passes in order: the inbound pass (deterministic routing →
@@ -361,70 +365,59 @@ It is idempotent and safe to run concurrently with live traffic and with itself 
 locked`), and bounded per pass, so a large backlog drains over several runs rather than in one long
 transaction.
 
-Run it locally, or by hand against a deployment:
+Run it locally by hand:
 
 ```
-curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/internal/cron
+curl -X POST http://localhost:3000/api/internal/cron
 ```
 
-On Vercel this is scheduled by **`apps/web/vercel.json`** (`crons` → `/api/internal/cron`, every
-minute); Vercel sends the `Authorization: Bearer` header from the project's `CRON_SECRET`
-environment variable. That file is asserted by `apps/web/lib/cron-schedule.test.ts` against the
-route it names, because it was **missing entirely** until B-005 while this section documented it —
-and the failure is silent, since B-004's kick keeps replies fast while nothing recovers what it
-drops and F-026's purge never runs.
+**On Cloud Run it is scheduled by Cloud Scheduler** (`infra/work.tf`,
+`google_cloud_scheduler_job.recovery`), which POSTs to the worker every minute with an OIDC
+token. There is no shared secret: the worker service has internal-only ingress and requires
+IAM `run.invoker`, so authentication is enforced by Google before a request reaches the
+container. `DEPLOYMENT_ROLE=worker` is a second door — the public service answers 404 on
+`/api/internal/*`, checked before any application context is constructed.
 
-**The schedule depends on the plan, and Hobby cannot run this one.** A one-minute cron exceeds
-Hobby's daily cap, so `npx vercel --prod` refuses the deploy outright. Two ways forward, and the
-route's contract is identical under both — it is a plain authenticated HTTP endpoint:
+`CRON_SECRET` is **gone**, deliberately rather than incidentally. It was one credential living
+in two places that had to match — the platform env var and a GitHub repository secret — where a
+mismatch returned 401, and *a 401 looks identical to success in any scheduler's UI*. Keeping it
+alongside IAM would have preserved that failure mode while protecting against nothing, since a
+caller who cannot satisfy IAM never reaches the code to present a token.
 
-- **Vercel Pro** — `vercel.json` deploys as-is, no external dependency, no extra secret handling.
-- **An external scheduler** — anything that can issue an authenticated request on an interval.
+**This is the durable guarantee and the only trigger for F-026's retention purge.** It replaced
+two mechanisms that each failed differently:
 
-**Currently live: GitHub Actions, `.github/workflows/scheduled-worker.yml`.** Until Pro is revisited
-at go-live, that committed workflow is production's only scheduled recovery net, and it is what the
-deployed `crons`-stripped build has instead of a Vercel schedule. It was chosen over a SaaS
-scheduler for one reason: a dashboard-configured job is **unassertable**, while an in-repo workflow
-is policed by `apps/web/lib/external-scheduler.test.ts` — same source-asserting family as
-`cron-schedule.test.ts` and `cron-auth.test.ts`.
+- **`apps/web/vercel.json`** — a one-minute cron the Hobby plan rejects outright, so every
+  production deploy stripped the `crons` block from the working tree by hand. The deployed
+  system therefore ran **no scheduled pass at all**.
+- **`.github/workflows/scheduled-worker.yml`** — the external net added to cover that gap. Its
+  `*/5` schedule was observed firing roughly **hourly**, because GitHub drops most slots.
 
-Two properties that test exists to hold, both learned from real defects:
+Both are deleted. Do not reintroduce either; two schedules racing the same
+`for update skip locked` work buys nothing.
 
-- **It checks the HTTP status, not merely that `curl` ran.** A bare `curl` exits 0 on a 401, so a
-  stale `CRON_SECRET` would paint a column of green checkmarks in the Actions tab while nothing had
-  run since the day it rotated. The workflow captures `%{http_code}`, compares it to 200, and exits
-  non-zero otherwise. *(The first draft of that assertion survived its own sabotage — it matched the
-  word "status" elsewhere in the file — so it is now anchored to the comparison itself.)*
-- **The secret reaches `curl` through `env:`, never interpolated into the `run:` block**, which would
-  place it in the process argument list.
+Choose the interval as a **recovery** budget, not a reply-latency one: since B-004 the fast path
+front-runs this route for live traffic, so the interval decides only how long work the queue
+*missed* waits.
 
-**Its interval is `*/5`, and that is not equivalent to Vercel's one minute.** GitHub's scheduled
-events are best-effort: commonly delayed, and droppable under load. That is acceptable only because
-the kick front-runs this route for live traffic, so the interval governs how long *missed* work
-waits, never reply latency. Do not describe this as a one-minute pulse.
+**Verify a schedule by its EFFECT, never by a dashboard.** A green entry proves an invocation was
+attempted, not that the pass did its work. The one unambiguous signal is F-026's purge, which
+runs on this trigger *alone*: set a body's `body_expires_at` in the past, wait, and confirm it is
+`NULL`. If it clears, the trigger is authenticated and the passes are running.
 
-**When Pro lands, delete the workflow** rather than leaving two schedules racing the same
-`for update skip locked` work.
+**Authentication fails closed, outside this process.** Cloud Run's internal-only ingress plus IAM
+`run.invoker` is the primary control; the in-process `DEPLOYMENT_ROLE` guard is a second door that
+answers **404** (never 403 — 403 confirms the route exists) and runs *before* any application
+context is constructed, so the public service never builds a database pool for a route it does not
+serve. There is deliberately **no** environment-conditional bypass —
+`apps/web/lib/cron-auth.test.ts` reads both route sources and fails if one appears, or if a
+shared-secret comparison returns. An unauthenticated worker trigger would be a remote way to drive
+consent changes and real outbound SMS.
 
-Under any external scheduler the secret lives in a second place, which is a real cost: rotating
-`CRON_SECRET` means rotating it *both* places (for this workflow, the repository secret named
-`CRON_SECRET`), and a stale copy fails closed with a 401 rather than loudly — which is exactly why
-the status check above is mandatory.
-
-**Verify a schedule by its EFFECT, never by a dashboard.** A green cron entry proves an invocation
-was attempted, not that the pass did its work — a 401 from a stale secret looks like activity. The
-one unambiguous signal is F-026's purge, which runs on this trigger *alone*: set a body's
-`body_expires_at` in the past, wait, and confirm it is `NULL`. If it clears, the trigger is
-authenticated and the passes are running.
-Choose the interval as a **recovery** budget, not a reply-latency one: since B-004 the kick front-runs
-this route for live traffic, so the interval decides only how long work a kick *missed* waits. One
-minute — Vercel Cron's floor — is fine. It is also the floor that made polling alone unable to meet
-the ~10s an SMS exchange needs, which is why the kick exists.
-
-**Authentication fails closed.** `CRON_SECRET` is required at startup with no default, the route
-compares it in constant time, and there is deliberately **no** environment-conditional bypass —
-`apps/web/lib/cron-auth.test.ts` reads the route source and fails if one appears. An unauthenticated
-worker trigger would be a remote way to drive consent changes and real outbound SMS.
+**The fast path is a separate route.** `POST /api/internal/kick` is what Cloud Tasks calls after
+the webhook enqueues a task; it runs the same two passes scoped to one sender. It carries the same
+role guard and the same IAM requirement, and owns no guarantee — the scheduled pass above recovers
+anything it misses.
 
 **Adding a scheduled job** means adding its call inside `runScheduledWork` in that one route —
 never a second cron surface. F-026's retention purge is the worked example.
@@ -610,8 +603,45 @@ place (CLAUDE.md, "Simplicity and elegance").
 
 ## Deploy (only when asked)
 
-Vercel (web + API + scheduled jobs) against Neon Postgres. Never deploy unless explicitly asked
-(CLAUDE.md "Do not").
+**Google Cloud Run** (two services from one image) against Neon Postgres. Never deploy unless
+explicitly asked (CLAUDE.md "Do not"). *Vercel was the deployment target until 2026-07-29; the
+migration is in progress — see "Current State" in CLAUDE.md for exactly how far it got.*
+
+The shape, and why:
+
+- **One image, two services, one digest.** `farm-friend-web` (public ingress) and
+  `farm-friend-worker` (internal ingress + IAM) run the *same* artifact, distinguished only by
+  `DEPLOYMENT_ROLE`. Both are pinned to the same digest, so the two can never drift apart — a tag
+  could be repointed between applies and put different code in front of one database.
+- **Terraform owns infrastructure; it never owns secret values or the image.** Values go in out of
+  band (`gcloud secrets versions add`) because anything passed through Terraform lands in state,
+  and state gets copied to buckets and pulled to laptops.
+
+```bash
+# 1. Build and publish. This is also the isolated install that catches packaging defects
+#    (B-005..B-008's whole class) — npm workspaces hoists locally, so nothing else does.
+gcloud builds submit --config cloudbuild.yaml --project farm-friend-vashon \
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+
+# 2. Take the digest it prints — a full sha256, never a tag. Terraform's variable validation
+#    refuses anything else.
+DIGEST=$(gcloud artifacts docker images describe \
+  "us-west1-docker.pkg.dev/farm-friend-vashon/farm-friend/farm-friend:$(git rev-parse --short HEAD)" \
+  --format='value(image_summary.digest)' --project farm-friend-vashon)
+
+# 3. Plan, and ASSERT the plan before applying. `validate` only proves the config parses; these
+#    assertions prove the worker is internal-only, nothing is held warm, and no credential
+#    reached state. Each one is sabotage-verified.
+cd infra
+tofu plan -var="image_digest=$DIGEST" -out=/tmp/tf.plan
+tofu show -json /tmp/tf.plan | python3 plan-assertions.py
+
+# 4. Apply (provisions; needs approval).
+tofu apply /tmp/tf.plan
+```
+
+Migrations are still `npm run db:migrate` with `DATABASE_URL` pointed at the target, run
+**before** promoting a build so production never runs code ahead of its schema.
 
 > **⛔ Before a GO-LIVE deploy: rotate credentials first (F-034 / GL-001).** Credentials were
 > exposed in 2026-07-27 validation transcripts and rotation was deliberately deferred to go-live so
@@ -634,6 +664,17 @@ of this section moot.
   stored in a recoverable relationship to the old hashes. If it is ever believed compromised the
   answer is a **designed re-hash migration under a new salt**, not a rotation. Record it; never
   rotate it.
+> **This rule was violated and it cost a session (2026-07-29).** `PHONE_HASH_SALT` was set in Vercel
+> marked "Sensitive" — write-only, unreadable by anyone — and recorded nowhere else. The value was
+> lost. It was recoverable only because `contacts.phone_e164` still held the raw numbers, which is
+> what `npm run db:rehash-phones` uses; that window closes as soon as contacts are purged. **Storing
+> a secret somewhere unreadable is the same as not recording it.** The same trap then applied to all
+> four Telnyx values, which is why they had to be re-fetched from the Telnyx console.
+>
+> Note the legacy `TELNYX_API_KEY` secret in `farm-friend-vashon` is **stale** — tested against the
+> live Telnyx API on 2026-07-29 and it returns **401**. The GCP migration plan's claim that the
+> legacy secrets hold the current credentials is **wrong**; do not copy from them.
+
 - **Record every new value in a password manager at the moment it is set.** Vercel values are
   write-only — the UI does not reveal them and `vercel env pull` returns `[SENSITIVE]`. An
   unrecorded secret is unrecoverable.
@@ -654,9 +695,11 @@ below gets a genuine reset rather than dying with a discarded project. F-034's "
 throwaway Vercel project" line no longer applies; its stale `throwaway/hobby-deploy-test` **branch**
 is still owed a deletion.
 
-The plan question is separate and still open: the committed one-minute cron in `apps/web/vercel.json`
-exceeds the Hobby cap, which is why deploys strip it and why GitHub's workflow is currently the only
-schedule. GL-017 settles that.
+**Superseded by the GCP migration (2026-07-29).** The plan question that sat here — Hobby rejecting
+the one-minute cron — is gone with Vercel: Cloud Scheduler runs a real minute schedule and neither
+`vercel.json` nor the GitHub workflow exists any more. Secrets now live in **GCP Secret Manager**
+(`farm-friend-*`), which unlike Vercel lets a value be **read back**, so the write-only trap below
+does not apply there.
 
 ### Scope — what is actually exposed, and where it lives
 
@@ -666,11 +709,11 @@ overstated the scope in one place and understated it in another.
 | Credential | Where it is consumed | Rotate where | Notes |
 |---|---|---|---|
 | `DATABASE_URL` | Vercel env; local `.env` for migrate/seed scripts | Neon console (reset the `neondb_owner` password), then Vercel | The full URL was pasted in a 2026-07-27 transcript |
-| `CRON_SECRET` | Vercel env **and** the GitHub repository secret | both, to the **same** value | A mismatch 401s every scheduled run |
+| `CRON_SECRET` | **GONE** — no longer exists | nothing to rotate | Replaced by Cloud Scheduler OIDC + IAM; it was one credential in two places that had to match, where a mismatch 401s and a 401 looks like success in any scheduler UI |
 | `TELNYX_API_KEY` | Vercel env | Telnyx console | Belongs to the **Telnyx account**, so it survives a project teardown and needs a real reset either way |
 | `MAGIC_LINK_SECRET` | Vercel env | generate a new random value | Rotating invalidates every outstanding sign-in link and session — harmless pre-launch |
 | `DEEPINFRA_API_KEY` | Vercel env **and** local `.env` | DeepInfra console, then **both** places | See the note below |
-| `PHONE_HASH_SALT` | Vercel env | **NEVER** | See the rule above |
+| `PHONE_HASH_SALT` | Secret Manager `farm-friend-phone-hash-salt` | **NEVER** | See the rule above — and the 2026-07-29 note below, where the old value was LOST because Vercel marked it Sensitive |
 
 **`DEEPINFRA_API_KEY` is consumed in two places, and an earlier revision of this table said one.**
 It was once local-only, because the deployment had no `LLM_PROVIDER` at all and silently ran the
@@ -698,11 +741,10 @@ confined to working transcripts, so **no history rewrite is required**.
    others so subsequent verification runs against the intended database.
 3. **`TELNYX_API_KEY`** — rotate in the Telnyx console, update Vercel. Required on both paths.
 4. **`MAGIC_LINK_SECRET`** — new random value into Vercel.
-5. **`CRON_SECRET`** — the same new value into **both** Vercel and `gh secret set CRON_SECRET`.
-6. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, then update **Vercel and** local
+5. **`DEEPINFRA_API_KEY`** — rotate in the DeepInfra console, then update **Vercel and** local
    `.env`. Missing the Vercel half leaves production calling the model with a revoked key.
-7. **Redeploy**, then run every proof in the next section.
-8. **Confirm the old values no longer authenticate** (also below).
+6. **Redeploy**, then run every proof in the next section.
+7. **Confirm the old values no longer authenticate** (also below).
 
 ### Proof by effect — required before GL-001 is marked complete
 

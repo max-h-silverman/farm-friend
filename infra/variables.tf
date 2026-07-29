@@ -76,3 +76,45 @@ variable "billing_account_id" {
   type        = string
   default     = ""
 }
+
+# ---------------------------------------------------------------------------
+# Telnyx non-secret configuration
+# ---------------------------------------------------------------------------
+# Identifiers and a public verification key — NOT secrets, so they are plain variables rather
+# than Secret Manager entries. The ed25519 public key is verification material; disclosing it
+# grants nothing. Only `TELNYX_API_KEY` is a credential, and that lives in Secret Manager.
+
+variable "telnyx_public_key" {
+  description = "ed25519 webhook verification key, base64. MUST decode to exactly 32 bytes — a merely non-empty value passes startup and then fails every signature check."
+  type        = string
+}
+
+variable "telnyx_messaging_profile_id" {
+  description = "The messaging profile the from-number belongs to. A mismatch is rejected at send time."
+  type        = string
+}
+
+variable "telnyx_from_number" {
+  description = "Sending number in EXACT E.164. A non-E.164 value returns 400 on every send — this cost a long debugging session on 2026-07-27."
+  type        = string
+
+  validation {
+    condition     = can(regex("^\\+[1-9][0-9]{7,14}$", var.telnyx_from_number))
+    error_message = "telnyx_from_number must be exact E.164, e.g. +12065550123 — no spaces, dashes, or parentheses."
+  }
+}
+
+variable "cloud_run_host_suffix" {
+  description = <<-EOT
+    The per-project Cloud Run host suffix, e.g. `p5mfxfp5za-uw` in
+    `farm-friend-web-p5mfxfp5za-uw.a.run.app`.
+
+    An explicit input rather than a construction or a read-back, and both alternatives were tried:
+    constructing it from the project number produced a URL Cloud Run does not use, and reading
+    `.uri` off a service creates a self-cycle because every service needs `PUBLIC_BASE_URL`.
+
+    Verify it against the live services after any apply:
+      gcloud run services list --project farm-friend-vashon --format='value(status.url)'
+  EOT
+  type        = string
+}

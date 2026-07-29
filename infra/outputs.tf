@@ -15,15 +15,12 @@ output "worker_url_actual" {
   value       = google_cloud_run_v2_service.worker.uri
 }
 
-output "worker_url_constructed" {
-  description = "The worker URL this configuration assumed when wiring the queue and scheduler."
-  value       = local.worker_url
-}
-
-output "url_assumption_holds" {
-  description = "TRUE if the constructed worker URL matches what Cloud Run assigned. If false, the fast path and the recovery net are both pointed at nothing."
-  value       = google_cloud_run_v2_service.worker.uri == local.worker_url
-}
+# `worker_url_constructed` / `url_assumption_holds` are GONE, and their removal is the point.
+#
+# They existed to check a guessed URL format against reality, and on the first apply they reported
+# `false`: Cloud Run assigns `farm-friend-worker-p5mfxfp5za-uw.a.run.app`, not the project-number
+# form that was assumed. The queue and scheduler now read the real attribute, so there is no
+# assumption left to verify — the failure mode has been removed rather than monitored.
 
 output "runtime_service_account" {
   description = "The identity both services run as. Grant new secret access to this."

@@ -9,14 +9,24 @@
 locals {
   image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.app.repository_id}/farm-friend@${var.image_digest}"
 
-  # Cloud Run URLs are deterministic, which breaks the bootstrap cycle: the Cloud Tasks queue
-  # needs the worker's URL, and the worker's environment needs the queue's name. Constructing
-  # the URL avoids a two-stage apply.
+  # Service URLs, built from an EXPLICIT host suffix.
   #
-  # If Google ever changes this format, `plan` fails loudly rather than producing a wrong URL
-  # — and a wrong target URL is the bad failure here, because tasks would 404 forever while
-  # the scheduled pass quietly carried all the traffic and nothing looked broken.
-  worker_url = "https://farm-friend-worker-${data.google_project.this.number}.${var.region}.run.app"
+  # This looks like the mistake it replaces, so the difference matters. The first version GUESSED
+  # the format as `SERVICE-PROJECTNUMBER.REGION.run.app`; Cloud Run actually assigns
+  # `farm-friend-worker-p5mfxfp5za-uw.a.run.app` — a per-project opaque suffix and a SHORTENED
+  # region. That guess was wrong and would have pointed the queue and the scheduler at nothing.
+  #
+  # Reading `.uri` off the resources is the obvious fix and it cannot work here: every service
+  # needs `PUBLIC_BASE_URL` (the worker's `resolveConfig` requires it), so any URL read from a
+  # service and fed back into shared config makes that service depend on itself. Two applies hit
+  # that cycle from different directions.
+  #
+  # So the suffix is an INPUT, verified against the live services rather than assumed
+  # (`cloud_run_host_suffix` in variables.tf, checked by `infra/plan-assertions.py`). It is stable
+  # for the life of the project — Cloud Run derives it per project+region — and if it were ever
+  # wrong, the assertions fail at plan time instead of the fast path silently 404ing forever.
+  worker_url = "https://farm-friend-worker-${var.cloud_run_host_suffix}.a.run.app"
+  web_url    = "https://farm-friend-web-${var.cloud_run_host_suffix}.a.run.app"
 
   # Configuration shared by both roles. Non-secret values only; the five sensitive ones are
   # mounted from Secret Manager below.
@@ -24,11 +34,26 @@ locals {
     LLM_PROVIDER                = "deepinfra"
     DEEPINFRA_MODEL             = "mistralai/Mistral-Small-24B-Instruct-2501"
     SMS_PROVIDER                = "telnyx"
-    TELNYX_MESSAGING_PROFILE_ID = "" # set from the live console value at apply time
-    TELNYX_FROM_NUMBER          = ""
-    TELNYX_PUBLIC_KEY           = ""
-    PUBLIC_BASE_URL             = ""
+    TELNYX_MESSAGING_PROFILE_ID = var.telnyx_messaging_profile_id
+    TELNYX_FROM_NUMBER          = var.telnyx_from_number
+    TELNYX_PUBLIC_KEY           = var.telnyx_public_key
+    PUBLIC_BASE_URL             = local.web_url
   }
+
+  # PUBLIC_BASE_URL — BOTH services need it, and it is always the PUBLIC service's URL.
+  #
+  # The worker requires it too: `resolveConfig` demands it before any pass runs, and it fails
+  # closed. An earlier revision here set it only on the web service, on the reasoning that it is
+  # "the public service's own identity" — the worker then crashed every scheduled run with
+  # `ConfigurationError: PUBLIC_BASE_URL is required`. Caught by reading the worker's logs after
+  # forcing a scheduled run, not by any check that passed.
+  #
+  # It is derived from the worker's real URL rather than read from the web service's own `uri`,
+  # because a service referencing itself is a dependency self-cycle. Both services share one
+  # per-project host suffix, so substituting the name is exact.
+  #
+  # Configuration rather than a derived `Host:` header on purpose: a header an attacker controls
+  # would let the sign-in endpoint mail a real operator a link pointing at the attacker's origin.
 
   secret_env = {
     DATABASE_URL      = google_secret_manager_secret.app["database-url"].secret_id
@@ -108,6 +133,7 @@ resource "google_cloud_run_v2_service" "web" {
         name  = "CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT"
         value = google_service_account.invoker.email
       }
+
 
       dynamic "env" {
         for_each = local.common_env
