@@ -356,3 +356,129 @@ describe("no multi-occupancy concept anywhere in application source (F-027)", ()
     expect(offenders).toEqual([]);
   });
 });
+
+describe("SMS inventory is never gated on farm type (F-038)", () => {
+  // max's decision, 2026-07-29: ANY farm may participate in SMS inventory. A by-order lamb
+  // farm publishing "shares available" is the same act as a produce stand publishing "kale
+  // in". Participation is gated on the farmer authorization and the farm approval — never on
+  // what KIND of location it is, whether it can be visited, or what it offers.
+  //
+  // The decision was mostly a decision NOT to build a gate, which is exactly the kind of
+  // property that erodes silently: a future change adding "skip service businesses" to the
+  // publication path would look like a sensible special case and would quietly remove a
+  // farmer's ability to publish. Nothing in a passing suite would report it.
+  //
+  // So this asserts the ABSENCE of a branch, anchored to the construct that would implement
+  // one — a comparison against a location-type enum VALUE in publication-path source — rather
+  // than to vocabulary near it. `sales_location_kind`, `visitability`, and `offering_type` are
+  // all legitimate as data: selected, stored, projected, rendered. The forbidden thing is
+  // branching business behaviour on their values.
+
+  // The enum values, assembled from fragments so this file does not trip its own detector.
+  const typeValues = [
+    ["farm", "stand"].join("_"),
+    ["farmers", "market"].join("_"),
+    ["contact", "only"].join("_"),
+    ["by", "order"].join("_"),
+    "visitable",
+    "services",
+  ];
+
+  // A COMPARISON specifically: `=== "farm_stand"`, `!== 'contact_only'`, `case "services":`.
+  // Not a bare mention, which is how the value legitimately appears in a query or a type.
+  const comparisonPattern = new RegExp(
+    `(===?|!==?|case)\\s*["'\`](${typeValues.join("|")})["'\`]`,
+  );
+
+  // The PUBLICATION path only: where a farmer's text becomes a durable inventory revision.
+  //
+  // Deliberately NOT scanned, each for a stated reason rather than to make the suite pass:
+  //  - the seeder and the schema — classifying a farm BY type at seed time is the whole point
+  //    of F-038, and the schema must name the values to define them;
+  //  - the public READ path (`public-listing.ts`, `map-view.ts`) — deciding whether to render
+  //    an address is a display decision about a farm with no location, not a gate on whether
+  //    that farm may publish. It legitimately tests `visitability === "visitable"`, and this
+  //    scan flagged it on the first run, which is what narrowed the set to the claim actually
+  //    being made.
+  const publicationSources = [
+    ...sourceFiles("packages/core/src/inventory"),
+    ...sourceFiles("apps/web/lib"),
+  ].filter(
+    (path) =>
+      !path.includes(".test.") &&
+      !path.includes("public-listing") &&
+      !path.includes("map-view"),
+  );
+
+  it("scans the real publication path, not an empty set", () => {
+    // Guard against a vacuous pass. If `sourceFiles` ever stopped reaching these directories
+    // the assertion below would hold trivially and the tripwire would be dead.
+    expect(publicationSources.length).toBeGreaterThan(15);
+    expect(publicationSources).toContain(
+      "packages/core/src/inventory/proposal.ts",
+    );
+    expect(publicationSources).toContain("apps/web/lib/workers.ts");
+  });
+
+  it("detects a farm-type gate when one is present", () => {
+    // Proves the detector detects. Without this a typo in the pattern would make the scan
+    // below pass forever while checking nothing — the exact failure this repo has hit twice
+    // with source-reading assertions.
+    expect(comparisonPattern.test('if (location.kind === "farm_stand") {')).toBe(
+      true,
+    );
+    expect(
+      comparisonPattern.test("if (loc.visitability !== 'contact_only') return;"),
+    ).toBe(true);
+    expect(comparisonPattern.test('case "services":')).toBe(true);
+
+    // And does NOT fire on the legitimate uses: naming a column, typing a field, or carrying
+    // a value through a projection.
+    expect(comparisonPattern.test("l.offering_type as offering_type,")).toBe(
+      false,
+    );
+    expect(
+      comparisonPattern.test('visitability: "visitable" | "contact_only";'),
+    ).toBe(false);
+    expect(
+      comparisonPattern.test("offeringType: row.offering_type as string,"),
+    ).toBe(false);
+  });
+
+  it("branches on no location type anywhere in the publication path", () => {
+    const offenders = publicationSources.filter((path) => {
+      const source = readFileSync(new URL(path, repositoryRoot), "utf8");
+      const withoutComments = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      return comparisonPattern.test(withoutComments);
+    });
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps the read path free of any WRITE, so its exclusion cannot hide a gate", () => {
+    // The two excluded files are excluded because they make DISPLAY decisions. That reason
+    // holds only while they remain read-only — if either ever gained a write to inventory,
+    // the exclusion above would be carving a hole in the very path this guards.
+    //
+    // Anchored to the durable-write constructs, not to the word "insert" in prose.
+    const writePattern = /\b(insert\s+into|update\s+\w+\s+set|delete\s+from)\b/i;
+
+    for (const path of ["apps/web/lib/public-listing.ts", "apps/web/lib/map-view.ts"]) {
+      const source = readFileSync(new URL(path, repositoryRoot), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      expect(writePattern.test(source), `${path} must stay read-only`).toBe(
+        false,
+      );
+    }
+
+    // Proves the detector detects, so a typo cannot make the loop above vacuous.
+    expect(writePattern.test("insert into inventory_revisions (id)")).toBe(true);
+    expect(writePattern.test("update sales_locations set kind = 'x'")).toBe(true);
+    expect(writePattern.test("select l.visitability from sales_locations l")).toBe(
+      false,
+    );
+  });
+});

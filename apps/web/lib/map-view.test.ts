@@ -203,6 +203,29 @@ describe("buildMapView", () => {
       expect(buildMapView([contactOnly], null).staleCount).toBe(0);
     });
 
+    it("shows published stock when it has some — the two facts are independent", () => {
+      // max's decision, 2026-07-29: ANY farm may participate in SMS inventory. Open Gate Lamb
+      // sells goods with real seasonal availability ("butchering in July and November"), so
+      // "no place to visit" must never be read as "nothing to publish". A view model that
+      // suppressed items for contact-only farms would silently remove a farmer's published
+      // listing — Golden Rule #1 territory, since only the farmer owns that state.
+      const withStock: PublicStandPayload = {
+        ...contactOnly,
+        updated: "updated 2 hours ago",
+        stale: false,
+        items: [{ itemName: "Lamb shares", priceText: "$180 half" }],
+      };
+
+      const view = buildMapView([withStock], null);
+
+      expect(view.stands[0]!.items.map((i) => i.itemName)).toEqual([
+        "Lamb shares",
+      ]);
+      expect(view.stands[0]!.updated).toBe("updated 2 hours ago");
+      // Still no route, though — stock and location remain independent.
+      expect(view.stands[0]!.routingLink).toBeNull();
+    });
+
     it("carries the two properties through for the UI to mark it", () => {
       // The UI needs these to say "order by contact — no stand to visit". Without them it
       // would have to infer the case from a missing address, which is how a renderer ends up
