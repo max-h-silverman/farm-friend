@@ -47,9 +47,17 @@ const METADATA_TOKEN_URL =
  *
  * Available to any workload on Cloud Run with no credential file and no key to rotate, which
  * is why the plan specifies Workload Identity and no service-account key anywhere.
+ *
+ * `fetch` is resolved through `globalThis` AT CALL TIME rather than captured when this module
+ * loads. That distinction is not stylistic: capturing it binds the real network call into the
+ * closure, so a caller that replaces `globalThis.fetch` — every integration suite in this
+ * repo, which stubs the network boundary rather than the seam above it — still reaches the
+ * live metadata server, fails, and silently degrades to "no fast path". The failure surfaces
+ * as `enqueued: false`, which is indistinguishable from a genuine queue outage and is
+ * precisely the kind of quiet wrong answer this codebase keeps getting bitten by.
  */
 export async function metadataAccessToken(): Promise<string> {
-  const response = await fetch(METADATA_TOKEN_URL, {
+  const response = await globalThis.fetch(METADATA_TOKEN_URL, {
     headers: { "Metadata-Flavor": "Google" },
   });
   if (!response.ok) {

@@ -419,7 +419,10 @@ function resolveImmediateWork(env: EnvVars): ImmediateWorkQueue {
       invokerServiceAccount: required(env, "CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT"),
     },
     {
-      transport: (url, init) => fetch(url, init),
+      // Resolved through `globalThis` at call time, not captured at construction — the same
+      // late-binding requirement as `metadataAccessToken`, and for the same reason: a suite
+      // that replaces the network boundary must actually be able to intercept this.
+      transport: (url, init) => globalThis.fetch(url, init),
       accessToken: metadataAccessToken,
     },
   );
