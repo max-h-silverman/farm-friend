@@ -11,7 +11,164 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-28 (latest) — the housekeeping checkpoint: GL-031/032/034/035/036, and a rotation procedure that would have broken production
+## 2026-07-29 (latest) — the GCP migration: Farm Friend is live on Cloud Run, and a lost salt
+
+Vercel → Google Cloud Run, per `docs/GCP_MIGRATION_PLAN.md`. The driver was cost and licensing, not
+a defect: Hobby is restricted to non-commercial personal use and Farm Friend does not qualify, so
+Vercel meant ~$20/month indefinitely against VIGA's zero budget. GCP at launch volume is ~$0. Two
+independent gains came with it — Cloud Tasks is durable where `waitUntil` was cancellable, and the
+manual `crons`-strip left the deploy path.
+
+**The deployment is live and verified by effect**: `https://farm-friend-web-p5mfxfp5za-uw.a.run.app`.
+Health 200, `/api/public/stands` 200 against real Neon, admin 403, `/api/internal/{cron,kick}` **404
+on the public service**, the worker unreachable from the internet, webhook **401** (not 500/503), and
+a scheduled pass returning **HTTP 200** on revision `00003`.
+
+### The cost premise was wrong by 13×, and max was right that it did not matter
+
+The plan claimed the legacy always-warm functions cost $15–25/month and called killing them "the
+single highest-value action in this document". The actual bill says **$1.57**. The error is worth
+recording because it will recur: the arithmetic assumed idle CPU on a held instance bills at *some*
+rate and bracketed $10–43 by varying it. Under request-based billing it bills at **none** — the
+console shows only *"Cloud Run functions Min-Instance **Memory**"*, with no CPU counterpart. Two
+plausible bounds from a pricing page both missed an answer that was zero.
+
+I let that correction sound like it undercut the migration. It did not: the case is Vercel Pro ~$20
+vs ~$0, and the $1.57 is a footnote. **A figure derived from a pricing page is not a cost.**
+
+### The legacy functions could not be fixed, only deleted
+
+`minScale=0` on `inbound-sms`/`simulate-inbound-sms` was the plan's "do this immediately" item. It
+is **impossible**: `gcf-artifacts` holds **zero images** for 17 functions — the images were
+garbage-collected out from under running services. They still served traffic from cached layers but
+every revision attempt failed `image not found`, including one pinned to the digest the live
+revision itself reported. Deleted with approval (archived config first, fingerprinted, zero
+references in current code); seven schedulers firing into them paused. Verified by effect: 15
+services remain, zero always-warm, all instances drained to 0.
+
+The lesson is in `infra/main.tf`: the new Artifact Registry repository is **dedicated and carries a
+cleanup policy that keeps recent releases**. Reusing Firebase's managed repo is what produced the
+zombies.
+
+### `waitUntil` → Cloud Tasks, and the await direction inverts
+
+On Vercel the rule was *never await the kick* — the awaited thing would have been the passes, a
+model call and a provider call inside the request Telnyx waits on. Now the awaited thing is only the
+**task creation**, one bounded call, and awaiting it is what makes the work durable **before** the
+handler returns. A fire-and-forget enqueue would reintroduce B-009 exactly: a floating promise the
+runtime may discard when the container is reclaimed.
+
+`kick-survival.test.ts` and `kick-wiring.test.ts` were **re-anchored, not deleted** — the defect
+class survives the migration, only its mechanism changed. Sabotage: `await`→`void` fails 3 tests;
+moving the acknowledgement after the enqueue fails 2.
+
+Enqueueing **never throws and never retries**. The inbox event is already durable and the 200
+already built, so a queue outage must not turn a successful ingress into a 5xx that makes Telnyx
+retry a message we accepted. `ALREADY_EXISTS` counts as success — a webhook retry produces the same
+deterministic task name, and the queue refusing the duplicate *is* the deduplication working. Task
+names are **hashed, not sanitized**: stripping unsafe characters is not injective, so `evt/1` and
+`evt1` would collapse and one sender's work would vanish.
+
+**Cloud Tasks over REST, no SDK.** `@google-cloud/tasks` is 11.6 MB unpacked plus `google-gax`
+(gRPC + protobuf), all landing in a container whose cold start sits on the SMS reply path, to make
+one POST to one documented endpoint.
+
+### `CRON_SECRET` was removed rather than kept beside IAM
+
+The internal routes are now worker-only, reached through Cloud Scheduler's OIDC against an
+internal-ingress service. Keeping the shared secret "for defence in depth" would have preserved its
+actual failure mode — one credential in two places that had to match, where a mismatch returns 401
+and **a 401 looks identical to success in any scheduler's UI** — while protecting against nothing,
+since a caller who cannot satisfy IAM never reaches the code to present a token.
+
+The in-process `DEPLOYMENT_ROLE` guard is explicitly the *second* door: it runs **before**
+`appContext()` so the public service never builds a database pool for a route it does not serve, and
+answers **404** rather than 403 to leak no hint the surface exists.
+
+### The abuse throttle was about to become a no-op
+
+`clientSignalFor` read the **leftmost** `X-Forwarded-For` hop. Correct on Vercel; **backwards on
+Cloud Run**, where the caller controls everything it sends and Google *appends* the observed
+address. Carried across unchanged, an attacker sends a random leftmost hop per request and lands in
+a fresh bucket every time — the throttle removed, not weakened. Now reads the rightmost non-blank
+hop. Sabotage: reverting fails 3 tests.
+
+### PHONE_HASH_SALT was lost, and "never rotate" turned out to have an exception
+
+The production salt was set in Vercel marked **Sensitive** — write-only, unreadable by anyone — and
+recorded nowhere else. `vercel env pull` returns `[SENSITIVE]`. **Storing a secret somewhere
+unreadable is the same as not recording it.**
+
+The absolute rule means "there is no way back", and that holds only once the raw numbers are gone.
+While `contacts.phone_e164` still holds the raw E.164 — the one column that stores it — every hash
+can be recomputed. Production held 2 contacts from live SMS testing with both raw numbers intact, so
+this was recoverable rather than fatal. max chose to **wipe** (none of it was real data): 71 rows
+across 7 tables removed, fingerprint-guarded in one transaction. Verified by effect: 0 phone rows,
+0 raw numbers, schema intact at 7 migrations.
+
+`npm run db:rehash-phones` is kept as the documented recovery path, and **two simpler versions of it
+failed against a real database first**:
+
+1. *children first, contacts last* — children immediately reference a parent hash that does not
+   exist yet.
+2. `set constraints all deferred` — **no effect**. All **eleven** foreign keys onto
+   `contacts.phone_hash` were created NOT DEFERRABLE, so deferral cannot be asked for at runtime.
+
+The working shape is insert-new-parent → repoint-children → delete-old-parent. Verified end to end:
+2/2 contacts match the new salt, 6/6 messages and 2/2 consents preserved, zero orphans.
+
+### Four defects only a real build or a real deployment could find
+
+Every one passed every local check first.
+
+1. **`$PROJECT_ID` is not expanded inside a user-defined substitution's default value.** It arrives
+   literally; docker rejected the tag.
+2. **`COPY apps/web/public`** — this app has no such directory. A COPY of a missing path is a hard
+   failure, not a no-op.
+3. **The constructed Cloud Run URL was wrong.** `SERVICE-PROJECTNUMBER.REGION.run.app` is not the
+   format; Cloud Run assigns `farm-friend-worker-p5mfxfp5za-uw.a.run.app` — opaque per-project
+   suffix, *shortened* region. Caught only by the `url_assumption_holds` output written for exactly
+   this, because a wrong URL here is **silent**: tasks and scheduled runs 404 forever while every
+   service looks healthy.
+4. **`PUBLIC_BASE_URL` on the web service alone crashed every scheduled run.** The worker's
+   `resolveConfig` requires it and fails closed. Found by reading the worker's logs after forcing a
+   run; the apply was green throughout.
+
+Reading `.uri` back off the services is the obvious fix for (3) and **cannot work**: every service
+needs `PUBLIC_BASE_URL`, so any service URL fed into shared config makes that service depend on
+itself. Two applies hit that cycle from opposite directions. The host suffix is now an explicit
+documented input, and three plan assertions pin the task target, the shared base URL, and the
+worker actually having one.
+
+### The Telnyx credentials were re-fetched, not copied — the legacy ones are stale
+
+The plan says the legacy Secret Manager entries hold the same exposed credentials. **Tested: the
+legacy `TELNYX_API_KEY` returns 401 against the live API.** Copying it would have produced a dead
+SMS path that looked correctly configured. All four new values verified live before use: API key
+200, public key decodes to 32 bytes *and* matches `/v2/public_key`, from-number valid E.164 and on
+the matching messaging profile.
+
+Note the public key legitimately did **not** change — it belongs to the account and does not rotate
+with an API key. Its byte-identity with the legacy copy is correct, not a mistake.
+
+### A source assertion matched its own explanatory comment
+
+Third instance of this trap in this repo, after an import line satisfying a `waitUntil` check and a
+loose alternation matching a CLI flag. The prohibition on `waitUntil(` matched the *comment*
+explaining why `waitUntil` is absent. The helpers now strip comments as well as imports. **Prose
+about a construct is not the construct.**
+
+### Owed
+
+Rotation (F-034) **deferred again** — sound only while no real phone numbers exist, and the database
+is now empty, so the window is genuinely open. The first real inbound SMS closes it. Telnyx's
+webhook still points at Vercel; the Vercel project, the stale `throwaway/hobby-deploy-test` branch,
+and the legacy Firebase resources are all still owed a teardown. B-002 production seeding remains a
+deliberate not-yet.
+
+---
+
+## 2026-07-28 — the housekeeping checkpoint: GL-031/032/034/035/036, and a rotation procedure that would have broken production
 
 Third go-live tranche, and the one Max asked to review before P1. Five items, four of them
 documentation truth-telling. Same method as last session — one item per subagent in an isolated

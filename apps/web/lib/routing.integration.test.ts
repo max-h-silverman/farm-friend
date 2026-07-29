@@ -77,6 +77,7 @@ describe("inbound routing end to end (integration)", () => {
   let testDatabaseName: string | undefined;
   let keys: KeyPair;
   let webhookPOST: (req: Request) => Promise<Response>;
+  let kickPOST: (req: Request) => Promise<Response>;
 
   const customerPhone = "+12065550811";
   const customerHash = hashPhone(customerPhone, phoneSalt);
@@ -114,7 +115,6 @@ describe("inbound routing end to end (integration)", () => {
     // webhook without a verification key.
     process.env.DATABASE_URL = url.toString();
     process.env.PHONE_HASH_SALT = phoneSalt;
-    process.env.CRON_SECRET = "test-cron-secret";
     // Required by the composition root since F-032. Nothing on the SMS path uses them; they
     // are set so `appContext()` resolves at all.
     process.env.MAGIC_LINK_SECRET = "test-magic-secret";
@@ -128,8 +128,60 @@ describe("inbound routing end to end (integration)", () => {
     process.env.TELNYX_FROM_NUMBER = "+12065550999";
     process.env.TELNYX_PUBLIC_KEY = publicKey;
 
+    // The Cloud Tasks queue, configured for real so the composition root builds the actual
+    // adapter rather than the no-op. Its HTTP calls are intercepted at the `fetch` boundary
+    // and turned into invocations of the REAL kick route — what Cloud Tasks does in
+    // production, minus the network. The webhook, the enqueue seam, the task payload, the
+    // kick route, and both worker passes are all production code here.
+    process.env.DEPLOYMENT_ROLE = "worker";
+    process.env.CLOUD_TASKS_PROJECT = "test-project";
+    process.env.CLOUD_TASKS_LOCATION = "us-west1";
+    process.env.CLOUD_TASKS_QUEUE = "test-queue";
+    process.env.CLOUD_TASKS_TARGET_URL = "https://worker.test/api/internal/kick";
+    process.env.CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT = "invoker@test.iam.gserviceaccount.com";
+
     const route = await import("../app/api/sms/webhook/route");
     webhookPOST = route.POST;
+    const kickRoute = await import("../app/api/internal/kick/route");
+    kickPOST = kickRoute.POST;
+
+    // Intercept only the two Google endpoints the adapter touches; everything else, including
+    // the Telnyx transport this suite already relies on, is untouched.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const target = typeof input === "string" ? input : input.toString();
+
+      if (target.startsWith("http://metadata.google.internal/")) {
+        return Response.json({ access_token: "test-access-token" });
+      }
+
+      if (target.startsWith("https://cloudtasks.googleapis.com/")) {
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          task: { httpRequest: { body: string } };
+        };
+        const payload = JSON.parse(
+          Buffer.from(body.task.httpRequest.body, "base64").toString("utf8"),
+        ) as { senderHash: string; providerEventId: string };
+
+        // Asynchronous, as Cloud Tasks is: delivering inline would make the webhook's own
+        // response wait on the passes and invert the property these suites prove.
+        setTimeout(() => {
+          void kickPOST(
+            new Request("https://worker.test/api/internal/kick", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(payload),
+            }),
+          ).catch(() => {
+            // Retried by the queue in production; the scheduled pass is the net here.
+          });
+        }, 0);
+
+        return Response.json({ name: "projects/p/locations/l/queues/q/tasks/t" });
+      }
+
+      return realFetch(input, init);
+    }) as typeof globalThis.fetch;
   }, 60_000);
 
   afterAll(async () => {

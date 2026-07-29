@@ -67,6 +67,7 @@ describe("inbound reply latency (integration)", () => {
   let testDatabaseName: string | undefined;
   let keys: KeyPair;
   let webhookPOST: (req: Request) => Promise<Response>;
+  let kickPOST: (req: Request) => Promise<Response>;
 
   const senderPhone = "+12065550733";
   const senderHash = hashPhone(senderPhone, phoneSalt);
@@ -102,7 +103,6 @@ describe("inbound reply latency (integration)", () => {
     // Friend's own latency, and a real provider round trip would measure the network.
     process.env.DATABASE_URL = url.toString();
     process.env.PHONE_HASH_SALT = phoneSalt;
-    process.env.CRON_SECRET = "test-cron-secret";
     // Required by the composition root since F-032. Nothing on the SMS path uses them; they
     // are set so `appContext()` resolves at all.
     process.env.MAGIC_LINK_SECRET = "test-magic-secret";
@@ -116,8 +116,25 @@ describe("inbound reply latency (integration)", () => {
     process.env.TELNYX_FROM_NUMBER = "+12065550999";
     process.env.TELNYX_PUBLIC_KEY = publicKey;
 
+    // The Cloud Tasks queue, configured for real so the composition root builds the actual
+    // adapter rather than the no-op. Its single HTTP call is intercepted at the `fetch`
+    // boundary below and turned into an invocation of the REAL kick route — which is what
+    // Cloud Tasks does in production, minus the network and the delay.
+    //
+    // This is deliberately not a hand-written fake queue. The webhook, the enqueue seam, the
+    // task payload, the kick route's own parsing and role guard, and both worker passes are
+    // all the production code path; only the transport between them is local.
+    process.env.DEPLOYMENT_ROLE = "worker";
+    process.env.CLOUD_TASKS_PROJECT = "test-project";
+    process.env.CLOUD_TASKS_LOCATION = "us-west1";
+    process.env.CLOUD_TASKS_QUEUE = "test-queue";
+    process.env.CLOUD_TASKS_TARGET_URL = "https://worker.test/api/internal/kick";
+    process.env.CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT = "invoker@test.iam.gserviceaccount.com";
+
     const route = await import("../app/api/sms/webhook/route");
     webhookPOST = route.POST;
+    const kickRoute = await import("../app/api/internal/kick/route");
+    kickPOST = kickRoute.POST;
   }, 60_000);
 
   // The route's own context is built with SMS_PROVIDER=telnyx — it must be, because the
@@ -129,6 +146,16 @@ describe("inbound reply latency (integration)", () => {
   // result recording — is the real production path.
   const realFetch = globalThis.fetch;
 
+  /**
+   * Tasks this suite's stub queue accepted, so a test can assert what was enqueued and drive
+   * delivery deterministically where it needs to.
+   */
+  let acceptedTasks: { senderHash: string; providerEventId: string }[] = [];
+  /** Set false to make the queue refuse, standing in for a Cloud Tasks outage. */
+  let queueAvailable = true;
+  /** Set false to accept tasks without delivering them — the "task never ran" case. */
+  let deliverTasks = true;
+
   beforeAll(() => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -138,6 +165,50 @@ describe("inbound reply latency (integration)", () => {
           { status: 200 },
         );
       }
+
+      // The Cloud Run metadata server, which mints the token the Cloud Tasks adapter sends.
+      // Intercepted here rather than injected, so the adapter's real token path is exercised.
+      if (url.startsWith("http://metadata.google.internal/")) {
+        return Response.json({ access_token: "test-access-token" });
+      }
+
+      // The Cloud Tasks API. Accepting here is what "the task is durable" means in
+      // production — the queue has it, and delivery follows independently of the caller.
+      if (url.startsWith("https://cloudtasks.googleapis.com/")) {
+        if (!queueAvailable) {
+          return new Response("backend unavailable", { status: 503 });
+        }
+
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          task: { httpRequest: { body: string } };
+        };
+        const payload = JSON.parse(
+          Buffer.from(body.task.httpRequest.body, "base64").toString("utf8"),
+        ) as { senderHash: string; providerEventId: string };
+        acceptedTasks.push(payload);
+
+        if (deliverTasks) {
+          // Delivered ASYNCHRONOUSLY, deliberately. Cloud Tasks calls the worker after the
+          // enqueue returns, never during it — so invoking the kick route inline here would
+          // make the webhook's own response wait on the passes and quietly invert the
+          // property this suite exists to prove.
+          setTimeout(() => {
+            void kickPOST(
+              new Request("https://worker.test/api/internal/kick", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(payload),
+              }),
+            ).catch(() => {
+              // A failed task is retried by the queue in production; here the scheduled
+              // pass is the net, exactly as it is for a task that never ran.
+            });
+          }, 0);
+        }
+
+        return Response.json({ name: "projects/p/locations/l/queues/q/tasks/t" });
+      }
+
       return realFetch(input, init);
     }) as typeof globalThis.fetch;
   });
@@ -165,6 +236,9 @@ describe("inbound reply latency (integration)", () => {
   }
 
   beforeEach(async () => {
+    acceptedTasks = [];
+    queueAvailable = true;
+    deliverTasks = true;
     await client()`
       truncate table provider_inbox_events, sms_messages, outbox_work, outbox_dispatch_attempts,
         sms_consents, consent_transition_watermarks, sender_states, flags, contacts

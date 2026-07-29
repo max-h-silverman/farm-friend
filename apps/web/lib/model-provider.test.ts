@@ -13,7 +13,6 @@ import { ConfigurationError, resolveConfig, type EnvVars } from "./composition";
 const baseEnv = {
   DATABASE_URL: "postgres://user@localhost:5432/db",
   PHONE_HASH_SALT: "salt",
-  CRON_SECRET: "cron",
   MAGIC_LINK_SECRET: "magic",
   PUBLIC_BASE_URL: "https://farmfriend.example",
   SMS_PROVIDER: "simulator",
@@ -30,7 +29,7 @@ describe("model provider selection (F-024)", () => {
     // There is deliberately NO environment sniffing here — no NODE_ENV, no VERCEL_ENV. A
     // rule that relaxes off-production is one misconfigured deploy from being live, and the
     // codebase already refuses that pattern (`cron-auth.test.ts`). The setting is simply
-    // required, exactly as PHONE_HASH_SALT and CRON_SECRET are.
+    // required, exactly as PHONE_HASH_SALT is.
     expect(() => resolveConfig({ ...baseEnv })).toThrow(ConfigurationError);
     expect(() => resolveConfig({ ...baseEnv })).toThrow(/LLM_PROVIDER/);
   });

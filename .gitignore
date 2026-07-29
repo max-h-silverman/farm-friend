@@ -15,3 +15,12 @@ android/
 
 # Agent worktrees — scratch checkouts, never part of the repository.
 .claude/worktrees/
+
+# Terraform / OpenTofu working state. Provider plugins are large and machine-specific;
+# state and plan files can contain resource metadata and must never be committed.
+infra/.terraform/
+infra/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+infra/terraform.tfvars

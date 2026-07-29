@@ -2,31 +2,28 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// B-009 — the kick must be REGISTERED with the runtime, not merely started.
+// B-009 — post-response work must be DURABLE, not merely started.
 //
 // The defect this file exists to prevent, observed in production on 2026-07-27: two real
-// inbound `HELP` messages were committed durably and acknowledged 200, and then nothing
-// else ever happened. `provider_inbox_events` held both rows with `claimed_at` NULL,
+// inbound `HELP` messages were committed durably and acknowledged 200, and then nothing else
+// ever happened. `provider_inbox_events` held both rows with `claimed_at` NULL, and
 // `sender_states` / `outbox_work` / `outbox_dispatch_attempts` / `sms_consents` were all
 // empty. The first missing step was the first step past the durable commit.
 //
-// The cause is a platform contract, not a logic error. `void kickSenderPasses(...)` starts
-// work the runtime knows nothing about; once the handler returns its response, Vercel is
-// free to suspend or reclaim the invocation, and the floating promise gets no reliable
-// execution time. Vercel's own reference says it outright: "If you don't await an
-// asynchronous operation, the serverless function might be shut down before the operation
-// is complete." `waitUntil` is the registration that extends the invocation's lifetime.
+// THE DEFECT CLASS SURVIVES THE MIGRATION; ITS MECHANISM DOES NOT. On Vercel the cause was a
+// floating promise the runtime never knew about, and `waitUntil` was the registration that
+// fixed it — imperfectly, since a registered promise still shared the function timeout and
+// was cancelled when it elapsed. On Cloud Run there is no `waitUntil` and no equivalent: work
+// started after the response races container reclamation with no contract at all.
 //
-// This is a SOURCE test for the same reason `kick-wiring.test.ts` and `cron-auth.test.ts`
-// are: what must exist is a construct at a specific place, and no in-process execution can
-// demonstrate it. Vitest runs in Node, where a floating promise DOES resolve — which is
-// precisely why the entire existing kick suite passed while production dropped every
-// message. A behavioural test in this runtime cannot see this bug at all.
+// So the answer is no longer "register the promise" but "make the work durable before
+// responding". The Cloud Task exists in the queue before the handler returns; the queue then
+// drives `/api/internal/kick` independently of this container's lifetime. This file asserts
+// that shape, and refuses the shapes that would quietly restore the defect.
 //
-// Note `after()` from `next/server` is the modern equivalent, but it requires Next 15.1+;
-// this app is on Next 14, so `waitUntil` is the correct primitive here. If Next is ever
-// upgraded past 15.1, `after()` may replace it — the assertion below permits either, since
-// what matters is that the work is registered, not which API registers it.
+// These are SOURCE assertions for the reason B-009 taught: vitest runs in Node, where a
+// floating promise DOES resolve, so a behavioural test cannot see this bug at all. That is
+// precisely why the entire kick suite passed while production dropped every message.
 
 const webhookSource = readFileSync(
   resolve(process.cwd(), "apps/web/app/api/sms/webhook/route.ts"),
@@ -38,81 +35,92 @@ const webhookManifest = JSON.parse(
 ) as { dependencies?: Record<string, string> };
 
 /**
- * The source with import statements stripped.
+ * The source reduced to EXECUTABLE CODE — imports and comments removed.
  *
- * The first draft of this test asserted `/waitUntil\s*\(/` against the whole file and
- * SURVIVED its own sabotage: reverting the call site to a bare `void` still left
- * `import { waitUntil } from "@vercel/functions"` at the top, which the regex happily
- * matched. The test would have shipped a guarantee it did not hold. Registration is a
- * property of the CALL SITE, so the import must not be allowed to satisfy it.
+ * This has now bitten three times in this repo, twice before today and once while writing
+ * this file. The first draft of this test asserted `/waitUntil\s*\(/` against the whole file
+ * and SURVIVED its own sabotage, because `import { waitUntil } from "@vercel/functions"`
+ * satisfied the regex. Then `external-scheduler.test.ts` passed against a workflow that
+ * accepted every HTTP status, because its loose alternation matched an unrelated flag.
+ *
+ * And then this file's own prohibition on `waitUntil(` matched the COMMENT above explaining
+ * why `waitUntil` is absent — a test failing because the code was correctly documented.
+ *
+ * The general rule, stated once: a source assertion must be anchored to the construct it
+ * claims to prove, never to vocabulary that appears near it. Prose about a construct is not
+ * the construct. Strip everything that is not code before asserting over it.
  */
-const webhookBody = webhookSource.replace(/^\s*import\s[\s\S]*?;\s*$/gm, "");
+const webhookBody = webhookSource
+  .replace(/^\s*import\s[\s\S]*?;\s*$/gm, "")
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/^\s*\/\/.*$/gm, "");
 
-describe("the kick survives the response", () => {
-  it("registers the kick with the runtime rather than merely starting it", () => {
-    // The load-bearing assertion. Sabotage check: revert the route to a bare
-    // `void kickSenderPasses(...)` and this fails, which is the production defect exactly.
-    const registered =
-      /waitUntil\s*\(/.test(webhookBody) || /\bafter\s*\(/.test(webhookBody);
-    expect(registered).toBe(true);
+describe("post-response work is durable before the response", () => {
+  it("makes the work durable rather than starting it in the background", () => {
+    // The load-bearing assertion, and the direct descendant of the `waitUntil` check this
+    // replaces. The work must be handed to the queue — which persists it — inside the
+    // handler, not started alongside it.
+    //
+    // Sabotage check: change `await enqueueSenderWork(...)` to `void enqueueSenderWork(...)`
+    // and this fails. That is the production defect in its Cloud Run form — the enqueue
+    // would race container reclamation exactly as the old floating kick raced suspension.
+    expect(webhookBody).toMatch(/await\s+enqueueSenderWork\s*\(/);
   });
 
-  it("passes the kick itself to the runtime, not an unrelated promise", () => {
-    // Registering *something* is not enough — it must be the kick whose lifetime is
-    // extended. A `waitUntil` around some other promise would satisfy the check above
+  it("enqueues the sender's own work, not an unrelated task", () => {
+    // Enqueueing *something* is not enough — it must carry the identifiers the worker needs
+    // to find this sender's pending event. A task missing them would satisfy the check above
     // while leaving the inbound pass exactly as abandoned as before.
-    const registration = webhookBody.match(
-      /(?:waitUntil|after)\s*\(([\s\S]*?)\n\s*\);/,
+    // Anchored to the call's own argument list, which ends at `});` — the object literal
+    // carrying the two identifiers.
+    const call = webhookBody.match(/enqueueSenderWork\s*\(([\s\S]*?)\n\s*\}\);/);
+    expect(call).not.toBeNull();
+    expect(call?.[1]).toContain("senderHash");
+    expect(call?.[1]).toContain("providerEventId");
+  });
+
+  it("does not depend on a platform primitive for post-response work", () => {
+    // `waitUntil` does not exist on Cloud Run, and `after()` would reintroduce the same
+    // cancellable-background-work model this migration removes. Either one here means the
+    // durability question has been handed back to the platform.
+    expect(webhookBody).not.toMatch(/waitUntil\s*\(/);
+    expect(webhookBody).not.toMatch(/\bafter\s*\(/);
+  });
+
+  it("declares no dependency on the Vercel runtime", () => {
+    // B-007/B-008's family: an undeclared or vestigial dependency resolves locally through
+    // workspace hoisting and fails only in an isolated install — which is what a container
+    // build is. `@vercel/functions` must be gone from both the source and the manifest.
+    expect(webhookSource).not.toMatch(/@vercel\/functions/);
+    expect(webhookManifest.dependencies ?? {}).not.toHaveProperty(
+      "@vercel/functions",
     );
-    expect(registration).not.toBeNull();
-    expect(registration?.[1]).toContain("kickSenderPasses");
   });
 
-  it("declares the package the registration comes from", () => {
-    // B-007/B-008's family: npm workspaces hoisting means an undeclared dependency
-    // resolves locally and fails only in an isolated install — which is what a deploy is.
-    // A `waitUntil` import that is not declared here would break the build that matters
-    // and no other suite would notice.
-    if (/@vercel\/functions/.test(webhookSource)) {
-      expect(webhookManifest.dependencies ?? {}).toHaveProperty(
-        "@vercel/functions",
-      );
-    }
-  });
-
-  it("still never awaits the kick", () => {
-    // The fix must not become a regression in the other direction. `waitUntil` extends the
-    // invocation's lifetime WITHOUT holding the response open; `await` would put the whole
-    // inbound pass — model call, provider call and all — inside the request Telnyx waits
-    // on. That is the objection which got an inline kick rejected during F-023 planning,
-    // and it stays rejected.
-    expect(webhookSource).not.toMatch(/await\s+kickSenderPasses/);
-  });
-
-  it("still builds the acknowledgement before registering the kick", () => {
-    // Ordering is unchanged by B-009: the 200 is constructed first and owes nothing to the
-    // kick's outcome. Registration extends the invocation; it must not reorder the commit.
+  it("still builds the acknowledgement before the enqueue", () => {
+    // Ordering is unchanged by the migration: the 200 is constructed first and owes nothing
+    // to the queue's availability. Making the work durable must not reorder the commit.
     const ackIndex = webhookSource.indexOf("const acknowledgement");
-    const kickIndex = webhookSource.indexOf("kickSenderPasses(");
+    const enqueueIndex = webhookSource.indexOf("enqueueSenderWork(");
     expect(ackIndex).toBeGreaterThan(-1);
-    expect(kickIndex).toBeGreaterThan(-1);
-    expect(ackIndex).toBeLessThan(kickIndex);
+    expect(enqueueIndex).toBeGreaterThan(-1);
+    expect(ackIndex).toBeLessThan(enqueueIndex);
   });
 });
 
-describe("the kick still owns no guarantee", () => {
-  it("keeps cron as the only trigger for the retention purge", () => {
-    // B-009 fixes the kick's LATENCY role. It must not acquire a durability role: the
-    // retention purge (F-026) runs on the scheduled trigger alone, never per-message.
-    // If this ever fails, the kick has grown a guarantee it is not built to keep.
+describe("the fast path still owns no guarantee", () => {
+  it("keeps the scheduled trigger as the only trigger for the retention purge", () => {
+    // The fast path fixes LATENCY. It must not acquire a durability role: the retention
+    // purge (F-026) runs on the scheduled trigger alone, never per message.
     expect(webhookSource).not.toMatch(/runRetentionPass/);
   });
 
-  it("does not make the acknowledgement conditional on the kick", () => {
-    // The durable commit has already succeeded by this point. Turning a kick failure into
-    // a non-200 would make Telnyx retry a message Farm Friend has already accepted.
-    const kickIndex = webhookSource.indexOf("kickSenderPasses(");
-    const afterKick = webhookSource.slice(kickIndex);
-    expect(afterKick).toMatch(/return acknowledgement/);
+  it("does not make the acknowledgement conditional on the enqueue", () => {
+    // The durable commit has already succeeded by this point. Turning an enqueue failure
+    // into a non-200 would make Telnyx retry a message Farm Friend has already accepted —
+    // which would turn a queue outage into a duplicate-message incident.
+    const enqueueIndex = webhookSource.indexOf("enqueueSenderWork(");
+    const afterEnqueue = webhookSource.slice(enqueueIndex);
+    expect(afterEnqueue).toMatch(/return acknowledgement/);
   });
 });

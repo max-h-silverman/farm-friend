@@ -14,7 +14,6 @@
     "@farm-friend/core": "*",
     "@farm-friend/db": "*",
     "@farm-friend/sms": "*",
-    "@vercel/functions": "^3.7.6",
     "next": "^14.2.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
