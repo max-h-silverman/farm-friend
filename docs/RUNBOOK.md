@@ -137,6 +137,28 @@ a no-op, exercises the launch constraints, and drops the test database. This is 
 to the uniquely named database created by the harness; never point manual migration commands at a
 database whose contents you intend to preserve.
 
+### Writing a new migration — the snapshot must land with it
+
+Each migration has two artifacts: the `.sql` file that actually runs, and a **snapshot** in
+`packages/db/drizzle/meta/` — a JSON picture of the whole schema at that point, which is never
+executed. `drizzle-kit generate` writes the next migration by diffing your schema against the
+**newest snapshot on disk** (`snapshots[snapshots.length - 1]`; drizzle-kit 0.22.8 reads that one
+alone, from the directory listing rather than the journal).
+
+So a missing snapshot does not break *applying* anything — it breaks *generating* the next one. With
+a stale newest snapshot the tool sees tables and columns it has no record of and asks whether each
+was created or renamed:
+
+```
+Is message_category column in outbox_work table created or renamed from another column?
+```
+
+The hazard is not the prompt. It is that a wrong answer writes a plausible-looking migration that
+re-creates existing tables or renames a column out from under production data. **Commit the
+generated snapshot alongside the `.sql` file**, always. `packages/core/src/migration-metadata.test.ts`
+fails if the newest migration has no matching snapshot (GL-006, which repaired a five-migration
+drift). Never edit an already-applied `.sql` file — production has run it.
+
 ## Bootstrap the first administrator
 
 Authorization has a chicken-and-egg problem: only an administrator can grant authority, so the first

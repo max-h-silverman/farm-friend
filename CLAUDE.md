@@ -580,12 +580,13 @@ latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `
 idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
 inventory.
 
-**Verified July 28, 2026 (`main`, this work merged):** `npm test` **482/482 across 50 files**;
-`npm run test:integration` **297/297 across 19 files** on real Postgres 16.12 (285 baseline + GL-002 and GL-003);
-`npm run evals`
-critical **11/11**, advisory 4/4, adversarial **29/29** (no fixture touched); `npm run evals:live`
-containment **4/4** and quality **6/6** on Mistral Small 24B; typecheck + lint pass; `next build`
-clean. Migration **0005** proven from an empty database by the integration run.
+**Verified July 28, 2026 (`main`, this work pushed):** `npm test` **497/497 across 52 files**;
+`npm run test:integration` **311/311 across 19 files** on real Postgres 16 (all **7** migrations
+applied from an empty database); `npm run evals` critical **11/11**, advisory 4/4, adversarial
+**29/29** (no fixture touched); lint, root typecheck, and `next build` all exit 0.
+`npm run evals:live` was **not** re-run this session — no seam projection, schema, or output
+contract changed; its last result stands (containment 4/4, quality 6/6 on Mistral Small 24B).
+
 **`npm run typecheck` NOW COVERS `apps/web` (GL-005).** It is `typecheck:packages && typecheck:web`
 — two halves, because `apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference
 it. The 57 web errors it had never seen are fixed at **0**, none suppressed. Seventeen were a latent
@@ -593,8 +594,23 @@ it. The 57 web errors it had never seen are fixed at **0**, none suppressed. Sev
 unresolved generic and collapses the type map to `never`, so `sql`…${id}`` failed to typecheck while
 working at runtime. `Sql`/`Tx` now live once in `packages/db/src/sql.ts`. Proven by sabotage: a
 `TS2322` in a web file exits **1** under the root typecheck and **0** under the old bare `tsc -b`.
-Newest session-log entry: three defects the green suites could not see, and production was running
-the stub.
+
+**Admin magic links are one-use (GL-004, migration 0006).** Each link carries a random nonce; its
+hash lands in `admin_sessions.magic_nonce_hash` under a unique index, written by the **same insert
+that creates the session** — so consume and session cannot drift apart. The arbiter is
+`on conflict … do nothing returning id`, never a check-then-write. Minting still writes **nothing**,
+which is what keeps `/api/auth/request-link` from becoming a membership oracle. A replayed link and
+a non-administrator both render 401.
+
+**The migration GENERATOR is trustworthy again (GL-006).** Snapshots had stopped at `0001` while
+seven migrations were journaled, so `drizzle-kit generate` diffed against a five-migration-stale
+picture and asked create-or-rename questions about columns already in production. Applying was never
+affected — which is why it stayed invisible. One current `0006_snapshot.json` is the whole fix:
+drizzle-kit 0.22.8 diffs against the **newest snapshot only** (`preparePrevSnapshot`). No `.sql` file
+changed. `packages/core/src/migration-metadata.test.ts` is the tripwire, and it catches the *next*
+missing snapshot, not just this one.
+Newest session-log entry: P0 closed except rotation — one-use links, a truthful typecheck, a
+repaired migration generator.
 
 **A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a
 *different* named test each; stashing the branch reproduced the hang on clean `main` (the connection

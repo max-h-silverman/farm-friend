@@ -11,7 +11,107 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-28 (latest) — three defects the green suites could not see, and production was running the stub
+## 2026-07-28 (latest) — P0 closed except rotation: one-use links, a truthful typecheck, a repaired migration generator
+
+Second go-live tranche. **GL-004, GL-005, GL-006 closed**; P0 now holds only GL-001, whose
+remaining work is max's provider-console rotation. Delegated one item at a time to subagents in
+isolated worktrees, then verified every claim by running it here rather than reading the summary —
+which is what caught the two corrections below.
+
+### GL-004 — the magic link was a signature, and a signature repeats
+
+`verifyMagicToken` was pure HMAC over `{email, issuedAt, expiresAt}`. A signature says "authentic"
+every time it is asked, so every callback inside the 15-minute window minted a fresh session, while
+`sign-in-email.ts` had promised "can be used once" since F-032. A link forwarded, scanned by a mail
+gateway, or sitting in a shared inbox was a working credential for the whole window.
+
+**The fix is a column, not a table.** Each link carries a random 32-byte nonce inside its signed
+payload; the callback stores its SHA-256 in `admin_sessions.magic_nonce_hash` under a unique index,
+written by the *same insert that creates the session*. A link being spent and a session existing
+are the same event, so there is no second record to reconcile and no window where one exists
+without the other.
+
+The rejected design is the more interesting half. A separate credential table would have to be
+written at **mint** time — that is, from the internet, by anyone who can guess an operator's
+address. That is both an unauthenticated write path and a per-address row whose presence is exactly
+the membership oracle `/api/auth/request-link` exists to deny. Minting still writes nothing; the row
+appears only when a link is *opened*, by someone already holding a validly signed one.
+
+The arbiter is `on conflict (magic_nonce_hash) do nothing returning id`, where the empty result is
+the signal someone else won — not a check-then-write, since `for update` cannot lock a row that does
+not exist yet (the B-011 lesson). Authority is re-read **before** the link is spent, so a revoked
+operator's link is refused without being burned. `link_already_used` and `not_an_administrator` both
+render 401, so a replayed link is not a probe for which links were genuine. Legacy tokens with no
+nonce fail closed as `malformed` rather than defaulting to a placeholder — a placeholder would give
+every such link the same identity, so opening one would consume all of them.
+
+**A race test that could not fail, caught by sabotage.** The first draft ran eight `Promise.all`
+calls through one `Db` handle, whose pool holds three connections — so each transaction completed
+before the next began and the read-then-write sabotage passed untouched. Each claimant now gets its
+**own connection** plus a barrier so all eight reach the insert together. This is the `Promise.all`
+rule with a pool-size twist the standing rules did not previously state.
+
+### GL-005 — the typecheck was blind to the whole web app, and hid a production defect
+
+Root `tsconfig.json` referenced only the four packages, so "typecheck passes" was a claim about
+`packages/`, never `apps/web`. Behind that blindness sat **57** errors — and 17 of them were a
+latent **production** defect, not test noise: `type Sql = ReturnType<typeof postgres>` picks the
+last of two overloads and evaluates its conditional against the *unresolved* generic, collapsing the
+type map to `never`, so the tagged template accepted **no parameters at all**. `sql`…${id}`` failed
+to typecheck while working perfectly at runtime. `Sql`/`Tx` now live once in `packages/db/src/sql.ts`
+(`Tx` had separately drifted to a contravariantly incompatible type map).
+
+The other 27 were fixed by **narrowing the production signature rather than widening the test's
+lie**: `resolveConfig`/`createAppContext` now take `Record<string, string | undefined>`, which is all
+they ever read, and which `resolveSmsConfig` already used — so this made two conventions agree
+rather than adding a third. Nothing suppressed: zero `@ts-expect-error`, `any`, or `exclude` globs
+added.
+
+Root `typecheck` is now `typecheck:packages && typecheck:web`, two halves because
+`apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference it. **Proof it is
+genuinely truthful:** a deliberate `TS2322` in a web file — GL-004's callback route, which the
+subagent never saw — exits **1** under the new typecheck and **0** under the old bare `tsc -b`.
+
+### GL-006 — the migration generator was guessing at history
+
+Seven migrations journaled, snapshots stopped at `0001`. Reproduced before fixing: a generation
+trial stopped and asked *"Is message_category column in outbox_work table created or renamed from
+another column?"* — a column migration `0002` added. Snapshot `0001` described 22 tables against a
+schema of 25.
+
+**Applying was never affected**, which is precisely what kept this invisible: the integration suite
+builds a database from empty and applies all seven on every run. Only *generation* was
+untrustworthy, and the danger is not that the tool errors out — it is that a wrong answer to a
+rename prompt writes a plausible migration that re-creates existing tables or renames a column out
+from under production data.
+
+**Repaired with one file.** Reading drizzle-kit 0.22.8's source rather than assuming: it diffs
+against `snapshots[snapshots.length - 1]` **only** (`preparePrevSnapshot`) and enumerates snapshots
+from the directory listing, not the journal. So a single current `0006_snapshot.json` chained onto
+`0001` is the complete fix. Reconstructing the five missing intermediates was deliberately **not**
+done — five point-in-time pictures nobody can verify against a database would be fabricating
+evidence rather than repairing metadata, and the tripwire asserts the rule the tool actually has
+rather than a stricter invented one. No `.sql` file changed: the md5 over all seven is byte-identical
+before and after. The trial now reports *"No schema changes, nothing to migrate."*
+
+### Two subagent claims that did not survive verification
+
+Both found by running the thing rather than reading the report, which is the whole reason the
+verify-don't-relay rule exists.
+
+- **"`npm run lint` exits 0 while printing errors"** — filed as a proposed new item. It does not: a
+  deliberate unused import produces `✖ 1 problem` and **exit 1**. The likely cause is reading a
+  piped exit status (`${PIPESTATUS}` vs `$?`). No item filed.
+- **CLAUDE.md's "54 web type errors"** was stale; the real baseline was **57**, confirmed twice
+  before GL-005 started.
+
+Also corrected mid-session: the main agent committed the three agent worktree directories into the
+repo by accident (`git add -A` swept them in). Removed from the commit and `.claude/worktrees/`
+added to `.gitignore` so it cannot recur.
+
+---
+
+## 2026-07-28 — three defects the green suites could not see, and production was running the stub
 
 First tranche off `docs/GO_LIVE_GUIDE.md`. GL-002, GL-003, GL-019 and GL-033 closed; GL-001
 scoped and deferred by max. Every finding was reconfirmed against the code before being fixed —
