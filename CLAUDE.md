@@ -596,37 +596,74 @@ latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `
 idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
 inventory.
 
-**Verified July 28, 2026 (`main`, this work pushed):** `npm test` **497/497 across 52 files**;
+**Verified July 28, 2026 (`main`, this work pushed):** `npm test` **498/498 across 53 files**;
 `npm run test:integration` **311/311 across 19 files** on real Postgres 16 (all **7** migrations
 applied from an empty database); `npm run evals` critical **11/11**, advisory 4/4, adversarial
-**29/29** (no fixture touched); lint, root typecheck, and `next build` all exit 0.
+**29/29** (no fixture touched); lint, root typecheck, and `next build` all exit 0. Counts are from
+runs on the **merged** result, not on the branches — neither agent tested the combination.
 `npm run evals:live` was **not** re-run this session — no seam projection, schema, or output
 contract changed; its last result stands (containment 4/4, quality 6/6 on Mistral Small 24B).
 
-**`npm run typecheck` NOW COVERS `apps/web` (GL-005).** It is `typecheck:packages && typecheck:web`
-— two halves, because `apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference
-it. The 57 web errors it had never seen are fixed at **0**, none suppressed. Seventeen were a latent
-**production** defect: `ReturnType<typeof postgres>` resolves the wrong overload against an
-unresolved generic and collapses the type map to `never`, so `sql`…${id}`` failed to typecheck while
-working at runtime. `Sql`/`Tx` now live once in `packages/db/src/sql.ts`. Proven by sabotage: a
-`TS2322` in a web file exits **1** under the root typecheck and **0** under the old bare `tsc -b`.
+**`npm run typecheck` COVERS `apps/web` (GL-005).** It is `typecheck:packages && typecheck:web` —
+two halves, because `apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference it.
+The 57 web errors it had never seen are at **0**, none suppressed; seventeen were a latent
+**production** defect (`ReturnType<typeof postgres>` collapsing the type map to `never`). `Sql`/`Tx`
+now live once in `packages/db/src/sql.ts`. Sabotage: a `TS2322` in a web file exits **1** under the
+root typecheck and **0** under the old bare `tsc -b`.
 
-**Admin magic links are one-use (GL-004, migration 0006).** Each link carries a random nonce; its
+**Admin magic links are one-use (GL-004, migration 0006).** Each link carries a random nonce whose
 hash lands in `admin_sessions.magic_nonce_hash` under a unique index, written by the **same insert
-that creates the session** — so consume and session cannot drift apart. The arbiter is
+that creates the session**, so consume and session cannot drift apart. The arbiter is
 `on conflict … do nothing returning id`, never a check-then-write. Minting still writes **nothing**,
-which is what keeps `/api/auth/request-link` from becoming a membership oracle. A replayed link and
-a non-administrator both render 401.
+which keeps `/api/auth/request-link` from becoming a membership oracle. A replayed link and a
+non-administrator both render 401.
 
 **The migration GENERATOR is trustworthy again (GL-006).** Snapshots had stopped at `0001` while
 seven migrations were journaled, so `drizzle-kit generate` diffed against a five-migration-stale
-picture and asked create-or-rename questions about columns already in production. Applying was never
-affected — which is why it stayed invisible. One current `0006_snapshot.json` is the whole fix:
-drizzle-kit 0.22.8 diffs against the **newest snapshot only** (`preparePrevSnapshot`). No `.sql` file
-changed. `packages/core/src/migration-metadata.test.ts` is the tripwire, and it catches the *next*
-missing snapshot, not just this one.
-Newest session-log entry: P0 closed except rotation — one-use links, a truthful typecheck, a
-repaired migration generator.
+picture. Applying was never affected — which is why it stayed invisible. One current
+`0006_snapshot.json` is the whole fix: drizzle-kit 0.22.8 diffs against the **newest snapshot only**.
+`packages/core/src/migration-metadata.test.ts` catches the *next* missing snapshot, not just this one.
+**The Golden Rule #6 compile guard now sits on the REAL send path (GL-035).**
+`safety-boundary.type-test.ts` asserted the branded-outbound bypass against `OutboundMessage`/
+`SmsTransport` — a parallel delivery path **nothing in production used**. The static provenance
+barrier was being proven of code that never ran. Re-anchored to `LastMileSendInput`, the type
+`createLastMileSender` actually takes; erasing the brand now fails **both** bypass assertions
+(sabotage-verified here, not just reported). The parallel path is deleted: `SmsSimulator`,
+`SmsTransport`, `OutboundMessage`, `SentMessage`, and the metrics logger only the simulator called.
+`ProviderTransport` (a plain function type in `delivery.ts`) is the one send seam.
+`estimateSmsSegments` and `normalizeAvoidableSmsUnicode` **survive deliberately** — the normalizer
+is already on the real path via the outbound guard, and the estimator is what GL-021 attaches.
+
+**One activation writer (GL-035).** `activateAcceptedPrompt` in `packages/db/src/transactions.ts` is
+now the only writer of a proposal's activation state; the outbound worker and the test fixture both
+call it. They had **already diverged** — the fixture targeted `where id = proposalId` with no state
+guard while production matches `state = 'open'` + recipient + `inventory_confirmation`. Sabotaging
+the shared write fails **11 integration tests** plus the `activation_coherent` CHECK constraint.
+
+**`roles.ts` was NOT dead — the review said it was.** GL-035 proposed deleting it; `admin-guard.ts`
+calls `requireRole` and four admin pages call `hasRole`, so deleting it would have removed the live
+admin authority check. **Narrowed** instead: `Role` is now `"admin"` alone, dropping a
+`staff`/`farmer` implication table that nothing could ever produce. The lesson is the guide's own
+framing — *its findings are leads to reconfirm against the code, not a spec.* Two of GL-035's three
+candidates were wrong in the dangerous direction.
+
+**The docs no longer carry build status (GL-031/032/036).** Retired
+`CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md` as living design authority — each architecture doc now
+owns its own domain, and the three decisions that existed *only* in the handoff were moved into the
+owning docs first (code-owned message-frequency limits → ARCHITECTURE, the excluded-infrastructure
+list → ARCHITECTURE, "retrieval-first means before *fact selection*, not before *interpretation*" →
+AI_ARCHITECTURE). Status lives in this file alone. Session logs are out of the startup reading path.
+
+**Public copy now names START for returning senders (GL-034).** The code was already correct;
+`docs/VIGA_10DLC_WEBSITE_COPY.md` — what a farmer reads *before* texting — said messaging resumes
+"unless you request to rejoin", naming no keyword, so a reader reaches for JOIN and stays blocked.
+Five sections fixed; JOIN stays as the first-time call to action. Registered 10DLC copy and
+`TELNYX_10DLC_FIELD_VALUES.txt` were **not** touched. Two optional Telnyx console edits are written
+up under GL-034 — **low value**: Telnyx auto-answers STOP/START in its own copy and enforces its
+block list independently, so neither changes what an opted-out user experiences.
+
+Newest session-log entry: the housekeeping checkpoint — GL-031/032/034/035/036 closed, and a
+rotation procedure that would have broken production.
 
 **A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a
 *different* named test each; stashing the branch reproduced the hang on clean `main` (the connection
@@ -670,9 +707,15 @@ supply what production never creates.
   database holds no real numbers. **The moment real farmer or customer numbers exist, this becomes
   urgent, not deferred.** Scope re-verified against the live environment 2026-07-28; procedure,
   order, and proof-by-effect tables are **RUNBOOK §"Credential rotation"**. Two corrections from
-  that check: `DEEPINFRA_API_KEY` rotates in the **DeepInfra console and local `.env` only** (it was
-  never a Vercel var), and **the repository is clean** — every secret-shaped literal in the tracked
-  tree is a test fixture and `.env` was never committed, so **no history rewrite is owed**.
+  that check: **the repository is clean** — every secret-shaped literal in the tracked tree is a
+  test fixture and `.env` was never committed, so **no history rewrite is owed** — and
+  `DEEPINFRA_API_KEY` **IS a production credential and must be updated in Vercel** when rotated.
+  That second one reversed on 2026-07-28: it was true that DeepInfra was local-only, until GL-019
+  set `LLM_PROVIDER=deepinfra` in production. RUNBOOK, F-034's checklist, and this line all still
+  said "local `.env` only" afterwards, so **following the documented procedure would have revoked
+  the key while production kept calling the model with it** — every seam failing in the deployment
+  while local evals stayed green. All three corrected 2026-07-28. Confirm a variable's presence in
+  Vercel before rotating rather than trusting any table, including this one.
   max decided **rotate in place** (2026-07-28): the ex-throwaway Vercel project and its Neon database
   become production, so F-034's "tear down the project" line is withdrawn — its stale
   `throwaway/hobby-deploy-test` **branch** is still owed a deletion.

@@ -11,7 +11,135 @@ chars, which had grown too large to open mid-session).
 
 ---
 
-## 2026-07-28 (latest) — P0 closed except rotation: one-use links, a truthful typecheck, a repaired migration generator
+## 2026-07-28 (latest) — the housekeeping checkpoint: GL-031/032/034/035/036, and a rotation procedure that would have broken production
+
+Third go-live tranche, and the one Max asked to review before P1. Five items, four of them
+documentation truth-telling. Same method as last session — one item per subagent in an isolated
+worktree, then verify every claim by *running* it here. That method earned its keep twice below.
+
+### GL-035 — two of three "dead mechanisms" were not dead, and one deletion would have been serious
+
+The guide proposed deleting `roles.ts`, the `SmsSimulator`/`SmsTransport` family, and
+`openOrReviseProposal().activate()`. I wrote a starting map from my own greps and **got two of the
+three wrong**, in the dangerous direction. The subagent contradicted me on both; I re-checked and it
+was right.
+
+**`roles.ts` is live.** My grep looked for the import *path* (`from "./roles"`, `auth/roles`) and
+found only its own test and the barrel. But `@farm-friend/core` **is** a barrel, and production
+imports through it: `apps/web/lib/admin-guard.ts` — the one guard all five admin API routes share —
+calls `requireRole` and `AuthorizationError`, and four admin pages call `hasRole`. Deleting the file
+would have deleted the live admin authority check. What was genuinely dead is narrower: the
+`staff`/`farmer` values and the "admin implies staff" `IMPLIES` table, which nothing could ever
+produce (`packages/db/src/admin.ts` returns the constant `["admin"]`). `Role` is now `"admin"` alone.
+An implication table that can never fire reads as protection while proving nothing.
+
+**The parallel SMS path was real, and it held the safety proof.** Correction to my map in the other
+direction: `SmsTransport` is *not* the live seam — `createLastMileSender` takes a `ProviderTransport`
+(a plain function type in `delivery.ts`), and that is what the composition root wires Telnyx into.
+`SmsTransport`/`OutboundMessage`/`SmsSimulator`/`SentMessage` plus the metrics logger were reachable
+only from the package's own tests.
+
+The consequential part: **`safety-boundary.type-test.ts` — the Golden Rule #6 layer-1 compile guard
+— asserted the branded outbound type against `OutboundMessage`.** The static provenance barrier was
+being proven of a path production never took. That is the exact failure family CLAUDE.md already
+documents twice (a source assertion satisfied by incidental text; a stub that cannot see what the
+real thing does), one level up: *a safety proof anchored to dead code is not a safety proof*.
+Re-anchored to `LastMileSendInput`. I sabotaged it myself rather than trusting the report — erasing
+the brand fails **both** bypass assertions.
+
+`estimateSmsSegments` and `normalizeAvoidableSmsUnicode` were kept deliberately: the normalizer is
+already on the real path via the outbound guard, and the estimator is precisely the machinery
+**GL-021** exists to attach to the real send path. Deleting it would mean rebuilding it in a fortnight.
+
+**`activate()` was the genuine duplicate — and the two writers had already diverged.** Production
+activation lives in the outbound worker (`apps/web/lib/workers.ts`); the test-only `activate()` wrote
+the same three columns differently: it targeted `where id = proposalId` with no state guard, while
+production matches `state = 'open'` + recipient + `inventory_confirmation`, and copies
+`proposal_version` **in SQL** rather than reading it first (a read-then-write can record a version a
+concurrent revision already superseded). Ten integration tests exercised the synthetic path, so any
+drift between them was invisible. Now one exported `activateAcceptedPrompt` in `packages/db`, called
+by both — tests adapted to production's behavior, never the reverse. My own sabotage of the shared
+write fails **11 integration tests** across 2 files, and trips the `activation_coherent` CHECK
+constraint besides.
+
+### GL-034 — the code was right; the words a farmer reads were not
+
+B-011 established that the carrier owns STOP/START: `START` lifts Telnyx's block, `JOIN` does not,
+so JOIN enrolls only a first-time sender. `consentTransitionFor` implements that exactly.
+
+The gap was `docs/VIGA_10DLC_WEBSITE_COPY.md` — the paste-ready public Squarespace copy, i.e. what
+someone reads *before* they ever text. Its Opt Out section said messaging stops "unless you request
+to rejoin", **naming no keyword at all**. A reader who was just told the opt-in word is JOIN reaches
+for JOIN, is refused, and stays blocked with no idea why. No test policed that file. Five sections
+now name START for the returning path; JOIN stays as the first-time call to action, and the new test
+is scoped to the opt-out section so a whole-document ban can't creep in and break the registration.
+Sabotage-verified here, not just reported: reverting the section to JOIN fails both assertions.
+
+Registered 10DLC copy and `TELNYX_10DLC_FIELD_VALUES.txt` were untouched — that file is a transcript
+of live console state, and the rule is change the console first, then transcribe. Two optional
+console edits are written up under GL-034, and my recommendation is **to weigh them, not just do
+them**: Telnyx auto-answers STOP/START in its own copy and enforces its block list independently of
+the profile's auto-response fields, so neither edit changes what an opted-out user experiences. They
+buy registration-vs-page consistency against the cost of a possible campaign re-review.
+
+### GL-031/032/036 — the docs stop carrying status, and stop claiming authority they no longer have
+
+Max made two calls that shaped this: **status lives in CLAUDE.md only** (docs drop their build-status
+banners entirely rather than getting corrected ones — five fewer places to go stale), and the
+**session logs stay exactly as they are but leave the reading path** (nothing rewritten; they simply
+stop being startup context).
+
+The risky half of retiring the clean-room handoff was not removing the banners — it was making sure
+nothing it *settled* existed only there. Three things did, and were moved before the banners came
+off: code-owned message-frequency limits (→ ARCHITECTURE, written as an explicitly **unbuilt**
+requirement, since no cadence cap exists anywhere in the code), the excluded-infrastructure list —
+no Kafka, event bus, event sourcing, workflow engine, distributed lock, policy engine, DLP, vector
+database, additional package (→ ARCHITECTURE's design stance), and the disambiguation that
+retrieval-first means before *fact selection*, not before *interpretation* (→ AI_ARCHITECTURE).
+
+Stale claims corrected: ARCHITECTURE listed customer inquiry, stock-out, retention, authentication,
+and the model privacy boundary as "Not implemented" — all five are built; AI_ARCHITECTURE said "the
+configured provider is still the deterministic stub" 140 lines before documenting the DeepInfra
+adapter; PRODUCT_BRIEF listed eleven decisions as open when seven were settled in code; `maps/README`
+still called the seeder future work. Two the review had not named: ARCHITECTURE claimed a QR
+stock-out **web form** as a built surface (only the API route exists), and the RUNBOOK finding below.
+
+### The find of the session: a rotation procedure that would have broken production
+
+`RUNBOOK.md` §"Credential rotation" said `DEEPINFRA_API_KEY` is **not** a production credential —
+"absent from Vercel entirely, so the deployment runs the deterministic stub" — and instructed
+rotating it in the DeepInfra console and **local `.env` only**. That was true when written. **GL-019
+made it false** by setting `LLM_PROVIDER=deepinfra` in production, and nothing went back to correct
+the rotation instructions. F-034's own PM checklist and CLAUDE.md carried the same line.
+
+So the documented procedure for the one remaining go-live blocker would have revoked the key while
+production kept calling DeepInfra with it — every model seam failing in the deployment, while local
+`evals:live` stayed green because the local `.env` had just been updated. Corrected in all three
+places, with an instruction to confirm a variable's presence in Vercel before rotating rather than
+trusting any table, including that one. This is the same reasoning-from-a-stale-record error as
+trusting `vercel env ls`'s timestamp column, and the reason the honest check is always behavioural.
+
+### Verified
+
+`npm test` **498/498 across 53 files**; `npm run test:integration` **311/311 across 19 files** on
+real Postgres 16; `npm run evals` critical **11/11**, advisory 4/4, adversarial **29/29**; lint, root
+typecheck, and `next build` all exit 0. **All run on the merged result**, not on the branches —
+neither subagent tested the combination, and the merge is what ships. `evals:live` not re-run: no
+seam projection, schema, or output contract changed.
+
+One integration run early on failed two files with **hook timeouts**, then passed 19/19 twice — the
+documented environmental signature (a failure that *moves*). It coincided with a second suite I had
+running against the same Postgres.
+
+### Owed
+
+P1 (GL-007 onward) is next and unstarted. **GL-001 credential rotation remains the hard go-live
+blocker**, now with a corrected procedure. Two optional Telnyx console edits under GL-034. GL-021
+will consume `estimateSmsSegments`, kept for exactly that.
+
+---
+
+## 2026-07-28 — P0 closed except rotation: one-use links, a truthful typecheck, a repaired migration generator
 
 Second go-live tranche. **GL-004, GL-005, GL-006 closed**; P0 now holds only GL-001, whose
 remaining work is max's provider-console rotation. Delegated one item at a time to subagents in
