@@ -893,12 +893,73 @@ Never include a real credential.
 
 ### GL-034 — Align JOIN/START compliance copy
 
-The implementation correctly treats `JOIN` as first-time enrollment only and `START` as the word
-that restores consent after STOP because the carrier owns its own block list. Review every public
-10DLC page, onboarding instruction, auto-response, and runbook so returning users are consistently
-told to use `START`.
+**Completed (repo half):** 2026-07-28 — the code was already right; the words were not. Reviewed
+every place a human is told how to start or resume messages. **Two console edits remain and are
+max's to make** — see "Owed in the Telnyx console" below.
 
-Do not change registered wording without rechecking the approved carrier campaign.
+**What was wrong.** `docs/VIGA_10DLC_WEBSITE_COPY.md` — the paste-ready source for the public
+Squarespace pages, and the thing a farmer actually reads before texting anything — explained
+opting out and then said messaging stops *"unless you request to rejoin"*, naming no keyword at
+all. A reader who has just been told the opt-in word is JOIN will reach for JOIN, which for them
+is precisely the word the carrier will not honour: they text it, get refused, and stay blocked.
+Four sections fixed, all in that file:
+
+| Section | Change |
+|---|---|
+| Opt-in page | Added: returning after an opt-out, reply `START` rather than `JOIN` |
+| Terms → Opt In | Same instruction, beside the existing "JOIN or START" line |
+| Terms → Opt Out | Replaced *"unless you request to rejoin"* with an explicit `START` sentence |
+| Terms → Supported Commands | `START` added beside `STOP` |
+| Privacy → Your Choices | `START` added beside the opt-out keyword list |
+
+`JOIN` is untouched as the published **first-time** call to action — it is the registered opt-in
+keyword and removing it would break the registration rather than fix the copy. Only the returning
+path changed.
+
+**What was already correct**, confirmed by reading rather than assumed: `ALREADY_JOINED_RESPONSE`
+(already named `START`, but had **no test of its own** — the routing tests asserted the routing,
+not the constant); `consentTransitionFor` and its doc comment; `SMS_COMPLIANCE.md`'s keyword table
+and consent model; `ARCHITECTURE.md`; `DATA_ARCHITECTURE.md`; `RUNBOOK.md`'s failure-triage row
+(`START` lifts it, `JOIN` does **not**). No web UI carries opt-in instructions at all.
+
+`packages/core/src/sms/return-after-optout-copy.test.ts` is the new tripwire. It asserts the
+returning instruction names `START`, that the opt-out section does **not** say `JOIN`, that the
+first-time `JOIN` invitation survives, and the same properties on `ALREADY_JOINED_RESPONSE`. All
+four sabotage-verified. One sabotage initially appeared to survive; the *sabotage* was faulty
+(case-sensitive `perl` left a capitalized "Text JOIN" standing that the case-insensitive assertion
+then matched) — redone correctly, it fails as intended.
+
+**Deliberately NOT changed: `docs/TELNYX_10DLC_FIELD_VALUES.txt`.** It is a transcript of live
+console state, and the rule is change the console first, then transcribe. A test demanding new
+wording there would push a future editor into falsifying the transcript.
+
+#### Owed in the Telnyx console — max's action, may require campaign re-approval
+
+Note first how much of this is **not ours**: Telnyx auto-answers `STOP`/`START` in *its own* copy,
+not ours, and enforces its block list independently of the profile's auto-response fields. So the
+registered opt-out auto-response below is not the message a real opted-out user necessarily reads,
+and changing it may not change their experience. Both edits are for **consistency of the
+registration with the published page**, not for delivery. Weigh that against the cost of a
+re-review before making them.
+
+**1. `Opt In Workflow Description` (Content Details).** It quotes the public page verbatim, and the
+page has now changed, so the quote is stale.
+
+- *Current* — the quoted block ends: `… Reply HELP for help. Reply STOP to unsubscribe. Terms: …`
+- *Desired* — insert one sentence after `Reply STOP to unsubscribe.`:
+  `If you have unsubscribed before, reply START to resume messaging.`
+
+**2. `Opt out message` (Auto-Responses).** Names no way back.
+
+- *Current:* `VIGA Farm Friend: You have been unsubscribed and will no longer receive messages from us. Reply HELP for assistance.`
+- *Desired:* `VIGA Farm Friend: You have been unsubscribed and will no longer receive messages from us. Reply START to resubscribe, HELP for assistance.`
+- **Caveat:** this is the lower-value of the two. Telnyx's own STOP handling may answer first, and
+  it is 160-character sensitive — the desired text measures **138** characters, so it still fits one
+  GSM-7 segment.
+
+After either edit lands in the console: transcribe the result into
+`docs/TELNYX_10DLC_FIELD_VALUES.txt`. `auto-responses.test.ts` and `commands.test.ts` will fail
+until `packages/core/src/sms/auto-responses.ts` matches, which is the intended order.
 
 ### GL-035 — Remove or reconnect dead parallel mechanisms
 

@@ -32,6 +32,9 @@ Vashon Island. Message frequency varies based on farm activity and your use of t
 usually 0-6 messages per week. Message and data rates may apply. Consent is not a condition of
 purchase or participation. Reply HELP for help. Reply STOP to unsubscribe.
 
+If you have unsubscribed before and want to start receiving messages again, reply START rather than
+JOIN. START is the word your mobile carrier recognizes to resume messaging.
+
 VIGA may review and approve a subscriber before VIGA Farm Friend sends operational messages.
 Farmers may also opt in during VIGA onboarding in person or by phone, where VIGA records how and
 when SMS consent was received before sending any proactive SMS.
@@ -100,7 +103,8 @@ opt-out requests, resolve issues, meet legal or compliance obligations, and prot
 ## Your Choices
 
 You can unsubscribe from VIGA Farm Friend SMS at any time by replying STOP, STOPALL, UNSUBSCRIBE,
-CANCEL, END, or QUIT. You can request help by replying HELP or INFO.
+CANCEL, END, or QUIT. If you later want to start receiving messages again, reply START. You can
+request help by replying HELP or INFO.
 
 ## Contact
 
@@ -124,10 +128,11 @@ customer inquiry replies, stock-out report alerts to farmers, and related servic
 
 ## Opt In
 
-You can request to opt in by texting JOIN or START to +1 206-864-5326 (206-86-GLEAN). VIGA may
-review and approve a subscriber before VIGA Farm Friend sends operational messages. Farmers may
-also opt in during VIGA onboarding in person or by phone, where VIGA records consent before any
-proactive SMS is sent.
+You can request to opt in by texting JOIN or START to +1 206-864-5326 (206-86-GLEAN). If you have
+unsubscribed before, reply START to resume messaging — START is the word your mobile carrier
+recognizes for that. VIGA may review and approve a subscriber before VIGA Farm Friend sends
+operational messages. Farmers may also opt in during VIGA onboarding in person or by phone, where
+VIGA records consent before any proactive SMS is sent.
 
 ## Message Frequency
 
@@ -141,8 +146,10 @@ Message and data rates may apply. Consent is not a condition of purchase or part
 ## Opt Out
 
 You can unsubscribe at any time by replying STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, or QUIT. After you opt
-out, VIGA Farm Friend will send one confirmation message and no further messages unless you
-request to rejoin.
+out, VIGA Farm Friend will send one confirmation message and no further messages.
+
+To start receiving messages again after you have opted out, reply START. START is the word your
+mobile carrier recognizes to resume messaging.
 
 ## Help
 
@@ -152,7 +159,8 @@ For help, reply HELP or INFO. You can also contact board@vigavashon.org.
 
 Reply YES to confirm an update when a message asks for it. Reply NO to cancel a pending update when
 a message asks for it. When a stock-out alert asks for your current items, reply with them and VIGA
-Farm Friend will confirm before publishing. Reply STOP to unsubscribe.
+Farm Friend will confirm before publishing. Reply STOP to unsubscribe, and reply START to resume
+messaging after you have unsubscribed.
 
 VIGA Farm Friend also supports FLAG, a VIGA Farm Friend service feature you can reply with to have
 a person at VIGA review a message thread. FLAG is not a carrier opt-out or help keyword; to

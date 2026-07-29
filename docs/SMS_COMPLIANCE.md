@@ -141,8 +141,24 @@ carrier-mandated keyword in campaign registration or public compliance copy.
 
   A `JOIN` from an existing record receives a code-rendered reply naming `START`, sent as
   `required_reply`. **Known limitation:** while the carrier block is active that reply is itself
-  blocked and never arrives, so farmer-facing onboarding material must say **START**, not JOIN, for
-  returning after an opt-out.
+  blocked and never arrives — so the instruction cannot rely on being delivered by SMS, and the
+  written material a person reads *before* they text has to carry it.
+
+  **GL-034 aligned that material.** Every place the public pages explain resuming after an opt-out
+  now names `START`: the opt-in page, the Terms opt-in and opt-out sections, the Terms supported
+  commands, and the Privacy "Your Choices" section — all in
+  [VIGA_10DLC_WEBSITE_COPY.md](VIGA_10DLC_WEBSITE_COPY.md), which is the paste-ready source for the
+  public Squarespace pages. `JOIN` remains the published *first-time* call to action; only the
+  returning path changed. `packages/core/src/sms/return-after-optout-copy.test.ts` asserts both
+  halves — that the returning instruction names `START` and that the first-time `JOIN` invitation
+  survives — plus the same property on `ALREADY_JOINED_RESPONSE`.
+
+  **Still owed, and not ours to change:** the registered campaign's own `Opt In Workflow
+  Description` in the Telnyx console still describes the published page without the `START`
+  sentence, and the registered opt-out auto-response names no way back. Both are live console
+  state; see GL-034 in [GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md) for the exact edits, which must be made
+  in the console first and then transcribed into
+  [TELNYX_10DLC_FIELD_VALUES.txt](TELNYX_10DLC_FIELD_VALUES.txt).
 - **Farmer onboarding** — after verifying control of the SMS number, onboarding may capture consent
   with provenance: how, when, and where it was captured and who recorded it. Every proactive farmer
   send must trace to that documented opt-in or a deterministic `JOIN`/`START`.
