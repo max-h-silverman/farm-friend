@@ -1,0 +1,50 @@
+# What must never enter a container layer.
+#
+# An image is pushed to a registry and retained across releases, so anything copied in is
+# effectively published and archived. A leak here is not recoverable by a later fix — the
+# layer keeps the secret even after the file is deleted in a subsequent build.
+
+# Credentials. `.env` holds the Neon URL, the phone-hash salt, the DeepInfra key, and the
+# Telnyx key. PHONE_HASH_SALT in particular can never be rotated (it is the input to the
+# only lookup key for every phone in the system), so baking it into an artifact is
+# permanent.
+.env
+.env.*
+!.env.example
+
+# A host node_modules carries darwin-arm64 binaries into a linux image and defeats the
+# isolated install the deps stage exists to perform.
+node_modules
+**/node_modules
+
+# Build output — rebuilt inside the image; copying it in risks shipping a stale server.
+.next
+**/.next
+dist
+**/dist
+*.tsbuildinfo
+
+# Version control and CI.
+.git
+.github
+.gitignore
+
+# Tests, fixtures, and evals: not needed at runtime and they enlarge the build context.
+**/*.test.ts
+**/*.test.tsx
+**/*.integration.test.ts
+evals
+
+# Local tooling and editor state.
+.vscode
+.idea
+.DS_Store
+*.log
+firebase-debug.log
+
+# Vercel's local link state, and the Terraform working directories (which can contain
+# state files with resource metadata).
+.vercel
+**/.terraform
+*.tfstate
+*.tfstate.*

@@ -31,9 +31,48 @@ describe("public client signal", () => {
     expect(a).not.toBe(b);
   });
 
-  it("uses only the first hop of a forwarded chain", () => {
-    // Downstream proxies append; the leftmost entry is the closest thing to the client.
-    // Without this, an attacker appends a random hop per request and buys a fresh bucket.
+  it("takes the client hop Cloud Run appends, ignoring caller-supplied prefixes", () => {
+    // THE PLATFORM CONTRACT, and it is the reverse of Vercel's.
+    //
+    // On Cloud Run the caller controls everything it sends in `X-Forwarded-For`; Google's
+    // front end APPENDS the address it actually observed. So the trustworthy hop is at the
+    // RIGHT, and the leftmost entry is attacker-chosen text.
+    //
+    // Reading from the left here — as this did while the app ran on Vercel — hands the
+    // abuse throttle to the attacker: send a random leftmost hop per request and every
+    // request lands in a fresh bucket with a fresh budget, which is the throttle removed
+    // rather than merely weakened.
+    const attacker = "203.0.113.7";
+    const observed = "70.41.3.18";
+    const a = clientSignalFor(
+      new Headers({ "x-forwarded-for": `${attacker}, ${observed}` }),
+      salt,
+    );
+    const b = clientSignalFor(
+      new Headers({ "x-forwarded-for": `198.51.100.99, ${observed}` }),
+      salt,
+    );
+    // Same real client, different spoofed prefix — must be ONE bucket.
+    expect(a).toBe(b);
+  });
+
+  it("does not let a spoofed prefix mint a new bucket per request", () => {
+    // The same property stated as the attack it prevents, so a refactor that reintroduces
+    // left-reading fails a test whose name says what broke.
+    const observed = "70.41.3.18";
+    const buckets = new Set(
+      ["1.1.1.1", "2.2.2.2", "3.3.3.3", "4.4.4.4"].map((spoofed) =>
+        clientSignalFor(
+          new Headers({ "x-forwarded-for": `${spoofed}, ${observed}` }),
+          salt,
+        ),
+      ),
+    );
+    expect(buckets.size).toBe(1);
+  });
+
+  it("separates genuinely different clients behind the same proxy", () => {
+    // The counterpart: taking the rightmost hop must not collapse everyone into one bucket.
     const a = clientSignalFor(
       new Headers({ "x-forwarded-for": "203.0.113.7, 70.41.3.18" }),
       salt,
@@ -42,7 +81,22 @@ describe("public client signal", () => {
       new Headers({ "x-forwarded-for": "203.0.113.7, 150.172.238.178" }),
       salt,
     );
-    expect(a).toBe(b);
+    expect(a).not.toBe(b);
+  });
+
+  it("ignores trailing blank entries when selecting the appended hop", () => {
+    // A malformed trailing comma must not make the signal bucket on empty text — that
+    // would collapse every malformed request into one shared bucket by accident rather
+    // than by the deliberate null path below.
+    const withTrailer = clientSignalFor(
+      new Headers({ "x-forwarded-for": "203.0.113.7, 70.41.3.18, " }),
+      salt,
+    );
+    const clean = clientSignalFor(
+      new Headers({ "x-forwarded-for": "203.0.113.7, 70.41.3.18" }),
+      salt,
+    );
+    expect(withTrailer).toBe(clean);
   });
 
   it("is salted, so the bucket key is not a rainbow-table lookup of an address", () => {
