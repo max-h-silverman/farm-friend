@@ -656,6 +656,10 @@ The shape, and why:
 ```bash
 # 1. Build and publish. This is also the isolated install that catches packaging defects
 #    (B-005..B-008's whole class) — npm workspaces hoists locally, so nothing else does.
+#
+#    SHORT_SHA IS REQUIRED. A plain directory upload does not populate the built-in, so omitting
+#    it renders the tag as ".../farm-friend:" and the build fails at step 0 with
+#    `invalid reference format`. That is the whole error — it does not name the substitution.
 gcloud builds submit --config cloudbuild.yaml --project farm-friend-vashon \
   --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
 
