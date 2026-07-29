@@ -69,7 +69,12 @@ USER node
 # script-less page, which reads as a CSS bug rather than a packaging one.
 COPY --from=build --chown=node:node /app/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build --chown=node:node /app/apps/web/public ./apps/web/public
+
+# NO `public/` COPY. This app has no `apps/web/public` directory — every asset it serves is
+# either built into `.next/static` or rendered by a route. A `COPY` of a path that does not
+# exist is a hard build failure, not a no-op, which is exactly how the first Cloud Build run
+# found this. If a `public/` directory is ever added, its COPY line has to be added back here
+# or those files will be silently absent from the image.
 
 # The standalone bundle preserves the workspace layout, so the server entrypoint sits at
 # the app's path within it rather than at the root.

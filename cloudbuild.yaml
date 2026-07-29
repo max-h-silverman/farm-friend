@@ -18,9 +18,9 @@ steps:
     id: build
     args:
       - build
-      - --tag=$_IMAGE:$SHORT_SHA
-      - --tag=$_IMAGE:latest
-      - --cache-from=$_IMAGE:latest
+      - --tag=us-west1-docker.pkg.dev/$PROJECT_ID/farm-friend/farm-friend:$SHORT_SHA
+      - --tag=us-west1-docker.pkg.dev/$PROJECT_ID/farm-friend/farm-friend:latest
+      - --cache-from=us-west1-docker.pkg.dev/$PROJECT_ID/farm-friend/farm-friend:latest
       - --build-arg=BUILDKIT_INLINE_CACHE=1
       - .
 
@@ -28,7 +28,7 @@ steps:
   # the registry, and `latest` additionally seeds the layer cache for the next build.
   - name: gcr.io/cloud-builders/docker
     id: push
-    args: [push, --all-tags, $_IMAGE]
+    args: [push, --all-tags, us-west1-docker.pkg.dev/$PROJECT_ID/farm-friend/farm-friend]
 
   # Print the digest, which is the only thing that should be pasted into a deploy.
   #
@@ -42,7 +42,7 @@ steps:
       - -c
       - |
         set -euo pipefail
-        DIGEST=$(gcloud artifacts docker images describe "$_IMAGE:$SHORT_SHA" \
+        DIGEST=$(gcloud artifacts docker images describe "us-west1-docker.pkg.dev/$PROJECT_ID/farm-friend/farm-friend:$SHORT_SHA" \
           --format='value(image_summary.digest)')
         echo ""
         echo "=================================================================="
@@ -51,8 +51,10 @@ steps:
         echo "    tofu plan -var=\"image_digest=$$DIGEST\""
         echo "=================================================================="
 
-substitutions:
-  _IMAGE: us-west1-docker.pkg.dev/$PROJECT_ID/farm-friend/farm-friend
+# NOTE: no `_IMAGE` substitution. `$PROJECT_ID` is NOT expanded inside a user-defined
+# substitution's default value — it arrives as the literal text "$PROJECT_ID", which docker
+# rejects with "repository name must be lowercase". The built-in is referenced directly at
+# each use site above, where expansion does happen.
 
 options:
   logging: CLOUD_LOGGING_ONLY
