@@ -18,6 +18,23 @@ they can be reviewed and reversed in one place.
   new table plus a mint-time write path.
 - **GL-004 (2026-07-28) — a replayed link and a non-administrator return the same 401.** Naming the
   difference would tell an attacker holding a copied link that it had been genuine.
+- **GL-031 (2026-07-28) — the frequency-limit requirement was moved into `ARCHITECTURE.md` as an
+  explicitly UNBUILT requirement rather than dropped.** The clean-room handoff was the only place
+  stating that code owns message-frequency limits; the code has none. Recording it as a gap keeps a
+  settled product promise (a farmer's preferred cadence) from silently disappearing when its only
+  written home became a historical record. Reversible: delete the paragraph if the promise is
+  withdrawn.
+- **GL-032 (2026-07-28) — replaced `PRODUCT_BRIEF.md`'s "unresolved decisions" list by reading the
+  answers out of the code rather than asking.** Seven of eleven were settled in code (30-day
+  retention, 48-hour staleness, snapshot semantics, magic-link admin sign-in, the attested provider,
+  no seed geocoder, verified 10DLC alignment) and are now recorded as decisions. They were decisions
+  max had already effectively made by approving the work; writing them down is bookkeeping, not a new
+  call. Reversible per line if any reads wrong.
+- **GL-032 (2026-07-28) — corrected `RUNBOOK.md`'s claim that `DEEPINFRA_API_KEY` is not a
+  production credential, and added a "confirm before rotating" instruction rather than trusting the
+  table.** The doc was written when production had no model provider; it now does. The general
+  lesson — a rotation table is a claim, and Vercel values are write-only — is what the added
+  sentence carries.
 - **GL-006 (2026-07-28) — repaired the migration metadata with ONE current snapshot rather than
   reconstructing all five missing ones.** drizzle-kit only ever diffs against the newest snapshot,
   so the rest are historical convenience; inventing five point-in-time schema pictures nobody can
@@ -837,6 +854,36 @@ more status history.
 
 ### GL-031 — Retire “clean-room” as the living design authority
 
+**Completed:** 2026-07-28 — the nine authority banners are gone (`ARCHITECTURE.md`,
+`AI_ARCHITECTURE.md`, `DATA_ARCHITECTURE.md`, `SMS_COMPLIANCE.md`, `RUNBOOK.md`,
+`ADMIN_OPERATIONS.md`, `PRODUCT_BRIEF.md`, `docs/README.md` ×2, `CLAUDE.md`), and both handoffs now
+open with a HISTORICAL RECORD banner naming the owning documents. The clean-room handoff's own F-020
+section, which declared itself the authority, is marked superseded in place rather than left to
+contradict the banner above it.
+
+**The handoff was diffed against the owning docs before any banner came down**, and three settled
+decisions existed *only* there. Each was moved, not lost:
+
+- **Deterministic code owns message-frequency limits** (handoff §4). The consent and recipient halves
+  of that sentence were in `ARCHITECTURE.md`; the frequency half was nowhere. Moved to
+  `ARCHITECTURE.md` §"Launch SMS consent" and stated honestly as a **requirement not yet built** —
+  verified against the code: no cadence or rate cap exists anywhere in `packages/core/src/sms` or the
+  schema, so writing it as current would have been a fresh falsehood.
+- **The excluded-infrastructure list.** Every approved finding closed with an "adds no Kafka / event
+  bus / event sourcing / workflow engine / distributed lock / policy engine / DLP / vector database
+  / additional package" clause. Nothing in any living doc said this. Moved to `ARCHITECTURE.md`
+  §"Design stance" as one positive statement of the settled shape, with the reason it is load-bearing
+  (reaching for one is the signal a mechanism was generalized past its consumer).
+- **"Retrieval-first" means retrieval before *fact selection*, not before *interpretation*.** The
+  ordering was in `AI_ARCHITECTURE.md`; the disambiguation that keeps it from being read backwards
+  was not. Moved to `AI_ARCHITECTURE.md` §"Retrieval and ranking".
+
+From `ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md`, the **spiral-staircase constraint** was compared
+clause by clause against `CLAUDE.md` "zen desk" and `ARCHITECTURE.md` "Design stance". All of it was
+already covered except one sharper formulation — *complexity must buy down a named launch risk; a
+component that cannot name the invariant it enforces and the failure it prevents gets deleted* —
+which moved into `ARCHITECTURE.md` §"Design stance".
+
 `CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md` was valuable as a reset artifact. It now combines an
 enduring product contract, a historical audit, refactor instructions, mutable implementation
 status, and session-resumption procedure in 872 lines. Several sections describe code that has
@@ -857,6 +904,47 @@ already been deleted or built.
   session archive.
 
 ### GL-032 — Remove stale and contradictory status claims
+
+**Completed:** 2026-07-28 — every architecture doc now describes the enduring contract and carries
+**no build status**; each points at `CLAUDE.md` "Current State & Open Items" in one line. Every claim
+touched was re-verified against the code first, and the review found stale claims beyond the list
+below — including two the list did not name:
+
+- `ARCHITECTURE.md` "Not implemented: customer inquiry, stock-out, retention, authentication, model
+  privacy boundary" → all five verified present (`packages/db/src/review.ts`, `purgeExpiredBodies`,
+  `admin-guard.ts` + `admin_sessions`, the five per-seam projections). Banner removed.
+- `ARCHITECTURE.md` "The composition root and adapter implementations remain later work" → false;
+  replaced with what the architecture test actually enforces.
+- `ARCHITECTURE.md` "Each invariant is a requirement awaiting executable proof" → false for all six;
+  replaced with the sabotage rule, which is the durable point.
+- `ARCHITECTURE.md` "Full-snapshot versus patch remains unresolved" → settled in
+  `packages/core/src/inventory/proposal.ts`: patch language in, complete snapshot out.
+- **NOT NAMED IN THE LIST — `ARCHITECTURE.md` claimed the QR stock-out *web form* as a built runtime
+  surface.** Only `POST /api/public/stock-out` exists; `apps/web/app/` has no stock-out page. Now
+  stated as contract, with the API route described as what exists.
+- `AI_ARCHITECTURE.md` "The configured provider is still the deterministic stub; no live vendor
+  adapter exists" → false and self-contradicting (the same doc documents the attested DeepInfra
+  adapter 140 lines later). Banner removed; the gate section reframed as the mechanism it is.
+- `AI_ARCHITECTURE.md` seam table "Built?" column and a hard-coded "471 unit tests" → both removed;
+  a count in a contract doc is stale the next session.
+- **NOT NAMED IN THE LIST — `RUNBOOK.md` §credential rotation told a rotator that
+  `DEEPINFRA_API_KEY` is "not a production credential… absent from the Vercel environment entirely,
+  so the deployment runs the deterministic stub".** Production now carries `LLM_PROVIDER=deepinfra`
+  and both DeepInfra vars, so the key authorizes real spend and lives in **two** places. This one was
+  operationally dangerous, not merely stale: following it would have rotated the console and local
+  `.env` while leaving production authenticating with a revoked key. Corrected in the table and in
+  the rotation order.
+- `maps/README.md` "reference input for a later… seed utility… When authorized, it will validate and
+  load" → the loader is built and has run; rewritten around what it may and may not write, including
+  that the export itself is untracked because it carries PII.
+- `PRODUCT_BRIEF.md` unresolved list → seven of eleven were decided. Split into "Product decisions
+  since settled" (retention 30d, staleness 48h, snapshot semantics, admin magic-link sign-in,
+  attested provider, no seed geocoder, 10DLC alignment) and a shortened genuinely-open list.
+- `docs/README.md` "The repository is mid-rebuild… not yet enforced by executable code" → removed.
+
+Deliberately left alone: `docs/TELNYX_10DLC_FIELD_VALUES.txt` (a transcript of live carrier console
+state, pinned character-for-character by `auto-responses.test.ts` and `commands.test.ts`), and all
+JOIN/START consent wording in `SMS_COMPLIANCE.md` §"Consent model", which GL-034 owns concurrently.
 
 Known examples:
 
@@ -954,9 +1042,25 @@ files** on real Postgres 16; `npm run typecheck`, `npm run lint`, and `npx next 
 
 ### GL-036 — Keep historical logs out of the normal reading path
 
-`SESSION_LOG.md` and `SESSION_LOG_ARCHIVE.md` contain useful forensic history but are too large and
-mutable to function as startup context. Archive them by date or milestone and keep current
-operational facts in the go-live guide/current-state snapshot.
+**Completed:** 2026-07-28 — **discoverability changed; content did not.** Per max's decision, neither
+log was merged, split, rotated, or rewritten: their forensic value is in staying exactly where they
+are. `SESSION_LOG.md` left `docs/README.md`'s ordered read-list for a "Historical records — consult
+deliberately, never load by default" section alongside the two retired handoffs, and `CLAUDE.md`'s
+reading path now names all four under an explicit **do NOT load these to orient**; the session-workflow
+step that told a cold agent to read the handoff no longer does.
+
+**The `/session-wrap` skill was checked before anything moved.** It requires that `CLAUDE.md` name
+the session-history file, and it owns the rotation threshold itself (`SKILL.md`: measure with
+`wc -c` / `grep -c '^## '`, rotate past ~40k tokens or ~50 entries). So `CLAUDE.md` still names
+`docs/SESSION_LOG.md` and its archive, and the rotation rule stated in each log's own header is
+untouched — the skill keeps working. The only edit inside either file was one line in the archive
+header citing the now-retired handoff as design authority.
+
+Note left for whoever picks it up: the guide's original framing ("archive them by date or milestone,
+keep current operational facts in the current-state snapshot") was **not** followed, because max
+directed otherwise and because the logs already self-describe as on-demand history and already keep
+operational truth in `CLAUDE.md`. Re-archiving would have moved bytes without changing what a cold
+agent loads, which was the actual problem.
 
 ---
 

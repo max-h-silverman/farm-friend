@@ -1,19 +1,11 @@
 # Farm Friend — Docs Index
 
-**[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md) is the
-design authority.** Read it first. The documents below restate the settled contract for daily use;
-where any of them disagrees with the handoff, the handoff wins.
-
-> **Read these as requirements, not as status.** The repository is mid-rebuild toward the approved
-> baseline. Several guarantees these docs describe are **not yet enforced by executable code** —
-> each doc carries a status note naming its own gaps. The live snapshot of what is actually true is
-> **CLAUDE.md "Current State & Open Items"**.
+The documents below own the **enduring contract** — what Farm Friend must be, and the rules its
+code must honor. They deliberately carry **no build status**. What is actually built, deployed, and
+open lives in exactly one place: **[../CLAUDE.md](../CLAUDE.md) "Current State & Open Items"**.
 
 ## Read in order
 
-0. **[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)** —
-   the settled product contract, the approved architecture baseline, the repository audit, and the
-   refactor direction.
 1. **[PRODUCT_BRIEF.md](PRODUCT_BRIEF.md)** — the *product*. North star, canonical launch journeys,
    actors, the honor-system reality, privacy posture, launch scope and non-goals.
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** — the *system*. The design stance (the zen desk), the
@@ -31,27 +23,37 @@ where any of them disagrees with the handoff, the handoff wins.
 
 - **[GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md)** — the prioritized work order from the July 28, 2026
   whole-codebase architectural review: confirmed defects, missing launch journeys, resilience and
-  housekeeping work, verification gates, and go-live exit criteria.
-
-## Review handoffs
-
-- **[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md)** —
-  independent adversarial review of the clean-room reset, including the ranked trust/buildability
-  findings and the **spiral-staircase constraint** against over-architecting. **Review input, not
-  design authority:** its recommendations change the contract only after explicit agreement.
+  housekeeping work, verification gates, and go-live exit criteria. Temporary: it becomes a short
+  release checklist once its items close.
 
 ## Operate / extend
 
 - **[RUNBOOK.md](RUNBOOK.md)** — local dev, env, migrations, seeding, evals, deploy, Telnyx webhook
-  requirements, and **how to extend** (add a future program / add a seam / swap a provider).
+  requirements, credential rotation, and **how to extend** (add a future program / add a seam /
+  swap a provider).
 - **[ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md)** — the VIGA operator guide: the single
   administrator level, admin surfaces, and runbooks.
 - **[VIGA_10DLC_WEBSITE_COPY.md](VIGA_10DLC_WEBSITE_COPY.md)** — source copy for the public VIGA
   Farm Friend opt-in page, privacy policy, SMS terms, and campaign submission.
 - **[TELNYX_10DLC_FIELD_VALUES.txt](TELNYX_10DLC_FIELD_VALUES.txt)** — field-by-field values for
-  the Telnyx campaign form.
-- **[SESSION_LOG.md](SESSION_LOG.md)** — build history. **Historical record**: it describes
-  decisions that the clean-room contract has since superseded.
+  the Telnyx campaign form. A **transcript of live console state**: change the console first, then
+  transcribe.
+
+## Historical records — consult deliberately, never load by default
+
+Dated records of how decisions were reached. **None is design authority or current status**, and
+none belongs in a startup reading path. Open one when you need to know *why* something was decided,
+not *what* is true now.
+
+- **[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)** —
+  July 24–25, 2026. The clean-room reset: the approved findings, the product contract as first
+  settled, the Phase 3 repository audit, and the refactor direction. Its enduring contract now
+  lives in the documents above.
+- **[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md)** —
+  independent adversarial review of that reset, with the ranked trust/buildability findings.
+- **[SESSION_LOG.md](SESSION_LOG.md)** / **[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md)** —
+  dated build history, newest first; entries older than the newest eight rotate into the archive.
+  Forensic detail on defects and their fixes.
 
 ## Building X → read these
 

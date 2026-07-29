@@ -3,9 +3,9 @@
 The *product* source of truth: what Farm Friend is, who it serves, and the flows it must get
 right. System/data/AI mechanics live in their own docs (see [README.md](README.md)).
 
-> **Design authority.** The settled product contract is
-> [CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md). This
-> brief restates it for daily use; where the two disagree, the handoff wins.
+> This document is the **product authority** — what Farm Friend is for, who it serves, and the
+> launch scope. It carries no build status: what is actually built and open lives in
+> [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
 
 ## North star: current information, without VIGA doing data entry
 
@@ -211,16 +211,35 @@ merely another farm-stand color.
 - Customer reports never alter inventory without farmer confirmation.
 - Consent, privacy, authority, and delivery invariants survive hostile model behavior.
 
+## Product decisions since settled
+
+These were open at the clean-room reset and are now decided. Recorded here because the decision, not
+just the code, is the product answer:
+
+- **Raw-message retention: 30 days.** A body is written with an expiry that far outlives any
+  conversation, and a scheduled purge clears it — see DATA_ARCHITECTURE §privacy & retention. A
+  thread under open safety review is exempt only until the flag is disposed of.
+- **Freshness threshold: 48 hours.** Past it a listing is shown with a stale warning. It never
+  disappears — that is the honor-system reality above, not a tuning knob.
+- **Inventory proposals: patch language in, complete snapshot out.** Farmers speak in edits; code
+  applies them to the current snapshot and the farmer confirms the *complete* result, so every
+  confirmation publishes one immutable revision (ARCHITECTURE §confirmation).
+- **Admin sign-in: a magic link to a known administrator's email address.** The link proves an
+  address; a durable `administrators` lookup — never the link — confers authority.
+- **Model provider: one attested vendor behind the seam**, approved through the provider privacy
+  gate rather than chosen by preference (AI_ARCHITECTURE §provider privacy gate).
+- **Seed geocoding: no provider at all.** Coordinates are validated seed input; an unresolved
+  location becomes an operator task and never a fabricated coordinate.
+- **10DLC campaign alignment: verified against the live console.** The registered keyword set,
+  universal STOP, and the one operational program agree with the parser, and the transcript of
+  console state is what the tests pin.
+
 ## Unresolved launch decisions
 
 Recorded, not resolved; none changes the target architecture:
 
-- exact farmer and admin sign-in experience;
-- raw-message retention period;
-- freshness warning thresholds;
-- proactive farmer-prompt timing and rate caps;
-- initial listing-data entry process;
-- full-snapshot versus patch semantics for farmer inventory proposals;
-- final model, one-time seed-geocoding, and image providers;
-- verification that the registered 10DLC campaign and public compliance pages match the one launch
-  operational program, universal STOP, and the approved launch keyword set.
+- exact **farmer** sign-in and account experience (admin sign-in is settled above);
+- proactive farmer-prompt timing and rate caps — a farmer's preferred cadence is a stated product
+  promise, and the frequency limit that enforces it belongs in code at the dispatch boundary;
+- initial listing-data entry process for stands whose reference input is incomplete;
+- image provider, if farmer photos ship at launch.
