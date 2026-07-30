@@ -93,7 +93,7 @@ export function StandForm({ token }: { token: string }) {
   return (
     <>
       {error !== null && (
-        <p className="stand-error" role="alert">
+        <p className="farmer-form-error" role="alert">
           {error}
         </p>
       )}
@@ -104,24 +104,24 @@ export function StandForm({ token }: { token: string }) {
         stage.step === "declined") && (
         <>
           {stage.step === "published" && (
-            <p className="stand-published" role="status">
+            <p className="farmer-form-published" role="status">
               Your stand is updated. Thank you!
             </p>
           )}
           {stage.step === "declined" && (
-            <p className="stand-note" role="status">
+            <p className="farmer-form-note" role="status">
               Nothing changed. Your listing is as it was.
             </p>
           )}
           {stage.step === "asked" && (
-            <p className="stand-note" role="status">
+            <p className="farmer-form-note" role="status">
               {stage.question}
             </p>
           )}
 
-          <label htmlFor="stand-text">What does your stand have today?</label>
+          <label htmlFor="farmer-form-text">What does your stand have today?</label>
           <textarea
-            id="stand-text"
+            id="farmer-form-text"
             value={text}
             rows={4}
             onChange={(event) => setText(event.target.value)}
@@ -135,11 +135,11 @@ export function StandForm({ token }: { token: string }) {
 
       {stage.step === "confirming" && (
         <>
-          <p className="stand-note">
+          <p className="farmer-form-note">
             <strong>This is exactly what people will see.</strong> Nothing has changed yet.
           </p>
           {/* Code-rendered from the validated snapshot — never model prose. */}
-          <pre className="stand-snapshot">{stage.confirmationText}</pre>
+          <pre className="farmer-form-snapshot">{stage.confirmationText}</pre>
           <button type="button" disabled={busy} onClick={() => void settle(true)}>
             {busy ? "Publishing…" : "Yes, publish this"}
           </button>

@@ -28,7 +28,7 @@ export default async function StandPage({
     // The SAME message for a revoked link, a fabricated one, and a malformed one. Naming the
     // difference would tell whoever holds a copied link whether it was ever real.
     return (
-      <main className="stand">
+      <main className="farmer-form">
         <h1>This link is not active</h1>
         <p>
           It may have been replaced or turned off. Text <strong>LINK</strong> to VIGA Farm
@@ -46,22 +46,22 @@ export default async function StandPage({
   `;
 
   return (
-    <main className="stand">
+    <main className="farmer-form">
       <header>
         <h1>{(locations[0]?.name as string | undefined) ?? "Your stand"}</h1>
-        <p className="stand-note">
+        <p className="farmer-form-note">
           {(farms[0]?.name as string | undefined) ?? ""}
         </p>
       </header>
 
-      <p className="stand-note">
+      <p className="farmer-form-note">
         Type what you have today, the way you would say it. We&apos;ll show you exactly what
         your stand will say, and <strong>nothing changes until you confirm it</strong>.
       </p>
 
       <StandForm token={params.token} />
 
-      <p className="stand-note">
+      <p className="farmer-form-note">
         This link is private — anyone with it can update this stand. If you lose your phone or
         share it by accident, ask VIGA to turn it off.
       </p>
