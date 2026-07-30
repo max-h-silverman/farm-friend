@@ -148,9 +148,9 @@ Full detail — and the tripwires you need before touching anything — in
 - **Never rotate `PHONE_HASH_SALT`** — it is the input to the only lookup key for every phone.
 - **Open, HIGH**: B-024 (a farmer's address published against her written instruction), F-040 (farmer
   onboarding — nothing built, now unblocked).
-- **In review, not pushed**: F-042 — the 212 offering tags are read and rendered to the approved
-  copy on `f-042-offering-tags-reader`. Production still serves the map without them. Styling has
-  not been seen rendered.
+- **Merged, NOT deployed**: F-042 — the 212 offering tags are read and rendered to the approved
+  copy. Production still serves the map without them. **Owed: nobody has looked at the map** — the
+  styling that distinguishes a confirmation from a tag has not been seen rendered.
 - **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
   vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
   **Owed: a physical-handset tap on the contact card.**

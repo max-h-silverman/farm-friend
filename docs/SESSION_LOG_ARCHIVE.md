@@ -1,12 +1,144 @@
 # Farm Friend — Session Log Archive (through 2026-07-28)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-07-30.
+everything older lives here. Last rotated 2026-07-29.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
 architecture documents ([README.md](README.md) is the index). Where an entry here disagrees with the
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
+
+---
+
+## 2026-07-28 — P0 closed except rotation: one-use links, a truthful typecheck, a repaired migration generator
+
+Second go-live tranche. **GL-004, GL-005, GL-006 closed**; P0 now holds only GL-001, whose
+remaining work is max's provider-console rotation. Delegated one item at a time to subagents in
+isolated worktrees, then verified every claim by running it here rather than reading the summary —
+which is what caught the two corrections below.
+
+### GL-004 — the magic link was a signature, and a signature repeats
+
+`verifyMagicToken` was pure HMAC over `{email, issuedAt, expiresAt}`. A signature says "authentic"
+every time it is asked, so every callback inside the 15-minute window minted a fresh session, while
+`sign-in-email.ts` had promised "can be used once" since F-032. A link forwarded, scanned by a mail
+gateway, or sitting in a shared inbox was a working credential for the whole window.
+
+**The fix is a column, not a table.** Each link carries a random 32-byte nonce inside its signed
+payload; the callback stores its SHA-256 in `admin_sessions.magic_nonce_hash` under a unique index,
+written by the *same insert that creates the session*. A link being spent and a session existing
+are the same event, so there is no second record to reconcile and no window where one exists
+without the other.
+
+The rejected design is the more interesting half. A separate credential table would have to be
+written at **mint** time — that is, from the internet, by anyone who can guess an operator's
+address. That is both an unauthenticated write path and a per-address row whose presence is exactly
+the membership oracle `/api/auth/request-link` exists to deny. Minting still writes nothing; the row
+appears only when a link is *opened*, by someone already holding a validly signed one.
+
+The arbiter is `on conflict (magic_nonce_hash) do nothing returning id`, where the empty result is
+the signal someone else won — not a check-then-write, since `for update` cannot lock a row that does
+not exist yet (the B-011 lesson). Authority is re-read **before** the link is spent, so a revoked
+operator's link is refused without being burned. `link_already_used` and `not_an_administrator` both
+render 401, so a replayed link is not a probe for which links were genuine. Legacy tokens with no
+nonce fail closed as `malformed` rather than defaulting to a placeholder — a placeholder would give
+every such link the same identity, so opening one would consume all of them.
+
+**A race test that could not fail, caught by sabotage.** The first draft ran eight `Promise.all`
+calls through one `Db` handle, whose pool holds three connections — so each transaction completed
+before the next began and the read-then-write sabotage passed untouched. Each claimant now gets its
+**own connection** plus a barrier so all eight reach the insert together. This is the `Promise.all`
+rule with a pool-size twist the standing rules did not previously state.
+
+### GL-005 — the typecheck was blind to the whole web app, and hid a production defect
+
+Root `tsconfig.json` referenced only the four packages, so "typecheck passes" was a claim about
+`packages/`, never `apps/web`. Behind that blindness sat **57** errors — and 17 of them were a
+latent **production** defect, not test noise: `type Sql = ReturnType<typeof postgres>` picks the
+last of two overloads and evaluates its conditional against the *unresolved* generic, collapsing the
+type map to `never`, so the tagged template accepted **no parameters at all**. `sql`…${id}`` failed
+to typecheck while working perfectly at runtime. `Sql`/`Tx` now live once in `packages/db/src/sql.ts`
+(`Tx` had separately drifted to a contravariantly incompatible type map).
+
+The other 27 were fixed by **narrowing the production signature rather than widening the test's
+lie**: `resolveConfig`/`createAppContext` now take `Record<string, string | undefined>`, which is all
+they ever read, and which `resolveSmsConfig` already used — so this made two conventions agree
+rather than adding a third. Nothing suppressed: zero `@ts-expect-error`, `any`, or `exclude` globs
+added.
+
+Root `typecheck` is now `typecheck:packages && typecheck:web`, two halves because
+`apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference it. **Proof it is
+genuinely truthful:** a deliberate `TS2322` in a web file — GL-004's callback route, which the
+subagent never saw — exits **1** under the new typecheck and **0** under the old bare `tsc -b`.
+
+### GL-006 — the migration generator was guessing at history
+
+Seven migrations journaled, snapshots stopped at `0001`. Reproduced before fixing: a generation
+trial stopped and asked *"Is message_category column in outbox_work table created or renamed from
+another column?"* — a column migration `0002` added. Snapshot `0001` described 22 tables against a
+schema of 25.
+
+**Applying was never affected**, which is precisely what kept this invisible: the integration suite
+builds a database from empty and applies all seven on every run. Only *generation* was
+untrustworthy, and the danger is not that the tool errors out — it is that a wrong answer to a
+rename prompt writes a plausible migration that re-creates existing tables or renames a column out
+from under production data.
+
+**Repaired with one file.** Reading drizzle-kit 0.22.8's source rather than assuming: it diffs
+against `snapshots[snapshots.length - 1]` **only** (`preparePrevSnapshot`) and enumerates snapshots
+from the directory listing, not the journal. So a single current `0006_snapshot.json` chained onto
+`0001` is the complete fix. Reconstructing the five missing intermediates was deliberately **not**
+done — five point-in-time pictures nobody can verify against a database would be fabricating
+evidence rather than repairing metadata, and the tripwire asserts the rule the tool actually has
+rather than a stricter invented one. No `.sql` file changed: the md5 over all seven is byte-identical
+before and after. The trial now reports *"No schema changes, nothing to migrate."*
+
+### Two subagent claims that did not survive verification
+
+Both found by running the thing rather than reading the report, which is the whole reason the
+verify-don't-relay rule exists.
+
+- **"`npm run lint` exits 0 while printing errors"** — filed as a proposed new item. It does not: a
+  deliberate unused import produces `✖ 1 problem` and **exit 1**. The likely cause is reading a
+  piped exit status (`${PIPESTATUS}` vs `$?`). No item filed.
+- **CLAUDE.md's "54 web type errors"** was stale; the real baseline was **57**, confirmed twice
+  before GL-005 started.
+
+Also corrected mid-session: the main agent committed the three agent worktree directories into the
+repo by accident (`git add -A` swept them in). Removed from the commit and `.claude/worktrees/`
+added to `.gitignore` so it cannot recur.
+
+### Deployed and migrated, verified by effect
+
+Pushed straight to `main` (max's call — the work was already verified, and the repo's Vercel check
+is permanently red for unrelated reasons). Migration **0006** applied to production and the CLI
+deploy promoted, in that order, so production never ran code ahead of its schema.
+
+The connection string came from max — **Vercel's `DATABASE_URL` is unreadable** (`vercel env pull`
+returns `[SENSITIVE]`), which is a standing constraint, not a one-off. Before migrating, the target
+was **fingerprinted** rather than trusted: `neondb`, 6 migrations applied, 21 `sms_messages` and 21
+`outbox_work` rows from live testing, 0 stands. That is unmistakably production and not a copy — the
+discipline the reset-script near-miss taught. max used the **direct (non-pooled)** Neon string, which
+is the right endpoint for DDL and does not affect what the app runs.
+
+Proof by effect after the deploy: 7 migrations, `magic_nonce_hash` present and nullable,
+`admin_sessions_one_per_magic_nonce` created; health 200, `/api/public/stands` 200 `{"stands":[]}`,
+cron **401**, webhook **401**, admin **403**. The webhook's 401 rather than 500 is the load-bearing
+check — under the three-way diagnostic it proves configuration still resolves. Sign-in returned
+**202 for every address**, including a real administrator address, a stranger, and a malformed one,
+so enumeration resistance survived; the callback answered **401** to a garbage token rather than
+500, which is what a schema mismatch would have produced.
+
+`apps/web/vercel.json`'s one-minute `crons` block was stripped **uncommitted** for the Hobby deploy
+and restored immediately after, per the standing procedure.
+
+**Honest limit on the GL-004 proof:** production holds **0 administrators**, so the one-use replay
+was not exercised end to end against the live deployment. It is proven by the integration suite and
+by hand-run sabotage locally, and the deployed code path is confirmed only as far as "does not error
+against the real schema." Closing that gap needs a bootstrapped administrator, which is a deliberate
+authorization grant rather than wrap housekeeping.
+
+---
 
 ---
 

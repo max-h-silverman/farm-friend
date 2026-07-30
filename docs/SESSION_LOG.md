@@ -6,12 +6,124 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 36. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 37. A log too large to open
 mid-session defeats its own purpose.
 
 ---
 
-## 2026-07-30 (latest) — B-025 was the minifier, not the network; B-023 closed; F-042's vocabulary settled
+## 2026-07-29 (latest) — F-042 built: the offering tags reach customers, and a rule that had to leave the JSX
+
+One item, built to copy that was already approved, so the interesting part is not the vocabulary —
+it was settled last session — but **where the load-bearing rule ended up living, and why it could not
+stay in the markup.**
+
+### The defect: seeding was necessary and not sufficient
+
+212 offering tags across 33 of 35 stands, and no customer could see one of them.
+`listPublicStands` never selected `sales_location_offerings`, so the API exposed no offerings field
+and every tagged stand rendered *"No listing yet"* while the database knew it sold eggs. F-041
+delivered the data and proved it by effect; this was the reader half, filed separately so the
+distinction stayed visible.
+
+### The rule had to leave the JSX to be testable at all
+
+max's approved copy rests on one rule: **"Usually sells" never takes a timestamp**, because a date
+beside it reads as a confirmation nobody made — the same class of failure B-013 caught on the recency
+fields.
+
+The obvious implementation is a conditional chain in `stand-map.tsx`. That was rejected on discovery
+that **this repo has no component-rendering harness** — no jsdom, no testing-library, and
+`stand-map.tsx` has never had a test. A rule that load-bearing sitting in untested markup is a
+guarantee that is not a tested invariant, which by the project's own standard is not a guarantee.
+
+So the whole "which lines does this stand get" decision moved into `standListingLines`, a pure
+function in `map-view.ts` — the module that already exists precisely because "everything that could
+be WRONG about the map is decided here, where a test can hold it to account." `stand-map.tsx` now
+prints its output and chooses nothing: no `stand.updated` check, no `items.length` check, no
+`visitability` check. `detail` is settable only on a confirmed line, and the usual line's label is a
+constant with no interpolation available to it.
+
+The function subsumed the pre-existing F-038/B-013 conditional chain too, so there is one mechanism
+rather than two — the confirmed-empty sentence and the contact-only sentence are now line *kinds*
+alongside the new ones.
+
+### One arithmetic, two voices
+
+The map's heading needed "Confirmed 4 hours ago" while SMS says "updated 4 hours ago", and
+`renderRecency` hard-coded the verb. Two options: slice the verb off the string downstream, or split
+the arithmetic. Split it — `renderElapsed` renders the bare phrase and `renderRecency` is that phrase
+prefixed. A client stripping a verb off a sentence would be one wording change from printing garbage.
+
+**This is why `evals:live` was not required, and the claim is measured rather than argued:**
+`renderRecency`'s output was compared against the previous implementation across **57,601
+minute-by-minute cases over 40 days — byte-identical**. No seam projection, schema, or output
+contract changed; `packages/ai` references none of these symbols.
+
+### The cross product that a second join would have caused
+
+Selecting the tags via `left join sales_location_offerings` alongside `inventory_entries` makes the
+query a **cross product**: 3 tags × 2 confirmed items is 6 rows, and the accumulating loop would push
+each item three times and each tag twice. Every duplicate reads as a real second item on the card.
+Aggregated in a subquery instead, keeping the row grain at one-per-inventory-entry, which is what the
+loop already assumed. `coalesce(…, array[]::text[])` because an aggregate over no rows is NULL, not
+an empty array — and the untagged stands are the majority, so that is the common path.
+
+### A divergence found on the way through
+
+`page.tsx` held a **second hand-written copy of the wire format**, and the copies had already drifted:
+the page sent `updated: undefined` and `stale: undefined` as *present keys* where the API omitted
+them, so "nobody has confirmed this" reached the browser differently depending on which reader
+produced it. Both now call one `serializePublicStand`, typed to `PublicStandPayload` so the compiler
+holds the contract instead of two object literals agreeing by habit.
+
+### The asymmetry that is deliberate, and the sabotage that caught it
+
+`usuallySells` is **always sent, `[]` when empty**; the three recency fields are **absent when
+empty**. That looks like an inconsistency worth tidying, and it is load-bearing: an empty tag list is
+a complete honest answer, whereas "no confirmation" and "confirmed nothing" are different facts only
+absence can distinguish.
+
+**20 sabotages were run; 19 were caught immediately. One survived** — omitting `usuallySells` when
+empty passed the *entire* suite, unit and integration, because the renderer treats absent and empty
+alike by design and no test asserted the wire shape. That is exactly the "tidy up the asymmetry"
+regression, and it would have reached production silently. It now has its own assertion, anchored on
+`"usuallySells" in stand` rather than a value comparison.
+
+### Verified by effect, against the real corpus
+
+Not by a passing suite. A local database built from `maps/offerings-proposals.json` — **34 stands, 33
+tagged, 212 tags, matching the production fingerprint** — served through the real app, then the
+*rendered bytes* read: 33 "Usually sells:" + 33 "Nothing confirmed recently.", exactly **1** "No
+listing yet", and **no elapsed phrase within 400 characters of any usual label**. Then a real
+revision published through the real proposal→confirmation chain on a 7-tag stand with 2 items
+confirmed produced *"Confirmed 4 hours ago: flowers, duck eggs"* over *"Also usually sells:
+vegetables, fruit, chicken eggs, plant starts, leafy greens"* — the confirmed items subtracted
+case-insensitively, because tags come from VIGA's form text and confirmations arrive in a farmer's
+own SMS and nothing normalizes casing between them.
+
+### A tripwire worth recording
+
+Running `next dev` **clobbers `.next/`**, and B-025's `contact-card-build.test.ts` reads the
+production build output. It fails with "no built chunk containing BEGIN:VCARD" — which looks like a
+CRLF regression on the very thing B-025 just fixed, and is purely environmental. A rebuild clears it.
+Noted in CURRENT_STATE so it is not re-diagnosed.
+
+### Owed
+
+**Nobody has looked at the map.** The two voices are styled to differ at a glance — filled green
+chips for a confirmation, outlined for a tag — but that CSS has **not been seen rendered**: the Chrome
+extension was not connected when the check was attempted, twice. The copy, counts, ordering, and the
+no-timestamp rule are all verified on the rendered bytes; the visual distinction is not.
+
+F-040 (farmer onboarding) was opened next and stopped before any code: its five pieces — SMS request,
+VIGA approval, the "you're set up" text, the farmer web form behind a never-expiring link, and
+revocation — split naturally, and the web form is the only part that creates a new risk surface while
+also being the only part a farmer does not strictly need (SMS publishing already works). That scope
+call is max's and is the first thing the next session settles.
+
+---
+
+## 2026-07-30 — B-025 was the minifier, not the network; B-023 closed; F-042's vocabulary settled
 
 Three items, each verified by effect rather than by a passing command. The headline: **B-025's filed
 diagnosis was wrong in both directions**, and following it would have produced a fix that changed
@@ -969,136 +1081,3 @@ running against the same Postgres.
 P1 (GL-007 onward) is next and unstarted. **GL-001 credential rotation remains the hard go-live
 blocker**, now with a corrected procedure. Two optional Telnyx console edits under GL-034. GL-021
 will consume `estimateSmsSegments`, kept for exactly that.
-
----
-
-## 2026-07-28 — P0 closed except rotation: one-use links, a truthful typecheck, a repaired migration generator
-
-Second go-live tranche. **GL-004, GL-005, GL-006 closed**; P0 now holds only GL-001, whose
-remaining work is max's provider-console rotation. Delegated one item at a time to subagents in
-isolated worktrees, then verified every claim by running it here rather than reading the summary —
-which is what caught the two corrections below.
-
-### GL-004 — the magic link was a signature, and a signature repeats
-
-`verifyMagicToken` was pure HMAC over `{email, issuedAt, expiresAt}`. A signature says "authentic"
-every time it is asked, so every callback inside the 15-minute window minted a fresh session, while
-`sign-in-email.ts` had promised "can be used once" since F-032. A link forwarded, scanned by a mail
-gateway, or sitting in a shared inbox was a working credential for the whole window.
-
-**The fix is a column, not a table.** Each link carries a random 32-byte nonce inside its signed
-payload; the callback stores its SHA-256 in `admin_sessions.magic_nonce_hash` under a unique index,
-written by the *same insert that creates the session*. A link being spent and a session existing
-are the same event, so there is no second record to reconcile and no window where one exists
-without the other.
-
-The rejected design is the more interesting half. A separate credential table would have to be
-written at **mint** time — that is, from the internet, by anyone who can guess an operator's
-address. That is both an unauthenticated write path and a per-address row whose presence is exactly
-the membership oracle `/api/auth/request-link` exists to deny. Minting still writes nothing; the row
-appears only when a link is *opened*, by someone already holding a validly signed one.
-
-The arbiter is `on conflict (magic_nonce_hash) do nothing returning id`, where the empty result is
-the signal someone else won — not a check-then-write, since `for update` cannot lock a row that does
-not exist yet (the B-011 lesson). Authority is re-read **before** the link is spent, so a revoked
-operator's link is refused without being burned. `link_already_used` and `not_an_administrator` both
-render 401, so a replayed link is not a probe for which links were genuine. Legacy tokens with no
-nonce fail closed as `malformed` rather than defaulting to a placeholder — a placeholder would give
-every such link the same identity, so opening one would consume all of them.
-
-**A race test that could not fail, caught by sabotage.** The first draft ran eight `Promise.all`
-calls through one `Db` handle, whose pool holds three connections — so each transaction completed
-before the next began and the read-then-write sabotage passed untouched. Each claimant now gets its
-**own connection** plus a barrier so all eight reach the insert together. This is the `Promise.all`
-rule with a pool-size twist the standing rules did not previously state.
-
-### GL-005 — the typecheck was blind to the whole web app, and hid a production defect
-
-Root `tsconfig.json` referenced only the four packages, so "typecheck passes" was a claim about
-`packages/`, never `apps/web`. Behind that blindness sat **57** errors — and 17 of them were a
-latent **production** defect, not test noise: `type Sql = ReturnType<typeof postgres>` picks the
-last of two overloads and evaluates its conditional against the *unresolved* generic, collapsing the
-type map to `never`, so the tagged template accepted **no parameters at all**. `sql`…${id}`` failed
-to typecheck while working perfectly at runtime. `Sql`/`Tx` now live once in `packages/db/src/sql.ts`
-(`Tx` had separately drifted to a contravariantly incompatible type map).
-
-The other 27 were fixed by **narrowing the production signature rather than widening the test's
-lie**: `resolveConfig`/`createAppContext` now take `Record<string, string | undefined>`, which is all
-they ever read, and which `resolveSmsConfig` already used — so this made two conventions agree
-rather than adding a third. Nothing suppressed: zero `@ts-expect-error`, `any`, or `exclude` globs
-added.
-
-Root `typecheck` is now `typecheck:packages && typecheck:web`, two halves because
-`apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference it. **Proof it is
-genuinely truthful:** a deliberate `TS2322` in a web file — GL-004's callback route, which the
-subagent never saw — exits **1** under the new typecheck and **0** under the old bare `tsc -b`.
-
-### GL-006 — the migration generator was guessing at history
-
-Seven migrations journaled, snapshots stopped at `0001`. Reproduced before fixing: a generation
-trial stopped and asked *"Is message_category column in outbox_work table created or renamed from
-another column?"* — a column migration `0002` added. Snapshot `0001` described 22 tables against a
-schema of 25.
-
-**Applying was never affected**, which is precisely what kept this invisible: the integration suite
-builds a database from empty and applies all seven on every run. Only *generation* was
-untrustworthy, and the danger is not that the tool errors out — it is that a wrong answer to a
-rename prompt writes a plausible migration that re-creates existing tables or renames a column out
-from under production data.
-
-**Repaired with one file.** Reading drizzle-kit 0.22.8's source rather than assuming: it diffs
-against `snapshots[snapshots.length - 1]` **only** (`preparePrevSnapshot`) and enumerates snapshots
-from the directory listing, not the journal. So a single current `0006_snapshot.json` chained onto
-`0001` is the complete fix. Reconstructing the five missing intermediates was deliberately **not**
-done — five point-in-time pictures nobody can verify against a database would be fabricating
-evidence rather than repairing metadata, and the tripwire asserts the rule the tool actually has
-rather than a stricter invented one. No `.sql` file changed: the md5 over all seven is byte-identical
-before and after. The trial now reports *"No schema changes, nothing to migrate."*
-
-### Two subagent claims that did not survive verification
-
-Both found by running the thing rather than reading the report, which is the whole reason the
-verify-don't-relay rule exists.
-
-- **"`npm run lint` exits 0 while printing errors"** — filed as a proposed new item. It does not: a
-  deliberate unused import produces `✖ 1 problem` and **exit 1**. The likely cause is reading a
-  piped exit status (`${PIPESTATUS}` vs `$?`). No item filed.
-- **CLAUDE.md's "54 web type errors"** was stale; the real baseline was **57**, confirmed twice
-  before GL-005 started.
-
-Also corrected mid-session: the main agent committed the three agent worktree directories into the
-repo by accident (`git add -A` swept them in). Removed from the commit and `.claude/worktrees/`
-added to `.gitignore` so it cannot recur.
-
-### Deployed and migrated, verified by effect
-
-Pushed straight to `main` (max's call — the work was already verified, and the repo's Vercel check
-is permanently red for unrelated reasons). Migration **0006** applied to production and the CLI
-deploy promoted, in that order, so production never ran code ahead of its schema.
-
-The connection string came from max — **Vercel's `DATABASE_URL` is unreadable** (`vercel env pull`
-returns `[SENSITIVE]`), which is a standing constraint, not a one-off. Before migrating, the target
-was **fingerprinted** rather than trusted: `neondb`, 6 migrations applied, 21 `sms_messages` and 21
-`outbox_work` rows from live testing, 0 stands. That is unmistakably production and not a copy — the
-discipline the reset-script near-miss taught. max used the **direct (non-pooled)** Neon string, which
-is the right endpoint for DDL and does not affect what the app runs.
-
-Proof by effect after the deploy: 7 migrations, `magic_nonce_hash` present and nullable,
-`admin_sessions_one_per_magic_nonce` created; health 200, `/api/public/stands` 200 `{"stands":[]}`,
-cron **401**, webhook **401**, admin **403**. The webhook's 401 rather than 500 is the load-bearing
-check — under the three-way diagnostic it proves configuration still resolves. Sign-in returned
-**202 for every address**, including a real administrator address, a stranger, and a malformed one,
-so enumeration resistance survived; the callback answered **401** to a garbage token rather than
-500, which is what a schema mismatch would have produced.
-
-`apps/web/vercel.json`'s one-minute `crons` block was stripped **uncommitted** for the Hobby deploy
-and restored immediately after, per the standing procedure.
-
-**Honest limit on the GL-004 proof:** production holds **0 administrators**, so the one-use replay
-was not exercised end to end against the live deployment. It is proven by the integration suite and
-by hand-run sabotage locally, and the deployed code path is confirmed only as far as "does not error
-against the real schema." Closing that gap needs a bootstrapped administrator, which is a deliberate
-authorization grant rather than wrap housekeeping.
-
----
-

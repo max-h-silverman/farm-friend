@@ -6,13 +6,17 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-29** (`f-042-offering-tags-reader` @ `2b35955`, **not pushed**): `npm test`
-**621/621** (62 files); `npm run test:integration` **345/345** (20 files) on real Postgres 16, all 8
-migrations from empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial
-29/29. `evals:live` **not** re-run and not required — F-042 touched no seam projection, schema, or
-output contract, and `renderRecency`'s output is byte-identical to its previous implementation
-across 57,601 minute-by-minute cases; last live results stand (containment 4/4, quality 6/6 on
-Mistral Small 24B). The infra assertion suites were not re-run — no infra file changed.
+**Verified 2026-07-29** (`main`, F-042 merged): `npm test` **621/621** (62 files);
+`npm run test:integration` **345/345** (20 files) on real Postgres 16, all 8 migrations from empty;
+typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29. `evals:live`
+**not** re-run and not required — F-042 touched no seam projection, schema, or output contract, and
+`renderRecency`'s output is byte-identical to its previous implementation across 57,601
+minute-by-minute cases; last live results stand (containment 4/4, quality 6/6 on Mistral Small 24B).
+The infra assertion suites were not re-run — no infra file changed.
+
+**Merged but NOT deployed.** F-042 is on `main`; the deployed revisions below predate it, so
+production still serves the map without the offering tags. Deploying is a separate authorized step
+(RUNBOOK §Deploy).
 
 > **`.next/` is a shared artifact.** `contact-card-build.test.ts` (B-025) reads the **production
 > build output**, so running `next dev` clobbers it and the test fails with "no built chunk
@@ -37,8 +41,8 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
   `parseCommand` returns `none`, so "no model on the compliance path" is structural.
 - **Public map**, model-free in its module graph, reading the same published records as SMS.
   35 stands seeded, **34 public** (see B-024), **212 offering tags** across 33. The tags are read
-  and rendered as of F-042 — **on the branch, not yet deployed**: production still serves the map
-  without them.
+  and rendered as of F-042 — **merged, not yet deployed**: production still serves the map without
+  them.
 - **Operator surface** — farm approval, flag review, stock-out triage, stand-data questions. Built,
   deployed, and now **reachable in principle**: one administrator exists
   (`board@vigavashon.org`, authorized 2026-07-30). No link is *delivered* until F-031, so signing in
@@ -119,8 +123,9 @@ fixtures supply what production never creates.
   stand) is an open product question, and **no producer/host relationship was invented for one row**.
   **`extraNotes` is read only by `offering-type.ts`** — nothing consults it for visibility, so a
   second such instruction would republish. Exactly one instance corpus-wide.
-- **F-042 — BUILT 2026-07-29, in review on `f-042-offering-tags-reader` (`2b35955`), NOT pushed.**
-  The 212 tags now reach customers. `listPublicStands` selects them through an **aggregated
+- **F-042 — BUILT and MERGED to `main` 2026-07-29 (`2b35955`). NOT DEPLOYED.**
+  The 212 tags now reach customers *in the code*; production has not been deployed, so the live map
+  still shows none of them. `listPublicStands` selects them through an **aggregated
   subquery** — a second LEFT JOIN would cross-product and repeat each confirmed item once per tag —
   and serves them as `usuallySells`, **always present, `[]` when empty**. That asymmetry with the
   absent-when-empty recency fields is load-bearing: it is what distinguishes "no tags and no
