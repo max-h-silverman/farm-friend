@@ -68,8 +68,8 @@ not *what* is true now.
 - **[GCP_MIGRATION_PLAN.md](GCP_MIGRATION_PLAN.md)** — July 28–29, 2026 migration rationale,
   implementation plan, cutover, and retirement record. The live deploy procedure is in RUNBOOK.
 - **[SESSION_LOG.md](SESSION_LOG.md)** / **[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md)** —
-  dated build history, newest first; entries older than the newest eight rotate into the archive.
-  Forensic detail on defects and their fixes.
+  dated build history, newest first. The log keeps the newest eight entries; older ones rotate into
+  the archive. Forensic detail on defects and their fixes.
 
 ## Building X → read these
 

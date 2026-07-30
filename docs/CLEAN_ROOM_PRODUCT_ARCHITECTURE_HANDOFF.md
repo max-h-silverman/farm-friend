@@ -18,7 +18,7 @@
 > [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) (durable data) ·
 > [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) (model trust boundary) ·
 > [SMS_COMPLIANCE.md](SMS_COMPLIANCE.md) (consent and carrier).
-> What is actually **built** is [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
+> What is actually **built** is [CURRENT_STATE.md](CURRENT_STATE.md).
 >
 > **Much of what follows is now false as a description of the repository.** The Phase 3 audit below
 > describes code that has since been deleted or built, the refactor proposal has been carried out,

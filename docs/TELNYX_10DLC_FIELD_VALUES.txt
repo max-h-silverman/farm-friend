@@ -9,8 +9,10 @@ copy advertising two retired confirmation tokens. Nothing was ever registered wi
 Change this file ONLY to match what the console actually shows. If you want to change the
 campaign, change it in the console first, then transcribe the result here.
 
-packages/core/src/sms/commands.test.ts reads the KEYWORDS fields below and fails if code and
-registration disagree in either direction. Keep the field labels and one-line comma format.
+packages/core/src/sms/commands.test.ts reads the "Opt in keywords", "Opt out keywords" and
+"Help keywords" fields below and fails if code and registration disagree in either direction.
+It matches each label on its own line with the comma-separated values on the NEXT line — keep
+that exact shape or the test throws "registered field not found".
 
 Do not include any old myco.software, web.app, volunteer, gleaning, MUTE, or Plum Forest Farm copy.
 
