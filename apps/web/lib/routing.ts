@@ -1,18 +1,24 @@
 import {
   parseCommand,
   consentTransitionFor,
+  farmerLinkUrl,
+  renderFarmerLinkMessage,
   ALREADY_JOINED_RESPONSE,
+  FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   REGISTERED_HELP_AUTO_RESPONSE,
   REGISTERED_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
   renderClarificationRequest,
   type Clock,
   type ComplianceKeyword,
+  type FarmerKeyword,
   type LaunchMessageCategory,
 } from "@farm-friend/core";
 import {
   applyConsentTransition,
   confirmInventoryPublication,
+  issueFarmerLink,
+  openFarmerOnboardingRequest,
   type Db,
 } from "@farm-friend/db";
 
@@ -55,6 +61,12 @@ export type RouteOutcome =
   | { kind: "help" }
   | { kind: "flag"; flagId: string }
   | { kind: "confirmation"; status: string }
+  /**
+   * A farmer product keyword (F-040). `status` says what became of it — an onboarding
+   * request opened or already open, a link issued, or a refusal for a sender who is not an
+   * authorized farmer.
+   */
+  | { kind: "farmer"; keyword: FarmerKeyword; status: string }
   | { kind: "free_text"; handled: "farmer" | "customer" | "none" }
   /**
    * A stale event this router declined to act on. The caller finalizes it as `rejected`
@@ -75,6 +87,13 @@ export interface RouteResult {
 export interface RouteDeps {
   db: Db;
   clock: Clock;
+  /**
+   * The CONFIGURED public origin a farmer's standing link is built against (F-040). Never
+   * derived from the request: a `Host:` header an attacker controls would otherwise let this
+   * text a farmer a link pointing at the attacker's origin, which is a credential-harvesting
+   * primitive against the one credential that has no password behind it.
+   */
+  publicBaseUrl: string;
   /**
    * Handle a message that is NOT any deterministic keyword or token. Invoked only after
    * `parseCommand` returns `kind: "none"`; this is the only path on which a model may run.
@@ -187,6 +206,13 @@ export async function routeInboundMessage(
     return routeCommitment(deps, input, command.token);
   }
 
+  // F-040 — the farmer product keywords, still upstream of any model call. Neither grants
+  // anything: SIGNUP opens a queue entry VIGA acts on, and LINK is refused unless the sender
+  // is ALREADY an authorized farmer.
+  if (command.kind === "farmer") {
+    return routeFarmerKeyword(deps, input, command.keyword);
+  }
+
   // STEP 4 — and only now may a model run.
   const handled = await deps.freeText({
     senderHash: input.senderHash,
@@ -297,6 +323,117 @@ async function routeCompliance(
         ]
       : [],
   };
+}
+
+/**
+ * The farmer product keywords (F-040), handled deterministically and upstream of the model.
+ *
+ * **Neither keyword grants anything**, and that is the property to preserve if this is ever
+ * extended:
+ *
+ *   - `SIGNUP` writes a row in a table with no grant column. VIGA always approves, because a
+ *     phone proves possession of a phone rather than ownership of a farm. The reply says the
+ *     ask was passed on, and deliberately does not read as a yes.
+ *   - `LINK` mints a standing link ONLY for a sender who is already an authorized farmer.
+ *     A stranger texting LINK gets the same nothing they started with — the authorization is
+ *     the gate, and this path cannot create one.
+ *
+ * The link reply is `inventory_prompt`, a proactive category: Farm Friend is handing over a
+ * durable credential, so it rides on the same consent gate as every other proactive message
+ * rather than on the inbound message that asked for it.
+ */
+async function routeFarmerKeyword(
+  deps: RouteDeps,
+  input: RouteInput,
+  keyword: FarmerKeyword,
+): Promise<RouteResult> {
+  if (keyword === "SIGNUP") {
+    const opened = await openFarmerOnboardingRequest(deps.db, {
+      contactHash: input.senderHash,
+      occurredAt: input.occurredAt,
+    });
+
+    // The same acknowledgement either way. A farmer who texts twice because nothing visibly
+    // happened is told the same true thing, and the reply never reveals queue state.
+    return {
+      outcome: { kind: "farmer", keyword, status: opened.status },
+      replies: [
+        {
+          body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+          // Answering the sender's own message, so it rides on that message.
+          category: "required_reply",
+          logicalKey: `signup-ack-${input.providerEventId}`,
+        },
+      ],
+    };
+  }
+
+  // LINK. The authorization is the gate: this resolves the sender's OWN live authorization
+  // and refuses if there is none. Nothing here can create one.
+  const authorization = await findLiveFarmerAuthorization(deps.db, input.senderHash);
+  if (authorization === null) {
+    // Not an authorized farmer. Answered with the signup path rather than silence, because
+    // a farmer who texts LINK before being set up is asking the right question at the wrong
+    // time — and a customer who texts it learns nothing about who is authorized.
+    return {
+      outcome: { kind: "farmer", keyword, status: "not_authorized" },
+      replies: [
+        {
+          body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+          category: "required_reply",
+          logicalKey: `link-refused-${input.providerEventId}`,
+        },
+      ],
+    };
+  }
+
+  const issued = await issueFarmerLink(deps.db, {
+    authorizationId: authorization.authorizationId,
+    occurredAt: input.occurredAt,
+  });
+  if (issued.status !== "issued") {
+    // The authorization was revoked between the read and the write. Nothing was minted.
+    return {
+      outcome: { kind: "farmer", keyword, status: issued.status },
+      replies: [],
+    };
+  }
+
+  return {
+    outcome: { kind: "farmer", keyword, status: "issued" },
+    replies: [
+      {
+        body: renderFarmerLinkMessage(
+          farmerLinkUrl(deps.publicBaseUrl, issued.token),
+        ),
+        // Proactive: this hands over a durable credential, so it rides on the standing
+        // consent gate rather than on the inbound message that asked for it.
+        category: "inventory_prompt",
+        // Bound to the LINK row, so a replayed inbound event reuses the outbox row rather
+        // than texting a second credential.
+        logicalKey: `farmer-link-${input.providerEventId}`,
+      },
+    ],
+  };
+}
+
+/** The sender's own live authorization, or null. Code's decision, never a model's. */
+async function findLiveFarmerAuthorization(
+  db: Db,
+  senderHash: string,
+): Promise<{ authorizationId: string } | null> {
+  const rows = await db.sql`
+    select auth.id
+    from farmer_authorizations as auth
+    join contacts as contact on contact.id = auth.contact_id
+    where contact.phone_hash = ${senderHash} and auth.revoked_at is null
+    order by auth.authorized_at asc
+  `;
+  // A sender authorized for several farms is not guessed at: which farm a link opens decides
+  // whose listing a holder can change. `resolveFarmerLink` refuses a multi-stand farm for the
+  // same reason, one layer down.
+  if (rows.length !== 1) return null;
+  return { authorizationId: rows[0]?.id as string };
 }
 
 async function routeCommitment(

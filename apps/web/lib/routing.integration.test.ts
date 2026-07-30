@@ -283,6 +283,8 @@ describe("inbound routing end to end (integration)", () => {
       interpreter: createInventoryInterpreter(provider),
       inquiry: createInquiryModel(provider),
       clock: new FixedClock(at(1)),
+      // F-040: configured origin for a farmer standing link. Never a request header.
+      publicBaseUrl: "https://farmfriend.example",
     });
     return provider;
   }
@@ -696,12 +698,16 @@ describe("inbound routing end to end (integration)", () => {
           interpreter: createInventoryInterpreter(new ForbiddenProvider()),
           inquiry: createInquiryModel(new ForbiddenProvider()),
           clock: new FixedClock(at(1)),
+          // F-040: configured origin for a farmer standing link. Never a request header.
+          publicBaseUrl: "https://farmfriend.example",
         }),
         runInboundPass({
           db: database(),
           interpreter: createInventoryInterpreter(new ForbiddenProvider()),
           inquiry: createInquiryModel(new ForbiddenProvider()),
           clock: new FixedClock(at(1)),
+          // F-040: configured origin for a farmer standing link. Never a request header.
+          publicBaseUrl: "https://farmfriend.example",
         }),
       ]);
 
@@ -777,6 +783,8 @@ describe("inbound routing end to end (integration)", () => {
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
+        // F-040: configured origin for a farmer standing link. Never a request header.
+        publicBaseUrl: "https://farmfriend.example",
       });
 
       const proposals = await client()`
@@ -817,6 +825,8 @@ describe("inbound routing end to end (integration)", () => {
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
+        // F-040: configured origin for a farmer standing link. Never a request header.
+        publicBaseUrl: "https://farmfriend.example",
       });
 
       // Precondition, asserted rather than assumed: the proposal is genuinely open and
@@ -961,6 +971,8 @@ describe("inbound routing end to end (integration)", () => {
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
+        // F-040: configured origin for a farmer standing link. Never a request header.
+        publicBaseUrl: "https://farmfriend.example",
       });
 
       const work = await client()`
@@ -991,6 +1003,8 @@ describe("inbound routing end to end (integration)", () => {
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
+        // F-040: configured origin for a farmer standing link. Never a request header.
+        publicBaseUrl: "https://farmfriend.example",
       });
 
       // Answering a question is not enrollment: it licenses this reply and nothing later.

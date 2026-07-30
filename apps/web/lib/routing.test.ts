@@ -80,6 +80,9 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   return {
     db,
     clock: new FixedClock(T0),
+    // F-040. A configured origin, because a farmer's standing link is built against it and
+    // must never come from a request header.
+    publicBaseUrl: "https://farmfriend.example",
     freeText: forbiddenFreeText(),
     ...overrides,
   };
@@ -101,7 +104,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       const { db, queries } = recordingDb();
       // freeText throws: reaching it fails this test rather than being asserted about.
       const result = await routeInboundMessage(
-        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        deps({ db }),
         event(word),
       );
 
@@ -121,7 +124,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
   it("answers a STOP with exactly the registered opt-out copy, as required_reply", async () => {
     const { db } = recordingDb();
     const result = await routeInboundMessage(
-      { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+      deps({ db }),
       event("STOP"),
     );
 
@@ -136,7 +139,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
     for (const word of ["JOIN", "START"]) {
       const { db, queries } = recordingDb();
       const result = await routeInboundMessage(
-        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        deps({ db }),
         event(word),
       );
 
@@ -196,7 +199,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       it(`tells a ${state} sender to reply START, and enrolls nobody`, async () => {
         const { db, queries } = dbWithConsentRow(state);
         const result = await routeInboundMessage(
-          { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+          deps({ db }),
           event("JOIN"),
         );
 
@@ -226,7 +229,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       // proves the rule narrowed the right case rather than breaking opt-in outright.
       const { db, queries } = recordingDb();
       const result = await routeInboundMessage(
-        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        deps({ db }),
         event("JOIN"),
       );
 
@@ -267,7 +270,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       const db = { sql, orm: {}, close: async () => {} } as unknown as Db;
 
       const result = await routeInboundMessage(
-        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        deps({ db }),
         event("JOIN"),
       );
 
@@ -282,7 +285,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       // we cannot see. It gets the registered opt-in copy, never "reply START".
       const { db } = dbWithConsentRow("stopped");
       const result = await routeInboundMessage(
-        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        deps({ db }),
         event("START"),
       );
 
@@ -295,7 +298,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
     for (const word of ["HELP", "INFO"]) {
       const { db, queries } = recordingDb();
       const result = await routeInboundMessage(
-        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        deps({ db }),
         event(word),
       );
 
@@ -312,7 +315,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
   it("routes FLAG to a durable review item without a model call", async () => {
     const { db, queries } = recordingDb([{ id: "flag-1" }]);
     const result = await routeInboundMessage(
-      { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+      deps({ db }),
       event("FLAG"),
     );
 
@@ -327,7 +330,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       // No open proposal: the token commits nothing and is NOT reinterpreted as free text.
       const { db } = recordingDb([]);
       const result = await routeInboundMessage(
-        { db, clock: new FixedClock(T0), freeText: forbiddenFreeText() },
+        deps({ db }),
         event(token),
       );
 
@@ -367,7 +370,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
     const { db, queries } = recordingDb();
 
     await routeInboundMessage(
-      { db, clock: new FixedClock(T0), freeText },
+      deps({ db, freeText }),
       event("please don't stop the alerts"),
     );
 
@@ -385,5 +388,93 @@ describe("deterministic routing order (Golden Rule #2)", () => {
     expect(freeText).toHaveBeenCalledWith(
       expect.objectContaining({ taskText: "" }),
     );
+  });
+
+  // F-040 — the farmer product keywords. Routed like every other deterministic keyword:
+  // upstream of the model, which the throwing seam proves.
+  describe("farmer keywords (F-040)", () => {
+    it("routes SIGNUP to the onboarding queue with NO model call", async () => {
+      const { db, queries } = recordingDb();
+      const result = await routeInboundMessage(deps({ db }), event("SIGNUP"));
+
+      expect(result.outcome).toMatchObject({ kind: "farmer", keyword: "SIGNUP" });
+      expect(
+        queries.some((q) => q.includes("insert into farmer_onboarding_requests")),
+      ).toBe(true);
+    });
+
+    it("acknowledges a SIGNUP without claiming the farmer is set up", async () => {
+      // A request grants nothing — VIGA always approves. Copy that read as a yes would
+      // send a farmer to their stand expecting to publish.
+      const { db } = recordingDb();
+      const result = await routeInboundMessage(deps({ db }), event("SIGNUP"));
+
+      expect(result.replies).toHaveLength(1);
+      expect(result.replies[0]?.body.toLowerCase()).not.toContain("you're all set");
+      expect(result.replies[0]?.body.toLowerCase()).not.toContain("approved");
+    });
+
+    it("writes NO authorization for a SIGNUP — the queue is not a grant", async () => {
+      // THE property. If this path could write `farmer_authorizations`, anyone with a phone
+      // could authorize themselves to publish for a farm.
+      const { db, queries } = recordingDb();
+      await routeInboundMessage(deps({ db }), event("SIGNUP"));
+
+      expect(
+        queries.some((q) => q.includes("insert into farmer_authorizations")),
+      ).toBe(false);
+    });
+
+    it("refuses LINK for a sender who is not an authorized farmer, minting nothing", async () => {
+      // The authorization is the gate. `recordingDb` returns no rows, so the sender has no
+      // live authorization — a stranger texting LINK gets no credential.
+      const { db, queries } = recordingDb();
+      const result = await routeInboundMessage(deps({ db }), event("LINK"));
+
+      expect(result.outcome).toEqual({
+        kind: "farmer",
+        keyword: "LINK",
+        status: "not_authorized",
+      });
+      expect(queries.some((q) => q.includes("insert into farmer_links"))).toBe(false);
+      // Nothing in the reply is a link.
+      expect(result.replies[0]?.body).not.toMatch(/https?:\/\//);
+    });
+
+    it("builds a LINK against the CONFIGURED origin, never a request header", async () => {
+      // A `Host:` an attacker controls would otherwise let this text a farmer a link
+      // pointing at the attacker's origin — a credential-harvesting primitive against the
+      // one credential with no password behind it.
+      const { db } = recordingDb([{ id: "11111111-2222-3333-4444-555555555555" }]);
+      const result = await routeInboundMessage(
+        deps({ db, publicBaseUrl: "https://configured.example" }),
+        event("LINK"),
+      );
+
+      expect(result.outcome).toMatchObject({ kind: "farmer", keyword: "LINK" });
+      expect(result.replies[0]?.body).toContain("https://configured.example/stand/");
+      expect(result.replies[0]?.body).not.toContain("farmfriend.example");
+    });
+
+    it("sends a LINK as a PROACTIVE category, so consent still gates it", async () => {
+      // Handing over a durable credential is Farm Friend speaking first. A `required_reply`
+      // here would deliver a standing key to someone with no consent basis.
+      const { db } = recordingDb([{ id: "11111111-2222-3333-4444-555555555555" }]);
+      const result = await routeInboundMessage(deps({ db }), event("LINK"));
+
+      expect(result.replies[0]?.category).toBe("inventory_prompt");
+    });
+
+    it("never reaches the model for either keyword", async () => {
+      // The structural claim, stated once more where it is cheapest to check: the seam in
+      // `deps()` throws, so any model call fails these outright rather than being asserted
+      // about afterwards.
+      for (const word of ["SIGNUP", "LINK", "sign up", "link"]) {
+        const { db } = recordingDb();
+        await expect(
+          routeInboundMessage(deps({ db }), event(word)),
+        ).resolves.toMatchObject({ outcome: { kind: "farmer" } });
+      }
+    });
   });
 });

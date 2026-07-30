@@ -30,6 +30,12 @@ export interface InboundWorkerDeps {
   interpreter: InventoryInterpreter;
   inquiry: InquiryModel;
   clock: Clock;
+  /**
+   * The CONFIGURED public origin a farmer's standing link is built against (F-040). Passed
+   * down rather than read from the request, so no inbound header can influence where a
+   * texted credential points.
+   */
+  publicBaseUrl: string;
   /** Bound on how much work one pass will do. */
   maxEvents?: number;
 }
@@ -132,6 +138,7 @@ export async function runInboundPass(
         {
           db: deps.db,
           clock: deps.clock,
+          publicBaseUrl: deps.publicBaseUrl,
           freeText: (input) =>
             handleFreeText(
               {

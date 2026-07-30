@@ -355,6 +355,8 @@ describe("inbound reply latency (integration)", () => {
       interpreter: createInventoryInterpreter(provider),
       inquiry: createInquiryModel(provider),
       clock: new SystemClock(),
+      // F-040: configured origin for a farmer standing link. Never a request header.
+      publicBaseUrl: "https://farmfriend.example",
     });
     await runOutboundPass({
       context: asContext(outboundContext()),
@@ -466,6 +468,8 @@ describe("inbound reply latency (integration)", () => {
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new SystemClock(),
+        // F-040: configured origin for a farmer standing link. Never a request header.
+        publicBaseUrl: "https://farmfriend.example",
       };
 
       // Fired together: kicks (sender-scoped) and cron passes (unscoped sweeps), REPEATED
@@ -532,6 +536,8 @@ describe("inbound reply latency (integration)", () => {
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new SystemClock(),
+        // F-040: configured origin for a farmer standing link. Never a request header.
+        publicBaseUrl: "https://farmfriend.example",
       };
       const kick = () =>
         kickSenderPasses(
