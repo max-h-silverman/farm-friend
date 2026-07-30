@@ -28,11 +28,17 @@
    * type, brick red for accents. Adopted for the ARTWORK and the controls; the meaning
    * colours above are untouched, because green-is-confirmed and amber-is-stale already carry
    * product meaning that a brand refresh must not quietly repaint. */
-  --sage: #a8bfa0;
-  --sage-deep: #7d9a75;
-  --cream: #f4efe1;
-  --olive: #4a5340;
-  --brick: #a8442a;
+  /* Sampled from VIGA's printed farm map (max supplied the artwork 2026-07-30). The poster
+   * is PALE land on soft grey-green water with a cream list panel — the opposite weighting
+   * from a first guess of "sage island on cream", and the reason to work from the artefact
+   * rather than from a description of it. */
+  --sage: #dfe4d3;        /* land — pale, so pins and labels sit on top of it legibly */
+  --sage-deep: #b9c4ab;   /* the shoreline stroke */
+  --cream: #b6c3b4;       /* water — a soft grey-green, not a bright cream */
+  --panel: #eef0e0;       /* the poster's list panel, behind the map figure */
+  --olive: #3f4a38;
+  --brick: #8f3423;       /* the poster's link red — TEXT, not pins */
+  --pin: #4e6b46;         /* the poster's pin green */
   --brick-soft: #f6e7e2;
   /* The highway. Its own token because the two themes disagree about what a road looks
    * like: pale-on-sage in daylight, light-on-dark at night. */
@@ -404,11 +410,18 @@ body {
      * The island keeps its sage-on-cream RELATIONSHIP — it is a drawn map and reads as paper —
      * but both are darkened so it sits in the page instead of glaring out of it. Olive and
      * brick are lightened, because at these darknesses they fail contrast against the page. */
-    --sage: #63805a;
-    --sage-deep: #9ab591;
-    --cream: #1a1f1b;
+    /* Dark mode is NOT the poster with the lights off. On paper the land is pale and the
+     * pins are dark green on top of it; invert that naively and you get dim green pins on
+     * dim green land, which is what the first attempt produced. So here the land stays
+     * MUTED and the pins go BRIGHT — the poster's figure/ground relationship is preserved
+     * even though both colours move. */
+    --sage: #3c4a37;
+    --sage-deep: #6d8064;
+    --cream: #1b211c;
+    --panel: #1e2420;
     --olive: #b6c4ac;
     --brick: #e08163;
+    --pin: #a8d493;
     --brick-soft: #3a221c;
     --road: #cdd8c4;
   }
@@ -862,9 +875,18 @@ body {
  * "Closed for the season"), and the pin is an orientation device. Selection is shown by SIZE
  * and a ring as well as fill, so it survives both colourblindness and bright sun. */
 
+/*
+ * Pins follow the poster: a small filled circle with a thin light ring, sitting on PALE land.
+ * The poster reserves its reds for links and its greens for pin fills — brick is a text
+ * colour there, not a map colour, so a map full of brick dots was a misreading of the brand.
+ *
+ * The ring is the land colour, not white, so a pin reads as sitting ON the island rather than
+ * punched through it — and it keeps clustered pins separable, which matters around Vashon town
+ * where several farms sit within a few hundred metres.
+ */
 .pin-dot {
-  fill: var(--brick);
-  stroke: var(--cream);
+  fill: var(--pin);
+  stroke: var(--sage);
   stroke-width: 3;
   cursor: pointer;
   transition: r 120ms ease;
@@ -890,9 +912,11 @@ body {
 .pin-unknown .pin-dot,
 .pin-by_appointment .pin-dot {
   /* Hollow, because we do not know. Reads as "there is something here, unconfirmed" rather
-   * than as a solid claim. */
-  fill: var(--cream);
-  stroke: var(--brick);
+   * than as a solid claim — and it is a SHAPE difference, not a colour one, so it survives
+   * colourblindness and bright sun. The card still carries the words. */
+  fill: var(--sage);
+  stroke: var(--pin);
+  stroke-width: 4;
 }
 
 .pin-stale .pin-dot {
@@ -1035,4 +1059,151 @@ body {
 .open-state-closed_today,
 .open-state-out_of_season {
   color: var(--brick);
+}
+
+/* =================================================== F-043 design pass (max, 2026-07-30) ===
+ *
+ * Two changes, both from watching the thing be used rather than from reading the markup.
+ */
+
+/*
+ * FILTERS SIT ABOVE THE MAP AND THE LIST.
+ *
+ * They were between the two, which read as a caption on the map — a control belonging to the
+ * picture rather than to the whole screen, and easy to scroll straight past on a phone. The
+ * customer's actual task is "narrow this down to what I can buy near me now", so the controls
+ * for that are the first thing under the headline, above both surfaces they govern.
+ *
+ * Styled as a grouped bar rather than loose chips, so it reads as one control surface.
+ */
+.filters {
+  margin: 1.25rem 0;
+  padding: 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.island {
+  background: var(--panel);
+}
+
+/*
+ * THE SELECTED STAND AS A BOTTOM SHEET, ON PHONES ONLY.
+ *
+ * Hidden at wide widths: there the list is already beside the map, so bringing the card into
+ * view is the right response and a sheet would cover a list that needs no covering.
+ *
+ * `position: fixed` and `max-height` with its own scroll: the sheet must never grow past the
+ * viewport, and its content is a summary that usually will not need to.
+ */
+.sheet {
+  display: none;
+}
+
+@media (max-width: 55.99rem) {
+  .sheet {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    max-height: 62vh;
+    overflow-y: auto;
+    padding: 0.75rem 1.15rem 1.5rem;
+    background: var(--card);
+    border-top: 1px solid var(--line);
+    border-radius: var(--radius) var(--radius) 0 0;
+    /* Lifted off the page so it reads as ABOVE the map rather than as a section of it. */
+    box-shadow: 0 -8px 28px rgb(0 0 0 / 22%);
+    /* Clears the home indicator on a modern phone. */
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+    animation: sheet-rise 160ms ease-out;
+  }
+
+  /* The list keeps its natural length; the sheet floats over it, so the page below needs
+   * room to scroll clear of a sheet that is covering its last cards. */
+  .list-column {
+    padding-bottom: 40vh;
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(12%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+/* The grab handle — the affordance that says "this is a sheet, it dismisses". */
+.sheet-grip {
+  width: 2.25rem;
+  height: 0.25rem;
+  margin: 0 auto 0.75rem;
+  background: var(--line);
+  border-radius: 999px;
+}
+
+.sheet-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.sheet-title {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+}
+
+.sheet-farm {
+  margin: 0.1rem 0 0;
+  font-size: 0.9rem;
+  color: var(--ink-faint);
+}
+
+.sheet-close {
+  flex: none;
+  /* 44px, because this is the one control that must never be hard to hit — a sheet you
+   * cannot dismiss is a trap on a small screen. */
+  width: 44px;
+  height: 44px;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.sheet-close:hover {
+  color: var(--ink);
+}
+
+/*
+ * With a sheet open on a phone, the map shrinks so BOTH fit on one screen.
+ *
+ * Measured in a browser: the sheet's top edge sits at ~60% of the viewport, and at the top of
+ * the page the island extended past that — so tapping a pin hid the pin that was tapped. The
+ * map now takes the space above the sheet instead of being covered by it, which is what makes
+ * "the map stays visible" true rather than merely intended.
+ */
+@media (max-width: 55.99rem) {
+  .sheet-open .island-svg {
+    max-height: 34vh;
+  }
 }

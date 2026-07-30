@@ -60,6 +60,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
   const [filters, setFilters] = useState<StandFilters>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const cardRefs = useRef(new Map<string, HTMLLIElement>());
+  const mapRef = useRef<HTMLElement | null>(null);
 
   // The moment the filters are evaluated against, captured once per render rather than read
   // inside the predicate. `openNow` computes the real sun for the date, so the answer must
@@ -85,20 +86,55 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
     (filters.sells !== undefined && filters.sells.trim() !== "") ||
     (filters.season !== undefined && filters.season !== "");
 
-  /** Selecting from either surface writes the SAME state — one selection, two renderers. */
+  /**
+   * Selecting from either surface writes the SAME state — one selection, two renderers.
+   *
+   * WHAT HAPPENS NEXT DEPENDS ON THE VIEWPORT, and that is the design rather than a
+   * responsive afterthought:
+   *
+   *   WIDE — the list is already on screen beside the map, so the card only needs bringing
+   *   into view. `smooth` was replaced with an instant scroll: the animation took long enough
+   *   that a customer tapping a second pin was still watching the first one travel.
+   *
+   *   PHONE — the list is BELOW the map, so scrolling to a card throws away the map the
+   *   customer was just reading, and they have to scroll back to tap anything else. Instead
+   *   the selected stand rises over the map as a sheet: the detail is one thumb-reach from
+   *   the pin that produced it, and dismissing it returns to the view they had. The only
+   *   movement is bringing the MAP into the part of the screen the sheet does not cover.
+   *
+   * Deliberately NOT "hide every other listing" — that would leave the map as the only way
+   * back to the full set, and a customer who then changed a filter would see nothing happen.
+   */
   function select(id: string): void {
     setSelectedId(id);
-    cardRefs.current.get(id)?.scrollIntoView({
-      behavior: "smooth",
-      block: "nearest",
-    });
+
+    const isWide = window.matchMedia("(min-width: 56rem)").matches;
+    if (isWide) {
+      cardRefs.current.get(id)?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+
+    // PHONE — the sheet occupies the lower ~40% of the screen, so bring the MAP up into the
+    // part that stays visible. Without this, tapping a pin near the bottom of the island hid
+    // the very pin that was tapped behind the sheet, which is the disorientation this whole
+    // change exists to remove. Measured in a browser: the sheet's top edge sat at 60% of the
+    // viewport with 0px of island showing beneath it.
+    //
+    // `instant`, not smooth: this is a correction that should feel like the sheet arriving,
+    // not a second animation competing with it.
+    mapRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
   }
+
+  const selectedStand =
+    selectedId === null
+      ? undefined
+      : visible.find((stand) => stand.id === selectedId);
 
   const toggle = (key: "openNow" | "confirmedRecently" | "visitable") => () =>
     setFilters((current) => ({ ...current, [key]: current[key] !== true }));
 
   return (
-    <main className="page">
+    <main className={selectedStand !== undefined ? "page sheet-open" : "page"}>
       <header className="masthead">
         <p className="eyebrow">Vashon Island Growers Association</p>
         <h1>Farm stands, right now</h1>
@@ -109,195 +145,195 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
         </p>
       </header>
 
+      {/*
+      F-043 — the filters. All client-side over data already served: no request, no
+      model call, instant on a phone outdoors.
+      */}
+      <section className="filters" aria-label="Filter farm stands">
+      <div className="filter-row">
+        <button
+          type="button"
+          className={filters.openNow === true ? "chip chip-on" : "chip"}
+          aria-pressed={filters.openNow === true}
+          onClick={toggle("openNow")}
+        >
+          Open now
+        </button>
+        <button
+          type="button"
+          className={
+            filters.confirmedRecently === true ? "chip chip-on" : "chip"
+          }
+          aria-pressed={filters.confirmedRecently === true}
+          onClick={toggle("confirmedRecently")}
+        >
+          Confirmed recently
+        </button>
+        <button
+          type="button"
+          className={filters.visitable === true ? "chip chip-on" : "chip"}
+          aria-pressed={filters.visitable === true}
+          onClick={toggle("visitable")}
+        >
+          Has a stand to visit
+        </button>
+      </div>
+
+      <div className="filter-row">
+        <label className="field">
+          <span className="field-label">What they sell</span>
+          <input
+            type="search"
+            className="field-input"
+            placeholder="eggs, flowers, lamb…"
+            value={filters.sells ?? ""}
+            onChange={(event) =>
+              setFilters((current) => ({
+                ...current,
+                sells: event.target.value,
+              }))
+            }
+          />
+        </label>
+
+        {/*
+          Season answers a DIFFERENT question from Open now — "what is here later in the
+          year" — and is meaningful mainly when Open now is off, since out-of-season
+          stands are already excluded by that filter. Disabled rather than hidden when
+          Open now is on, so the control does not vanish and reappear under the reader's
+          thumb.
+        */}
+        <label className="field">
+          <span className="field-label">In season</span>
+          <select
+            className="field-input"
+            value={filters.season ?? ""}
+            disabled={filters.openNow === true}
+            onChange={(event) =>
+              setFilters((current) => ({
+                ...current,
+                season: event.target.value,
+              }))
+            }
+          >
+            <option value="">Any time of year</option>
+            <option value="spring">Spring</option>
+            <option value="summer">Summer</option>
+            <option value="fall">Fall</option>
+            <option value="winter">Winter</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="filter-row filter-row-meta">
+        {state.status !== "ready" ? (
+          <>
+            <button
+              type="button"
+              className="chip"
+              onClick={request}
+              disabled={state.status === "locating"}
+            >
+              {state.status === "locating" ? "Finding you…" : "Sort by distance"}
+            </button>
+            <span className="locate-note">
+              {state.status === "unavailable"
+                ? state.reason
+                : "Optional. Your location stays on your device and is never sent to us."}
+            </span>
+          </>
+        ) : (
+          <>
+            <button type="button" className="chip chip-on" onClick={clear}>
+              Sorted by distance — stop
+            </button>
+            <span className="locate-note">{PROXIMITY_BASIS_LABEL}</span>
+          </>
+        )}
+        {anyFilterActive ? (
+          <button
+            type="button"
+            className="chip chip-clear"
+            onClick={() => setFilters({})}
+          >
+            Clear filters
+          </button>
+        ) : null}
+      </div>
+      </section>
+
       <div className="layout">
         <div className="map-column">
           {/*
-            F-043 — the island, drawn rather than tiled. No mapping provider, no per-view
-            billing, no runtime seam; `maps/README.md` records that there deliberately is none.
-            Pins are projected from real coordinates through the SAME projection that draws the
-            coastline, so a pin cannot drift away from the shore it belongs to.
+          F-043 — the island, drawn rather than tiled. No mapping provider, no per-view
+          billing, no runtime seam; `maps/README.md` records that there deliberately is none.
+          Pins are projected from real coordinates through the SAME projection that draws the
+          coastline, so a pin cannot drift away from the shore it belongs to.
           */}
-          <figure className="island">
-            <svg
-              viewBox={`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`}
-              className="island-svg"
-              role="img"
-              aria-label="Map of Vashon and Maury Islands showing farm stand locations"
-            >
-              <IslandArtwork />
-              {visible.map((stand) => {
-                // F-038 — a contact-only farm has no coordinate and gets NO PIN. It stays in
-                // the list beside the map, because "no stand to visit" is a fact about how to
-                // buy from them, not a reason to disappear.
-                if (stand.latitude === undefined || stand.longitude === undefined) {
-                  return null;
-                }
-                const { x, y } = projectToIsland({
-                  latitude: stand.latitude,
-                  longitude: stand.longitude,
-                });
-                const isSelected = stand.id === selectedId;
-                return (
-                  <g
-                    key={stand.id}
-                    className={[
-                      "pin",
-                      `pin-${stand.openState}`,
-                      stand.stale === true ? "pin-stale" : "",
-                      isSelected ? "pin-selected" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                  >
-                    <circle
-                      cx={x}
-                      cy={y}
-                      r={isSelected ? 15 : 10}
-                      className="pin-dot"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${stand.locationName}, ${stand.farmName}`}
-                      aria-pressed={isSelected}
-                      onClick={() => select(stand.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          select(stand.id);
-                        }
-                      }}
-                    />
-                    {isSelected ? (
-                      <text x={x} y={y - 22} className="pin-label">
-                        {stand.locationName}
-                      </text>
-                    ) : null}
-                  </g>
-                );
-              })}
-            </svg>
-            <figcaption className="island-caption">
-              {visible.length === view.stands.length
-                ? `${view.stands.length} farm stands`
-                : `${visible.length} of ${view.stands.length} farm stands`}
-            </figcaption>
+          <figure className="island" ref={mapRef}>
+          <svg
+            viewBox={`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`}
+            className="island-svg"
+            role="img"
+            aria-label="Map of Vashon and Maury Islands showing farm stand locations"
+          >
+            <IslandArtwork />
+            {visible.map((stand) => {
+              // F-038 — a contact-only farm has no coordinate and gets NO PIN. It stays in
+              // the list beside the map, because "no stand to visit" is a fact about how to
+              // buy from them, not a reason to disappear.
+              if (stand.latitude === undefined || stand.longitude === undefined) {
+                return null;
+              }
+              const { x, y } = projectToIsland({
+                latitude: stand.latitude,
+                longitude: stand.longitude,
+              });
+              const isSelected = stand.id === selectedId;
+              return (
+                <g
+                  key={stand.id}
+                  className={[
+                    "pin",
+                    `pin-${stand.openState}`,
+                    stand.stale === true ? "pin-stale" : "",
+                    isSelected ? "pin-selected" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={isSelected ? 15 : 10}
+                    className="pin-dot"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${stand.locationName}, ${stand.farmName}`}
+                    aria-pressed={isSelected}
+                    onClick={() => select(stand.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        select(stand.id);
+                      }
+                    }}
+                  />
+                  {isSelected ? (
+                    <text x={x} y={y - 22} className="pin-label">
+                      {stand.locationName}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            })}
+          </svg>
+          <figcaption className="island-caption">
+            {visible.length === view.stands.length
+              ? `${view.stands.length} farm stands`
+              : `${visible.length} of ${view.stands.length} farm stands`}
+          </figcaption>
           </figure>
-
-          {/*
-            F-043 — the filters. All client-side over data already served: no request, no
-            model call, instant on a phone outdoors.
-          */}
-          <section className="filters" aria-label="Filter farm stands">
-            <div className="filter-row">
-              <button
-                type="button"
-                className={filters.openNow === true ? "chip chip-on" : "chip"}
-                aria-pressed={filters.openNow === true}
-                onClick={toggle("openNow")}
-              >
-                Open now
-              </button>
-              <button
-                type="button"
-                className={
-                  filters.confirmedRecently === true ? "chip chip-on" : "chip"
-                }
-                aria-pressed={filters.confirmedRecently === true}
-                onClick={toggle("confirmedRecently")}
-              >
-                Confirmed recently
-              </button>
-              <button
-                type="button"
-                className={filters.visitable === true ? "chip chip-on" : "chip"}
-                aria-pressed={filters.visitable === true}
-                onClick={toggle("visitable")}
-              >
-                Has a stand to visit
-              </button>
-            </div>
-
-            <div className="filter-row">
-              <label className="field">
-                <span className="field-label">What they sell</span>
-                <input
-                  type="search"
-                  className="field-input"
-                  placeholder="eggs, flowers, lamb…"
-                  value={filters.sells ?? ""}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      sells: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-
-              {/*
-                Season answers a DIFFERENT question from Open now — "what is here later in the
-                year" — and is meaningful mainly when Open now is off, since out-of-season
-                stands are already excluded by that filter. Disabled rather than hidden when
-                Open now is on, so the control does not vanish and reappear under the reader's
-                thumb.
-              */}
-              <label className="field">
-                <span className="field-label">In season</span>
-                <select
-                  className="field-input"
-                  value={filters.season ?? ""}
-                  disabled={filters.openNow === true}
-                  onChange={(event) =>
-                    setFilters((current) => ({
-                      ...current,
-                      season: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Any time of year</option>
-                  <option value="spring">Spring</option>
-                  <option value="summer">Summer</option>
-                  <option value="fall">Fall</option>
-                  <option value="winter">Winter</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="filter-row filter-row-meta">
-              {state.status !== "ready" ? (
-                <>
-                  <button
-                    type="button"
-                    className="chip"
-                    onClick={request}
-                    disabled={state.status === "locating"}
-                  >
-                    {state.status === "locating" ? "Finding you…" : "Sort by distance"}
-                  </button>
-                  <span className="locate-note">
-                    {state.status === "unavailable"
-                      ? state.reason
-                      : "Optional. Your location stays on your device and is never sent to us."}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <button type="button" className="chip chip-on" onClick={clear}>
-                    Sorted by distance — stop
-                  </button>
-                  <span className="locate-note">{PROXIMITY_BASIS_LABEL}</span>
-                </>
-              )}
-              {anyFilterActive ? (
-                <button
-                  type="button"
-                  className="chip chip-clear"
-                  onClick={() => setFilters({})}
-                >
-                  Clear filters
-                </button>
-              ) : null}
-            </div>
-          </section>
         </div>
 
         <div className="list-column">
@@ -470,6 +506,97 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           )}
         </div>
       </div>
+
+      {/*
+        F-043 — THE SELECTED STAND, ON A PHONE.
+
+        Rendered only in the phone arrangement (CSS hides it wide, where the list is already
+        beside the map). Tapping a pin used to scroll the page ~800px to a card, which threw
+        away the map the customer was reading and left them scrolling back to tap anything
+        else — spatial disorientation on the one screen that is meant to orient them.
+
+        A sheet instead: the map stays exactly where it was, the detail rises over it within
+        thumb reach, and dismissing it returns to the same view. This is a SUMMARY, not a
+        second copy of the card — name, farm, open state, address, directions. The full card
+        is still in the list below, so nothing here is the only route to anything.
+      */}
+      {selectedStand !== undefined ? (
+        <div
+          className="sheet"
+          role="dialog"
+          aria-modal="false"
+          aria-label={`${selectedStand.locationName} details`}
+        >
+          <div className="sheet-grip" aria-hidden="true" />
+          <div className="sheet-head">
+            <div>
+              <h2 className="sheet-title">{selectedStand.locationName}</h2>
+              <p className="sheet-farm">{selectedStand.farmName}</p>
+            </div>
+            <button
+              type="button"
+              className="sheet-close"
+              onClick={() => setSelectedId(null)}
+              aria-label="Close"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Same honesty rule as the card: a stand we could not judge says so. */}
+          {OPEN_STATE_LABEL[selectedStand.openState] !== null ? (
+            <p className={`open-state open-state-${selectedStand.openState}`}>
+              {OPEN_STATE_LABEL[selectedStand.openState]}
+            </p>
+          ) : null}
+
+          {/* Decided by the SAME pure function the card uses — never re-derived here. */}
+          {standListingLines(selectedStand).map((line) => (
+            <div className={`listing listing-${line.kind}`} key={line.kind}>
+              {line.items === undefined ? (
+                <p className="listing-note">{line.label}</p>
+              ) : (
+                <>
+                  <p className="listing-label">{line.label}</p>
+                  <ul className="items items-usual">
+                    {line.items.map((item) => (
+                      <li key={item}>
+                        <span className="item-name">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          ))}
+
+          {selectedStand.stale === true ? (
+            <p className="recency recency-stale">
+              <strong>May be out of date — </strong>
+              {selectedStand.updated}
+            </p>
+          ) : null}
+
+          {selectedStand.address !== undefined ? (
+            <p className="address">{selectedStand.address}</p>
+          ) : (
+            <p className="address address-contact-only">
+              <strong>No stand to visit</strong> — order by contacting this farm.
+            </p>
+          )}
+
+          {selectedStand.routingLink !== null ? (
+            <a
+              className="directions"
+              href={selectedStand.routingLink}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Directions
+            </a>
+          ) : null}
+        </div>
+      ) : null}
 
       <footer className="foot">
         <p>

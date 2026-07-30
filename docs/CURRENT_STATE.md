@@ -160,14 +160,23 @@ fixtures supply what production never creates.
   `apps/*/lib` and **not** `apps/*/app`, so a coastline defined beside its component is untestable
   by construction. The test now checks every real farm coordinate and the highway route against the
   drawn polygon.
-  **Verified rendered.** The map was built, served against a copy of the real corpus (34 stands,
-  212 tags), and **looked at as an image** — the browser extension was not connected, so the SVG
-  was extracted from the served bytes and rasterized. Quartermaster Harbour, Maury, the south
-  peninsula and the highway all read correctly; 32 pins on land, 0 in water; labels clear of pins
-  and road. F-042's tag lines are intact (33 "Usually sells", 33 "Nothing confirmed recently").
-  **Still owed: a real browser.** Nobody has interacted with it — no tap on a pin, no filter
-  toggled by hand, no phone-width layout seen. The image proves the artwork and the markup, not the
-  CSS layout, the selection linkage, or the embed handshake.
+  **LOOKED AT IN A REAL BROWSER — the criterion is met**, at phone and desktop widths, in both
+  colour schemes, against a copy of the real corpus. Filters narrow 34 → 31 with the caption
+  tracking; pin→card and card→pin selection both work from one state; unstated stands stay visible
+  under `Open now` badged "Hours not listed"; no horizontal overflow.
+  **Five defects were found that the suites and the rendered-byte checks could not see**, all
+  fixed: (1) `globals.css` has carried a `prefers-color-scheme: dark` block since F-017, and the
+  new VIGA brand tokens had no dark values — the island rendered as a bright cream slab on a
+  near-black page; (2) the highway drawn in the water colour became a dark scar on dark land, so
+  it has its own `--road` token per theme; (3) the island rendered **828px tall on a 737px
+  viewport**, putting the first stand card 1293px down — capped at `58vh`; (4) SVG type scales
+  with the viewBox, so that cap shrank place labels to ~11px on glass, and **the first fix
+  silently did nothing** because a second `.island-place` rule placed *above* the original lost on
+  source order; (5) clicking a pin drew the browser's default blue focus rectangle —
+  `:focus-visible` rather than `:focus`.
+  **This is the lesson to carry**: every one of those passed 719 tests and a rendered-bytes
+  inspection. Bytes prove markup and geometry; they do not prove CSS. The one thing still not
+  exercised is the **Squarespace embed handshake**, which needs a second origin to frame the page.
 - **B-023 — CLOSED 2026-07-30.** `board@vigavashon.org` is the first administrator (a VIGA *org*
   address, max's choice, so authority sits with the organization). Verified by reading the row and
   by resolving it through `findAdministratorByEmail` in production — exact address, mixed case, and
