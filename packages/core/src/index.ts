@@ -10,6 +10,7 @@ export * from "./inquiry/retrieval";
 export * from "./inquiry/answer";
 export * from "./public/throttle";
 export * from "./public/proximity";
+export * from "./public/vcard";
 export * from "./auth/magic-link";
 export * from "./auth/mail";
 export * from "./auth/roles";

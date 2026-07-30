@@ -7,6 +7,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./proximity": "./src/public/proximity.ts"
+    "./proximity": "./src/public/proximity.ts",
+    "./vcard": "./src/public/vcard.ts"
   }
 }
