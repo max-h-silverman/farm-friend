@@ -387,8 +387,19 @@ The sign-in path adds a constraint the stock-out path does not have: the budget 
 oracle — an attacker learns which addresses are real by watching which ones begin refusing.
 
 The public routes are `GET /api/public/stands` (model-free, unthrottled),
+`GET /api/public/contact-card` (model-free and database-free, unthrottled),
 `POST /api/public/stock-out` (throttled), and `POST /api/auth/request-link` (throttled); handlers
 live in `apps/web/lib/` because Next.js permits only its own fields as route exports.
+
+`GET /api/public/contact-card` (F-039) serves a `text/vcard` contact card so a customer can save the
+SMS number by tapping rather than transcribing it off a sign. It renders ~150 bytes from
+**`TELNYX_FROM_NUMBER`** — the same variable the send path reads, never a literal, so the saved
+contact cannot drift from the number that actually sends — and imports neither `appContext` (which
+would pull the model package into a public route's module graph) nor `publicReadContext` (there is
+nothing to read). It is **unthrottled deliberately**: the response is byte-identical for every
+caller, so there is nothing metered to exhaust or enumerate, and the throttle exists for expensive or
+consequential actions. **Saving a contact is not consent** — it is device-local, records nothing, and
+is emphatically not `JOIN`; the card carries no `NOTE` and the copy names no keyword.
 
 ## Invariants (must be enforced in code and proven by tests)
 

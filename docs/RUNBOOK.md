@@ -284,6 +284,16 @@ its name: Seedrain is `services` ("advice and services for invasive plant contro
 is `by_order`. The other 31 are `produce`. `offering_type` and `visitability` are **independent** —
 Seedrain has a street address and sells services; Open Gate Lamb has neither address nor pin.
 
+> **`Handpicked Homestead` must NOT be seeded as a visitable stand (B-024).** Her form `extraNotes`
+> read *"I don't have my own farmstand - please add me under Plum Forest's location, do not add my
+> address"*, and seeding her address anyway published a **private residence with a map pin**, sending
+> customers to a home with no stand. She is `is_public = false` in production as an interim; her
+> address and coordinates are retained for VIGA to resolve with her.
+> **A re-seed would republish her**, because `extraNotes` is parsed but consulted **only** by
+> `offering-type.ts` — nothing reads it for visibility or visitability. Any change to how the seeder
+> decides visitability should close that gap; until then this is a manual check. Measured across the
+> whole corpus, exactly one farm states this, so it is a contained exception rather than a pattern.
+
 **The export is malformed CSV and no standard parser reads it.** Each `description` is unquoted and
 spans raw newlines until the next `"POINT (` line, so a conventional reader returns **285 rows for
 31 stands** and attaches every address and `Open:` line to the *following* farm — silently.
@@ -312,8 +322,23 @@ The propose step strips contact details before any text reaches the model, passe
 privacy gate as the composition root (`assertDeepInfraSelectionApproved`), and writes tags
 beside the source text they came from. The seed step is idempotent on (location, item), never
 rewrites an existing tag, skips entries without an `items` array, and reports unknown stand
-names (the address-refused stands exist in the CSV but not the database). It writes
-`sales_location_offerings` only — specialties, never inventory.
+names. It writes `sales_location_offerings` only — specialties, never inventory.
+
+**`--dry-run` requires `DATABASE_URL`, and that is the point (F-041).** It resolves every approved
+name against the real database and writes nothing, reporting which approved name maps to which
+**stored** name, which stands are unknown, and which tags are already present. Those facts are only
+knowable from the database: an earlier dry run merely echoed the file back, so it reported 31
+approved entries while only 26 could ever land, and five stands were silently given no tags.
+Stand names are matched through **`matchStandName`** — the seed join's own normalization, because the
+approved artifact records each farm's *map-export* name while the seed stores its *form* name. An
+**ambiguous** name (two locations reducing to one key) **refuses the whole batch** rather than
+attributing one farm's tags to another.
+
+**`offerings:propose` reads the MAP export only**, and `parseStandCsv` anchors on the `POINT (`
+literal — so a farm with no coordinate row is **invisible to it rather than rejected**, with zero
+rejections reported. Three of the corpus's farms exist only in the **form** export and had to be
+proposed separately. If a stand is missing from a proposal run, check which export it lives in
+before assuming the model skipped it.
 
 Geocoding happens **once, during seeding** — it is not a permanent runtime provider seam,
 and a location that cannot be resolved is an **operator task**, never a fabricated coordinate.
@@ -500,7 +525,10 @@ Natural-language customer inquiry is SMS-only at launch. Ordinary public map/lis
 is model-free and uncapped. The public QR stock-out form remains model-backed and must use the
 abuse/cost throttle.
 
-Built public routes (F-019): `GET /api/public/stands` (model-free, uncapped) and
+Built public routes (F-019): `GET /api/public/stands` (model-free, uncapped),
+`GET /api/public/contact-card` (F-039 — model-free and database-free, uncapped; a `text/vcard` card
+rendered from `TELNYX_FROM_NUMBER`, never a literal, so it cannot drift from the sending number.
+Saving a contact is **not** `JOIN` and the copy must not imply it is), and
 `POST /api/public/stock-out` (throttled; body carries the QR-bound `salesLocationId` UUID and
 `taskText`). The throttle budget is set in the composition root — 5 model calls per client per 60s,
 deliberately generous so a real reporter never meets it. Adding **any** new public model-backed

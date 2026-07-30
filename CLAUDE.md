@@ -74,8 +74,8 @@ seeding, evals, deploy, Telnyx webhook requirements, **credential rotation**, an
 `docs/ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md` (the July 2026 reset and its adversarial review —
 retired as authority 2026-07-28; the contract they settled now lives in the docs above), and
 **[docs/SESSION_LOG.md](docs/SESSION_LOG.md)** with its
-[archive](docs/SESSION_LOG_ARCHIVE.md) (dated build history; entries older than the newest eight
-rotate into the archive). Open one **deliberately**, to answer "why was this decided" or to dig into
+[archive](docs/SESSION_LOG_ARCHIVE.md) (dated build history; older entries rotate into the archive
+once the live log passes ~160k chars). Open one **deliberately**, to answer "why was this decided" or to dig into
 a past defect — never as startup context. What is true *now* is "Current State" below.
 
 ---
@@ -302,766 +302,233 @@ cooperative stubs. Suites:
 ## Current State & Open Items
 
 > Live snapshot, overwritten by `/session-wrap` — **not** a changelog. Record only **verified**
-> facts (test counts from a real run, files read); replace stale lines, don't append.
+> facts (test counts from a real run, files read); replace stale lines, don't append. The *why*
+> behind past changes lives in [docs/SESSION_LOG.md](docs/SESSION_LOG.md) — open it deliberately,
+> never to orient.
 
-**Live capability.** Farmers publish inventory by SMS behind a confirmation gate; customers get
-code-rendered grounded answers with recency and stale warnings; the web/QR stock-out path records a
-private report and resolves the farmer in code. Inbound SMS **routes** (F-023): `apps/web/lib/routing.ts`
-runs compliance keywords → `FLAG` → context-bound `YES`/`NO` → free text, and the model seams are
-reachable only through a `freeText` callback invoked after `parseCommand` returns `none` — so "no
-model on the compliance path" is structural, proven by a seam that throws. The webhook builds its
-200, then starts that sender's inbound+outbound passes **registered via `waitUntil`** and never
-awaits them (B-004, fixed by B-009). The public map UI is built (F-017) and is model-free in its
-**module graph**, not just its handler.
+**Verified 2026-07-29** (`main` @ the F-041/F-039 merges): `npm test` **596/596** (61 files);
+`npm run test:integration` **334/334** (20 files) on real Postgres 16, all 8 migrations from empty;
+typecheck and lint exit 0; `infra/test_deploy_assertions.py` **10/10**. Evals **not** re-run — no
+seam projection, schema, or output contract changed; last results stand (`evals` critical 11/11,
+advisory 4/4, adversarial 29/29; `evals:live` containment 4/4, quality 6/6 on Mistral Small 24B).
 
-**`LLM_PROVIDER` is REQUIRED with no default (GL-019).** `required(env, "LLM_PROVIDER")`, failing
-closed like `PHONE_HASH_SALT`; absent/blank/unknown is a startup error. **Deliberately not "required
-in production"** — an environment-dependent rule is what let this hide: production had no
-`LLM_PROVIDER` and ran the deterministic stub its entire life, silently, while every suite stayed
-green. The stub is unchanged and still used by tests/evals/local dev; it just has to be **asked
-for**. A source assertion anchored to the selector pins "no `??` default" and "no env flag".
-`.env.example` exists (GL-033). Production is now set to `deepinfra` +
-`mistralai/Mistral-Small-24B-Instruct-2501` — **so model calls now cost money on real traffic.**
+### What works end to end
 
-**Conversation staleness belongs to the ROUTER, and covers only what mutates conversation state
-(GL-002).** The two watermarks are independent, so the conversation one has no standing over a
-compliance keyword: `routeInboundMessage` parses compliance **before** the gate, applying it to free
-text and confirmation tokens only. Finalizing a routed stale event `processed` is safe because
-`claimNextInboundEvent` advances the watermark only when `!isStale`. Before this, a `STOP` delayed
-behind a newer message was discarded as stale and the sender stayed `active`. The test asserts the
-opt-out reaches `authorizeDispatch` as `suppressed` — consent that never reaches the dispatch guard
-is a paper opt-out.
+- **SMS round trip, on a real handset, on this runtime.** Inbound → deterministic route → queued
+  reply → Telnyx dispatch with a real provider message ID → delivery callbacks back through the
+  webhook. Compliance keywords, `FLAG`, context-bound `YES`/`NO`, then free text
+  (`apps/web/lib/routing.ts`); model seams are reachable only through a `freeText` callback after
+  `parseCommand` returns `none`, so "no model on the compliance path" is structural.
+- **Public map**, model-free in its module graph, reading the same published records as SMS.
+  35 stands seeded, **34 public** (see B-024), **212 offering tags** across 33.
+- **Operator surface** — farm approval, flag review, stock-out triage, stand-data questions. Built
+  and deployed, but **unreachable**: see B-023.
+- **One-tap add-to-contacts** (F-039) — `GET /api/public/contact-card` serves a vCard built from
+  `TELNYX_FROM_NUMBER`, merged but **not yet deployed**.
+- **Deployed on Cloud Run**: https://farm-friend-web-p5mfxfp5za-uw.a.run.app — one image, two
+  services (`farm-friend-web` public, `farm-friend-worker` internal+IAM) differing only by
+  `DEPLOYMENT_ROLE`. Cloud Scheduler drives four bounded passes (inbound, outbound, delivery,
+  retention); Cloud Tasks drives the per-sender kick. Vercel is gone.
+- **Production data**: `neondb`, 8 migrations, **1 contact** (max's real number), 35
+  `sales_locations`, 212 offerings, **0** inventory revisions / entries / farmer authorizations /
+  farm approvals / administrators, 4 `stand_data_flags`.
 
-**An abandoned dispatch claim is quarantined, never resent (GL-003).** `dispatching` was written in
-one place and read by **nothing**, and `runOutboundPass` had no error handling — so a throw both
-stranded the row forever *and* aborted every other sender's reply. Two defenses, neither
-substituting for the other: a per-row `catch` (a lease cannot isolate a row mid-pass) and
-`recoverAbandonedDispatches` / `DISPATCH_LEASE_MS` = 10 min (a killed process runs no catch block).
-Recovery resolves to **`ambiguous`** — already the "we do not know if the provider accepted it"
-state, so **no migration was needed** — never `queued`, which would resend an SMS someone may hold.
-`for update skip locked`; the open attempt gets `error_code = 'dispatch_lease_expired'`. **No
-operator view of quarantined work yet** — deliberately left to GL-016/GL-018.
+### Live invariants worth knowing before you touch anything
 
-**Post-response work is a DURABLE QUEUE, not a platform primitive (B-009, then the GCP migration).**
-B-009 was a floating promise the Vercel runtime never knew about: every inbound message committed,
-acknowledged, then silently abandoned, while the whole kick suite stayed green because Node resolves
-floating promises. `waitUntil` fixed it imperfectly — a registered promise still shared the function
-timeout and was cancelled when it elapsed. On Cloud Run there is no `waitUntil` and no equivalent, so
-the webhook now commits, **enqueues a durable Cloud Task, and awaits that enqueue** before returning
-200. **The await direction inverts**: the awaited thing is the task CREATION, one bounded call, and
-awaiting it is what makes the work durable before the handler returns; a fire-and-forget enqueue
-would be B-009 again. `enqueueSenderWork` never throws and never retries — a queue outage must not
-turn a successful ingress into a 5xx that makes Telnyx retry a message already accepted.
-`kick-survival.test.ts`/`kick-wiring.test.ts` are re-anchored to that contract (the defect class
-survives; only its mechanism changed) and strip **comments as well as imports**, because a
-prohibition once matched the comment explaining it.
-
-**The operator surface is built: sign-in request, approval, flag review, stock-out triage, stand-data
-questions (F-025a, F-030, F-032, F-037).**
-Administrator identity is **email** (migration 0003; `contact_id` is optional and not the identity),
-sign-in is a magic link whose verification proves an address and whose `administrators` lookup — not
-the link — confers authority, so login is **not** first-user-wins. A session is a durable row storing
-only the token's **hash**; `resolvePrincipal` re-looks-up roles per request, so revoking an
-administrator or session takes effect on the **next request**. Four screens: `/admin` approves farms,
-`/admin/flags` resolves or dismisses flags and shows the flagged thread, `/admin/reports` triages
-stock-out reports, `/admin/stand-data` answers the seeder's data questions (F-037: the 3 seeded flags
-were visible only by SQL; resolving requires a **note**, and **cannot edit the listing** — no write
-path to `sales_locations`, offerings, or inventory, pinned by byte-equality over every listing field
-and sabotage-verified). All five API routes share **one** guard (`apps/web/lib/admin-guard.ts`); the writes
-live in `packages/db/src/admin.ts` and `review.ts`, which re-read administrator authority **inside**
-each transaction and write the audit event in the same commit. The acting administrator comes from the
-session, never the request body. Flags and reports dispose **exactly once** under a row lock — a
-second operator gets 409, not a silent overwrite. Triage offers no action that could change a listing
-(Golden Rule #1), proven by a byte-equality snapshot of every published revision, entry, and approval
-across every operator action. The role lookup returns a **constant** `["admin"]` — an operator can
-never acquire farmer capability, proven by sabotage. Bootstrap is
-`packages/db/scripts/bootstrap-administrator.ts`.
-
-**Requesting a sign-in link is built; delivering it is not (F-032).** `/admin/login` posts to the
-public `POST /api/auth/request-link`, which mints a 15-minute token and hands a **code-rendered**
-message to a `MailSender` seam. The seam **fails closed by throwing** — no provider is configured
-(that is F-031), so no link is actually delivered and one must still be minted out of band with
-`issueMagicToken`. The route's guarantees: the response is **byte-identical** for every address —
-administrator, stranger, malformed, *and when the mail seam throws* — asserted by comparing whole
-serialized responses, because mail is attempted only for a real administrator and a 500 would
-rebuild the oracle through the error path. The throttle runs **before** the administrator lookup, so
-a refused request performs no database read. The budget is per **client, never per address** (a
-per-address budget is itself an oracle). The handler contains **no `console` call at all**, asserted
-against its source, since a vendor SDK attaches the payload — carrying the live link — to the error
-it throws. `/admin/login` works **without JavaScript**; the handler accepts form-encoded bodies as
-well as JSON. `createModelCallThrottle` is now `createPublicActionThrottle` — one mechanism, two
-consumers, separate budgets.
-
-**The model never authors customer-facing factual text or writes durable state.** It interprets and
-selects identifiers; code retrieves, validates membership, and renders. **Five** seams have explicit
-disjoint projections (the four message seams plus `offering-extraction`, which runs at seed time on
-public stand prose); the low-level provider call is unexported. `ambiguous`/`clarification` and the
-two scope boundaries (`outOfScopeRequest`, `originDependent`) are **bare signals carrying no words** —
-code renders the text. A ranking operation needing an origin is refused, never downgraded.
-
-**Privacy and retention are mechanisms, not claims.** Phones hashed, raw E.164 in one column read only
-by the send path. `purgeExpiredBodies` (F-026) clears expired bodies from `sms_messages` and
-`outbox_work` as the third pass on the one cron trigger; rows, projections, flags, and audit events
-survive. The flagged-thread exemption **fails safe** — purge only where the absence of an `open` flag
-can be shown — and **F-030 makes it terminate**: resolving *or* dismissing a flag releases the thread
-with no grace period, proven end to end through the real purge (the dismissal case asserted
-separately, since a drift to `<> 'resolved'` would exempt it forever). Outbound bodies clear only in a
-terminal state, so the purge cannot race the dispatcher into an empty SMS. The admin surface carries
-no raw phone: the approval and stock-out queues carry none at all, and the flag queue and thread
-viewer mask at the **query** (`right(phone_e164, 4)`), so the full number never leaves the database.
-`maskPhoneSuffix` **throws** on anything longer rather than truncating. Asserted by tests that grep
-whole serialized responses for an E.164 and for any 64-hex run.
-
-**The scheduled pass is Cloud Scheduler, and the retention purge has run in production.** Verified by
-effect on 2026-07-27 (under the old scheduler): a body with `body_expires_at` in the past was cleared
-by a real pass — `body` and `body_expires_at` both NULL, the row intact, exactly 1 of 21 bodies
-touched. `infra/work.tf` now owns the trigger: a real one-minute schedule POSTing with OIDC. It
-replaced two mechanisms that each failed differently — `vercel.json`'s cron, which Hobby rejected so
-every deploy stripped it and the deployed system ran **no scheduled pass at all**, and the GitHub
-Actions workflow added to cover that, whose `*/5` schedule was observed firing roughly **hourly**.
-Both are deleted; do not reintroduce either.
-
-**One worker mechanism, two triggers; one consent program, one keyword source.**
-`apps/web/app/api/internal/cron/route.ts` is the single trigger for every *scheduled* pass and the
-**only** trigger for F-026's retention purge. **Four bounded passes** run there: inbound, outbound,
-delivery (B-012), retention — each enumerating its own work and returning counts. It is **worker-only
-and POST-only**: reached through Cloud Scheduler's OIDC against an internal-ingress service with IAM
-`run.invoker`, guarded in-process by `DEPLOYMENT_ROLE` as a **second** door that runs *before*
-`appContext()` and answers **404** (never 403 — 403 confirms the route exists). **`CRON_SECRET` is
-gone**, removed rather than kept beside IAM: it was one credential in two places that had to match,
-where a mismatch returns 401 and a 401 looks identical to success in any scheduler's UI.
-`POST /api/internal/kick` is the Cloud Tasks target — the same two passes scoped to one sender, same
-guards, and it **owns no guarantee**; removing it entirely must fail only latency tests, never
-durability ones. `npm run db:migrate` applies migrations to a deployed database (B-006). Deliberately
-not a build hook: that would migrate on every preview deploy and rollback. Registered keywords and
-auto-response copy are stated once in `packages/core/src/sms/` and tested character-for-character
-against `docs/TELNYX_10DLC_FIELD_VALUES.txt`, a **transcript of live console state** — change the
-console first, then transcribe. `ALREADY_JOINED_RESPONSE` (B-011) lives beside those three but is
-**not** registered copy and must never be transcribed into that block.
-`isProactiveSendPermitted` is the single consent
-predicate; **active** consent is required
-for a proactive send. Registered keywords and auto-response copy are stated once in
-`packages/core/src/sms/` and tested character-for-character against
-`docs/TELNYX_10DLC_FIELD_VALUES.txt`, which is a **transcript of live console state** — change the
-console first, then transcribe. `ALREADY_JOINED_RESPONSE` (B-011) lives beside those three but is
-**not** registered copy and is **not** pinned to the transcript: it is ordinary code-rendered reply
-text and must never be transcribed into that block.
-
-**Architecture tripwires that must keep failing.** `packages/core/src/architecture.test.ts` fails if:
-`MapProvider`/`StubMapProvider`/a `geocode(` call returns (F-017); `packages/config` or
-`packages/contracts` returns as a directory, workspace entry, dependency, import, or tsconfig
-reference (F-028); the tenancy identifier reappears in any source including tests (F-027); or a
-fixture uses a date literal instead of a clock-derived offset (B-003).
-
-**Farm Friend is deployed on GOOGLE CLOUD RUN** (2026-07-29):
-https://farm-friend-web-p5mfxfp5za-uw.a.run.app. Verified by live request — health `{"ok":true}`,
-`/api/public/stands` returning the **35 seeded stands** against real Neon,
-`/api/internal/{cron,kick}` **404 on the public service**, the worker **unreachable from the
-internet**, webhook **401** (not 500/503), and a scheduled pass returning **200**.
-**`/admin` returns 200, not 403** (the record said 403): it is the public sign-in page and leaks
-nothing — no farm names, no E.164, no hashes. The **403 belongs to the admin API routes**.
-**One image, two services, one digest**:
-`farm-friend-web` (public ingress) and `farm-friend-worker` (internal + IAM) differ only by
-`DEPLOYMENT_ROLE`, so they cannot drift. Deploy = `gcloud builds submit --config cloudbuild.yaml`,
-then `tofu plan`, then **`infra/plan-assertions.py` (24 checks)**, then apply — RUNBOOK §Deploy.
-Terraform owns infrastructure but **never secret values or the image**: values go in with
-`gcloud secrets versions add`, because anything through Terraform lands in state.
-**THE CUTOVER IS COMPLETE (2026-07-29) and Vercel is GONE.** Telnyx's webhook points at
-`https://farm-friend-web-p5mfxfp5za-uw.a.run.app/api/sms/webhook` — confirmed by an independent
-re-read, because the PATCH response echoed the new URL while still reporting the OLD `updated_at`
-(the same "a dashboard timestamp is not a last-updated field" trap as `vercel env ls`). The Vercel
-project and its env vars are deleted, as are both stale branches
-(`throwaway/hobby-deploy-test`, `f-019-sms-only-inquiry-boundary`); only `main` remains on origin.
-**Cloud Run URLs are `SERVICE-<opaque>-<shortregion>.a.run.app`**, e.g.
-`farm-friend-worker-p5mfxfp5za-uw` — *not* the project number and *not* the full region. The suffix
-is an explicit Terraform input (`cloud_run_host_suffix`) because reading `.uri` back is a
-self-cycle: every service needs `PUBLIC_BASE_URL`, including the **worker**, whose `resolveConfig`
-fails closed without it and crashed every scheduled run when it was set on the web service alone.
-A wrong URL here is **silent** — tasks and scheduled runs 404 forever while every service looks
-healthy — which is why three plan assertions pin it.
-
-**The webhook's config diagnostic is three-way, not two-way** (the RUNBOOK step-4 framing is wrong).
-`route.ts` calls `appContext()` before the provider check, and `resolveConfig` **throws** on a missing
-Telnyx var, which renders **500**. So: **401** = resolved; **503** = `SMS_PROVIDER` is not `telnyx`;
-**500** = a credential is missing or blank. A missing credential is never 503. `vercel env pull`
-cannot verify values — encrypted vars return `[SENSITIVE]`.
-
-**Packaging defects are invisible locally — npm workspaces hoists.** `npm test`, `typecheck`, `lint`,
-and `next build` from the repo root all pass against manifests that cannot survive an isolated
-install, which is what a deploy does. **Six** such defects have now shipped undetected (B-005 no cron
-config, B-006 no migrate command, B-007 undeclared dep + `transpilePackages` missing three packages +
-root-only `typescript`/`@types/node`/`eslint`, **B-008** missing `@typescript-eslint`
-plugin/parser). `packages/core/src/workspace-manifests.test.ts` is the only place this property is
-asserted — and B-008 proves its reach is partial: it matches `@farm-friend/*` **in import
-statements**, so external packages named in *config files* are outside its design.
-
-**Structured stand data (F-035, B-013); the loader now exists too — see B-002 above.** Migration **0005** adds
-three availability enums (`open_hours_kind`, `season_kind`, `stocking_cadence`), a day set, and two
-tables. **Specialties and current stock are separate by construction:**
-`sales_location_offerings` holds what a stand *usually* carries, while `inventory_revisions`
-requires `published_by_authorization_id` + `farm_approval_id` — so a seeder structurally cannot
-fabricate a confirmation. `stand_data_flags` is where a contradiction goes for an operator (not the
-`flags` table, which is keyed to `contact_hash`/`inbox_event_id` a seed flag has neither of).
-`dawn_to_dusk`/`daylight_hours` and `variable`/`as_needed` are **first-class enum values, not
-missing data**; named seasons resolve at **query time** from one meteorological constant.
-`packages/core/src/seed/availability.ts` parses hours/season/stocking deterministically and
-separates **`not_stated`** (a fact) from **`unparsed`** (a defect needing a human) — 1 flag across
-31 stands. Offerings are **not** parsed: a regex produced tags like "rotational grazing for
-chickens", so `parseOfferings` was deleted for the `offering-extraction` seam, which proposes tags
-that code commits after review. **B-013:** `listPublicStands` now LEFT-joins inventory, so a stand
-nobody has confirmed is visible with `asOf`/`recencyLabel`/`isStale` **absent together** — the map
-cannot render "updated just now" for a confirmation that never happened.
-
-**Deployed to Cloud Run 2026-07-29; revisions `farm-friend-worker-00006` / `farm-friend-web-00005`**
-(forced after the rotation — see B-021; the Terraform-created revisions predated the new secret
-versions and served a revoked password). **All 8 migrations applied** (0007 on 2026-07-29).
-**A REAL HANDSET HAS NOW COMPLETED THE ROUND TRIP ON THIS RUNTIME (2026-07-29).** max texted `Help`:
-committed → routed to the registered HELP copy → dispatched with a real provider message ID →
-`accepted` → 2 delivery callbacks returned through the Cloud Run webhook. `sms_consents` stayed
-empty, which is correct — HELP does not move consent.
-**So production now holds ONE REAL PHONE NUMBER** (max's, in `contacts`). Fingerprint is
-`neondb`, **1** contact / 0 stands / **8** migrations. It was 0 contacts before that message, and
-2 contacts / 21 `sms_messages` before the 2026-07-29 wipe. This is the event F-034 named as closing
-the credential-exposure window — rotation landed first, so the order held. Use the **direct
-(non-pooled)** Neon string for DDL.
-The webhook's 401 is the load-bearing check after any config-touching change: under the three-way
-diagnostic, 401 rather than 500 proves configuration still resolves — including that
-`TELNYX_PUBLIC_KEY` decoded to a valid 32-byte ed25519 key rather than merely being non-empty.
-**Secret Manager values CAN be read back**, unlike Vercel's — which is what made the lost
-`PHONE_HASH_SALT` unrecoverable there. Five `farm-friend-*` secrets each hold one version.
-The legacy `TELNYX_API_KEY`/`TELNYX_PUBLIC_KEY` secrets were **STALE** (May 25; the API key returned
-401 against the live Telnyx API, so the migration plan's claim that they held current credentials was
-wrong) and were **deleted in the 2026-07-29 teardown** along with the other four unreferenced legacy
-secrets. Only the five `farm-friend-*` secrets remain, all of them live.
-**Deploy immediately after every merge** — three merged fixes (B-010/011/012) once sat undeployed,
-and B-002's seed found the same class again: **a forced restart is NOT a deploy.** B-021's rotation
-restart created a new revision of the **existing image**, so F-038's merged reader fix never shipped
-and production served a `contact_only` farm at **0,0 — a pin in the Atlantic**. Invisible until a
-`contact_only` row existed. Compare the revision's creation time against the merge, never the count.
-
-**PRODUCTION IS SEEDED: 35 stands, 2026-07-29 (B-002 DONE).**
-`npm run db:seed -- --form <form.csv> --map <map.csv> [--dry-run]` — **both files required**: the
-form has the 2026 details and **no coordinates**, the map export has coordinates and the farms that
-submitted no form. Verified by effect against `neondb` and the live endpoint: **33 visitable with a
-pin, 2 `contact_only` with none**, 4 flags, **0** names carrying VIGA's annotation, **0** PII, **0**
-pins at 0,0, **0** recency claims. Structural invariants held — `inventory_revisions`,
-`inventory_entries`, `farmer_authorizations`, `farm_approvals` all **0**; `contacts` still **1**.
-Idempotent: a second run seeds 0 / skips 35.
-
-**OFFERINGS ARE NOW SEEDED TOO: 212 tags across 33 of 35 stands, 2026-07-29 (F-041).**
-`npm run db:seed-offerings -- maps/offerings-proposals.json [--dry-run]`. Verified by effect against
-`neondb`; idempotent (a second run inserted **0**, skipped 212). Structural invariants held —
-`inventory_revisions`, `inventory_entries`, `farmer_authorizations`, `farm_approvals` still **0**, so
-the seeder fabricated no confirmation; `contacts` still **1**. The two untagged stands are both
-correct: Handpicked Homestead (unpublished, see below) and Vashon Island Farmers Market, a market
-rather than a stand whose approved entry is legitimately an empty list.
-**`--dry-run` now resolves names against the DATABASE** (`planOfferings`), printing
-`Aeggy's -> "Aeggy's Farm"` whenever the approved name differs from the stored one. The old dry run
-only echoed the file back, so it reported 31 entries while 26 could land — that is exactly how five
-renamed stands stayed invisible. `DATABASE_URL` is required for a dry run, deliberately.
-**The loader keys on `matchStandName`, the seed join's own normalization** — one mechanism, two
-consumers. An ambiguous name **refuses the whole batch** rather than picking a candidate. Measured
-over the real corpus: 26 → 31 of 31 artifact entries match, **0** ambiguous collisions across 35
-stands.
-**Three farms were reachable only through the FORM export** (Farmstad, Lavender Hill Farm, Sweet
-Alyssum Farm). They had no proposal not because they are newer but because `offerings:propose` reads
-the **map** csv, and `parseStandCsv` anchors on the `POINT (` literal — so a row with no coordinate
-is **invisible rather than rejected**. Their tags were proposed through the real seam and gate and
-approved by max 2026-07-29.
-
-**A SEEDED STAND IS UNPUBLISHED, and it is the farmer's own instruction (B-024, 2026-07-29).**
-`Handpicked Homestead` is `is_public = false` in production: her form `extraNotes` read *"I don't
-have my own farmstand - please add me under Plum Forest's location, do not add my address"*, yet the
-seed published her **home address with a real map pin**, sending customers to a private residence
-with no stand. Unpublished by effect — exactly 1 row affected, 35 stands intact, the live endpoint
-now returns **34** and no longer carries her. Her address and coordinates are **preserved** for VIGA
-to resolve with her; the permanent shape (a producer whose goods sell at another farm's stand) is an
-open product question, and **no producer/host relationship was invented for one row**.
-**Why the seeder could not catch it:** `extraNotes` is parsed (`form-responses.ts`) but consumed
-**only** by `offering-type.ts`; **nothing reads it for visibility or visitability**. The instruction
-was in the record with no consumer — the same data-present/consumer-absent shape as B-013 and F-038.
-**Measured across the whole corpus, this is the ONLY instance** (a scan for "do not add" / "don't
-have my own" / "available at" / "under X's location" returns exactly one row), so it is a contained
-fix rather than a re-seed.
-
-**The tags are in the database but NO READER SURFACES THEM (F-042).** `listPublicStands`
-(`apps/web/lib/public-listing.ts`) never selects `sales_location_offerings`, so the public API
-returns no offerings field and the map still renders *"No listing yet — this stand hasn't been
-updated through Farm Friend"* for all 33 tagged stands. Seeding was necessary but is **not
-sufficient** for F-041's actual goal; do not read "212 tags seeded" as "customers can see what a
-stand carries."
-
-**The join is an EXACT normalized key, never a similarity score** (`seed/match-stands.ts`). Measured
-over the real corpus, a Jaccard matcher ranked **Lavender Hill Farm against Flora Hill Farm** as its
-best candidate — any threshold loose enough to catch the four true pairs (Aeggy's/Aeggy's Farm,
-Provo Farms/Provo Farm, Olive Farm/Olive Farm Stand, Flora Hill/Flora Hill Farm) would have seeded
-one farm at another's coordinates, with every test green. 27 of 35 matched across both files, 0
-false. A missed pair is a **reported refusal** a human resolves; a wrongly joined pair is a silently
-wrong address. `matchStandName` (destroys information, for comparison) and `standDisplayName`
-(preserves the farmer's own punctuation, for storage) are deliberately separate.
-`seed/offering-type.ts` classifies from the **farmer's own words**, never a farm name — and must not
-read **"self-service"** as a service business, which mislabelled a cut-flower stand.
-Both loaders REFUSE rather than coerce: an unplaceable stand is reported, never given a point (F-017).
-
-**F-024 is DONE: DeepInfra is attested, and the model has actually run.** `LLM_PROVIDER` is real
-(`stub` | `deepinfra`); an unknown value throws rather than silently running the test double.
-`DEEPINFRA_ATTESTED_DATA_HANDLING` lives in `packages/ai/src/deepinfra.ts` — **beside the adapter it
-gates**, because the propose script and live evals construct the provider outside the web
-composition root and would have bypassed a gate that lived there. `assertDeepInfraSelectionApproved`
-is the one approval path. Values transcribed verbatim from docs.deepinfra.com/account/data-privacy
-(reviewed by max 2026-07-28): no training, no storage beyond the request, content logging off,
-retention 0 — with the recorded caveat that DeepInfra reserves an **unbounded** right to log "a small
-portion of requests". Their no-training clause **excludes Google/Anthropic-routed models**, so an
-`anthropic/` or `google/` `DEEPINFRA_MODEL` is a startup error. Source tests pin the values **and the
-citation** (URL + date in the preceding comment block); sabotage-verified three ways.
-**Model: Mistral Small 24B** (max, 2026-07-28) — containment 12/12 and quality 18/18 across three
-runs, vs Llama 3.3 70B's 12/12 and 16/18, at ~5× less cost. Bigger was not better.
-
-**The first live-model run failed EVERY seam while 471 unit tests stayed green.** The class of
-defect the stub structurally cannot see, now caught by `evals/live.ts` (`npm run evals:live`,
-`live-containment` must be 100% and a failure **stops and reports**). Three real defects:
-(1) projections attached SMS-composition guidance ("Write a concise SMS reply…") to seams whose
-output is structured JSON and **never stated the expected shape** — the model returned
-`{"smsReply":…}`; fixed with per-seam contracts in `SEAM_OUTPUT_SHAPES`, whose examples
-`output-contracts.test.ts` parses **through the real schema** so prose cannot drift from the
-validator; (2) models emit `"field": null` for unstated optionals and `.optional()` refuses null —
-`nullAsAbsent()` applies **only where optionality is already declared**, and a null-valued *unknown*
-key still hits the strict refusal; (3) the corpus raised the offering cap from 24 to 40 (Venison
-Valley legitimately lists 26). **Containment held throughout**: asked to select `loc-999`, Llama
-complied and membership validation rejected it.
-**DeepInfra limits: 200 concurrent per model, 429 beyond, no RPM cap** — far above Farm Friend's own
-ceilings, so the public throttle needed no change. Under $1/month at launch volume.
-
-**Offerings: proposed, reviewed, approved — not yet in any production database.**
-`npm run offerings:propose` (model proposes; contacts stripped first; gate asserted) →
-`npm run db:seed-offerings` (code commits). The propose script lives in `packages/ai` because it
-composes ai + core and **db must not depend on ai**. 31/31 proposed; max approved 2026-07-28 with one
-edit (Aeggy's redundant eggs collapsed), keeping Narwhal's "swag" and Seedrain's service entry — the
-latter filed as **F-038**. Approved artifact: `maps/offerings-proposals.json`. `seedOfferings` is
-idempotent on (location, item), never rewrites an existing tag, reports unknown stands, writes zero
-inventory.
-
-**Verified July 29, 2026 (`b-002-seed-join`, merged):** `npm test`
-**575/575 across 59 files**; `npm run test:integration` **329/329 across 20 files** on real
-Postgres 16 (all **8** migrations applied from an empty database); lint and root typecheck exit 0;
-**`infra/plan-assertions.py` 29/29**, `infra/deploy_assertions.py` PASSED, and
-`infra/test_deploy_assertions.py` **10/10**.
-`npm run evals` / `evals:live` were **not** re-run — no seam projection, schema, or output contract
-changed; last results stand (`evals` critical 11/11, advisory 4/4, adversarial 29/29;
-`evals:live` containment 4/4, quality 6/6 on Mistral Small 24B).
-**A pre-existing integration flake exists on `main`**: `a verified STOP unsubscribes end to end and
-calls no model` has failed once with PostgresError **40P01 deadlock** on a fixture `truncate` and
-passed on rerun — contention between suites' truncates, not Farm Friend's locking (B-020). It did
-**not** reproduce across three full runs this session.
-
-**`npm run typecheck` COVERS `apps/web` (GL-005).** It is `typecheck:packages && typecheck:web` —
-two halves, because `apps/web/tsconfig.json` is `composite: false` and `tsc -b` cannot reference it.
-The 57 web errors it had never seen are at **0**, none suppressed; seventeen were a latent
-**production** defect (`ReturnType<typeof postgres>` collapsing the type map to `never`). `Sql`/`Tx`
-now live once in `packages/db/src/sql.ts`. Sabotage: a `TS2322` in a web file exits **1** under the
-root typecheck and **0** under the old bare `tsc -b`.
-
-**Admin magic links are one-use (GL-004, migration 0006).** Each link carries a random nonce whose
-hash lands in `admin_sessions.magic_nonce_hash` under a unique index, written by the **same insert
-that creates the session**, so consume and session cannot drift apart. The arbiter is
-`on conflict … do nothing returning id`, never a check-then-write. Minting still writes **nothing**,
-which keeps `/api/auth/request-link` from becoming a membership oracle. A replayed link and a
-non-administrator both render 401.
-
-**The migration GENERATOR is trustworthy again (GL-006).** Snapshots had stopped at `0001` while
-seven migrations were journaled, so `drizzle-kit generate` diffed against a five-migration-stale
-picture. Applying was never affected — which is why it stayed invisible. One current
-`0006_snapshot.json` is the whole fix: drizzle-kit 0.22.8 diffs against the **newest snapshot only**.
-`packages/core/src/migration-metadata.test.ts` catches the *next* missing snapshot, not just this one.
-**The Golden Rule #6 compile guard now sits on the REAL send path (GL-035).**
-`safety-boundary.type-test.ts` asserted the branded-outbound bypass against `OutboundMessage`/
-`SmsTransport` — a parallel delivery path **nothing in production used**. The static provenance
-barrier was being proven of code that never ran. Re-anchored to `LastMileSendInput`, the type
-`createLastMileSender` actually takes; erasing the brand now fails **both** bypass assertions
-(sabotage-verified here, not just reported). The parallel path is deleted: `SmsSimulator`,
-`SmsTransport`, `OutboundMessage`, `SentMessage`, and the metrics logger only the simulator called.
-`ProviderTransport` (a plain function type in `delivery.ts`) is the one send seam.
-`estimateSmsSegments` and `normalizeAvoidableSmsUnicode` **survive deliberately** — the normalizer
-is already on the real path via the outbound guard, and the estimator is what GL-021 attaches.
-
-**One activation writer (GL-035).** `activateAcceptedPrompt` in `packages/db/src/transactions.ts` is
-now the only writer of a proposal's activation state; the outbound worker and the test fixture both
-call it. They had **already diverged** — the fixture targeted `where id = proposalId` with no state
-guard while production matches `state = 'open'` + recipient + `inventory_confirmation`. Sabotaging
-the shared write fails **11 integration tests** plus the `activation_coherent` CHECK constraint.
-
-**`roles.ts` was NOT dead — the review said it was.** GL-035 proposed deleting it; `admin-guard.ts`
-calls `requireRole` and four admin pages call `hasRole`, so deleting it would have removed the live
-admin authority check. **Narrowed** instead: `Role` is now `"admin"` alone, dropping a
-`staff`/`farmer` implication table that nothing could ever produce. The lesson is the guide's own
-framing — *its findings are leads to reconfirm against the code, not a spec.* Two of GL-035's three
-candidates were wrong in the dangerous direction.
-
-**The docs no longer carry build status (GL-031/032/036).** Retired
-`CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md` as living design authority — each architecture doc now
-owns its own domain, and the three decisions that existed *only* in the handoff were moved into the
-owning docs first (code-owned message-frequency limits → ARCHITECTURE, the excluded-infrastructure
-list → ARCHITECTURE, "retrieval-first means before *fact selection*, not before *interpretation*" →
-AI_ARCHITECTURE). Status lives in this file alone. Session logs are out of the startup reading path.
-
-**Public copy now names START for returning senders (GL-034).** The code was already correct;
-`docs/VIGA_10DLC_WEBSITE_COPY.md` — what a farmer reads *before* texting — said messaging resumes
-"unless you request to rejoin", naming no keyword, so a reader reaches for JOIN and stays blocked.
-Five sections fixed; JOIN stays as the first-time call to action. Registered 10DLC copy and
-`TELNYX_10DLC_FIELD_VALUES.txt` were **not** touched. Two optional Telnyx console edits are written
-up under GL-034 — **low value**: Telnyx auto-answers STOP/START in its own copy and enforces its
-block list independently, so neither changes what an opted-out user experiences.
-
-Newest session-log entry: B-002 closed — the seed join (an exact key, because a fuzzy one matched
-Lavender Hill to Flora Hill), production seeded with 35 stands, and a **stale deployment** found by
-seeding: a merged fix that a rotation restart never shipped.
-
-**A failure that MOVES between runs is environmental.** Two integration runs hung mid-suite with a
-*different* named test each; stashing the branch reproduced the hang on clean `main` (the connection
-was out). A named failing test is still a real defect until shown otherwise — but `git stash` is the
-cheap way to prove whose it is. Session-log entries older than the newest eight live in
-`docs/SESSION_LOG_ARCHIVE.md` (rotate once the log passes ~150k chars; last done 2026-07-29,
-leaving 8 entries in the log and 34 archived).
+- **`LLM_PROVIDER` is required with no default** and no environment-dependent exemption — production
+  once ran the deterministic stub its entire life, silently, with every suite green. Now
+  `deepinfra` + `mistralai/Mistral-Small-24B-Instruct-2501`, so **model calls cost money on real
+  traffic**.
+- **The model authors no customer-facing factual text and writes no durable state.** Five seams have
+  explicit disjoint projections; the low-level provider call is unexported. `ambiguous` /
+  `clarification` / `outOfScopeRequest` / `originDependent` are **bare signals carrying no words** —
+  code renders the text.
+- **Consent**: `isProactiveSendPermitted` is the single predicate. **`JOIN` enrolls only a
+  first-time sender; once a consent record exists only `START` restores** — the carrier owns
+  STOP/START and 409s our reply while its block is active, so our record must not claim consent the
+  carrier will not honour. No provider response ever drives a consent transition.
+- **Privacy**: phones hashed, raw E.164 in one column read only by the send path; the admin surface
+  masks at the **query** (`right(phone_e164, 4)`). `purgeExpiredBodies` clears expired bodies;
+  flags/audit survive; the flagged-thread exemption fails safe and terminates on resolve *or*
+  dismiss.
+- **Post-response work is a durable queue, not a platform primitive.** The webhook commits,
+  **enqueues a Cloud Task, and awaits that enqueue** before returning 200. `enqueueSenderWork` never
+  throws and never retries — a queue outage must not turn a successful ingress into a 5xx.
+- **An abandoned dispatch claim is quarantined, never resent** — recovery resolves to `ambiguous`,
+  never `queued`, because a resend could duplicate an SMS someone already holds.
+- **Registered keywords and auto-response copy** are stated once in `packages/core/src/sms/` and
+  pinned character-for-character to `docs/TELNYX_10DLC_FIELD_VALUES.txt`, a **transcript of live
+  console state** — change the console first, then transcribe. `ALREADY_JOINED_RESPONSE` lives
+  beside them but is **not** registered copy and must never be transcribed into that block.
+- **Architecture tripwires** (`packages/core/src/architecture.test.ts`) fail if: a `MapProvider` /
+  `geocode(` call returns; `packages/config` or `packages/contracts` reappears; the tenancy
+  identifier reappears; a fixture uses a date literal; or a publication-path source compares against
+  a location-type enum **value**.
+- **Seeding**: `npm run db:seed -- --form <f.csv> --map <m.csv>` (both required — the form has 2026
+  details and no coordinates, the map has coordinates). The join is an **exact normalized key**
+  (`matchStandName`), never a similarity score: a fuzzy matcher measured over the real corpus ranked
+  Lavender Hill against Flora Hill. Offerings are a separate step,
+  `npm run db:seed-offerings -- maps/offerings-proposals.json [--dry-run]`, keyed through that same
+  normalization; an ambiguous name refuses the whole batch, and `--dry-run` resolves against the
+  database.
+- **Deploy** = `gcloud builds submit --config cloudbuild.yaml
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)`, then `tofu plan`, then
+  `infra/plan-assertions.py` (29 checks), then apply, then `infra/deploy_assertions.py` — RUNBOOK
+  §Deploy. **Read a plan's CONTENTS, never its count**: a permanent 2-resource diff on the top-level
+  `scaling` block never converges and is expected steady state. Terraform owns infrastructure but
+  **never secret values or the image**.
+- **`PHONE_HASH_SALT` must never be rotated** — it is the input to the only lookup key for every
+  phone; rotating it orphans every hash with no way back.
 
 ### Open work — each needs separate implementation authorization
 
-Do not read a passing suite as a working product: several gaps hide behind green tests whose fixtures
-supply what production never creates.
+Do not read a passing suite as a working product: several gaps hide behind green tests whose
+fixtures supply what production never creates.
 
-- **B-002 — DONE (2026-07-29). Production is seeded with 35 stands.** Both readers, the join, the
-  classifier, and the loader are built and measured against the real corpus; see the snapshot above
-  and the session log. **The only unseeded piece is offerings** — `sales_location_offerings` is 0 in
-  production, closed by `npm run db:seed-offerings -- maps/offerings-proposals.json` (the artifact is
-  already reviewed and approved). Two stands still carry a `season_unresolved`/`unparsed_availability`
-  flag for a VIGA operator, which is the flag surface working as designed, not a defect.
-- **F-038 — farms you CONTACT rather than VISIT. DONE (2026-07-29), seeder included.** Both
-  `contact_only` farms are live with no pin, and the two non-produce farms are classified from their
-  own form text. Not a third `kind` value: **two independent properties**, because
-  one enum cannot carry both cases — Seedrain has an address but sells *services*; Open Gate Lamb
-  has **no address at all** ("On island delivery for orders over $50"). Migration **0007** adds
-  `visitability` (`visitable | contact_only`) and `offering_type` (`produce | services |
-  by_order`), both defaulting to the pre-F-038 meaning so no seeded listing is reclassified, and
-  `coherent_visitability` enforces **all-or-nothing in both directions**. The `contact_only`
-  direction is the one that protects customers: the legacy map export carries real coordinates for
-  Open Gate Lamb, and seeding them would pin a farm with nothing to buy.
-  **An ADDRESS is what visitability requires — not coordinates** (max, correcting a wrong proposal
-  mid-session). A coordinate says where a farm *is*; an address says where a customer can *go*. So
-  **Breathing Meadows is `contact_only` and gets no pin** — "Open only by appointment" means a
-  customer specifically cannot turn up. **"By appointment" is NOT a tracked type**: one instance in
-  32, and the same language appears at Lavender Hill and Ostara, which have ordinary stands.
-  `hours_text` already carries the farmer's words verbatim.
-  **ANY farm may publish SMS inventory** (max) — gated on the farmer authorization plus farm
-  approval, never on farm type. Verified, not assumed, and now a tripwire: `architecture.test.ts`
-  fails if any publication-path source compares against a location-type enum **value**, anchored to
-  the comparison construct rather than the vocabulary. The read path is excluded because it decides
-  *display*, and that exclusion is itself guarded — both excluded files must stay write-free.
-  **Two silent reader defects this exposed, both fixed:** `Number(null)` is **0**, not NaN, so an
-  address-less farm rendered at **0,0 — a pin in the Atlantic** — with no type error; and
-  `withApproximateDistance` sorted that farm **first**, as the nearest place to shop, because NaN
-  in a comparator makes the sort order-dependent. Place fields are now spread conditionally and
-  omitted together (the B-013 shape); undistanced stands sort last.
-- **F-035 / B-013 / F-037 — all done.** Schema, parser, seam, loader, and the operator surface for
-  the flags the seeder raises.
-- **F-036 — where the model may run.** **Seed-time: built and RUN** (`offering-extraction`, 31/31
-  proposed and approved). **Query-time on the public map: BLOCKED** — that is the anonymous surface
-  F-019 removed and the Do-not list names; `public-surface-model-free.test.ts` polices the import
-  graph. **Farmer-authored web submission: a THIRD case, not what F-019 blocked** — a farmer editing
-  their own listing is the same act as texting an update. Needs farmer web auth (does not exist) and
-  must route through the same confirmation gate. `extractOfferings` is transport-agnostic for this.
-- **GCP CUTOVER — DONE (2026-07-29), including the B-009 proof and the teardown.** Telnyx points at
-  Cloud Run; Vercel, both stale branches, all 17 legacy functions, the 7 legacy schedulers, the 6
-  unreferenced legacy secrets, the legacy Firestore/Auth contents, and the stray
-  `farm-friend-497422` project are all deleted. `farm-friend-vashon` now holds **only** Farm Friend:
-  two Cloud Run services, one queue, one scheduler, five `farm-friend-*` secrets.
-  **The B-009 class is PROVEN BY EFFECT on this runtime, not inherited** —
-  `scripts/prove-post-response-work.ts`, three checks against the database:
-  a signed message returns 200 and its task drives the pass to `state=processed` with
-  `claimed_at` non-NULL and the outbound row present (~1s); the same on a just-started container;
-  and a message whose task was **never created** recovered by the every-minute schedule. The script
-  **searches for the B-009 signature** (committed + acknowledged + never claimed) rather than
-  assuming it absent. **Sabotage-verified, sabotage first**: run against the deployment trusting
-  Telnyx's real key, checks 1–2 fail `ack=401` while 3 still passes on its own merits.
-  Signing needs a key we hold, so the proof runs against a revision carrying a throwaway
-  `TELNYX_PUBLIC_KEY` (plain config, never a secret) — restore is verified **behaviourally**, by the
-  throwaway key then returning `signature_mismatch`. Rerunning it requires that same key swap;
-  it is not a suite you can point at production as-is.
-  Incidentally proven: the **full round trip works on Cloud Run** — a proof message's reply was
-  dispatched through Telnyx and its delivery callbacks returned through the new webhook URL.
-  Proof rows were removed under a guard that aborts if any contact outside the reserved
-  `+1206555` fictional range exists; the fingerprint is back to 0 contacts / 0 stands / 7 migrations.
-  **The record said the legacy project held no real data; reading it found 37 Firestore documents**
-  — 19 users, 3 farms, 5 messages, and a `pending_users` row with `source: "join"` and no
-  `test_data` flag. max confirmed it was test data and approved deletion; it was archived first to
-  `~/farm-friend-legacy-archive/` (Firestore + Auth + non-secret manifests), and the delete
-  refused to run unless the re-read fingerprint matched and the archive held all 37 docs. **The
-  standing rule earned its keep again: "assumed empty" was wrong, and only reading it showed that.**
-- **F-039 (NEW, filed 2026-07-29) — one-tap "add Farm Friend to contacts" via a served vCard.**
-  Every SMS journey starts by typing a number off a sign. A `text/vcard` route built from
-  `TELNYX_FROM_NUMBER` (never a literal, so it cannot drift from the sending number) opens the
-  native add-contact sheet on iOS and Android. No database, no model, no consent implication —
-  saving a contact is **not** `JOIN` and the copy must not imply it is. The display name is
-  max's/VIGA's call.
-- **F-040 (NEW, filed 2026-07-29, HIGH) — farmer onboarding. The design is settled; nothing is
-  built.** The gap between a working SMS round trip and a usable product: **`farmer_authorizations`
-  has no writer outside tests** — verified, every insert in the tree is a fixture. Publishing needs
-  that authorization **plus** a farm approval; the approval has an operator screen, the
-  authorization has no path at all. So a real farmer who texts an update falls through to the
-  *customer* branch, and nothing reports why.
-  **The design (max, 2026-07-29) separates identity from channel** — conflating them is what forced
-  a false "pick a channel" choice. *Identity* is a one-time trust step: **VIGA always approves**
-  (a phone proves possession of a phone, not ownership of a farm), and **either side may start it**
-  — VIGA sets a farmer up, or a farmer texts to join a queue VIGA acts on. On approval Farm Friend
-  **texts the farmer** that they can start (consent must already exist; approval is never consent).
-  *Channel* is where farmers differ: **SMS, a texted link, and a bookmarked web form**, all landing
-  on the **same confirmation gate** — the web path gets no bypass. **No passwords**: the phone is
-  the identity, reusing F-032's magic-link mechanism rather than adding a second auth system.
-  Emailed links are out of scope (blocked on F-031).
-  **max chose a link that never expires until revoked**, which makes revocation the ONLY safety
-  net — so it must be real: VIGA can see and revoke every farmer, revocation takes effect on the
-  **next request** (never cached into the link), and the blast radius is bounded by construction —
-  a leaked link can at worst *propose* a wrong listing on ONE stand, never change farm ownership,
-  alter authorization, reach another farm, read another actor's data, or publish without
-  confirmation. Deliberately not built: farmer passwords, and farmer-authored *offerings* edits.
-- **F-034 / GL-001 — DONE 2026-07-29. Every exposed credential is rotated and the old values are
-  confirmed dead BY EFFECT.** This is no longer a blocker on F-029.
-  `DATABASE_URL` (Neon `neondb_owner` password reset — the old one now returns
-  `password authentication failed`), `DEEPINFRA_API_KEY` (old key returns **401**), and
-  `MAGIC_LINK_SECRET` (fresh `openssl rand -base64 48`) all rotated into Secret Manager **and**
-  local `.env`, then applied by redeploy. `CRON_SECRET` no longer exists (OIDC + IAM);
-  `TELNYX_API_KEY` was re-fetched from the console during the migration and its stale legacy copies
-  were deleted in the teardown. **`PHONE_HASH_SALT` was NOT rotated and must never be.**
-  **The rotation itself then BROKE PRODUCTION for ~25 minutes and a real handset found it — see
-  B-021.** `version = "latest"` binds at **container start**, and the `tofu apply` after the version
-  add altered nothing in the revision template, so it created **no new revision**: both services kept
-  the old `DATABASE_URL` and every database call failed `28P01` against an already-reset Neon
-  password. Fixed by forcing revisions (worker 00006 / web 00005); the stuck message was recovered
-  by the next scheduled pass. **A green apply is not a restart — compare the revision's creation
-  time against the secret version's, and treat an older revision as "not applied" whatever any
-  endpoint returns.** **Both B-021 follow-ups are now CLOSED.**
-  *The drift* was never mysterious: the emergency `gcloud run services update` that ended the
-  outage injected `ROTATION_APPLIED_AT` onto the live services only, so every plan wanted to strip
-  it. It is now a declared variable (`rotation_applied_at`, validated `2026-07-29T17-35` shape) in
-  `common_env`, so the config round-trips. The `gcloud` provenance annotations
-  (`client`/`client_version`) cleared on the 2026-07-29 apply, as expected.
-  **A PERMANENT 2-resource plan noise remains, and it is NOT our config: the top-level `scaling`
-  block.** The API returns `{manual_instance_count: 0, min_instance_count: 0}`, the config omits the
-  block, so the provider plans to null it and the API echoes the defaults back — it **never
-  converges**, and applying it again changes nothing. Confirmed by diffing the plan JSON field by
-  field, twice, before and after an apply: no container, image, env, secret, or ingress change.
-  **So "the plan shows 2 to change" is the expected steady state.** Read the plan's CONTENTS, never
-  its count — that conflation is what made B-021's no-op apply look real. `scaling` alone is noise;
-  anything else in the diff is a genuine change. `min_instance_count = 0` is unaffected either way,
-  and `plan-assertions.py` still checks it under `template.scaling`.
-  *The prevention* is **`infra/deploy_assertions.py`** (run after apply; RUNBOOK §Deploy step 5):
-  every serving revision must be **newer** than every enabled secret version it consumes. It reads
-  `latestReadyRevisionName`, not `latestCreated` — a revision that failed its startup probe exists
-  but serves nothing. Ties fail closed, every stale service is reported (not just the first), and an
-  **empty lookup is a failure, never a pass**. Tested by `infra/test_deploy_assertions.py` (10/10)
-  because the live project is healthy and *cannot* produce the failing case; the B-021 timeline
-  (revision 16:09:26 vs. secret 16:35:29) is a fixture. Three sabotages verified.
-  **The revision-annotation design was tried first and REJECTED on evidence**: resolving `latest` to
-  a version number needs `data.google_secret_manager_secret_version`, which pulls the **cleartext
-  payload** into plan and state — a probe put a live Neon password in `prior_state`, caught by the
-  existing "no postgres connection string" assertion. Metadata-only carries no version number, and
-  the Google provider has no `ephemeral` resource. Timestamps need none of that.
-  `plan-assertions.py` is now **29 checks** (was 24): both services mount secrets, both carry the
-  rotation marker, and both carry the **same** one — anchored to the secret mounts, not to the
-  variable's name.
-  **Three checks that looked like proof and were not**: `/api/public/stands` (served by a **warm**
-  container whose pooled connections predated the reset — a warm connection survives a password
-  change), a scheduler 200 read from *before* the apply, and `evals:live` (which runs **locally**
-  and never touches the deployment).
-  Second trap, separate: a scripted `.env` edit whose regex assumed `KEY="value"` silently matched
-  nothing on the **unquoted** `DEEPINFRA_API_KEY` line, reported success, and left the dead key in
-  place. **A containment-only pass is not evidence**: a refused call counts as contained, so
-  containment read 4/4 while quality read 0/6. Assert the match count.
-  **`PHONE_HASH_SALT` MUST NOT BE ROTATED, ever** — it is the input to the only lookup key for every
-  phone; rotating it orphans every hash with no way back. If it is ever believed compromised the
-  answer is a designed re-hash migration. **The repository is clean**: every secret-shaped literal in
-  the tracked tree is a test fixture, `.env` was never committed, so no history rewrite is owed.
-  Procedure and proof-by-effect tables: **RUNBOOK §"Credential rotation"**; narrative in the
-  2026-07-29 session-log entry.
-- **F-029 — go-live. The full SMS round trip now works end to end (2026-07-27).** Farm Friend sent
-  its first SMS. Inbound keyword → deterministic route → queued reply → Telnyx dispatch with a real
-  provider message ID → delivery callbacks (`message_sent`, `message_finalized`) returning through
-  the same webhook. Six keywords were exercised against the live deployment (`stop`, `start`, `stop`,
-  `join`, `help`, `start`), each routed to the correct registered copy, and consent verified against
-  real traffic: the watermark holds only the latest transition and **`HELP` correctly did not move
-  consent**. The supervised demo completed on a clean number: `start` → `join` → `help`, all three
-  accepted with real provider message IDs. Three earlier blockers, each masking the next: (1) the
-  number was never provisioned on the 10DLC campaign — an approved campaign and a profile-Active
-  number do *not* imply provisioning, and messages died upstream of Telnyx's own records;
-  (2) **B-009**, the kick never running; (3) `TELNYX_FROM_NUMBER` not in exact E.164 form, which
-  returns `400` on every send. **What remains for go-live is not the SMS path** — it is **F-034
-  (credential rotation, a hard blocker)**, tearing down the throwaway project and branch, B-002 seed
-  data, F-024 a real model provider, and F-031 mail delivery.
-- **B-012 / B-010 — both DONE and production-verified; full narrative in the session log
-  (2026-07-27/28).** Two durable lessons kept here: **a CLI deploy creates no GitHub deployment
-  record**, so `gh api .../deployments` reports the last *Git-integration* SHA and is never evidence
-  of what production runs — verify by effect. And **an unexported seam is an untested seam**:
-  `createTelnyxTransport` was module-private, so the one path that parses a real provider error had
-  no test and silently discarded it, because everything above used the never-failing simulator.
-  The duplicate-delivery-event rule is enforced **twice** (a migration-0001 trigger *and*
-  `applyDeliveryEvent`), so no single-point sabotage can fail a test of it.
-- **B-011 — the carrier owns STOP, and JOIN cannot undo it.** Telnyx auto-answers STOP/START in copy
-  that is not ours, and **blocks our reply with `409 / 40300` while its block rule is active**.
-  Verified: suppression is enforced **independently of the profile's auto-response fields**, so
-  disabling that text would not restore deliverability — accepting carrier handling for STOP/START is
-  the workable path. **`START` lifts the block; `JOIN` does not** (a `join` four minutes after a
-  `stop` still 409'd). The live consequence: a farmer who texts STOP then JOIN is recorded `active`
-  while the carrier blocks every message, so `isProactiveSendPermitted` returns true for sends that
-  can never arrive. **FIXED and merged, integration-verified.** max's decision: *conform to the
-  carrier* rather than reconcile after the fact — **`JOIN` enrolls only a first-time sender; once a
-  consent record exists only `START` restores.** Our record can no longer claim consent the carrier
-  will not honour, and **no provider response drives a consent transition** — a 409 is never
-  consulted, so Golden Rule #2 is untouched. `STOP` still applies from every state; `START` is
-  honoured from every state (it is the one word that lifts a block we cannot see).
-  The rule lives **inside `applyConsentTransition`'s `for update` lock** (`firstTimeOnly`), never in
-  the caller, and keys on the **`sms_consents` row, not the watermark**; a refused JOIN advances no
-  watermark. `ALREADY_JOINED_RESPONSE` is **not** registered 10DLC copy, so it stays editable.
-  **Honest limit: while the block is active that reply is itself 409'd and never arrives.** Full
-  rationale: session log 2026-07-27. **Remaining work is farmer-facing, not code — onboarding
-  material must say START, not JOIN, for returning after an opt-out.**
-- **B-008 — lint does not run in deployed builds.** `apps/web` omits `@typescript-eslint/eslint-plugin`
-  and `@typescript-eslint/parser`, so the plugin fails to load and Next skips lint non-fatally: the
-  build goes green with the gate silently absent. Two-line manifest fix; the real work is extending
-  `workspace-manifests.test.ts` to config-file dependency references.
-- **F-031 — no mail provider, so no sign-in link is delivered.** F-032 built everything up to the
-  wire (request route, throttle, `/admin/login`, code-rendered template, fail-closed seam). What
-  remains is the transport: a vendor, its credentials, its **attested** data-handling terms, and
-  SPF/DKIM/DMARC on the sending domain. **Blocked on what email infrastructure VIGA already runs** —
-  max is finding out. Surveyed 2026-07-26 so it is not repeated: **GCP has no first-party
-  transactional email API**; "email on GCP" means SendGrid via Marketplace, whose terms are
-  **Twilio's, not Google's**. Never infer the attestation values. Until this lands a link must be
-  minted out of band with `issueMagicToken`, so a non-technical operator still cannot sign in
-  unaided.
-- **B-001** stays open pending its caveat below. `model_runs` has **no production writer** — its only
-  insert is in a test; unowned. No per-stand pages or filter/search UI. Message classification has no
-  consumer. SMS inquiry has no HTTP route **by design** — reached from the Telnyx webhook worker.
-
+- **B-023 (HIGH) — production has no administrator.** `administrators` is 0 rows, so the whole
+  operator surface is unreachable by anyone; a verified link for an address with no administrator row
+  renders 401, correctly and permanently. The 4 seeded stand-data flags have nobody who can see
+  them. **Not F-031 and not blocked by it** — that is mail transport, this is the authority row the
+  link resolves against. `bootstrap-administrator.ts` exists and has never run against production.
+  Needs a decision on whose address is first.
+- **B-024 (HIGH) — a farmer's address we should not have published.** Handpicked Homestead is
+  `is_public = false` in production (interim, max-approved): her form `extraNotes` said *"I don't
+  have my own farmstand … do not add my address"*, yet the seed gave her a pin at her home. Address
+  and coordinates preserved; the permanent shape (a *producer* whose goods sell at another farm's
+  stand) is an open product question, and **no producer/host relationship was invented for one row**.
+  **`extraNotes` is read only by `offering-type.ts`** — nothing consults it for visibility, so a
+  second such instruction would republish. Exactly one instance corpus-wide.
+- **F-042 (HIGH) — the offering tags are unread.** `listPublicStands` never selects
+  `sales_location_offerings`, so the API exposes no offerings field and all 33 tagged stands still
+  render *"No listing yet."* Seeding was necessary, not sufficient. The design question is the
+  **vocabulary**: "usually carries" must never render as a confirmation.
+- **F-040 (HIGH) — farmer onboarding; design settled, nothing built.**
+  `farmer_authorizations` has **no writer outside tests**, so a real farmer who texts an update
+  falls through to the *customer* branch and nothing reports why. Identity is separate from channel:
+  **VIGA always approves** (a phone proves possession of a phone, not ownership of a farm), either
+  side may start it, and on approval Farm Friend texts the farmer. Channels — SMS, a texted link, a
+  bookmarked form — all land on the **same confirmation gate**, no bypass. No passwords. max chose a
+  link that never expires until revoked, so **revocation is the only safety net**: it must take
+  effect on the next request, VIGA must see and revoke every farmer, and a leaked link must at worst
+  propose a wrong listing on ONE stand. **B-023 is upstream of this.**
+- **F-039 — merged, not deployed.** The vCard route is live in `main` only. Display name
+  `VIGA Farm Friend` (max, confirmed).
+- **F-031 — no mail provider, so no sign-in link is delivered.** Everything up to the wire is built;
+  what remains is a vendor, credentials, **attested** data-handling terms, and SPF/DKIM/DMARC.
+  Blocked on what email infrastructure VIGA runs. **GCP has no first-party transactional email
+  API** — "email on GCP" means SendGrid via Marketplace, whose terms are Twilio's. Never infer the
+  attestation values.
+- **F-036 — where the model may run.** Seed-time: built and run. Query-time on the public map:
+  **blocked** (`public-surface-model-free.test.ts` polices the import graph). Farmer-authored web
+  submission is a **third case**, needing farmer web auth that does not exist plus the same
+  confirmation gate.
+- **B-008 — lint does not run in deployed builds.** `apps/web` omits the `@typescript-eslint`
+  plugin/parser, so Next skips lint non-fatally and the build goes green with the gate absent. The
+  real work is extending `workspace-manifests.test.ts` to config-file dependency references.
+- **B-020 — integration deadlock** (`40P01`) on a fixture `truncate`, between suites' truncates
+  rather than Farm Friend's locking. Has not reproduced across many runs.
+- **B-001** stays open pending its caveat. `model_runs` has **no production writer**. No per-stand
+  pages or filter/search UI. Message classification has no consumer. SMS inquiry has no HTTP route
+  **by design** — reached from the webhook worker.
 ### Standing rules learned from real defects
 
-**Run suites sequentially, never chained**; capture a failing test name before rerunning
-(`npm run test:integration 2>&1 | tee /tmp/itest.log`). Treat a named failing test as a real defect
-until shown otherwise. **B-001 is not proof the intermittent-failure class is closed** — its original
-failing test name was never captured, and a date boundary produces the same signature.
+Each of these cost a session or a production incident. They are compressed here; the narratives are
+in [docs/SESSION_LOG.md](docs/SESSION_LOG.md).
 
-**Sabotage-test every claim: a test that cannot fail proves nothing.** This has caught real gaps
-repeatedly — an exemption predicate drift (`= 'open'` → `<> 'resolved'`) that passed an entire suite
-because no fixture isolated a dismissed-only thread, a role suite that passed an operator→farmer
-privilege escalation, and B-004's own race tests, which stayed green through three separate claim
-guards being disabled. **Verify agent reports rather than relaying them**; agents have reported
-completion with uncommitted work and marked PM items "in review" ahead of reality.
+**Verify by effect, never by a success message.** `db:migrate` reported success while silently
+skipping a migration whose journal timestamp fell *before* the newest applied one (Drizzle applies
+only when `created_at < folderMillis`; equal counts as done). A green `tofu apply` created no
+revision, so rotated secrets never reached the containers. A CLI deploy writes no GitHub deployment
+record. **Compare a revision's creation time against the merge**; a forced restart is not a deploy.
+Guard: `packages/core/src/migration-ordering.test.ts`.
 
-**`Promise.all` over two async branches does not race them.** The first branch's transaction resolves
-before the second starts, so a two-branch concurrency test serializes itself and cannot fail. Use
-enough simultaneous claimants to actually contend (B-004 uses 8), and confirm by sabotage that the
-test fails when exclusion is genuinely removed. Related: the load-bearing per-sender guard is the
-**`sender_states` upsert row lock** — the explicit `for update`, the `alreadyProcessing` check, and
-the `state = 'pending'` filter are defense-in-depth, and disabling any one alone changes nothing.
+**Sabotage-test every claim: a test that cannot fail proves nothing.** This has repeatedly caught
+gaps — a predicate drift (`= 'open'` → `<> 'resolved'`) that passed a whole suite because no fixture
+isolated a dismissed-only thread, a role suite that passed an operator→farmer escalation, race tests
+that stayed green through three claim guards being disabled. **Verify agent reports rather than
+relaying them**: agents have reported completion with uncommitted work, marked PM items ahead of
+reality, and written a decision attributed to max that max had never made.
 
-**`sharedDb` caches on first call and ignores the URL after that.** A second `createAppContext` in one
-process cannot be pointed at another database, and `close()` on any context tears down the shared
-pool. Assemble the capabilities a pass actually needs instead of building a second context.
+**A source assertion must be anchored to the construct it proves**, never to vocabulary near it.
+This has now happened three times. A `/waitUntil\s*\(/` scan survived reverting the call site,
+satisfied by the *import line*. A status-check assertion (`/--fail|-f\b|http_code|status/` plus a
+bare `/exit 1/`) survived a workflow that accepted every status. A test asserting escaping over a
+rendered card passed with the escaper deleted, because no value in it contained a delimiter. **Strip
+imports and comments, anchor to the call site or comparison, and run the sabotage.** Loose
+alternation is the tell.
 
-**Inspect before proposing anything destructive — and guard it anyway.** A reset script was written
-for a database assumed empty; it held the **older Farm Friend's** data (6 volunteers, 17 messages, 2
-farms with phone numbers). Only its row-count guard prevented the loss. Read the actual state first,
-then make the destructive step require an explicit confirmation **and** fingerprint its target, so a
-mistyped connection string fails instead of erasing something else. Related: a confident
-pooled-vs-direct Neon theory was wrong — the real cause was a colliding `flags` table that
-`CREATE TABLE IF NOT EXISTS` silently skipped, and **the repeated migration failure was protecting
-the old data**.
-
-**Use isolated worktrees for parallel agents.** Two agents dispatched into one shared tree overwrote
-each other repeatedly and spent more effort recovering than building.
-
-**The local runtime is not the deployed runtime, and a green suite says nothing about the gap.**
-B-009's whole class: vitest runs in Node, where a floating promise resolves, so the kick suite passed
-while production dropped every message. Node semantics ≠ serverless lifecycle, just as a hoisted
-`node_modules` ≠ an isolated install (B-005 → B-008). When a property belongs to the *platform*
-rather than the code, assert it against the **source** — that is what `kick-survival.test.ts`,
-`cron-schedule.test.ts`, `cron-auth.test.ts` and `workspace-manifests.test.ts` all are — and verify
-the real thing by **effect** in the deployment.
-
-**A migration with an out-of-order timestamp is SILENTLY SKIPPED, and `db:migrate` reports
-success.** Drizzle applies a migration only when its journal `when` exceeds the newest applied
-`created_at` (`pg-core/dialect.js`: `created_at < folderMillis`); an earlier — or **equal** —
-timestamp is treated as already done, with no warning and exit 0. Migration 0007's generated value
-fell *before* 0006's hand-rounded one, so production silently stayed on 7 while the command said
-"migrations applied". **No suite could see it**: every test database is built from EMPTY, where file
-order wins and out-of-order timestamps are invisible; it is reachable only on a partially migrated
-database, i.e. production. `packages/core/src/migration-ordering.test.ts` is the guard.
-Same family as B-009 and B-005–B-008 — **and the reason the rule below is "verify by effect, never
-by the success message."**
-
-**SQL's NULL semantics silently invert a guard.** Two instances this session. A CHECK constraint
-**passes** on NULL, and `array_length(array[]::integer[], 1)` returns NULL rather than 0 — so
-`array_length(days,1) between 1 and 7` admitted the empty array it was written to forbid; use
-`coalesce(…, 0)`. Separately, Postgres sorts NULLs **FIRST** under `order by … desc`, so a left
-join without `nulls last` puts never-confirmed rows ahead of freshly-confirmed ones. Both were
-caught only because a test asserted the specific value, not the general shape.
+**The local runtime is not the deployed runtime, and a hoisted `node_modules` is not an isolated
+install.** vitest runs in Node, where a floating promise resolves — so the kick suite passed while
+production dropped every message (B-009). Six packaging defects shipped undetected because the root
+install hoists (B-005–B-008). When a property belongs to the *platform* or the *install*, assert it
+against the **source** (`kick-survival.test.ts`, `workspace-manifests.test.ts`) and verify the real
+thing by **effect** in the deployment.
 
 **A cooperative stub cannot see what the real model does.** F-024's first live run failed **every**
 seam while 471 unit tests and 44 scripted evals were green: the projections attached SMS-composition
-guidance to JSON-extraction seams and never stated the expected output shape, and the stub reads
-neither the instructions nor the schema. Same family as B-009 (local runtime ≠ deployed runtime) and
-B-005–B-008 (hoisted `node_modules` ≠ isolated install). **When a property belongs to something
-outside the test double — a platform, an install, a real model — assert it against the real thing.**
-`evals/live.ts` is that assertion for the model seams; `output-contracts.test.ts` is the cheap
-follow-up that keeps the instructions and the validator from drifting apart.
+guidance to JSON-extraction seams and never stated the output shape, and the stub reads neither the
+instructions nor the schema. `evals/live.ts` is the assertion that catches it;
+`output-contracts.test.ts` keeps instructions and validator from drifting. **A containment-only pass
+is not evidence** — a refused call counts as contained, so containment read 4/4 while quality read
+0/6.
 
-**A shared lock upstream can make a downstream lock's test unfalsifiable.** F-037's race test used
-eight claimants sharing **one** administrator row, and passed with the flag's `for update` deleted:
-the authority re-read's own `for update` on that single admin row serialized every transaction
-before the flag lock was ever contended. The test measured the wrong lock. **Give each concurrent
-claimant its own upstream row** — which is also the real scenario a 409 exists for. This is the
-`Promise.all` lesson one level deeper: genuine contention needs distinct actors, not just distinct
-calls.
+**Concurrency tests need genuine contention.** `Promise.all` over two async branches does not race
+them — the first transaction resolves before the second starts. Use enough simultaneous claimants to
+contend (8), and **give each its own upstream row**: a race test sharing one administrator row passed
+with the downstream `for update` deleted, because the authority re-read serialized everything first.
+It measured the wrong lock. Related: `select … for update` **cannot serialize a row that does not
+exist yet** — eight concurrent first-time JOINs all read "no record" and three enrolled. For a
+first-insert race the arbiter must be a **unique index**:
+`insert … on conflict (key) do nothing returning …`, where the empty result *is* the signal someone
+else won. Without `returning`, winner and loser are indistinguishable.
 
-**Measure a deterministic approach against the real corpus before defending it.** The availability
-parser looked adequate until it ran over all 31 stands and flagged 12 — ten of them spuriously,
-because it conflated "not stated" with "unparsed". The offerings parser looked adequate until the
-corpus produced customer-facing tags like "rotational grazing for chickens" and "plums ijuly)".
-The corpus decided both questions in minutes; arguing from the code would not have.
+**SQL's NULL semantics silently invert a guard.** A CHECK constraint **passes** on NULL, and
+`array_length(array[]::integer[], 1)` returns NULL rather than 0 — so a `between 1 and 7` check
+admitted the empty array it forbade; use `coalesce(…, 0)`. Postgres sorts NULLs **FIRST** under
+`order by … desc`, so a left join without `nulls last` puts never-confirmed rows ahead of fresh ones.
+Also: `Number(null)` is **0**, not NaN, which rendered an address-less farm at 0,0 — a pin in the
+Atlantic — with no type error, and NaN in a comparator makes sort order input-dependent. All caught
+only because a test asserted the specific **value**, not the shape.
 
-**A source-reading test can match its own import statement — or any other incidental text.**
-`kick-survival.test.ts` first asserted `/waitUntil\s*\(/` over the whole file and **survived
-reverting the call site to the production defect**, because the import line satisfied it. Strip
-imports, anchor to the call site, and never trust such a test until the sabotage has actually been
-run. **This has now happened twice.** `external-scheduler.test.ts` asserted the workflow checks its
-HTTP status with `/--fail|-f\b|http_code|status/` plus a bare `/exit 1/`, and survived a workflow
-that accepted **every** status — the words were satisfied by the `-w '%{http_code}'` flag and by an
-unrelated missing-secret guard. The general rule: **a source assertion must be anchored to the
-construct it claims to prove** (the comparison, the call site), never to vocabulary that appears
-near it. Loose alternation is the tell.
+**Measure against the real corpus before defending a deterministic approach.** The availability
+parser looked fine until it ran over all 31 stands and flagged 12, ten spuriously, by conflating
+"not stated" with "unparsed". The offerings parser looked fine until the corpus produced
+"rotational grazing for chickens". A fuzzy name matcher ranked Lavender Hill against Flora Hill. The
+corpus settled each question in minutes; arguing from the code would not have.
+
+**Data present with no consumer is invisible.** `extraNotes` carried a farmer's explicit *"do not add
+my address"* and was read only by the offering-type classifier, so the seeder published her home with
+a pin (B-024). Same shape as an inventory left join that rendered "updated just now" for a
+confirmation that never happened. **Seeding a fact is not surfacing it** — 212 offering tags landed
+and no reader selects them (F-042). When you add data, name its reader.
+
+**Inspect before proposing anything destructive — and guard it anyway.** A reset script written for a
+database "assumed empty" met the older Farm Friend's real data (6 volunteers, 17 messages, 2 farms
+with phone numbers); only its row-count guard prevented the loss. A legacy project "known" to hold no
+real data held 37 Firestore documents. **Fingerprint the target** so a mistyped connection string
+fails instead of erasing something else, and require explicit confirmation.
 
 **An unexported seam is an untested seam.** `createTelnyxTransport` was module-private, so the one
-code path that parses a real provider error had no test at all — every suite above it used the
-simulator, which never fails. That is how B-010's discard survived. When a seam does the real I/O
-parsing, export it and test it against real captured payloads, or its failure mode is invisible.
+path parsing a real provider error had no test and silently discarded it — everything above used the
+never-failing simulator. Export the seam that does real I/O parsing and test it against captured
+payloads, or its failure mode is invisible.
 
-**`select … for update` cannot serialize a row that does not exist yet.** B-011's first guard read
-`sms_consents` inside `applyConsentTransition` and refused on a hit, with a comment claiming the
-existing `for update` on the watermark serialized it. It does not: `for update` locks rows that
-EXIST, and a genuinely first-time sender has no watermark row, so eight concurrent JOINs all read
-"no record" and **three enrolled**. Every unit test passed — stubs cannot model row contention.
-For a first-insert race the arbiter must be a **unique index**, not a lock:
-`insert … on conflict (key) do nothing returning …`, where the empty result *is* the signal that
-someone else won. Without `returning`, winner and loser are indistinguishable.
+**Run suites sequentially, never chained**; capture a failing test name before rerunning
+(`npm run test:integration 2>&1 | tee /tmp/itest.log`). Treat a named failing test as a real defect
+until shown otherwise — but **a failure that MOVES between runs is environmental**, and `git stash`
+is the cheap way to prove whose it is.
 
-**A tool that "isn't installed" may just not be on `PATH`.** Two lookups for Postgres came up empty
-and a whole session proceeded on "no database available", writing that into the docs as an owed
-gap — while Homebrew's `postgresql@16` was installed and *running* at
-`/opt/homebrew/opt/postgresql@16/bin`. Running the integration suite is what exposed the race above.
-Check `/opt/homebrew/opt`, `brew services list`, and the app directories before concluding a
-dependency is absent; **a negative result from one lookup is not proof of absence**, and it is the
-same reasoning-from-indirect-evidence error as trusting `vercel env ls`'s timestamp column.
+**Use isolated worktrees for parallel agents.** Two agents in one shared tree overwrote each other
+repeatedly and spent more effort recovering than building. Note a worktree has no `node_modules` of
+its own, so cross-package imports resolve into the main checkout until it is linked.
 
-**Do not infer configuration from a dashboard's timestamp column.** `vercel env ls` reported
-`TELNYX_API_KEY` as "1h ago" while the web UI showed "Updated just now" — the CLI column is not last
--update. That produced a confidently wrong conclusion mid-diagnosis. Values in Vercel are
-**write-only**: neither the UI nor `vercel env pull` reveals them (`[SENSITIVE]`), so the only honest
-check is **behavioural**. Record every secret in a password manager *at the moment it is set* —
-`PHONE_HASH_SALT` especially, since rotating it orphans every phone hash in the database and is
-therefore unrecoverable in a way the others are not.
+**`sharedDb` caches on first call and ignores the URL afterward.** A second `createAppContext` in one
+process cannot be pointed at another database, and `close()` on any context tears down the shared
+pool. Assemble the capabilities a pass needs instead of building a second context.
+
+**A negative result from one lookup is not proof of absence.** A whole session proceeded on "no
+database available" while Homebrew's `postgresql@16` was installed and *running* at
+`/opt/homebrew/opt/postgresql@16/bin`. Check `/opt/homebrew/opt` and `brew services list` before
+concluding a dependency is missing. The same error in another guise: **do not infer configuration
+from a dashboard's timestamp column** — record every secret in a password manager at the moment it is
+set, and verify configuration **behaviourally**.
