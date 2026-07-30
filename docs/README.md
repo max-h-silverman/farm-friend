@@ -65,6 +65,8 @@ not *what* is true now.
   lives in the documents above.
 - **[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md)** —
   independent adversarial review of that reset, with the ranked trust/buildability findings.
+- **[GCP_MIGRATION_PLAN.md](GCP_MIGRATION_PLAN.md)** — July 28–29, 2026 migration rationale,
+  implementation plan, cutover, and retirement record. The live deploy procedure is in RUNBOOK.
 - **[SESSION_LOG.md](SESSION_LOG.md)** / **[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md)** —
   dated build history, newest first; entries older than the newest eight rotate into the archive.
   Forensic detail on defects and their fixes.

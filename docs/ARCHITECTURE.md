@@ -39,9 +39,10 @@ launch requirement the current shape is incapable of.
 ## Stack
 
 TypeScript **npm-workspace** monorepo (ESM), Postgres source of truth, **Next.js App Router** as
-web + API/webhook host + farmer account + admin, deployed on **Vercel** (Cron for scheduled jobs)
-against **Neon Postgres**. **Telnyx** SMS and the language model each sit behind a narrow swappable
-seam.
+web + API/webhook host + farmer account + admin, deployed from one image to two **Cloud Run**
+services against **Neon Postgres**. **Cloud Tasks** triggers immediate sender work; **Cloud
+Scheduler** runs recovery, delivery, and retention. **Telnyx** SMS and the language model each sit
+behind a narrow swappable seam.
 
 Launch is a **single VIGA operation**: no tenancy machinery, no tenant column, no tenant-scoped
 queries. No native application.
@@ -115,25 +116,21 @@ reference, TTL-bound message body where needed, and processing state. The raw pr
 a second raw E.164 are not stored. The provider event ID is unique; duplicate delivery is a
 successful no-op.
 
-Interpretation and delivery never happen inside ingress. After acknowledging, the webhook **registers**
-that sender's worker passes with the runtime (`waitUntil`) without awaiting them (the B-004 kick), so
-a reply goes out in seconds rather than waiting for the next scheduled sweep; the kick owns no
-guarantee and the scheduled trigger remains the durable recovery net. Both call the same passes — see
+Interpretation and delivery never happen inside ingress. After the inbox commit, the webhook
+**awaits creation of a durable Cloud Task** for that sender, then acknowledges. Task creation is
+bounded and never allowed to turn a successful ingress into a 5xx; if it fails, the scheduled pass
+recovers the committed event. The task and schedule call the same Postgres-backed passes — see
 [RUNBOOK.md](RUNBOOK.md) §"Scheduled work."
 
-**Registration is what makes "starts" true (B-009).** A bare `void` call is invisible to the serverless
-runtime, which is free to suspend the invocation the moment the handler returns — the pass then never
-runs, and with no scheduled trigger nothing recovers it. This is a property of the deployment platform,
-not of the code's logic, so it is asserted against the route source and verified in the deployment
-rather than by a behavioural test.
+The queue owns immediate work rather than the webhook process: a task survives the originating
+container and retries independently. This platform property is verified by effect in the deployed
+database, not inferred from a local promise completing.
 
 Ordinary stateful work is serialized per sender in Postgres. A short transaction locks the sender
-row and claims at most one inbox event; it never spans a model or SMS call. That lock is also what
-makes the two triggers safe together: a kick and a concurrent cron pass over one sender cannot both
-claim the event. The claimed row is
-recoverable after an abandoned claim, and retry uses that row rather than creating another logical
-event. After external work, finalization re-locks the sender and applies a consequence only if the
-claim and relevant state are still current.
+row and claims at most one inbox event; it never spans a model or SMS call. That lock also prevents
+a task and concurrent scheduled pass from both claiming the event. An abandoned claim is
+recoverable; after external work, finalization re-locks the sender and applies a consequence only
+if the claim and relevant state are still current.
 
 Stateful events are ordered by `(occurred_at, provider_event_id)`. An event older than the sender's
 accepted conversation watermark cannot mutate newer conversation, confirmation, or publication
