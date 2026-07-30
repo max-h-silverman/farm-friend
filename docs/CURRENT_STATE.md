@@ -6,10 +6,11 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-30** (`f-043-interactive-island-map`, unmerged): `npm test` **719/719** (69
-files); `npm run test:integration` **403/403** (22 files) on real Postgres 16, all **9** migrations
-from empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
-The public-surface model-free tripwire and the architecture tripwires both still pass.
+**Verified 2026-07-30** (`main`, F-043 merged): `npm test` **719/719** (69 files);
+`npm run test:integration` **403/403** (22 files) on real Postgres 16, all **9** migrations from
+empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
+`evals:live` **not** re-run and not required — F-043 touched no seam projection, schema, or output
+contract. The public-surface model-free tripwire and the architecture tripwires both still pass.
 `evals:live` **not** re-run and not required — F-040 touched no seam projection, schema, or output
 contract; the farmer web path reuses `applyInterpretedInventory` unchanged. The real model was
 nonetheless driven through the real web route by hand (see F-040 below). Last live results stand
@@ -19,9 +20,9 @@ no infra file changed.
 > One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
 > what marks it environmental rather than a defect in this work.
 
-**Nothing is merged-and-undeployed.** F-042 and F-040 both shipped 2026-07-30 (below). The last
-two items that sat unreleased are now live. **F-043 is built and unmerged** on
-`f-043-interactive-island-map` — see its entry under open work.
+**F-043 is MERGED and NOT DEPLOYED** — the interactive island map is on `main` and production still
+serves the old vertical list. It is a **web-only** change: no migration, no worker change, no new
+env var, so a deploy is the image alone. F-042 and F-040 shipped earlier on 2026-07-30 (below).
 
 > **`.next/` is a shared artifact.** `contact-card-build.test.ts` (B-025) reads the **production
 > build output**, so running `next dev` clobbers it and the test fails with "no built chunk
@@ -133,8 +134,9 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
 Do not read a passing suite as a working product: several gaps hide behind green tests whose
 fixtures supply what production never creates.
 
-- **F-043 — BUILT, on `f-043-interactive-island-map`, NOT merged and NOT deployed.** The public
-  map is now an interactive island with filters and a linked stand list.
+- **F-043 — BUILT and MERGED 2026-07-30, NOT DEPLOYED.** The public map is now an interactive
+  island with filters and a linked stand list. **Production still serves the old vertical list**
+  until the image ships; this is web-only — no migration, no worker change, no new env var.
   **The gating question was answered first**: F-035's availability columns ARE populated in
   production — season 85% (29/34), hours 65% (22/34), `stocking_cadence` 85% — but **`open_days`
   is 0% island-wide**, so `Open now` is season + time-of-day only and the weekday dimension has no
@@ -175,8 +177,21 @@ fixtures supply what production never creates.
   source order; (5) clicking a pin drew the browser's default blue focus rectangle —
   `:focus-visible` rather than `:focus`.
   **This is the lesson to carry**: every one of those passed 719 tests and a rendered-bytes
-  inspection. Bytes prove markup and geometry; they do not prove CSS. The one thing still not
-  exercised is the **Squarespace embed handshake**, which needs a second origin to frame the page.
+  inspection. Bytes prove markup and geometry; they do not prove CSS.
+  **max's design pass then moved two structures** (both verified in Chrome): filters sit **above**
+  the map and list, not between them, where they read as a caption on the map; and a map tap on a
+  phone raises a **bottom sheet** instead of scrolling ~800px to a card — 294px of map stays
+  visible, and dismissal returns to the same view. Deliberately **not** "hide all other listings":
+  that would leave the map as the only route back to the full set, so a later filter change would
+  appear to do nothing. The palette now comes from **VIGA's actual printed farm map** (max supplied
+  it) — pale land on grey-green water with a cream panel, the opposite weighting from the
+  description-based guess; pins take the poster's green, and brick red is a *text* colour there.
+  Dark mode is not the poster inverted (that gave dim pins on dim land): land stays muted, pins go
+  bright. The poster's colour-only legend was **not** copied — the three-signal rule holds.
+  **Owed: the Squarespace embed handshake**, which needs a second origin to frame the page and was
+  never exercised. `apps/web/app/embed-height.tsx` posts the height; the listener VIGA pastes is in
+  ADMIN_OPERATIONS §Embedding the map. Also owed for everyone: **a deploy** — see the top of this
+  file.
 - **B-023 — CLOSED 2026-07-30.** `board@vigavashon.org` is the first administrator (a VIGA *org*
   address, max's choice, so authority sits with the organization). Verified by reading the row and
   by resolving it through `findAdministratorByEmail` in production — exact address, mixed case, and

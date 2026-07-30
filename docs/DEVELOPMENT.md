@@ -53,7 +53,14 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   dispatch claim; suppress work when STOP commits first; do not claim recall after dispatch
   authorization; never automatically retry a possibly accepted ambiguous result.
 - **The public map or feed:** it reads the **same published records** as SMS — web and SMS answers
-  must agree. Render recency honestly.
+  must agree. Render recency honestly. **Look at it in a browser before calling it done, at phone
+  width and in both colour schemes** — F-043 shipped five defects past 719 green tests and a
+  rendered-bytes inspection, because bytes prove markup and geometry and prove nothing about CSS:
+  a dark-mode block that predated the work left the new artwork glowing on a black page, and the
+  map rendered taller than the phone screen it is designed for. Also **compare any drawing to the
+  data placed on it**: a hand-drawn coastline put 16 of 32 real farms in open water with every
+  test passing, because the artwork and the projection were two independent statements about where
+  the island is and nothing compared them.
 - **A public unauthenticated model-backed surface:** route it through the abuse/cost throttle; normal
   public lookup is never artificially capped.
 - **Anything whose exact BYTES are the contract** (a served file, a signature payload, a wire format):
