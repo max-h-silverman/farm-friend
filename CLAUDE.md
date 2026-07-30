@@ -546,8 +546,50 @@ submitted no form. Verified by effect against `neondb` and the live endpoint: **
 pin, 2 `contact_only` with none**, 4 flags, **0** names carrying VIGA's annotation, **0** PII, **0**
 pins at 0,0, **0** recency claims. Structural invariants held — `inventory_revisions`,
 `inventory_entries`, `farmer_authorizations`, `farm_approvals` all **0**; `contacts` still **1**.
-Idempotent: a second run seeds 0 / skips 35. **Offerings are NOT seeded** —
-`sales_location_offerings` is 0 in production; that is the separate `npm run db:seed-offerings` step.
+Idempotent: a second run seeds 0 / skips 35.
+
+**OFFERINGS ARE NOW SEEDED TOO: 212 tags across 33 of 35 stands, 2026-07-29 (F-041).**
+`npm run db:seed-offerings -- maps/offerings-proposals.json [--dry-run]`. Verified by effect against
+`neondb`; idempotent (a second run inserted **0**, skipped 212). Structural invariants held —
+`inventory_revisions`, `inventory_entries`, `farmer_authorizations`, `farm_approvals` still **0**, so
+the seeder fabricated no confirmation; `contacts` still **1**. The two untagged stands are both
+correct: Handpicked Homestead (unpublished, see below) and Vashon Island Farmers Market, a market
+rather than a stand whose approved entry is legitimately an empty list.
+**`--dry-run` now resolves names against the DATABASE** (`planOfferings`), printing
+`Aeggy's -> "Aeggy's Farm"` whenever the approved name differs from the stored one. The old dry run
+only echoed the file back, so it reported 31 entries while 26 could land — that is exactly how five
+renamed stands stayed invisible. `DATABASE_URL` is required for a dry run, deliberately.
+**The loader keys on `matchStandName`, the seed join's own normalization** — one mechanism, two
+consumers. An ambiguous name **refuses the whole batch** rather than picking a candidate. Measured
+over the real corpus: 26 → 31 of 31 artifact entries match, **0** ambiguous collisions across 35
+stands.
+**Three farms were reachable only through the FORM export** (Farmstad, Lavender Hill Farm, Sweet
+Alyssum Farm). They had no proposal not because they are newer but because `offerings:propose` reads
+the **map** csv, and `parseStandCsv` anchors on the `POINT (` literal — so a row with no coordinate
+is **invisible rather than rejected**. Their tags were proposed through the real seam and gate and
+approved by max 2026-07-29.
+
+**A SEEDED STAND IS UNPUBLISHED, and it is the farmer's own instruction (B-024, 2026-07-29).**
+`Handpicked Homestead` is `is_public = false` in production: her form `extraNotes` read *"I don't
+have my own farmstand - please add me under Plum Forest's location, do not add my address"*, yet the
+seed published her **home address with a real map pin**, sending customers to a private residence
+with no stand. Unpublished by effect — exactly 1 row affected, 35 stands intact, the live endpoint
+now returns **34** and no longer carries her. Her address and coordinates are **preserved** for VIGA
+to resolve with her; the permanent shape (a producer whose goods sell at another farm's stand) is an
+open product question, and **no producer/host relationship was invented for one row**.
+**Why the seeder could not catch it:** `extraNotes` is parsed (`form-responses.ts`) but consumed
+**only** by `offering-type.ts`; **nothing reads it for visibility or visitability**. The instruction
+was in the record with no consumer — the same data-present/consumer-absent shape as B-013 and F-038.
+**Measured across the whole corpus, this is the ONLY instance** (a scan for "do not add" / "don't
+have my own" / "available at" / "under X's location" returns exactly one row), so it is a contained
+fix rather than a re-seed.
+
+**The tags are in the database but NO READER SURFACES THEM (F-042).** `listPublicStands`
+(`apps/web/lib/public-listing.ts`) never selects `sales_location_offerings`, so the public API
+returns no offerings field and the map still renders *"No listing yet — this stand hasn't been
+updated through Farm Friend"* for all 33 tagged stands. Seeding was necessary but is **not
+sufficient** for F-041's actual goal; do not read "212 tags seeded" as "customers can see what a
+stand carries."
 
 **The join is an EXACT normalized key, never a similarity score** (`seed/match-stands.ts`). Measured
 over the real corpus, a Jaccard matcher ranked **Lavender Hill Farm against Flora Hill Farm** as its
