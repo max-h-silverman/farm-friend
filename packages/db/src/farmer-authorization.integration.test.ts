@@ -4,9 +4,14 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { hashFarmerLinkToken, issueFarmerLinkToken } from "@farm-friend/core";
+import {
+  FARMER_AUTHORIZED_NOTIFICATION,
+  hashFarmerLinkToken,
+  issueFarmerLinkToken,
+} from "@farm-friend/core";
 import {
   approveFarm,
+  authorizeDispatch,
   authorizeFarmer,
   confirmInventoryPublication,
   issueFarmerLink,
@@ -171,6 +176,120 @@ describe("farmer authorization and standing links (integration)", () => {
       expect(audit).toHaveLength(1);
       expect(audit[0]?.actor_administrator_id).toBe(administratorId);
       expect(audit[0]?.subject_type).toBe("farmer_authorization");
+    });
+
+    it("queues the 'you're all set' text with the authorization, atomically", async () => {
+      // max's decision: a farmer approved on Tuesday otherwise has no idea until they guess.
+      // Queued INSIDE the authorization transaction, so there is no window in which a farmer
+      // is authorized and uninformed, or told they are set up when nothing was written.
+      const contactHash = await contact("a7");
+      const { farmId } = await farmWithStand(`Notify Farm ${randomUUID()}`);
+
+      await authorizeFarmer(database(), {
+        farmId,
+        contactHash,
+        administratorId,
+        occurredAt: at(1),
+      });
+
+      const queued = await sql()`
+        select body, message_category, state from outbox_work
+        where recipient_hash = ${contactHash}
+      `;
+      expect(queued).toHaveLength(1);
+      expect(queued[0]?.body).toBe(FARMER_AUTHORIZED_NOTIFICATION);
+      expect(queued[0]?.state).toBe("queued");
+      // A PROACTIVE category: Farm Friend is speaking first. Categorizing it as a reply
+      // would let it reach a farmer with no consent basis, which is the exact bypass
+      // "approval is not consent" forbids.
+      expect(queued[0]?.message_category).toBe("inventory_prompt");
+    });
+
+    it("queues NOTHING when the authorization is refused", async () => {
+      // The other half of atomicity. A farmer told "you're all set" who was never authorized
+      // is worse than one who heard nothing.
+      const contactHash = await contact("a8");
+      const before = await sql()`
+        select count(*)::int as n from outbox_work where recipient_hash = ${contactHash}
+      `;
+
+      const result = await authorizeFarmer(database(), {
+        farmId: randomUUID(),
+        contactHash,
+        administratorId,
+        occurredAt: at(1),
+      });
+      expect(result.status).toBe("unknown_farm");
+
+      const after = await sql()`
+        select count(*)::int as n from outbox_work where recipient_hash = ${contactHash}
+      `;
+      expect(after[0]?.n).toBe(before[0]?.n);
+    });
+
+    it("APPROVAL IS NOT CONSENT — the text is suppressed for a farmer who never opted in", async () => {
+      // The property the settled design names explicitly. VIGA deciding a farmer is genuine
+      // says nothing about that farmer agreeing to receive messages; only JOIN/START does.
+      //
+      // Asserted at the DISPATCH CLAIM rather than at the queue, because that is where the
+      // guarantee actually lives — queuing is unconditional by design, and a test that only
+      // checked "we didn't queue it" would prove nothing about what gets sent.
+      const contactHash = await contact("a9");
+      const { farmId } = await farmWithStand(`No Consent ${randomUUID()}`);
+
+      await authorizeFarmer(database(), {
+        farmId,
+        contactHash,
+        administratorId,
+        occurredAt: at(1),
+      });
+      const queued = await sql()`
+        select id from outbox_work where recipient_hash = ${contactHash}
+      `;
+
+      const authorization = await authorizeDispatch(database(), {
+        outboxWorkId: queued[0]?.id as string,
+        now: at(2),
+      });
+      expect(authorization.status).toBe("suppressed");
+
+      const rows = await sql()`
+        select state from outbox_work where id = ${queued[0]?.id as string}
+      `;
+      expect(rows[0]?.state).toBe("suppressed");
+    });
+
+    it("sends the text to a farmer who DID opt in", async () => {
+      // The complement, so the suppression above is not passing for the wrong reason — a
+      // notification nobody can ever receive would satisfy the previous test perfectly.
+      const contactHash = await contact("aa");
+      const { farmId } = await farmWithStand(`With Consent ${randomUUID()}`);
+      await sql()`
+        insert into sms_consents (
+          recipient_hash, state, capture_source, captured_at, capture_evidence_ref,
+          updated_at
+        )
+        values (
+          ${contactHash}, 'active', 'join', ${at(0).toISOString()},
+          ${`evt-${randomUUID()}`}, ${at(0).toISOString()}
+        )
+      `;
+
+      await authorizeFarmer(database(), {
+        farmId,
+        contactHash,
+        administratorId,
+        occurredAt: at(1),
+      });
+      const queued = await sql()`
+        select id from outbox_work where recipient_hash = ${contactHash}
+      `;
+
+      const authorization = await authorizeDispatch(database(), {
+        outboxWorkId: queued[0]?.id as string,
+        now: at(2),
+      });
+      expect(authorization.status).toBe("authorized");
     });
 
     it("refuses an administrator who was revoked, writing nothing", async () => {

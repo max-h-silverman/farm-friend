@@ -1,10 +1,12 @@
 import {
+  FARMER_AUTHORIZED_NOTIFICATION,
   hashFarmerLinkToken,
   issueFarmerLinkToken,
   maskPhoneSuffix,
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import type { Sql } from "./sql";
+import { queueOutbox } from "./transactions";
 
 // Farmer onboarding's durable writes (F-040).
 //
@@ -125,6 +127,25 @@ export async function authorizeFarmer(
       values ('farmer_authorized', ${input.administratorId}, 'farmer_authorization',
         ${authorizationId}, ${input.occurredAt.toISOString()})
     `;
+
+    // Tell the farmer, in the same transaction (max's decision). A farmer authorized on
+    // Tuesday otherwise has no idea until they guess, and splitting this out would leave a
+    // window in which someone is authorized and uninformed — or told they are set up when
+    // the authorization was rolled back.
+    //
+    // **Approval is not consent, and this is where that stays true.** The category is
+    // proactive, so `authorizeDispatch` re-reads the recipient's consent at the claim and
+    // SUPPRESSES this message for a farmer who never texted JOIN/START. Queuing is
+    // unconditional; sending is not. Nothing here may shortcut that — a `required_reply`
+    // category would deliver it to someone who never opted in, which is precisely the
+    // bypass the design forbids.
+    await queueOutbox(tx, {
+      logicalKey: `farmer-authorized-${authorizationId}`,
+      recipientHash: input.contactHash,
+      messageCategory: "inventory_prompt",
+      body: FARMER_AUTHORIZED_NOTIFICATION,
+      now: input.occurredAt,
+    });
 
     return { status: "authorized" as const, authorizationId };
   }) as Promise<AuthorizeFarmerResult>;

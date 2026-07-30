@@ -923,7 +923,23 @@ export async function confirmInventoryPublication(
   }) as Promise<ConfirmPublicationResult>;
 }
 
-async function queueOutbox(
+/**
+ * Queue one outbound message inside the caller's transaction.
+ *
+ * **Exported for F-040**, which queues the "you're all set" notification atomically with the
+ * authorization that justifies it. Exported rather than reimplemented: a second insert into
+ * `outbox_work` elsewhere would be a second place for the body TTL, the idempotency key, and
+ * the category to drift from this one — and the category is what the dispatch claim reads to
+ * decide consent, so a divergent copy is a consent bug waiting to happen.
+ *
+ * It takes a `Tx`, never a `Db`, which is the point: a caller must already be inside a
+ * transaction, so the message cannot commit without the decision it describes.
+ *
+ * Note what queuing does NOT do: it does not decide whether the message may be sent. That is
+ * `authorizeDispatch`, at the claim, against the recipient's consent record — so queuing a
+ * proactive message to someone who never opted in results in `suppressed`, not a send.
+ */
+export async function queueOutbox(
   tx: Tx,
   input: {
     logicalKey: string;
