@@ -34,6 +34,9 @@
   --olive: #4a5340;
   --brick: #a8442a;
   --brick-soft: #f6e7e2;
+  /* The highway. Its own token because the two themes disagree about what a road looks
+   * like: pale-on-sage in daylight, light-on-dark at night. */
+  --road: #f4efe1;
 }
 
 * {
@@ -392,10 +395,32 @@ body {
     --amber: #e0ab5f;
     --amber-soft: #2d2415;
     --amber-line: #b8862f;
+
+    /* F-043 — the VIGA brand tokens need dark values too, and this was found by LOOKING at
+     * the page rather than by any test. The light values render the island as a bright cream
+     * slab on a near-black page: not merely off-brand, but genuinely unpleasant to read on a
+     * phone at night, which is exactly when someone checks whether a stand is still open.
+     *
+     * The island keeps its sage-on-cream RELATIONSHIP — it is a drawn map and reads as paper —
+     * but both are darkened so it sits in the page instead of glaring out of it. Olive and
+     * brick are lightened, because at these darknesses they fail contrast against the page. */
+    --sage: #63805a;
+    --sage-deep: #9ab591;
+    --cream: #1a1f1b;
+    --olive: #b6c4ac;
+    --brick: #e08163;
+    --brick-soft: #3a221c;
+    --road: #cdd8c4;
   }
 
   .locate-button {
     color: #10201a;
+  }
+
+  /* The active filter chip inverts in dark mode: a light olive fill needs dark text on it,
+   * where the light theme's olive fill needs cream. */
+  .chip-on {
+    color: #161c15;
   }
 }
 
@@ -741,6 +766,35 @@ body {
   display: block;
   width: 100%;
   height: auto;
+  /*
+   * CAP THE HEIGHT ON PHONES. Vashon is long and narrow — the viewBox is roughly 1:1.7 — so
+   * at full width on a 390px phone the island renders about 830px tall, TALLER THAN THE
+   * SCREEN. Measured in a real browser: the first stand card sat 1293px down the page, so a
+   * customer opening this outdoors saw only map and had to scroll past a full screen before
+   * reaching a single listing. The map is meant to orient the list, not bury it.
+   *
+   * 58vh leaves the filter row and the first card visible on the same screen as the island.
+   * `object-fit: contain` keeps the aspect ratio honest — the island is letterboxed within
+   * the box rather than squashed, which would move every pin off its real position.
+   */
+  max-height: 58vh;
+  object-fit: contain;
+}
+
+@media (min-width: 56rem) {
+  .island-svg {
+    /* Wide screens have the room, and the map column is sticky beside a scrolling list. */
+    max-height: 78vh;
+  }
+
+  /* The drawing renders larger here, so the same on-screen size needs smaller viewBox type. */
+  .island-place {
+    font-size: 24px;
+  }
+
+  .pin-label {
+    font-size: 26px;
+  }
 }
 
 .island-water {
@@ -754,18 +808,38 @@ body {
   stroke-linejoin: round;
 }
 
+/*
+ * The highway is drawn in the WATER colour so it reads as a channel cut through the land —
+ * which works in the light theme, where water is pale cream against sage.
+ *
+ * In dark mode that same token is near-black, and the road turned into a dark scar across a
+ * dark island: technically the same design, visually a defect. `--road` is therefore its own
+ * token rather than a reuse of `--cream`, so each theme can state what a road looks like on
+ * it. Found by looking at the rendered page in both themes.
+ */
 .island-road {
   fill: none;
-  stroke: var(--cream);
+  stroke: var(--road);
   stroke-width: 6;
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: 0.9;
 }
 
+/*
+ * Label size tracks the RENDERED size, not the viewBox.
+ *
+ * SVG type scales with the viewBox, so capping the drawing's height on phones shrank every
+ * place name to ~11px on glass — measured in a real browser, and well under legible for
+ * someone reading outdoors. The drawing displays at roughly 0.55x on a phone, so the type has
+ * to be about twice as large in viewBox units to come out right.
+ *
+ * Set HERE rather than in a later override: an earlier attempt added a second `.island-place`
+ * rule above this one and lost on source order, silently changing nothing.
+ */
 .island-place {
   fill: var(--olive);
-  font-size: 19px;
+  font-size: 34px;
   font-weight: 600;
   text-anchor: middle;
   paint-order: stroke;
@@ -796,6 +870,18 @@ body {
   transition: r 120ms ease;
 }
 
+/* Keyboard focus only.
+ *
+ * `:focus-visible` rather than `:focus`, and the distinction was found by CLICKING a pin: a
+ * mouse or touch click on an SVG element takes focus, and the browser then drew its default
+ * blue rectangle around the circle — a square box on a round pin, in a colour from no palette
+ * here. `:focus-visible` fires for keyboard navigation and not for pointer input, so a
+ * keyboard user still gets a visible ring and a tapping customer just gets the selection
+ * styling below. Both are ringed; only one is ringed by the browser. */
+.pin-dot:focus {
+  outline: none;
+}
+
 .pin-dot:focus-visible {
   outline: 3px solid var(--olive);
   outline-offset: 2px;
@@ -820,7 +906,7 @@ body {
 
 .pin-label {
   fill: var(--olive);
-  font-size: 20px;
+  font-size: 36px;
   font-weight: 700;
   text-anchor: middle;
   paint-order: stroke;
