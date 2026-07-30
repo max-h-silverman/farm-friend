@@ -11,7 +11,119 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-07-29 (latest) — F-042 built: the offering tags reach customers, and a rule that had to leave the JSX
+## 2026-07-30 (latest) — F-040 built: farmer onboarding, and six sabotages that were the real work
+
+One tranche, all five pieces max scoped. The build was largely mechanical — the design was settled
+in the PM item and not re-litigated. **The interesting part is that six of my own assertions were
+wrong, and only sabotage found them.** Two of those were guarantees the whole item rests on.
+
+### The gap this closes
+
+`farmer_authorizations` had existed since the clean launch with **no writer outside test fixtures**.
+Publishing demands one, so a real farmer texting an update resolved to no authorization, fell
+through to the *customer* branch, and nothing reported why — behind a fully green suite, because
+every publication test inserted the row it was supposed to be proving. The same shape as F-024's
+silent stub and B-002's un-run seeder: a green check covering less than its name implies.
+
+### The link is deliberately not a signed claim
+
+max chose a link that never expires until revoked. The obvious implementation is `magic-link.ts`'s
+mechanism — a signed, expiring claim — and it is **exactly wrong here**. A signature is stateless:
+it says "authentic" any number of times, so a revoked farmer's link would keep verifying forever
+with nothing able to say otherwise. Revocation is the only safety net this design has, so the link
+must be a *lookup key into a row someone can withdraw*, never something a verifier can validate on
+its own.
+
+So `farmer_links` holds 32 random bytes, hash-only, and `resolveFarmerLink` re-reads **both**
+revocation columns on every request. No denormalized farm id, no cached "active" flag, no claim in
+the token. There is nothing to cache around because there is nothing cached.
+
+The two records split for the same reason: `farmer_onboarding_requests` is what a farmer *asked*
+for — no farm, no grant column, no message text — and is the one record on the page writable from
+unauthenticated inbound SMS. It cannot become authority because it has no field that could.
+
+### Where the schema pushed back, correctly
+
+`activateWebProposal` first tried to open the confirmation window without an outbox row, and
+`inventory_publication_proposals_activation_coherent` refused it. That constraint encodes "a
+proposal is committable only once a prompt the farmer was shown was accepted" — satisfying its
+shape with a NULL would have hollowed it out. The fix was to make the web path *earn* it: it queues
+a real confirmation SMS and activates against that. The farmer gets a receipt on the channel they
+trust, which is worth having anyway — a browser tab is not a receipt.
+
+### The six survivors
+
+~35 sabotages. Six survived, each exposing a test that looked like it proved something and did not:
+
+1. **The resolver's authorization check was untested.** Revoking through the writer also revokes the
+   links, so deleting `auth.revoked_at is null` still passed — the *link* clause was doing all the
+   work. Fixed by revoking the authorization directly, leaving the link row open, and asserting the
+   link row is still open so the test cannot silently decay back into the other one.
+2. **The one-stand-per-link guard was untested** — no fixture had a farm with two stands, so "the
+   link names ONE stand" was unverifiable.
+3. **A `contactHash` leak into the pending-request projection survived the whole suite**, because
+   the fixture had an authorization and no open request: the array it leaked from was empty. Both
+   arrays are now populated and asserted non-empty *before* the privacy assertions run.
+4. **The cross-farmer confirmation test was satisfiable by the exact attack it forbade.** Reading
+   the sender hash from the *named proposal* rather than the attacker's own token makes the attacker
+   **become** the victim — so the gate matches, publishes on the victim's behalf, and consumes their
+   proposal. "Refused" and "still open" were the only assertions; the second was false but nothing
+   else checked was. Now asserts the proposal is UNCONSUMED.
+5. **Two independent defenses were indistinguishable to the suite.** Sender-from-token and
+   activation-scoped-to-sender each refuse the cross-farmer attack alone, so removing either one
+   passed. Redundant defenses are worth having; redundant defenses nobody can tell apart are how one
+   gets deleted as dead code later. Each is now isolated by its own test.
+6. **The token shape guard returned null with or without the regex**, since no row matches garbage.
+   What it actually buys is that garbage never reaches the driver — now asserted by *query count*,
+   with a well-formed token proving the counter is not stuck at zero.
+
+The general lesson, worth carrying: **an assertion on a refusal is weak.** "It refused" is satisfied
+by refusing for the wrong reason, or by a fixture too thin to exercise the path. Assert the durable
+effect — the row unconsumed, the array non-empty, the query count zero.
+
+### Approval is not consent, and the category is what keeps it true
+
+The "you're all set" text is queued inside the authorization transaction, as a **proactive**
+category. So `authorizeDispatch` re-reads consent at the claim and suppresses it for a farmer who
+never texted JOIN/START. Asserted at the dispatch claim rather than the queue — that is where the
+guarantee lives — **plus the complement**, because a notification nobody can ever receive would
+satisfy the suppression test perfectly.
+
+`SIGNUP`/`LINK` are parsed **last** among keyword branches so neither can shadow `STOP`, and
+**before** free text so no model sees them. Moving the branch after free text fails 7 tests.
+
+### Verified by effect, twice
+
+Whole journey against real Postgres and the running app: SIGNUP → masked queue → authorize (text
+queued, `inventory_prompt`, `queued`) → LINK → resolve → propose (**0 revisions**) → confirm
+(published) → revoke (link resolves null on the *next* request, form refuses, published listing
+untouched).
+
+Then again through the **real HTTP route with the real model**. Two things worth recording:
+
+- Mistral rendered **"plum jam" twice**, once bare and once priced. Interpretation quality, not a
+  code defect — and precisely what the confirmation gate exists to let a farmer catch.
+- An earlier "real model" run **actually hit the stub**: the previous dev server had not died and
+  the new one failed `EADDRINUSE`, which I only caught by grepping the log. A stub clarification
+  reads *identically* to a real refusal. Redone on a genuinely free port.
+
+### Two tripwires earned their place
+
+`workspace-manifests.test.ts` caught a real missing manifest entry (the new segment test made
+`packages/sms` import `@farm-friend/core`, an edge the architecture permits but the manifest did not
+declare). `schema.integration.test.ts` caught the two new tables missing from its pinned list.
+
+### Owed
+
+**Nobody has looked at the screens.** `/stand/<token>` and `/admin/farmers` serve correct markup and
+CSS classes — verified by fetching the rendered HTML — but the styling has **not been seen
+rendered**; the browser extension was not connected. Same debt F-042 carries. Also renamed the page
+namespace to `farmer-form` mid-build after finding `.stand` is the public map's *card* class: a
+page-level `.stand` would have inherited card padding, a border, and a green left rule.
+
+---
+
+## 2026-07-29 — F-042 built: the offering tags reach customers, and a rule that had to leave the JSX
 
 One item, built to copy that was already approved, so the interesting part is not the vocabulary —
 it was settled last session — but **where the load-bearing rule ended up living, and why it could not

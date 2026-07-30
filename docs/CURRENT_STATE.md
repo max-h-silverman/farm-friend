@@ -6,7 +6,7 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-29** (branch `f-040-farmer-onboarding`): `npm test` **643/643** (65 files);
+**Verified 2026-07-30** (`main`, F-040 merged): `npm test` **643/643** (65 files);
 `npm run test:integration` **396/396** (22 files) on real Postgres 16, all **9** migrations from
 empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
 `evals:live` **not** re-run and not required — F-040 touched no seam projection, schema, or output
@@ -18,9 +18,12 @@ no infra file changed.
 > One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
 > what marks it environmental rather than a defect in this work.
 
-**Merged but NOT deployed.** F-042 is on `main`; the deployed revisions below predate it, so
-production still serves the map without the offering tags. Deploying is a separate authorized step
-(RUNBOOK §Deploy).
+**Merged but NOT deployed — TWO items now.** F-042 and F-040 are both on `main`; the deployed
+revisions below predate both, so production still serves the map without the offering tags and has
+no farmer onboarding at all. **F-040 also needs its migration applied** — `neondb` is still at 8
+migrations and has neither `farmer_onboarding_requests` nor `farmer_links`, so deploying the image
+alone would ship code whose tables do not exist. Migration first, then deploy; both are separate
+authorized steps (RUNBOOK §Deploy).
 
 > **`.next/` is a shared artifact.** `contact-card-build.test.ts` (B-025) reads the **production
 > build output**, so running `next dev` clobbers it and the test fails with "no built chunk
@@ -158,8 +161,8 @@ fixtures supply what production never creates.
   was not connected. **20 sabotages, all caught**; one initially survived (omitting `usuallySells`
   when empty passed the whole suite, since the renderer treats absent and empty alike by design) and
   now has its own assertion.
-- **F-040 — BUILT on `f-040-farmer-onboarding`, NOT merged and NOT deployed.** All five pieces in
-  one tranche. `farmer_authorizations` now has a real writer (`packages/db/src/farmer.ts`), so a
+- **F-040 — BUILT and MERGED to `main` 2026-07-30. NOT deployed, and its MIGRATION IS NOT APPLIED.**
+  All five pieces in one tranche. `farmer_authorizations` now has a real writer (`packages/db/src/farmer.ts`), so a
   farmer who texts an update no longer falls through to the *customer* branch.
   **Migration 0009** adds two records, and the split is load-bearing: `farmer_onboarding_requests`
   is what a farmer *asked* for — no farm, no grant column, no message text, nothing reads it as
@@ -194,6 +197,8 @@ fixtures supply what production never creates.
   **Owed: nobody has looked at the screens.** `/stand/<token>` and `/admin/farmers` serve correct
   markup and classes, but the CSS has **not been seen rendered** — the browser extension was not
   connected. Same debt F-042 carries.
+  **Owed: migration 0009 on production.** Deploying the image without it would ship code whose
+  tables do not exist — `npx tsx packages/db/scripts/migrate.ts` against `neondb` comes first.
 - **B-025 — CLOSED 2026-07-30. Cause was the MINIFIER, not the network.** The filed diagnosis was
   wrong in both directions and is recorded here so it is not re-derived: it reproduces on a **local
   standalone build**, and all three Next.js body forms plus the Cloud Run wire pass CRLF through
