@@ -120,6 +120,11 @@ vs "open til late November". The three-signal rule holds; the cards carry words.
 29/29. `evals:live` correctly not required — no seam projection, schema, or output contract
 changed. Model-free and architecture tripwires pass. ~20 sabotages, all caught.
 
+**Deployed the same session** — revisions `farm-friend-web-00010-7mc` /
+`farm-friend-worker-00011-l2w`, digest `sha256:b9a020f1…`, no migration owed. Verified by effect in
+production: 34 stands / 212 tags / 29 seasons / 22 hours on the API, and the served page carries the
+island, 32 pins, all five filters, 12 "Hours not listed" badges and 33 "Usually sells:" lines.
+
 **Owed: the Squarespace embed handshake**, which needs a second origin to frame the page and was
 not exercised. Everything else on the item is verified, including the browser check.
 

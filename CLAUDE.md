@@ -155,10 +155,10 @@ Full detail — and the tripwires you need before touching anything — in
 - **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
   vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
   **Owed: a physical-handset tap on the contact card.**
-- **Merged, NOT deployed**: F-043 (interactive island map — filters, real traced Vashon/Maury
-  coastline, bottom-sheet selection). Production still serves the old vertical list. Web-only: no
-  migration, no worker change. `open_days` is 0% populated island-wide, so `Open now` is season +
-  time-of-day only.
+- **Deployed 2026-07-30**: F-043 (interactive island map — filters, real traced Vashon/Maury
+  coastline, bottom-sheet selection) is live, alongside F-042 and F-040. `open_days` is 0%
+  populated island-wide, so `Open now` is season + time-of-day only. **Owed**: the Squarespace
+  embed handshake was never exercised.
 - **Open, other**: F-031 (no mail provider), F-036 (F-040 answered its farmer-web case), B-008 (lint
   absent from deployed builds), B-020 (intermittent integration deadlock), B-001.
 - Each open item needs **separate implementation authorization**. Do not read a passing suite as a

@@ -11,18 +11,24 @@
 empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
 `evals:live` **not** re-run and not required — F-043 touched no seam projection, schema, or output
 contract. The public-surface model-free tripwire and the architecture tripwires both still pass.
-`evals:live` **not** re-run and not required — F-040 touched no seam projection, schema, or output
-contract; the farmer web path reuses `applyInterpretedInventory` unchanged. The real model was
-nonetheless driven through the real web route by hand (see F-040 below). Last live results stand
-(containment 4/4, quality 6/6 on Mistral Small 24B). The infra assertion suites were not re-run —
-no infra file changed.
+Last `evals:live` results stand (containment 4/4, quality 6/6 on Mistral Small 24B). The infra
+assertion suites **were** re-run as part of F-043's deploy — see below.
 
 > One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
 > what marks it environmental rather than a defect in this work.
 
-**F-043 is MERGED and NOT DEPLOYED** — the interactive island map is on `main` and production still
-serves the old vertical list. It is a **web-only** change: no migration, no worker change, no new
-env var, so a deploy is the image alone. F-042 and F-040 shipped earlier on 2026-07-30 (below).
+**Nothing is merged-and-undeployed.** F-043 shipped 2026-07-30 alongside F-042 and F-040 (below) —
+revisions `farm-friend-web-00010-7mc` / `farm-friend-worker-00011-l2w`, one digest
+`sha256:b9a020f1…` on both. No migration was owed (F-043 changed no schema), so production stays at
+**9 migrations**. `plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED,
+`served_card_assertions.py` PASSED (153 bytes / 6 CRLF / 0 bare LF). The plan was read leaf by
+leaf: exactly one leaf changed per service (`containers[0].image`), plus the known non-converging
+`scaling` block.
+**Verified by effect**: health `{"ok":true}`; `/api/public/stands` serves **34** stands, **212**
+tags, **29** with a stated season and **22** with stated hours — the availability columns reach the
+browser for the first time. The served page carries the drawn island, **32 pins**, all five filter
+controls, **12** "Hours not listed" badges (matching the 12 stands that state no hours) and F-042's
+**33** "Usually sells:" lines. Webhook **401**, cron **404** on the public service, `/admin` 200.
 
 > **`.next/` is a shared artifact.** `contact-card-build.test.ts` (B-025) reads the **production
 > build output**, so running `next dev` clobbers it and the test fails with "no built chunk
@@ -134,9 +140,9 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
 Do not read a passing suite as a working product: several gaps hide behind green tests whose
 fixtures supply what production never creates.
 
-- **F-043 — BUILT and MERGED 2026-07-30, NOT DEPLOYED.** The public map is now an interactive
-  island with filters and a linked stand list. **Production still serves the old vertical list**
-  until the image ships; this is web-only — no migration, no worker change, no new env var.
+- **F-043 — BUILT, MERGED, and DEPLOYED 2026-07-30.** The public map is now an interactive island
+  with filters and a linked stand list, live to customers. Web-only — no migration, no worker
+  change, no new env var.
   **The gating question was answered first**: F-035's availability columns ARE populated in
   production — season 85% (29/34), hours 65% (22/34), `stocking_cadence` 85% — but **`open_days`
   is 0% island-wide**, so `Open now` is season + time-of-day only and the weekday dimension has no
@@ -190,8 +196,8 @@ fixtures supply what production never creates.
   bright. The poster's colour-only legend was **not** copied — the three-signal rule holds.
   **Owed: the Squarespace embed handshake**, which needs a second origin to frame the page and was
   never exercised. `apps/web/app/embed-height.tsx` posts the height; the listener VIGA pastes is in
-  ADMIN_OPERATIONS §Embedding the map. Also owed for everyone: **a deploy** — see the top of this
-  file.
+  ADMIN_OPERATIONS §Embedding the map. Until VIGA adds that snippet the embed still works — it just
+  falls back to the fixed `height="900"`.
 - **B-023 — CLOSED 2026-07-30.** `board@vigavashon.org` is the first administrator (a VIGA *org*
   address, max's choice, so authority sits with the organization). Verified by reading the row and
   by resolving it through `findAdministratorByEmail` in production — exact address, mixed case, and
