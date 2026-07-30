@@ -8,6 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./proximity": "./src/public/proximity.ts",
+    "./open-now": "./src/public/open-now.ts",
+    "./island-projection": "./src/public/island-projection.ts",
     "./vcard": "./src/public/vcard.ts"
   }
 }

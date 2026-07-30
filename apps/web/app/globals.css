@@ -23,6 +23,17 @@
   --amber-soft: #fdf3e2;
   --amber-line: #d9a24a;
   --radius: 14px;
+
+  /* F-043 — VIGA's palette, from the printed farm map: sage island on cream water, olive
+   * type, brick red for accents. Adopted for the ARTWORK and the controls; the meaning
+   * colours above are untouched, because green-is-confirmed and amber-is-stale already carry
+   * product meaning that a brand refresh must not quietly repaint. */
+  --sage: #a8bfa0;
+  --sage-deep: #7d9a75;
+  --cream: #f4efe1;
+  --olive: #4a5340;
+  --brick: #a8442a;
+  --brick-soft: #f6e7e2;
 }
 
 * {
@@ -678,4 +689,264 @@ body {
   border: 1px solid var(--line);
   border-left: 4px solid var(--green);
   border-radius: var(--radius);
+}
+
+/* ------------------------------------------------------ F-043 — the layout
+ *
+ * TWO ARRANGEMENTS OF ONE COMPONENT. Phone (primary): map on top, filters, then the list.
+ * Wide (>=56rem): map pinned left while the list scrolls beside it. Same markup — only the
+ * grid changes — because the public map is mobile-first by design and a second component for
+ * wide screens would be two things to keep honest instead of one. */
+
+.layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.map-column {
+  display: grid;
+  gap: 0.9rem;
+}
+
+@media (min-width: 56rem) {
+  .page {
+    max-width: 72rem;
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 1.75rem;
+  }
+
+  .map-column {
+    /* Pinned: the island stays put while the list scrolls past it, so a customer never
+     * loses the geography they are reading the list against. */
+    position: sticky;
+    top: 1.25rem;
+  }
+}
+
+/* ------------------------------------------------------- F-043 — the island */
+
+.island {
+  margin: 0;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.island-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.island-water {
+  fill: var(--cream);
+}
+
+.island-land {
+  fill: var(--sage);
+  stroke: var(--sage-deep);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.island-road {
+  fill: none;
+  stroke: var(--cream);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.9;
+}
+
+.island-place {
+  fill: var(--olive);
+  font-size: 19px;
+  font-weight: 600;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--cream);
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+
+.island-caption {
+  padding: 0.55rem 0.9rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  background: var(--card);
+  border-top: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------- F-043 — the pins
+ *
+ * A pin is never status-by-colour-alone: the CARD carries the words ("Hours not listed",
+ * "Closed for the season"), and the pin is an orientation device. Selection is shown by SIZE
+ * and a ring as well as fill, so it survives both colourblindness and bright sun. */
+
+.pin-dot {
+  fill: var(--brick);
+  stroke: var(--cream);
+  stroke-width: 3;
+  cursor: pointer;
+  transition: r 120ms ease;
+}
+
+.pin-dot:focus-visible {
+  outline: 3px solid var(--olive);
+  outline-offset: 2px;
+}
+
+.pin-unknown .pin-dot,
+.pin-by_appointment .pin-dot {
+  /* Hollow, because we do not know. Reads as "there is something here, unconfirmed" rather
+   * than as a solid claim. */
+  fill: var(--cream);
+  stroke: var(--brick);
+}
+
+.pin-stale .pin-dot {
+  fill: var(--amber-line);
+}
+
+.pin-selected .pin-dot {
+  stroke: var(--olive);
+  stroke-width: 4;
+}
+
+.pin-label {
+  fill: var(--olive);
+  font-size: 20px;
+  font-weight: 700;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--cream);
+  stroke-width: 5;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------ F-043 — the filters */
+
+.filters {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.filter-row-meta {
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.chip {
+  /* Generous tap target — this is used outdoors, one-handed. */
+  min-height: 2.75rem;
+  padding: 0.55rem 0.95rem;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--olive);
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--sage-deep);
+}
+
+.chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chip-on {
+  /* Active state is fill + border + weight, never colour alone. */
+  color: var(--cream);
+  background: var(--olive);
+  border-color: var(--olive);
+}
+
+.chip-clear {
+  color: var(--brick);
+  border-style: dashed;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+
+.field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.field-input {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+}
+
+.field-input:focus-visible {
+  outline: 2px solid var(--olive);
+  outline-offset: 1px;
+}
+
+.field-input:disabled {
+  opacity: 0.55;
+}
+
+/* --------------------------------------------- F-043 — selection and state */
+
+.stand {
+  cursor: pointer;
+}
+
+.stand-selected {
+  /* Matches the pin's selected ring, so the link between the two surfaces is visible rather
+   * than inferred. */
+  border-color: var(--olive);
+  box-shadow: 0 0 0 2px var(--olive);
+}
+
+/* The open-state badge. WORDS first — the class only styles them, and every state that is
+ * not plainly "open" says what it is in text (F-043). */
+.open-state {
+  margin: 0.35rem 0 0;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.open-state-unknown,
+.open-state-by_appointment {
+  color: var(--ink-soft);
+}
+
+.open-state-closed,
+.open-state-closed_today,
+.open-state-out_of_season {
+  color: var(--brick);
 }

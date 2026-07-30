@@ -4,7 +4,12 @@ import type { Db } from "@farm-friend/db";
 // `map-view.ts` is already inside the public read graph, model-free and asserted so), and it
 // makes the wire format a compiler-checked contract between the server that writes it and the
 // view model that reads it — rather than two hand-kept object literals that agree by habit.
-import type { PublicStandPayload } from "./map-view";
+import type {
+  PublicStandPayload,
+  StandAvailability,
+  StandHours,
+  StandSeason,
+} from "./map-view";
 
 // Public web discovery — the MODEL-FREE half of F-019's channel boundary.
 //
@@ -102,7 +107,100 @@ export interface PublicStand {
    * these.
    */
   usualOfferings: string[];
+  /**
+   * What the stand has stated about when it is open (F-043).
+   *
+   * F-035 wrote these columns and, until this item, nothing read them. Always present, `{}`
+   * when nothing was stated; the individual facts inside are independently optional, because
+   * a season and a time of day are separate things a farmer may or may not have given.
+   */
+  availability: StandAvailability;
   items: PublicStandItem[];
+}
+
+/**
+ * Read F-035's availability columns off a row into the shape the browser gets.
+ *
+ * A pure function over the raw row, so the "unstated stays unstated" rule is testable without
+ * a database and is stated in exactly one place.
+ *
+ * THE RULE: every field is spread conditionally and NOTHING is defaulted. A stand that stated
+ * no season must not acquire `year_round`, and a `dawn_to_dusk` stand must not acquire clock
+ * times — both would be a claim no farmer made, and the second is precisely the invented
+ * precision migration 0005 refuses. The database's CHECK constraints already guarantee the
+ * kind and its operands agree, so this reads the kind and takes only the operands that kind
+ * defines.
+ */
+function readAvailability(row: Record<string, unknown>): StandAvailability {
+  const seasonKind = row.season_kind as StandSeason["kind"] | null;
+  const hoursKind = row.open_hours_kind as StandHours["kind"] | null;
+  const days = row.open_days as number[] | null;
+
+  let season: StandSeason | undefined;
+  switch (seasonKind) {
+    case "year_round":
+      season = { kind: "year_round" };
+      break;
+    case "date_range":
+      season = {
+        kind: "date_range",
+        startMonth: Number(row.season_start_month),
+        startDay: Number(row.season_start_day),
+        endMonth: Number(row.season_end_month),
+        endDay: Number(row.season_end_day),
+      };
+      break;
+    case "named_season":
+      // The names, NOT months. Resolution happens against one documented constant at the
+      // moment the question is asked (F-035), so VIGA correcting what "summer" means changes
+      // that constant rather than requiring a re-seed.
+      season = {
+        kind: "named_season",
+        names: (row.season_names as string[] | null) ?? [],
+      };
+      break;
+    case "open_ended":
+      season = {
+        kind: "open_ended",
+        startMonth: Number(row.season_start_month),
+        startDay: Number(row.season_start_day),
+      };
+      break;
+    default:
+      season = undefined;
+  }
+
+  let hours: StandHours | undefined;
+  switch (hoursKind) {
+    case "dawn_to_dusk":
+    case "daylight_hours":
+    case "all_day":
+    case "by_appointment":
+      // No clock times, by CHECK constraint and by product rule. The sun is computed at read
+      // time; a stored 6am–8pm would be a schedule the farmer never gave.
+      hours = { kind: hoursKind };
+      break;
+    case "clock_range":
+      hours = {
+        kind: "clock_range",
+        fromMinutes: Number(row.open_from_minutes),
+        untilMinutes: Number(row.open_until_minutes),
+      };
+      break;
+    case "until_dusk":
+      hours = { kind: "until_dusk", fromMinutes: Number(row.open_from_minutes) };
+      break;
+    default:
+      hours = undefined;
+  }
+
+  return {
+    ...(season ? { season } : {}),
+    ...(hours ? { hours } : {}),
+    // Empty is treated as unstated rather than as "open on no day". The CHECK constraint
+    // already forbids an empty array, so this is belt-and-braces against a future writer.
+    ...(days && days.length > 0 ? { days } : {}),
+  };
 }
 
 /**
@@ -133,6 +231,19 @@ export async function listPublicStands(
       l.public_longitude as public_longitude,
       l.visitability as visitability,
       l.offering_type as offering_type,
+      -- F-043 — F-035's availability columns, read for the first time. Selected on the
+      -- location row (grain: one per location), so they neither multiply nor are multiplied
+      -- by the inventory join below.
+      l.season_kind as season_kind,
+      l.season_start_month as season_start_month,
+      l.season_start_day as season_start_day,
+      l.season_end_month as season_end_month,
+      l.season_end_day as season_end_day,
+      l.season_names as season_names,
+      l.open_hours_kind as open_hours_kind,
+      l.open_from_minutes as open_from_minutes,
+      l.open_until_minutes as open_until_minutes,
+      l.open_days as open_days,
       f.name as farm_name,
       r.published_at as published_at,
       -- F-042 — aggregated in a subquery rather than joined alongside inventory_entries.
@@ -214,6 +325,9 @@ export async function listPublicStands(
         // F-042 — spread flat rather than conditionally: an empty list is the honest answer
         // for an untagged stand, and there is no second fact for absence to distinguish.
         usualOfferings: (row.usual_offerings as string[] | null) ?? [],
+        // F-043 — always present, `{}` when the stand stated nothing. The inner fields carry
+        // the stated/unstated distinction; see `readAvailability`.
+        availability: readAvailability(row),
         items: [],
       };
       byLocation.set(locationId, stand);
@@ -306,6 +420,10 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     // and no confirmation" (still "No listing yet") from "tags but nothing confirmed", and
     // it can only do that if an empty list is stated rather than omitted.
     usuallySells: stand.usualOfferings,
+    // F-043 — always sent, `{}` when nothing was stated, exactly like `usuallySells`. The
+    // fields INSIDE are what carry stated-vs-unstated, and they are already absent rather
+    // than null, so this passes straight through.
+    availability: stand.availability,
     items: stand.items,
   };
 }

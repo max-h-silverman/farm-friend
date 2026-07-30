@@ -6,9 +6,10 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-30** (`main`, F-040 merged): `npm test` **643/643** (65 files);
-`npm run test:integration` **396/396** (22 files) on real Postgres 16, all **9** migrations from
-empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
+**Verified 2026-07-30** (`f-043-interactive-island-map`, unmerged): `npm test` **719/719** (69
+files); `npm run test:integration` **403/403** (22 files) on real Postgres 16, all **9** migrations
+from empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
+The public-surface model-free tripwire and the architecture tripwires both still pass.
 `evals:live` **not** re-run and not required — F-040 touched no seam projection, schema, or output
 contract; the farmer web path reuses `applyInterpretedInventory` unchanged. The real model was
 nonetheless driven through the real web route by hand (see F-040 below). Last live results stand
@@ -19,7 +20,8 @@ no infra file changed.
 > what marks it environmental rather than a defect in this work.
 
 **Nothing is merged-and-undeployed.** F-042 and F-040 both shipped 2026-07-30 (below). The last
-two items that sat unreleased are now live.
+two items that sat unreleased are now live. **F-043 is built and unmerged** on
+`f-043-interactive-island-map` — see its entry under open work.
 
 > **`.next/` is a shared artifact.** `contact-card-build.test.ts` (B-025) reads the **production
 > build output**, so running `next dev` clobbers it and the test fails with "no built chunk
@@ -131,6 +133,41 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
 Do not read a passing suite as a working product: several gaps hide behind green tests whose
 fixtures supply what production never creates.
 
+- **F-043 — BUILT, on `f-043-interactive-island-map`, NOT merged and NOT deployed.** The public
+  map is now an interactive island with filters and a linked stand list.
+  **The gating question was answered first**: F-035's availability columns ARE populated in
+  production — season 85% (29/34), hours 65% (22/34), `stocking_cadence` 85% — but **`open_days`
+  is 0% island-wide**, so `Open now` is season + time-of-day only and the weekday dimension has no
+  data behind it. 21 stands state both season and hours, 13 are partly unstated. **F-035's note
+  naming Green Ears and Morgan Hill as unparseable is stale** — both parse cleanly; the four real
+  open flags are Holmestead and Open Gate (season) plus Peak Moon and Sweet Alyssum (**addresses**).
+  **The honesty rule this rests on** (max, 2026-07-30): a stand that never stated a fact is **never
+  excluded by a filter over that fact**. `openNow` returns a **three-state** answer — `unknown` is
+  first-class — and unstated stands appear under `Open now` badged "Hours not listed". Verified
+  against the real corpus through the running app: all **12** unstated stands survive the filter,
+  **0** are dropped.
+  **The sun is computed, not stored** (`packages/core/src/public/daylight.ts`) — migration 0005
+  refuses to store dawn/dusk as fixed hours, and dusk on Vashon moves ~5 hours across the year.
+  Checked against **US Naval Observatory** published times, an independent source, not a golden
+  file of its own output. Verified by effect: `Open now` returns **31** stands at 1pm and **18** at
+  2am, so the dusk arithmetic genuinely closes stands overnight.
+  **The island is drawn, not tiled** — no mapping provider, no per-view billing, no runtime seam.
+  The coastline is the **real** shoreline (OpenStreetMap `natural=coastline`, 4,961 nodes stitched
+  into one ring, Douglas-Peucker simplified to 92 vertices), baked in as a static array. **Two
+  hand-drawn outlines were thrown away first**: the initial one put **16 of 32 real farms in open
+  water** while every test passed, because nothing compared the artwork to the projection. That is
+  why `apps/web/lib/island-geometry.ts` exists as a `lib` module — `vitest.config.ts` covers
+  `apps/*/lib` and **not** `apps/*/app`, so a coastline defined beside its component is untestable
+  by construction. The test now checks every real farm coordinate and the highway route against the
+  drawn polygon.
+  **Verified rendered.** The map was built, served against a copy of the real corpus (34 stands,
+  212 tags), and **looked at as an image** — the browser extension was not connected, so the SVG
+  was extracted from the served bytes and rasterized. Quartermaster Harbour, Maury, the south
+  peninsula and the highway all read correctly; 32 pins on land, 0 in water; labels clear of pins
+  and road. F-042's tag lines are intact (33 "Usually sells", 33 "Nothing confirmed recently").
+  **Still owed: a real browser.** Nobody has interacted with it — no tap on a pin, no filter
+  toggled by hand, no phone-width layout seen. The image proves the artwork and the markup, not the
+  CSS layout, the selection linkage, or the embed handshake.
 - **B-023 — CLOSED 2026-07-30.** `board@vigavashon.org` is the first administrator (a VIGA *org*
   address, max's choice, so authority sits with the organization). Verified by reading the row and
   by resolving it through `findAdministratorByEmail` in production — exact address, mixed case, and

@@ -1,16 +1,24 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { PROXIMITY_BASIS_LABEL } from "@farm-friend/core/proximity";
 import { CONTACT_CARD_PATH } from "@farm-friend/core/vcard";
 import {
+  ISLAND_VIEWBOX,
+  projectToIsland,
+} from "@farm-friend/core/island-projection";
+import {
+  applyStandFilters,
   buildMapView,
   standListingLines,
+  type FilteredStand,
   type PublicStandPayload,
+  type StandFilters,
 } from "../lib/map-view";
+import { IslandArtwork } from "./island-artwork";
 import { useTransientOrigin } from "./use-transient-origin";
 
-// The public stand map (F-017).
+// The public stand map (F-017, F-042, F-043).
 //
 // Design intent, in one line: this page's job is to be TRUSTED, not to look busy. A customer
 // standing in their kitchen deciding whether to drive to a stand needs three things in this
@@ -20,11 +28,74 @@ import { useTransientOrigin } from "./use-transient-origin";
 //
 // It is model-free by construction: the data arrives from `GET /api/public/stands`, which
 // takes db + clock and has no model seam, and everything below is arithmetic and markup.
+//
+// F-043 — TWO ARRANGEMENTS OF ONE COMPONENT. Phone (primary): map on top at fixed aspect,
+// filter row, list below. Wide (≥56rem): map pinned left, list scrolling right. Same markup,
+// same selection state; CSS decides the arrangement. The map is mobile-first by design —
+// checked outdoors, one-handed, deciding whether to drive somewhere.
+//
+// WHAT DECIDES WHAT: `applyStandFilters` and `standListingLines` are pure functions in
+// `map-view.ts` with sabotage-verified tests. This file prints their answers and chooses
+// nothing. That split is deliberate and load-bearing — the rules that could make the map
+// dishonest (a stand hidden for a fact nobody stated, a timestamp beside a seeded tag) cannot
+// live in a conditional chain inside JSX that no test renders.
+
+/** Plain-language labels for what the map can say about a stand right now (F-043). */
+const OPEN_STATE_LABEL: Record<FilteredStand["openState"], string | null> = {
+  // `open` gets no badge: the whole list is "what's here", and badging the normal case adds
+  // noise to every card to say nothing.
+  open: null,
+  closed: "Closed right now",
+  closed_today: "Closed today",
+  out_of_season: "Closed for the season",
+  by_appointment: "By appointment",
+  // The honest one. Shown whenever a stand is displayed under a filter it could not be judged
+  // against, so "shown" never silently becomes "shown as open".
+  unknown: "Hours not listed",
+};
 
 export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
   const { state, request, clear } = useTransientOrigin();
   const origin = state.status === "ready" ? state.origin : null;
+  const [filters, setFilters] = useState<StandFilters>({});
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const cardRefs = useRef(new Map<string, HTMLLIElement>());
+
+  // The moment the filters are evaluated against, captured once per render rather than read
+  // inside the predicate. `openNow` computes the real sun for the date, so the answer must
+  // come from one instant — sampling the clock per stand could put two stands on opposite
+  // sides of sunset in the same list.
+  const moment = useMemo(
+    () => ({ at: new Date(), utcOffsetMinutes: -new Date().getTimezoneOffset() }),
+    // Recomputed when the filters change, which is when it matters. A ticking clock here
+    // would rerender the whole list every second to move one boundary twice a day.
+    [filters],
+  );
+
   const view = useMemo(() => buildMapView(stands, origin), [stands, origin]);
+  const visible = useMemo(
+    () => applyStandFilters(view.stands, filters, moment),
+    [view.stands, filters, moment],
+  );
+
+  const anyFilterActive =
+    filters.openNow === true ||
+    filters.confirmedRecently === true ||
+    filters.visitable === true ||
+    (filters.sells !== undefined && filters.sells.trim() !== "") ||
+    (filters.season !== undefined && filters.season !== "");
+
+  /** Selecting from either surface writes the SAME state — one selection, two renderers. */
+  function select(id: string): void {
+    setSelectedId(id);
+    cardRefs.current.get(id)?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  }
+
+  const toggle = (key: "openNow" | "confirmedRecently" | "visitable") => () =>
+    setFilters((current) => ({ ...current, [key]: current[key] !== true }));
 
   return (
     <main className="page">
@@ -38,166 +109,367 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
         </p>
       </header>
 
-      <section className="locate" aria-live="polite">
-        {state.status !== "ready" ? (
-          <>
-            <button
-              type="button"
-              className="locate-button"
-              onClick={request}
-              disabled={state.status === "locating"}
+      <div className="layout">
+        <div className="map-column">
+          {/*
+            F-043 — the island, drawn rather than tiled. No mapping provider, no per-view
+            billing, no runtime seam; `maps/README.md` records that there deliberately is none.
+            Pins are projected from real coordinates through the SAME projection that draws the
+            coastline, so a pin cannot drift away from the shore it belongs to.
+          */}
+          <figure className="island">
+            <svg
+              viewBox={`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`}
+              className="island-svg"
+              role="img"
+              aria-label="Map of Vashon and Maury Islands showing farm stand locations"
             >
-              {state.status === "locating" ? "Finding you…" : "Sort by distance"}
-            </button>
-            <p className="locate-note">
-              {state.status === "unavailable"
-                ? state.reason
-                : "Optional. Your location stays on your device and is never sent to us."}
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="locate-active">
-              Sorted by distance. <span className="basis">{PROXIMITY_BASIS_LABEL}</span>
-            </p>
-            <button type="button" className="locate-clear" onClick={clear}>
-              Stop using my location
-            </button>
-          </>
-        )}
-      </section>
+              <IslandArtwork />
+              {visible.map((stand) => {
+                // F-038 — a contact-only farm has no coordinate and gets NO PIN. It stays in
+                // the list beside the map, because "no stand to visit" is a fact about how to
+                // buy from them, not a reason to disappear.
+                if (stand.latitude === undefined || stand.longitude === undefined) {
+                  return null;
+                }
+                const { x, y } = projectToIsland({
+                  latitude: stand.latitude,
+                  longitude: stand.longitude,
+                });
+                const isSelected = stand.id === selectedId;
+                return (
+                  <g
+                    key={stand.id}
+                    className={[
+                      "pin",
+                      `pin-${stand.openState}`,
+                      stand.stale === true ? "pin-stale" : "",
+                      isSelected ? "pin-selected" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                  >
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={isSelected ? 15 : 10}
+                      className="pin-dot"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`${stand.locationName}, ${stand.farmName}`}
+                      aria-pressed={isSelected}
+                      onClick={() => select(stand.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          select(stand.id);
+                        }
+                      }}
+                    />
+                    {isSelected ? (
+                      <text x={x} y={y - 22} className="pin-label">
+                        {stand.locationName}
+                      </text>
+                    ) : null}
+                  </g>
+                );
+              })}
+            </svg>
+            <figcaption className="island-caption">
+              {visible.length === view.stands.length
+                ? `${view.stands.length} farm stands`
+                : `${visible.length} of ${view.stands.length} farm stands`}
+            </figcaption>
+          </figure>
 
-      {view.staleCount > 0 ? (
-        <p className="stale-summary" role="note">
-          {view.staleCount === 1
-            ? "One listing below has not been confirmed recently."
-            : `${view.staleCount} listings below have not been confirmed recently.`}{" "}
-          They are still shown, marked, because old information beats none.
-        </p>
-      ) : null}
+          {/*
+            F-043 — the filters. All client-side over data already served: no request, no
+            model call, instant on a phone outdoors.
+          */}
+          <section className="filters" aria-label="Filter farm stands">
+            <div className="filter-row">
+              <button
+                type="button"
+                className={filters.openNow === true ? "chip chip-on" : "chip"}
+                aria-pressed={filters.openNow === true}
+                onClick={toggle("openNow")}
+              >
+                Open now
+              </button>
+              <button
+                type="button"
+                className={
+                  filters.confirmedRecently === true ? "chip chip-on" : "chip"
+                }
+                aria-pressed={filters.confirmedRecently === true}
+                onClick={toggle("confirmedRecently")}
+              >
+                Confirmed recently
+              </button>
+              <button
+                type="button"
+                className={filters.visitable === true ? "chip chip-on" : "chip"}
+                aria-pressed={filters.visitable === true}
+                onClick={toggle("visitable")}
+              >
+                Has a stand to visit
+              </button>
+            </div>
 
-      {view.stands.length === 0 ? (
-        <p className="empty">
-          No stand has a current listing right now. Farmers update these themselves, so check
-          back — and stands may still have produce out.
-        </p>
-      ) : (
-        <ul className="stands">
-          {view.stands.map((stand) => (
-            <li key={stand.id} className={stand.stale ? "stand stand-stale" : "stand"}>
-              <div className="stand-head">
-                <h2>{stand.locationName}</h2>
-                {stand.distanceLabel !== undefined ? (
-                  <span className="distance">{stand.distanceLabel}</span>
-                ) : null}
-              </div>
-              <p className="farm">{stand.farmName}</p>
-
-              {/*
-                F-042 — WHICH LINES a stand gets is decided by `standListingLines`, not here.
-                This block prints them and chooses nothing.
-
-                That split is the whole design. The copy max approved rests on one rule — a
-                "Usually sells" line NEVER carries a timestamp, because a date beside it reads
-                as a confirmation nobody made — and a rule that load-bearing cannot live in a
-                conditional chain inside JSX that no test renders. It lives in a pure function
-                with a sabotage-verified test on exactly that property.
-
-                So: no `stand.updated`, no `stand.items.length`, and no `visitability` checks
-                below. Reintroducing one would put the decision back in two places, and the
-                copy would be one careless edit from claiming a confirmation.
-              */}
-              {standListingLines(stand).map((line) => (
-                <div className={`listing listing-${line.kind}`} key={line.kind}>
-                  {line.items === undefined ? (
-                    <p className="listing-note">{line.label}</p>
-                  ) : (
-                    <>
-                      <p className="listing-label">{line.label}</p>
-                      {line.kind === "confirmed" ? (
-                        // The confirmed line keeps the per-item detail a farmer actually
-                        // published — quantity, unit, price. A tag has none of that by
-                        // nature: it is a word off a form, so `usual` below renders names
-                        // only. Attaching a quantity to a tag would be the same class of
-                        // invention as attaching a date to one.
-                        <ul className="items">
-                          {stand.items.map((item, index) => (
-                            <li key={`${stand.id}-${index}`}>
-                              <span className="item-name">{item.itemName}</span>
-                              {item.quantity !== undefined ||
-                              item.approximation !== undefined ? (
-                                <span className="item-detail">
-                                  {item.quantity !== undefined
-                                    ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
-                                    : item.approximation}
-                                </span>
-                              ) : null}
-                              {item.priceText !== undefined ? (
-                                <span className="item-price">{item.priceText}</span>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <ul className="items items-usual">
-                          {line.items.map((item) => (
-                            <li key={item}>
-                              <span className="item-name">{item}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-
-              {/*
-                F-042 — the STALENESS WARNING, and only that.
-
-                The date itself moved into the "Confirmed X ago:" heading above, so printing
-                `stand.updated` here as well would state the same confirmation twice. What has
-                no other home is the warning: a listing old enough to be doubted must say so
-                prominently, which is why a stale stand stays on the map at all instead of
-                disappearing. Keyed on `stale`, never on `updated` — an unconfirmed stand has
-                nothing to be stale about, and `stale` is absent rather than false there
-                precisely so this cannot render for it (B-013).
-              */}
-              {stand.stale === true ? (
-                <p className="recency recency-stale">
-                  <strong>May be out of date — </strong>
-                  {stand.updated}
-                </p>
-              ) : null}
+            <div className="filter-row">
+              <label className="field">
+                <span className="field-label">What they sell</span>
+                <input
+                  type="search"
+                  className="field-input"
+                  placeholder="eggs, flowers, lamb…"
+                  value={filters.sells ?? ""}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      sells: event.target.value,
+                    }))
+                  }
+                />
+              </label>
 
               {/*
-                F-038 — a farm you contact rather than visit says so, in place of an address.
-                Rendering `stand.address` unconditionally printed an EMPTY line here, which
-                reads as a stand whose address nobody bothered to fill in. Open Gate Lamb has
-                no stand at all; saying that plainly is the honest version, and it is the whole
-                reason these farms are listed rather than hidden.
+                Season answers a DIFFERENT question from Open now — "what is here later in the
+                year" — and is meaningful mainly when Open now is off, since out-of-season
+                stands are already excluded by that filter. Disabled rather than hidden when
+                Open now is on, so the control does not vanish and reappear under the reader's
+                thumb.
               */}
-              {stand.address !== undefined ? (
-                <p className="address">{stand.address}</p>
-              ) : (
-                <p className="address address-contact-only">
-                  <strong>No stand to visit</strong> — order by contacting this farm.
-                </p>
-              )}
-              {stand.routingLink !== null ? (
-                <a
-                  className="directions"
-                  href={stand.routingLink}
-                  target="_blank"
-                  rel="noreferrer noopener"
+              <label className="field">
+                <span className="field-label">In season</span>
+                <select
+                  className="field-input"
+                  value={filters.season ?? ""}
+                  disabled={filters.openNow === true}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      season: event.target.value,
+                    }))
+                  }
                 >
-                  Directions
-                </a>
+                  <option value="">Any time of year</option>
+                  <option value="spring">Spring</option>
+                  <option value="summer">Summer</option>
+                  <option value="fall">Fall</option>
+                  <option value="winter">Winter</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="filter-row filter-row-meta">
+              {state.status !== "ready" ? (
+                <>
+                  <button
+                    type="button"
+                    className="chip"
+                    onClick={request}
+                    disabled={state.status === "locating"}
+                  >
+                    {state.status === "locating" ? "Finding you…" : "Sort by distance"}
+                  </button>
+                  <span className="locate-note">
+                    {state.status === "unavailable"
+                      ? state.reason
+                      : "Optional. Your location stays on your device and is never sent to us."}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="chip chip-on" onClick={clear}>
+                    Sorted by distance — stop
+                  </button>
+                  <span className="locate-note">{PROXIMITY_BASIS_LABEL}</span>
+                </>
+              )}
+              {anyFilterActive ? (
+                <button
+                  type="button"
+                  className="chip chip-clear"
+                  onClick={() => setFilters({})}
+                >
+                  Clear filters
+                </button>
               ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
+            </div>
+          </section>
+        </div>
+
+        <div className="list-column">
+          {view.staleCount > 0 ? (
+            <p className="stale-summary" role="note">
+              {view.staleCount === 1
+                ? "One listing below has not been confirmed recently."
+                : `${view.staleCount} listings below have not been confirmed recently.`}{" "}
+              They are still shown, marked, because old information beats none.
+            </p>
+          ) : null}
+
+          {/*
+            F-043 — an empty filter result SAYS SO rather than rendering blank, and says which
+            control emptied it. A blank column reads as a broken page.
+          */}
+          {visible.length === 0 ? (
+            <p className="empty">
+              {view.stands.length === 0
+                ? "No stand has a current listing right now. Farmers update these themselves, so check back — and stands may still have produce out."
+                : "No stands match these filters. Try clearing one — stands with no listed hours are always shown, so this means the ones we know about are ruled out."}
+            </p>
+          ) : (
+            <ul className="stands">
+              {visible.map((stand) => (
+                <li
+                  key={stand.id}
+                  ref={(node) => {
+                    if (node) cardRefs.current.set(stand.id, node);
+                    else cardRefs.current.delete(stand.id);
+                  }}
+                  className={[
+                    "stand",
+                    stand.stale === true ? "stand-stale" : "",
+                    stand.id === selectedId ? "stand-selected" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onClick={() => select(stand.id)}
+                >
+                  <div className="stand-head">
+                    <h2>{stand.locationName}</h2>
+                    {stand.distanceLabel !== undefined ? (
+                      <span className="distance">{stand.distanceLabel}</span>
+                    ) : null}
+                  </div>
+                  <p className="farm">{stand.farmName}</p>
+
+                  {/*
+                    F-043 — the open-state badge, and the honesty rule it carries.
+
+                    A stand shown under "Open now" that we could NOT judge says "Hours not
+                    listed" here. That is what makes showing it honest rather than a silent
+                    claim that it is open: the filter keeps it because absence of data is not
+                    evidence of being shut, and this line says which one it is.
+
+                    NEVER COLOUR ALONE. The badge is words; the class only styles them. The
+                    existing three-signal staleness rule holds for the same reason.
+                  */}
+                  {OPEN_STATE_LABEL[stand.openState] !== null ? (
+                    <p className={`open-state open-state-${stand.openState}`}>
+                      {OPEN_STATE_LABEL[stand.openState]}
+                    </p>
+                  ) : null}
+
+                  {/*
+                    F-042 — WHICH LINES a stand gets is decided by `standListingLines`, not
+                    here. This block prints them and chooses nothing.
+
+                    That split is the whole design. The copy max approved rests on one rule — a
+                    "Usually sells" line NEVER carries a timestamp, because a date beside it
+                    reads as a confirmation nobody made — and a rule that load-bearing cannot
+                    live in a conditional chain inside JSX that no test renders. It lives in a
+                    pure function with a sabotage-verified test on exactly that property.
+
+                    So: no `stand.updated`, no `stand.items.length`, and no `visitability`
+                    checks below. Reintroducing one would put the decision back in two places,
+                    and the copy would be one careless edit from claiming a confirmation.
+                  */}
+                  {standListingLines(stand).map((line) => (
+                    <div className={`listing listing-${line.kind}`} key={line.kind}>
+                      {line.items === undefined ? (
+                        <p className="listing-note">{line.label}</p>
+                      ) : (
+                        <>
+                          <p className="listing-label">{line.label}</p>
+                          {line.kind === "confirmed" ? (
+                            // The confirmed line keeps the per-item detail a farmer actually
+                            // published — quantity, unit, price. A tag has none of that by
+                            // nature: it is a word off a form, so `usual` below renders names
+                            // only. Attaching a quantity to a tag would be the same class of
+                            // invention as attaching a date to one.
+                            <ul className="items">
+                              {stand.items.map((item, index) => (
+                                <li key={`${stand.id}-${index}`}>
+                                  <span className="item-name">{item.itemName}</span>
+                                  {item.quantity !== undefined ||
+                                  item.approximation !== undefined ? (
+                                    <span className="item-detail">
+                                      {item.quantity !== undefined
+                                        ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
+                                        : item.approximation}
+                                    </span>
+                                  ) : null}
+                                  {item.priceText !== undefined ? (
+                                    <span className="item-price">{item.priceText}</span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <ul className="items items-usual">
+                              {line.items.map((item) => (
+                                <li key={item}>
+                                  <span className="item-name">{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+
+                  {/*
+                    F-042 — the STALENESS WARNING, and only that.
+
+                    The date itself moved into the "Confirmed X ago:" heading above, so printing
+                    `stand.updated` here as well would state the same confirmation twice. What
+                    has no other home is the warning: a listing old enough to be doubted must
+                    say so prominently, which is why a stale stand stays on the map at all
+                    instead of disappearing. Keyed on `stale`, never on `updated` — an
+                    unconfirmed stand has nothing to be stale about, and `stale` is absent
+                    rather than false there precisely so this cannot render for it (B-013).
+                  */}
+                  {stand.stale === true ? (
+                    <p className="recency recency-stale">
+                      <strong>May be out of date — </strong>
+                      {stand.updated}
+                    </p>
+                  ) : null}
+
+                  {/*
+                    F-038 — a farm you contact rather than visit says so, in place of an
+                    address. Rendering `stand.address` unconditionally printed an EMPTY line
+                    here, which reads as a stand whose address nobody bothered to fill in. Open
+                    Gate Lamb has no stand at all; saying that plainly is the honest version,
+                    and it is the whole reason these farms are listed rather than hidden.
+                  */}
+                  {stand.address !== undefined ? (
+                    <p className="address">{stand.address}</p>
+                  ) : (
+                    <p className="address address-contact-only">
+                      <strong>No stand to visit</strong> — order by contacting this farm.
+                    </p>
+                  )}
+                  {stand.routingLink !== null ? (
+                    <a
+                      className="directions"
+                      href={stand.routingLink}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                    >
+                      Directions
+                    </a>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
 
       <footer className="foot">
         <p>

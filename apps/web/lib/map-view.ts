@@ -4,6 +4,11 @@ import {
   withApproximateDistance,
   type PublicCoordinates,
 } from "@farm-friend/core/proximity";
+import {
+  NAMED_SEASON_MONTHS,
+  openNow,
+  type OpenState,
+} from "@farm-friend/core/open-now";
 
 // The public map's view model (F-017).
 //
@@ -63,6 +68,15 @@ export interface PublicStandPayload {
    * to them. Absent when the stand has no tags at all.
    */
   usuallySells?: string[];
+  /**
+   * When this stand says it is open (F-043) — season, time of day, weekdays.
+   *
+   * **Always present, `{}` when the stand stated nothing.** The same asymmetry `usuallySells`
+   * carries, and for the same reason: an empty object is a complete answer ("nothing stated"),
+   * and its INNER fields are what distinguish stated from unstated. Making the object itself
+   * optional would put two absences in a row and force every reader to handle both.
+   */
+  availability: StandAvailability;
   items: {
     itemName: string;
     quantity?: number;
@@ -70,6 +84,71 @@ export interface PublicStandPayload {
     priceText?: string;
     approximation?: "some" | "limited" | "plentiful";
   }[];
+}
+
+/**
+ * When a stand's season runs — F-035's structure, unresolved (F-043).
+ *
+ * `named_season` carries the NAMES, not months. F-035's rule is that a named season resolves
+ * at query time against one documented constant, so a correction to what "summer" means on
+ * Vashon changes that constant rather than requiring every row to be re-seeded. Resolving here
+ * would bake the current answer into the wire format and quietly defeat that.
+ */
+export type StandSeason =
+  | { kind: "year_round" }
+  | {
+      kind: "date_range";
+      startMonth: number;
+      startDay: number;
+      endMonth: number;
+      endDay: number;
+    }
+  | { kind: "named_season"; names: string[] }
+  | { kind: "open_ended"; startMonth: number; startDay: number };
+
+/**
+ * When a stand is open during the day — F-035's structure, unresolved (F-043).
+ *
+ * The dusk kinds carry NO clock times, and that absence is the honesty. Migration 0005 is
+ * explicit that storing dawn/dusk as fixed hours "would invent a precision the farmer never
+ * stated" — dusk on Vashon moves roughly six hours across the year. The actual sun is computed
+ * at read time from the date and the island's latitude (`openNow`), which is arithmetic rather
+ * than an invented schedule.
+ */
+export type StandHours =
+  | { kind: "dawn_to_dusk" }
+  | { kind: "daylight_hours" }
+  | { kind: "all_day" }
+  | { kind: "by_appointment" }
+  | { kind: "clock_range"; fromMinutes: number; untilMinutes: number }
+  | { kind: "until_dusk"; fromMinutes: number };
+
+/**
+ * What a stand has stated about when it is open (F-043).
+ *
+ * **Every field is optional and they are INDEPENDENT** — unlike the place fields and the
+ * recency fields, which correctly travel in groups. In production 8 stands state a season and
+ * no hours, and 1 states hours and no season; grouping them would drop a real fact for a
+ * quarter of the island.
+ *
+ * An absent field means THE FARMER NEVER SAID, which is not the same as "closed" and must
+ * never render as one. 5 of 34 public stands state no season and 12 state no hours, so this is
+ * the common path rather than an edge. `openNow` answers `"unknown"` for these, and the map
+ * shows them under the Open-now filter marked as unconfirmed rather than hiding them — absence
+ * of data is not evidence of being shut.
+ */
+export interface StandAvailability {
+  season?: StandSeason;
+  hours?: StandHours;
+  /**
+   * Which weekdays the stand is open, 0 = Sunday.
+   *
+   * **Absent island-wide today**: no production row carries a day set, though 14 stands state
+   * a `specific_days` restocking cadence. The column is plumbed because the schema permits it
+   * and an unread column is how F-042 and this item both came to exist — but nothing may
+   * assume it is present.
+   */
+  days?: number[];
 }
 
 export interface MapViewStand extends PublicStandPayload {
@@ -258,4 +337,176 @@ export function buildMapView(
           : null,
     })),
   };
+}
+
+/**
+ * What a customer has asked the map to narrow down to (F-043).
+ *
+ * Four filters plus season, all client-side over data already served. No new model call and
+ * no new request — the public surface stays model-free, and a customer standing outdoors on a
+ * phone gets an instant answer rather than a round trip.
+ */
+export interface StandFilters {
+  /** Open right now — season AND weekday AND time of day. */
+  openNow?: boolean;
+  /** A farmer has confirmed this stand recently enough not to be flagged stale. */
+  confirmedRecently?: boolean;
+  /** Free text matched against confirmed items and usual-offering tags. */
+  sells?: string;
+  /** Has somewhere to go (F-038) — excludes by-order farms with no stand. */
+  visitable?: boolean;
+  /**
+   * What is around later in the year.
+   *
+   * A different question from `openNow` and meaningful mostly when it is off: with Open now
+   * on, out-of-season stands are already excluded, so this would be nearly inert.
+   */
+  season?: string;
+}
+
+/** The instant the filters are evaluated against. Injected, never read from the host. */
+export interface FilterMoment {
+  at: Date;
+  utcOffsetMinutes: number;
+}
+
+/**
+ * What the map can honestly say about a stand right now (F-043).
+ *
+ * Carried on every stand, not just the filtered-in ones, because the UI must be able to
+ * distinguish "open" from "we don't know" for a stand it is SHOWING. Filtering a stand in and
+ * then rendering it as though it were confirmed open is the same dishonesty as hiding it,
+ * reached by a different route.
+ */
+export interface OpenStateFields {
+  openState: OpenState;
+}
+
+export type FilteredStand = PublicStandPayload & OpenStateFields;
+
+/** Does any of a stand's known produce vocabulary match what the customer typed? */
+function sellsMatch(stand: PublicStandPayload, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle === "") return true;
+
+  // Confirmed items AND usual tags. Only one production stand has ever carried a
+  // confirmation, so tags are almost the whole corpus a customer can search — but a
+  // confirmation is the more certain fact and must never be excluded from search.
+  //
+  // Substring rather than exact: a customer types "egg", the tag says "duck eggs". Case-folded
+  // because tags come from VIGA's form text and confirmations from a farmer's own SMS, and
+  // nothing normalizes casing between the two.
+  const haystack = [
+    ...stand.items.map((item) => item.itemName),
+    ...(stand.usuallySells ?? []),
+  ];
+  return haystack.some((entry) => entry.toLowerCase().includes(needle));
+}
+
+/**
+ * Could this stand be around in the named season?
+ *
+ * `undefined` means unknowable — nothing stated, or a season word the constant does not know.
+ * The caller keeps those rather than hiding them.
+ */
+function coversSeason(
+  stand: PublicStandPayload,
+  seasonName: string,
+): boolean | undefined {
+  const season = stand.availability.season;
+  if (!season) return undefined;
+
+  const months = NAMED_SEASON_MONTHS[seasonName.toLowerCase()];
+  if (!months) return undefined;
+
+  switch (season.kind) {
+    case "year_round":
+      return true;
+    case "named_season":
+      return season.names.some(
+        (name) => name.toLowerCase() === seasonName.toLowerCase(),
+      );
+    case "date_range": {
+      // Does the stated range overlap ANY month of the chosen season? Month granularity is
+      // the right resolution for a "what's around in autumn" question, and finer would imply
+      // a precision the question does not have.
+      const start = season.startMonth;
+      const end = season.endMonth;
+      const inRange = (month: number) =>
+        start <= end
+          ? month >= start && month <= end
+          : month >= start || month <= end;
+      return months.some(inRange);
+    }
+    case "open_ended":
+      // Started and has no stated end, so it covers everything from its start month onward.
+      return months.some((month) => month >= season.startMonth);
+  }
+}
+
+/**
+ * Narrow the stands to what the customer asked for (F-043).
+ *
+ * THE RULE THIS FUNCTION EXISTS TO HOLD (max, 2026-07-30): **a stand that never stated a fact
+ * is never excluded by a filter over that fact.** Production has 13 of 34 public stands
+ * partly unstated — 5 with no season, 12 with no hours — and hiding them under "Open now"
+ * would assert a closure no farmer made, on the strength of a blank column. They stay in the
+ * list carrying `openState: "unknown"`, and the UI marks them unconfirmed.
+ *
+ * Filters COMPOSE: every active one must pass. Order is preserved, because the server already
+ * ordered by confirmation and distance sorting is the customer's separate choice.
+ *
+ * Pure, and takes its moment as an argument. A function that read the host clock could not be
+ * tested for the dusk boundary that is the whole point of the Open-now filter.
+ */
+export function applyStandFilters<Stand extends PublicStandPayload>(
+  stands: readonly Stand[],
+  filters: StandFilters,
+  moment: FilterMoment,
+): (Stand & OpenStateFields)[] {
+  return stands
+    .map((stand) => ({
+      ...stand,
+      openState: openNow({
+        availability: stand.availability,
+        at: moment.at,
+        utcOffsetMinutes: moment.utcOffsetMinutes,
+        ...(stand.latitude !== undefined && stand.longitude !== undefined
+          ? { latitude: stand.latitude, longitude: stand.longitude }
+          : {}),
+      }).state,
+    }))
+    .filter((stand) => {
+      if (filters.openNow === true) {
+        // `open`, `unknown` and `by_appointment` all stay. Only a stand we can positively say
+        // is shut — because the farmer stated the fact that shuts it — is removed.
+        const definitelyShut =
+          stand.openState === "closed" ||
+          stand.openState === "closed_today" ||
+          stand.openState === "out_of_season";
+        if (definitelyShut) return false;
+      }
+
+      if (filters.confirmedRecently === true) {
+        // `stale` is absent for a never-confirmed stand (B-013), so this excludes both the
+        // stale and the never-confirmed without conflating them.
+        if (stand.stale !== false) return false;
+      }
+
+      if (filters.sells !== undefined && !sellsMatch(stand, filters.sells)) {
+        return false;
+      }
+
+      if (filters.visitable === true && stand.visitability !== "visitable") {
+        return false;
+      }
+
+      if (filters.season !== undefined && filters.season !== "") {
+        // `undefined` — unstated, or a season word we do not know — is KEPT, same rule as
+        // Open now. Only a definite "no" excludes.
+        if (coversSeason(stand, filters.season) === false) return false;
+      }
+
+      return true;
+    });
 }
