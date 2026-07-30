@@ -120,18 +120,30 @@ export function validateFactSelection(
   return { ok: true, value: { kind: "selection", factIds: record.factIds as string[] } };
 }
 
-/** Render "updated X ago" from typed values. Never approximated by a model. */
-export function renderRecency(asOf: Date, now: Date): string {
+/**
+ * Render the bare elapsed phrase — "4 hours ago", "just now" — from typed values.
+ *
+ * The verb is the CALLER's, because two surfaces say it differently: the SMS answer says
+ * "updated 4 hours ago" and the public map's confirmed line says "Confirmed 4 hours ago"
+ * (F-042). The arithmetic behind both is stated once, here, so web and SMS cannot come to
+ * disagree about how fresh the same row is.
+ */
+export function renderElapsed(asOf: Date, now: Date): string {
   const minutes = Math.max(0, Math.floor((now.getTime() - asOf.getTime()) / 60_000));
   if (minutes < 60) {
-    return minutes <= 1 ? "updated just now" : `updated ${minutes} minutes ago`;
+    return minutes <= 1 ? "just now" : `${minutes} minutes ago`;
   }
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return hours === 1 ? "updated 1 hour ago" : `updated ${hours} hours ago`;
+    return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
   }
   const days = Math.floor(hours / 24);
-  return days === 1 ? "updated 1 day ago" : `updated ${days} days ago`;
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
+/** Render "updated X ago" from typed values. Never approximated by a model. */
+export function renderRecency(asOf: Date, now: Date): string {
+  return `updated ${renderElapsed(asOf, now)}`;
 }
 
 /** True when a fact is old enough that the answer must carry a staleness warning. */

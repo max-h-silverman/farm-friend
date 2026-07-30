@@ -3,7 +3,11 @@
 import { useMemo } from "react";
 import { PROXIMITY_BASIS_LABEL } from "@farm-friend/core/proximity";
 import { CONTACT_CARD_PATH } from "@farm-friend/core/vcard";
-import { buildMapView, type PublicStandPayload } from "../lib/map-view";
+import {
+  buildMapView,
+  standListingLines,
+  type PublicStandPayload,
+} from "../lib/map-view";
 import { useTransientOrigin } from "./use-transient-origin";
 
 // The public stand map (F-017).
@@ -89,50 +93,79 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
               </div>
               <p className="farm">{stand.farmName}</p>
 
-              {stand.items.length > 0 ? (
-                <ul className="items">
-                  {stand.items.map((item, index) => (
-                    <li key={`${stand.id}-${index}`}>
-                      <span className="item-name">{item.itemName}</span>
-                      {item.quantity !== undefined || item.approximation !== undefined ? (
-                        <span className="item-detail">
-                          {item.quantity !== undefined
-                            ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
-                            : item.approximation}
-                        </span>
-                      ) : null}
-                      {item.priceText !== undefined ? (
-                        <span className="item-price">{item.priceText}</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : stand.updated !== undefined ? (
-                <p className="items-empty">
-                  The farmer confirmed this stand is empty right now.
-                </p>
-              ) : stand.visitability === "contact_only" ? (
-                // F-038 — same "nobody has confirmed anything" fact, but the reassurance that
-                // fits a roadside stand ("it may still have produce out") is wrong here: there
-                // is no stand to have produce out. ANY farm may publish inventory (max,
-                // 2026-07-29), so this says nothing has been published *yet* rather than
-                // implying this farm never publishes.
-                <p className="items-empty">
-                  No current listing — contact this farm to ask what’s available.
-                </p>
-              ) : (
-                // No items AND no confirmation are a different fact from a confirmed-empty
-                // stand, and saying "the farmer confirmed" here would invent the one thing
-                // B-002's zero-inventory seed exists to avoid: a confirmation nobody made.
-                <p className="items-empty">
-                  No listing yet — this stand hasn’t been updated through Farm Friend. It may
-                  still have produce out.
-                </p>
-              )}
+              {/*
+                F-042 — WHICH LINES a stand gets is decided by `standListingLines`, not here.
+                This block prints them and chooses nothing.
 
-              {stand.updated !== undefined ? (
-                <p className={stand.stale ? "recency recency-stale" : "recency"}>
-                  {stand.stale ? <strong>May be out of date — </strong> : null}
+                That split is the whole design. The copy max approved rests on one rule — a
+                "Usually sells" line NEVER carries a timestamp, because a date beside it reads
+                as a confirmation nobody made — and a rule that load-bearing cannot live in a
+                conditional chain inside JSX that no test renders. It lives in a pure function
+                with a sabotage-verified test on exactly that property.
+
+                So: no `stand.updated`, no `stand.items.length`, and no `visitability` checks
+                below. Reintroducing one would put the decision back in two places, and the
+                copy would be one careless edit from claiming a confirmation.
+              */}
+              {standListingLines(stand).map((line) => (
+                <div className={`listing listing-${line.kind}`} key={line.kind}>
+                  {line.items === undefined ? (
+                    <p className="listing-note">{line.label}</p>
+                  ) : (
+                    <>
+                      <p className="listing-label">{line.label}</p>
+                      {line.kind === "confirmed" ? (
+                        // The confirmed line keeps the per-item detail a farmer actually
+                        // published — quantity, unit, price. A tag has none of that by
+                        // nature: it is a word off a form, so `usual` below renders names
+                        // only. Attaching a quantity to a tag would be the same class of
+                        // invention as attaching a date to one.
+                        <ul className="items">
+                          {stand.items.map((item, index) => (
+                            <li key={`${stand.id}-${index}`}>
+                              <span className="item-name">{item.itemName}</span>
+                              {item.quantity !== undefined ||
+                              item.approximation !== undefined ? (
+                                <span className="item-detail">
+                                  {item.quantity !== undefined
+                                    ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
+                                    : item.approximation}
+                                </span>
+                              ) : null}
+                              {item.priceText !== undefined ? (
+                                <span className="item-price">{item.priceText}</span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <ul className="items items-usual">
+                          {line.items.map((item) => (
+                            <li key={item}>
+                              <span className="item-name">{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+
+              {/*
+                F-042 — the STALENESS WARNING, and only that.
+
+                The date itself moved into the "Confirmed X ago:" heading above, so printing
+                `stand.updated` here as well would state the same confirmation twice. What has
+                no other home is the warning: a listing old enough to be doubted must say so
+                prominently, which is why a stale stand stays on the map at all instead of
+                disappearing. Keyed on `stale`, never on `updated` — an unconfirmed stand has
+                nothing to be stale about, and `stale` is absent rather than false there
+                precisely so this cannot render for it (B-013).
+              */}
+              {stand.stale === true ? (
+                <p className="recency recency-stale">
+                  <strong>May be out of date — </strong>
                   {stand.updated}
                 </p>
               ) : null}

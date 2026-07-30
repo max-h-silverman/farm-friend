@@ -45,6 +45,24 @@ export interface PublicStandPayload {
    */
   updated?: string;
   stale?: boolean;
+  /**
+   * The bare elapsed phrase behind `updated` — "4 hours ago" (F-042).
+   *
+   * Present and absent exactly with `updated`, and rendered by the same core arithmetic, so
+   * the map's "Confirmed 4 hours ago" heading and the SMS answer's "updated 4 hours ago"
+   * cannot drift apart. Sent as its own field rather than sliced out of `updated` here: a
+   * client that had to strip the verb off a sentence would be one wording change from
+   * printing garbage.
+   */
+  confirmedElapsed?: string;
+  /**
+   * What this stand USUALLY sells — its seeded specialties, NOT current stock (F-042).
+   *
+   * A different fact from `items` and kept in a different field for that reason. These come
+   * from VIGA's 2026 form; nobody confirmed them today, and no timestamp anywhere may attach
+   * to them. Absent when the stand has no tags at all.
+   */
+  usuallySells?: string[];
   items: {
     itemName: string;
     quantity?: number;
@@ -68,6 +86,139 @@ export interface MapView {
   sortedByDistance: boolean;
   /** How many listings carry a staleness warning, for the one up-front notice. */
   staleCount: number;
+}
+
+/**
+ * One line of a stand's listing body, already decided (F-042).
+ *
+ * `kind` is what the renderer styles on; `label` and `items` are what it prints. Nothing
+ * downstream re-derives which case a stand is in — that is the whole point of this type.
+ */
+export interface StandListingLine {
+  kind:
+    | "confirmed"
+    | "confirmed-empty"
+    | "usual"
+    | "nothing-confirmed"
+    | "contact-only"
+    | "no-listing";
+  /** The full text of the heading or sentence, including its colon where it has one. */
+  label: string;
+  /** The items listed after the label, in order. Absent for a line that is a sentence. */
+  items?: string[];
+  /**
+   * A recency phrase belonging to THIS line.
+   *
+   * Only ever set on a line whose `kind` denotes a farmer's confirmation. A `usual` line
+   * carries no `detail`, ever — see the rule in `standListingLines`.
+   */
+  detail?: string;
+  /**
+   * The items a stock-out report may be filed against, from this line.
+   *
+   * Confirmed items only. A tag nobody confirmed is not reportable: "the tomatoes are out"
+   * against a specialty from a form is noise for the farmer, not a signal.
+   */
+  reportableItems?: string[];
+}
+
+/**
+ * Decide a stand's listing body: what to print, in what order, under which heading.
+ *
+ * THE RULE THIS FUNCTION EXISTS TO HOLD (max, 2026-07-30): **a usual-offerings line never
+ * carries a timestamp.** The two facts on a stand card are a farmer's confirmation and a
+ * seeded specialty, and they are not the same kind of claim. A date beside "Usually sells"
+ * reads as a confirmation of those items, which manufactures exactly the certainty the
+ * honor-system product refuses to fake — the same failure B-013 caught on the recency
+ * fields. So `detail` is set only on a confirmed line, and the usual line's label is a
+ * constant with no interpolation available to it.
+ *
+ * The cases, in the order they are checked:
+ *
+ *   confirmed + tags  → "Confirmed X ago: …" then "Also usually sells: …" (tags minus the
+ *                        confirmed items, so nothing appears under both headings)
+ *   confirmed only    → "Confirmed X ago: …", or the confirmed-empty sentence
+ *   tags only         → "Usually sells: …" then "Nothing confirmed recently."
+ *   neither           → F-038's contact-only sentence, or "No listing yet"
+ *
+ * A stand with tags is never given the "neither" copy even when it has nowhere to visit: a
+ * by-order farm's specialties are the most useful thing known about it.
+ */
+export function standListingLines(
+  stand: PublicStandPayload,
+): readonly StandListingLine[] {
+  const confirmedItems = stand.items.map((item) => item.itemName);
+  // A confirmation is only claimable with an elapsed phrase to date it. Without one there is
+  // no honest heading — "Confirmed :" is the line that would otherwise ship.
+  const elapsed = stand.confirmedElapsed;
+  const hasConfirmation = elapsed !== undefined;
+
+  // Case-folded, because tags are seeded from VIGA's form text and confirmations arrive in a
+  // farmer's own SMS. Nothing normalizes casing between the two, so an exact-string
+  // subtraction would print "Tomatoes" under both headings as though they were two facts.
+  const confirmedKeys = new Set(confirmedItems.map((name) => name.toLowerCase()));
+  const remainingTags = (stand.usuallySells ?? []).filter(
+    (tag) => !confirmedKeys.has(tag.toLowerCase()),
+  );
+
+  const lines: StandListingLine[] = [];
+
+  if (hasConfirmation) {
+    // The certain fact leads. `detail` carries the elapsed phrase, and it is set HERE and
+    // nowhere else in this function.
+    lines.push(
+      confirmedItems.length > 0
+        ? {
+            kind: "confirmed",
+            label: `Confirmed ${elapsed}:`,
+            items: confirmedItems,
+            detail: elapsed,
+            reportableItems: confirmedItems,
+          }
+        : {
+            kind: "confirmed-empty",
+            label: "The farmer confirmed this stand is empty right now.",
+            detail: elapsed,
+          },
+    );
+  }
+
+  if (remainingTags.length > 0) {
+    // No `detail`, no interpolation, both headings constant. The only difference between them
+    // is whether a confirmation is already on screen above.
+    lines.push({
+      kind: "usual",
+      label: hasConfirmation ? "Also usually sells:" : "Usually sells:",
+      items: remainingTags,
+    });
+  }
+
+  if (hasConfirmation) return lines;
+
+  if (lines.length > 0) {
+    // Tags with no confirmation. The absence is the message, stated plainly — a friendlier
+    // "call ahead or take a chance" would nudge toward risk in VIGA's voice.
+    lines.push({ kind: "nothing-confirmed", label: "Nothing confirmed recently." });
+    return lines;
+  }
+
+  // Nothing known at all. F-038's wording first: a farm with no stand cannot "still have
+  // produce out", and saying so would be the friendly-sounding lie.
+  return stand.visitability === "contact_only"
+    ? [
+        {
+          kind: "contact-only",
+          label: "No current listing — contact this farm to ask what’s available.",
+        },
+      ]
+    : [
+        {
+          kind: "no-listing",
+          label:
+            "No listing yet — this stand hasn’t been updated through Farm Friend. " +
+            "It may still have produce out.",
+        },
+      ];
 }
 
 /**

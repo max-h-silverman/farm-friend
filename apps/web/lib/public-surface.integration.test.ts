@@ -529,6 +529,209 @@ describe("public web surface boundary (integration)", () => {
     });
   });
 
+  describe("what a stand usually sells (F-042)", () => {
+    // 212 offering tags are seeded across 33 of 35 production stands, and until this item no
+    // customer could see any of them: `listPublicStands` never selected
+    // `sales_location_offerings`, so every tagged stand rendered "No listing yet" while the
+    // database knew it sold eggs. Seeding was necessary and not sufficient.
+    //
+    // These are NOT current stock and never become it. `inventory_revisions` demands a
+    // verified farmer and a VIGA approval; a tag is VIGA's 2026 form text. The two facts stay
+    // in separate fields all the way to the wire so no renderer can conflate them.
+
+    /** Tag the seeded location, in the given order. */
+    async function tag(items: string[]): Promise<void> {
+      for (const [index, item] of items.entries()) {
+        await client()`
+          insert into sales_location_offerings (sales_location_id, item, sort_order)
+          values (${ids.location}, ${item}, ${index})
+        `;
+      }
+    }
+
+    /** Strip the seeded stand's revision, leaving tags with no confirmation. */
+    async function removeAllRevisions(): Promise<void> {
+      await client()`truncate table inventory_entries, inventory_revisions restart identity cascade`;
+    }
+
+    it("exposes the tags, in their seeded order, distinct from confirmed items", async () => {
+      await tag(["salad greens", "tomatoes", "flowers"]);
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      // The assertion that fails against the reader this item was filed for: the tags are
+      // PRESENT. And they are in `usualOfferings`, not folded into `items` — a customer must
+      // be able to tell what a farmer confirmed from what a form once said.
+      expect(stands[0]!.usualOfferings).toEqual(["salad greens", "tomatoes", "flowers"]);
+      expect(stands[0]!.items.map((i) => i.itemName)).toEqual(["kale"]);
+    });
+
+    it("carries NO recency for the tags themselves", async () => {
+      // The load-bearing rule at the data layer. A tagged, unconfirmed stand gets tags and
+      // NOTHING that dates them — the recency fields stay absent exactly as B-013 requires,
+      // so no downstream renderer has a timestamp available to attach.
+      await removeAllRevisions();
+      await tag(["eggs", "lamb"]);
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands[0]!.usualOfferings).toEqual(["eggs", "lamb"]);
+      expect(stands[0]!.asOf).toBeUndefined();
+      expect(stands[0]!.recencyLabel).toBeUndefined();
+      expect(stands[0]!.confirmedElapsed).toBeUndefined();
+      expect(stands[0]!.isStale).toBeUndefined();
+    });
+
+    it("returns an empty tag list for a stand with no tags, never a fabricated one", async () => {
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect(stands[0]!.usualOfferings).toEqual([]);
+    });
+
+    it("SERIALIZES the empty list rather than omitting the key", async () => {
+      // Deliberately distinct from the assertion above, and not redundant with it: the field
+      // is `[]`-when-empty on purpose, and the three recency fields on the same object are
+      // absent-when-empty on purpose. That asymmetry is easy to "tidy up" into a conditional
+      // spread matching its neighbours, and no other test in this suite fails when it is —
+      // the map's renderer treats an absent list and an empty one alike by design, so the
+      // regression would reach production silently. `in` rather than a value comparison,
+      // because `undefined` and `[]` both read as falsy-ish downstream.
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as { stands: Record<string, unknown>[] };
+
+      expect(body.stands[0]!.usuallySells).toEqual([]);
+      expect("usuallySells" in body.stands[0]!).toBe(true);
+    });
+
+    it("does not multiply inventory items by tags, or tags by items", async () => {
+      // The defect a naive second LEFT JOIN produces: joining offerings alongside
+      // inventory_entries makes the query a cross product, so 3 tags × 2 confirmed items
+      // yields each item three times and each tag twice. Counted, not merely inspected,
+      // because a duplicate reads as a real second item on the card.
+      await client()`
+        insert into inventory_entries (
+          inventory_revision_id, sales_location_id, item_name, sort_order
+        )
+        values (${ids.revision}, ${ids.location}, 'chard', 1)
+      `;
+      await tag(["eggs", "flowers", "lamb"]);
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands).toHaveLength(1);
+      expect(stands[0]!.items.map((i) => i.itemName)).toEqual(["kale", "chard"]);
+      expect(stands[0]!.usualOfferings).toEqual(["eggs", "flowers", "lamb"]);
+    });
+
+    it("serves the tags over HTTP, still without dating them", async () => {
+      await removeAllRevisions();
+      await tag(["salad greens", "tomatoes"]);
+
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as {
+        stands: {
+          usuallySells?: unknown;
+          updated?: unknown;
+          confirmedElapsed?: unknown;
+          stale?: unknown;
+          items: unknown[];
+        }[];
+      };
+
+      expect(response.status).toBe(200);
+      expect(body.stands[0]!.usuallySells).toEqual(["salad greens", "tomatoes"]);
+      expect(body.stands[0]!.items).toEqual([]);
+
+      // Absent, not null: the three recency keys are omitted TOGETHER for an unconfirmed
+      // stand, so the payload carries no date a client could put beside "Usually sells".
+      expect(body.stands[0]!.updated).toBeUndefined();
+      expect(body.stands[0]!.confirmedElapsed).toBeUndefined();
+      expect(body.stands[0]!.stale).toBeUndefined();
+
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toMatch(/updated/i);
+      expect(serialized).not.toMatch(/ago|just now/i);
+    });
+
+    it("serves the elapsed phrase beside the tags once a farmer HAS confirmed", async () => {
+      await tag(["salad greens", "tomatoes", "flowers"]);
+
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as {
+        stands: { updated?: string; confirmedElapsed?: string; usuallySells?: string[] }[];
+      };
+
+      // Both facts on the wire, separately: the confirmation is dated, the tags are not.
+      expect(body.stands[0]!.updated).toBe("updated 3 hours ago");
+      expect(body.stands[0]!.confirmedElapsed).toBe("3 hours ago");
+      expect(body.stands[0]!.usuallySells).toEqual([
+        "salad greens",
+        "tomatoes",
+        "flowers",
+      ]);
+    });
+
+    it("keeps the elapsed phrase and the SMS recency label in agreement", async () => {
+      // One arithmetic, two voices. The map says "Confirmed 3 hours ago", SMS says
+      // "updated 3 hours ago", and both derive from `renderElapsed` — anchored to the
+      // relationship rather than to either literal so the two cannot drift.
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands[0]!.confirmedElapsed).toBeDefined();
+      expect(stands[0]!.recencyLabel).toBe(`updated ${stands[0]!.confirmedElapsed}`);
+    });
+
+    it("lists the tags without ever calling a model", async () => {
+      // The reader is new; the model-free guarantee is not negotiable. Proven the sharp way:
+      // the composition's model capability THROWS, and the tags still arrive.
+      const forbidden = createStockOutModel(new ForbiddenProvider());
+      expect(forbidden).toBeDefined();
+      await tag(["eggs"]);
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands[0]!.usualOfferings).toEqual(["eggs"]);
+    });
+
+    it("omits the tags of a location the farmer has not made public", async () => {
+      // B-024's shape. Handpicked Homestead is `is_public = false` because she asked us not
+      // to publish her address; publishing her offerings would leak the same row back.
+      await tag(["salad greens"]);
+      await client()`update sales_locations set is_public = false where id = ${ids.location}`;
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands).toEqual([]);
+    });
+
+    it("orders by confirmation, never promoting a stand for having more tags", async () => {
+      // Tags are not evidence of freshness. A heavily tagged, never-confirmed stand must
+      // still sort behind a confirmed one, or the map opens on the least certain listings.
+      const second = await client()`
+        insert into sales_locations (
+          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', '456 Vashon Hwy',
+                47.448, -122.46, false, false)
+        returning id
+      `;
+      const taggedId = second[0]?.id as string;
+      for (const [index, item] of ["a", "b", "c", "d", "e"].entries()) {
+        await client()`
+          insert into sales_location_offerings (sales_location_id, item, sort_order)
+          values (${taggedId}, ${item}, ${index})
+        `;
+      }
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands.map((s) => s.factId)).toEqual([ids.location, taggedId]);
+      const tagged = stands.find((s) => s.factId === taggedId)!;
+      expect(tagged.usualOfferings).toHaveLength(5);
+      expect(tagged.recencyLabel).toBeUndefined();
+    });
+  });
+
   describe("the QR stock-out form is the one throttled public model surface", () => {
     const parseListed = () => JSON.stringify({ kind: "listed", entryId: ids.entry });
 

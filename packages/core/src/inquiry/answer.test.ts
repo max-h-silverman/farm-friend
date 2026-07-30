@@ -7,6 +7,7 @@ import {
   PUBLIC_MAP_URL,
   renderGroundedAnswer,
   renderNoCurrentListing,
+  renderElapsed,
   renderRecency,
   STALE_AFTER_HOURS,
   validateFactSelection,
@@ -126,6 +127,34 @@ describe("recency rendering — code states how fresh a fact is", () => {
   it("marks a fact stale at the threshold, not before", () => {
     expect(isStale(hoursAgo(STALE_AFTER_HOURS - 1), NOW)).toBe(false);
     expect(isStale(hoursAgo(STALE_AFTER_HOURS), NOW)).toBe(true);
+  });
+
+  // F-042 — the public map's confirmed line reads "Confirmed 4 hours ago", the SMS answer
+  // reads "updated 4 hours ago". Two voices, and the elapsed phrase must be computed ONCE:
+  // a second copy of this arithmetic is how web and SMS start disagreeing about how fresh
+  // the same row is.
+  it("renders the bare elapsed phrase, with no leading verb of its own", () => {
+    expect(renderElapsed(new Date(NOW.getTime() - 30_000), NOW)).toBe("just now");
+    expect(renderElapsed(hoursAgo(0.5), NOW)).toBe("30 minutes ago");
+    expect(renderElapsed(hoursAgo(1), NOW)).toBe("1 hour ago");
+    expect(renderElapsed(hoursAgo(5), NOW)).toBe("5 hours ago");
+    expect(renderElapsed(hoursAgo(24), NOW)).toBe("1 day ago");
+    expect(renderElapsed(hoursAgo(72), NOW)).toBe("3 days ago");
+  });
+
+  it("states the elapsed phrase once — renderRecency is that phrase, prefixed", () => {
+    // Anchored to agreement between the two renderers rather than to either one's literal
+    // output, so a change to the duration wording cannot drift the two apart silently.
+    for (const asOf of [
+      new Date(NOW.getTime() - 30_000),
+      hoursAgo(0.5),
+      hoursAgo(1),
+      hoursAgo(5),
+      hoursAgo(24),
+      hoursAgo(72),
+    ]) {
+      expect(renderRecency(asOf, NOW)).toBe(`updated ${renderElapsed(asOf, NOW)}`);
+    }
   });
 });
 
