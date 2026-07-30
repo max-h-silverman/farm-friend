@@ -370,6 +370,95 @@ export async function resolveFarmerLink(
   };
 }
 
+/**
+ * Open the confirmation window for a proposal the farmer is looking at on the web (F-040).
+ *
+ * **Why this exists at all.** `activateAcceptedPrompt` starts the window when Telnyx accepts
+ * the prompt, and that is exactly right for SMS: a `YES` that predates its own prompt must
+ * not commit, because the farmer may be answering a message they have not seen. On the web
+ * there is no carrier and no prompt — the farmer is reading the snapshot in the same session
+ * — so waiting for a provider acceptance that will never arrive would leave the gate
+ * reporting `not_activated` forever and the web path unable to publish anything.
+ *
+ * **What it deliberately does NOT do: weaken the gate.** It opens the window and nothing
+ * else. Every other check `confirmInventoryPublication` performs still runs, under its own
+ * locks, on the same proposal row: version binding, expiry, base-revision conflict, live
+ * farmer authority, live VIGA approval, and exactly-once consumption. This is the one fact
+ * that genuinely differs between a carrier round trip and a browser round trip, expressed
+ * once rather than by relaxing a condition somewhere else.
+ *
+ * Guards mirror `activateAcceptedPrompt`: it matches only an `open` proposal, and copies
+ * `activated_version` from `proposal_version` **in SQL**, so a concurrent revision cannot be
+ * confirmed under a version it already superseded.
+ */
+export async function activateWebProposal(
+  db: Db,
+  input: {
+    proposalId: string;
+    senderHash: string;
+    /** The snapshot the farmer is being shown, so the SMS record says what they saw. */
+    confirmationText: string;
+    at: Date;
+  },
+): Promise<void> {
+  await driver(db).begin(async (tx) => {
+    // The activation record needs a message it activated FROM. That is not bookkeeping the
+    // schema demands for its own sake: `activation_coherent` exists so a proposal cannot be
+    // committable without a prompt the farmer was actually shown, and inventing a NULL
+    // outbox id to satisfy the shape would hollow that out.
+    //
+    // So the web path queues a REAL message — the same confirmation the SMS path sends. The
+    // farmer gets a record of what they published on the channel they already trust, which
+    // is worth having on its own: a browser tab is not a receipt. Consent still gates
+    // delivery at the dispatch claim, so a farmer with no consent record simply does not
+    // receive it, and the proposal is still activated and confirmable on the page.
+    const prompt = await tx`
+      insert into outbox_work (
+        logical_key, recipient_hash, message_category, body, body_expires_at,
+        available_at, created_at
+      )
+      values (
+        ${`web-proposal-${input.proposalId}`}, ${input.senderHash},
+        'inventory_confirmation', ${input.confirmationText},
+        ${new Date(input.at.getTime() + WEB_BODY_TTL_MS).toISOString()},
+        ${input.at.toISOString()}, ${input.at.toISOString()}
+      )
+      on conflict (logical_key) do update set logical_key = excluded.logical_key
+      returning id
+    `;
+
+    // `activated_version` is copied from `proposal_version` IN SQL, so a concurrent revision
+    // cannot be confirmed under a version it already superseded — the same reasoning
+    // `activateAcceptedPrompt` documents.
+    await tx`
+      update inventory_publication_proposals
+      set activation_outbox_id = ${prompt[0]?.id as string},
+          activated_version = proposal_version,
+          activated_at = ${input.at.toISOString()},
+          expires_at = ${new Date(
+            input.at.getTime() + WEB_CONFIRMATION_WINDOW_MS,
+          ).toISOString()},
+          updated_at = ${input.at.toISOString()}
+      where id = ${input.proposalId}
+        and sender_hash = ${input.senderHash}
+        and state = 'open'
+    `;
+  });
+}
+
+/** Retention window for the queued confirmation body. Matches the SMS path's. */
+const WEB_BODY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long a web confirmation stays live once the snapshot is shown.
+ *
+ * Shorter than the SMS window (12 hours) on purpose. That one is generous because a farmer
+ * may be in a field and read the text hours later; here they are looking at the page. A
+ * window that outlives the sitting is a proposal that can be confirmed by whoever finds the
+ * browser open, which is a different risk from the one the SMS window is sized for.
+ */
+export const WEB_CONFIRMATION_WINDOW_MS = 60 * 60 * 1000;
+
 export interface FarmerAuthorizationRow {
   authorizationId: string;
   farmId: string;

@@ -43,6 +43,11 @@ const expectedTables = [
   "farm_approvals",
   "farm_links",
   "farmer_authorizations",
+  // F-040 — the two records that close the chain from "a farmer texts us" to "that farmer
+  // can publish". Neither is an authorization: a request grants nothing, and a link is a
+  // pointer to one.
+  "farmer_links",
+  "farmer_onboarding_requests",
   "farms",
   "flags",
   "inventory_entries",
