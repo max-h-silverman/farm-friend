@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 // errors are in the type layer, which vitest strips and never evaluates. So it is asserted
 // against the manifests themselves.
 //
-// Per CLAUDE.md §"A source-reading test can match its own import statement": each assertion
+// Per the constitution's "anchor a source assertion to the construct it proves": each assertion
 // below is anchored to the CONSTRUCT it claims to prove — the script string that must invoke
 // web, the workspace script that must exist to be invoked — never to vocabulary appearing
 // nearby. `tsc` and `typecheck` are words that occur all over these files; matching them

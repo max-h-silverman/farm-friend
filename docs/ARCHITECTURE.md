@@ -7,7 +7,7 @@ workflows, provider seams, and the invariants the code must enforce. Product rat
 
 > This document states the **enduring system contract** — what must be true of Farm Friend's
 > architecture. It carries no build status: what is actually built, deployed, and open lives in
-> [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
+> [CURRENT_STATE.md](CURRENT_STATE.md).
 
 ## Design stance: the zen desk
 

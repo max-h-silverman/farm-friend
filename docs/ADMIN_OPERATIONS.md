@@ -5,8 +5,8 @@ is a **first-class requirement** — non-technical VIGA staff run oversight thro
 admin.
 
 > This is the **VIGA operator guide** — the administrator model and the surfaces that serve it. It
-> carries no build status: what is actually built and open lives in [../CLAUDE.md](../CLAUDE.md)
-> "Current State & Open Items".
+> carries no build status: what is actually built and open lives in
+> [CURRENT_STATE.md](CURRENT_STATE.md).
 
 ## The administrator role
 

@@ -906,7 +906,7 @@ already been deleted or built.
 ### GL-032 — Remove stale and contradictory status claims
 
 **Completed:** 2026-07-28 — every architecture doc now describes the enduring contract and carries
-**no build status**; each points at `CLAUDE.md` "Current State & Open Items" in one line. Every claim
+**no build status**; each points at `docs/CURRENT_STATE.md` in one line. Every claim
 touched was re-verified against the code first, and the review found stale claims beyond the list
 below — including two the list did not name:
 

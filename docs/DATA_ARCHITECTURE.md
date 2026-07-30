@@ -5,7 +5,7 @@ enforce, privacy/retention, and the model-run audit MAY-store list.
 
 > This document states the **enduring data contract** — the durable records Farm Friend must keep and
 > the constraints the database must enforce. It carries no build status: what is actually built,
-> migrated, and open lives in [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
+> migrated, and open lives in [CURRENT_STATE.md](CURRENT_STATE.md).
 >
 > **A constraint here is a claim until a test can fail on it.** The real-Postgres integration harness
 > is what makes these real: it creates an empty throwaway database, applies every committed migration

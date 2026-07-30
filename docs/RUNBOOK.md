@@ -6,7 +6,7 @@ not inlined there).
 
 > This is the **operate-and-extend** guide: how to run, migrate, seed, evaluate, rotate, and deploy.
 > It carries no build status — what is actually built, deployed, and open lives in
-> [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items". Check there before trusting that a step
+> [CURRENT_STATE.md](CURRENT_STATE.md). Check there before trusting that a step
 > below has a working counterpart in the deployment.
 
 ## Prerequisites
@@ -669,7 +669,7 @@ place (CLAUDE.md, "Simplicity and elegance").
 
 **Google Cloud Run** (two services from one image) against Neon Postgres. Never deploy unless
 explicitly asked (CLAUDE.md "Do not"). *Vercel was the deployment target until 2026-07-29; the
-migration is in progress — see "Current State" in CLAUDE.md for exactly how far it got.*
+migration is in progress — see CURRENT_STATE.md for exactly how far it got.*
 
 The shape, and why:
 

@@ -7,7 +7,7 @@ verification**, validation, evals, and data minimization. Data shapes are in
 
 > This document states the **enduring AI contract** — the trust boundary Farm Friend must hold
 > whichever model sits behind it. It carries no build status: what is actually built, configured,
-> and open lives in [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
+> and open lives in [CURRENT_STATE.md](CURRENT_STATE.md).
 
 ## The trust contract — an LLM-brain in a harness
 

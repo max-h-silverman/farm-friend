@@ -5,7 +5,7 @@ right. System/data/AI mechanics live in their own docs (see [README.md](README.m
 
 > This document is the **product authority** — what Farm Friend is for, who it serves, and the
 > launch scope. It carries no build status: what is actually built and open lives in
-> [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
+> [CURRENT_STATE.md](CURRENT_STATE.md).
 
 ## North star: current information, without VIGA doing data entry
 

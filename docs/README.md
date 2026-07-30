@@ -2,7 +2,11 @@
 
 The documents below own the **enduring contract** — what Farm Friend must be, and the rules its
 code must honor. They deliberately carry **no build status**. What is actually built, deployed, and
-open lives in exactly one place: **[../CLAUDE.md](../CLAUDE.md) "Current State & Open Items"**.
+open lives in exactly one place: **[CURRENT_STATE.md](CURRENT_STATE.md)**.
+
+Start at [../CLAUDE.md](../CLAUDE.md) — the product framing, the Golden Rules, and the task
+workflow. Then [CURRENT_STATE.md](CURRENT_STATE.md) for what is actually live, and
+[DEVELOPMENT.md](DEVELOPMENT.md) for the pre-ship checklist covering the area you're touching.
 
 ## Read in order
 
@@ -18,6 +22,16 @@ open lives in exactly one place: **[../CLAUDE.md](../CLAUDE.md) "Current State &
    model-vs-code line, the static/runtime safety boundary plus verification, validation, evals.
 5. **[SMS_COMPLIANCE.md](SMS_COMPLIANCE.md)** — keywords, consent, required behavior, the FLAG
    safety rail.
+
+## Build status and development discipline
+
+- **[CURRENT_STATE.md](CURRENT_STATE.md)** — the **only** place build status lives: what is verified,
+  what is deployed, the live invariants, and the open items. Overwritten by `/session-wrap`. Read it
+  before starting work; nothing else in this repo carries status.
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** — Farm Friend's pre-ship checklists: what each suite proves,
+  what to test before touching routing / a model seam / privacy / SMS / the public map, this
+  project's non-goals, and the gotchas peculiar to this codebase. General engineering discipline
+  (test-first, simplicity, verification) lives in the global constitution, not here.
 
 ## Go-live work
 

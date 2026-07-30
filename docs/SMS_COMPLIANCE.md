@@ -5,8 +5,8 @@ driver. Routing mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md); consent dat
 [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md).
 
 > This document states the **enduring consent and carrier contract**. It carries no build status:
-> what is actually built, registered, and open lives in [../CLAUDE.md](../CLAUDE.md) "Current State
-> & Open Items".
+> what is actually built, registered, and open lives in
+> [CURRENT_STATE.md](CURRENT_STATE.md).
 >
 > **Registered copy is transcribed, never authored here.** The opt-in, opt-out, and help
 > auto-responses live once in `packages/core/src/sms/auto-responses.ts` and are drift-tested
