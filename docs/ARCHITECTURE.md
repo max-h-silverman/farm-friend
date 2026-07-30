@@ -394,7 +394,10 @@ live in `apps/web/lib/` because Next.js permits only its own fields as route exp
 `GET /api/public/contact-card` (F-039) serves a `text/vcard` contact card so a customer can save the
 SMS number by tapping rather than transcribing it off a sign. It renders ~150 bytes from
 **`TELNYX_FROM_NUMBER`** — the same variable the send path reads, never a literal, so the saved
-contact cannot drift from the number that actually sends — and imports neither `appContext` (which
+contact cannot drift from the number that actually sends — and its lines **must** be CRLF-delimited
+(RFC 6350 §3.2): a bare-LF card returns a healthy 200 and then opens *nothing* on the handset, so the
+separator is built with `String.fromCharCode` where no minifier can fold it into raw source bytes
+(B-025), and asserted against the **build output** plus the deployed wire rather than by a unit test — and imports neither `appContext` (which
 would pull the model package into a public route's module graph) nor `publicReadContext` (there is
 nothing to read). It is **unthrottled deliberately**: the response is byte-identical for every
 caller, so there is nothing metered to exhaust or enumerate, and the throttle exists for expensive or

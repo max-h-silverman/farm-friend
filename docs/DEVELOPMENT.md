@@ -56,6 +56,14 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   must agree. Render recency honestly.
 - **A public unauthenticated model-backed surface:** route it through the abuse/cost throttle; normal
   public lookup is never artificially capped.
+- **Anything whose exact BYTES are the contract** (a served file, a signature payload, a wire format):
+  assert against the **build output** and the **deployed response**, never only the renderer. A unit
+  test runs unminified source, where the construct that gets corrupted still exists — B-025 shipped a
+  bare-LF vCard past a correct, passing CRLF assertion because the minifier rewrote the separator into
+  raw source bytes that the JS parser then normalized. Two corollaries, both learned the hard way:
+  **grep output is text about bytes, not the bytes** (dump the raw file to settle it), and a candidate
+  cause is not a cause until the layer is **measured** — the response path and the proxy were both
+  blamed here and both were innocent.
 
 ## This project's non-goals — do not add
 

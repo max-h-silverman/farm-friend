@@ -12,7 +12,114 @@ its own purpose). The archive now holds 34 entries.
 
 ---
 
-## 2026-07-29 (latest) — F-041 offerings seeded, F-039 the vCard, and a farmer's address we should never have published
+## 2026-07-30 (latest) — B-025 was the minifier, not the network; B-023 closed; F-042's vocabulary settled
+
+Three items, each verified by effect rather than by a passing command. The headline: **B-025's filed
+diagnosis was wrong in both directions**, and following it would have produced a fix that changed
+nothing.
+
+### B-025 — a template literal, not Next.js and not the proxy
+
+Filed as "the Next.js response path or the proxy layer is normalizing the body", with the note **"NO
+LOCAL TEST CAN SEE THIS."** Both premises were false, and measuring rather than accepting them is the
+whole story.
+
+It reproduces on a **local standalone build** — 147 bytes, 0 CR, identical to production. So the
+network was never involved. Probing the layers in order:
+
+- A plain Node HTTP server relaying the same `Response`: CRLF intact.
+- All three Next.js body forms — string, `Buffer` with explicit `content-length`, `ReadableStream`:
+  **all three preserve CRLF byte-for-byte.** The candidate fix in the bug report (return a
+  Uint8Array/Buffer with an explicit content-length) would have changed *nothing*, because the
+  plain string already works.
+
+The real cause is the **build**. The minifier folds `[...].join("\r\n")` into a single template
+literal and writes the separators as **raw CR and LF bytes in the source text** — not as the escape
+sequence. ECMA-262 normalizes a literal CRLF inside a template literal to a single LF at *parse*
+time (§12.9.6), so the CR was gone before the string ever existed at runtime. The renderer was
+correct, its CRLF assertion was correct, and both were irrelevant.
+
+**One wrong turn worth recording**, because the correct-looking evidence pointed the wrong way:
+grepping the built chunk showed `join("\n")` and no `join("\r\n")`, which reads as "the minifier
+rewrote the separator." It hadn't — a raw **byte** dump showed genuine `\r\n` in the template. The
+lesson is the repo's own: grep output is text about bytes, not the bytes. Only `python3 -c` on the
+raw file settled it.
+
+**The fix is `String.fromCharCode(13, 10)`.** It emits no newline byte into the bundle, so there is
+nothing for a parser to normalize — the property holds *by construction* rather than by a minifier's
+cooperation. This is the one place in the codebase where an obvious literal is deliberately refused,
+so the reasoning lives in the code, not here.
+
+**Why the test had to read the build output.** A unit test on the renderer cannot see this: vitest
+runs unminified TypeScript, where the join is still a join. That is precisely why B-025 shipped with
+a green suite. `apps/web/lib/contact-card-build.test.ts` therefore asserts against the built chunk,
+bounded to the card's own region so a stray `\r\n` elsewhere in a 300KB bundle cannot satisfy it.
+Sabotaged back to the literal: both assertions fail.
+
+**Verified by effect on the wire, twice** — locally (153 bytes / 6 CRLF, `file(1)` reads "vCard
+visiting card, version 3.0"), then in production on both HTTP/1.1 and HTTP/2 after the deploy, by
+hex dump independent of our own checker.
+
+### The deploy-time check, because a bare-LF card passes every other check
+
+`infra/served_card_assertions.py`. B-025 survived a full deployment while returning 200 with the
+right media type, the right display name, and the right number — **every check short of counting the
+separator bytes passed**, and a malformed vCard fails by opening *nothing* on the handset, which is
+indistinguishable from a working tap.
+
+Kept **separate** from `deploy_assertions.py` on purpose: that script is metadata-only and never makes
+an HTTP request. Same pure-core/impure-shell split, so its tests construct payloads directly —
+including the exact 147-byte production body, with an assertion that the good and bad cards differ by
+**precisely six CR bytes and nothing else**.
+
+Proven end to end, not merely unit-tested: pointed at a rebuild carrying the original defect it exits
+1 reporting "6 BARE LF and 0 CRLF"; pointed at the fixed build it passes with the real 153/6/0.
+Sabotaged four ways (removed the bare-LF branch, zeroed its count, accepted any content-type, dropped
+the empty-body guard) — each caught, and notably removing the B-025 branch does **not** hide behind
+the neighbouring "no CRLF at all" assertion. Wired in as step 6 of the RUNBOOK deploy sequence.
+
+### B-023 — the first administrator is `board@vigavashon.org`
+
+max chose a VIGA **org** address over a personal one, so authority sits with the organization from
+the start. max ran the write himself; the row was then **verified by reading it**, not accepted on
+report — 1 live row, `authorized_at` 2026-07-30T01:32:05Z, `revoked_at` null, and every other table
+unchanged.
+
+Verification went one step past "the row exists" to "the row is *usable*": `findAdministratorByEmail`
+resolves it in production for the exact address, for mixed case, and with stray whitespace, while an
+unrelated address still returns no administrator. Rehearsed first on a throwaway local database from
+empty, confirming the script writes one row and is genuinely idempotent (second run: "already an
+administrator", exit 0).
+
+**Still not self-service.** No mail provider (F-031), so nobody receives a sign-in link — the link
+must be minted out of band. The row makes sign-in *possible*, not *delivered*. **B-023 was F-040's
+blocker, so farmer onboarding is now unblocked.**
+
+### F-042 — the vocabulary, settled before any code
+
+The 212 tags are what a farmer *usually* has, from the 2026 form. They are **not** a confirmation of
+current stock, and the product's honesty rests on that gap staying visible. Two distinct facts needed
+two distinct voices:
+
+- **Usual range** (all 33 tagged stands): *"Usually sells: salad greens, tomatoes, flowers"* followed
+  by *"Nothing confirmed recently."*
+- **Confirmed stock** (0 stands today): *"Confirmed 4 hours ago: …"* with *"Also usually sells: …"*
+  beneath it.
+
+Three rules, and the first is the load-bearing one: **"Usually sells" never takes a timestamp** — a
+date beside it reads as a confirmation, which is exactly the failure. The stock-out flow stays
+attached to confirmed items only (reporting "the tomatoes are out" against a tag nobody confirmed is
+noise for the farmer), and *"No listing yet"* survives for the 2 untagged stands, where it is still
+true.
+
+Wording chosen deliberately: **"sells" over "carries"** — "carries" implies a shop with shelves, and
+these are mostly unattended honor-system tables. And the plain *"Nothing confirmed recently."* over a
+friendlier "call ahead or take a chance", which nudges toward risk in VIGA's voice rather than simply
+stating the absence. **Copy is approved; nothing is built.**
+
+---
+
+## 2026-07-29 — F-041 offerings seeded, F-039 the vCard, and a farmer's address we should never have published
 
 A subagent session: two items built in isolated worktrees, both verified by the coordinator rather
 than relayed. Then the offerings seed, which found something more important than itself.

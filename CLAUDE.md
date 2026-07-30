@@ -140,15 +140,18 @@ Suite details and when each is required: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.
 Full detail — and the tripwires you need before touching anything — in
 **[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)**. Read it before you start work.
 
-- **Live**: SMS round trip on a real handset, public map (34 public stands), operator surface, vCard
-  contact card. Deployed on Cloud Run, one image / two services. Production database is `neondb`.
+- **Live**: SMS round trip on a real handset, public map (34 public stands), operator surface (one
+  administrator exists; no link is *delivered* until F-031), vCard contact card. Deployed on Cloud
+  Run, one image / two services. Production database is `neondb`.
 - **Costs money on real traffic**: `LLM_PROVIDER` is `deepinfra` + Mistral Small 24B, required with
   no default.
 - **Never rotate `PHONE_HASH_SALT`** — it is the input to the only lookup key for every phone.
-- **Open, HIGH**: B-023 (no administrator in production, so the operator surface is unreachable),
-  B-024 (a farmer's address published against her written instruction), B-025 (served vCard loses its
-  CRLF on the wire), F-040 (farmer onboarding — nothing built), F-042 (212 offering tags seeded, no
-  reader selects them).
+- **Open, HIGH**: B-024 (a farmer's address published against her written instruction), F-040 (farmer
+  onboarding — nothing built, now unblocked), F-042 (212 offering tags seeded, no reader selects
+  them; **copy approved**).
+- **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
+  vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
+  **Owed: a physical-handset tap on the contact card.**
 - **Open, other**: F-031 (no mail provider), F-036 (where the model may run), B-008 (lint absent from
   deployed builds), B-020 (intermittent integration deadlock), B-001.
 - Each open item needs **separate implementation authorization**. Do not read a passing suite as a
