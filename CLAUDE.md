@@ -146,16 +146,17 @@ Full detail — and the tripwires you need before touching anything — in
 - **Costs money on real traffic**: `LLM_PROVIDER` is `deepinfra` + Mistral Small 24B, required with
   no default.
 - **Never rotate `PHONE_HASH_SALT`** — it is the input to the only lookup key for every phone.
-- **Open, HIGH**: B-024 (a farmer's address published against her written instruction), F-040 (farmer
-  onboarding — nothing built, now unblocked).
-- **Merged, NOT deployed**: F-042 — the 212 offering tags are read and rendered to the approved
-  copy. Production still serves the map without them. **Owed: nobody has looked at the map** — the
-  styling that distinguishes a confirmation from a tag has not been seen rendered.
+- **Open, HIGH**: B-024 (a farmer's address published against her written instruction).
+- **Merged, NOT deployed — two items**: F-042 (the 212 offering tags reach the map) and F-040
+  (farmer onboarding: `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>` behind a never-expiring
+  link whose only safety net is revocation). **F-040's migration 0009 is NOT applied** — deploying
+  the image alone would ship code whose tables do not exist. **Owed on both: nobody has looked at
+  the screens** — neither the map's tag styling nor the two new pages has been seen rendered.
 - **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
   vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
   **Owed: a physical-handset tap on the contact card.**
-- **Open, other**: F-031 (no mail provider), F-036 (where the model may run), B-008 (lint absent from
-  deployed builds), B-020 (intermittent integration deadlock), B-001.
+- **Open, other**: F-031 (no mail provider), F-036 (F-040 answered its farmer-web case), B-008 (lint
+  absent from deployed builds), B-020 (intermittent integration deadlock), B-001.
 - Each open item needs **separate implementation authorization**. Do not read a passing suite as a
   working product — several gaps hide behind green tests whose fixtures supply what production never
   creates.

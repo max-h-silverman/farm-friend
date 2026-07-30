@@ -557,3 +557,125 @@ body {
 .admin-thread-flagged {
   font-weight: 600;
 }
+
+/* ── The farmer's own stand form (F-040) ─────────────────────────────────────────────
+ *
+ * A farmer stands at their stand, on a phone, often with one hand full and often in
+ * bright sun. So this is the same mobile-first discipline as the map: one column, large
+ * type, 48px targets, no layout that needs a wide viewport.
+ *
+ * Deliberately its OWN namespace rather than reusing `.stand`, which is the public map's
+ * CARD. The two would collide — a page-level `.stand` would inherit card padding, a
+ * border, and a green left rule — and more importantly they mean different things. One is
+ * a listing a customer reads; this is a form its owner writes.
+ *
+ * The confirmation snapshot gets the strongest visual weight on the page, because the
+ * whole design rests on the farmer actually reading it before saying yes. */
+
+.farmer-form {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.1rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.farmer-form h1 {
+  margin: 0 0 0.15rem;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+
+.farmer-form header {
+  margin-bottom: 0.3rem;
+}
+
+.farmer-form-note {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.94rem;
+  line-height: 1.5;
+}
+
+.farmer-form-error {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  color: var(--ink);
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line);
+  border-radius: 10px;
+}
+
+/* Confirmed and published — the one moment this screen gets to be unambiguous. */
+.farmer-form-published {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  font-weight: 600;
+  color: var(--green);
+  background: var(--green-soft);
+  border: 1px solid var(--green);
+  border-radius: 10px;
+}
+
+.farmer-form label {
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+.farmer-form textarea {
+  width: 100%;
+  padding: 0.7rem 0.8rem;
+  /* Inherit, so a farmer's own accessibility text-size setting is honoured. */
+  font: inherit;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  resize: vertical;
+}
+
+.farmer-form button {
+  min-height: 48px;
+  padding: 0 1.1rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+/* The publish button is the affirmative action and reads as one. It is the only filled
+   control on the page, so there is never a question which button commits. */
+.farmer-form button:first-of-type {
+  color: var(--card);
+  background: var(--green);
+  border-color: var(--green);
+}
+
+.farmer-form button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+/* What the stand will actually say. Monospace and boxed so it reads as a QUOTATION of the
+   listing rather than as more of the page's prose — the farmer is checking it, not
+   skimming it. `pre-wrap` because the snapshot is newline-separated and must not scroll
+   sideways on a phone. */
+.farmer-form-snapshot {
+  margin: 0;
+  padding: 0.9rem 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--green);
+  border-radius: var(--radius);
+}

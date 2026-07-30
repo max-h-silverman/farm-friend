@@ -33,7 +33,23 @@ render an honest "updated X ago" without a second provenance axis.
 - **farms and sales locations** — the farm, its stands or sales points, and their public location.
   A farm without a public stand records an exact, approximate, or hidden map location.
 - **farmer contacts and authorization** — who may act for a farm, and proof they control the phone
-  number.
+  number. **VIGA always grants this**, because a phone proves possession of a phone and not
+  ownership of a farm: the only writer is administrator-gated, re-reads the administrator's
+  authority inside its own transaction, and records who acted. Revocation updates the row rather
+  than deleting it — published revisions reference the authorization they were made under.
+- **farmer onboarding requests** (F-040) — what a farmer *asked* for, waiting for VIGA. **Grants
+  nothing, and is shaped so it cannot**: no farm, no grant column, no message text, and nothing
+  reads it as authority. It is the one record on this list writable from an unauthenticated inbound
+  SMS, which is why it holds only "this phone asked, at this time". One open request per phone;
+  settled requests stay as history and record which administrator answered them.
+- **farmer standing links** (F-040) — a durable key letting a farmer reach *their own* listing form
+  in a browser, with no password and no session. Only the **hash** of the token is stored, as with
+  a session token. A link is a **pointer to an authorization, never authority itself**: resolution
+  re-reads both the link's and the authorization's revocation columns on every request, so there is
+  deliberately no denormalized farm id, no cached "active" flag, and no signed claim that could
+  keep saying "valid" after the authority behind it was withdrawn. The link does not expire, so
+  **revocation is the entire safety net** — which is why nothing about it may be cached. One live
+  link per authorization: re-issuing replaces rather than accumulates.
 - **VIGA approval** — recorded **separately** from onboarding completion; approval is VIGA's act,
   not a side effect of a farmer finishing a form. Approval and revocation both record **which
   administrator acted and when**, and revocation updates the row rather than deleting it: published
@@ -118,6 +134,18 @@ These are **database-level** requirements, not application conventions:
 - **One live approval per farm, one live administrator per email** — partial unique indexes over
   unrevoked rows. The email index is what keeps the login lookup unambiguous; revoked rows remain
   for the audit trail and are excluded from both.
+- **One live authorization per (farm, contact), one open onboarding request per phone, one live
+  link per authorization** (F-040) — the same partial-index discipline. The authorization index is
+  per *pair*, not per farm: a household where two people both text is ordinary, and refusing the
+  second would be a product defect dressed as a constraint. The request index is what stops an
+  impatient farmer texting five times from producing five queue entries, and it is the **arbiter**
+  rather than a read — concurrent inserts would both observe "none open", and `for update` cannot
+  lock a row that does not exist yet, so the writer uses `on conflict do nothing returning`.
+- **A farmer's standing link resolves through its authorization, every request** (F-040) — the link
+  carries no claim and no cached state, so there is nothing that could still resolve after the
+  authority behind it was revoked. This is a *shape* requirement rather than a constraint the
+  database can express, and it is the reason the never-expiring link is defensible: revocation is
+  the only safety net, so it must be impossible to cache around.
 - **Administrator authority is re-read at the moment of the write** — approval and revocation check
   the administrator row inside their own transaction, so a revocation that committed after a request
   began still wins. A principal proves who the caller was; only the locked row proves who they are.

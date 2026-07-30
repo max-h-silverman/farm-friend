@@ -48,6 +48,7 @@ export default async function FlagsPage() {
         <Link href="/admin">Farm approval</Link>
         <Link href="/admin/reports">Stock-out reports</Link>
         <Link href="/admin/stand-data">Stand data</Link>
+        <Link href="/admin/farmers">Farmer access</Link>
       </nav>
 
       <p className="admin-note">

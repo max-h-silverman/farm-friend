@@ -58,6 +58,7 @@ async function runScheduledWork(): Promise<Response> {
     interpreter: context.interpreter,
     inquiry: context.inquiry,
     clock: context.clock,
+    publicBaseUrl: context.config.publicBaseUrl,
   });
 
   const outbound = await runOutboundPass({

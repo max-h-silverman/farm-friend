@@ -423,6 +423,144 @@ export const farmerAuthorizations = pgTable(
   }),
 );
 
+/**
+ * A farmer's texted ask to be set up, waiting for VIGA (F-040).
+ *
+ * **This grants nothing, and it is shaped so it cannot.** VIGA always approves, because a
+ * phone number proves possession of a phone and not ownership of a farm — so the record a
+ * farmer can create from the public SMS surface deliberately has no farm, no grant column,
+ * and no path by which it becomes authority. `farmer_authorizations` is written by an
+ * administrator-gated writer, and this table is only ever an input to that decision.
+ *
+ * It carries no message text. The writer is untrusted inbound SMS, and a stored body would
+ * be untrusted text parked in an operator's queue for no benefit — `FLAG` already owns
+ * "a person should read this message" and has a thread viewer attached.
+ */
+export const farmerOnboardingRequests = pgTable(
+  "farmer_onboarding_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The hash, never a raw number (Golden Rule #5). The queue masks at the query. */
+    contactHash: text("contact_hash").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    settledByAdministratorId: uuid("settled_by_administrator_id"),
+    /**
+     * The authorization this request produced, when it produced one. NULL for a declined or
+     * still-open request. A REFERENCE to authority, never a source of it.
+     */
+    authorizationId: uuid("authorization_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    contactReference: foreignKey({
+      name: "farmer_onboarding_requests_contact_fk",
+      columns: [table.contactHash],
+      foreignColumns: [contacts.phoneHash],
+    }).onDelete("restrict"),
+    administratorReference: foreignKey({
+      name: "farmer_onboarding_requests_administrator_fk",
+      columns: [table.settledByAdministratorId],
+      foreignColumns: [administrators.id],
+    }).onDelete("restrict"),
+    authorizationReference: foreignKey({
+      name: "farmer_onboarding_requests_authorization_fk",
+      columns: [table.authorizationId],
+      foreignColumns: [farmerAuthorizations.id],
+    }).onDelete("restrict"),
+    // One OPEN request per phone: a farmer who texts the keyword five times because nothing
+    // visibly happened must not produce five entries for one operator to work through.
+    oneOpenPerContact: uniqueIndex(
+      "farmer_onboarding_requests_one_open_per_contact",
+    )
+      .on(table.contactHash)
+      .where(sql`${table.settledAt} is null`),
+    coherentSettlement: check(
+      "farmer_onboarding_requests_coherent_settlement",
+      sql`
+        (
+          ${table.settledAt} is null
+          and ${table.settledByAdministratorId} is null
+          and ${table.authorizationId} is null
+        )
+        or (
+          ${table.settledAt} is not null
+          and ${table.settledByAdministratorId} is not null
+        )
+      `,
+    ),
+  }),
+);
+
+/**
+ * A standing link that lets a farmer reach their own listing form (F-040).
+ *
+ * max chose a link that **never expires until revoked**, so it can be bookmarked. That moves
+ * the whole safety burden onto revocation, and this table is shaped so revocation cannot be
+ * cached around: a link is a POINTER to an authorization, and the authorization carries the
+ * authority. Resolution reads both rows and re-checks `farmer_authorizations.revoked_at` on
+ * every request.
+ *
+ * There is deliberately **no** denormalized farm id, no cached "active" flag, and no signed
+ * claim inside the link — nothing that could still say "valid" after the authority behind it
+ * was withdrawn. Revoking the authorization kills every link to it, with no second thing to
+ * remember.
+ *
+ * Contrast the admin magic link, which is single-use and 15 minutes: that is an
+ * authentication event whose consume record IS the session. This is a durable capability with
+ * no session at all, which is why it is a table rather than a token.
+ */
+export const farmerLinks = pgTable(
+  "farmer_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * SHA-256 of 32 random bytes, hex. Only the hash is stored — the same discipline as
+     * `admin_sessions.token_hash` and the phone hash: a database read cannot recover a live
+     * credential, so a leaked backup is not a leaked set of working links.
+     */
+    tokenHash: text("token_hash").notNull(),
+    authorizationId: uuid("authorization_id").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    /**
+     * A link may be revoked individually without withdrawing the farmer's authority — the
+     * "I lost my phone" case. Withdrawing the authorization kills every link regardless;
+     * this is the narrower act, not a second mechanism for the same one.
+     */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    authorizationReference: foreignKey({
+      name: "farmer_links_authorization_fk",
+      columns: [table.authorizationId],
+      foreignColumns: [farmerAuthorizations.id],
+    }).onDelete("restrict"),
+    tokenHashUnique: unique("farmer_links_token_hash_unique").on(
+      table.tokenHash,
+    ),
+    tokenHashShape: check(
+      "farmer_links_token_hash_shape",
+      sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    validRevocation: check(
+      "farmer_links_valid_revocation",
+      sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.issuedAt}`,
+    ),
+    // Re-issuing REPLACES rather than accumulates: a farmer who asks for a new link because
+    // the old one was on a lost phone must not leave the old one working.
+    oneLivePerAuthorization: uniqueIndex(
+      "farmer_links_one_live_per_authorization",
+    )
+      .on(table.authorizationId)
+      .where(sql`${table.revokedAt} is null`),
+  }),
+);
+
 export const farmApprovals = pgTable(
   "farm_approvals",
   {

@@ -326,6 +326,31 @@ so `requireAdministrator` cannot apply. What replaces it:
   attacker which addresses are real by which ones start refusing.
 - **Build outbound URLs from configured values**, never from `Host` or `X-Forwarded-Host`.
 
+### Add a surface behind a farmer's standing link (F-040)
+
+A third auth shape, and it is neither of the two above: no session, no password, and a credential
+that **does not expire**. The rules follow from that last fact.
+
+1. **Resolve the token per request, through `resolveStandFromToken`.** Never cache the result into
+   a cookie, a session, or the page. Revocation is the only safety net a standing link has, so
+   anything that remembers the answer is a way around it.
+2. **Take every identifier from the token's row, never from the request** — the sales location, the
+   sender hash, all of it. The moment a caller can name what they are acting on, the blast radius
+   stops being "one stand".
+3. **Keep the projection minimal, and assert its exact shape.** `resolveFarmerLink` returns four
+   fields; the test asserts `Object.keys(...)` equals exactly those. A projection that grows a farm
+   list or a contact is how a leaked link becomes a way to read someone else's data.
+4. **Publication goes through `confirmInventoryPublication`, always.** No surface function may write
+   `inventory_revisions`, and no argument may skip the proposal step. This is Golden Rule #1 and #3
+   and it is the whole reason the web path is safe to expose at all.
+5. **Put the token in the request BODY, not the URL.** A path segment is unavoidable on the
+   bookmarkable page itself; everywhere else it would land in proxy logs, analytics, and history.
+6. **Test-first in `apps/web/lib/farmer-stand.integration.test.ts`**, one test per blast-radius
+   bound, and **sabotage each one**. Six of these assertions were written wrong the first time and
+   only sabotage found them — including one that was satisfiable by the exact attack it forbade.
+   Where two independent defenses cover the same property, assert each **in isolation**, or one of
+   them will eventually be deleted as dead code.
+
 ### Add a model seam
 
 1. Add the seam to the catalog in [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) and define its schema.

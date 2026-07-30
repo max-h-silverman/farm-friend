@@ -38,6 +38,25 @@ commit or decline.
 | `JOIN` | Establish consent to the one VIGA Farm Friend launch SMS program, **for a first-time sender only** — once a consent record exists, `JOIN` does not restore it and the sender is told to reply `START` (B-011, below). There is no launch `JOIN <program>` grammar. |
 | `HELP` / `INFO` | Return help text; never suppressed by state. |
 
+### Farmer product keywords (F-040 — never carrier-registered)
+
+| Keyword | Behavior |
+|---|---|
+| `SIGNUP` / `SIGN UP` | Ask VIGA to set this farmer up. **Grants nothing** — it opens one queue entry a coordinator acts on, and the reply deliberately does not read as a yes. Repeats are answered identically and produce one entry. |
+| `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets the signup acknowledgement and no link. |
+
+These are **Farm Friend product keywords, exactly like `FLAG`** — not carrier-mandated, and they
+must **never** be registered as compliance keywords or transcribed into `TELNYX_10DLC_FIELD_VALUES.txt`.
+`farmer-keywords.test.ts` asserts both directions.
+
+They are parsed **after** compliance keywords and commitment tokens, so a farmer keyword can never
+shadow one. That ordering is the guarantee: if a synonym ever collided with `STOP`, an opt-out
+would stop working.
+
+The `LINK` reply is a **proactive** category, not a reply category — handing over a durable
+credential is Farm Friend speaking first, so it passes the same consent gate as any other proactive
+message rather than riding on the inbound message that asked for it.
+
 ### Commitment tokens (context-bound, never global)
 
 | Token | Behavior |

@@ -13,9 +13,24 @@ export type ComplianceKeyword =
 
 export type CommitmentToken = "YES" | "NO";
 
+/**
+ * The farmer-facing product keywords (F-040).
+ *
+ * `SIGNUP` asks VIGA to set the farmer up; `LINK` asks for the web form link. Like `FLAG`,
+ * these are **Farm Friend product keywords, never carrier compliance keywords**, and they must
+ * never be registered as such — `farmer-keywords.test.ts` asserts both directions.
+ *
+ * They are parsed deterministically for the same reason everything else here is: a farmer
+ * asking to be set up must not depend on a model being available, correct, or affordable.
+ * Neither one grants anything by itself — `SIGNUP` opens a queue entry VIGA acts on, and
+ * `LINK` is refused unless the sender is already an authorized farmer.
+ */
+export type FarmerKeyword = "SIGNUP" | "LINK";
+
 export type ParsedCommand =
   | { kind: "compliance"; keyword: ComplianceKeyword; global: boolean }
   | { kind: "commitment"; token: CommitmentToken; contextBound: true }
+  | { kind: "farmer"; keyword: FarmerKeyword }
   | { kind: "none" };
 
 // The keywords registered with the carrier in docs/TELNYX_10DLC_FIELD_VALUES.txt and promised
@@ -62,8 +77,29 @@ const COMMITMENT_WORDS: Record<string, CommitmentToken> = {
   "NO THANK YOU": "NO",
 };
 
+/**
+ * The farmer product keywords and the spellings a farmer actually sends.
+ *
+ * "SIGN UP" as two words is here because that is how people write it — and because the
+ * normalizer below collapses internal whitespace, so it arrives as one string to match. This
+ * table stays deliberately small: it is a fixed keyword list, not a vocabulary the system
+ * tries to understand. Anything not listed is free text, which is the honest default.
+ */
+const FARMER_WORDS: Record<string, FarmerKeyword> = {
+  SIGNUP: "SIGNUP",
+  "SIGN UP": "SIGNUP",
+  LINK: "LINK",
+};
+
 function normalizeCommandMessage(body: string): string {
-  return body.trim().replace(/[.!?,;:]+$/g, "").trim().toUpperCase();
+  return body
+    .trim()
+    .replace(/[.!?,;:]+$/g, "")
+    .trim()
+    // Internal runs of whitespace collapse to one space, so "sign  up" and "sign\nup" are the
+    // same command. Every existing keyword is a single word and is unaffected.
+    .replace(/\s+/g, " ")
+    .toUpperCase();
 }
 
 /**
@@ -86,6 +122,14 @@ export function parseCommand(body: string): ParsedCommand {
   const commitment = COMMITMENT_WORDS[normalized];
   if (commitment) {
     return { kind: "commitment", token: commitment, contextBound: true };
+  }
+  // LAST among the keyword branches, deliberately. A farmer product keyword must never be
+  // able to shadow a compliance keyword or a commitment token: if `SIGNUP` were checked
+  // first and someone added a synonym that collided with `STOP`, an opt-out would stop
+  // working. Ordering makes that impossible rather than merely unlikely.
+  const farmer = FARMER_WORDS[normalized];
+  if (farmer) {
+    return { kind: "farmer", keyword: farmer };
   }
   return { kind: "none" };
 }

@@ -1,0 +1,265 @@
+"use client";
+
+import { useState } from "react";
+
+// The farmer access queue's interactive half (F-040). It renders what the server already
+// decided the viewer may see and posts decisions back to `/api/admin/farmers`, which
+// re-checks authority server-side — this component's state is convenience, never
+// authorization.
+//
+// **No phone number or hash is ever in this component.** A pending request is identified by
+// its opaque `requestId`, and the server resolves the phone behind it at the moment VIGA
+// authorizes. The operator sees a masked number and nothing else, so the one lookup key for
+// a person's phone never reaches a page, a history entry, or a referrer.
+
+export interface PendingRequestRow {
+  requestId: string;
+  /** The last four digits, already masked by the server. Never the number. */
+  senderMask: string;
+  requestedAt: string;
+}
+
+export interface AuthorizationRow {
+  authorizationId: string;
+  farmId: string;
+  farmName: string;
+  senderMask: string;
+  authorizedAt: string;
+  revokedAt: string | null;
+  hasLiveLink: boolean;
+}
+
+export interface FarmOption {
+  farmId: string;
+  name: string;
+}
+
+function formatDate(value: string): string {
+  return new Date(value).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+export function FarmerQueue({
+  requests,
+  authorizations,
+  farms,
+}: {
+  requests: PendingRequestRow[];
+  authorizations: AuthorizationRow[];
+  farms: FarmOption[];
+}) {
+  const [pendingRequests, setPendingRequests] = useState(requests);
+  const [rows, setRows] = useState(authorizations);
+  const [farmChoice, setFarmChoice] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /**
+   * A freshly minted link, held only in this component's state and only until the operator
+   * navigates away. It is never re-readable from the server, which is correct for a standing
+   * credential — so the copy below says so rather than letting an operator assume otherwise.
+   */
+  const [freshLink, setFreshLink] = useState<{ id: string; link: string } | null>(
+    null,
+  );
+
+  async function post(
+    body: Record<string, unknown>,
+    key: string,
+  ): Promise<{ ok: boolean; payload: Record<string, unknown> }> {
+    setBusy(key);
+    setError(null);
+    try {
+      const response = await fetch("/api/admin/farmers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const payload = (await response.json().catch(() => ({}))) as Record<
+        string,
+        unknown
+      >;
+      if (!response.ok) {
+        // Say what happened rather than silently reverting: an operator who believes they
+        // revoked a link that is still live is worse off than one who sees an error.
+        setError(
+          response.status === 403
+            ? "Your session is no longer authorized. Sign in again."
+            : "That change did not go through. Reload and try again.",
+        );
+        return { ok: false, payload };
+      }
+      return { ok: true, payload };
+    } catch {
+      setError("That change did not go through. Reload and try again.");
+      return { ok: false, payload: {} };
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function authorize(requestId: string) {
+    const farmId = farmChoice[requestId];
+    if (farmId === undefined || farmId === "") {
+      setError("Choose which farm this person runs before authorizing them.");
+      return;
+    }
+    const { ok } = await post({ action: "authorize", requestId, farmId }, requestId);
+    if (!ok) return;
+    // The authoritative record is the database's; this reflects the answer it just gave.
+    // A reload shows the new authorization in the list below.
+    setPendingRequests((current) =>
+      current.filter((request) => request.requestId !== requestId),
+    );
+  }
+
+  async function revoke(authorizationId: string) {
+    const { ok } = await post({ action: "revoke", authorizationId }, authorizationId);
+    if (!ok) return;
+    setRows((current) =>
+      current.map((row) =>
+        row.authorizationId === authorizationId
+          ? {
+              ...row,
+              revokedAt: new Date().toISOString(),
+              // Revoking a farmer's access revokes their links too, in the same
+              // transaction. Showing "link live" here afterwards would be a lie.
+              hasLiveLink: false,
+            }
+          : row,
+      ),
+    );
+    if (freshLink?.id === authorizationId) setFreshLink(null);
+  }
+
+  async function issueLink(authorizationId: string) {
+    const { ok, payload } = await post(
+      { action: "issue_link", authorizationId },
+      authorizationId,
+    );
+    if (!ok || typeof payload.link !== "string") return;
+    setFreshLink({ id: authorizationId, link: payload.link });
+    setRows((current) =>
+      current.map((row) =>
+        row.authorizationId === authorizationId
+          ? { ...row, hasLiveLink: true }
+          : row,
+      ),
+    );
+  }
+
+  return (
+    <>
+      {error !== null && (
+        <p className="admin-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <h2>Waiting on you</h2>
+      {pendingRequests.length === 0 ? (
+        <p className="admin-note">
+          Nobody is waiting. Farmers text <strong>SIGNUP</strong> to ask.
+        </p>
+      ) : (
+        <ul className="admin-farms">
+          {pendingRequests.map((request) => (
+            <li key={request.requestId} className="admin-farm">
+              <div>
+                <h3>{request.senderMask}</h3>
+                <p className="admin-note">
+                  Asked {formatDate(request.requestedAt)}
+                </p>
+              </div>
+              <div>
+                <label>
+                  Farm
+                  <select
+                    value={farmChoice[request.requestId] ?? ""}
+                    onChange={(event) =>
+                      setFarmChoice((current) => ({
+                        ...current,
+                        [request.requestId]: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Choose a farm…</option>
+                    {farms.map((farm) => (
+                      <option key={farm.farmId} value={farm.farmId}>
+                        {farm.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  disabled={busy === request.requestId}
+                  onClick={() => void authorize(request.requestId)}
+                >
+                  {busy === request.requestId ? "Saving…" : "Authorize"}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h2>Farmer access</h2>
+      {rows.length === 0 ? (
+        <p className="admin-note">No farmer has been authorized yet.</p>
+      ) : (
+        <ul className="admin-farms">
+          {rows.map((row) => {
+            const revoked = row.revokedAt !== null;
+            return (
+              <li key={row.authorizationId} className="admin-farm">
+                <div>
+                  <h3>{row.farmName}</h3>
+                  <p className={revoked ? "admin-unapproved" : "admin-approved"}>
+                    {row.senderMask} ·{" "}
+                    {revoked
+                      ? `Revoked ${formatDate(row.revokedAt as string)}`
+                      : `Authorized ${formatDate(row.authorizedAt)}`}
+                  </p>
+                  <p className="admin-note">
+                    {revoked
+                      ? "This farmer can no longer publish, and their link is dead."
+                      : row.hasLiveLink
+                        ? "Has a working private link."
+                        : "No private link yet — they can text LINK for one."}
+                  </p>
+                  {freshLink?.id === row.authorizationId && (
+                    <p className="admin-note">
+                      <strong>Copy this now — it is not shown again.</strong>{" "}
+                      <code>{freshLink.link}</code>
+                    </p>
+                  )}
+                </div>
+                {!revoked && (
+                  <div>
+                    <button
+                      type="button"
+                      disabled={busy === row.authorizationId}
+                      onClick={() => void issueLink(row.authorizationId)}
+                    >
+                      {row.hasLiveLink ? "Replace link" : "Create link"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy === row.authorizationId}
+                      onClick={() => void revoke(row.authorizationId)}
+                    >
+                      {busy === row.authorizationId ? "Saving…" : "Revoke access"}
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
+  );
+}

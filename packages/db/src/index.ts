@@ -8,6 +8,7 @@ export { schema };
 
 export * from "./transactions";
 export * from "./admin";
+export * from "./farmer";
 export * from "./review";
 export type { Sql } from "./sql";
 

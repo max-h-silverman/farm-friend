@@ -196,12 +196,18 @@ function required(env: EnvVars, name: string): string {
 /**
  * Resolve the public origin sign-in links are built against.
  *
+ * **Exported for F-040**, where the admin farmer route builds a farmer's standing link. That
+ * route deliberately does NOT call `resolveConfig`: the full resolution also validates SMS
+ * and model configuration, so an unrelated missing provider credential would make issuing a
+ * link fail — the same reasoning that keeps `publicReadContext` out of `resolveConfig`.
+ * One narrow value, resolved by the one function that validates it.
+ *
  * Validated here rather than trusted, because every failure mode of this value is silent:
  * a malformed origin produces links that do not work, with an operator who cannot sign in
  * and nothing in the logs explaining why. Plaintext `http` is refused outside localhost
  * because the link is a bearer credential and must not travel in cleartext.
  */
-function resolvePublicBaseUrl(env: EnvVars): string {
+export function resolvePublicBaseUrl(env: EnvVars): string {
   const raw = required(env, "PUBLIC_BASE_URL").trim();
 
   let url: URL;
