@@ -712,6 +712,12 @@ tofu apply /tmp/tf.plan
 #    Step 4 passing does NOT imply this: an apply that leaves the revision template
 #    unchanged creates no revision, and that is exactly how B-021 happened.
 python3 deploy_assertions.py
+
+# 6. ASSERT BY EFFECT on the WIRE BYTES that the served contact card is a real vCard.
+#    B-025 shipped a card with 0 CRLF and 6 bare LF that returned 200 with the right
+#    media type, the right name, and the right number — every check short of counting
+#    the separator bytes passed, and a malformed card fails by opening NOTHING.
+python3 served_card_assertions.py
 ```
 
 **Delete the plan file when you are done** (`rm /tmp/tf.plan`). A plan is not as sensitive as
