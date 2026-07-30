@@ -140,18 +140,18 @@ Suite details and when each is required: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.
 Full detail — and the tripwires you need before touching anything — in
 **[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)**. Read it before you start work.
 
-- **Live**: SMS round trip on a real handset, public map (34 public stands), operator surface (one
-  administrator exists; no link is *delivered* until F-031), vCard contact card. Deployed on Cloud
-  Run, one image / two services. Production database is `neondb`.
+- **Live**: SMS round trip on a real handset, public map (34 public stands, 212 offering tags),
+  farmer onboarding, operator surface (one administrator exists; no link is *delivered* until
+  F-031), vCard contact card. Deployed on Cloud Run, one image / two services. Production
+  database is `neondb`.
 - **Costs money on real traffic**: `LLM_PROVIDER` is `deepinfra` + Mistral Small 24B, required with
   no default.
 - **Never rotate `PHONE_HASH_SALT`** — it is the input to the only lookup key for every phone.
 - **Open, HIGH**: B-024 (a farmer's address published against her written instruction).
-- **Merged, NOT deployed — two items**: F-042 (the 212 offering tags reach the map) and F-040
-  (farmer onboarding: `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>` behind a never-expiring
-  link whose only safety net is revocation). **F-040's migration 0009 is NOT applied** — deploying
-  the image alone would ship code whose tables do not exist. **Owed on both: nobody has looked at
-  the screens** — neither the map's tag styling nor the two new pages has been seen rendered.
+- **Deployed 2026-07-30**: F-042 (212 offering tags live on the map) and F-040 (farmer onboarding:
+  `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>` behind a never-expiring link whose only safety
+  net is revocation). Production is at **9 migrations**. **Owed on both: nobody has looked at the
+  screens** — neither the map's tag styling nor the two new pages has been seen rendered.
 - **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
   vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
   **Owed: a physical-handset tap on the contact card.**

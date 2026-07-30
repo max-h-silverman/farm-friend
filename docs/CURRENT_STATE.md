@@ -18,20 +18,31 @@ no infra file changed.
 > One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
 > what marks it environmental rather than a defect in this work.
 
-**Merged but NOT deployed — TWO items now.** F-042 and F-040 are both on `main`; the deployed
-revisions below predate both, so production still serves the map without the offering tags and has
-no farmer onboarding at all. **F-040 also needs its migration applied** — `neondb` is still at 8
-migrations and has neither `farmer_onboarding_requests` nor `farmer_links`, so deploying the image
-alone would ship code whose tables do not exist. Migration first, then deploy; both are separate
-authorized steps (RUNBOOK §Deploy).
+**Nothing is merged-and-undeployed.** F-042 and F-040 both shipped 2026-07-30 (below). The last
+two items that sat unreleased are now live.
 
 > **`.next/` is a shared artifact.** `contact-card-build.test.ts` (B-025) reads the **production
 > build output**, so running `next dev` clobbers it and the test fails with "no built chunk
 > containing BEGIN:VCARD". That failure is environmental. Run
 > `npm run build --workspace @farm-friend/web` and re-run before treating it as a defect.
 
-**Deployed 2026-07-30** — revisions `farm-friend-web-00008-bkl` / `farm-friend-worker-00009-bwj`,
-one digest `sha256:c91bfbb0…` on both. `plan-assertions.py` **29/29**, `deploy_assertions.py`
+**Deployed 2026-07-30 (F-042 + F-040)** — revisions `farm-friend-web-00009-pvm` /
+`farm-friend-worker-00010-zdn`, one digest `sha256:ed998c4c…` on both. **Migration 0009 applied
+FIRST** (production is now at **9** migrations, with `farmer_onboarding_requests` and
+`farmer_links` present, both empty, every partial index and CHECK in place) — order matters, since
+deploying the image first would have shipped code whose tables did not exist.
+`plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED, `served_card_assertions.py` PASSED
+(153 bytes / 6 CRLF / 0 bare LF). The plan was read leaf by leaf: exactly one leaf changed per
+service (`containers[0].image`), plus the known non-converging `scaling` block.
+Verified by effect: health `{"ok":true}`, `/api/public/stands` **34** stands now carrying **212
+tags across 33** (F-042 is live to customers), webhook **401**, `/admin` 200, cron **404** on the
+public service. F-040's surfaces are live and gated — `/stand/<bogus>` renders the honest "not
+active" page, `/api/farmer/stand` answers **403** for a fabricated token and **400** for a
+malformed body, and `/api/admin/farmers` answers **403** on both methods without a session. A
+scheduled recovery run left no worker errors.
+
+**Previously deployed 2026-07-30** — revisions `farm-friend-web-00008-bkl` /
+`farm-friend-worker-00009-bwj`, one digest `sha256:c91bfbb0…` on both. `plan-assertions.py` **29/29**, `deploy_assertions.py`
 PASSED (both revisions newer than every secret version). Verified by effect: health `{"ok":true}`,
 `/api/public/stands` **34** stands, webhook **401** (config resolves), `/api/internal/cron` **404**
 on the public service (on `POST`, the only method it exports — a `GET` is **405** from the framework
@@ -47,11 +58,10 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
   (`apps/web/lib/routing.ts`); model seams are reachable only through a `freeText` callback after
   `parseCommand` returns `none`, so "no model on the compliance path" is structural.
 - **Public map**, model-free in its module graph, reading the same published records as SMS.
-  35 stands seeded, **34 public** (see B-024), **212 offering tags** across 33. The tags are read
-  and rendered as of F-042 — **merged, not yet deployed**: production still serves the map without
-  them.
+  35 stands seeded, **34 public** (see B-024), **212 offering tags** across 33 — **live in
+  production** as of F-042's deploy on 2026-07-30.
 - **Operator surface** — farm approval, flag review, stock-out triage, stand-data questions, and
-  (F-040, unmerged) farmer access: grant, see, revoke, re-issue a link. Built,
+  farmer access (F-040: grant, see, revoke, re-issue a link). Built,
   deployed, and now **reachable in principle**: one administrator exists
   (`board@vigavashon.org`, authorized 2026-07-30). No link is *delivered* until F-031, so signing in
   means minting a token out of band.
@@ -63,11 +73,11 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
   services (`farm-friend-web` public, `farm-friend-worker` internal+IAM) differing only by
   `DEPLOYMENT_ROLE`. Cloud Scheduler drives four bounded passes (inbound, outbound, delivery,
   retention); Cloud Tasks drives the per-sender kick. Vercel is gone.
-- **Production data**: `neondb`, 8 migrations, **1 contact** (max's real number), 35
+- **Production data**: `neondb`, **9 migrations**, **1 contact** (max's real number), 35
   `sales_locations`, 212 offerings, **1 administrator**, **0** inventory revisions / entries /
-  farmer authorizations / farm approvals, 4 `stand_data_flags`. **F-040's migration 0009 is NOT
-  applied** — it is on an unmerged branch, and production has neither `farmer_onboarding_requests`
-  nor `farmer_links`.
+  farmer authorizations / farm approvals / onboarding requests / farmer links, 4 `stand_data_flags`.
+  Fingerprinted immediately before and after migration 0009 on 2026-07-30; every pre-existing count
+  unchanged, both new tables empty.
 
 ## Live invariants worth knowing before you touch anything
 
@@ -133,9 +143,9 @@ fixtures supply what production never creates.
   stand) is an open product question, and **no producer/host relationship was invented for one row**.
   **`extraNotes` is read only by `offering-type.ts`** — nothing consults it for visibility, so a
   second such instruction would republish. Exactly one instance corpus-wide.
-- **F-042 — BUILT and MERGED to `main` 2026-07-29 (`2b35955`). NOT DEPLOYED.**
-  The 212 tags now reach customers *in the code*; production has not been deployed, so the live map
-  still shows none of them. `listPublicStands` selects them through an **aggregated
+- **F-042 — BUILT, MERGED, and DEPLOYED 2026-07-30.**
+  The 212 tags now reach customers for real: `/api/public/stands` in production serves **212 tags
+  across 33 of 34** public stands. `listPublicStands` selects them through an **aggregated
   subquery** — a second LEFT JOIN would cross-product and repeat each confirmed item once per tag —
   and serves them as `usuallySells`, **always present, `[]` when empty**. That asymmetry with the
   absent-when-empty recency fields is load-bearing: it is what distinguishes "no tags and no
@@ -161,8 +171,7 @@ fixtures supply what production never creates.
   was not connected. **20 sabotages, all caught**; one initially survived (omitting `usuallySells`
   when empty passed the whole suite, since the renderer treats absent and empty alike by design) and
   now has its own assertion.
-- **F-040 — BUILT and MERGED to `main` 2026-07-30. NOT deployed, and its MIGRATION IS NOT APPLIED.**
-  All five pieces in one tranche. `farmer_authorizations` now has a real writer (`packages/db/src/farmer.ts`), so a
+- **F-040 — BUILT, MERGED, and DEPLOYED 2026-07-30.** All five pieces in one tranche. `farmer_authorizations` now has a real writer (`packages/db/src/farmer.ts`), so a
   farmer who texts an update no longer falls through to the *customer* branch.
   **Migration 0009** adds two records, and the split is load-bearing: `farmer_onboarding_requests`
   is what a farmer *asked* for — no farm, no grant column, no message text, nothing reads it as
@@ -197,8 +206,8 @@ fixtures supply what production never creates.
   **Owed: nobody has looked at the screens.** `/stand/<token>` and `/admin/farmers` serve correct
   markup and classes, but the CSS has **not been seen rendered** — the browser extension was not
   connected. Same debt F-042 carries.
-  **Owed: migration 0009 on production.** Deploying the image without it would ship code whose
-  tables do not exist — `npx tsx packages/db/scripts/migrate.ts` against `neondb` comes first.
+  **Live in production**, migration first then image. No farmer has been authorized yet — the
+  tables are empty, so the first real use is VIGA setting someone up at `/admin/farmers`.
 - **B-025 — CLOSED 2026-07-30. Cause was the MINIFIER, not the network.** The filed diagnosis was
   wrong in both directions and is recorded here so it is not re-derived: it reproduces on a **local
   standalone build**, and all three Next.js body forms plus the Cloud Run wire pass CRLF through

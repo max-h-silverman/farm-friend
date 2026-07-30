@@ -113,6 +113,18 @@ Then again through the **real HTTP route with the real model**. Two things worth
 `packages/sms` import `@farm-friend/core`, an edge the architecture permits but the manifest did not
 declare). `schema.integration.test.ts` caught the two new tables missing from its pinned list.
 
+### Deployed the same session
+
+Merged as `8ae9af2` (PR #62), then **migration 0009 first, image second** — the order the RUNBOOK
+insists on, because deploying the image alone would have shipped code whose tables did not exist.
+Production fingerprinted immediately before and after: every pre-existing count unchanged, both new
+tables empty, 8 → **9 migrations**. Revisions `farm-friend-web-00009-pvm` /
+`farm-friend-worker-00010-zdn`, digest `sha256:ed998c4c…`; plan read leaf by leaf (exactly one real
+leaf per service), 29/29 plan assertions, deploy + served-card assertions PASSED.
+
+**F-042 went out in the same image**, so the 212 tags reached customers for the first time — the
+map now serves them across 33 of 34 public stands.
+
 ### Owed
 
 **Nobody has looked at the screens.** `/stand/<token>` and `/admin/farmers` serve correct markup and
