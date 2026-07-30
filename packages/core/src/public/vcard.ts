@@ -116,6 +116,31 @@ export function escapeVCardValue(raw: string): string {
 }
 
 /**
+ * The vCard line separator, built from character codes rather than written as a string.
+ *
+ * ## This is B-025, and the indirection is the fix
+ *
+ * A plain `"\r\n"` here is CORRECT in source and was still served as a bare LF in production:
+ * 147 bytes, 0 CR, rejected by `file(1)`. The minifier folded the `.join("\r\n")` that used
+ * this value into a single template literal and wrote the separators as **raw CR and LF bytes
+ * in the source text**. ECMA-262 normalizes a literal CRLF inside a template literal to a
+ * single LF at *parse* time (§12.9.6), so the CR was gone before the string ever existed.
+ *
+ * Neither the Next.js response path nor the Cloud Run proxy touches the body — both were
+ * measured against the wire and both pass CRLF through byte-for-byte. The corruption was
+ * entirely the build's.
+ *
+ * `String.fromCharCode` cannot be folded into literal source bytes: the CR has no textual
+ * representation in the emitted file, so there is nothing for a parser to normalize. This is
+ * the one place in the codebase where an obvious literal is deliberately refused, which is why
+ * the reasoning is written here rather than in a commit message.
+ *
+ * `apps/web/lib/contact-card-build.test.ts` asserts the property against the BUILD OUTPUT,
+ * because that is the only place the defect was ever visible.
+ */
+const CRLF = String.fromCharCode(13, 10);
+
+/**
  * Render the contact card.
  *
  * Deliberately MINIMAL — `FN`, `N`, `ORG`, `TEL`. A contact card is not a brochure, and every
@@ -123,8 +148,8 @@ export function escapeVCardValue(raw: string): string {
  * There is no `NOTE` and no `URL`: a note is where consent language would creep in, and a URL
  * in an address-book entry is not what anyone taps.
  *
- * Lines are joined with CRLF, which the grammar requires (RFC 6350 §3.2). A template literal
- * emits bare LF by default, and some parsers reject it.
+ * Lines are joined with CRLF, which the grammar requires (RFC 6350 §3.2) — see `CRLF` above
+ * for why that separator is built from character codes instead of written as `"\r\n"`.
  */
 export function renderContactCard(input: ContactCardInput): string {
   const phoneNumber = input.phoneNumber.trim();
@@ -147,5 +172,5 @@ export function renderContactCard(input: ContactCardInput): string {
     // `CELL` so the phone offers "Message" as the primary action: texting is the whole point.
     `TEL;TYPE=CELL,VOICE:${phoneNumber}`,
     "END:VCARD",
-  ].join("\r\n");
+  ].join(CRLF);
 }
