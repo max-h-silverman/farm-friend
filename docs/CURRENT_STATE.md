@@ -6,12 +6,22 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-30** (`main` @ `8c4b570`, pushed): `npm test` **598/598** (62 files);
-`npm run test:integration` **334/334** (20 files) on real Postgres 16, all 8 migrations from empty;
-typecheck and lint exit 0; `infra/test_deploy_assertions.py` **10/10**;
-`infra/test_served_card_assertions.py` **18/18**. Evals **not** re-run — no seam projection, schema,
-or output contract changed; last results stand (`evals` critical 11/11, advisory 4/4, adversarial
-29/29; `evals:live` containment 4/4, quality 6/6 on Mistral Small 24B).
+**Verified 2026-07-29** (`main`, F-042 merged): `npm test` **621/621** (62 files);
+`npm run test:integration` **345/345** (20 files) on real Postgres 16, all 8 migrations from empty;
+typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29. `evals:live`
+**not** re-run and not required — F-042 touched no seam projection, schema, or output contract, and
+`renderRecency`'s output is byte-identical to its previous implementation across 57,601
+minute-by-minute cases; last live results stand (containment 4/4, quality 6/6 on Mistral Small 24B).
+The infra assertion suites were not re-run — no infra file changed.
+
+**Merged but NOT deployed.** F-042 is on `main`; the deployed revisions below predate it, so
+production still serves the map without the offering tags. Deploying is a separate authorized step
+(RUNBOOK §Deploy).
+
+> **`.next/` is a shared artifact.** `contact-card-build.test.ts` (B-025) reads the **production
+> build output**, so running `next dev` clobbers it and the test fails with "no built chunk
+> containing BEGIN:VCARD". That failure is environmental. Run
+> `npm run build --workspace @farm-friend/web` and re-run before treating it as a defect.
 
 **Deployed 2026-07-30** — revisions `farm-friend-web-00008-bkl` / `farm-friend-worker-00009-bwj`,
 one digest `sha256:c91bfbb0…` on both. `plan-assertions.py` **29/29**, `deploy_assertions.py`
@@ -30,7 +40,9 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
   (`apps/web/lib/routing.ts`); model seams are reachable only through a `freeText` callback after
   `parseCommand` returns `none`, so "no model on the compliance path" is structural.
 - **Public map**, model-free in its module graph, reading the same published records as SMS.
-  35 stands seeded, **34 public** (see B-024), **212 offering tags** across 33.
+  35 stands seeded, **34 public** (see B-024), **212 offering tags** across 33. The tags are read
+  and rendered as of F-042 — **merged, not yet deployed**: production still serves the map without
+  them.
 - **Operator surface** — farm approval, flag review, stock-out triage, stand-data questions. Built,
   deployed, and now **reachable in principle**: one administrator exists
   (`board@vigavashon.org`, authorized 2026-07-30). No link is *delivered* until F-031, so signing in
@@ -111,15 +123,34 @@ fixtures supply what production never creates.
   stand) is an open product question, and **no producer/host relationship was invented for one row**.
   **`extraNotes` is read only by `offering-type.ts`** — nothing consults it for visibility, so a
   second such instruction would republish. Exactly one instance corpus-wide.
-- **F-042 (HIGH) — the offering tags are unread; copy now APPROVED, nothing built.**
-  `listPublicStands` never selects `sales_location_offerings`, so the API exposes no offerings field
-  and all 33 tagged stands still render *"No listing yet."* Seeding was necessary, not sufficient.
-  **The vocabulary is settled (max approved 2026-07-30)**: tags render as
-  **"Usually sells: …"** followed by **"Nothing confirmed recently."**; a farmer's confirmation
-  renders as **"Confirmed X ago: …"** with **"Also usually sells: …"** beneath. Three rules —
-  **"Usually sells" never takes a timestamp** (a date beside it reads as a confirmation, the exact
-  failure this guards); the stock-out flow attaches to **confirmed items only**; *"No listing yet"*
-  survives for the 2 untagged stands. "Sells" not "carries" — these are unattended tables, not shops.
+- **F-042 — BUILT and MERGED to `main` 2026-07-29 (`2b35955`). NOT DEPLOYED.**
+  The 212 tags now reach customers *in the code*; production has not been deployed, so the live map
+  still shows none of them. `listPublicStands` selects them through an **aggregated
+  subquery** — a second LEFT JOIN would cross-product and repeat each confirmed item once per tag —
+  and serves them as `usuallySells`, **always present, `[]` when empty**. That asymmetry with the
+  absent-when-empty recency fields is load-bearing: it is what distinguishes "no tags and no
+  confirmation" from "tags, nothing confirmed".
+  **Where the rule lives**: `standListingLines` (`apps/web/lib/map-view.ts`) decides which lines a
+  stand gets; `stand-map.tsx` prints them and chooses nothing. This repo has **no
+  component-rendering harness**, so "Usually sells never takes a timestamp" had to leave the JSX to
+  be testable at all — `detail` is settable only on a confirmed line. Sabotage-verified.
+  `renderElapsed` was split out of `renderRecency` in core so the map's "Confirmed X ago" and SMS's
+  "updated X ago" share one arithmetic; **`renderRecency` output is byte-identical** to the previous
+  implementation across 57,601 minute-by-minute cases, so no seam contract changed and `evals:live`
+  was correctly not required. Also fixed: `page.tsx` held a **second copy of the wire format that
+  had already diverged** (it sent `updated: undefined` as a present key where the API omitted it);
+  both readers now call `serializePublicStand`.
+  **Verified by effect** against the real corpus (34 stands / 33 tagged / 212 tags, matching
+  production) served through the real app: rendered bytes carry 33 "Usually sells:" + 33 "Nothing
+  confirmed recently.", exactly **1** "No listing yet", and **no elapsed phrase within 400 chars of
+  any usual label**. A real revision published through the real proposal→confirmation chain rendered
+  "Confirmed 4 hours ago: flowers, duck eggs" over "Also usually sells: …" with the confirmed items
+  subtracted case-insensitively.
+  **Owed: nobody has looked at the styling.** The two voices are styled to differ at a glance
+  (filled chips vs. outlined) but that CSS has **not been seen rendered** — the browser extension
+  was not connected. **20 sabotages, all caught**; one initially survived (omitting `usuallySells`
+  when empty passed the whole suite, since the renderer treats absent and empty alike by design) and
+  now has its own assertion.
 - **F-040 (HIGH) — farmer onboarding; design settled, nothing built.**
   `farmer_authorizations` has **no writer outside tests**, so a real farmer who texts an update
   falls through to the *customer* branch and nothing reports why. Identity is separate from channel:

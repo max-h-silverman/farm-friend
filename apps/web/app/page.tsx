@@ -1,7 +1,6 @@
 import { publicReadContext } from "../lib/public-context";
-import { listPublicStands } from "../lib/public-listing";
+import { listPublicStands, serializePublicStand } from "../lib/public-listing";
 import { StandMap } from "./stand-map";
-import type { PublicStandPayload } from "../lib/map-view";
 
 // The public stand map (F-017) — the ungated, embeddable surface islanders actually see.
 //
@@ -19,29 +18,12 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const stands = await listPublicStands(publicReadContext());
 
-  // Serialize to the same shape the public API serves, so the browser view model has one
-  // input type whether it came from this render or from a later fetch.
-  const payload: PublicStandPayload[] = stands.map((stand) => ({
-    id: stand.factId,
-    farmName: stand.farmName,
-    locationName: stand.locationName,
-    visitability: stand.visitability,
-    offeringType: stand.offeringType,
-    // F-038 — spread together, so a contact-only farm carries no address key at all rather
-    // than an undefined one. Matches how the API serializes it.
-    ...(stand.publicAddress !== undefined &&
-    stand.latitude !== undefined &&
-    stand.longitude !== undefined
-      ? {
-          address: stand.publicAddress,
-          latitude: stand.latitude,
-          longitude: stand.longitude,
-        }
-      : {}),
-    updated: stand.recencyLabel,
-    stale: stand.isStale,
-    items: stand.items,
-  }));
+  // The SAME serializer `GET /api/public/stands` uses (F-042). This mapping used to be
+  // written out again here, and the two copies had already diverged — the page sent
+  // `updated: undefined` and `stale: undefined` as present keys where the API omitted them,
+  // so "nobody has confirmed this" reached the browser differently depending on which reader
+  // produced it. One statement of the wire format, both readers.
+  const payload = stands.map(serializePublicStand);
 
   return <StandMap stands={payload} />;
 }

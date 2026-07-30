@@ -59,7 +59,9 @@ render an honest "updated X ago" without a second provenance axis.
   revisions. The separation is **structural, not conventional**: a revision requires a farmer
   authorization and a VIGA approval, so a seeder or an ingest path cannot fabricate a confirmation
   by writing one. Specialties carry no confirmation time and must never be rendered as current
-  availability.
+  availability. **Read by the public listing** (F-042) as a field of its own, never merged into the
+  confirmed items, and rendered under a heading that takes no timestamp — the record's "no
+  confirmation time" property has to survive all the way to the screen to mean anything.
 - **stand data flags** (F-035) — where a contradiction in seeded source data waits for a human.
   Distinct from the customer-message `flags` table, which is keyed to a contact and an inbox event a
   seed flag has neither of. One open flag per (location, reason); resolved flags stay as history.

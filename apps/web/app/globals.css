@@ -229,7 +229,47 @@ body {
   font-size: 0.83rem;
 }
 
-.items-empty {
+/*
+  F-042 — the two voices on a stand card, and the visual gap between them IS the honesty.
+
+  A farmer's confirmation is the certain fact: full-strength ink, filled chips, and it comes
+  first. What a stand "usually sells" is a specialty off VIGA's 2026 form that nobody
+  confirmed today, so its chips are outlined rather than filled and its label is quieter. A
+  customer must be able to tell the two apart at a glance, without reading either label.
+
+  What is deliberately ABSENT from `.listing-usual`: anything that would read as a date. The
+  no-timestamp rule is enforced in `standListingLines`, which never puts one on a usual line —
+  this styling just refuses to leave a visual slot where one would look at home.
+*/
+.listing {
+  margin: 0 0 0.8rem;
+}
+
+.listing-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.listing-usual .listing-label {
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+/* Outlined, not filled: a specialty is a weaker claim than a confirmation, and it looks it. */
+.items-usual li {
+  background: transparent;
+  border: 1px solid var(--green-soft);
+}
+
+.items-usual .item-name {
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+/* "Nothing confirmed recently." and the two no-listing sentences. */
+.listing-note {
   margin: 0 0 0.8rem;
   font-size: 0.92rem;
   color: var(--ink-soft);

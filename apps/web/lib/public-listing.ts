@@ -1,5 +1,10 @@
-import { isStale, renderRecency, type Clock } from "@farm-friend/core";
+import { isStale, renderElapsed, renderRecency, type Clock } from "@farm-friend/core";
 import type { Db } from "@farm-friend/db";
+// A TYPE-ONLY import of the browser view model's input shape. It adds no runtime edge (and
+// `map-view.ts` is already inside the public read graph, model-free and asserted so), and it
+// makes the wire format a compiler-checked contract between the server that writes it and the
+// view model that reads it — rather than two hand-kept object literals that agree by habit.
+import type { PublicStandPayload } from "./map-view";
 
 // Public web discovery — the MODEL-FREE half of F-019's channel boundary.
 //
@@ -63,6 +68,16 @@ export interface PublicStand {
   /** Code-rendered recency, identical in wording to the SMS answer. Absent with `asOf`. */
   recencyLabel?: string;
   /**
+   * The bare elapsed phrase behind `recencyLabel` — "3 hours ago" (F-042).
+   *
+   * Absent with the other two, for the same reason. The public map's confirmed heading reads
+   * "Confirmed 3 hours ago" while the SMS answer reads "updated 3 hours ago"; both come from
+   * core's one `renderElapsed`, so the two channels cannot come to disagree about how fresh
+   * the same row is. Carried as its own field rather than reconstructed downstream by
+   * stripping a verb off `recencyLabel`.
+   */
+  confirmedElapsed?: string;
+  /**
    * True when the listing must be shown WITH a prominent staleness warning.
    *
    * Absent — not `false` — when there is nothing to be stale about. "Never confirmed" and
@@ -70,6 +85,23 @@ export interface PublicStand {
    * second.
    */
   isStale?: boolean;
+  /**
+   * What this stand USUALLY sells (F-042) — its seeded specialties, never current stock.
+   *
+   * A SEPARATE FIELD FROM `items`, and that separation is the product rule rather than a
+   * schema convenience. `items` is a farmer's confirmation: writing one requires a verified
+   * authorization and a VIGA approval, which the seeder structurally cannot fabricate. These
+   * come from VIGA's 2026 form text. Merging them would let a year-old form line render as
+   * something a farmer confirmed today.
+   *
+   * **Empty, never absent** — unlike the recency fields. An empty list is a complete, honest
+   * answer ("we know of no specialties"), whereas "no confirmation" and "confirmed nothing"
+   * are genuinely different facts that only absence can distinguish.
+   *
+   * Carries NO date, here or anywhere downstream. There is nothing to date: nobody confirmed
+   * these.
+   */
+  usualOfferings: string[];
   items: PublicStandItem[];
 }
 
@@ -103,6 +135,22 @@ export async function listPublicStands(
       l.offering_type as offering_type,
       f.name as farm_name,
       r.published_at as published_at,
+      -- F-042 — aggregated in a subquery rather than joined alongside inventory_entries.
+      -- A second LEFT JOIN would make this query a CROSS PRODUCT: 3 tags x 2 confirmed items
+      -- is 6 rows, and the loop below would push each item three times and each tag twice.
+      -- Every duplicate reads as a real second item on the card. Aggregating keeps the row
+      -- grain at one-per-inventory-entry, which is what the loop already assumes.
+      --
+      -- coalesce, because an aggregate over no rows is NULL rather than an empty array. The
+      -- untagged stands are the majority, so that is the common path, not the edge.
+      coalesce(
+        (
+          select array_agg(o.item order by o.sort_order asc, o.item asc)
+          from sales_location_offerings o
+          where o.sales_location_id = l.id
+        ),
+        array[]::text[]
+      ) as usual_offerings,
       e.item_name as item_name,
       e.quantity as quantity,
       e.unit as unit,
@@ -159,9 +207,13 @@ export async function listPublicStands(
           ? {
               asOf,
               recencyLabel: renderRecency(asOf, now),
+              confirmedElapsed: renderElapsed(asOf, now),
               isStale: isStale(asOf, now),
             }
           : {}),
+        // F-042 — spread flat rather than conditionally: an empty list is the honest answer
+        // for an untagged stand, and there is no second fact for absence to distinguish.
+        usualOfferings: (row.usual_offerings as string[] | null) ?? [],
         items: [],
       };
       byLocation.set(locationId, stand);
@@ -198,34 +250,62 @@ export async function handleStandsRequest(
 ): Promise<Response> {
   const stands = await listPublicStands(deps);
 
-  return Response.json({
-    stands: stands.map((stand) => ({
-      id: stand.factId,
-      farmName: stand.farmName,
-      locationName: stand.locationName,
-      visitability: stand.visitability,
-      offeringType: stand.offeringType,
-      // F-038 — omitted TOGETHER for a contact-only farm, never serialized as null. A client
-      // reading `address: null` would print an empty address line; `latitude: 0` would drop a
-      // pin in the Atlantic. Absence is the only honest encoding of "there is nowhere to go".
-      ...(stand.publicAddress !== undefined &&
-      stand.latitude !== undefined &&
-      stand.longitude !== undefined
-        ? {
-            address: stand.publicAddress,
-            latitude: stand.latitude,
-            longitude: stand.longitude,
-          }
-        : {}),
-      // Recency is rendered by code, and is present exactly when a farmer has confirmed
-      // something. A stale stand stays listed WITH its warning rather than disappearing; a
-      // never-confirmed stand is listed with these fields ABSENT (B-013) rather than with a
-      // fabricated "updated" string. Omitting the keys — instead of sending null — is what
-      // lets the map view distinguish "no confirmation yet" from "confirmed long ago".
-      ...(stand.recencyLabel !== undefined
-        ? { updated: stand.recencyLabel, stale: stand.isStale }
-        : {}),
-      items: stand.items,
-    })),
-  });
+  return Response.json({ stands: stands.map(serializePublicStand) });
+}
+
+/**
+ * One stand as the public wire format — the shape `map-view.ts` types as `PublicStandPayload`.
+ *
+ * Stated ONCE, and consumed by both readers: `GET /api/public/stands` and the server-rendered
+ * page, which passes the same objects straight into the browser view model. It was written
+ * twice before F-042, and the copies had already begun to matter — a field added to one is
+ * invisible on the other, and the page render and the API would then disagree about what a
+ * stand is. Exactly the drift the "one general mechanism" rule exists to prevent.
+ *
+ * Note which keys are CONDITIONAL and which are always present. The three place fields travel
+ * together or not at all (F-038); the three recency fields travel together or not at all
+ * (B-013, F-042); `usuallySells` is always sent, empty when the stand has no tags. Each of
+ * those choices is what lets the renderer tell "we know nothing" from "we know it's empty".
+ */
+export function serializePublicStand(stand: PublicStand): PublicStandPayload {
+  return {
+    id: stand.factId,
+    farmName: stand.farmName,
+    locationName: stand.locationName,
+    visitability: stand.visitability,
+    offeringType: stand.offeringType,
+    // F-038 — omitted TOGETHER for a contact-only farm, never serialized as null. A client
+    // reading `address: null` would print an empty address line; `latitude: 0` would drop a
+    // pin in the Atlantic. Absence is the only honest encoding of "there is nowhere to go".
+    ...(stand.publicAddress !== undefined &&
+    stand.latitude !== undefined &&
+    stand.longitude !== undefined
+      ? {
+          address: stand.publicAddress,
+          latitude: stand.latitude,
+          longitude: stand.longitude,
+        }
+      : {}),
+    // Recency is rendered by code, and is present exactly when a farmer has confirmed
+    // something. A stale stand stays listed WITH its warning rather than disappearing; a
+    // never-confirmed stand is listed with these fields ABSENT (B-013) rather than with a
+    // fabricated "updated" string. Omitting the keys — instead of sending null — is what
+    // lets the map view distinguish "no confirmation yet" from "confirmed long ago".
+    // All THREE recency keys travel together (F-042 adds the third). `confirmedElapsed` is
+    // the bare phrase the map's "Confirmed X ago" heading needs; it is present exactly when
+    // a farmer confirmed something, so a client never has a date available to put beside
+    // the usual-offerings line.
+    ...(stand.recencyLabel !== undefined
+      ? {
+          updated: stand.recencyLabel,
+          confirmedElapsed: stand.confirmedElapsed,
+          stale: stand.isStale,
+        }
+      : {}),
+    // F-042 — always sent, `[]` when the stand has no tags. The map distinguishes "no tags
+    // and no confirmation" (still "No listing yet") from "tags but nothing confirmed", and
+    // it can only do that if an empty list is stated rather than omitted.
+    usuallySells: stand.usualOfferings,
+    items: stand.items,
+  };
 }
