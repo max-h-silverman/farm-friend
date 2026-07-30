@@ -6,13 +6,17 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-29** (`main`, F-042 merged): `npm test` **621/621** (62 files);
-`npm run test:integration` **345/345** (20 files) on real Postgres 16, all 8 migrations from empty;
-typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29. `evals:live`
-**not** re-run and not required — F-042 touched no seam projection, schema, or output contract, and
-`renderRecency`'s output is byte-identical to its previous implementation across 57,601
-minute-by-minute cases; last live results stand (containment 4/4, quality 6/6 on Mistral Small 24B).
-The infra assertion suites were not re-run — no infra file changed.
+**Verified 2026-07-29** (branch `f-040-farmer-onboarding`): `npm test` **643/643** (65 files);
+`npm run test:integration` **396/396** (22 files) on real Postgres 16, all **9** migrations from
+empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
+`evals:live` **not** re-run and not required — F-040 touched no seam projection, schema, or output
+contract; the farmer web path reuses `applyInterpretedInventory` unchanged. The real model was
+nonetheless driven through the real web route by hand (see F-040 below). Last live results stand
+(containment 4/4, quality 6/6 on Mistral Small 24B). The infra assertion suites were not re-run —
+no infra file changed.
+
+> One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
+> what marks it environmental rather than a defect in this work.
 
 **Merged but NOT deployed.** F-042 is on `main`; the deployed revisions below predate it, so
 production still serves the map without the offering tags. Deploying is a separate authorized step
@@ -43,7 +47,8 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
   35 stands seeded, **34 public** (see B-024), **212 offering tags** across 33. The tags are read
   and rendered as of F-042 — **merged, not yet deployed**: production still serves the map without
   them.
-- **Operator surface** — farm approval, flag review, stock-out triage, stand-data questions. Built,
+- **Operator surface** — farm approval, flag review, stock-out triage, stand-data questions, and
+  (F-040, unmerged) farmer access: grant, see, revoke, re-issue a link. Built,
   deployed, and now **reachable in principle**: one administrator exists
   (`board@vigavashon.org`, authorized 2026-07-30). No link is *delivered* until F-031, so signing in
   means minting a token out of band.
@@ -57,7 +62,9 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
   retention); Cloud Tasks drives the per-sender kick. Vercel is gone.
 - **Production data**: `neondb`, 8 migrations, **1 contact** (max's real number), 35
   `sales_locations`, 212 offerings, **1 administrator**, **0** inventory revisions / entries /
-  farmer authorizations / farm approvals, 4 `stand_data_flags`.
+  farmer authorizations / farm approvals, 4 `stand_data_flags`. **F-040's migration 0009 is NOT
+  applied** — it is on an unmerged branch, and production has neither `farmer_onboarding_requests`
+  nor `farmer_links`.
 
 ## Live invariants worth knowing before you touch anything
 
@@ -151,15 +158,42 @@ fixtures supply what production never creates.
   was not connected. **20 sabotages, all caught**; one initially survived (omitting `usuallySells`
   when empty passed the whole suite, since the renderer treats absent and empty alike by design) and
   now has its own assertion.
-- **F-040 (HIGH) — farmer onboarding; design settled, nothing built.**
-  `farmer_authorizations` has **no writer outside tests**, so a real farmer who texts an update
-  falls through to the *customer* branch and nothing reports why. Identity is separate from channel:
-  **VIGA always approves** (a phone proves possession of a phone, not ownership of a farm), either
-  side may start it, and on approval Farm Friend texts the farmer. Channels — SMS, a texted link, a
-  bookmarked form — all land on the **same confirmation gate**, no bypass. No passwords. max chose a
-  link that never expires until revoked, so **revocation is the only safety net**: it must take
-  effect on the next request, VIGA must see and revoke every farmer, and a leaked link must at worst
-  propose a wrong listing on ONE stand. **B-023 is CLOSED, so this is now unblocked.**
+- **F-040 — BUILT on `f-040-farmer-onboarding`, NOT merged and NOT deployed.** All five pieces in
+  one tranche. `farmer_authorizations` now has a real writer (`packages/db/src/farmer.ts`), so a
+  farmer who texts an update no longer falls through to the *customer* branch.
+  **Migration 0009** adds two records, and the split is load-bearing: `farmer_onboarding_requests`
+  is what a farmer *asked* for — no farm, no grant column, no message text, nothing reads it as
+  authority — and `farmer_links` is a **pointer to** an authorization, never authority itself.
+  **The link is not a signed claim**, deliberately: max chose one that never expires, so a
+  signature would keep verifying after revocation. It is 32 random bytes, hash-only in the database,
+  and `resolveFarmerLink` re-reads **both** revocation columns every request, so there is nothing
+  cached to reach around.
+  **Channels**: `SIGNUP`/`LINK` are farmer product keywords parsed **last** among the keyword
+  branches (so neither can shadow `STOP`) and **before** free text (so no model sees them);
+  `/admin/farmers` is VIGA's grant/see/revoke surface; `/stand/<token>` is the farmer's form. Every
+  channel lands on `confirmInventoryPublication` — **the web path has no bypass**, and no function
+  on that surface writes `inventory_revisions`.
+  **Approval is not consent**: the "you're all set" text is queued inside the authorization
+  transaction as a *proactive* category, so `authorizeDispatch` suppresses it for a farmer who never
+  texted JOIN/START. Asserted at the dispatch claim, plus the complement so it is not passing
+  because the message is undeliverable to everyone.
+  **Verified by effect** end to end against real Postgres and the running app: SIGNUP → masked
+  queue → authorize (text queued, `inventory_prompt`, `queued`) → LINK → resolve → propose (0
+  revisions) → confirm (published) → revoke (link resolves null on the **next** request, form
+  refuses, published listing untouched). Then the same round trip through the **real HTTP route and
+  the real model** — worth knowing: Mistral rendered "plum jam" twice, once bare and once priced.
+  That is interpretation quality, not a code defect, and it is precisely what the confirmation gate
+  lets a farmer catch.
+  **~35 sabotages; SIX survived and exposed real gaps in the tests**, all now closed — the
+  resolver's authorization check (revoking via the writer also kills links, so the link clause did
+  all the work), the one-stand-per-link guard (no fixture had a two-stand farm), a `contactHash`
+  leak into the pending-request projection (that array was empty in the fixture), the cross-farmer
+  confirmation (asserting "refused" and "still open" was satisfiable by the exact attack it
+  forbids), the two independent cross-farmer defenses being indistinguishable, and the token shape
+  guard (null with or without it — now asserted by query count).
+  **Owed: nobody has looked at the screens.** `/stand/<token>` and `/admin/farmers` serve correct
+  markup and classes, but the CSS has **not been seen rendered** — the browser extension was not
+  connected. Same debt F-042 carries.
 - **B-025 — CLOSED 2026-07-30. Cause was the MINIFIER, not the network.** The filed diagnosis was
   wrong in both directions and is recorded here so it is not re-derived: it reproduces on a **local
   standalone build**, and all three Next.js body forms plus the Cloud Run wire pass CRLF through
@@ -177,8 +211,10 @@ fixtures supply what production never creates.
   attestation values.
 - **F-036 — where the model may run.** Seed-time: built and run. Query-time on the public map:
   **blocked** (`public-surface-model-free.test.ts` polices the import graph). Farmer-authored web
-  submission is a **third case**, needing farmer web auth that does not exist plus the same
-  confirmation gate.
+  submission was the **third case**, and F-040 (unmerged) now answers it: the farmer web auth that
+  did not exist is the standing link, and the submission runs the *same* interpreter seam through
+  the *same* confirmation gate as SMS rather than a second path. The model-free tripwire still
+  passes — the farmer form is its own entry point and is not reachable from the public map's graph.
 - **B-008 — lint does not run in deployed builds.** `apps/web` omits the `@typescript-eslint`
   plugin/parser, so Next skips lint non-fatally and the build goes green with the gate absent. The
   real work is extending `workspace-manifests.test.ts` to config-file dependency references.

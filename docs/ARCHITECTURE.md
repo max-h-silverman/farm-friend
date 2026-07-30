@@ -101,7 +101,17 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   `lib/public-context.ts` (db + clock) rather than the full composition root, so no model seam is
   reachable from its module graph — asserted by `lib/public-surface-model-free.test.ts`, which walks
   the transitive imports of both public entry points.
-- **Farmer account:** sign-in → onboarding, inventory updates, profile, and preferences.
+- **Farmer stand form** (F-040): `/stand/<token>` — a farmer's own listing form, reached by a
+  **standing link with no password and no session**. The token is the whole credential and is
+  re-resolved server-side on every request, so a revocation takes effect on the farmer's next load;
+  it is posted in the request **body** to `/api/farmer/stand`, never a query string, because a
+  standing credential must not reach proxy logs or history. **The web path gets no bypass of the
+  confirmation gate**: a submission opens or revises the farmer's one pending proposal and
+  publication happens only through `confirmInventoryPublication`, which re-reads farmer authority
+  and VIGA approval under lock. The one honest difference from SMS is activation — there is no
+  carrier prompt to be accepted, so the window is opened against a queued confirmation message the
+  farmer also receives. A leaked link can at worst propose a wrong listing on ONE stand;
+  `apps/web/lib/farmer-stand.integration.test.ts` asserts and sabotages each bound.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
@@ -209,9 +219,16 @@ order:
    open inventory proposal. It is **never global**, commits **exactly once**, and **expires**. A token
    must match deterministically and be the **entire message**; anything else is free text for the
    steps below.
-4. **Active conversation state** routes the message to its in-flight flow.
-5. **Authority and consent gates** determine what the sender may do.
-6. **Only then** may a model seam run.
+4. **Farmer product keywords** (F-040) — `SIGNUP` asks VIGA to set the farmer up, `LINK` asks for
+   their private web-form link. Like `FLAG` these are **Farm Friend product keywords, never
+   carrier-mandated ones**, and must never be registered as such. They are parsed **last among the
+   keyword branches** so one can never shadow a compliance keyword or a commitment token — if a
+   synonym ever collided with `STOP`, an opt-out would stop working. Neither grants anything:
+   `SIGNUP` writes a record with no grant column, and `LINK` is refused unless the sender already
+   holds a live authorization.
+5. **Active conversation state** routes the message to its in-flight flow.
+6. **Authority and consent gates** determine what the sender may do.
+7. **Only then** may a model seam run.
 
 A confirmation token is accepted only for the sender's one open inventory proposal, after the
 current prompt has been accepted by Telnyx, and only when the token's provider occurrence time

@@ -67,6 +67,7 @@ daily data entry, the product has failed its north star.
 | Flag review + thread viewer | **Built** (F-030) — `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | **Built** (F-030) — `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
 | Stand-data questions | **Built** (F-037) — `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
+| Farmer access | **Built** (F-040) — `/admin/farmers` | Authorize a farmer to publish for a farm, see every farmer's access live and withdrawn, revoke it, and issue a replacement private link |
 | Exceptions | **Not built** | Handle requests the system cannot safely handle, with audit |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
@@ -86,6 +87,24 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Seed initial listing data:** run the one-time seed utility per [RUNBOOK.md](RUNBOOK.md). This
   is a greenfield load from reference input, not a migration with provenance. A location that
   cannot be geocoded is an operator task — the system never invents a coordinate.
+- **Set a farmer up:** open `/admin/farmers`. Farmers who texted `SIGNUP` are waiting at the top,
+  shown by the last four digits of their number. **Check that the person really runs the farm
+  before you authorize them** — a phone number only proves someone has that phone, and nothing
+  automates this decision. On authorizing, Farm Friend texts them that they are set up and how to
+  post their first listing. The farm still needs approving (below) before anything publishes.
+- **Turn off a farmer's link:** also `/admin/farmers`. A farmer's private link **keeps working
+  until you revoke it** — so if a farmer loses their phone, or a link gets shared or forwarded,
+  revoke it. It stops working on the very next request, and the farmer can text `LINK` for a new
+  one. Revoking access also kills every link to it. **This is the only safety net a standing link
+  has**, so it is a real operational duty rather than a rare cleanup: a leaked link can propose a
+  wrong listing on that one stand until it is revoked. It can never change who owns a farm, alter
+  anyone's authorization, reach another farm's listing, read anyone else's data, or publish without
+  the farmer confirming — those are bounded by construction, not by watching the queue.
+  A revoked farmer stays visible, marked revoked, so "who did we turn off, and when" has an answer.
+- **Issue a link yourself:** the same screen has "Create link" / "Replace link" for a farmer who
+  cannot text for one, or whom you are setting up in person. **The link is shown once and never
+  again** — copy it before navigating away. Replacing a link revokes the previous one, which is
+  exactly what you want after a lost phone.
 - **Approve a farm:** open `/admin`, verify the farm is real, is a VIGA participant, and that the
   person who completed onboarding is authorized to act for it, then approve. Approval is **your
   act**, recorded separately; a farmer completing a form does not approve themselves. Only approved
