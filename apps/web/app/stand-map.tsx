@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { PROXIMITY_BASIS_LABEL } from "@farm-friend/core/proximity";
+import { CONTACT_CARD_PATH } from "@farm-friend/core/vcard";
 import { buildMapView, type PublicStandPayload } from "../lib/map-view";
 import { useTransientOrigin } from "./use-transient-origin";
 
@@ -170,6 +171,29 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           Farmers keep these listings current by text message. Spotted an empty bin? Use the
           QR code at the stand to tell the farmer privately — it never changes the listing on
           its own.
+        </p>
+
+        {/*
+          F-039 — the one-tap way to save the number instead of copying it off a sign.
+
+          THE COPY IS COMPLIANCE-RELEVANT. Saving a contact is a device-local act: it grants
+          nothing, records nothing, and is NOT `JOIN`. So this link says only what it does —
+          "saves the number" — and states plainly that it does not sign anyone up. It
+          deliberately names no consent keyword: putting JOIN next to a "save" button invites a
+          reader to conflate the two acts, which is the misrepresentation this wording avoids.
+          The card itself carries the same boundary, asserted in `core/src/public/vcard.ts`.
+
+          `download` is a hint, not the mechanism — the served `Content-Type` and
+          `Content-Disposition` are what open the native add-contact sheet.
+        */}
+        <p className="contact-card-cta">
+          <a className="contact-card-link" href={CONTACT_CARD_PATH} download>
+            Save the Farm Friend number
+          </a>
+          <span className="contact-card-note">
+            Adds the texting number to your phone&apos;s contacts. This only saves a contact —
+            it does not sign you up for messages, and we are not told that you saved it.
+          </span>
         </p>
       </footer>
     </main>

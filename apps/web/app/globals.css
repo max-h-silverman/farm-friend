@@ -290,6 +290,37 @@ body {
   margin: 0;
 }
 
+/* F-039 — "save the number" affordance. Sized to the same 44px touch target as the other
+   tap targets on this page, because it is aimed at a thumb on a phone. */
+.contact-card-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-top: 1rem !important;
+}
+
+.contact-card-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 1rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--green);
+  text-decoration: none;
+  background: var(--green-soft);
+  border-radius: 10px;
+}
+
+/* The consent disclaimer must be legible, not fine print — it is the sentence that keeps
+   "save a contact" from being read as "subscribe". */
+.contact-card-note {
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--ink-faint);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .locate-button,
   .directions {
