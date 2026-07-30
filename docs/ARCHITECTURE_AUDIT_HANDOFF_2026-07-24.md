@@ -23,7 +23,7 @@ a fresh session.
 > Current authority: [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) · [ARCHITECTURE.md](ARCHITECTURE.md) ·
 > [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) · [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) ·
 > [SMS_COMPLIANCE.md](SMS_COMPLIANCE.md). Current build state:
-> [../CLAUDE.md](../CLAUDE.md) "Current State & Open Items".
+> [CURRENT_STATE.md](CURRENT_STATE.md).
 
 ## Executive verdict
 
