@@ -430,6 +430,29 @@ export async function listFarmerAuthorizations(
   }));
 }
 
+/**
+ * The phone hash behind an OPEN onboarding request, or null.
+ *
+ * Exists so the operator screen never has to hold a phone hash. The queue shows a masked
+ * number and an opaque request id; this resolves that id server-side at the moment VIGA
+ * authorizes. Sending the hash to the browser so it could send it back would put the one
+ * lookup key for a person's phone into a page, a history entry, and a referrer — which is
+ * exactly what Golden Rule #5 exists to prevent.
+ *
+ * Scoped to OPEN requests: a settled one has already been answered, and re-authorizing from
+ * it would let a stale screen act on a decision someone else already made.
+ */
+export async function findOnboardingRequestContact(
+  db: Db,
+  requestId: string,
+): Promise<string | null> {
+  const rows = await driver(db)`
+    select contact_hash from farmer_onboarding_requests
+    where id = ${requestId} and settled_at is null
+  `;
+  return (rows[0]?.contact_hash as string | undefined) ?? null;
+}
+
 export interface FarmerOnboardingRequestRow {
   requestId: string;
   senderMask: string;

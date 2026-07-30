@@ -45,6 +45,7 @@ describe("admin routes (integration)", () => {
   const at = (hours: number) => new Date(anchor + hours * 60 * 60 * 1000);
   const magicSecret = "test-magic-secret";
   const ids: Record<string, string> = {};
+  let farmerCounter = 0;
   const sql = () => client as Sql;
 
   // Routes are imported AFTER the environment points at the throwaway database, because
@@ -54,6 +55,7 @@ describe("admin routes (integration)", () => {
   let threadRoute: typeof import("../app/api/admin/flags/[flagId]/thread/route");
   let reportsRoute: typeof import("../app/api/admin/stock-out-reports/route");
   let standDataRoute: typeof import("../app/api/admin/stand-data-flags/route");
+  let farmersRoute: typeof import("../app/api/admin/farmers/route");
   let callbackRoute: typeof import("../app/api/auth/callback/route");
   let logoutRoute: typeof import("../app/api/auth/logout/route");
 
@@ -95,6 +97,8 @@ describe("admin routes (integration)", () => {
 
     process.env.DATABASE_URL = url;
     process.env.MAGIC_LINK_SECRET = magicSecret;
+    // F-040: the farmer route builds a standing link against the CONFIGURED origin.
+    process.env.PUBLIC_BASE_URL = "https://ff.example";
 
     const administrators = await sql()`
       insert into administrators (email, authorized_at)
@@ -113,6 +117,7 @@ describe("admin routes (integration)", () => {
     threadRoute = await import("../app/api/admin/flags/[flagId]/thread/route");
     reportsRoute = await import("../app/api/admin/stock-out-reports/route");
     standDataRoute = await import("../app/api/admin/stand-data-flags/route");
+    farmersRoute = await import("../app/api/admin/farmers/route");
     callbackRoute = await import("../app/api/auth/callback/route");
     logoutRoute = await import("../app/api/auth/logout/route");
   }, 30_000);
@@ -185,6 +190,27 @@ describe("admin routes (integration)", () => {
             request("https://ff.example/api/admin/stock-out-reports", {
               method: "POST",
               body: JSON.stringify({ reportId: randomUUID(), action: "review" }),
+            }),
+          )
+        ).status,
+      ).toBe(403);
+
+      // F-040's route, both methods. The farmer surface grants publication authority and
+      // revokes standing links, so an unguarded handler here is authority over every farm's
+      // published state.
+      expect(
+        (await farmersRoute.GET(request("https://ff.example/api/admin/farmers"))).status,
+      ).toBe(403);
+      expect(
+        (
+          await farmersRoute.POST(
+            request("https://ff.example/api/admin/farmers", {
+              method: "POST",
+              body: JSON.stringify({
+                action: "authorize",
+                farmId: ids.farm,
+                contactHash: "a".repeat(64),
+              }),
             }),
           )
         ).status,
@@ -872,6 +898,216 @@ describe("admin routes (integration)", () => {
         select resolved_at from stand_data_flags where id = ${flagId}
       `;
       expect(rows[0]?.resolved_at).toBeNull();
+    });
+  });
+
+
+  describe("the farmer authorization surface through its route (F-040)", () => {
+    /** A contact and a farm, the shape VIGA acts on. */
+    async function farmerAndFarm(): Promise<{
+      contactHash: string;
+      farmId: string;
+    }> {
+      const suffix = String(2000 + farmerCounter);
+      farmerCounter += 1;
+      const contactHash = `f${farmerCounter.toString(16)}`.padStart(64, "0");
+      await sql()`
+        insert into contacts (phone_e164, phone_hash)
+        values (${`+1206555${suffix}`}, ${contactHash})
+        on conflict (phone_hash) do nothing
+      `;
+      const farms = await sql()`
+        insert into farms (name) values (${`Farmer Farm ${randomUUID()}`}) returning id
+      `;
+      return { contactHash, farmId: farms[0]?.id as string };
+    }
+
+    it("authorizes a farmer, recording the SESSION's administrator not the body's", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { contactHash, farmId } = await farmerAndFarm();
+      const impostor = await sql()`
+        insert into administrators (email, authorized_at)
+        values (${`farmer-impostor-${randomUUID()}@viga.example`}, ${at(0).toISOString()})
+        returning id
+      `;
+
+      const response = await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          // Naming someone else must not make them the actor.
+          body: JSON.stringify({
+            action: "authorize",
+            farmId,
+            contactHash,
+            administratorId: impostor[0]?.id,
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+
+      const audit = await sql()`
+        select actor_administrator_id from audit_events
+        where action = 'farmer_authorized'
+        order by occurred_at desc limit 1
+      `;
+      expect(audit[0]?.actor_administrator_id).toBe(ids.administrator);
+      expect(audit[0]?.actor_administrator_id).not.toBe(impostor[0]?.id);
+    });
+
+    it("lists the queue without exposing a phone number or a hash", async () => {
+      // Golden Rule #5, asserted on the whole serialized response so a future field
+      // carrying either fails here.
+      //
+      // BOTH arrays must be populated for this to prove anything. Sabotage caught exactly
+      // that gap: adding a `contactHash` to the pending-REQUEST projection survived the
+      // whole suite, because the only fixture here had an authorization and no open
+      // request, so the requests array was empty and had nothing to leak.
+      const token = await sessionFor(ids.administrator as string);
+      const { contactHash, farmId } = await farmerAndFarm();
+      await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ action: "authorize", farmId, contactHash }),
+        }),
+      );
+
+      // An OPEN request too — a farmer who texted SIGNUP and is still waiting.
+      const waiting = await farmerAndFarm();
+      await sql()`
+        insert into farmer_onboarding_requests (contact_hash, requested_at)
+        values (${waiting.contactHash}, ${at(1).toISOString()})
+      `;
+
+      const listed = await farmersRoute.GET(
+        request("https://ff.example/api/admin/farmers", { token }),
+      );
+      expect(listed.status).toBe(200);
+      const body = await listed.text();
+      const payload = (await new Response(body).json()) as {
+        requests: unknown[];
+        authorizations: unknown[];
+      };
+
+      // Neither array is empty, so neither assertion below is vacuous.
+      expect(payload.requests.length).toBeGreaterThan(0);
+      expect(payload.authorizations.length).toBeGreaterThan(0);
+
+      expect(body).not.toMatch(/\+1\d{10}/);
+      expect(body).not.toMatch(/[0-9a-f]{64}/);
+      // The masked form IS present, so this is not passing because the queue is empty.
+      expect(body).toContain("•••");
+    });
+
+    it("returns a fresh link ONCE and never again from the queue", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { contactHash, farmId } = await farmerAndFarm();
+      const authorized = await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ action: "authorize", farmId, contactHash }),
+        }),
+      );
+      expect(authorized.status).toBe(200);
+
+      const rows = await sql()`
+        select a.id from farmer_authorizations a
+        join contacts c on c.id = a.contact_id
+        where c.phone_hash = ${contactHash} and a.revoked_at is null
+      `;
+      const authorizationId = rows[0]?.id as string;
+
+      const issued = await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ action: "issue_link", authorizationId }),
+        }),
+      );
+      expect(issued.status).toBe(200);
+      // A finished URL against the CONFIGURED origin, not a bare token: an operator
+      // hand-assembling a URL is one typo from a dead link and one wrong host from handing
+      // the credential somewhere else.
+      const payload = (await issued.json()) as { link?: string };
+      expect(payload.link).toMatch(/^https:\/\/[^/]+\/stand\/[0-9a-f]{64}$/);
+      const issuedToken = /\/stand\/([0-9a-f]{64})$/.exec(payload.link ?? "")?.[1];
+      expect(issuedToken).toBeDefined();
+
+      // The queue reports that a link EXISTS and never what it is. An operator who navigates
+      // away must issue a new one — correct for a credential with no password behind it.
+      const listed = await farmersRoute.GET(
+        request("https://ff.example/api/admin/farmers", { token }),
+      );
+      const listedBody = await listed.text();
+      expect(listedBody).not.toContain(issuedToken as string);
+      expect(listedBody).toContain('"hasLiveLink":true');
+    });
+
+    it("revokes a farmer's access through the route", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { contactHash, farmId } = await farmerAndFarm();
+      await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ action: "authorize", farmId, contactHash }),
+        }),
+      );
+      const rows = await sql()`
+        select a.id from farmer_authorizations a
+        join contacts c on c.id = a.contact_id
+        where c.phone_hash = ${contactHash} and a.revoked_at is null
+      `;
+      const authorizationId = rows[0]?.id as string;
+
+      const revoked = await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ action: "revoke", authorizationId }),
+        }),
+      );
+      expect(revoked.status).toBe(200);
+
+      const after = await sql()`
+        select revoked_at from farmer_authorizations where id = ${authorizationId}
+      `;
+      expect(after[0]?.revoked_at).not.toBeNull();
+    });
+
+    it("refuses a malformed request without granting anything", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { contactHash, farmId } = await farmerAndFarm();
+      const before = await sql()`
+        select count(*)::int as n from farmer_authorizations
+      `;
+
+      for (const payload of [
+        {},
+        { action: "authorize" },
+        { action: "authorize", farmId },
+        { action: "authorize", contactHash },
+        { action: "delete", authorizationId: randomUUID() },
+        { action: "revoke" },
+        { action: "issue_link" },
+        { action: "authorize", farmId: 42, contactHash },
+      ]) {
+        const response = await farmersRoute.POST(
+          request("https://ff.example/api/admin/farmers", {
+            method: "POST",
+            token,
+            body: JSON.stringify(payload),
+          }),
+        );
+        expect(response.status, JSON.stringify(payload)).toBe(400);
+      }
+
+      const after = await sql()`
+        select count(*)::int as n from farmer_authorizations
+      `;
+      expect(after[0]?.n).toBe(before[0]?.n);
     });
   });
 
