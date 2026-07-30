@@ -162,3 +162,46 @@ column. `maskPhoneSuffix` **refuses** anything longer than four digits rather th
 a caller that accidentally passes a whole number fails closed instead of leaking. The approval queue
 and the stock-out queue carry no phone material at all — asserted by tests that grep the whole
 serialized response for an E.164 and for any 64-hex run.
+
+## Embedding the map on VIGA's website (F-043)
+
+The public map is designed to sit **inside VIGA's own page**, not to be a separate site people are
+sent away to. Paste this into a Squarespace **code block** where the Google My Map embed is today:
+
+```html
+<iframe
+  id="farm-friend-map"
+  src="https://farm-friend-web-p5mfxfp5za-uw.a.run.app/"
+  title="Vashon farm stands, updated by the farmers themselves"
+  style="width:100%;border:0;display:block"
+  height="900"
+  loading="lazy"
+></iframe>
+<script>
+  // The map tells this page how tall it really is; this resizes the frame to match.
+  // Without it the map gets its own inner scrollbar and reads as a bolted-on widget.
+  window.addEventListener("message", function (event) {
+    if (!event.data || event.data.type !== "farm-friend:height") return;
+    var frame = document.getElementById("farm-friend-map");
+    if (frame) frame.style.height = event.data.height + "px";
+  });
+</script>
+```
+
+**Why the script matters.** An iframe's height is chosen by the *embedding* page — the embedded
+document cannot resize its own frame. Without the listener VIGA must guess a height, and every guess
+is wrong in one of two ways: too short gives the map an inner scrollbar (a small scrolling box inside
+a long page), too tall leaves a slab of dead space beneath it. The map posts its real height whenever
+the content changes — a filter narrowing the list, a card being selected, the phone rotating — and
+those three lines keep the frame matched to it.
+
+**The `height="900"` is a fallback**, used only for the instant before the first message arrives and
+in the unlikely case the script is stripped. Do not tune it; the script supersedes it.
+
+**What the message contains: one number.** The map posts `{type, height}` and nothing else. It reads
+nothing back from VIGA's page, carries no customer data, and is not a channel for any. See
+`apps/web/app/embed-height.tsx` for why it is safe for that message to be un-targeted.
+
+**Nothing else is required** — no API key, no account, no per-view billing. The island artwork is
+drawn in the page itself rather than served from a mapping provider, which is why the embed has no
+usage cost no matter how often VIGA's page is loaded.

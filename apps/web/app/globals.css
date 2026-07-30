@@ -23,6 +23,26 @@
   --amber-soft: #fdf3e2;
   --amber-line: #d9a24a;
   --radius: 14px;
+
+  /* F-043 — VIGA's palette, from the printed farm map: sage island on cream water, olive
+   * type, brick red for accents. Adopted for the ARTWORK and the controls; the meaning
+   * colours above are untouched, because green-is-confirmed and amber-is-stale already carry
+   * product meaning that a brand refresh must not quietly repaint. */
+  /* Sampled from VIGA's printed farm map (max supplied the artwork 2026-07-30). The poster
+   * is PALE land on soft grey-green water with a cream list panel — the opposite weighting
+   * from a first guess of "sage island on cream", and the reason to work from the artefact
+   * rather than from a description of it. */
+  --sage: #dfe4d3;        /* land — pale, so pins and labels sit on top of it legibly */
+  --sage-deep: #b9c4ab;   /* the shoreline stroke */
+  --cream: #b6c3b4;       /* water — a soft grey-green, not a bright cream */
+  --panel: #eef0e0;       /* the poster's list panel, behind the map figure */
+  --olive: #3f4a38;
+  --brick: #8f3423;       /* the poster's link red — TEXT, not pins */
+  --pin: #4e6b46;         /* the poster's pin green */
+  --brick-soft: #f6e7e2;
+  /* The highway. Its own token because the two themes disagree about what a road looks
+   * like: pale-on-sage in daylight, light-on-dark at night. */
+  --road: #f4efe1;
 }
 
 * {
@@ -381,10 +401,39 @@ body {
     --amber: #e0ab5f;
     --amber-soft: #2d2415;
     --amber-line: #b8862f;
+
+    /* F-043 — the VIGA brand tokens need dark values too, and this was found by LOOKING at
+     * the page rather than by any test. The light values render the island as a bright cream
+     * slab on a near-black page: not merely off-brand, but genuinely unpleasant to read on a
+     * phone at night, which is exactly when someone checks whether a stand is still open.
+     *
+     * The island keeps its sage-on-cream RELATIONSHIP — it is a drawn map and reads as paper —
+     * but both are darkened so it sits in the page instead of glaring out of it. Olive and
+     * brick are lightened, because at these darknesses they fail contrast against the page. */
+    /* Dark mode is NOT the poster with the lights off. On paper the land is pale and the
+     * pins are dark green on top of it; invert that naively and you get dim green pins on
+     * dim green land, which is what the first attempt produced. So here the land stays
+     * MUTED and the pins go BRIGHT — the poster's figure/ground relationship is preserved
+     * even though both colours move. */
+    --sage: #3c4a37;
+    --sage-deep: #6d8064;
+    --cream: #1b211c;
+    --panel: #1e2420;
+    --olive: #b6c4ac;
+    --brick: #e08163;
+    --pin: #a8d493;
+    --brick-soft: #3a221c;
+    --road: #cdd8c4;
   }
 
   .locate-button {
     color: #10201a;
+  }
+
+  /* The active filter chip inverts in dark mode: a light olive fill needs dark text on it,
+   * where the light theme's olive fill needs cream. */
+  .chip-on {
+    color: #161c15;
   }
 }
 
@@ -678,4 +727,483 @@ body {
   border: 1px solid var(--line);
   border-left: 4px solid var(--green);
   border-radius: var(--radius);
+}
+
+/* ------------------------------------------------------ F-043 — the layout
+ *
+ * TWO ARRANGEMENTS OF ONE COMPONENT. Phone (primary): map on top, filters, then the list.
+ * Wide (>=56rem): map pinned left while the list scrolls beside it. Same markup — only the
+ * grid changes — because the public map is mobile-first by design and a second component for
+ * wide screens would be two things to keep honest instead of one. */
+
+.layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.map-column {
+  display: grid;
+  gap: 0.9rem;
+}
+
+@media (min-width: 56rem) {
+  .page {
+    max-width: 72rem;
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 1.75rem;
+  }
+
+  .map-column {
+    /* Pinned: the island stays put while the list scrolls past it, so a customer never
+     * loses the geography they are reading the list against. */
+    position: sticky;
+    top: 1.25rem;
+  }
+}
+
+/* ------------------------------------------------------- F-043 — the island */
+
+.island {
+  margin: 0;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.island-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  /*
+   * CAP THE HEIGHT ON PHONES. Vashon is long and narrow — the viewBox is roughly 1:1.7 — so
+   * at full width on a 390px phone the island renders about 830px tall, TALLER THAN THE
+   * SCREEN. Measured in a real browser: the first stand card sat 1293px down the page, so a
+   * customer opening this outdoors saw only map and had to scroll past a full screen before
+   * reaching a single listing. The map is meant to orient the list, not bury it.
+   *
+   * 58vh leaves the filter row and the first card visible on the same screen as the island.
+   * `object-fit: contain` keeps the aspect ratio honest — the island is letterboxed within
+   * the box rather than squashed, which would move every pin off its real position.
+   */
+  max-height: 58vh;
+  object-fit: contain;
+}
+
+@media (min-width: 56rem) {
+  .island-svg {
+    /* Wide screens have the room, and the map column is sticky beside a scrolling list. */
+    max-height: 78vh;
+  }
+
+  /* The drawing renders larger here, so the same on-screen size needs smaller viewBox type. */
+  .island-place {
+    font-size: 24px;
+  }
+
+  .pin-label {
+    font-size: 26px;
+  }
+}
+
+.island-water {
+  fill: var(--cream);
+}
+
+.island-land {
+  fill: var(--sage);
+  stroke: var(--sage-deep);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+/*
+ * The highway is drawn in the WATER colour so it reads as a channel cut through the land —
+ * which works in the light theme, where water is pale cream against sage.
+ *
+ * In dark mode that same token is near-black, and the road turned into a dark scar across a
+ * dark island: technically the same design, visually a defect. `--road` is therefore its own
+ * token rather than a reuse of `--cream`, so each theme can state what a road looks like on
+ * it. Found by looking at the rendered page in both themes.
+ */
+.island-road {
+  fill: none;
+  stroke: var(--road);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.9;
+}
+
+/*
+ * Label size tracks the RENDERED size, not the viewBox.
+ *
+ * SVG type scales with the viewBox, so capping the drawing's height on phones shrank every
+ * place name to ~11px on glass — measured in a real browser, and well under legible for
+ * someone reading outdoors. The drawing displays at roughly 0.55x on a phone, so the type has
+ * to be about twice as large in viewBox units to come out right.
+ *
+ * Set HERE rather than in a later override: an earlier attempt added a second `.island-place`
+ * rule above this one and lost on source order, silently changing nothing.
+ */
+.island-place {
+  fill: var(--olive);
+  font-size: 34px;
+  font-weight: 600;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--cream);
+  stroke-width: 4;
+  stroke-linejoin: round;
+}
+
+.island-caption {
+  padding: 0.55rem 0.9rem 0.7rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  background: var(--card);
+  border-top: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------- F-043 — the pins
+ *
+ * A pin is never status-by-colour-alone: the CARD carries the words ("Hours not listed",
+ * "Closed for the season"), and the pin is an orientation device. Selection is shown by SIZE
+ * and a ring as well as fill, so it survives both colourblindness and bright sun. */
+
+/*
+ * Pins follow the poster: a small filled circle with a thin light ring, sitting on PALE land.
+ * The poster reserves its reds for links and its greens for pin fills — brick is a text
+ * colour there, not a map colour, so a map full of brick dots was a misreading of the brand.
+ *
+ * The ring is the land colour, not white, so a pin reads as sitting ON the island rather than
+ * punched through it — and it keeps clustered pins separable, which matters around Vashon town
+ * where several farms sit within a few hundred metres.
+ */
+.pin-dot {
+  fill: var(--pin);
+  stroke: var(--sage);
+  stroke-width: 3;
+  cursor: pointer;
+  transition: r 120ms ease;
+}
+
+/* Keyboard focus only.
+ *
+ * `:focus-visible` rather than `:focus`, and the distinction was found by CLICKING a pin: a
+ * mouse or touch click on an SVG element takes focus, and the browser then drew its default
+ * blue rectangle around the circle — a square box on a round pin, in a colour from no palette
+ * here. `:focus-visible` fires for keyboard navigation and not for pointer input, so a
+ * keyboard user still gets a visible ring and a tapping customer just gets the selection
+ * styling below. Both are ringed; only one is ringed by the browser. */
+.pin-dot:focus {
+  outline: none;
+}
+
+.pin-dot:focus-visible {
+  outline: 3px solid var(--olive);
+  outline-offset: 2px;
+}
+
+.pin-unknown .pin-dot,
+.pin-by_appointment .pin-dot {
+  /* Hollow, because we do not know. Reads as "there is something here, unconfirmed" rather
+   * than as a solid claim — and it is a SHAPE difference, not a colour one, so it survives
+   * colourblindness and bright sun. The card still carries the words. */
+  fill: var(--sage);
+  stroke: var(--pin);
+  stroke-width: 4;
+}
+
+.pin-stale .pin-dot {
+  fill: var(--amber-line);
+}
+
+.pin-selected .pin-dot {
+  stroke: var(--olive);
+  stroke-width: 4;
+}
+
+.pin-label {
+  fill: var(--olive);
+  font-size: 36px;
+  font-weight: 700;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--cream);
+  stroke-width: 5;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------ F-043 — the filters */
+
+.filters {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.filter-row-meta {
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.chip {
+  /* Generous tap target — this is used outdoors, one-handed. */
+  min-height: 2.75rem;
+  padding: 0.55rem 0.95rem;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--olive);
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--sage-deep);
+}
+
+.chip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.chip-on {
+  /* Active state is fill + border + weight, never colour alone. */
+  color: var(--cream);
+  background: var(--olive);
+  border-color: var(--olive);
+}
+
+.chip-clear {
+  color: var(--brick);
+  border-style: dashed;
+}
+
+.field {
+  display: grid;
+  gap: 0.25rem;
+  flex: 1 1 9rem;
+  min-width: 0;
+}
+
+.field-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.field-input {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+}
+
+.field-input:focus-visible {
+  outline: 2px solid var(--olive);
+  outline-offset: 1px;
+}
+
+.field-input:disabled {
+  opacity: 0.55;
+}
+
+/* --------------------------------------------- F-043 — selection and state */
+
+.stand {
+  cursor: pointer;
+}
+
+.stand-selected {
+  /* Matches the pin's selected ring, so the link between the two surfaces is visible rather
+   * than inferred. */
+  border-color: var(--olive);
+  box-shadow: 0 0 0 2px var(--olive);
+}
+
+/* The open-state badge. WORDS first — the class only styles them, and every state that is
+ * not plainly "open" says what it is in text (F-043). */
+.open-state {
+  margin: 0.35rem 0 0;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.open-state-unknown,
+.open-state-by_appointment {
+  color: var(--ink-soft);
+}
+
+.open-state-closed,
+.open-state-closed_today,
+.open-state-out_of_season {
+  color: var(--brick);
+}
+
+/* =================================================== F-043 design pass (max, 2026-07-30) ===
+ *
+ * Two changes, both from watching the thing be used rather than from reading the markup.
+ */
+
+/*
+ * FILTERS SIT ABOVE THE MAP AND THE LIST.
+ *
+ * They were between the two, which read as a caption on the map — a control belonging to the
+ * picture rather than to the whole screen, and easy to scroll straight past on a phone. The
+ * customer's actual task is "narrow this down to what I can buy near me now", so the controls
+ * for that are the first thing under the headline, above both surfaces they govern.
+ *
+ * Styled as a grouped bar rather than loose chips, so it reads as one control surface.
+ */
+.filters {
+  margin: 1.25rem 0;
+  padding: 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.island {
+  background: var(--panel);
+}
+
+/*
+ * THE SELECTED STAND AS A BOTTOM SHEET, ON PHONES ONLY.
+ *
+ * Hidden at wide widths: there the list is already beside the map, so bringing the card into
+ * view is the right response and a sheet would cover a list that needs no covering.
+ *
+ * `position: fixed` and `max-height` with its own scroll: the sheet must never grow past the
+ * viewport, and its content is a summary that usually will not need to.
+ */
+.sheet {
+  display: none;
+}
+
+@media (max-width: 55.99rem) {
+  .sheet {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    max-height: 62vh;
+    overflow-y: auto;
+    padding: 0.75rem 1.15rem 1.5rem;
+    background: var(--card);
+    border-top: 1px solid var(--line);
+    border-radius: var(--radius) var(--radius) 0 0;
+    /* Lifted off the page so it reads as ABOVE the map rather than as a section of it. */
+    box-shadow: 0 -8px 28px rgb(0 0 0 / 22%);
+    /* Clears the home indicator on a modern phone. */
+    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+    animation: sheet-rise 160ms ease-out;
+  }
+
+  /* The list keeps its natural length; the sheet floats over it, so the page below needs
+   * room to scroll clear of a sheet that is covering its last cards. */
+  .list-column {
+    padding-bottom: 40vh;
+  }
+}
+
+@keyframes sheet-rise {
+  from {
+    transform: translateY(12%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+/* The grab handle — the affordance that says "this is a sheet, it dismisses". */
+.sheet-grip {
+  width: 2.25rem;
+  height: 0.25rem;
+  margin: 0 auto 0.75rem;
+  background: var(--line);
+  border-radius: 999px;
+}
+
+.sheet-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.sheet-title {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: -0.01em;
+}
+
+.sheet-farm {
+  margin: 0.1rem 0 0;
+  font-size: 0.9rem;
+  color: var(--ink-faint);
+}
+
+.sheet-close {
+  flex: none;
+  /* 44px, because this is the one control that must never be hard to hit — a sheet you
+   * cannot dismiss is a trap on a small screen. */
+  width: 44px;
+  height: 44px;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--ink-soft);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.sheet-close:hover {
+  color: var(--ink);
+}
+
+/*
+ * With a sheet open on a phone, the map shrinks so BOTH fit on one screen.
+ *
+ * Measured in a browser: the sheet's top edge sits at ~60% of the viewport, and at the top of
+ * the page the island extended past that — so tapping a pin hid the pin that was tapped. The
+ * map now takes the space above the sheet instead of being covered by it, which is what makes
+ * "the map stays visible" true rather than merely intended.
+ */
+@media (max-width: 55.99rem) {
+  .sheet-open .island-svg {
+    max-height: 34vh;
+  }
 }

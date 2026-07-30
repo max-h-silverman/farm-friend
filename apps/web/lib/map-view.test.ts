@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyStandFilters,
   buildMapView,
   standListingLines,
   type PublicStandPayload,
@@ -24,6 +25,7 @@ const stands: PublicStandPayload[] = [
     longitude: -122.4594,
     updated: "updated 2 hours ago",
     stale: false,
+    availability: {},
     items: [{ itemName: "Kale", quantity: 6, unit: "bunches" }],
   },
   {
@@ -37,6 +39,7 @@ const stands: PublicStandPayload[] = [
     longitude: -122.4594,
     updated: "updated 9 days ago",
     stale: true,
+    availability: {},
     items: [{ itemName: "Potatoes" }],
   },
 ];
@@ -128,6 +131,7 @@ describe("buildMapView", () => {
       address: "3 East Road",
       latitude: 47.46,
       longitude: -122.4594,
+      availability: {},
       items: [],
     };
 
@@ -172,6 +176,7 @@ describe("buildMapView", () => {
       locationName: "Open Gate Lamb and Grazing",
       visitability: "contact_only",
       offeringType: "by_order",
+      availability: {},
       items: [],
     };
 
@@ -218,6 +223,7 @@ describe("buildMapView", () => {
         ...contactOnly,
         updated: "updated 2 hours ago",
         stale: false,
+        availability: {},
         items: [{ itemName: "Lamb shares", priceText: "$180 half" }],
       };
 
@@ -271,6 +277,7 @@ describe("buildMapView", () => {
         latitude: 47.5,
         longitude: -122.46,
         usuallySells: ["eggs"],
+        availability: {},
         items: [],
       };
 
@@ -306,6 +313,7 @@ describe("standListingLines (F-042)", () => {
     address: "3 East Road",
     latitude: 47.5,
     longitude: -122.46,
+    availability: {},
     items: [],
   };
 
@@ -375,6 +383,7 @@ describe("standListingLines (F-042)", () => {
       updated: "updated 4 hours ago",
       confirmedElapsed: "4 hours ago",
       stale: false,
+      availability: {},
       items: [{ itemName: "salad greens" }, { itemName: "tomatoes" }],
     };
 
@@ -478,6 +487,7 @@ describe("standListingLines (F-042)", () => {
         updated: "updated 2 hours ago",
         confirmedElapsed: "2 hours ago",
         stale: false,
+        availability: {},
         items: [{ itemName: "kale" }],
       });
 
@@ -495,6 +505,7 @@ describe("standListingLines (F-042)", () => {
         updated: "updated 1 hour ago",
         confirmedElapsed: "1 hour ago",
         stale: false,
+        availability: {},
         items: [],
       });
 
@@ -559,5 +570,313 @@ describe("standListingLines (F-042)", () => {
       expect(lineOfKind(lines, "usual")!.items).toEqual(["lamb shares"]);
       expect(lineOfKind(lines, "no-listing")).toBeUndefined();
     });
+  });
+});
+
+describe("applyStandFilters (F-043)", () => {
+  // The four filters plus season, composed. All client-side over data already served — no new
+  // model call, and the public surface stays model-free.
+  //
+  // THE RULE UNDER TEST THROUGHOUT (max, 2026-07-30): a stand that never stated its
+  // availability is SHOWN under "Open now", marked unconfirmed — never hidden, never reported
+  // closed. Production has 13 of 34 public stands partly unstated, so a filter that excluded
+  // them would empty the most useful control of a third of the island on the strength of
+  // something no farmer ever said.
+
+  const JULY_NOON = new Date("2026-07-15T12:00:00-07:00");
+  const PDT = -7 * 60;
+
+  function stand(
+    id: string,
+    overrides: Partial<PublicStandPayload> = {},
+  ): PublicStandPayload {
+    return {
+      id,
+      farmName: `${id} Farm`,
+      locationName: `${id} Stand`,
+      visitability: "visitable",
+      offeringType: "produce",
+      address: `${id} Road`,
+      latitude: 47.44,
+      longitude: -122.46,
+      availability: {},
+      items: [],
+      ...overrides,
+    };
+  }
+
+  const openAllDay = {
+    season: { kind: "year_round" },
+    hours: { kind: "all_day" },
+  } as const;
+  const closedForTheYear = {
+    season: {
+      kind: "date_range",
+      startMonth: 11,
+      startDay: 1,
+      endMonth: 12,
+      endDay: 31,
+    },
+    hours: { kind: "all_day" },
+  } as const;
+
+  const ask = (
+    stands: PublicStandPayload[],
+    filters: Parameters<typeof applyStandFilters>[1],
+  ) =>
+    applyStandFilters(stands, filters, { at: JULY_NOON, utcOffsetMinutes: PDT });
+
+  it("returns every stand when no filter is active", () => {
+    const all = [stand("a"), stand("b", { availability: closedForTheYear })];
+
+    const result = ask(all, {});
+
+    expect(result.map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
+  describe("open now", () => {
+    it("keeps an open stand and drops one that is closed for the year", () => {
+      const all = [
+        stand("open", { availability: openAllDay }),
+        stand("shut", { availability: closedForTheYear }),
+      ];
+
+      const result = ask(all, { openNow: true });
+
+      expect(result.map((s) => s.id)).toEqual(["open"]);
+    });
+
+    it("KEEPS a stand that never stated its availability, marked unconfirmed", () => {
+      // The decision this feature turns on. `unstated` said nothing; excluding it would
+      // assert a closure no farmer made.
+      const all = [
+        stand("open", { availability: openAllDay }),
+        stand("unstated", { availability: {} }),
+      ];
+
+      const result = ask(all, { openNow: true });
+
+      expect(result.map((s) => s.id)).toEqual(["open", "unstated"]);
+      // And the UI must be able to TELL them apart, or "shown" becomes "shown as open",
+      // which is the same lie by a different route.
+      expect(result.find((s) => s.id === "open")!.openState).toBe("open");
+      expect(result.find((s) => s.id === "unstated")!.openState).toBe("unknown");
+    });
+
+    it("keeps a stand that stated a season but no hours", () => {
+      // Production's most common partial shape — 8 of 34 stands.
+      const all = [
+        stand("season-only", {
+          availability: { season: { kind: "year_round" } },
+        }),
+      ];
+
+      const result = ask(all, { openNow: true });
+
+      expect(result.map((s) => s.id)).toEqual(["season-only"]);
+      expect(result[0]!.openState).toBe("unknown");
+    });
+
+    it("keeps a by-appointment stand rather than reporting it shut", () => {
+      // Reporting `closed` hides a farm that would happily sell to someone today.
+      const all = [
+        stand("appointment", {
+          availability: {
+            season: { kind: "year_round" },
+            hours: { kind: "by_appointment" },
+          },
+        }),
+      ];
+
+      const result = ask(all, { openNow: true });
+
+      expect(result.map((s) => s.id)).toEqual(["appointment"]);
+      expect(result[0]!.openState).toBe("by_appointment");
+    });
+
+    it("drops a dusk stand at night and keeps it at midday", () => {
+      // The computed sun, reaching the filter. Same stand, same season, two times of day.
+      const duskStand = [
+        stand("dusk", {
+          availability: {
+            season: { kind: "year_round" },
+            hours: { kind: "dawn_to_dusk" },
+          },
+        }),
+      ];
+
+      const atNoon = applyStandFilters(
+        duskStand,
+        { openNow: true },
+        { at: JULY_NOON, utcOffsetMinutes: PDT },
+      );
+      const atMidnight = applyStandFilters(
+        duskStand,
+        { openNow: true },
+        { at: new Date("2026-07-15T01:00:00-07:00"), utcOffsetMinutes: PDT },
+      );
+
+      expect(atNoon.map((s) => s.id)).toEqual(["dusk"]);
+      expect(atMidnight).toEqual([]);
+    });
+  });
+
+  describe("confirmed recently", () => {
+    it("keeps only stands a farmer has confirmed and that are not stale", () => {
+      const all = [
+        stand("fresh", { updated: "updated 2 hours ago", stale: false }),
+        stand("stale", { updated: "updated 9 days ago", stale: true }),
+        stand("never"),
+      ];
+
+      const result = ask(all, { confirmedRecently: true });
+
+      expect(result.map((s) => s.id)).toEqual(["fresh"]);
+    });
+
+    it("excludes a never-confirmed stand without treating it as stale", () => {
+      // B-013's distinction, preserved through the filter: "never confirmed" and "confirmed
+      // long ago" are different facts and `stale` is absent rather than false for the first.
+      const all = [stand("never")];
+
+      expect(ask(all, { confirmedRecently: true })).toEqual([]);
+      expect(all[0]!.stale).toBeUndefined();
+    });
+  });
+
+  describe("what they sell", () => {
+    it("matches a confirmed item", () => {
+      const all = [
+        stand("has", { items: [{ itemName: "Tomatoes" }] }),
+        stand("hasnt", { items: [{ itemName: "Kale" }] }),
+      ];
+
+      const result = ask(all, { sells: "tomatoes" });
+
+      expect(result.map((s) => s.id)).toEqual(["has"]);
+    });
+
+    it("matches a usual offering tag as well as a confirmed item", () => {
+      // The 212 tags F-042 made visible are the main thing there is to filter on — only one
+      // stand in production has ever had a confirmation.
+      const all = [
+        stand("tagged", { usuallySells: ["duck eggs", "flowers"] }),
+        stand("other", { usuallySells: ["lamb"] }),
+      ];
+
+      const result = ask(all, { sells: "eggs" });
+
+      expect(result.map((s) => s.id)).toEqual(["tagged"]);
+    });
+
+    it("is case-insensitive and matches partial words", () => {
+      // Tags come from VIGA's form text and confirmations from a farmer's own SMS; nothing
+      // normalizes casing between them, and a customer types "egg" not "duck eggs".
+      const all = [stand("a", { usuallySells: ["Duck Eggs"] })];
+
+      expect(ask(all, { sells: "EGG" }).map((s) => s.id)).toEqual(["a"]);
+      expect(ask(all, { sells: "duck" }).map((s) => s.id)).toEqual(["a"]);
+    });
+
+    it("ignores a blank or whitespace-only query rather than matching nothing", () => {
+      const all = [stand("a"), stand("b")];
+
+      expect(ask(all, { sells: "" }).map((s) => s.id)).toEqual(["a", "b"]);
+      expect(ask(all, { sells: "   " }).map((s) => s.id)).toEqual(["a", "b"]);
+    });
+  });
+
+  describe("has a stand to visit", () => {
+    it("keeps visitable stands and drops contact-only farms", () => {
+      const all = [
+        stand("visit"),
+        stand("order", {
+          visitability: "contact_only",
+          offeringType: "by_order",
+          address: undefined,
+          latitude: undefined,
+          longitude: undefined,
+        }),
+      ];
+
+      const result = ask(all, { visitable: true });
+
+      expect(result.map((s) => s.id)).toEqual(["visit"]);
+    });
+  });
+
+  describe("season", () => {
+    it("keeps stands whose season covers the chosen one", () => {
+      const all = [
+        stand("summer", {
+          availability: {
+            season: { kind: "named_season", names: ["summer"] },
+          },
+        }),
+        stand("winter", {
+          availability: {
+            season: { kind: "named_season", names: ["winter"] },
+          },
+        }),
+        stand("always", { availability: { season: { kind: "year_round" } } }),
+      ];
+
+      const result = ask(all, { season: "summer" });
+
+      // Year-round covers every season, so it belongs in the answer.
+      expect(result.map((s) => s.id)).toEqual(["summer", "always"]);
+    });
+
+    it("keeps a stand with no stated season rather than hiding it", () => {
+      // Same honesty rule as "open now": absence is not an exclusion.
+      const all = [stand("unstated", { availability: {} })];
+
+      expect(ask(all, { season: "summer" }).map((s) => s.id)).toEqual(["unstated"]);
+    });
+
+    it("matches a date range against the chosen season's months", () => {
+      const all = [
+        stand("may-oct", {
+          availability: {
+            season: {
+              kind: "date_range",
+              startMonth: 5,
+              startDay: 1,
+              endMonth: 10,
+              endDay: 31,
+            },
+          },
+        }),
+      ];
+
+      expect(ask(all, { season: "summer" }).map((s) => s.id)).toEqual(["may-oct"]);
+      expect(ask(all, { season: "winter" })).toEqual([]);
+    });
+  });
+
+  it("composes filters — every active one must pass", () => {
+    const all = [
+      stand("both", {
+        availability: openAllDay,
+        usuallySells: ["eggs"],
+      }),
+      stand("open-only", { availability: openAllDay, usuallySells: ["lamb"] }),
+      stand("sells-only", {
+        availability: closedForTheYear,
+        usuallySells: ["eggs"],
+      }),
+    ];
+
+    const result = ask(all, { openNow: true, sells: "eggs" });
+
+    expect(result.map((s) => s.id)).toEqual(["both"]);
+  });
+
+  it("preserves the incoming order, which is the server's confirmation ordering", () => {
+    // Filtering must not resort. The server puts confirmed stands first, and distance sorting
+    // is the customer's own separate choice.
+    const all = [stand("c"), stand("a"), stand("b")];
+
+    expect(ask(all, {}).map((s) => s.id)).toEqual(["c", "a", "b"]);
   });
 });

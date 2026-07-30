@@ -11,7 +11,119 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-07-30 (latest) — F-040 built: farmer onboarding, and six sabotages that were the real work
+## 2026-07-30 (latest) — F-043 built: the interactive island map, and the defect a green suite could not see
+
+The map becomes an island view with filters and a linked stand list. The build itself was
+straightforward — the design was settled in the PM item. **The interesting part is that the worst
+defect in the work passed 719 tests, a rendered-bytes inspection, and my own reading of the code,
+and was only visible when I looked at a picture of it.**
+
+### The gating check changed the design before any code
+
+The item's own note flagged it: the availability columns might not be populated. Measured against
+production first, and the answer moved the design — season 85% (29/34), hours 65% (22/34), and
+**`open_days` at 0% island-wide**, though 14 stands state a `specific_days` restocking cadence. So
+`Open now` is season + time-of-day only; the weekday branch is implemented because the schema
+permits it, but nothing feeds it and nothing may assume it does.
+
+Also found: **F-035's note naming Green Ears and Morgan Hill as unparseable is stale.** Both parse
+cleanly. The four real open flags are Holmestead and Open Gate (season) plus Peak Moon and Sweet
+Alyssum — and those two are **address** flags, not availability. Recorded so it is not re-derived.
+
+### Three states, because a boolean would have to lie
+
+12 of 34 public stands state no hours. A boolean `isOpenNow` has to call those `false`, which
+asserts a farmer said "closed" when the farmer said nothing at all. So `openNow` returns a state,
+`unknown` is first-class, and the filter keeps unknown stands while the card badges them "Hours not
+listed". max decided this: shown-but-marked, never hidden, never reported shut.
+
+The rule generalizes to every filter — *a stand that never stated a fact is never excluded by a
+filter over that fact*. Verified against the real corpus through the running app: all 12 survive,
+0 dropped.
+
+### The sun is computed, and checked against someone else's numbers
+
+Migration 0005 refuses to store dawn/dusk as clock times because dusk on Vashon moves ~5 hours
+across the year. `daylight.ts` computes the real sun instead — pure arithmetic, no provider, no key.
+
+The test anchors to **US Naval Observatory** published times rather than to this implementation's
+own output captured as a golden file. That distinction earned its keep immediately: it caught two
+transcription errors in my first draft of the test (Jan 15 sunset 16:38 → 16:47, Jun 21 sunrise
+05:11 → 05:13). A self-generated fixture passes against an algorithm that is wrong in the same way
+it is.
+
+Verified by effect: `Open now` returns **31** stands at 1pm and **18** at 2am.
+
+### The defect worth the entry: the artwork and the projection disagreed
+
+The first hand-drawn coastline put **16 of 32 real farms in open water**. Every test passed. The
+projection was correct and internally consistent — and *nothing compared the drawing to it*. A
+drawn map and projected pins are two independent statements about where the island is; they agree
+only if something makes them, and nothing did.
+
+A second hand-drawn attempt fixed the farms and collapsed Quartermaster Harbour to a sliver,
+because the farm positions constrain a hand-guess far more tightly than the real coast does.
+Resolved by tracing the actual shoreline (OpenStreetMap `natural=coastline`, 4,961 nodes → one
+closed ring → Douglas-Peucker to 92 vertices, baked in as a static array — no runtime seam). It
+satisfied all 32 farms with **zero** tuning.
+
+**The structural fix matters more than the shape.** The geometry now lives in
+`apps/web/lib/island-geometry.ts` because `vitest.config.ts` covers `apps/*/lib` and **not**
+`apps/*/app` — a coastline defined beside its component is untestable by construction. The test
+checks every real farm coordinate *and* samples the highway route against the drawn polygon.
+
+### Then the browser found five more that bytes cannot
+
+The "someone looks at it" criterion is the one F-042 and F-040 both still owe, and it paid for
+itself. Every one of these passed the full suite and a rendered-bytes inspection:
+
+1. **`globals.css` has carried a `prefers-color-scheme: dark` block since F-017.** The new VIGA
+   brand tokens had no dark values, so the island rendered as a bright cream slab on a near-black
+   page — worst on a phone at night, exactly when someone checks whether a stand is open.
+2. **The highway** was drawn in the water colour: a channel through sage in daylight, a dark scar
+   on dark land at night. It has its own `--road` token per theme now.
+3. **The island was taller than the phone screen** — 828px on a 737px viewport, first stand card
+   1293px down. A customer opened the map and saw only map.
+4. **SVG type scales with the viewBox**, so capping that height shrank place labels to ~11px on
+   glass. The first fix **silently did nothing**: a second `.island-place` rule placed *above* the
+   original lost on source order.
+5. **Clicking a pin drew the browser's blue focus rectangle** around a round pin — `:focus-visible`
+   rather than `:focus`.
+
+Bytes prove markup and geometry. They do not prove CSS.
+
+### max's design pass, from the actual poster
+
+Two structural notes and one artefact:
+
+- **Filters moved above the map and list.** Between the two they read as a caption on the map — a
+  control belonging to the picture rather than the screen, easy to scroll past on a phone.
+- **Map tap raises a bottom sheet instead of scrolling.** The old smooth scroll travelled ~800px to
+  a card, throwing away the map being read. The sheet keeps the map visible (294px of it, measured)
+  and dismisses back to the same view. Explicitly *not* "hide all other listings": that would leave
+  the map as the only route back to the full set, so a later filter change would appear to do
+  nothing.
+- **max supplied VIGA's printed farm map.** It is **pale land on soft grey-green water with a cream
+  list panel** — the opposite weighting from my inference of "sage island on cream", and the reason
+  to work from the artefact rather than a description of it. Pins take the poster's green; brick red
+  is a *text* colour there, so a map of brick dots was a misreading of the brand.
+
+Dark mode is not the poster with the lights off — inverting naively gave dim green pins on dim green
+land. Land stays muted, pins go bright, so figure/ground survives even though both colours move.
+
+One thing deliberately **not** copied: the poster's legend uses colour alone for "open year round"
+vs "open til late November". The three-signal rule holds; the cards carry words.
+
+### Verified and owed
+
+719/719 unit (69 files), 403/403 integration from empty, typecheck/lint clean, evals 11/11 + 4/4 +
+29/29. `evals:live` correctly not required — no seam projection, schema, or output contract
+changed. Model-free and architecture tripwires pass. ~20 sabotages, all caught.
+
+**Owed: the Squarespace embed handshake**, which needs a second origin to frame the page and was
+not exercised. Everything else on the item is verified, including the browser check.
+
+## 2026-07-30 — F-040 built: farmer onboarding, and six sabotages that were the real work
 
 One tranche, all five pieces max scoped. The build was largely mechanical — the design was settled
 in the PM item and not re-litigated. **The interesting part is that six of my own assertions were

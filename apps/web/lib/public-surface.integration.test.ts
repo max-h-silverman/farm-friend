@@ -732,6 +732,172 @@ describe("public web surface boundary (integration)", () => {
     });
   });
 
+  describe("stand availability reaches the browser (F-043)", () => {
+    // F-035 wrote these columns and NOTHING has ever read them — `listPublicStands` selected
+    // none of them. This is their first consumer, and the same "data present with no consumer
+    // is invisible" failure F-042 was filed for.
+    //
+    // The load-bearing property throughout: a stand that STATED nothing must stay
+    // distinguishable from one that stated something, all the way to the wire. Production has
+    // 5 of 34 stands with no season and 12 with no hours; if absence serializes as a value,
+    // the "open now" filter reports them closed and the map lies about most of the island.
+
+    /**
+     * State this stand's availability in ONE statement.
+     *
+     * Single-statement on purpose. The 0005 CHECK constraints are coherence rules ACROSS
+     * columns — `until_dusk` requires `open_from_minutes` to be non-null in the same row — so
+     * setting them column by column trips a constraint partway through on a shape that is
+     * perfectly legal once complete. The fixture writing them together is the same atomicity
+     * the seeder uses.
+     */
+    async function setAvailability(
+      columns: Record<string, unknown>,
+    ): Promise<void> {
+      const entries = Object.entries(columns);
+      const assignments = entries
+        .map(([column], index) => `${column} = $${index + 1}`)
+        .join(", ");
+      await client().unsafe(
+        `update sales_locations set ${assignments} where id = $${entries.length + 1}`,
+        [...entries.map(([, value]) => value as never), ids.location as never],
+      );
+    }
+
+    it("carries a stated season and stated hours through to the wire", async () => {
+      await setAvailability({
+        season_kind: "date_range",
+        season_start_month: 5,
+        season_start_day: 1,
+        season_end_month: 10,
+        season_end_day: 31,
+        open_hours_kind: "clock_range",
+        open_from_minutes: 600,
+        open_until_minutes: 1080,
+      });
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      // Fails against the reader this item was filed for: the columns are simply not selected.
+      expect(stands[0]!.availability).toEqual({
+        season: {
+          kind: "date_range",
+          startMonth: 5,
+          startDay: 1,
+          endMonth: 10,
+          endDay: 31,
+        },
+        hours: { kind: "clock_range", fromMinutes: 600, untilMinutes: 1080 },
+      });
+
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as { stands: Record<string, unknown>[] };
+      expect(body.stands[0]!.availability).toEqual({
+        season: {
+          kind: "date_range",
+          startMonth: 5,
+          startDay: 1,
+          endMonth: 10,
+          endDay: 31,
+        },
+        hours: { kind: "clock_range", fromMinutes: 600, untilMinutes: 1080 },
+      });
+    });
+
+    it("carries named seasons as the names, never resolved to months here", async () => {
+      // F-035's rule: named seasons resolve at QUERY time against one documented constant, so
+      // a correction to what "summer" means changes the constant rather than every row. If the
+      // reader baked months in, that correction would silently stop working.
+      await setAvailability({
+        season_kind: "named_season",
+        season_names: ["spring", "summer"],
+      });
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands[0]!.availability.season).toEqual({
+        kind: "named_season",
+        names: ["spring", "summer"],
+      });
+    });
+
+    it("keeps an UNSTATED season and UNSTATED hours absent, never null or a default", async () => {
+      // The honesty assertion. The fixture states nothing, which is the production shape for
+      // 4 of 34 public stands. Absence must survive to the wire so "open now" can answer
+      // "unknown" rather than "closed" — `season: null` or a defaulted `year_round` would each
+      // become a claim the farmer never made.
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands[0]!.availability).toEqual({});
+      expect("season" in stands[0]!.availability).toBe(false);
+      expect("hours" in stands[0]!.availability).toBe(false);
+
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as {
+        stands: { availability: Record<string, unknown> }[];
+      };
+      // `in`, not a value comparison: `null` and absent both read as falsy downstream, and it
+      // is precisely that collapse this test exists to forbid.
+      expect("season" in body.stands[0]!.availability).toBe(false);
+      expect("hours" in body.stands[0]!.availability).toBe(false);
+    });
+
+    it("carries season and hours INDEPENDENTLY — one stated, one not", async () => {
+      // Production's most common partial shape: 8 stands state a season and no hours. If the
+      // reader travels them together (as the recency and place fields correctly do), a stand
+      // with a season but no hours loses its season, and the season filter goes wrong for a
+      // quarter of the island. These two are genuinely independent facts.
+      await setAvailability({ season_kind: "year_round" });
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands[0]!.availability.season).toEqual({ kind: "year_round" });
+      expect("hours" in stands[0]!.availability).toBe(false);
+    });
+
+    it("carries a dusk-relative kind with no invented clock times", async () => {
+      // `dawn_to_dusk` has no from/until in the database by CHECK constraint, and must not
+      // acquire one here. Inventing 6am-8pm would be exactly the "precision the farmer never
+      // stated" migration 0005 refuses.
+      await setAvailability({ open_hours_kind: "dawn_to_dusk" });
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands[0]!.availability.hours).toEqual({ kind: "dawn_to_dusk" });
+      const hours = stands[0]!.availability.hours!;
+      expect("fromMinutes" in hours).toBe(false);
+      expect("untilMinutes" in hours).toBe(false);
+    });
+
+    it("carries until_dusk's stated start without inventing an end", async () => {
+      await setAvailability({
+        open_hours_kind: "until_dusk",
+        open_from_minutes: 600,
+      });
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands[0]!.availability.hours).toEqual({
+        kind: "until_dusk",
+        fromMinutes: 600,
+      });
+      expect("untilMinutes" in stands[0]!.availability.hours!).toBe(false);
+    });
+
+    it("carries open_days when stated and leaves it absent when not", async () => {
+      // Production has this at 0% — no row island-wide carries a day set, though 14 stands
+      // say `specific_days`. The column is plumbed anyway because the schema permits it and a
+      // future load would otherwise be invisible; the filter must not assume it exists.
+      const unstated = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect("days" in unstated[0]!.availability).toBe(false);
+
+      await setAvailability({ open_days: [0, 6] });
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect(stands[0]!.availability.days).toEqual([0, 6]);
+    });
+  });
+
   describe("the QR stock-out form is the one throttled public model surface", () => {
     const parseListed = () => JSON.stringify({ kind: "listed", entryId: ids.entry });
 
