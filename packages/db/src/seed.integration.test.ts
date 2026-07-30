@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import type { Sql } from "./sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { seedOfferings, seedStands, type SeedStandInput } from "./seed";
+import { planOfferings, seedOfferings, seedStands, type SeedStandInput } from "./seed";
 
 // B-002 — the seeder, proven against real constraints.
 //
@@ -342,6 +342,121 @@ describe("seeding VIGA's stands (B-002)", () => {
       expect(revisions[0]!.count).toBe(0);
       const entries = await client`select count(*)::integer as count from inventory_entries`;
       expect(entries[0]!.count).toBe(0);
+    });
+  });
+
+  // F-041 — the approved artifact records the MAP EXPORT's name for each farm, while the seed
+  // join stores the FORM's ("Aeggy's" vs. "Aeggy's Farm", "Provo Farm" vs. "Provo Farms",
+  // "Fruits Des Vignes" vs. "Fruits des Vignes"). An exact-string lookup reported five of the
+  // real corpus's 31 stands as unknown and gave them no tags. The fix is the mechanism that
+  // already exists: the join's own `matchStandName` key, one general normalization with two
+  // consumers, so the loader is immune to the NEXT naming difference rather than to these five.
+  describe("matching an approved stand name to a seeded one (F-041)", () => {
+    beforeAll(async () => {
+      await seedStands(client, [
+        {
+          ...sample()[0]!,
+          name: "Renamed Farm",
+          place: { address: "20 Example Rd SW", longitude: -122.45, latitude: 47.46 },
+        },
+      ]);
+    });
+
+    it("matches through the join's normalization, not an exact string", async () => {
+      // "Renamed Farms" differs from the seeded "Renamed Farm" only by a generic plural, the
+      // exact shape of the Provo Farm/Provo Farms pair. An exact lookup reports it unknown.
+      const result = await seedOfferings(client, [
+        { standName: "Renamed Farms", items: ["garlic"] },
+      ]);
+      expect(result.unknownStands).toEqual([]);
+      expect(result.inserted).toBe(1);
+
+      const rows = await client`
+        select o.item from sales_location_offerings o
+        join sales_locations l on l.id = o.sales_location_id
+        where l.name = 'Renamed Farm'
+      `;
+      expect(rows.map((row) => row.item)).toEqual(["garlic"]);
+    });
+
+    it("matches across a case difference the exact lookup missed", async () => {
+      // The real pair: the artifact says "Fruits Des Vignes Farm", the database holds
+      // "Fruits des Vignes Farm". Nothing but capitalization separates them.
+      const result = await seedOfferings(client, [
+        { standName: "RENAMED farm", items: ["shallots"] },
+      ]);
+      expect(result.unknownStands).toEqual([]);
+      expect(result.inserted).toBe(1);
+    });
+
+    it("still reports a genuinely unknown stand rather than matching it loosely", async () => {
+      // The refusal must survive the looser key. This is the property the corpus decided:
+      // "Lavender Hill Farm" and "Flora Hill Farm" are distinct farms, and a matcher permissive
+      // enough to join them would publish one farm's tags under another's name.
+      const result = await seedOfferings(client, [
+        { standName: "Lavender Hill Farm", items: ["lavender"] },
+      ]);
+      expect(result.unknownStands).toEqual(["Lavender Hill Farm"]);
+      expect(result.inserted).toBe(0);
+    });
+
+    it("REFUSES an ambiguous name rather than picking one of the candidates", async () => {
+      // Two seeded stands reducing to one key make the choice arbitrary and order-dependent.
+      // Committing either one silently files a farm's tags under a stranger's listing, so the
+      // whole batch is refused — the same stance the join takes on a duplicate export name.
+      await seedStands(client, [
+        {
+          ...sample()[0]!,
+          name: "Twinned Stand",
+          place: { address: "21 Example Rd SW", longitude: -122.45, latitude: 47.46 },
+        },
+        {
+          ...sample()[0]!,
+          name: "The Twinned Farm",
+          place: { address: "22 Example Rd SW", longitude: -122.45, latitude: 47.46 },
+        },
+      ]);
+
+      await expect(
+        seedOfferings(client, [{ standName: "Twinned", items: ["plums"] }]),
+      ).rejects.toThrow(/ambiguous/i);
+
+      // Nothing landed for either candidate — a refused batch writes nothing at all.
+      const rows = await client`
+        select count(*)::integer as count from sales_location_offerings o
+        join sales_locations l on l.id = o.sales_location_id
+        where l.name in ('Twinned Stand', 'The Twinned Farm')
+      `;
+      expect(rows[0]!.count).toBe(0);
+
+      // Remove the colliding pair before leaving. An ambiguity is a whole-DATABASE property, not
+      // a per-call one, so a pair left behind makes EVERY later call in this suite throw — which
+      // is exactly what it did, failing the dry-run test below and looking like a defect in the
+      // dry run rather than a leaked fixture.
+      await client`delete from sales_locations where name in ('Twinned Stand', 'The Twinned Farm')`;
+    });
+
+    it("reports what each approved entry resolves to, for review before the real run", async () => {
+      // The dry-run acceptance criterion: `--dry-run` must state what WOULD land, which means
+      // resolving names against the real database while writing nothing. A dry run that only
+      // echoes the file back cannot show the five unknown stands it is there to reveal.
+      const before = await client`
+        select count(*)::integer as count from sales_location_offerings
+      `;
+      const plan = await planOfferings(client, [
+        { standName: "Renamed Farms", items: ["garlic", "leeks"] },
+        { standName: "Lavender Hill Farm", items: ["lavender"] },
+      ]);
+
+      expect(plan.unknownStands).toEqual(["Lavender Hill Farm"]);
+      expect(plan.matched).toEqual([
+        { standName: "Renamed Farms", locationName: "Renamed Farm", newItems: ["leeks"], existingItems: ["garlic"] },
+      ]);
+
+      const after = await client`
+        select count(*)::integer as count from sales_location_offerings
+      `;
+      expect(after[0]!.count).toBe(before[0]!.count);
     });
   });
 });

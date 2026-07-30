@@ -1,4 +1,5 @@
-import type { Sql } from "./sql";
+import { matchStandName } from "@farm-friend/core";
+import type { Sql, Tx } from "./sql";
 
 // B-002 — loading VIGA's reference stand data.
 //
@@ -138,6 +139,139 @@ export interface SeedOfferingsResult {
   unknownStands: string[];
 }
 
+/** What one approved entry resolves to, for a dry run to report before anything is written. */
+export interface OfferingPlanEntry {
+  /** The name as the approved artifact states it. */
+  standName: string;
+  /** The name the database holds, which may differ — that is the whole point of the key. */
+  locationName: string;
+  /** Tags a real run would insert. */
+  newItems: string[];
+  /** Tags already present, which a real run leaves alone. */
+  existingItems: string[];
+}
+
+export interface OfferingPlan {
+  matched: OfferingPlanEntry[];
+  /** Approved-file names with no matching sales location. */
+  unknownStands: string[];
+}
+
+/**
+ * One row of the name index: which sales location an approved stand name refers to.
+ *
+ * The name is carried alongside the id because it is what a dry run must show — an artifact
+ * saying "Provo Farm" resolving to the stored "Provo Farms" is exactly the fact a reviewer needs
+ * to see before a real run.
+ */
+interface LocationMatch {
+  id: string;
+  name: string;
+}
+
+/**
+ * Index every seeded sales location by the SEED JOIN's match key.
+ *
+ * WHY NOT AN EXACT NAME. The approved artifact records the name from VIGA's MAP export, while the
+ * seed join stores the name from the FORM export, and the two disagree for five of the corpus's
+ * 31 stands — "Aeggy's"/"Aeggy's Farm", "Provo Farm"/"Provo Farms", "Olive Farm Stand"/"Olive
+ * Farm", "Flora Hill Farm"/"Flora Hill", and "Fruits Des Vignes Farm"/"Fruits des Vignes Farm",
+ * which differs by capitalization alone. An exact lookup reported all five as unknown stands and
+ * gave them no tags: a silent 26-of-31 that reads as success.
+ *
+ * `matchStandName` is the normalization the join itself matches on, reused rather than
+ * reimplemented — one general mechanism with two consumers, so a future naming difference is
+ * handled in one place instead of drifting between them.
+ *
+ * AMBIGUITY THROWS. Two locations reducing to one key make the choice arbitrary and
+ * order-dependent, and either answer files one farm's tags under another farm's listing while
+ * every count still looks right. The corpus is what settled this: a similarity-scored matcher
+ * ranked Lavender Hill Farm against Flora Hill Farm, and the exact key exists because a wrongly
+ * joined pair is silently wrong where a missed one is a reported refusal a human resolves.
+ */
+async function indexLocationsByMatchKey(sql: Sql | Tx): Promise<Map<string, LocationMatch>> {
+  const rows = await sql<{ id: string; name: string }[]>`
+    select id, name from sales_locations
+  `;
+
+  const byKey = new Map<string, LocationMatch>();
+  const collisions = new Map<string, string[]>();
+  for (const row of rows) {
+    const key = matchStandName(row.name);
+    const existing = byKey.get(key);
+    if (existing !== undefined) {
+      collisions.set(key, [...(collisions.get(key) ?? [existing.name]), row.name]);
+      continue;
+    }
+    byKey.set(key, { id: row.id, name: row.name });
+  }
+
+  if (collisions.size > 0) {
+    const detail = [...collisions.values()]
+      .map((names) => names.map((name) => JSON.stringify(name)).join(" and "))
+      .join("; ");
+    throw new Error(
+      `ambiguous stand names in the database: ${detail} reduce to one match key, ` +
+        `so an approved tag list cannot be attributed to one of them`,
+    );
+  }
+
+  return byKey;
+}
+
+/**
+ * Resolve one approved stand name against the index, or report it unknown.
+ *
+ * A name whose key is entirely generic words throws from `matchStandName` rather than becoming an
+ * empty key, which would otherwise match every other empty key — one silent equivalence class
+ * absorbing unrelated farms.
+ */
+function resolveStand(
+  byKey: Map<string, LocationMatch>,
+  standName: string,
+): LocationMatch | undefined {
+  return byKey.get(matchStandName(standName));
+}
+
+/**
+ * Report what committing an approved file WOULD do, writing nothing (F-041).
+ *
+ * The dry run has to resolve names against the real database, because the facts a reviewer needs
+ * are exactly the ones only the database knows: which artifact name maps to which stored name,
+ * which stands are unknown, and which tags are already present. A dry run that only echoes the
+ * file back cannot show any of them — and the five renamed stands were invisible for that reason.
+ */
+export async function planOfferings(
+  sql: Sql,
+  offerings: SeedOfferingInput[],
+): Promise<OfferingPlan> {
+  const byKey = await indexLocationsByMatchKey(sql);
+  const matched: OfferingPlanEntry[] = [];
+  const unknownStands: string[] = [];
+
+  for (const offering of offerings) {
+    const location = resolveStand(byKey, offering.standName);
+    if (location === undefined) {
+      unknownStands.push(offering.standName);
+      continue;
+    }
+
+    const present = await sql<{ item: string }[]>`
+      select item from sales_location_offerings where sales_location_id = ${location.id}
+    `;
+    const existing = new Set(present.map((row) => row.item));
+
+    matched.push({
+      standName: offering.standName,
+      locationName: location.name,
+      newItems: offering.items.filter((item) => !existing.has(item)),
+      existingItems: offering.items.filter((item) => existing.has(item)),
+    });
+  }
+
+  return { matched, unknownStands };
+}
+
 /**
  * Commit HUMAN-APPROVED offering tags (F-024/F-036).
  *
@@ -150,6 +284,9 @@ export interface SeedOfferingsResult {
  * a farmer or operator may have edited their tags, and a re-run must not revert that. An
  * unknown stand name is reported rather than silently dropped — the address-refused stands
  * legitimately exist in the CSV but not the database.
+ *
+ * Stand names are matched through the seed join's own key, never an exact string; see
+ * `indexLocationsByMatchKey` for why, and for why an ambiguous name aborts the batch.
  */
 export async function seedOfferings(
   sql: Sql,
@@ -160,20 +297,21 @@ export async function seedOfferings(
   const unknownStands: string[] = [];
 
   await sql.begin(async (tx) => {
+    // Built inside the transaction so the index cannot go stale mid-batch, and so an ambiguity
+    // aborts before any tag lands rather than after some of them have.
+    const byKey = await indexLocationsByMatchKey(tx);
+
     for (const offering of offerings) {
-      const location = await tx`
-        select id from sales_locations where name = ${offering.standName} limit 1
-      `;
-      if (location.length === 0) {
+      const location = resolveStand(byKey, offering.standName);
+      if (location === undefined) {
         unknownStands.push(offering.standName);
         continue;
       }
-      const locationId = location[0]!.id as string;
 
       for (const [index, item] of offering.items.entries()) {
         const result = await tx`
           insert into sales_location_offerings (sales_location_id, item, sort_order)
-          values (${locationId}, ${item}, ${index})
+          values (${location.id}, ${item}, ${index})
           on conflict do nothing
           returning item
         `;
