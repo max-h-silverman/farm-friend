@@ -115,6 +115,23 @@ independent tool — reporting `vCard visiting card, version 3.0`, 153 bytes, 6 
 **CLAUDE.md was condensed this session** from ~87k chars to a lean snapshot; the displaced
 subsystem narratives are in this log's earlier entries and the archive, not deleted.
 
+### The deploy found one more platform defect, by effect (B-025)
+
+Deployed at the end of the wrap: build → plan → **29/29** plan assertions → apply → **deploy
+assertions PASSED** (revisions `web-00007-4mb` / `worker-00008-gg2`, one digest on both, each newer
+than every secret version). The plan diff was read field by field: only the image digest and the
+known non-converging `scaling` block changed.
+
+Then curling the newly shipped route found that **the vCard loses its CRLF line endings on the
+wire** — 147 bytes / 0 CRLF / 6 bare LF in production, where the renderer produces 153 / 6 / 0, and
+`file(1)` rejects it. The handler applies no transform (it passes the string straight into
+`new Response`), and it reproduces on **both HTTP/1.1 and HTTP/2**, so the Next.js response path or
+the proxy layer is normalizing the body. **596 unit tests pass and the renderer's own CRLF assertion
+is correct** — the property belongs to the platform, so nothing local could see it. Same family as
+B-009 and B-005–B-008, and found only because the rule is *verify the real thing by effect in the
+deployment*. A malformed card fails by opening **nothing**, which is exactly the silent shape this
+route was built to avoid.
+
 ---
 
 ## 2026-07-29 — B-002 closed: the seed join, and production seeded with 35 real stands

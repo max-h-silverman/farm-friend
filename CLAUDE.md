@@ -306,11 +306,18 @@ cooperative stubs. Suites:
 > behind past changes lives in [docs/SESSION_LOG.md](docs/SESSION_LOG.md) — open it deliberately,
 > never to orient.
 
-**Verified 2026-07-29** (`main` @ the F-041/F-039 merges): `npm test` **596/596** (61 files);
+**Verified 2026-07-29** (`main` @ `c3810da`, pushed): `npm test` **596/596** (61 files);
 `npm run test:integration` **334/334** (20 files) on real Postgres 16, all 8 migrations from empty;
 typecheck and lint exit 0; `infra/test_deploy_assertions.py` **10/10**. Evals **not** re-run — no
 seam projection, schema, or output contract changed; last results stand (`evals` critical 11/11,
 advisory 4/4, adversarial 29/29; `evals:live` containment 4/4, quality 6/6 on Mistral Small 24B).
+
+**Deployed 2026-07-30** — revisions `farm-friend-web-00007-4mb` / `farm-friend-worker-00008-gg2`,
+one digest `sha256:79ff89e8…` on both. `plan-assertions.py` **29/29**, `deploy_assertions.py`
+PASSED (both revisions newer than every secret version). Verified by effect: health `{"ok":true}`,
+`/api/public/stands` **34** stands, webhook **401** (config resolves), `/api/internal/cron` **404**
+on the public service, `/admin` 200. The plan diff was read field by field — only the image digest
+and the known non-converging `scaling` block changed.
 
 ### What works end to end
 
@@ -324,7 +331,8 @@ advisory 4/4, adversarial 29/29; `evals:live` containment 4/4, quality 6/6 on Mi
 - **Operator surface** — farm approval, flag review, stock-out triage, stand-data questions. Built
   and deployed, but **unreachable**: see B-023.
 - **One-tap add-to-contacts** (F-039) — `GET /api/public/contact-card` serves a vCard built from
-  `TELNYX_FROM_NUMBER`, merged but **not yet deployed**.
+  `TELNYX_FROM_NUMBER`. **Deployed and serving 200**, but the wire bytes lose their CRLF line
+  endings — see B-025.
 - **Deployed on Cloud Run**: https://farm-friend-web-p5mfxfp5za-uw.a.run.app — one image, two
   services (`farm-friend-web` public, `farm-friend-worker` internal+IAM) differing only by
   `DEPLOYMENT_ROLE`. Cloud Scheduler drives four bounded passes (inbound, outbound, delivery,
@@ -411,8 +419,14 @@ fixtures supply what production never creates.
   link that never expires until revoked, so **revocation is the only safety net**: it must take
   effect on the next request, VIGA must see and revoke every farmer, and a leaked link must at worst
   propose a wrong listing on ONE stand. **B-023 is upstream of this.**
-- **F-039 — merged, not deployed.** The vCard route is live in `main` only. Display name
-  `VIGA Farm Friend` (max, confirmed).
+- **B-025 (HIGH) — the served vCard loses its CRLF line endings.** `/api/public/contact-card` returns
+  **147 bytes, 0 CRLF, 6 bare LF** in production where the renderer produces 153/6/0, and `file(1)`
+  rejects it ("lines not separated by CRLF"). The handler applies no transform and it reproduces on
+  HTTP/1.1 and HTTP/2, so the Next.js response path or the proxy layer is normalizing the body.
+  **No local test can see it** — the renderer's CRLF assertion is correct and passes. Textbook
+  "local runtime ≠ deployed runtime"; verify any fix by hex-dumping the wire bytes, not by a unit
+  test. Display name `VIGA Farm Friend` (max, confirmed). A physical-handset check is now the
+  deciding test, since a malformed card fails by opening **nothing**.
 - **F-031 — no mail provider, so no sign-in link is delivered.** Everything up to the wire is built;
   what remains is a vendor, credentials, **attested** data-handling terms, and SPF/DKIM/DMARC.
   Blocked on what email infrastructure VIGA runs. **GCP has no first-party transactional email
