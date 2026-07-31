@@ -205,3 +205,9 @@ nothing back from VIGA's page, carries no customer data, and is not a channel fo
 **Nothing else is required** — no API key, no account, no per-view billing. The island artwork is
 drawn in the page itself rather than served from a mapping provider, which is why the embed has no
 usage cost no matter how often VIGA's page is loaded.
+
+**The map is always light** (max, 2026-07-30). It does not follow the visitor's dark-mode setting:
+it is a rendering of VIGA's printed farm map, which is a light artefact, and one palette is one
+design that can actually be checked. So the embed will look the same to every visitor regardless
+of their device theme. If VIGA's surrounding page is ever styled dark, the map will read as a
+light panel within it rather than adapting — that is expected, not a fault to report.

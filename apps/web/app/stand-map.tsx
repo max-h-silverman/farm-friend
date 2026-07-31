@@ -10,6 +10,7 @@ import {
 import {
   applyStandFilters,
   buildMapView,
+  numberStands,
   standListingLines,
   type FilteredStand,
   type PublicStandPayload,
@@ -74,9 +75,15 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
   );
 
   const view = useMemo(() => buildMapView(stands, origin), [stands, origin]);
+
+  // F-043 — the poster's numbered pins. Numbered over the FULL set before filtering, not over
+  // `visible`: a number that renumbers when a filter narrows the list would mean a different
+  // farm from one tap to the next. `numberStands` keys the number to the farm alphabetically,
+  // so neither filtering nor the distance sort can move it. See the note there.
+  const numbered = useMemo(() => numberStands(view.stands), [view.stands]);
   const visible = useMemo(
-    () => applyStandFilters(view.stands, filters, moment),
-    [view.stands, filters, moment],
+    () => applyStandFilters(numbered, filters, moment),
+    [numbered, filters, moment],
   );
 
   const anyFilterActive =
@@ -135,15 +142,21 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
 
   return (
     <main className={selectedStand !== undefined ? "page sheet-open" : "page"}>
-      <header className="masthead">
-        <p className="eyebrow">Vashon Island Growers Association</p>
-        <h1>Farm stands, right now</h1>
-        <p className="lede">
-          What island farmers have confirmed at their stands. Most are unattended and
-          honor-system, so we show <strong>when each was last confirmed</strong> rather than
-          promising what is there.
-        </p>
-      </header>
+      {/*
+      F-043 — NO TITLE AND NO EYEBROW (max, 2026-07-30). This page is embedded in VIGA's own
+      Squarespace page, which already carries the association's name and its own heading; a
+      second "Vashon Island Growers Association / Farm stands, right now" inside the frame is
+      the page introducing itself to someone already reading it.
+
+      The honor-system line STAYS, shortened. It is not decoration: it is why every listing
+      says "confirmed 4 hours ago" instead of claiming what is in stock right now, and
+      dropping it leaves the recency wording looking like hedging rather than the point. Kept
+      as a caption above the filters rather than a lede under a title.
+      */}
+      <p className="map-note">
+        Most stands are unattended and honor-system, so we show{" "}
+        <strong>when each was last confirmed</strong> rather than promising what is there.
+      </p>
 
       {/*
       F-043 — the filters. All client-side over data already served: no request, no
@@ -305,11 +318,16 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                   <circle
                     cx={x}
                     cy={y}
-                    r={isSelected ? 15 : 10}
+                    // Sized for a THUMB, not for the drawing. Measured at a true 390px
+                    // viewport: the map renders at ~0.35x, so r=14 came out under 5px on
+                    // glass — a 10px target for the map's primary action, against the ~44px
+                    // a finger actually needs. r=26 lands near 18px wide, and the pins stay
+                    // separable because the ring is the land colour.
+                    r={isSelected ? 34 : 26}
                     className="pin-dot"
                     role="button"
                     tabIndex={0}
-                    aria-label={`${stand.locationName}, ${stand.farmName}`}
+                    aria-label={`${stand.standNumber}. ${stand.locationName}, ${stand.farmName}`}
                     aria-pressed={isSelected}
                     onClick={() => select(stand.id)}
                     onKeyDown={(event) => {
@@ -319,8 +337,19 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                       }
                     }}
                   />
+                  {/*
+                  The poster's numbered pin. `pointer-events: none` in CSS — the number sits
+                  ON the circle, and without it a tap landing on the digits would miss the
+                  button underneath, which is most of the pin's tappable area.
+
+                  The number is decorative HERE because the circle's `aria-label` already
+                  reads it; a screen reader meeting both would hear the number twice.
+                  */}
+                  <text x={x} y={y} className="pin-number" aria-hidden="true">
+                    {stand.standNumber}
+                  </text>
                   {isSelected ? (
-                    <text x={x} y={y - 22} className="pin-label">
+                    <text x={x} y={y - 44} className="pin-label">
                       {stand.locationName}
                     </text>
                   ) : null}
@@ -375,6 +404,15 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                   onClick={() => select(stand.id)}
                 >
                   <div className="stand-head">
+                    {/*
+                    The number matching this stand's pin (F-043). Marked decorative because
+                    the heading beside it already names the stand — a screen reader gains
+                    nothing from a bare digit, while a sighted customer uses it to find the
+                    pin. It is `aria-hidden` for the same reason the pin's is.
+                    */}
+                    <span className="stand-number" aria-hidden="true">
+                      {stand.standNumber}
+                    </span>
                     <h2>{stand.locationName}</h2>
                     {stand.distanceLabel !== undefined ? (
                       <span className="distance">{stand.distanceLabel}</span>
@@ -530,7 +568,20 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           <div className="sheet-grip" aria-hidden="true" />
           <div className="sheet-head">
             <div>
-              <h2 className="sheet-title">{selectedStand.locationName}</h2>
+              <h2 className="sheet-title">
+                <span className="stand-number" aria-hidden="true">
+                  {selectedStand.standNumber}
+                </span>
+                {/*
+                The name is its own element rather than a bare text node. The badge beside it
+                is `aria-hidden`, so assistive tech already skips it — but the heading's TEXT
+                still concatenates to "12Holmestead Farms", which is what anything reading the
+                accessible name as a string gets. Wrapping keeps the two separable.
+                */}
+                <span className="sheet-title-name">
+                  {selectedStand.locationName}
+                </span>
+              </h2>
               <p className="sheet-farm">{selectedStand.farmName}</p>
             </div>
             <button

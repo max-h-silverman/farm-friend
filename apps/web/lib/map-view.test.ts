@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyStandFilters,
   buildMapView,
+  numberStands,
   standListingLines,
   type PublicStandPayload,
   type StandListingLine,
@@ -878,5 +879,107 @@ describe("applyStandFilters (F-043)", () => {
     const all = [stand("c"), stand("a"), stand("b")];
 
     expect(ask(all, {}).map((s) => s.id)).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("numberStands (F-043 — the poster's numbered pins)", () => {
+  // VIGA's printed farm map numbers every stand and keys the pin to a list entry. Adopting
+  // that is what this covers, and it has ONE failure mode worth a test file: a number that
+  // means a different farm depending on where the customer is standing.
+  //
+  // Our list re-sorts by distance when a customer shares location; the poster's never moves.
+  // So the number is assigned ALPHABETICALLY BY FARM and is a property of the farm — the
+  // sort reorders cards and renumbers nothing. A positional number would silently relabel
+  // every pin the moment someone tapped "Sort by distance", which is worse than no number:
+  // it would look authoritative and be wrong.
+
+  const numbered = (...names: string[]) =>
+    numberStands(
+      names.map((name, index) => ({
+        ...stands[0]!,
+        id: `id-${index}`,
+        farmName: name,
+        locationName: `${name} Stand`,
+      })),
+    );
+
+  it("numbers alphabetically by farm name, from 1", () => {
+    const view = numbered("Zephyr Farm", "Alpha Farm", "Meadow Farm");
+
+    expect(
+      view.map((stand) => [stand.farmName, stand.standNumber]),
+    ).toEqual([
+      ["Zephyr Farm", 3],
+      ["Alpha Farm", 1],
+      ["Meadow Farm", 2],
+    ]);
+  });
+
+  it("keeps a farm's number identical when the list is reordered", () => {
+    // THE ASSERTION THIS EXISTS FOR — the distance-sort case, stated as an invariant rather
+    // than by re-running the sort: same farms, different input order, same numbers.
+    const byName = numbered("Zephyr Farm", "Alpha Farm", "Meadow Farm");
+    const byDistance = numbered("Meadow Farm", "Zephyr Farm", "Alpha Farm");
+
+    const numberOf = (view: typeof byName, farmName: string) =>
+      view.find((stand) => stand.farmName === farmName)?.standNumber;
+
+    for (const farmName of ["Alpha Farm", "Meadow Farm", "Zephyr Farm"]) {
+      expect(numberOf(byDistance, farmName), farmName).toBe(
+        numberOf(byName, farmName),
+      );
+    }
+  });
+
+  it("gives every stand a distinct number, including duplicate farm names", () => {
+    // Two stands can share a farm name — a farm with two locations. Ties must still resolve
+    // to distinct numbers, or two pins claim the same list entry.
+    const view = numbered("Same Farm", "Same Farm", "Other Farm");
+    const assigned = view.map((stand) => stand.standNumber).sort();
+
+    expect(assigned).toEqual([1, 2, 3]);
+  });
+
+  it("keeps duplicate-named stands stable when the list is reordered", () => {
+    // Asserting distinctness above is NOT enough: a sort with no tiebreak still yields
+    // distinct numbers, because it falls back to input order. That makes the number
+    // positional again for exactly the farms most likely to be confused — two stands with
+    // the same name. Reorder the same stands and each id must keep its number.
+    const twoLocations = (order: readonly string[]) =>
+      numberStands(
+        order.map((id) => ({
+          ...stands[0]!,
+          id,
+          farmName: id === "other" ? "Other Farm" : "Same Farm",
+        })),
+      );
+
+    const first = twoLocations(["north", "south", "other"]);
+    const second = twoLocations(["other", "south", "north"]);
+
+    const numberOf = (view: typeof first, id: string) =>
+      view.find((stand) => stand.id === id)?.standNumber;
+
+    for (const id of ["north", "south", "other"]) {
+      expect(numberOf(second, id), id).toBe(numberOf(first, id));
+    }
+  });
+
+  it("numbers a contact-only farm too, though it gets no pin", () => {
+    // F-038 — no coordinate means no pin, but the stand is still IN the list and still needs
+    // its own number, or the numbering skips and every later entry is off by one.
+    const view = numberStands([
+      { ...stands[0]!, id: "a", farmName: "Alpha Farm" },
+      {
+        ...stands[0]!,
+        id: "b",
+        farmName: "Beta Farm",
+        latitude: undefined,
+        longitude: undefined,
+      },
+      { ...stands[0]!, id: "c", farmName: "Gamma Farm" },
+    ]);
+
+    expect(view.map((stand) => stand.standNumber)).toEqual([1, 2, 3]);
   });
 });

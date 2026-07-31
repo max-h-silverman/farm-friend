@@ -5,7 +5,9 @@ import {
 } from "@farm-friend/core/island-projection";
 import {
   ISLAND_HIGHWAY,
+  ISLAND_PLACES,
   ISLAND_SHORELINE,
+  ISLAND_WOODS,
   projectedShoreline,
 } from "./island-geometry";
 
@@ -144,6 +146,42 @@ describe("the island artwork agrees with the projection", () => {
         }
       }
     }
+
+    expect(offLand).toEqual([]);
+  });
+
+  it("keeps every wooded area ON LAND (F-043 interior detail)", () => {
+    // The forest blocks are the same class of claim as the coastline and the highway: a
+    // polygon drawn from coordinates that can silently sit in the water. VIGA's poster shows
+    // Banner Forest and Island Center Forest as the island's two interior landmarks, and a
+    // green blob half in Puget Sound is the most obviously wrong thing this map could draw.
+    //
+    // Every vertex, not a centroid — a wood can have its centre inland and still spill over
+    // the shore, which is precisely how the west-shore parks would fail.
+    const polygon = projectedShoreline();
+    const offLand: string[] = [];
+
+    for (const wood of ISLAND_WOODS) {
+      for (const [latitude, longitude] of wood.ring) {
+        if (!isInside(projectPoint(latitude, longitude), polygon)) {
+          offLand.push(`${wood.name} at ${latitude}, ${longitude}`);
+        }
+      }
+    }
+
+    expect(offLand).toEqual([]);
+  });
+
+  it("keeps every place label ON LAND", () => {
+    // Same failure, cheaper to make: a label anchored offshore reads as a town in the water.
+    // The ferry docks are the deliberate exception — a terminal IS on the water, and both are
+    // named as such.
+    const polygon = projectedShoreline();
+    const offLand = ISLAND_PLACES.filter(
+      (place) =>
+        !place.name.includes("ferry") &&
+        !isInside(projectPoint(place.at[0], place.at[1]), polygon),
+    ).map((place) => place.name);
 
     expect(offLand).toEqual([]);
   });

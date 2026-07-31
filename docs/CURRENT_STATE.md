@@ -6,7 +6,7 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-30** (`main`, F-043 merged): `npm test` **719/719** (69 files);
+**Verified 2026-07-30** (`main`, F-043's poster pass merged): `npm test` **726/726** (69 files);
 `npm run test:integration` **403/403** (22 files) on real Postgres 16, all **9** migrations from
 empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
 `evals:live` **not** re-run and not required — F-043 touched no seam projection, schema, or output
@@ -17,7 +17,11 @@ assertion suites **were** re-run as part of F-043's deploy — see below.
 > One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
 > what marks it environmental rather than a defect in this work.
 
-**Nothing is merged-and-undeployed.** F-043 shipped 2026-07-30 alongside F-042 and F-040 (below) —
+**F-043's poster pass is MERGED AND UNDEPLOYED** — the only thing on `main` that production does
+not have. Web-only: no schema, no seam, no new env var, so a deploy is image-only with no
+migration owed. Everything else below is already live.
+
+F-043 shipped 2026-07-30 alongside F-042 and F-040 (below) —
 revisions `farm-friend-web-00010-7mc` / `farm-friend-worker-00011-l2w`, one digest
 `sha256:b9a020f1…` on both. No migration was owed (F-043 changed no schema), so production stays at
 **9 migrations**. `plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED,
@@ -194,8 +198,51 @@ fixtures supply what production never creates.
   description-based guess; pins take the poster's green, and brick red is a *text* colour there.
   Dark mode is not the poster inverted (that gave dim pins on dim land): land stays muted, pins go
   bright. The poster's colour-only legend was **not** copied — the three-signal rule holds.
-  **Owed: the Squarespace embed handshake**, which needs a second origin to frame the page and was
-  never exercised. `apps/web/app/embed-height.tsx` posts the height; the listener VIGA pastes is in
+  **2026-07-30 — max's poster review. MERGED to `main`, NOT YET DEPLOYED.** Compared against the
+  actual poster image (supplied this session; the earlier palette came from a *description* of
+  it) the map did not read as VIGA's. Five changes: the wooded parks drawn as **real OSM
+  polygons** through the same projection as the pins; the coastline re-traced at 25m rather than
+  90m (**246 vertices, up from 92**); **numbered pins** keyed to the list; colours re-sampled
+  from the image; and the title/eyebrow removed, since this is embedded in VIGA's own page. The
+  honor-system line stays — it is why listings say "confirmed 4 hours ago" instead of claiming
+  stock.
+  **The numbering rule**: `numberStands` assigns alphabetically **by farm**, so sorting and
+  filtering reorder cards and renumber nothing. Positional numbers would relabel all 32 pins the
+  moment someone sorted by distance. Numbering runs over the full set *before* filtering.
+  **Not every real feature belongs on the drawing**: Fisher Pond and Fisher Creek are stored by
+  OSM as four-corner **parcel boundaries** and rendered as literal rectangles (caught by looking,
+  not by a test — source vertex count is now the exclusion rule), and **Banner Forest**, though
+  printed on the poster, is at -122.56 on the **Kitsap Peninsula** — mainland context in the
+  poster's water margin, not a Vashon landmark.
+  **TWO DEFECTS THIS FOUND THAT ARE LIVE IN PRODUCTION RIGHT NOW**: two place labels are anchored
+  in open water — Burton ~90m offshore, **Maury Island a full kilometre** offshore — because the
+  existing test covered farm coordinates and the highway but never the artwork's own labels. And
+  **the pins are too small to tap**: at a true 390px viewport the map renders at **0.351 scale**,
+  so r=14 came out **under 5px on glass** for the map's primary action. Both fixed here.
+  **The verification gap that hid them**: `resize_window` never changed the frame's
+  `innerWidth` — it stayed 1728 — so **the phone layout had never actually been on screen**,
+  including in the session that recorded "looked at it at phone width". Loading the page in a
+  **390px iframe** is what makes the media queries evaluate honestly. Contrast is now *measured*:
+  the woods first landed at **1.29:1 against the land in dark mode**, invisible, the same class
+  of miss as F-043's original dark-mode defect; now 1.66–1.77:1 in both themes.
+  **Verified by effect** in the browser against the real corpus: 34 cards / 32 pins (2
+  contact-only farms numbered but unpinned), numbers 1–34 with no duplicates, every pin matching
+  its card. `Open now` narrowed 34 → 26 with **zero renumbered**, restoring identical numbers —
+  the filter did something, so the pass is not vacuous. Sheet raises with 524px of map visible
+  and dismisses cleanly. 8 sabotages, all caught; **one initially survived** (distinct numbers
+  for duplicate farm names pass without the `id` tiebreak, since a stable sort falls back to
+  input order) and was replaced with a reorder-invariance assertion.
+  **LIGHT MODE ONLY** (max, 2026-07-30). Dark mode is gone from the public map: it was a second
+  value for every brand token, and each was a place the two themes could silently disagree —
+  which they did twice (F-043's bright-slab island, and this pass's woods at 1.29:1). The map is
+  VIGA's printed poster, a light artefact. `color-scheme: light` is **required, not decoration**:
+  without it a browser on a dark-mode machine still paints the `IN SEASON` select and the
+  scrollbars dark. **Known tradeoff, accepted**: checking a stand outdoors at night is now a
+  bright screen. Verified in the **served bytes** — zero `prefers-color-scheme` rules, every dark
+  token value absent — and rendered light on a dark-mode machine with no emulation.
+  **F-043 is CLOSED.** The Squarespace embed handshake — the one criterion it could never meet,
+  needing a second origin — is now **F-044**, not an open tail on this item. Until VIGA pastes the
+  listener the embed still works, falling back to the fixed `height="900"`. `apps/web/app/embed-height.tsx` posts the height; the listener VIGA pastes is in
   ADMIN_OPERATIONS §Embedding the map. Until VIGA adds that snippet the embed still works — it just
   falls back to the fixed `height="900"`.
 - **B-023 — CLOSED 2026-07-30.** `board@vigavashon.org` is the first administrator (a VIGA *org*

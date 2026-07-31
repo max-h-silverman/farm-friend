@@ -6,6 +6,7 @@ import {
   ISLAND_HIGHWAY,
   ISLAND_PLACES,
   ISLAND_SHORELINE,
+  ISLAND_WOODS,
   svgLine,
   svgRing,
 } from "../lib/island-geometry";
@@ -34,6 +35,13 @@ export function IslandArtwork() {
         className="island-water"
       />
       <path d={svgRing(ISLAND_SHORELINE)} className="island-land" />
+      {/*
+      The wooded parks, drawn BETWEEN the land and the road: they are texture on the island,
+      and a road running under a forest block would read as a tunnel.
+      */}
+      {ISLAND_WOODS.map((wood) => (
+        <path key={wood.name} d={svgRing(wood.ring)} className="island-wood" />
+      ))}
       <path d={svgLine(ISLAND_HIGHWAY)} className="island-road" />
       {ISLAND_PLACES.map((place) => {
         const { x, y } = projectToIsland({
