@@ -339,6 +339,43 @@ export function buildMapView(
   };
 }
 
+/** A stand carrying the number printed on its pin and its list entry (F-043). */
+export type NumberedStand<Stand> = Stand & { standNumber: number };
+
+/**
+ * Assign each stand the number shown on its pin, keyed to its list entry.
+ *
+ * Adopted from VIGA's printed farm map, which numbers every stand so a pin and a list row
+ * identify each other at a glance. The poster can do this trivially because its order never
+ * changes; ours re-sorts by distance the moment a customer shares their location.
+ *
+ * SO THE NUMBER IS A PROPERTY OF THE FARM, NOT OF ITS ROW. Assigned alphabetically by farm
+ * name, independent of the order the stands arrive in: sorting reorders cards and renumbers
+ * nothing. A positional number would relabel all 32 pins the instant someone tapped "Sort by
+ * distance" — authoritative-looking and wrong, which is worse than no number at all. It would
+ * also mean the number a customer read on the poster, or wrote down a minute ago, pointed at
+ * a different farm.
+ *
+ * Ties break on `id` so two stands sharing a farm name still get distinct numbers; without
+ * that, a farm with two locations would put two pins on one list entry.
+ */
+export function numberStands<Stand extends { id: string; farmName: string }>(
+  stands: readonly Stand[],
+): NumberedStand<Stand>[] {
+  const order = [...stands].sort(
+    (a, b) =>
+      a.farmName.localeCompare(b.farmName, "en") || a.id.localeCompare(b.id),
+  );
+  const numbers = new Map(order.map((stand, index) => [stand.id, index + 1]));
+
+  // Returned in the ORDER GIVEN, carrying numbers from the alphabetical pass — the caller's
+  // sort is preserved and the numbering is independent of it.
+  return stands.map((stand) => ({
+    ...stand,
+    standNumber: numbers.get(stand.id)!,
+  }));
+}
+
 /**
  * What a customer has asked the map to narrow down to (F-043).
  *

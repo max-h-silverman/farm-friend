@@ -24,25 +24,31 @@
   --amber-line: #d9a24a;
   --radius: 14px;
 
-  /* F-043 — VIGA's palette, from the printed farm map: sage island on cream water, olive
-   * type, brick red for accents. Adopted for the ARTWORK and the controls; the meaning
-   * colours above are untouched, because green-is-confirmed and amber-is-stale already carry
-   * product meaning that a brand refresh must not quietly repaint. */
-  /* Sampled from VIGA's printed farm map (max supplied the artwork 2026-07-30). The poster
-   * is PALE land on soft grey-green water with a cream list panel — the opposite weighting
-   * from a first guess of "sage island on cream", and the reason to work from the artefact
-   * rather than from a description of it. */
-  --sage: #dfe4d3;        /* land — pale, so pins and labels sit on top of it legibly */
-  --sage-deep: #b9c4ab;   /* the shoreline stroke */
-  --cream: #b6c3b4;       /* water — a soft grey-green, not a bright cream */
-  --panel: #eef0e0;       /* the poster's list panel, behind the map figure */
+  /* F-043 — VIGA's palette, from the printed farm map. Adopted for the ARTWORK and the
+   * controls; the meaning colours above are untouched, because green-is-confirmed and
+   * amber-is-stale already carry product meaning a brand refresh must not quietly repaint.
+   *
+   * Sampled from the poster image itself (max, 2026-07-30), after the first pass was
+   * judged not to feel like VIGA's map. What the artefact actually shows:
+   *   - land is a WARM PALE GREY, barely green — not the sage a description suggests
+   *   - water is a soft grey-green, DARKER than the land, so the island reads as the light
+   *     figure on a darker ground
+   *   - the forest blocks are the only saturated green on the island, which is what gives
+   *     the interior its texture
+   *   - the surrounding page is a muted sage band, darker again than the water */
+  --sage: #e8e6dc;        /* land — warm pale grey, the poster's lightest large area */
+  --sage-deep: #b3b8a4;   /* the shoreline stroke */
+  --cream: #aebaa8;       /* water — soft grey-green, darker than the land */
+  --panel: #e9ece0;       /* the poster's list panel, behind the map figure */
+  --wood: #a8ba95;        /* the forest blocks — the island's one saturated green */
   --olive: #3f4a38;
   --brick: #8f3423;       /* the poster's link red — TEXT, not pins */
-  --pin: #4e6b46;         /* the poster's pin green */
+  --pin: #5d7a4e;         /* the poster's pin green */
+  --pin-ink: #ffffff;     /* the number ON the pin — always the maximum contrast pairing */
   --brick-soft: #f6e7e2;
   /* The highway. Its own token because the two themes disagree about what a road looks
    * like: pale-on-sage in daylight, light-on-dark at night. */
-  --road: #f4efe1;
+  --road: #ffffff;
 }
 
 * {
@@ -69,32 +75,48 @@ body {
   padding: 1.5rem 1.15rem 3rem;
 }
 
-/* ---------------------------------------------------------------- masthead */
+/* ------------------------------------------------- F-043 — the map's caption
+ *
+ * The title, eyebrow and lede are GONE (max, 2026-07-30): this page is embedded in VIGA's own
+ * Squarespace page, which already carries the association's name and its own heading, so the
+ * frame was introducing itself to someone already reading it.
+ *
+ * This one line stays. It is why every listing says "confirmed 4 hours ago" instead of
+ * claiming what is in stock — without it the recency wording reads as hedging rather than as
+ * the product's whole point. */
 
-.eyebrow {
-  margin: 0;
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--green);
-}
-
-.masthead h1 {
-  margin: 0.3rem 0 0.5rem;
-  font-size: 1.9rem;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-}
-
-.lede {
-  margin: 0;
+.map-note {
+  margin: 0 0 0.9rem;
   color: var(--ink-soft);
-  font-size: 1rem;
+  font-size: 0.92rem;
 }
 
-.lede strong {
+.map-note strong {
   color: var(--ink);
+  font-weight: 600;
+}
+
+/* ------------------------------------------- F-043 — the stand's poster number
+ *
+ * The list-side half of the numbered pin: the same digit, so a customer who finds a pin can
+ * find its entry and back again. Sized and weighted to be findable while scanning, not to
+ * compete with the stand name beside it. */
+
+.stand-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--pin);
+  color: var(--pin-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 /* ---------------------------------------------------------------- location */
@@ -195,13 +217,16 @@ body {
 
 .stand-head {
   display: flex;
-  gap: 0.75rem;
-  align-items: baseline;
-  justify-content: space-between;
+  gap: 0.55rem;
+  /* `center`, not `baseline`: a round badge aligned on the text baseline sits visibly low
+   * against the heading, because its own baseline is the bottom of the circle. */
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .stand-head h2 {
   margin: 0;
+  margin-right: auto;
   font-size: 1.18rem;
   letter-spacing: -0.01em;
 }
@@ -419,9 +444,18 @@ body {
     --sage-deep: #6d8064;
     --cream: #1b211c;
     --panel: #1e2420;
+    /* The woods must stay DISTINGUISHABLE FROM THE LAND at night, which is the harder
+     * direction: on paper the forest is darker than the land, but here the land is already
+     * dark, so a darker green would vanish into it. The forest goes LIGHTER than the land
+     * instead — same "the woods are a different surface" reading, opposite sign. */
+    --wood: #5c7150;
     --olive: #b6c4ac;
     --brick: #e08163;
     --pin: #a8d493;
+    /* Bright pins carry DARK numbers — the light-mode pairing inverted. Keeping white here
+     * would put white on a pale green pin, which is the contrast failure the number exists
+     * to avoid. */
+    --pin-ink: #16210f;
     --brick-soft: #3a221c;
     --road: #cdd8c4;
   }
@@ -822,6 +856,21 @@ body {
 }
 
 /*
+ * The wooded parks (F-043) — the island's interior texture.
+ *
+ * Without these the island was a flat silhouette: a correct outline with nothing inside it,
+ * which reads as a shape rather than a place. VIGA's poster shows the forest blocks in a
+ * deeper green and they are most of what makes it legible as a map.
+ *
+ * No stroke: a hard outline turns each park into a labelled region and competes with the
+ * pins, which are the thing a customer is actually looking for. These are background texture
+ * and are drawn to sit UNDER everything — the road, the labels and the pins all cross them.
+ */
+.island-wood {
+  fill: var(--wood);
+}
+
+/*
  * The highway is drawn in the WATER colour so it reads as a channel cut through the land —
  * which works in the light theme, where water is pale cream against sage.
  *
@@ -926,6 +975,72 @@ body {
 .pin-selected .pin-dot {
   stroke: var(--olive);
   stroke-width: 4;
+}
+
+/*
+ * The number ON the pin (F-043) — VIGA's poster numbers every stand and keys it to the list.
+ *
+ * `pointer-events: none` is load-bearing, not tidiness: the number covers the middle of the
+ * circle, which is most of the pin's tappable area. Without it a tap landing on the digits
+ * hits the text and misses the button underneath — the pin would look tappable and quietly
+ * not be, worst exactly in the centre where people aim.
+ *
+ * The numbering rule lives in `map-view.ts` (`numberStands`): alphabetical by farm, fixed, so
+ * it survives the distance sort and every filter. A positional number would silently relabel
+ * all 32 pins the moment someone sorted by distance.
+ */
+.pin-number {
+  fill: var(--pin-ink);
+  /*
+   * Sized against the RENDERED pin, not the viewBox — the same correction `.island-place`
+   * makes above, and the same trap: the phone caps the drawing at 58vh, so it renders at
+   * about 0.35x and every viewBox unit shrinks with it.
+   *
+   * MEASURED IN A BROWSER at a true 390px viewport (an iframe — resizing the window did not
+   * change `innerWidth`, so the phone layout had never actually been on screen): the map
+   * renders 351px wide against a 1000-unit viewBox. At 21px that put the numbers at 7.4px on
+   * glass — specks, unreadable outdoors, which is the entire situation this map exists for.
+   * 34px lands around 12px, which matches the place labels that were already legible there.
+   */
+  font-size: 34px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+/*
+ * A HOLLOW pin is filled with the land colour, so the white/dark number that reads on a solid
+ * pin disappears on it. These take the pin colour as ink instead — same rule as everywhere
+ * else here: the ink is chosen against the surface it actually sits on, per theme.
+ */
+.pin-unknown .pin-number,
+.pin-by_appointment .pin-number {
+  fill: var(--pin);
+}
+
+/* Stale pins are amber-filled in BOTH themes, so their number is dark in both — it is not a
+ * theme question, it is a "what is this specific pin filled with" question. */
+.pin-stale .pin-number {
+  fill: #2a1e06;
+}
+
+.pin-selected .pin-number {
+  font-size: 42px;
+}
+
+@media (min-width: 56rem) {
+  /* The drawing renders larger on wide screens, so the same on-screen size needs smaller
+   * viewBox type — the same correction `.island-place` makes above. */
+  /* Wide screens render the drawing much larger (about 0.6x rather than 0.35x), so the same
+   * on-glass size needs a smaller viewBox number. */
+  .pin-number {
+    font-size: 20px;
+  }
+
+  .pin-selected .pin-number {
+    font-size: 25px;
+  }
 }
 
 .pin-label {
@@ -1164,9 +1279,16 @@ body {
 }
 
 .sheet-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
   font-size: 1.2rem;
   letter-spacing: -0.01em;
+}
+
+.sheet-title-name {
+  min-width: 0;
 }
 
 .sheet-farm {
