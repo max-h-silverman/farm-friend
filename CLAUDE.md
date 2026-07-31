@@ -150,15 +150,18 @@ Full detail — and the tripwires you need before touching anything — in
 - **Open, HIGH**: B-024 (a farmer's address published against her written instruction).
 - **Deployed 2026-07-30**: F-042 (212 offering tags live on the map) and F-040 (farmer onboarding:
   `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>` behind a never-expiring link whose only safety
-  net is revocation). Production is at **9 migrations**. **Owed on both: nobody has looked at the
-  screens** — neither the map's tag styling nor the two new pages has been seen rendered.
+  net is revocation). Production is at **9 migrations**. **Owed: nobody has looked at F-040's two
+  pages** — `/stand/<token>` and `/admin/farmers` have never been seen rendered. (F-042's tag
+  styling has now been seen, in F-043's poster pass.)
 - **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
   vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
   **Owed: a physical-handset tap on the contact card.**
-- **Deployed 2026-07-30**: F-043 (interactive island map — filters, real traced Vashon/Maury
-  coastline, bottom-sheet selection) is live, alongside F-042 and F-040. `open_days` is 0%
-  populated island-wide, so `Open now` is season + time-of-day only. **Owed**: the Squarespace
-  embed handshake was never exercised.
+- **F-043** (interactive island map) is live; its **poster pass is MERGED AND UNDEPLOYED** — the
+  only thing on `main` production lacks. Web-only, image-only, no migration. Numbered pins are
+  **alphabetical by farm**, so sorting and filtering never renumber; the map is **light only**.
+  `open_days` is 0% island-wide, so `Open now` is season + time-of-day. **`resize_window` does
+  not change the viewport** — check phone width in a 390px iframe, or the phone layout is never
+  actually rendered. F-043 is **closed**; the untested embed handshake is now **F-044**.
 - **Open, other**: F-031 (no mail provider), F-036 (F-040 answered its farmer-web case), B-008 (lint
   absent from deployed builds), B-020 (intermittent integration deadlock), B-001.
 - Each open item needs **separate implementation authorization**. Do not read a passing suite as a

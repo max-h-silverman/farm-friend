@@ -6,12 +6,136 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 37. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 40. A log too large to open
 mid-session defeats its own purpose.
 
 ---
 
-## 2026-07-30 (latest) — F-043 built: the interactive island map, and the defect a green suite could not see
+## 2026-07-30 (latest) — F-043's poster pass: the map made to look like VIGA's, and two defects live in production
+
+max compared the deployed map against the **actual poster image** — supplied this session for the
+first time; the previous palette was derived from a *description* of it — and it did not read as
+VIGA's map. The styling work is the small part of this entry. **The interesting part is that
+making it look right surfaced two defects that were live in production, and the reason neither
+was catchable was a verification method that had never actually worked.**
+
+### The verification gap: the phone layout had never been on screen
+
+The previous session recorded "LOOKED AT IN A REAL BROWSER … at phone and desktop widths" as the
+criterion being met. It was not. `resize_window` resizes the *window*, and on this setup the
+frame's `innerWidth` stayed **1728** while the window was 728 — so every "phone width" check ran
+against the wide layout. The phone arrangement, which is the primary one, had never rendered.
+
+**The fix is to load the page in a 390px iframe**, where the media queries evaluate against a real
+phone width. That immediately exposed both production defects below. Anything measured through
+`resize_window` in past entries should be treated as unverified.
+
+Contrast is now **measured, not eyeballed** — a small script reads the computed tokens and
+computes WCAG ratios. The new wooded areas first landed at **1.29:1 against the land in dark
+mode**: invisible, and the same class of miss as F-043's original dark-mode defect.
+
+### Two defects that were live in production
+
+**Two place labels were anchored in open water.** Burton sat ~90m offshore in Quartermaster
+Harbour; **Maury Island sat a full kilometre offshore** — nothing is at that latitude on Maury.
+Neither was catchable: `island-geometry.test.ts` asserted farm coordinates and the highway against
+the drawn polygon, but place labels are *artwork* and no assertion touched them. The test now
+covers every non-ferry label (ferry docks exempt **by name** — a terminal genuinely is on water).
+
+**The pins were too small to tap.** At a true 390px viewport the map renders at **0.351 scale**,
+so the shipped `r=14` came out **under 5px on glass** — roughly a 10px target for the map's
+primary action, against the ~44px a finger needs. Now `r=26`. This predates this session; adding
+numbers to the pins is what made it visible.
+
+### The numbering rule, and why alphabetical rather than positional
+
+VIGA's poster numbers every stand and keys the pin to a list entry. It can do that trivially
+because its order never changes. Ours re-sorts by distance the moment a customer shares location,
+and filters narrow it constantly.
+
+So `numberStands` (`map-view.ts`) assigns **alphabetically by farm, keyed to the farm rather than
+the row**. Sorting and filtering reorder cards and renumber nothing. A positional number would
+relabel all 32 pins the instant someone tapped "Sort by distance" — authoritative-looking and
+wrong, and it would break the number a customer read on the poster a minute earlier. Ties break on
+`id`, so a farm with two locations still gets two distinct numbers. Numbering runs over the
+**full** set *before* filtering, for the same reason.
+
+**One sabotage initially survived here and is worth remembering**: asserting that duplicate farm
+names get *distinct* numbers passes even with the `id` tiebreak removed, because a stable sort
+falls back to input order. Distinctness was the wrong property; the right one is **invariance
+under reordering**, and that assertion catches it.
+
+### Not every real feature belongs on the drawing
+
+The wooded parks are real OSM polygons (`leisure=nature_reserve` / `landuse=forest` /
+`natural=wood` / `leisure=park`), projected through the **same** `projectToIsland` as the pins and
+the shore — a hand-drawn blob would be a third independent statement about where the island is,
+which is the defect that once put 16 farms in open water.
+
+Two exclusions, both decided by looking:
+
+- **Fisher Pond and Fisher Creek** are stored by OSM as four-corner **parcel boundaries** and
+  rendered as literal rectangles — they read as buildings, not woodland. Source vertex count
+  (<9) is now the exclusion rule, because no amount of gentle simplification turns a rectangle
+  into a forest. This is also why the survivors are **not** simplified at all: the first pass
+  flattened them into boxes too.
+- **Banner Forest**, though printed on VIGA's poster, has its OSM feature at **-122.56 on the
+  Kitsap Peninsula**. On the poster it is mainland context in the water margin, not a Vashon
+  landmark. Drawing it on the island would have been a fabrication.
+
+The coastline was re-traced from OSM (4,881 nodes / 109 ways) and simplified at 25m rather than
+90m: **246 vertices, up from 92**. Past 25m the count climbs with no visible difference at phone
+width.
+
+### Light mode only (max's call)
+
+Dark mode is gone from the public map. It was an accommodation rather than a design: a second
+value for every brand token, and each one a place the two themes could silently disagree — which
+they did, twice now. `color-scheme: light` is **required**, not decoration: without it a browser
+on a dark-mode machine still paints the `IN SEASON` select and the scrollbars dark, giving a light
+page with dark widgets in it.
+
+**Known tradeoff, accepted by max**: checking a stand outdoors at night is now a bright screen.
+That is a real scenario for this product, and it is the cost of one honest design over two
+half-verified ones.
+
+Verified in the **served bytes** rather than the source: zero `prefers-color-scheme` rules,
+`color-scheme: light` present, every dark token value absent, every light value present. And
+proven under the condition that matters — this machine is in dark mode, and the page renders
+light with no emulation.
+
+### Also removed: the page's own title
+
+The map is embedded in VIGA's Squarespace page, which carries the association's name and its own
+heading, so the eyebrow and `<h1>` were the frame introducing itself to someone already reading
+it. **The honor-system line stays**, shortened to a caption: it is why every listing says
+"confirmed 4 hours ago" instead of claiming stock, and without it the recency wording reads as
+hedging rather than as the product's whole point.
+
+### Verified by effect, against the real corpus
+
+34 cards / 32 pins (the two contact-only farms numbered but unpinned, per F-038); numbers 1–34, no
+duplicates, every pin's number matching its card, order genuinely alphabetical. Toggling
+`Open now` narrowed 34 → **26** with **zero renumbered**, and restoring returned identical
+numbers — the filter did something, so the pass is not vacuous. The bottom sheet raises with 524px
+of map still visible, carries the number, dismisses cleanly and clears selection. No horizontal
+overflow at 390px. **12 "Hours not listed"** badges, matching the 12 stands that state no hours —
+the honesty constraint intact.
+
+Fixed in passing: the sheet's heading concatenated to `"12Holmestead Farms"`. The badge is
+`aria-hidden` so a screen reader was already correct, but the name is now its own element, making
+that structural rather than incidental. The card headings were already clean.
+
+**Suites**: `npm test` **726/726** (69 files, +7); `test:integration` **403/403** (22 files) on
+real Postgres from empty; typecheck and lint clean; evals 11/11 + 4/4 + 29/29. `evals:live` not
+required — web-only, no seam projection, schema, or output contract changed.
+
+**F-043 is closed.** The Squarespace embed handshake — the one acceptance criterion it could never
+meet, because it needs a second origin — is split out as **F-044** rather than held open as a tail
+on a finished item. Until VIGA pastes the listener the embed still works, falling back to the
+fixed `height="900"`.
+
+## 2026-07-30 — F-043 built: the interactive island map, and the defect a green suite could not see
 
 The map becomes an island view with filters and a linked stand list. The build itself was
 straightforward — the design was settled in the PM item. **The interesting part is that the worst
@@ -883,442 +1007,3 @@ Merged to `main` as `1df55df`; migration 0007 applied and verified by effect; `t
 plan assertions 29/29.
 
 ---
-
-## 2026-07-29 — the cutover is thrown: B-009 re-proven, Vercel torn down, F-034 closed
-
-The migration's remaining three legs, in one pass: point Telnyx at Cloud Run, **prove the B-009
-class by effect on the new runtime**, and retire everything the migration superseded. Then
-credential rotation, which max chose to fold into this work rather than defer a fourth time.
-
-### The webhook switch, and a timestamp that lied again
-
-`PATCH /messaging_profiles/<id>` returned the new `webhook_url` **and the old `updated_at`**. An
-independent re-read showed the write had landed and the timestamp moved. Same shape as the
-`vercel env ls` trap: **a write's echo of its own payload is not confirmation, and a dashboard
-timestamp is not a last-updated field.** Re-read from a separate request or believe nothing.
-
-max chose to switch **before** proving durability, accepting that real texts could land on an
-unproven runtime; volume is zero and no farmer has the number, so the window was small. Recorded
-because it was a deliberate trade, not an oversight.
-
-### B-009 is not inherited — proving it took a key swap, and the sabotage came first
-
-The standing rule is that a property belonging to the *platform* is proven **by effect in the
-deployment**. Cloud Run's container lifecycle is a new runtime for "does post-response work actually
-run", so the Vercel-era fix proves nothing here. `scripts/prove-post-response-work.ts` runs three
-checks against the database — fast path, cold start, and a message whose task was **never created**
-recovered by the schedule — and **searches for the B-009 signature** (committed + acknowledged +
-never claimed) rather than assuming it absent. All three passed; claim-to-finalize was ~1s.
-
-**Signing is the obstacle worth recording.** Telnyx's private key is not ours, so a genuinely signed
-request needs the deployment to trust a key we hold. `TELNYX_PUBLIC_KEY` is plain config, not a
-secret, so the proof ran against a revision carrying a throwaway public key — with max's explicit
-approval, because **while that revision is live the number rejects genuine inbound SMS**. Restored
-immediately and verified *behaviourally*: the throwaway key now returns `signature_mismatch`.
-
-**The sabotage ran before the proof, not after.** Against the deployment still trusting Telnyx's real
-key, checks 1–2 failed `ack=401` while check 3 passed on its own merits (it needs no signature).
-That is what makes the harness credible rather than decorative.
-
-**Writing it caught two defects in itself**, either of which would have made it lie:
-`provider_inbox_events` has no `body`/`processed_at` column (it is `state`/`finalized_at`; the body
-lives in `sms_messages`), and `hashPhone` is **HMAC-SHA256 under `PHONE_HASH_SALT`**, not a bare
-digest — a test salt yields a row nothing ever claims, *indistinguishable from the failure the check
-exists to detect*. Checking a harness against the real schema before running it is cheap; a proof
-that quietly measures nothing is not.
-
-Incidentally proven: the **full round trip works on this runtime**. A proof message's reply was
-dispatched through Telnyx and its delivery callbacks returned through the new webhook URL — two
-inbox rows I had not created, identified before cleanup rather than assumed to be noise.
-
-### The record was wrong about the legacy data — again, and in the dangerous direction
-
-The migration plan recorded, as max's decision, that the legacy project held no real data, and
-deliberately **not** as a verified fact. Reading it found **37 Firestore documents**: 19 users, 3
-farms, 5 messages, 8 agent decisions, 1 flag, and a `pending_users` row with `source: "join"`, a real
-approval timestamp, and — unlike every user and farm row — **no `test_data` flag**. Auth held 1
-account.
-
-max confirmed test data and approved deletion. It was archived first to
-`~/farm-friend-legacy-archive/` (Firestore + Auth + non-secret manifests), and the delete **refused
-to run** unless a re-read fingerprint matched exactly and the archive held all 37 docs. This is the
-second time "assumed empty" was wrong in this project; the first was the reset script that found 6
-volunteers and 2 farms with phone numbers. **The rule keeps paying for itself.**
-
-Two smaller plan claims were also stale: the seven legacy schedulers were already `PAUSED`, not
-still firing, and the always-warm charge ended with the services rather than needing `minScale=0`.
-
-### Teardown
-
-Deleted: the Vercel project and its env vars (Telnyx re-confirmed pointing elsewhere first), both
-stale branches (`throwaway/hobby-deploy-test` **and** `f-019-sms-only-inquiry-boundary` — the second
-was not on anyone's list), 17 legacy functions plus the 15 Cloud Run services behind them, 7 legacy
-schedulers, 6 unreferenced legacy secrets including the STALE `TELNYX_API_KEY` that returned 401,
-the Firestore/Auth contents, and the empty `farm-friend-497422` project. `farm-friend-vashon` now
-holds **only** Farm Friend. Verified afterwards by listing each resource type and by every live
-surface still answering correctly.
-
-### F-034: rotation, and two traps
-
-max reversed the third deferral and folded rotation into this session. `DATABASE_URL`,
-`DEEPINFRA_API_KEY`, and `MAGIC_LINK_SECRET` rotated; **`PHONE_HASH_SALT` untouched, deliberately**.
-Old values confirmed dead **by effect** — `password authentication failed` and 401 — never by
-assuming a console did what it said.
-
-**Trap 1: `version = "latest"` does not reach a running container.** Cloud Run reads secrets at
-container start, so between the Neon password reset and the redeploy, production was serving on a
-**revoked** password. `gcloud secrets versions add` alone changes nothing already running; the
-redeploy is the step that applies a rotation.
-
-**Trap 2: a scripted `.env` edit silently did nothing.** The regex assumed `KEY="value"`, but
-`DEEPINFRA_API_KEY` is written **unquoted** in that file — so the substitution matched zero lines,
-reported success, and left the dead key in place. It surfaced only when `evals:live` returned
-`provider_error` on all six quality cases. **`live-containment` still read 4/4 through that
-failure**, because a refused call counts as contained — so a containment-only pass is *not* evidence
-the model path works. The corrected edit asserts its match count and refuses on anything but exactly
-1. New values were verified *before* being stored, so a bad credential could not later be
-misdiagnosed as a broken deployment.
-
-`keys.txt` (how the values were supplied) was **untracked but not gitignored** — a `git add -A`
-would have committed it. Deleted, and the tracked tree greps clean for both new values.
-
-### Then a real handset broke it, twenty minutes after the synthetic proof passed
-
-max texted `Help` at the end of the session as the real-handset check. It committed, and then sat at
-`state=pending` for 75+ seconds with no reply — **the exact B-009 signature, on real traffic, on a
-runtime I had just proven**. It was not B-009. Every database call was failing
-`28P01 password authentication failed`: the rotation's new `DATABASE_URL` had never reached the
-containers.
-
-`gcloud secrets versions add` wrote version 2 at **16:35:29**. The newest revision was created at
-**16:09:26** — twenty-six minutes *earlier*. Cloud Run reads secrets **at container start**, so
-`version = "latest"` binds at startup and never re-reads; the `tofu apply` I ran after adding the
-versions altered nothing in the revision template, created no new revision, and reported "2 to
-change" while changing nothing that mattered. **A green apply is not a restart.** Filed as **B-021**.
-
-**The humbling part is how the verification missed it**, because the checks were the right *kind*
-(by effect, not by reading a value back) and still proved nothing:
-
-- `/api/public/stands` → `{"stands":[]}` came from a **warm container** whose pooled connections
-  predated the Neon reset. *A warm connection keeps working after the password behind it changes* —
-  only a new connection re-authenticates. And an empty array is indistinguishable from an empty table.
-- The scheduler **200** I cited was read *before* the rotation apply and carried forward as current.
-- `evals:live` 6/6 runs **locally against local `.env`** and never touches the deployment at all.
-
-The check that settles it is a timestamp comparison: **revision creation time vs. secret version
-create time.** An older revision means nothing picked the value up, whatever any endpoint returns.
-
-Forcing revisions (worker 00006 / web 00005) fixed it, and the stuck message was recovered by the
-very next scheduled pass — inbound `processed`, reply `sent` with a real provider message ID,
-`accepted`, 2 delivery callbacks back through the Cloud Run webhook, and `sms_consents` correctly
-**empty** because HELP does not move consent. **The full round trip is now proven on real traffic,
-not just synthetic.**
-
-Two things this leaves: production now holds **one real phone number** (max's), which is the event
-F-034 named as closing the exposure window — rotation landed first, so the order held. And a
-**persistent `tofu plan` drift** reporting "2 to change" on a clean tree is still unexplained; until
-it is, "the plan showed changes" is not evidence a deploy did anything. Both on B-021.
-
-**The standing lesson, sharpened: a synthetic end-to-end proof and real traffic are not the same
-runtime either.** `prove-post-response-work.ts` passed at 09:08 against a container started before
-the rotation, so it proved the durability property honestly and told me nothing about the
-credential. It took a handset to find it — the same family as B-009 (local ≠ deployed), B-005–B-008
-(hoisted ≠ isolated install), and F-024 (stub ≠ real model), one level further out.
-
-### Verified
-
-`npm test` **528/528 across 55 files**; `npm run test:integration` **311/311 across 19 files** on
-real Postgres; typecheck and lint clean; `npm run evals:live` **containment 4/4, quality 6/6** on the
-rotated key. `npm run evals` not re-run — no seam projection, schema, or output contract changed.
-`infra/plan-assertions.py` 24/24 on both applies. **Live round trip verified by a real handset** (see
-above), on revisions worker 00006 / web 00005.
-
-**One pre-existing flake recorded, not waved off.** An integration run failed
-`a verified STOP unsubscribes end to end and calls no model` with PostgresError **40P01 deadlock** on
-a fixture `truncate`, and passed on rerun. This branch changes no application or test code, so the
-flake lives on `main`; the contention is between suites' truncates, not in Farm Friend's locking.
-
----
-
-## 2026-07-29 — the GCP migration: Farm Friend is live on Cloud Run, and a lost salt
-
-Vercel → Google Cloud Run, per `docs/GCP_MIGRATION_PLAN.md`. The driver was cost and licensing, not
-a defect: Hobby is restricted to non-commercial personal use and Farm Friend does not qualify, so
-Vercel meant ~$20/month indefinitely against VIGA's zero budget. GCP at launch volume is ~$0. Two
-independent gains came with it — Cloud Tasks is durable where `waitUntil` was cancellable, and the
-manual `crons`-strip left the deploy path.
-
-**The deployment is live and verified by effect**: `https://farm-friend-web-p5mfxfp5za-uw.a.run.app`.
-Health 200, `/api/public/stands` 200 against real Neon, admin 403, `/api/internal/{cron,kick}` **404
-on the public service**, the worker unreachable from the internet, webhook **401** (not 500/503), and
-a scheduled pass returning **HTTP 200** on revision `00003`.
-
-### The cost premise was wrong by 13×, and max was right that it did not matter
-
-The plan claimed the legacy always-warm functions cost $15–25/month and called killing them "the
-single highest-value action in this document". The actual bill says **$1.57**. The error is worth
-recording because it will recur: the arithmetic assumed idle CPU on a held instance bills at *some*
-rate and bracketed $10–43 by varying it. Under request-based billing it bills at **none** — the
-console shows only *"Cloud Run functions Min-Instance **Memory**"*, with no CPU counterpart. Two
-plausible bounds from a pricing page both missed an answer that was zero.
-
-I let that correction sound like it undercut the migration. It did not: the case is Vercel Pro ~$20
-vs ~$0, and the $1.57 is a footnote. **A figure derived from a pricing page is not a cost.**
-
-### The legacy functions could not be fixed, only deleted
-
-`minScale=0` on `inbound-sms`/`simulate-inbound-sms` was the plan's "do this immediately" item. It
-is **impossible**: `gcf-artifacts` holds **zero images** for 17 functions — the images were
-garbage-collected out from under running services. They still served traffic from cached layers but
-every revision attempt failed `image not found`, including one pinned to the digest the live
-revision itself reported. Deleted with approval (archived config first, fingerprinted, zero
-references in current code); seven schedulers firing into them paused. Verified by effect: 15
-services remain, zero always-warm, all instances drained to 0.
-
-The lesson is in `infra/main.tf`: the new Artifact Registry repository is **dedicated and carries a
-cleanup policy that keeps recent releases**. Reusing Firebase's managed repo is what produced the
-zombies.
-
-### `waitUntil` → Cloud Tasks, and the await direction inverts
-
-On Vercel the rule was *never await the kick* — the awaited thing would have been the passes, a
-model call and a provider call inside the request Telnyx waits on. Now the awaited thing is only the
-**task creation**, one bounded call, and awaiting it is what makes the work durable **before** the
-handler returns. A fire-and-forget enqueue would reintroduce B-009 exactly: a floating promise the
-runtime may discard when the container is reclaimed.
-
-`kick-survival.test.ts` and `kick-wiring.test.ts` were **re-anchored, not deleted** — the defect
-class survives the migration, only its mechanism changed. Sabotage: `await`→`void` fails 3 tests;
-moving the acknowledgement after the enqueue fails 2.
-
-Enqueueing **never throws and never retries**. The inbox event is already durable and the 200
-already built, so a queue outage must not turn a successful ingress into a 5xx that makes Telnyx
-retry a message we accepted. `ALREADY_EXISTS` counts as success — a webhook retry produces the same
-deterministic task name, and the queue refusing the duplicate *is* the deduplication working. Task
-names are **hashed, not sanitized**: stripping unsafe characters is not injective, so `evt/1` and
-`evt1` would collapse and one sender's work would vanish.
-
-**Cloud Tasks over REST, no SDK.** `@google-cloud/tasks` is 11.6 MB unpacked plus `google-gax`
-(gRPC + protobuf), all landing in a container whose cold start sits on the SMS reply path, to make
-one POST to one documented endpoint.
-
-### `CRON_SECRET` was removed rather than kept beside IAM
-
-The internal routes are now worker-only, reached through Cloud Scheduler's OIDC against an
-internal-ingress service. Keeping the shared secret "for defence in depth" would have preserved its
-actual failure mode — one credential in two places that had to match, where a mismatch returns 401
-and **a 401 looks identical to success in any scheduler's UI** — while protecting against nothing,
-since a caller who cannot satisfy IAM never reaches the code to present a token.
-
-The in-process `DEPLOYMENT_ROLE` guard is explicitly the *second* door: it runs **before**
-`appContext()` so the public service never builds a database pool for a route it does not serve, and
-answers **404** rather than 403 to leak no hint the surface exists.
-
-### The abuse throttle was about to become a no-op
-
-`clientSignalFor` read the **leftmost** `X-Forwarded-For` hop. Correct on Vercel; **backwards on
-Cloud Run**, where the caller controls everything it sends and Google *appends* the observed
-address. Carried across unchanged, an attacker sends a random leftmost hop per request and lands in
-a fresh bucket every time — the throttle removed, not weakened. Now reads the rightmost non-blank
-hop. Sabotage: reverting fails 3 tests.
-
-### PHONE_HASH_SALT was lost, and "never rotate" turned out to have an exception
-
-The production salt was set in Vercel marked **Sensitive** — write-only, unreadable by anyone — and
-recorded nowhere else. `vercel env pull` returns `[SENSITIVE]`. **Storing a secret somewhere
-unreadable is the same as not recording it.**
-
-The absolute rule means "there is no way back", and that holds only once the raw numbers are gone.
-While `contacts.phone_e164` still holds the raw E.164 — the one column that stores it — every hash
-can be recomputed. Production held 2 contacts from live SMS testing with both raw numbers intact, so
-this was recoverable rather than fatal. max chose to **wipe** (none of it was real data): 71 rows
-across 7 tables removed, fingerprint-guarded in one transaction. Verified by effect: 0 phone rows,
-0 raw numbers, schema intact at 7 migrations.
-
-`npm run db:rehash-phones` is kept as the documented recovery path, and **two simpler versions of it
-failed against a real database first**:
-
-1. *children first, contacts last* — children immediately reference a parent hash that does not
-   exist yet.
-2. `set constraints all deferred` — **no effect**. All **eleven** foreign keys onto
-   `contacts.phone_hash` were created NOT DEFERRABLE, so deferral cannot be asked for at runtime.
-
-The working shape is insert-new-parent → repoint-children → delete-old-parent. Verified end to end:
-2/2 contacts match the new salt, 6/6 messages and 2/2 consents preserved, zero orphans.
-
-### Four defects only a real build or a real deployment could find
-
-Every one passed every local check first.
-
-1. **`$PROJECT_ID` is not expanded inside a user-defined substitution's default value.** It arrives
-   literally; docker rejected the tag.
-2. **`COPY apps/web/public`** — this app has no such directory. A COPY of a missing path is a hard
-   failure, not a no-op.
-3. **The constructed Cloud Run URL was wrong.** `SERVICE-PROJECTNUMBER.REGION.run.app` is not the
-   format; Cloud Run assigns `farm-friend-worker-p5mfxfp5za-uw.a.run.app` — opaque per-project
-   suffix, *shortened* region. Caught only by the `url_assumption_holds` output written for exactly
-   this, because a wrong URL here is **silent**: tasks and scheduled runs 404 forever while every
-   service looks healthy.
-4. **`PUBLIC_BASE_URL` on the web service alone crashed every scheduled run.** The worker's
-   `resolveConfig` requires it and fails closed. Found by reading the worker's logs after forcing a
-   run; the apply was green throughout.
-
-Reading `.uri` back off the services is the obvious fix for (3) and **cannot work**: every service
-needs `PUBLIC_BASE_URL`, so any service URL fed into shared config makes that service depend on
-itself. Two applies hit that cycle from opposite directions. The host suffix is now an explicit
-documented input, and three plan assertions pin the task target, the shared base URL, and the
-worker actually having one.
-
-### The Telnyx credentials were re-fetched, not copied — the legacy ones are stale
-
-The plan says the legacy Secret Manager entries hold the same exposed credentials. **Tested: the
-legacy `TELNYX_API_KEY` returns 401 against the live API.** Copying it would have produced a dead
-SMS path that looked correctly configured. All four new values verified live before use: API key
-200, public key decodes to 32 bytes *and* matches `/v2/public_key`, from-number valid E.164 and on
-the matching messaging profile.
-
-Note the public key legitimately did **not** change — it belongs to the account and does not rotate
-with an API key. Its byte-identity with the legacy copy is correct, not a mistake.
-
-### A source assertion matched its own explanatory comment
-
-Third instance of this trap in this repo, after an import line satisfying a `waitUntil` check and a
-loose alternation matching a CLI flag. The prohibition on `waitUntil(` matched the *comment*
-explaining why `waitUntil` is absent. The helpers now strip comments as well as imports. **Prose
-about a construct is not the construct.**
-
-### Owed
-
-Rotation (F-034) **deferred again** — sound only while no real phone numbers exist, and the database
-is now empty, so the window is genuinely open. The first real inbound SMS closes it. Telnyx's
-webhook still points at Vercel; the Vercel project, the stale `throwaway/hobby-deploy-test` branch,
-and the legacy Firebase resources are all still owed a teardown. B-002 production seeding remains a
-deliberate not-yet.
-
----
-
-## 2026-07-28 — the housekeeping checkpoint: GL-031/032/034/035/036, and a rotation procedure that would have broken production
-
-Third go-live tranche, and the one Max asked to review before P1. Five items, four of them
-documentation truth-telling. Same method as last session — one item per subagent in an isolated
-worktree, then verify every claim by *running* it here. That method earned its keep twice below.
-
-### GL-035 — two of three "dead mechanisms" were not dead, and one deletion would have been serious
-
-The guide proposed deleting `roles.ts`, the `SmsSimulator`/`SmsTransport` family, and
-`openOrReviseProposal().activate()`. I wrote a starting map from my own greps and **got two of the
-three wrong**, in the dangerous direction. The subagent contradicted me on both; I re-checked and it
-was right.
-
-**`roles.ts` is live.** My grep looked for the import *path* (`from "./roles"`, `auth/roles`) and
-found only its own test and the barrel. But `@farm-friend/core` **is** a barrel, and production
-imports through it: `apps/web/lib/admin-guard.ts` — the one guard all five admin API routes share —
-calls `requireRole` and `AuthorizationError`, and four admin pages call `hasRole`. Deleting the file
-would have deleted the live admin authority check. What was genuinely dead is narrower: the
-`staff`/`farmer` values and the "admin implies staff" `IMPLIES` table, which nothing could ever
-produce (`packages/db/src/admin.ts` returns the constant `["admin"]`). `Role` is now `"admin"` alone.
-An implication table that can never fire reads as protection while proving nothing.
-
-**The parallel SMS path was real, and it held the safety proof.** Correction to my map in the other
-direction: `SmsTransport` is *not* the live seam — `createLastMileSender` takes a `ProviderTransport`
-(a plain function type in `delivery.ts`), and that is what the composition root wires Telnyx into.
-`SmsTransport`/`OutboundMessage`/`SmsSimulator`/`SentMessage` plus the metrics logger were reachable
-only from the package's own tests.
-
-The consequential part: **`safety-boundary.type-test.ts` — the Golden Rule #6 layer-1 compile guard
-— asserted the branded outbound type against `OutboundMessage`.** The static provenance barrier was
-being proven of a path production never took. That is the exact failure family CLAUDE.md already
-documents twice (a source assertion satisfied by incidental text; a stub that cannot see what the
-real thing does), one level up: *a safety proof anchored to dead code is not a safety proof*.
-Re-anchored to `LastMileSendInput`. I sabotaged it myself rather than trusting the report — erasing
-the brand fails **both** bypass assertions.
-
-`estimateSmsSegments` and `normalizeAvoidableSmsUnicode` were kept deliberately: the normalizer is
-already on the real path via the outbound guard, and the estimator is precisely the machinery
-**GL-021** exists to attach to the real send path. Deleting it would mean rebuilding it in a fortnight.
-
-**`activate()` was the genuine duplicate — and the two writers had already diverged.** Production
-activation lives in the outbound worker (`apps/web/lib/workers.ts`); the test-only `activate()` wrote
-the same three columns differently: it targeted `where id = proposalId` with no state guard, while
-production matches `state = 'open'` + recipient + `inventory_confirmation`, and copies
-`proposal_version` **in SQL** rather than reading it first (a read-then-write can record a version a
-concurrent revision already superseded). Ten integration tests exercised the synthetic path, so any
-drift between them was invisible. Now one exported `activateAcceptedPrompt` in `packages/db`, called
-by both — tests adapted to production's behavior, never the reverse. My own sabotage of the shared
-write fails **11 integration tests** across 2 files, and trips the `activation_coherent` CHECK
-constraint besides.
-
-### GL-034 — the code was right; the words a farmer reads were not
-
-B-011 established that the carrier owns STOP/START: `START` lifts Telnyx's block, `JOIN` does not,
-so JOIN enrolls only a first-time sender. `consentTransitionFor` implements that exactly.
-
-The gap was `docs/VIGA_10DLC_WEBSITE_COPY.md` — the paste-ready public Squarespace copy, i.e. what
-someone reads *before* they ever text. Its Opt Out section said messaging stops "unless you request
-to rejoin", **naming no keyword at all**. A reader who was just told the opt-in word is JOIN reaches
-for JOIN, is refused, and stays blocked with no idea why. No test policed that file. Five sections
-now name START for the returning path; JOIN stays as the first-time call to action, and the new test
-is scoped to the opt-out section so a whole-document ban can't creep in and break the registration.
-Sabotage-verified here, not just reported: reverting the section to JOIN fails both assertions.
-
-Registered 10DLC copy and `TELNYX_10DLC_FIELD_VALUES.txt` were untouched — that file is a transcript
-of live console state, and the rule is change the console first, then transcribe. Two optional
-console edits are written up under GL-034, and my recommendation is **to weigh them, not just do
-them**: Telnyx auto-answers STOP/START in its own copy and enforces its block list independently of
-the profile's auto-response fields, so neither edit changes what an opted-out user experiences. They
-buy registration-vs-page consistency against the cost of a possible campaign re-review.
-
-### GL-031/032/036 — the docs stop carrying status, and stop claiming authority they no longer have
-
-Max made two calls that shaped this: **status lives in CLAUDE.md only** (docs drop their build-status
-banners entirely rather than getting corrected ones — five fewer places to go stale), and the
-**session logs stay exactly as they are but leave the reading path** (nothing rewritten; they simply
-stop being startup context).
-
-The risky half of retiring the clean-room handoff was not removing the banners — it was making sure
-nothing it *settled* existed only there. Three things did, and were moved before the banners came
-off: code-owned message-frequency limits (→ ARCHITECTURE, written as an explicitly **unbuilt**
-requirement, since no cadence cap exists anywhere in the code), the excluded-infrastructure list —
-no Kafka, event bus, event sourcing, workflow engine, distributed lock, policy engine, DLP, vector
-database, additional package (→ ARCHITECTURE's design stance), and the disambiguation that
-retrieval-first means before *fact selection*, not before *interpretation* (→ AI_ARCHITECTURE).
-
-Stale claims corrected: ARCHITECTURE listed customer inquiry, stock-out, retention, authentication,
-and the model privacy boundary as "Not implemented" — all five are built; AI_ARCHITECTURE said "the
-configured provider is still the deterministic stub" 140 lines before documenting the DeepInfra
-adapter; PRODUCT_BRIEF listed eleven decisions as open when seven were settled in code; `maps/README`
-still called the seeder future work. Two the review had not named: ARCHITECTURE claimed a QR
-stock-out **web form** as a built surface (only the API route exists), and the RUNBOOK finding below.
-
-### The find of the session: a rotation procedure that would have broken production
-
-`RUNBOOK.md` §"Credential rotation" said `DEEPINFRA_API_KEY` is **not** a production credential —
-"absent from Vercel entirely, so the deployment runs the deterministic stub" — and instructed
-rotating it in the DeepInfra console and **local `.env` only**. That was true when written. **GL-019
-made it false** by setting `LLM_PROVIDER=deepinfra` in production, and nothing went back to correct
-the rotation instructions. F-034's own PM checklist and CLAUDE.md carried the same line.
-
-So the documented procedure for the one remaining go-live blocker would have revoked the key while
-production kept calling DeepInfra with it — every model seam failing in the deployment, while local
-`evals:live` stayed green because the local `.env` had just been updated. Corrected in all three
-places, with an instruction to confirm a variable's presence in Vercel before rotating rather than
-trusting any table, including that one. This is the same reasoning-from-a-stale-record error as
-trusting `vercel env ls`'s timestamp column, and the reason the honest check is always behavioural.
-
-### Verified
-
-`npm test` **498/498 across 53 files**; `npm run test:integration` **311/311 across 19 files** on
-real Postgres 16; `npm run evals` critical **11/11**, advisory 4/4, adversarial **29/29**; lint, root
-typecheck, and `next build` all exit 0. **All run on the merged result**, not on the branches —
-neither subagent tested the combination, and the merge is what ships. `evals:live` not re-run: no
-seam projection, schema, or output contract changed.
-
-One integration run early on failed two files with **hook timeouts**, then passed 19/19 twice — the
-documented environmental signature (a failure that *moves*). It coincided with a second suite I had
-running against the same Postgres.
-
-### Owed
-
-P1 (GL-007 onward) is next and unstarted. **GL-001 credential rotation remains the hard go-live
-blocker**, now with a corrected procedure. Two optional Telnyx console edits under GL-034. GL-021
-will consume `estimateSmsSegments`, kept for exactly that.

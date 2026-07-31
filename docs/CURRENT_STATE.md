@@ -6,7 +6,7 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-30** (`f-043-poster-styling`, unmerged): `npm test` **726/726** (69 files);
+**Verified 2026-07-30** (`main`, F-043's poster pass merged): `npm test` **726/726** (69 files);
 `npm run test:integration` **403/403** (22 files) on real Postgres 16, all **9** migrations from
 empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
 `evals:live` **not** re-run and not required — F-043 touched no seam projection, schema, or output
@@ -17,8 +17,9 @@ assertion suites **were** re-run as part of F-043's deploy — see below.
 > One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
 > what marks it environmental rather than a defect in this work.
 
-**F-043's poster-styling pass is BUILT AND UNMERGED** on `f-043-poster-styling` — see its entry
-below. Web-only: no schema, no seam, no new env var. Everything else below shipped 2026-07-30.
+**F-043's poster pass is MERGED AND UNDEPLOYED** — the only thing on `main` that production does
+not have. Web-only: no schema, no seam, no new env var, so a deploy is image-only with no
+migration owed. Everything else below is already live.
 
 F-043 shipped 2026-07-30 alongside F-042 and F-040 (below) —
 revisions `farm-friend-web-00010-7mc` / `farm-friend-worker-00011-l2w`, one digest
@@ -197,7 +198,7 @@ fixtures supply what production never creates.
   description-based guess; pins take the poster's green, and brick red is a *text* colour there.
   Dark mode is not the poster inverted (that gave dim pins on dim land): land stays muted, pins go
   bright. The poster's colour-only legend was **not** copied — the three-signal rule holds.
-  **2026-07-30 — max's poster review, on `f-043-poster-styling`, UNMERGED.** Compared against the
+  **2026-07-30 — max's poster review. MERGED to `main`, NOT YET DEPLOYED.** Compared against the
   actual poster image (supplied this session; the earlier palette came from a *description* of
   it) the map did not read as VIGA's. Five changes: the wooded parks drawn as **real OSM
   polygons** through the same projection as the pins; the coastline re-traced at 25m rather than
@@ -231,8 +232,17 @@ fixtures supply what production never creates.
   and dismisses cleanly. 8 sabotages, all caught; **one initially survived** (distinct numbers
   for duplicate farm names pass without the `id` tiebreak, since a stable sort falls back to
   input order) and was replaced with a reorder-invariance assertion.
-  **Owed: the Squarespace embed handshake**, which needs a second origin to frame the page and was
-  never exercised. `apps/web/app/embed-height.tsx` posts the height; the listener VIGA pastes is in
+  **LIGHT MODE ONLY** (max, 2026-07-30). Dark mode is gone from the public map: it was a second
+  value for every brand token, and each was a place the two themes could silently disagree —
+  which they did twice (F-043's bright-slab island, and this pass's woods at 1.29:1). The map is
+  VIGA's printed poster, a light artefact. `color-scheme: light` is **required, not decoration**:
+  without it a browser on a dark-mode machine still paints the `IN SEASON` select and the
+  scrollbars dark. **Known tradeoff, accepted**: checking a stand outdoors at night is now a
+  bright screen. Verified in the **served bytes** — zero `prefers-color-scheme` rules, every dark
+  token value absent — and rendered light on a dark-mode machine with no emulation.
+  **F-043 is CLOSED.** The Squarespace embed handshake — the one criterion it could never meet,
+  needing a second origin — is now **F-044**, not an open tail on this item. Until VIGA pastes the
+  listener the embed still works, falling back to the fixed `height="900"`. `apps/web/app/embed-height.tsx` posts the height; the listener VIGA pastes is in
   ADMIN_OPERATIONS §Embedding the map. Until VIGA adds that snippet the embed still works — it just
   falls back to the fixed `height="900"`.
 - **B-023 — CLOSED 2026-07-30.** `board@vigavashon.org` is the first administrator (a VIGA *org*
