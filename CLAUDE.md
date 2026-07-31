@@ -153,11 +153,12 @@ Full detail — and the tripwires you need before touching anything — in
   plus F-042 and F-040 (farmer onboarding: `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>`
   behind a never-expiring link whose only safety net is revocation). Production is at **9
   migrations**. **Owed: nobody has looked at F-040's two pages.**
-- **Merged but INERT — F-046 parts 1-2** (SMS result paging). Rendering, the `MORE` keyword, and
-  migration 0009 exist; **nothing wires them**, so `MORE` still falls through to free text. Repo is
-  at **10 migrations**, production at 9. **Production still shows F-045's `(null)` bug** for the
-  two stands with no address — fixed in the merged renderer, not deployed. Part 3 is the routing
-  branch.
+- **F-046 is COMPLETE in the repo, NOT merged, NOT deployed** (SMS result paging). Part 3
+  (`392b5b1`, branch `f-046-part3-routing`) wires what parts 1-2 left inert, so `MORE` now reaches
+  a pager that has **no model dependency at all**. Repo is at **10 migrations**, production at 9.
+  **Production still shows F-045's `(null)` bug** for the two stands with no address — fixed in the
+  renderer, not deployed. **Deploying needs migration 0010 FIRST, then the image**: the table must
+  exist before the code that reads it.
 - **drizzle-kit drops CHECK constraints when generating SQL** — write them into migrations by hand.
   Tripwired in `migration-metadata.test.ts`. Also: `array_length` of an empty array is **NULL**, and
   a CHECK **passes** on NULL — `coalesce` or the constraint admits what it forbids.
