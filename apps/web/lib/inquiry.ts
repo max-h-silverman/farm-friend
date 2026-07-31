@@ -8,6 +8,7 @@ import {
   ORIGIN_LIMITATION_STATEMENT,
   RECIPE_SCOPE_STATEMENT,
   type Clock,
+  type FactBasis,
   type InquiryCandidate,
   type RetrievedFact,
 } from "@farm-friend/core";
@@ -41,12 +42,20 @@ export type InquiryOutcome =
   /** Model output code refused; nothing is delivered as fact. */
   | { outcome: "rejected"; reason: string };
 
+/**
+ * Distinguishes an offering candidate's identifier from a confirmed one for the same
+ * location. Hyphenated rather than colon-separated so it satisfies `assertOpaqueId`, the
+ * projection's guard that an identifier field carries an identifier and not free text.
+ */
+const OFFERING_FACT_PREFIX = "offering-";
+
 interface LocationRow {
   factId: string;
   farmName: string;
   locationName: string;
   publicAddress: string;
   asOf: Date;
+  basis: FactBasis;
   items: {
     itemName: string;
     quantity?: number;
@@ -57,9 +66,21 @@ interface LocationRow {
 }
 
 /**
- * Retrieve every public location's current published inventory. Retrieval is deliberately
- * general — it selects rows, and the ranking layer filters and orders them. There is no food
- * vocabulary or farm name in this query.
+ * Retrieve what every public location publishes — farmer-confirmed inventory AND the
+ * standing offering tags.
+ *
+ * Offerings were invisible here until F-045, which is why every SMS question answered "no
+ * stand has a current listing" while the public map showed 212 tags for the same stands:
+ * production holds zero inventory revisions, so a query reading only `inventory_revisions`
+ * retrieved nothing, every time, and short-circuited before any model call. The map and SMS
+ * now read the same two sources.
+ *
+ * A location contributes at most one row per basis. Confirmed inventory and offerings are
+ * kept as SEPARATE candidates rather than merged, because they support different claims and
+ * the renderer must never blur them: one carries recency, the other carries none.
+ *
+ * Retrieval stays deliberately general — it selects rows, and the layers above order and
+ * select. There is no food vocabulary or farm name in this query.
  */
 async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
   const rows = await db.sql`
@@ -97,6 +118,7 @@ async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
         locationName: row.location_name as string,
         publicAddress: row.public_address as string,
         asOf: row.published_at as Date,
+        basis: "confirmed",
         items: [],
       };
       byLocation.set(locationId, entry);
@@ -113,7 +135,51 @@ async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
     });
   }
 
-  return [...byLocation.values()];
+  // The offerings half. `created_at` orders these among themselves; it is never rendered,
+  // because an offering is a standing description that nobody confirmed.
+  const offeringRows = await db.sql`
+    select
+      l.id as location_id,
+      l.name as location_name,
+      l.public_address as public_address,
+      f.name as farm_name,
+      l.created_at as created_at,
+      o.item as item,
+      o.sort_order as sort_order
+    from sales_locations l
+    join farms f on f.id = l.farm_id
+    join sales_location_offerings o on o.sales_location_id = l.id
+    where l.is_public
+    order by l.id asc, o.sort_order asc
+  `;
+
+  const offeringsByLocation = new Map<string, LocationRow>();
+  for (const raw of offeringRows) {
+    const row = raw as Record<string, unknown>;
+    const locationId = row.location_id as string;
+
+    let entry = offeringsByLocation.get(locationId);
+    if (!entry) {
+      entry = {
+        // A distinct fact identifier: one location can be a candidate on both bases, and
+        // the model selects identifiers, so they must not collide. The separator is a
+        // hyphen because `assertOpaqueId` requires an identifier to LOOK like one — a
+        // colon would be refused, correctly, as free text wearing an id's name.
+        factId: `${OFFERING_FACT_PREFIX}${locationId}`,
+        farmName: row.farm_name as string,
+        locationName: row.location_name as string,
+        publicAddress: row.public_address as string,
+        asOf: row.created_at as Date,
+        basis: "offering",
+        items: [],
+      };
+      offeringsByLocation.set(locationId, entry);
+    }
+
+    entry.items.push({ itemName: row.item as string });
+  }
+
+  return [...byLocation.values(), ...offeringsByLocation.values()];
 }
 
 /**
@@ -187,20 +253,32 @@ export async function answerInquiry(
     };
   }
 
-  // Only the matched items reach the renderer, so an answer about kale does not list eggs.
+  // Every published item reaches the selection seam, not just exact string matches
+  // (F-045). Narrowing the RETRIEVED SET by name equality is what made "leafy greens"
+  // invisible to a stand publishing "butter lettuce": the model cannot select what it was
+  // never shown.
+  //
+  // Rendering narrows separately, and still by exact name. The two are different jobs: what
+  // the model may CONSIDER must be broad enough to judge, while what a customer READS about
+  // a stand should stay on topic — an answer about kale should not recite the eggs. When no
+  // published name matches the requested words (the category case, where the relationship is
+  // exactly what code cannot see), every item is shown rather than none, because listing
+  // nothing under a stand the model chose would render an empty claim.
   const wanted = new Set(intent.value.items.map((item) => item.trim().toLowerCase()));
   const byId = new Map(listings.map((row) => [row.factId, row]));
   const retrieved: RetrievedFact[] = ranked.map((candidate) => {
     const row = byId.get(candidate.factId)!;
+    const named = row.items.filter((item) =>
+      wanted.has(item.itemName.trim().toLowerCase()),
+    );
     return {
       factId: row.factId,
       locationName: row.locationName,
       farmName: row.farmName,
       publicAddress: row.publicAddress,
-      matchedItems: row.items.filter((item) =>
-        wanted.has(item.itemName.trim().toLowerCase()),
-      ),
+      matchedItems: named.length > 0 ? named : row.items,
       asOf: row.asOf,
+      basis: row.basis,
     };
   });
 
@@ -214,10 +292,17 @@ export async function answerInquiry(
       farmName: fact.farmName,
       locationName: fact.locationName,
       matchedItemNames: fact.matchedItems.map((item) => item.itemName),
-      ageHours: Math.max(
-        0,
-        Math.floor((now.getTime() - fact.asOf.getTime()) / 3_600_000),
-      ),
+      // An offering has no age to report: nobody confirmed it. Sending one would let the
+      // model treat a standing description as a fresh confirmation.
+      ...(fact.basis === "confirmed"
+        ? {
+            ageHours: Math.max(
+              0,
+              Math.floor((now.getTime() - fact.asOf.getTime()) / 3_600_000),
+            ),
+          }
+        : {}),
+      basis: fact.basis,
     })),
   });
 

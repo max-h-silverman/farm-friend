@@ -16,6 +16,20 @@
 
 import type { Clock } from "../clock";
 
+/**
+ * What kind of claim a retrieved fact supports (F-045).
+ *
+ * `confirmed` — a farmer published this inventory at `asOf`. Carries recency, and goes
+ * stale.
+ * `offering` — a standing description of what the stand typically stocks. Nobody confirmed
+ * anything, so it carries NO timestamp and never goes stale: attaching an elapsed phrase
+ * would manufacture a confirmation that never happened.
+ *
+ * The distinction is the same one the public map draws between its confirmed line and its
+ * "Usually sells" line (F-042). Two surfaces, one rule.
+ */
+export type FactBasis = "confirmed" | "offering";
+
 /** One retrieved sales location with the authoritative values the renderer needs. */
 export interface RetrievedFact {
   /** Opaque stable identifier. The only thing the model may hand back. */
@@ -23,10 +37,14 @@ export interface RetrievedFact {
   locationName: string;
   farmName: string;
   publicAddress: string;
-  /** The matched items this location currently publishes, in published order. */
+  /** The matched items this location publishes, in published order. */
   matchedItems: RetrievedItem[];
-  /** When the farmer last confirmed this location's inventory. */
+  /**
+   * When the farmer last confirmed this location's inventory. For an `offering` this
+   * orders candidates but is never rendered — nothing was confirmed.
+   */
   asOf: Date;
+  basis: FactBasis;
 }
 
 export interface RetrievedItem {
@@ -257,13 +275,46 @@ export function renderGroundedAnswer(
 
   if (facts.length === 0) return renderNoCurrentListing([]);
 
-  const lines = facts.map((fact) => {
-    const items = fact.matchedItems.map(renderItem).join(", ");
-    const recency = renderRecency(fact.asOf, now);
-    const stale = isStale(fact.asOf, now) ? " - may be out of date" : "";
-    const body = items === "" ? fact.locationName : `${fact.locationName}: ${items}`;
-    return `${body} (${recency}${stale})`;
-  });
+  // Confirmed stock leads; typical offerings follow under their own label. The model's
+  // order is preserved WITHIN each group — it ranked relevance, and this grouping is a
+  // property of the claim, not of the ranking.
+  const confirmed = facts.filter((fact) => fact.basis === "confirmed");
+  const offerings = facts.filter((fact) => fact.basis === "offering");
 
-  return lines.join("\n");
+  const withAddress = (fact: RetrievedFact): string =>
+    fact.publicAddress === ""
+      ? fact.locationName
+      : `${fact.locationName} (${fact.publicAddress})`;
+
+  const sections: string[] = [];
+
+  if (confirmed.length > 0) {
+    sections.push(
+      confirmed
+        .map((fact) => {
+          const items = fact.matchedItems.map(renderItem).join(", ");
+          const recency = renderRecency(fact.asOf, now);
+          const stale = isStale(fact.asOf, now) ? " - may be out of date" : "";
+          // The recency phrase is how this stays honest: it reports when a farmer last
+          // confirmed, never that the item is on the table now.
+          const body = items === "" ? withAddress(fact) : `${withAddress(fact)}: ${items}`;
+          return `${body} (${recency}${stale})`;
+        })
+        .join("\n"),
+    );
+  }
+
+  if (offerings.length > 0) {
+    // Introduced rather than concatenated, so a customer can see where confirmation stops
+    // and description begins. The wording shifts when there is nothing confirmed above it,
+    // because "these other stands" would be dangling.
+    const lead =
+      confirmed.length > 0
+        ? "These other stands also list this as a typical offering:"
+        : "Nobody has confirmed this recently. These stands list it as a typical offering:";
+    // No recency, no staleness: nothing here was ever confirmed.
+    sections.push([lead, ...offerings.map((fact) => withAddress(fact))].join("\n"));
+  }
+
+  return sections.join("\n\n");
 }

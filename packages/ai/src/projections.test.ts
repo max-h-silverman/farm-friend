@@ -120,6 +120,7 @@ describe("grounded-fact-selection projection — the facts, and no raw customer 
       locationName: "Alpha Stand",
       matchedItemNames: ["kale"],
       ageHours: 2,
+      basis: "confirmed" as const,
     },
   ];
 
@@ -142,6 +143,7 @@ describe("grounded-fact-selection projection — the facts, and no raw customer 
       locationName: "Alpha Stand",
       matchedItemNames: ["kale"],
       ageHours: 2,
+      basis: "confirmed" as const,
       farmerPhoneHash: "deadbeef",
       internalNote: "owner behind on dues",
     } as (typeof facts)[number];
@@ -149,6 +151,7 @@ describe("grounded-fact-selection projection — the facts, and no raw customer 
     const ctx = projectFactSelection({ items: ["kale"], ranking: "any", facts: [overBroad] });
     expect(Object.keys(ctx.fields.facts[0]!).sort()).toEqual([
       "ageHours",
+      "basis",
       "factId",
       "farmName",
       "locationName",
@@ -156,6 +159,33 @@ describe("grounded-fact-selection projection — the facts, and no raw customer 
     ]);
     expect(JSON.stringify(ctx)).not.toContain("deadbeef");
     expect(JSON.stringify(ctx)).not.toContain("behind on dues");
+  });
+
+  it("omits ageHours for an offering rather than sending a fabricated zero (F-045)", () => {
+    // An offering is a standing description nobody confirmed, so it has no age. A zero here
+    // would read to the model as "confirmed just now" — the strongest possible claim
+    // attached to the weakest possible fact.
+    const ctx = projectFactSelection({
+      items: ["lamb"],
+      ranking: "any",
+      facts: [
+        {
+          factId: "offering-1",
+          farmName: "Alpha Farm",
+          locationName: "Alpha Stand",
+          matchedItemNames: ["frozen lamb"],
+          basis: "offering",
+        },
+      ],
+    });
+    expect(Object.keys(ctx.fields.facts[0]!).sort()).toEqual([
+      "basis",
+      "factId",
+      "farmName",
+      "locationName",
+      "matchedItemNames",
+    ]);
+    expect(JSON.stringify(ctx)).not.toContain("ageHours");
   });
 
   it("refuses a raw phone in retrieved public facts", () => {
@@ -226,6 +256,7 @@ describe("opaque identifiers are checked for shape, never scanned as content", (
               locationName: "Alpha Stand",
               matchedItemNames: ["Kale"],
               ageHours: 1,
+              basis: "confirmed" as const,
             },
           ],
         }),
@@ -250,6 +281,7 @@ describe("opaque identifiers are checked for shape, never scanned as content", (
             locationName: "Alpha Stand",
             matchedItemNames: ["Kale"],
             ageHours: 1,
+            basis: "confirmed" as const,
           },
         ],
       }),
@@ -281,6 +313,7 @@ describe("opaque identifiers are checked for shape, never scanned as content", (
             locationName: "Call 206-555-1234 Stand",
             matchedItemNames: ["Kale"],
             ageHours: 1,
+            basis: "confirmed" as const,
           },
         ],
       }),

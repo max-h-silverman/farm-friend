@@ -80,6 +80,7 @@ const RETRIEVED: RetrievedFact[] = [
     publicAddress: "1 Road",
     matchedItems: [{ itemName: "bok choy" }],
     asOf: new Date("2026-07-28T08:00:00Z"),
+    basis: "confirmed",
   },
   {
     factId: "loc-2",
@@ -88,6 +89,7 @@ const RETRIEVED: RetrievedFact[] = [
     publicAddress: "2 Road",
     matchedItems: [{ itemName: "bok choy" }],
     asOf: new Date("2026-07-24T08:00:00Z"),
+    basis: "confirmed",
   },
 ];
 const SELECTION_FACTS = RETRIEVED.map((fact, index) => ({
@@ -96,9 +98,53 @@ const SELECTION_FACTS = RETRIEVED.map((fact, index) => ({
   locationName: fact.locationName,
   matchedItemNames: fact.matchedItems.map((item) => item.itemName),
   ageHours: index === 0 ? 2 : 98,
+  basis: "confirmed" as const,
 }));
 
-type Group = "live-containment" | "live-quality";
+/**
+ * RECALL fixtures (F-045). Item names lifted from the real VIGA corpus.
+ *
+ * Since code stopped pre-filtering candidates by exact item name, finding the answer is the
+ * MODEL's job — so recall became a measured quality property rather than a code guarantee.
+ * These fixtures are how a candidate model is judged fit: containment can read 100% while
+ * recall reads 0%, and a model that silently answers "nobody has that" about a stand
+ * carrying the item is useless to a customer even though it is perfectly safe.
+ *
+ * Every fixture includes DISTRACTORS the model must not select, so a model that returns
+ * everything scores no better than one that returns nothing.
+ */
+const RECALL_FACTS = [
+  {
+    factId: "rc-lettuce",
+    farmName: "Fruits Des Vignes",
+    locationName: "Fruits Des Vignes Stand",
+    matchedItemNames: ["butter lettuce", "lettuce mix", "chard"],
+    basis: "offering" as const,
+  },
+  {
+    factId: "rc-roots",
+    farmName: "Twisting Tree Farm",
+    locationName: "Twisting Tree Stand",
+    matchedItemNames: ["beets", "carrots", "potatoes"],
+    basis: "offering" as const,
+  },
+  {
+    factId: "rc-lamb",
+    farmName: "Littlest Bird Farm",
+    locationName: "Littlest Bird Stand",
+    matchedItemNames: ["frozen lamb", "pork", "eggs"],
+    basis: "offering" as const,
+  },
+  {
+    factId: "rc-flowers",
+    farmName: "Sweet Alyssum",
+    locationName: "Sweet Alyssum Stand",
+    matchedItemNames: ["cut flowers", "dahlias"],
+    basis: "offering" as const,
+  },
+];
+
+type Group = "live-containment" | "live-quality" | "live-recall";
 interface Fixture {
   name: string;
   group: Group;
@@ -265,6 +311,98 @@ fx("live-quality", "a description naming no produce yields an empty proposal, no
   return { ok: result.ok && result.items.length === 0, observed };
 });
 
+// ------------------------------------------------------------------ F-045 recall
+//
+// Each asserts the RIGHT stand is selected and the distractors are not. A model that
+// selects everything fails these exactly as hard as one that selects nothing.
+
+const recallCase = (
+  label: string,
+  request: string,
+  expected: string,
+  forbidden: string[],
+) =>
+  fx("live-recall", label, async () => {
+    const result = await inquiry.select({
+      items: [request],
+      ranking: "any",
+      facts: RECALL_FACTS,
+    });
+    const observed = JSON.stringify(result);
+    if (result.kind !== "selection") return { ok: false, observed };
+    const hit = result.factIds.includes(expected);
+    const clean = forbidden.every((id) => !result.factIds.includes(id));
+    return { ok: hit && clean, observed };
+  });
+
+// The two questions max asked a real handset on 2026-07-30, both answered "no stand has a
+// current listing" while the stands below were in the corpus the whole time.
+recallCase(
+  "a category request reaches a stand listing a member of it (leafy greens → lettuce)",
+  "leafy greens",
+  "rc-lettuce",
+  ["rc-lamb", "rc-flowers"],
+);
+recallCase(
+  "a second category, to prove the first was not a lucky word overlap (root vegetables → beets)",
+  "root vegetables",
+  "rc-roots",
+  ["rc-lamb", "rc-flowers"],
+);
+recallCase(
+  "a specific item matches a differently-worded listing (lamb → frozen lamb)",
+  "lamb",
+  "rc-lamb",
+  ["rc-lettuce", "rc-roots"],
+);
+
+fx("live-recall", "declines to invent a match when nothing in the set answers", async () => {
+  // The other half of recall: a model that selects a stand for an item nobody carries has
+  // not been helpful, it has been wrong. Selecting nothing is the correct answer here, and
+  // code renders the honest no-listing reply.
+  const result = await inquiry.select({
+    items: ["durian"],
+    ranking: "any",
+    facts: RECALL_FACTS,
+  });
+  const observed = JSON.stringify(result);
+  const ok =
+    result.kind === "clarification" ||
+    (result.kind === "selection" && result.factIds.length === 0);
+  return { ok, observed };
+});
+
+fx("live-recall", "prefers a confirmed listing over a typical offering for the same item", async () => {
+  // Both answer the question; the confirmed one is the better answer, and the renderer
+  // leads with it. This measures whether the model uses `basis` as intended.
+  const result = await inquiry.select({
+    items: ["lamb"],
+    ranking: "any",
+    facts: [
+      {
+        factId: "rc-lamb-offering",
+        farmName: "Littlest Bird Farm",
+        locationName: "Littlest Bird Stand",
+        matchedItemNames: ["frozen lamb"],
+        basis: "offering" as const,
+      },
+      {
+        factId: "rc-lamb-confirmed",
+        farmName: "Holmestead Farms",
+        locationName: "Holmestead Stand",
+        matchedItemNames: ["lamb"],
+        ageHours: 20,
+        basis: "confirmed" as const,
+      },
+    ],
+  });
+  const observed = JSON.stringify(result);
+  if (result.kind !== "selection") return { ok: false, observed };
+  // Both are legitimate answers, so both may appear; the confirmed one must come first.
+  const ok = result.factIds[0] === "rc-lamb-confirmed";
+  return { ok, observed };
+});
+
 fx("live-quality", "renders a grounded answer only from a legitimate live selection", async () => {
   // End-to-end sanity: real selection → code-rendered answer with recency, no invention.
   const result = await inquiry.select({
@@ -293,6 +431,10 @@ async function main() {
   const results: Record<Group, { pass: number; fail: number }> = {
     "live-containment": { pass: 0, fail: 0 },
     "live-quality": { pass: 0, fail: 0 },
+    // F-045: recall is measured, never assumed. Containment can read 100% while recall
+    // reads 0% — a model that safely answers "nobody has that" about a stand carrying the
+    // item is contained and useless.
+    "live-recall": { pass: 0, fail: 0 },
   };
 
   for (const fixture of fixtures) {
@@ -310,7 +452,7 @@ async function main() {
   }
 
   console.log();
-  for (const group of ["live-containment", "live-quality"] as Group[]) {
+  for (const group of ["live-containment", "live-quality", "live-recall"] as Group[]) {
     const r = results[group];
     console.log(`${group}: ${r.pass}/${r.pass + r.fail} passed`);
   }
@@ -322,7 +464,21 @@ async function main() {
     );
     process.exit(1);
   }
-  console.log("\nlive evals OK (containment at 100%; quality recorded above).");
+  // Recall is FATAL, unlike quality (F-045). Since code stopped pre-filtering candidates by
+  // item name, a model that cannot match a category is not a degraded experience — it is the
+  // production defect this work exists to fix, restored. A model failing here is unfit to
+  // serve customers however perfectly contained it is, so this gates rather than records.
+  if (results["live-recall"].fail > 0) {
+    console.error(
+      "\nLIVE EVALS FAILED: a recall fixture missed a stand that carries the item. " +
+        "The configured model cannot do the semantic matching code stopped doing (F-045). " +
+        "Try a stronger model before shipping — do not weaken the fixtures.",
+    );
+    process.exit(1);
+  }
+  console.log(
+    "\nlive evals OK (containment and recall at 100%; quality recorded above).",
+  );
 }
 
 void main();

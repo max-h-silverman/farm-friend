@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_INQUIRY_CANDIDATES,
   rankCandidates,
   validateInterpretedIntent,
   type InquiryCandidate,
@@ -226,7 +227,8 @@ describe("interpreted-intent validation — an open interpretation code can exec
 describe("ranking — a general mechanism, with no food or farm vocabulary", () => {
   it("orders by recency for a freshest interpretation", () => {
     const ranked = rankCandidates(candidates, { ranking: "freshest", items: ["kale"] });
-    expect(ranked.map((c) => c.factId)).toEqual(["a", "b"]);
+    // Every candidate survives (F-045); recency decides the order.
+    expect(ranked.map((c) => c.factId)).toEqual(["a", "c", "b"]);
   });
 
   it("orders by how many requested items a location covers", () => {
@@ -234,38 +236,113 @@ describe("ranking — a general mechanism, with no food or farm vocabulary", () 
       ranking: "coverage",
       items: ["kale", "eggs"],
     });
-    // Beta covers both; the single-item stands follow.
+    // Beta covers both; the single-item stands follow. Coverage remains an ORDERING signal
+    // over exact name overlap — a cheap hint that costs nothing when it hits and drops
+    // nobody when it misses, since the model still sees every candidate.
     expect(ranked[0]!.factId).toBe("b");
     expect(ranked).toHaveLength(3);
   });
 
   it("breaks a coverage tie by recency, so ordering is total and stable", () => {
     const ranked = rankCandidates(candidates, { ranking: "coverage", items: ["eggs"] });
-    // Beta and Gamma both cover eggs; Gamma is fresher.
-    expect(ranked.map((c) => c.factId)).toEqual(["c", "b"]);
-  });
-
-  it("returns only locations matching a requested item", () => {
-    const ranked = rankCandidates(candidates, { ranking: "any", items: ["eggs"] });
-    expect(ranked.map((c) => c.factId).sort()).toEqual(["b", "c"]);
-  });
-
-  it("matches items case-insensitively without encoding a taxonomy", () => {
-    const ranked = rankCandidates(candidates, { ranking: "any", items: ["KALE"] });
-    expect(ranked.map((c) => c.factId).sort()).toEqual(["a", "b"]);
-  });
-
-  it("returns an empty set when nothing matches, rather than a nearest guess", () => {
-    const ranked = rankCandidates(candidates, { ranking: "any", items: ["durian"] });
-    expect(ranked).toEqual([]);
+    // Beta and Gamma both cover eggs, so they lead, fresher first; Alpha covers none and
+    // sorts last rather than disappearing.
+    expect(ranked.map((c) => c.factId)).toEqual(["c", "b", "a"]);
   });
 
   it("applies a farm scope when the interpretation carried one", () => {
+    // Farm scope stays a CODE filter. A farm name is an identifier the customer supplied
+    // and code can compare exactly — unlike an item word, whose meaning is the model's job.
     const ranked = rankCandidates(candidates, {
       ranking: "any",
       items: ["kale"],
       farmScope: "alpha farm",
     });
     expect(ranked.map((c) => c.factId)).toEqual(["a"]);
+  });
+});
+
+// F-045 — why code no longer filters candidates by item name.
+//
+// `rankCandidates` used to drop any candidate whose published item names did not EXACTLY
+// equal a requested word. That put the only layer capable of understanding "beets are root
+// vegetables" downstream of a filter that had already thrown beets away, so category
+// questions could never be answered — the defect max hit on a real handset.
+//
+// Encoding a synonym table here instead would be food taxonomy as policy, which CLAUDE.md
+// forbids and which no finite list would satisfy anyway. So code retrieves broadly and the
+// model selects; code still validates every returned identifier against the retrieved set,
+// so grounding is unchanged.
+describe("ranking presents candidates for judgement rather than pre-filtering them (F-045)", () => {
+  it("keeps a candidate whose item name never equals the requested word", () => {
+    // The production case: "leafy greens" against a stand publishing "butter lettuce".
+    // Code cannot see the relationship and must not pretend the answer is no.
+    const greens: InquiryCandidate[] = [
+      {
+        factId: "lettuce",
+        farmName: "Alpha Farm",
+        locationName: "Alpha Stand",
+        matchedItemNames: ["butter lettuce", "baby lettuce mix"],
+        asOf: hoursAgo(2),
+      },
+      {
+        factId: "beets",
+        farmName: "Beta Farm",
+        locationName: "Beta Stand",
+        matchedItemNames: ["beets", "carrots"],
+        asOf: hoursAgo(5),
+      },
+    ];
+
+    const ranked = rankCandidates(greens, { ranking: "any", items: ["leafy greens"] });
+    // Both survive: neither matches by string, and code is not the layer that decides.
+    expect(ranked.map((c) => c.factId).sort()).toEqual(["beets", "lettuce"]);
+  });
+
+  it("keeps candidates for a word matching nothing, leaving the empty answer to selection", () => {
+    // Code returning [] here would short-circuit to "no current listing" WITHOUT a model
+    // call — which is exactly how a category question became a false negative.
+    const ranked = rankCandidates(candidates, { ranking: "any", items: ["durian"] });
+    expect(ranked.length).toBeGreaterThan(0);
+  });
+
+  it("still orders by recency so the cap keeps the most useful candidates", () => {
+    const ranked = rankCandidates(candidates, { ranking: "freshest", items: ["anything"] });
+    expect(ranked.map((c) => c.factId)).toEqual(["a", "c", "b"]);
+  });
+
+  it("bounds the candidate set with a stated cap rather than the corpus size", () => {
+    // 34 stands is comfortable for one selection call; the bound must be a decision in
+    // code, not an accident of how many farms VIGA happens to have.
+    const many: InquiryCandidate[] = Array.from({ length: MAX_INQUIRY_CANDIDATES + 25 }, (_, i) => ({
+      factId: `f${i}`,
+      farmName: `Farm ${i}`,
+      locationName: `Stand ${i}`,
+      matchedItemNames: ["produce"],
+      asOf: hoursAgo(i),
+    }));
+
+    const ranked = rankCandidates(many, { ranking: "freshest", items: ["produce"] });
+    expect(ranked).toHaveLength(MAX_INQUIRY_CANDIDATES);
+    // Truncation happens AFTER ordering, so the cap drops the least useful, not an
+    // arbitrary slice of input order.
+    expect(ranked[0]!.factId).toBe("f0");
+  });
+
+  it("applies the farm scope before the cap, so a scoped question is never truncated away", () => {
+    const many: InquiryCandidate[] = Array.from({ length: MAX_INQUIRY_CANDIDATES + 25 }, (_, i) => ({
+      factId: `f${i}`,
+      farmName: i === MAX_INQUIRY_CANDIDATES + 20 ? "Rare Farm" : `Farm ${i}`,
+      locationName: `Stand ${i}`,
+      matchedItemNames: ["produce"],
+      asOf: hoursAgo(i),
+    }));
+
+    const ranked = rankCandidates(many, {
+      ranking: "any",
+      items: ["produce"],
+      farmScope: "Rare Farm",
+    });
+    expect(ranked.map((c) => c.factId)).toEqual([`f${MAX_INQUIRY_CANDIDATES + 20}`]);
   });
 });

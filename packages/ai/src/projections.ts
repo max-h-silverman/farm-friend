@@ -113,7 +113,15 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "ambiguous shape with no other fields.",
   "grounded-fact-selection":
     "factIds MUST be values from facts, ordered best match first; select only facts that " +
-    "answer the request. If none fit, return the clarification shape with no other fields.",
+    "answer the request. Code no longer pre-filters by item name, so facts includes stands " +
+    "that do not answer the request at all - judge each one. Match by MEANING, not spelling: " +
+    'a request for a category selects the facts whose items belong to it (a request for ' +
+    '"leafy greens" selects a stand listing "butter lettuce"; "root vegetables" selects one ' +
+    'listing "beets"), and a request for a specific item selects stands listing it under any ' +
+    'wording ("lamb" selects "frozen lamb"). basis is "confirmed" when a farmer confirmed the ' +
+    'stock and "offering" when the stand merely lists it as typical; select BOTH kinds when ' +
+    "both answer the request, ordering confirmed facts first. If none fit, return the " +
+    "clarification shape with no other fields.",
   "stock-out-parse":
     "If the text names an item matching one of listedItems, return listed with that " +
     "entryId. If it clearly names an item that is not listed, return unlisted with the " +
@@ -254,8 +262,17 @@ export interface RetrievedFactRef {
   farmName: string;
   locationName: string;
   matchedItemNames: readonly string[];
-  /** Age in hours, derived in code. A clock is code's, never the model's to infer. */
-  ageHours: number;
+  /**
+   * Age in hours, derived in code. A clock is code's, never the model's to infer.
+   * Omitted for an `offering`, which nobody confirmed and which therefore has no age.
+   */
+  ageHours?: number;
+  /**
+   * Whether a farmer confirmed this inventory or the stand merely lists it as typical
+   * (F-045). The model needs it to rank — a confirmed listing is the better answer — and
+   * code needs it to render the right voice. It is a closed enum code assigns, never text.
+   */
+  basis: "confirmed" | "offering";
 }
 
 /** The complete permitted input for the grounded fact-selection seam. */
@@ -291,7 +308,10 @@ export function projectFactSelection(input: {
       matchedItemNames: fact.matchedItemNames.map((name, itemIndex) =>
         assertNoRawPhone(name, `facts[${index}].matchedItemNames[${itemIndex}]`),
       ),
-      ageHours: fact.ageHours,
+      // Copied only when code derived one. An offering carries no age, and sending a
+      // fabricated zero would invite the model to read it as "just confirmed".
+      ...(fact.ageHours !== undefined ? { ageHours: fact.ageHours } : {}),
+      basis: fact.basis,
     })),
   };
 
