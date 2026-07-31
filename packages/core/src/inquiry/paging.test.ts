@@ -21,9 +21,6 @@ const offering = (n: number, name: string, address: string | null): PageableFact
   basis: "offering",
 });
 
-/** The real corpus's worst case: the longest name + address measured in production. */
-const LONGEST = offering(99, "Fruits des Vignes Farm", "20430 111th Ave SW Vashon WA 98070");
-
 const nine = Array.from({ length: 9 }, (_, i) =>
   offering(i, `Farm Number ${i}`, `${10000 + i} SW 220th St`),
 );

@@ -1823,3 +1823,69 @@ export const modelRuns = pgTable(
     ),
   }),
 );
+
+/**
+ * The pending result list `MORE` pages through (F-046).
+ *
+ * A paged answer has to outlive the message that produced it. Max chose (2026-07-31) to
+ * REPLAY the saved list rather than re-run retrieval on each `MORE`: paging is then
+ * consistent — no stand appears twice or is skipped as ordering shifts — and `MORE` costs no
+ * model call. The accepted tradeoff is that stock confirmed after the question was asked does
+ * not appear until the customer asks again, which `expiresAt` bounds.
+ *
+ * **No message body and no rendered reply text.** The customer's question is untrusted inbound
+ * text with a short retention life of its own; copying it here would create a second,
+ * longer-lived home for it and quietly defeat that. What is stored is only what page 2 needs:
+ * WHICH facts, and how far through them the sender has read. `itemsRequested` is the narrow
+ * exception — the product words the interpretation seam extracted, not the sender's sentence.
+ */
+export const pendingResultLists = pgTable(
+  "pending_result_lists",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * The hash, never a raw number (Golden Rule #5). Unique: one pending list per sender, so
+     * a new question REPLACES the old rather than accumulating, and `MORE` is never ambiguous
+     * about which list it means.
+     */
+    senderHash: text("sender_hash").notNull(),
+    /** The ordered fact identifiers the answer selected. Opaque here; never interpreted. */
+    factIds: text("fact_ids").array().notNull(),
+    /** The product words the answer was about, for a later page's heading. */
+    itemsRequested: text("items_requested").array().notNull(),
+    /** How many of `factIds` the sender has already been shown. */
+    offset: integer("offset").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /** Bounds how stale a replayed list can be before the honest answer is to ask again. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    senderUnique: unique("pending_result_lists_sender_hash_unique").on(
+      table.senderHash,
+    ),
+    /**
+     * `coalesce` is required, not stylistic: `array_length` of an empty array returns NULL,
+     * and a CHECK constraint PASSES on NULL — so without it this admits exactly the empty
+     * array it exists to forbid. An empty list renders an empty page, which reads to a
+     * customer as "no results".
+     */
+    notEmpty: check(
+      "pending_result_lists_not_empty",
+      sql`coalesce(array_length(${table.factIds}, 1), 0) > 0`,
+    ),
+    offsetInRange: check(
+      "pending_result_lists_offset_in_range",
+      sql`${table.offset} >= 0 and ${table.offset} <= coalesce(array_length(${table.factIds}, 1), 0)`,
+    ),
+    expiresAfterCreation: check(
+      "pending_result_lists_expires_after_creation",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    senderLookup: index("pending_result_lists_sender_idx").on(
+      table.senderHash,
+      table.expiresAt,
+    ),
+  }),
+);
