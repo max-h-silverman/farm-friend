@@ -292,6 +292,7 @@ const RETRIEVED: RetrievedFact[] = [
     publicAddress: "1 Road",
     matchedItems: [{ itemName: "Kale", quantity: 6, unit: "bunches" }],
     asOf: new Date("2026-07-25T10:00:00Z"),
+    basis: "confirmed",
   },
 ];
 

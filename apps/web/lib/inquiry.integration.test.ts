@@ -159,7 +159,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       truncate table
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         stock_out_reports, outbox_work, farm_approvals, farmer_authorizations,
-        sales_locations, administrators, farms, contacts
+        sales_location_offerings, sales_locations, administrators, farms, contacts
       restart identity cascade
     `;
 
@@ -277,8 +277,10 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   });
 
   it("renders the honest no-listing answer WITHOUT a selection model call", async () => {
-    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
-
+    // Nothing published and no offerings anywhere: retrieval is genuinely empty, so there
+    // is nothing to select from and a model call could only invent. Since F-045 this is the
+    // ONLY route to the short-circuit — an unmatched WORD no longer empties retrieval,
+    // because deciding that "durian" is absent is a judgement about meaning.
     const { provider, deps } = inquiryDeps({
       "inquiry-interpretation": JSON.stringify({
         kind: "lookup",
@@ -294,8 +296,143 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     if (result.outcome !== "answered") return;
     expect(result.body).toContain("No stand has a current listing for Durian");
     expect(result.selectedFactIds).toEqual([]);
-    // Empty retrieval short-circuits: with nothing to select from, a model could only invent.
     expect(provider.contextFor("grounded-fact-selection")).toBeUndefined();
+  });
+
+  // ------------------------------------------------------------------ F-045: offerings
+
+  it("retrieves offerings when nothing is confirmed, and shows the model both", async () => {
+    // The exact production shape behind max's screenshot on 2026-07-30: 212 offering tags,
+    // ZERO inventory revisions. Retrieval read only inventory, so every question answered
+    // "no stand has a current listing" while the public map showed the tags for the same
+    // stands. One desk must not give two answers.
+    await client()`
+      insert into sales_location_offerings (sales_location_id, item, sort_order)
+      values (${ids.alphaLocation!}, 'frozen lamb', 0), (${ids.alphaLocation!}, 'eggs', 1)
+    `;
+
+    const { provider, deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["lamb"],
+        ranking: "any",
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [`offering-${ids.alphaLocation!}`],
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "who has lamb?" });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("Alpha Farm Stand");
+    expect(result.body).toMatch(/typical offering/i);
+    // No confirmation happened, so no elapsed phrase may appear anywhere in the answer.
+    expect(result.body).not.toMatch(/updated .* ago/i);
+
+    // The selection seam actually ran, and saw the offering as an offering.
+    const ctx = provider.contextFor("grounded-fact-selection");
+    expect(ctx).toBeDefined();
+    const fields = ctx!.fields as { facts: { basis: string; ageHours?: number }[] };
+    expect(fields.facts[0]!.basis).toBe("offering");
+    // An offering has no age. A zero would read as "confirmed just now".
+    expect(fields.facts[0]!.ageHours).toBeUndefined();
+  });
+
+  it("shows the model candidates whose item names match no requested word", async () => {
+    // The category defect: "leafy greens" against a stand publishing "butter lettuce".
+    // Code compares strings and cannot see the relationship, so it must not answer "no" —
+    // it hands every candidate to the layer that CAN judge, and validates what comes back.
+    await client()`
+      insert into sales_location_offerings (sales_location_id, item, sort_order)
+      values (${ids.alphaLocation!}, 'butter lettuce', 0), (${ids.betaLocation!}, 'beets', 1)
+    `;
+
+    const { provider, deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["leafy greens"],
+        ranking: "any",
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [`offering-${ids.alphaLocation!}`],
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "any leafy greens available?" });
+
+    const ctx = provider.contextFor("grounded-fact-selection");
+    expect(ctx).toBeDefined();
+    const fields = ctx!.fields as { facts: { matchedItemNames: string[] }[] };
+    const shown = fields.facts.flatMap((f) => f.matchedItemNames);
+    // Both reach the model even though neither equals "leafy greens".
+    expect(shown).toContain("butter lettuce");
+    expect(shown).toContain("beets");
+
+    // And the model's judgement is what decides the answer.
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("Alpha Farm Stand");
+    expect(result.body).not.toContain("Beta Farm Stand");
+  });
+
+  it("leads with confirmed stock and lists offerings second", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Lamb"], hoursAgo(26));
+    await client()`
+      insert into sales_location_offerings (sales_location_id, item, sort_order)
+      values (${ids.betaLocation!}, 'frozen lamb', 0)
+    `;
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["lamb"],
+        ranking: "any",
+      }),
+      // The model may return them in any order; grouping is code's.
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [`offering-${ids.betaLocation!}`, ids.alphaLocation!],
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "who has lamb?" });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    // Confirmed leads regardless of the order the model proposed.
+    expect(result.body.indexOf("Alpha Farm Stand")).toBeLessThan(
+      result.body.indexOf("Beta Farm Stand"),
+    );
+    // The confirmed line carries recency; the honor-system rule forbids claiming more.
+    expect(result.body).toMatch(/1 day ago/);
+    expect(result.body).not.toMatch(/right now|currently has|guaranteed/i);
+    // The address reaches the customer for both voices.
+    expect(result.body).toContain("1 Road");
+  });
+
+  it("never lets a model select an offering it was not shown", async () => {
+    // Grounding is unchanged by F-045: a fabricated offering identifier for a real location
+    // is still refused, because it is not in the retrieved set.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Kale"],
+        ranking: "any",
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [`offering-${ids.betaLocation!}`],
+      }),
+    });
+
+    const result = await answerInquiry(deps, { taskText: "who has kale?" });
+    expect(result.outcome).toBe("rejected");
   });
 
   // ------------------------------------------------------------------ hostile inquiry

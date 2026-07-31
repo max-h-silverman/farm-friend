@@ -5,9 +5,13 @@
 // interpretation and executes it.
 //
 // There is deliberately NO food vocabulary, produce taxonomy, or farm name in this file.
-// Items are opaque strings compared to opaque strings; a location either publishes a
-// matching item name or it does not. What "kale" means is the model's problem, and what a
-// farm currently has is the database's — neither is application policy.
+// Item names are opaque strings this layer never interprets: what "kale" means, and whether
+// "beets" answers a request for root vegetables, is the model's problem; what a farm
+// publishes is the database's. Neither is application policy.
+//
+// Since F-045 this layer does not decide which items ANSWER a request at all. It orders
+// candidates and bounds how many the selection seam sees. Comparing strings to answer a
+// question about meaning is what made every category question a false negative.
 //
 // Ranking is likewise a small set of general OPERATIONS over typed facts, not a semantic
 // strategy catalog: "freshest", "coverage", and "any" describe what code does with rows, not
@@ -148,12 +152,22 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
   };
 }
 
+/**
+ * The most candidates one selection call may consider.
+ *
+ * A STATED bound, not an inherited one. Since F-045 code no longer narrows candidates by
+ * item name, so without a cap the size of a model call would be whatever the corpus happens
+ * to be — fine at 34 stands, silently not fine later. Candidates are ordered before
+ * truncation, so the cap drops the least useful rather than an arbitrary slice.
+ */
+export const MAX_INQUIRY_CANDIDATES = 60;
+
 /** A retrieved candidate location, before selection and rendering. */
 export interface InquiryCandidate {
   factId: string;
   farmName: string;
   locationName: string;
-  /** The published item names this location currently carries that matched the request. */
+  /** The published item names this location carries, whether confirmed or typical. */
   matchedItemNames: string[];
   asOf: Date;
 }
@@ -169,9 +183,27 @@ function normalize(value: string): string {
 }
 
 /**
- * Filter to locations carrying a requested item, then order them by the requested
- * operation. Ordering is total and stable: coverage ties break by recency, so the same
- * inputs always produce the same ordering regardless of input order.
+ * Order the candidates a selection call will see, and bound how many there are.
+ *
+ * This layer ORDERS and CAPS; since F-045 it no longer decides which items answer the
+ * request. It used to drop every candidate whose published names did not exactly equal a
+ * requested word, which meant "leafy greens" could never reach a stand publishing "butter
+ * lettuce" and "root vegetables" could never reach "beets" — code was answering a question
+ * about meaning by comparing strings, and answering it wrong. The only layer that
+ * understands that relationship is the model, and it sat downstream of the filter.
+ *
+ * The alternative — a synonym table here — is the food-taxonomy-as-policy CLAUDE.md
+ * forbids, and no finite list would cover an open corpus of farmer-authored item names.
+ *
+ * Grounding is untouched: code still retrieves the facts, still validates every identifier
+ * the model returns against the retrieved set, and still renders every word. What moved is
+ * RECALL, which is a quality property, not an authority one.
+ *
+ * Farm scope stays a code filter: a farm name is an identifier the customer named, which
+ * code can compare exactly, and it is applied BEFORE the cap so a scoped question can never
+ * be truncated away.
+ *
+ * Ordering is total and stable, so the same inputs always produce the same call.
  */
 export function rankCandidates(
   candidates: InquiryCandidate[],
@@ -180,25 +212,27 @@ export function rankCandidates(
   const wanted = new Set(request.items.map(normalize));
   const scope = request.farmScope !== undefined ? normalize(request.farmScope) : undefined;
 
+  // Exact name overlap is now an ORDERING hint rather than a gate: when it hits it puts the
+  // obvious answers first, and when it misses it costs nothing, because nobody is dropped.
   const coverageOf = (candidate: InquiryCandidate): number =>
     new Set(
       candidate.matchedItemNames.map(normalize).filter((name) => wanted.has(name)),
     ).size;
 
-  const matching = candidates.filter((candidate) => {
-    if (scope !== undefined && normalize(candidate.farmName) !== scope) return false;
-    return coverageOf(candidate) > 0;
-  });
+  const inScope =
+    scope === undefined
+      ? candidates
+      : candidates.filter((candidate) => normalize(candidate.farmName) === scope);
 
   const byRecency = (a: InquiryCandidate, b: InquiryCandidate) =>
     b.asOf.getTime() - a.asOf.getTime();
 
-  if (request.ranking === "coverage") {
-    return [...matching].sort(
-      (a, b) => coverageOf(b) - coverageOf(a) || byRecency(a, b),
-    );
-  }
-  // "freshest" and "any" both order by recency: a customer asking generally is best served
-  // by the most recently confirmed listing, and this keeps ordering total for "any".
-  return [...matching].sort(byRecency);
+  const ordered =
+    request.ranking === "coverage"
+      ? [...inScope].sort((a, b) => coverageOf(b) - coverageOf(a) || byRecency(a, b))
+      : // "freshest" and "any" both order by recency: a customer asking generally is best
+        // served by the most recently confirmed listing, and this keeps ordering total.
+        [...inScope].sort(byRecency);
+
+  return ordered.slice(0, MAX_INQUIRY_CANDIDATES);
 }
