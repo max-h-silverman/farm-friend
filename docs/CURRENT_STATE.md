@@ -339,7 +339,7 @@ fixtures supply what production never creates.
   attestation values.
 - **F-036 — where the model may run.** Seed-time: built and run. Query-time on the public map:
   **blocked** (`public-surface-model-free.test.ts` polices the import graph). Farmer-authored web
-  submission was the **third case**, and F-040 (unmerged) now answers it: the farmer web auth that
+  submission was the **third case**, and F-040 (shipped 2026-07-30) now answers it: the farmer web auth that
   did not exist is the standing link, and the submission runs the *same* interpreter seam through
   the *same* confirmation gate as SMS rather than a second path. The model-free tripwire still
   passes — the farmer form is its own entry point and is not reachable from the public map's graph.
