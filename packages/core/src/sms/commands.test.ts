@@ -115,6 +115,71 @@ describe("deterministic command parsing (Golden Rule #2)", () => {
 // cannot drift apart silently in EITHER direction — a keyword registered but unparsed is a
 // broken public promise (the STOPALL defect), and a keyword parsed but unregistered means
 // live behavior exceeds what was disclosed.
+// F-046 — MORE is a paging keyword, parsed deterministically like every other keyword.
+// It is a Farm Friend PRODUCT keyword, never a carrier compliance keyword, and it is
+// context-bound: it means nothing without a pending list.
+describe("the MORE paging keyword (F-046)", () => {
+  it("parses MORE as a paging command that bypasses the model", () => {
+    const parsed = parseCommand("MORE");
+    expect(parsed.kind).toBe("paging");
+    expect(bypassesModel("MORE")).toBe(true);
+  });
+
+  it("is context-bound, never global — like a commitment token, unlike STOP", () => {
+    // Paging is meaningless without a pending list. Marking it global would make it a
+    // standing instruction, which is what STOP is and what this must never be.
+    const parsed = parseCommand("more");
+    expect(parsed.kind).toBe("paging");
+    if (parsed.kind !== "paging") return;
+    expect(parsed).not.toHaveProperty("global", true);
+  });
+
+  it("uses the same normalization as every other keyword", () => {
+    for (const body of ["more", "  More  ", "MORE.", "More!"]) {
+      expect(parseCommand(body).kind, body).toBe("paging");
+    }
+  });
+
+  it("must be the whole message, so a sentence mentioning more is free text", () => {
+    // "any more eggs?" is a QUESTION, not a paging request. Treating it as paging would
+    // silently swallow a real inquiry.
+    for (const body of ["any more eggs?", "do you have more lamb", "more or less"]) {
+      expect(parseCommand(body).kind, body).toBe("none");
+    }
+  });
+
+  it("can never shadow an opt-out, whatever it is spelled", () => {
+    // The ordering guarantee, asserted rather than assumed: every registered opt-out word
+    // still parses as a global STOP with the paging branch present.
+    for (const word of REGISTERED_OPT_OUT_KEYWORDS) {
+      const parsed = parseCommand(word);
+      expect(parsed.kind, word).toBe("compliance");
+      if (parsed.kind !== "compliance") continue;
+      expect(parsed.keyword, word).toBe("STOP");
+      expect(parsed.global, word).toBe(true);
+    }
+  });
+
+  it("does not collide with a commitment token, so a farmer can still confirm", () => {
+    // max, 2026-07-31: BOTH work. YES/NO and MORE are different words; paging must not
+    // consume a confirmation and a confirmation must not swallow a page request.
+    expect(parseCommand("YES").kind).toBe("commitment");
+    expect(parseCommand("NO").kind).toBe("commitment");
+    expect(parseCommand("MORE").kind).toBe("paging");
+  });
+
+  it("is not a registered carrier keyword", () => {
+    // Same rule as FLAG: a Farm Friend product keyword must never be registered as a
+    // carrier compliance keyword.
+    const registered = [
+      ...REGISTERED_OPT_OUT_KEYWORDS,
+      ...REGISTERED_OPT_IN_KEYWORDS,
+      ...REGISTERED_HELP_KEYWORDS,
+    ] as readonly string[];
+    expect(registered).not.toContain("MORE");
+  });
+});
+
 describe("registered 10DLC keywords match the parser (both directions)", () => {
   const registered = readFileSync(
     new URL("../../../../docs/TELNYX_10DLC_FIELD_VALUES.txt", import.meta.url),
