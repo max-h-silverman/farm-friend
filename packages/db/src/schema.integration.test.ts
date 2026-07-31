@@ -56,6 +56,8 @@ const expectedTables = [
   "model_runs",
   "outbox_dispatch_attempts",
   "outbox_work",
+  // F-046 — the pending result list `MORE` pages through.
+  "pending_result_lists",
   "provider_inbox_events",
   "sales_location_offerings",
   "sales_location_payment_methods",

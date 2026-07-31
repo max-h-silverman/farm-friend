@@ -105,6 +105,17 @@ render an honest "updated X ago" without a second provenance axis.
 - **one open inventory-publication confirmation per sender** — target sales location, distinct
   structured pending proposal payload/version, allowed `YES`/`NO` tokens, provider-accepted prompt
   activation, expiry, and consumption state. This is not an inventory revision.
+- **one pending result list per sender** (F-046) — the ordered fact identifiers a customer's last
+  answer selected, the product words it was about, how far through them they have read, and an
+  expiry. `MORE` **replays** this list rather than re-running retrieval, so paging is consistent
+  and costs no model call; the accepted tradeoff is that stock confirmed mid-paging waits for the
+  next question, which the expiry bounds. **One row per sender**, replaced by each new question, so
+  `MORE` is never ambiguous about which list it means.
+  It stores **no message body and no rendered reply text**: the customer's question is untrusted
+  inbound text with a short retention life of its own, and copying it here would create a second,
+  longer-lived home for it. The requested items are the narrow exception — the product words the
+  interpretation seam extracted, not the sender's sentence — because a later page must name its
+  subject to read as an answer.
 - **flags and admin dispositions.**
 - **transactional outbox.**
 - **minimal audit and model-run evidence.**

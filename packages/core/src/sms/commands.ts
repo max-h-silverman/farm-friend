@@ -31,6 +31,21 @@ export type ParsedCommand =
   | { kind: "compliance"; keyword: ComplianceKeyword; global: boolean }
   | { kind: "commitment"; token: CommitmentToken; contextBound: true }
   | { kind: "farmer"; keyword: FarmerKeyword }
+  /**
+   * `MORE` — the next page of a customer's result list (F-046).
+   *
+   * A Farm Friend **product** keyword, never a carrier compliance keyword, and
+   * **context-bound** like a commitment token: it means nothing without a pending list, and
+   * the paging state — not this parser — decides what it refers to. Parsed here for the same
+   * reason everything else is: reading the next three stands must not depend on a model being
+   * available, correct, or affordable.
+   *
+   * It is deliberately INDEPENDENT of the commitment tokens (max, 2026-07-31). A farmer with
+   * an open inventory confirmation who texts MORE gets their next page and keeps the
+   * confirmation open — the words do not overlap, so blocking one for the other would solve a
+   * collision that does not exist.
+   */
+  | { kind: "paging"; contextBound: true }
   | { kind: "none" };
 
 // The keywords registered with the carrier in docs/TELNYX_10DLC_FIELD_VALUES.txt and promised
@@ -91,6 +106,14 @@ const FARMER_WORDS: Record<string, FarmerKeyword> = {
   LINK: "LINK",
 };
 
+/**
+ * The paging words (F-046). Deliberately tiny — "NEXT" is the only synonym, because both are
+ * words a person actually sends for "show me the rest" and neither means anything else on its
+ * own. A message must match ENTIRELY, so "any more eggs?" stays a question and reaches the
+ * model as free text rather than being swallowed as a page request.
+ */
+const PAGING_WORDS: ReadonlySet<string> = new Set(["MORE", "NEXT"]);
+
 function normalizeCommandMessage(body: string): string {
   return body
     .trim()
@@ -130,6 +153,12 @@ export function parseCommand(body: string): ParsedCommand {
   const farmer = FARMER_WORDS[normalized];
   if (farmer) {
     return { kind: "farmer", keyword: farmer };
+  }
+  // Also last, for the same reason as the farmer keywords: a paging word must never shadow a
+  // compliance keyword or a commitment token. Reaching here means the message matched none of
+  // them.
+  if (PAGING_WORDS.has(normalized)) {
+    return { kind: "paging", contextBound: true };
   }
   return { kind: "none" };
 }

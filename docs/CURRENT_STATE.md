@@ -6,32 +6,40 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-30** (`main`, F-043's poster pass merged): `npm test` **726/726** (69 files);
-`npm run test:integration` **403/403** (22 files) on real Postgres 16, all **9** migrations from
+**Verified 2026-07-31** (`main`, F-046 parts 1-2 merged): `npm test` **758/758** (71 files);
+`npm run test:integration` **407/407** (22 files) on real Postgres 16, all **10** migrations from
 empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29.
-`evals:live` **not** re-run and not required — F-043 touched no seam projection, schema, or output
-contract. The public-surface model-free tripwire and the architecture tripwires both still pass.
-Last `evals:live` results stand (containment 4/4, quality 6/6 on Mistral Small 24B). The infra
-assertion suites **were** re-run as part of F-043's deploy — see below.
+`evals:live` was run for **F-045** — containment **4/4**, **recall 5/5**, quality **6/6** on
+Mistral Small 24B — and is not owed again for F-046, which changes no seam projection, schema, or
+output contract. The public-surface model-free tripwire and the architecture tripwires still pass.
 
-> One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
-> what marks it environmental rather than a defect in this work.
+**MERGED AND UNDEPLOYED — F-046 parts 1-2, deliberately inert.** Page rendering and the `MORE`
+keyword exist and migration 0009 (`pending_result_lists`) is in the repo, but **nothing wires them
+together**: a customer texting `MORE` still falls through to free text and reaches the model as a
+question. Production is unchanged and still at **9 migrations**; the repo is at **10**. Merging
+without deploying was max's explicit call (2026-07-31) so the next session starts from a clean
+`main`. **Production therefore still carries F-045's `(null)` bug** — Open Gate Lamb and Grazing
+renders as `Open Gate Lamb and Grazing (null)` — fixed in the merged renderer, not yet live.
 
-**Nothing is merged-and-undeployed.** F-043's poster pass shipped 2026-07-30 — revisions
-`farm-friend-web-00011-dpd` / `farm-friend-worker-00012-c26`, one digest `sha256:e1893b13…` on
-both. Image-only, no migration owed, so production stays at **9 migrations**.
-`plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED, `served_card_assertions.py` PASSED
-(153 bytes / 6 CRLF / 0 bare LF). The plan was read leaf by leaf: exactly one real leaf per
-service (`containers[0].image`, `b9a020f1` → `e1893b13`), plus the known non-converging `scaling`
-block.
-**Verified by effect in production**: health `{"ok":true}`; 34 stands / 212 tags unchanged; the
-served page carries **32 numbered pins**, **34** list badges, **8** wooded areas, **12** "Hours not
-listed" and **33** "Usually sells:"; the page title is gone (0 occurrences); and the CSS has **0**
-`prefers-color-scheme` rules with `color-scheme:light` present — every dark token absent. In a
-real browser on a **dark-mode machine** the page renders light with no emulation, and `Open now`
-narrowed 34 → 18 at 10pm with **zero renumbered** and all **12** unstated stands still visible.
-Boundaries unchanged: webhook 401, cron 404 on the public service, `/admin` 200, `/api/admin/farmers`
-403, worker 404 from outside.
+**Deployed 2026-07-30 (F-045)** — revisions `farm-friend-web-00012-glc` /
+`farm-friend-worker-00013-b9t`, one digest `sha256:b178bf93…` on both. Image-only, no migration
+owed. `plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED, `served_card_assertions.py`
+PASSED (153 bytes / 6 CRLF). The plan was read leaf by leaf: exactly one real leaf per service
+(`containers[0].image`, `e1893b13` → `b178bf93`), plus the known non-converging `scaling` block.
+**Verified by effect in production**: health `{"ok":true}`; 34 stands / 212 tags unchanged;
+webhook 401, cron 404 on the public service, `/admin` 200, `/api/admin/farmers` 403. Against
+production data: **0 current inventory revisions** (the root cause), retrieval now reaching **33
+stands / 212 items** it previously never saw, **3 stands carrying lamb** and **9 with a
+leafy-greens member** — both of max's failing questions have real answers.
+
+**F-043's poster pass shipped 2026-07-30** — revisions `farm-friend-web-00011-dpd` /
+`farm-friend-worker-00012-c26`, digest `sha256:e1893b13…`. Verified by effect at the time: **32
+numbered pins**, **34** list badges, **8** wooded areas, **12** "Hours not listed", **33**
+"Usually sells:", **0** `prefers-color-scheme` rules with `color-scheme:light` present. `Open now`
+narrowed 34 → 18 at 10pm with zero renumbered.
+
+> One integration run this session hit **B-020**'s known `40P01` truncate deadlock; it passed on
+> rerun, which is what marks it environmental rather than a defect in this work.
 
 F-043 shipped 2026-07-30 alongside F-042 and F-040 (below) —
 revisions `farm-friend-web-00010-7mc` / `farm-friend-worker-00011-l2w`, one digest
@@ -156,6 +164,53 @@ both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one le
 Do not read a passing suite as a working product: several gaps hide behind green tests whose
 fixtures supply what production never creates.
 
+- **F-045 — BUILT, MERGED, and DEPLOYED 2026-07-30.** SMS answers now read the offerings corpus
+  and match by meaning. Two defects, one root cause, found by max on a real handset: the inquiry
+  path queried only `inventory_revisions`, and **production holds zero current revisions**, so
+  every question short-circuited to "no current listing" while the map showed the same stands'
+  212 tags. Retrieval now unions confirmed inventory with published offerings, each candidate
+  carrying a `basis`.
+  **Code stopped deciding which items answer a request.** `rankCandidates` filtered by exact
+  normalized name equality, so "leafy greens" could never reach "butter lettuce" — and the filter
+  ran *before* the model, so the layer that understands the relationship never saw the candidate.
+  It now orders and caps (`MAX_INQUIRY_CANDIDATES`) and the model selects. A synonym table would
+  have been the food-taxonomy-as-policy CLAUDE.md forbids.
+  **Grounding is unchanged; RECALL moved from a code property to a model one** — so recall is
+  *measured*: five `live-recall` fixtures over real corpus vocabulary, each with distractors, and
+  the group **exits non-zero** rather than recording. Containment can read 100% while recall reads
+  0%. **Mistral Small 24B passes 5/5**, so the pre-approved model upgrade was not needed.
+  **13 sabotages, all caught**, including restoring the original defect.
+  **Known defect live in production**: `publicAddress` is nullable and two stands carry none, so
+  the renderer prints the literal word **"null"**. Fixed in F-046's renderer, **not yet deployed**.
+- **F-046 — PARTS 1-2 BUILT and MERGED 2026-07-31; INERT until part 3.** SMS result paging.
+  Measured against the real corpus: the *common* questions are the big ones (eggs 16 stands,
+  flowers 15, leafy greens 9) and name+address runs 22-57 chars, so **three per page** is the
+  honest maximum inside **two billed segments** — the shipped F-045 format was 488 characters and
+  **four** segments.
+  **Done**: page rendering (`packages/core/src/inquiry/paging.ts`) with name and address on
+  separate lines, confirmed stock leading and never paged away, the last page closing with the map
+  link, and the `(null)` fix; `MORE` as a deterministic `paging` command ordered **after `STOP`**
+  so it can never shadow an opt-out; migration **0009** `pending_result_lists`, one row per sender,
+  storing **no message body and no rendered reply**.
+  **Not done — part 3**: the routing branch. Nothing reads the table, so `MORE` currently falls
+  through to free text and reaches the model as a question.
+  **max's decisions (2026-07-31)**: `MORE` **replays the saved list** rather than re-running
+  retrieval (consistent paging, no model call per page; stock confirmed mid-paging waits for the
+  next question, bounded by `expires_at`); and **`YES`/`NO` and `MORE` both work** — a farmer with
+  an open confirmation can page without disturbing it.
+  **The two-segment ceiling is asserted in `packages/sms`**, not core, because segment arithmetic
+  lives there and **core imports no other package**. It is what actually constrains `PAGE_SIZE`:
+  raising it to 4 fails that test.
+- **drizzle-kit omits CHECK constraints when it generates SQL** — found 2026-07-31. Asked to
+  generate a snapshot it also wrote its *own* migration for the same table, dropping all three
+  CHECKs, with a journal timestamp **older** than the hand-written one (B-022's silent-skip trap).
+  The timestamp half was already tripwired; the dropped-constraint half now is too —
+  `migration-metadata.test.ts` fails when a CHECK declared in `schema.ts` reaches no migration,
+  checked against migration **SQL** rather than the snapshot, because SQL is what runs. No drift
+  today: all **71** declared constraints present. **Write CHECK constraints into migrations by
+  hand.**
+  Related trap, live in this migration: `array_length` of an empty array returns **NULL** and a
+  CHECK **passes** on NULL, so "the list must not be empty" admits empty lists without `coalesce`.
 - **F-043 — BUILT, MERGED, and DEPLOYED 2026-07-30.** The public map is now an interactive island
   with filters and a linked stand list, live to customers. Web-only — no migration, no worker
   change, no new env var.

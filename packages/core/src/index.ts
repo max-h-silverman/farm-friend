@@ -9,6 +9,7 @@ export * from "./sms/onboarding-copy";
 export * from "./inventory/proposal";
 export * from "./inquiry/retrieval";
 export * from "./inquiry/answer";
+export * from "./inquiry/paging";
 export * from "./public/throttle";
 export * from "./public/proximity";
 export * from "./public/daylight";
