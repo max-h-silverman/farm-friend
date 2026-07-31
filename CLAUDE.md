@@ -157,8 +157,9 @@ Full detail — and the tripwires you need before touching anything — in
   (`392b5b1`, branch `f-046-part3-routing`) wires what parts 1-2 left inert, so `MORE` now reaches
   a pager that has **no model dependency at all**. Repo is at **10 migrations**, production at 9.
   **Production still shows F-045's `(null)` bug** for the two stands with no address — fixed in the
-  renderer, not deployed. **Deploying needs migration 0010 FIRST, then the image**: the table must
-  exist before the code that reads it.
+  renderer, not deployed. **Deploying needs migration `0009_pending_result_lists` FIRST, then the image**: the
+  table must exist before the code that reads it. (There are 10 migration FILES, `0000`-`0009`;
+  production has applied 9 of them, through `0008`.)
 - **drizzle-kit drops CHECK constraints when generating SQL** — write them into migrations by hand.
   Tripwired in `migration-metadata.test.ts`. Also: `array_length` of an empty array is **NULL**, and
   a CHECK **passes** on NULL — `coalesce` or the constraint admits what it forbids.

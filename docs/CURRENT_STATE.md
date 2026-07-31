@@ -237,8 +237,9 @@ fixtures supply what production never creates.
   **The two-segment ceiling is asserted in `packages/sms`**, not core, because segment arithmetic
   lives there and **core imports no other package**. It is what actually constrains `PAGE_SIZE`:
   raising it to 4 fails that test.
-  **Owed: the deploy** (migration 0010 first, then the image — the table must exist before the
-  code that reads it), and **a handset tap**, which waits on it.
+  **Owed: the deploy** — migration `0009_pending_result_lists` first, then the image, since the
+  table must exist before the code that reads it. (10 migration FILES, `0000`-`0009`; production
+  has applied 9, through `0008`.) And **a handset tap**, which waits on the deploy.
 - **drizzle-kit omits CHECK constraints when it generates SQL** — found 2026-07-31. Asked to
   generate a snapshot it also wrote its *own* migration for the same table, dropping all three
   CHECKs, with a journal timestamp **older** than the hand-written one (B-022's silent-skip trap).
