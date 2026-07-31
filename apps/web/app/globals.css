@@ -11,6 +11,23 @@
  * missed. */
 
 :root {
+  /*
+   * LIGHT ONLY (max, 2026-07-30). This surface has one palette, and it is VIGA's printed farm
+   * map — a light artefact. Dark mode was an accommodation rather than a design: it meant a
+   * second set of every brand token, and each one was a place the two themes could disagree.
+   * F-043 shipped exactly that defect (the island rendered as a bright slab on a near-black
+   * page), and the woods in this pass first landed at 1.29:1 against the land in dark mode.
+   *
+   * KNOWN TRADEOFF, accepted: someone checking a stand outdoors at night gets a bright screen.
+   * That is a real scenario for this product and it is the cost of one honest design over two
+   * half-verified ones.
+   *
+   * `color-scheme: light` is REQUIRED, not decoration. Without it a browser on a dark-mode
+   * machine still paints form controls, the `IN SEASON` select and the scrollbars dark, so the
+   * page comes out light with dark widgets embedded in it — worse than either theme.
+   */
+  color-scheme: light;
+
   --ink: #1c2321;
   --ink-soft: #55605c;
   --ink-faint: #7c8783;
@@ -410,64 +427,6 @@ body {
   .locate-button,
   .directions {
     transition: opacity 120ms ease;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #eceee9;
-    --ink-soft: #a9b2ad;
-    --ink-faint: #8a938e;
-    --paper: #141816;
-    --card: #1c2220;
-    --line: #2e3634;
-    --green: #6fbf8d;
-    --green-soft: #1e2f26;
-    --amber: #e0ab5f;
-    --amber-soft: #2d2415;
-    --amber-line: #b8862f;
-
-    /* F-043 — the VIGA brand tokens need dark values too, and this was found by LOOKING at
-     * the page rather than by any test. The light values render the island as a bright cream
-     * slab on a near-black page: not merely off-brand, but genuinely unpleasant to read on a
-     * phone at night, which is exactly when someone checks whether a stand is still open.
-     *
-     * The island keeps its sage-on-cream RELATIONSHIP — it is a drawn map and reads as paper —
-     * but both are darkened so it sits in the page instead of glaring out of it. Olive and
-     * brick are lightened, because at these darknesses they fail contrast against the page. */
-    /* Dark mode is NOT the poster with the lights off. On paper the land is pale and the
-     * pins are dark green on top of it; invert that naively and you get dim green pins on
-     * dim green land, which is what the first attempt produced. So here the land stays
-     * MUTED and the pins go BRIGHT — the poster's figure/ground relationship is preserved
-     * even though both colours move. */
-    --sage: #3c4a37;
-    --sage-deep: #6d8064;
-    --cream: #1b211c;
-    --panel: #1e2420;
-    /* The woods must stay DISTINGUISHABLE FROM THE LAND at night, which is the harder
-     * direction: on paper the forest is darker than the land, but here the land is already
-     * dark, so a darker green would vanish into it. The forest goes LIGHTER than the land
-     * instead — same "the woods are a different surface" reading, opposite sign. */
-    --wood: #5c7150;
-    --olive: #b6c4ac;
-    --brick: #e08163;
-    --pin: #a8d493;
-    /* Bright pins carry DARK numbers — the light-mode pairing inverted. Keeping white here
-     * would put white on a pale green pin, which is the contrast failure the number exists
-     * to avoid. */
-    --pin-ink: #16210f;
-    --brick-soft: #3a221c;
-    --road: #cdd8c4;
-  }
-
-  .locate-button {
-    color: #10201a;
-  }
-
-  /* The active filter chip inverts in dark mode: a light olive fill needs dark text on it,
-   * where the light theme's olive fill needs cream. */
-  .chip-on {
-    color: #161c15;
   }
 }
 
