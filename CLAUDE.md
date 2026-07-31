@@ -151,13 +151,12 @@ Full detail — and the tripwires you need before touching anything — in
 - **Deployed 2026-07-30**: F-045 (SMS reads the offerings corpus and matches by meaning — every
   question used to answer "no current listing" because production holds **0** inventory revisions),
   plus F-042 and F-040 (farmer onboarding: `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>`
-  behind a never-expiring link whose only safety net is revocation). Production is at **9
-  migrations**. **Owed: nobody has looked at F-040's two pages.**
-- **Merged but INERT — F-046 parts 1-2** (SMS result paging). Rendering, the `MORE` keyword, and
-  migration 0009 exist; **nothing wires them**, so `MORE` still falls through to free text. Repo is
-  at **10 migrations**, production at 9. **Production still shows F-045's `(null)` bug** for the
-  two stands with no address — fixed in the merged renderer, not deployed. Part 3 is the routing
-  branch.
+  behind a never-expiring link whose only safety net is revocation).
+  **Owed: nobody has looked at F-040's two pages.**
+- **Deployed 2026-07-31**: F-046 complete (SMS result paging — `MORE` is deterministic, ordered
+  after `STOP`, and reaches a pager with **no model dependency at all**). Migration first, then
+  image; production is at **10 migrations**. F-045's `(null)` bug is **dead**. **Owed: a handset
+  tap.**
 - **drizzle-kit drops CHECK constraints when generating SQL** — write them into migrations by hand.
   Tripwired in `migration-metadata.test.ts`. Also: `array_length` of an empty array is **NULL**, and
   a CHECK **passes** on NULL — `coalesce` or the constraint admits what it forbids.

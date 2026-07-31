@@ -16,6 +16,7 @@ import {
 import { redactOutbound } from "@farm-friend/sms";
 import type { AppContext } from "./composition";
 import { handleFreeText } from "./free-text";
+import { handleNextPage } from "./paging";
 import { routeInboundMessage, type RoutedReply } from "./routing";
 
 // Bounded workers (docs/ARCHITECTURE.md §outbound dispatch and recovery).
@@ -149,6 +150,10 @@ export async function runInboundPass(
               },
               input,
             ),
+          // F-046. No model dependency is passed, and none exists to pass: paging is code
+          // end to end, so `MORE` cannot reach a seam even by mistake.
+          nextPage: (input) =>
+            handleNextPage({ db: deps.db, clock: deps.clock }, input),
         },
         {
           senderHash: claimed.senderHash,

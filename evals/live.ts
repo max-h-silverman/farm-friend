@@ -415,12 +415,20 @@ fx("live-quality", "renders a grounded answer only from a legitimate live select
   }
   const validated = validateFactSelection(result, RETRIEVED);
   if (!validated.ok) return { ok: false, observed: validated.reason };
-  const { renderGroundedAnswer } = await import("@farm-friend/core");
-  const answer = renderGroundedAnswer(
-    result.factIds,
-    RETRIEVED,
-    new FixedClock(new Date("2026-07-28T10:00:00Z")),
-  );
+  // Rendered through the SMS path's one renderer (F-046): dereference the chosen
+  // identifiers against the retrieved set, then page-render.
+  const { renderResultPage } = await import("@farm-friend/core");
+  const byId = new Map(RETRIEVED.map((fact) => [fact.factId, fact]));
+  const facts = result.factIds
+    .map((factId) => byId.get(factId))
+    .filter((fact): fact is RetrievedFact => fact !== undefined);
+  const answer = renderResultPage({
+    itemsRequested: [],
+    facts,
+    offset: 0,
+    total: facts.length,
+    clock: new FixedClock(new Date("2026-07-28T10:00:00Z")),
+  }).body;
   const ok = answer.includes("Alpha Stand") && answer.includes("updated 2 hours ago");
   return { ok, observed: answer.replace(/\n/g, " | ") };
 });

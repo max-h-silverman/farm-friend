@@ -476,7 +476,7 @@ describe("public web surface boundary (integration)", () => {
           ),
           clock,
         },
-        { taskText: "who has kale?" },
+        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0 },
       );
 
       expect(answer.outcome).toBe("answered");

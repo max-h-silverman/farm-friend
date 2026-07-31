@@ -1,19 +1,21 @@
 import {
   rankCandidates,
   renderClarificationRequest,
-  renderGroundedAnswer,
   renderNoCurrentListing,
+  renderResultPage,
   validateFactSelection,
   validateInterpretedIntent,
   ORIGIN_LIMITATION_STATEMENT,
+  PAGE_SIZE,
   RECIPE_SCOPE_STATEMENT,
   type Clock,
   type FactBasis,
   type InquiryCandidate,
+  type PageableFact,
   type RetrievedFact,
 } from "@farm-friend/core";
 import type { InquiryModel } from "@farm-friend/ai";
-import type { Db } from "@farm-friend/db";
+import { savePendingResultList, type Db } from "@farm-friend/db";
 
 // Customer inquiry: question → code-rendered grounded answer.
 //
@@ -27,12 +29,29 @@ import type { Db } from "@farm-friend/db";
 //
 // Empty retrieval short-circuits at step 3: with nothing to select from, a model call could
 // only invent, so the honest "no current listing" is rendered without one.
+//
+// ## Paging (F-046)
+//
+// Step 5 renders at most `PAGE_SIZE` stands. When the selection is longer than that, the
+// ORDERED IDENTIFIERS are saved as the sender's pending list and `MORE` walks it — see
+// `paging.ts`. Nothing about steps 2-4 changes: paging is a property of how the answer is
+// delivered, not of how it is decided, and a `MORE` re-enters at step 5 alone.
 
 export interface InquiryDeps {
   db: Db;
   model: InquiryModel;
   clock: Clock;
 }
+
+/**
+ * How long a saved list stays pageable.
+ *
+ * An hour, from the PM item. The bound exists because `MORE` REPLAYS the saved list rather
+ * than re-running retrieval: a stand that confirmed stock in the meantime is not on the
+ * replayed page, and the older the list the more likely that is. Stale paging is worse than
+ * none, because a customer cannot tell a fresh page from an hour-old replay.
+ */
+export const PENDING_LIST_TTL_MINUTES = 60;
 
 export type InquiryOutcome =
   /** A code-rendered authoritative answer, ready for the outbox. */
@@ -49,11 +68,15 @@ export type InquiryOutcome =
  */
 const OFFERING_FACT_PREFIX = "offering-";
 
-interface LocationRow {
+export interface LocationRow {
   factId: string;
   farmName: string;
   locationName: string;
-  publicAddress: string;
+  /**
+   * Nullable, because the column is. F-045 typed this `string` and two real stands carry no
+   * address, so customers were shown the literal word "null" (fixed in F-046's renderer).
+   */
+  publicAddress: string | null;
   asOf: Date;
   basis: FactBasis;
   items: {
@@ -183,12 +206,81 @@ async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
 }
 
 /**
+ * Dereference saved fact identifiers to the rows they name, in the SAVED order (F-046).
+ *
+ * This is what makes `MORE` a replay rather than a second question. Identity and order are
+ * frozen at question time — so no stand appears twice and none is skipped as ranking shifts —
+ * while the VALUES are read fresh here, because the pending list deliberately stores no copy
+ * of them.
+ *
+ * An identifier that no longer resolves is DROPPED rather than rendered from anything: a
+ * stand withdrawn between two pages must not appear, and there is no stale copy it could be
+ * rendered from. The caller decides what an empty page means; this only reports what still
+ * exists.
+ *
+ * The filter is applied in code over one general retrieval rather than as an id predicate in
+ * SQL, so there is exactly ONE query defining what a published fact is. A second query
+ * shaped "the same but by id" is the kind of near-duplicate that drifts.
+ */
+export async function dereferenceFacts(
+  db: Db,
+  input: { factIds: string[]; itemsRequested: string[] },
+): Promise<PageableFact[]> {
+  const byId = new Map(
+    (await retrieveCurrentListings(db)).map((row) => [row.factId, row]),
+  );
+  return input.factIds
+    .map((factId) => byId.get(factId))
+    .filter((row): row is LocationRow => row !== undefined)
+    .map((row) => toPageableFact(row, input.itemsRequested));
+}
+
+/**
+ * One retrieved row as the renderer needs to see it, narrowed to the items the customer
+ * actually asked about.
+ *
+ * **The narrowing rule lives here, once, because both pages of one answer must obey it.**
+ * What the model may CONSIDER is deliberately broad — every published item reaches the
+ * selection seam, or "leafy greens" could never find "butter lettuce" (F-045). What a
+ * customer READS about a stand should stay on topic: an answer about kale should not recite
+ * the eggs.
+ *
+ * When no published name matches the requested words — the category case, where the
+ * relationship is exactly what code cannot see — every item is shown rather than none,
+ * because listing nothing under a stand the model chose would render an empty claim.
+ */
+function toPageableFact(row: LocationRow, itemsRequested: string[]): PageableFact {
+  const wanted = new Set(itemsRequested.map((item) => item.trim().toLowerCase()));
+  const named = row.items.filter((item) =>
+    wanted.has(item.itemName.trim().toLowerCase()),
+  );
+  return {
+    factId: row.factId,
+    farmName: row.farmName,
+    locationName: row.locationName,
+    publicAddress: row.publicAddress,
+    matchedItems: named.length > 0 ? named : row.items,
+    asOf: row.asOf,
+    basis: row.basis,
+  };
+}
+
+/**
  * Answer a customer inquiry. Every factual word returned is rendered by code from typed
  * authoritative values; the model contributes interpretation and ordering only.
  */
 export async function answerInquiry(
   deps: InquiryDeps,
-  input: { taskText: string },
+  input: {
+    taskText: string;
+    /**
+     * Who asked. A result set longer than one page is saved against this hash so `MORE` can
+     * continue it (F-046); a set that fits saves nothing.
+     */
+    senderHash: string;
+    /** The inbound message's own time — what the saved list's expiry is measured from. */
+    occurredAt: Date;
+  },
 ): Promise<InquiryOutcome> {
   // Step 2 — interpret. This call sees the question and no facts.
   const rawIntent = await deps.model.interpret({ taskText: input.taskText });
@@ -256,31 +348,13 @@ export async function answerInquiry(
   // Every published item reaches the selection seam, not just exact string matches
   // (F-045). Narrowing the RETRIEVED SET by name equality is what made "leafy greens"
   // invisible to a stand publishing "butter lettuce": the model cannot select what it was
-  // never shown.
-  //
-  // Rendering narrows separately, and still by exact name. The two are different jobs: what
-  // the model may CONSIDER must be broad enough to judge, while what a customer READS about
-  // a stand should stay on topic — an answer about kale should not recite the eggs. When no
-  // published name matches the requested words (the category case, where the relationship is
-  // exactly what code cannot see), every item is shown rather than none, because listing
-  // nothing under a stand the model chose would render an empty claim.
-  const wanted = new Set(intent.value.items.map((item) => item.trim().toLowerCase()));
+  // never shown. Rendering narrows separately — that rule lives in `toPageableFact`, once,
+  // because a later MORE page of this same answer must obey it too.
+  const itemsRequested = intent.value.items;
   const byId = new Map(listings.map((row) => [row.factId, row]));
-  const retrieved: RetrievedFact[] = ranked.map((candidate) => {
-    const row = byId.get(candidate.factId)!;
-    const named = row.items.filter((item) =>
-      wanted.has(item.itemName.trim().toLowerCase()),
-    );
-    return {
-      factId: row.factId,
-      locationName: row.locationName,
-      farmName: row.farmName,
-      publicAddress: row.publicAddress,
-      matchedItems: named.length > 0 ? named : row.items,
-      asOf: row.asOf,
-      basis: row.basis,
-    };
-  });
+  const retrieved: RetrievedFact[] = ranked.map((candidate) =>
+    toPageableFact(byId.get(candidate.factId)!, itemsRequested),
+  );
 
   // Step 4 — select. This call sees the retrieved facts and NOT the raw question.
   const now = deps.clock.now();
@@ -335,9 +409,45 @@ export async function answerInquiry(
     };
   }
 
+  // Step 5, paged (F-046). The model chose and ordered; code decides how much of that fits in
+  // one message and remembers the rest.
+  //
+  // Ordering here is the RENDERER's rule, not a second ranking: confirmed stock leads and is
+  // never paged away, because it is what the customer actually asked for. The model's order
+  // is preserved within each group.
+  const selectedFactIds = selection.value.factIds;
+  const byFactId = new Map(retrieved.map((fact) => [fact.factId, fact]));
+  const selected = selectedFactIds.map((factId) => byFactId.get(factId)!);
+  const ordered = [
+    ...selected.filter((fact) => fact.basis === "confirmed"),
+    ...selected.filter((fact) => fact.basis === "offering"),
+  ];
+
+  const page = renderResultPage({
+    itemsRequested,
+    facts: ordered.slice(0, PAGE_SIZE),
+    offset: 0,
+    total: ordered.length,
+    clock: deps.clock,
+  });
+
+  if (page.hasMore) {
+    // Only a set that does not fit leaves anything behind. A list nobody can page would be
+    // retained data with no reader, and case 2 says the machinery must not intrude on the
+    // common small answer at all.
+    await savePendingResultList(deps.db, {
+      senderHash: input.senderHash,
+      factIds: ordered.map((fact) => fact.factId),
+      itemsRequested,
+      shown: PAGE_SIZE,
+      occurredAt: input.occurredAt,
+      ttlMinutes: PENDING_LIST_TTL_MINUTES,
+    });
+  }
+
   return {
     outcome: "answered",
-    body: withScope(renderGroundedAnswer(selection.value.factIds, retrieved, deps.clock)),
-    selectedFactIds: selection.value.factIds,
+    body: withScope(page.body),
+    selectedFactIds,
   };
 }

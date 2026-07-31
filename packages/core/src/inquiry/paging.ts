@@ -16,9 +16,9 @@ import type { Clock } from "../clock";
 import {
   isStale,
   PUBLIC_MAP_URL,
+  renderItem,
   renderRecency,
-  type FactBasis,
-  type RetrievedItem,
+  type RetrievedFact,
 } from "./answer";
 
 /**
@@ -32,20 +32,11 @@ import {
  */
 export const PAGE_SIZE = 3;
 
-/** A retrieved fact as the pager needs to see it. */
-export interface PageableFact {
-  factId: string;
-  farmName: string;
-  locationName: string;
-  /**
-   * Nullable on purpose. The column is nullable and two real stands carry no address; F-045
-   * typed this `string` and rendered the literal word "null" to customers.
-   */
-  publicAddress: string | null;
-  matchedItems: RetrievedItem[];
-  asOf: Date;
-  basis: FactBasis;
-}
+/**
+ * A retrieved fact as the pager sees it — the same `RetrievedFact` the selection seam
+ * validates against, not a second near-identical shape (F-046).
+ */
+export type PageableFact = RetrievedFact;
 
 export interface RenderedPage {
   body: string;
@@ -60,22 +51,6 @@ function renderAddress(fact: PageableFact): string {
   return address === "" ? "address not listed" : address;
 }
 
-function renderItems(items: RetrievedItem[]): string {
-  return items
-    .map((item) => {
-      const detail =
-        item.quantity !== undefined && item.unit !== undefined
-          ? `${item.quantity} ${item.unit}`
-          : item.quantity !== undefined
-            ? `${item.quantity}`
-            : item.approximation;
-      const parts = [detail, item.priceText].filter(
-        (part): part is string => typeof part === "string" && part !== "",
-      );
-      return parts.length > 0 ? `${item.itemName} (${parts.join(", ")})` : item.itemName;
-    })
-    .join(", ");
-}
 
 /**
  * Render one page of results.
@@ -111,7 +86,7 @@ export function renderResultPage(input: {
   if (confirmed.length > 0) {
     lines.push(`Confirmed ${subject}${offerings.length === 0 ? range : ""}:`);
     for (const fact of confirmed) {
-      const items = renderItems(fact.matchedItems);
+      const items = fact.matchedItems.map(renderItem).join(", ");
       const stale = isStale(fact.asOf, now) ? " - may be out of date" : "";
       lines.push("");
       lines.push(`${fact.locationName} - ${items} (${renderRecency(fact.asOf, now)}${stale})`);

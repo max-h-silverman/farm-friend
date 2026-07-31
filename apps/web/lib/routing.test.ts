@@ -75,6 +75,17 @@ function recordingDb(rows: Record<string, unknown>[] = []): {
   return { db: { sql, orm: {}, close: async () => {} } as unknown as Db, queries };
 }
 
+/**
+ * A pager that must never be called except on an actual paging word (F-046). Same device as
+ * `forbiddenFreeText`: the default detonates, so "MORE never shadows STOP or a confirmation
+ * token" fails loudly instead of being asserted about after the fact.
+ */
+function forbiddenNextPage(): RouteDeps["nextPage"] {
+  return async () => {
+    throw new Error("PAGER REACHED on a non-paging path — Golden Rule #2 violated");
+  };
+}
+
 function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   const { db } = recordingDb();
   return {
@@ -84,6 +95,7 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     // must never come from a request header.
     publicBaseUrl: "https://farmfriend.example",
     freeText: forbiddenFreeText(),
+    nextPage: forbiddenNextPage(),
     ...overrides,
   };
 }
@@ -475,6 +487,159 @@ describe("deterministic routing order (Golden Rule #2)", () => {
           routeInboundMessage(deps({ db }), event(word)),
         ).resolves.toMatchObject({ outcome: { kind: "farmer" } });
       }
+    });
+  });
+
+  // F-046 part 3 — MORE, routed like every other deterministic keyword. The seam in `deps()`
+  // throws, so "paging reaches no model" is proven by these tests surviving rather than by a
+  // comment claiming it.
+  describe("the MORE paging keyword (F-046)", () => {
+    it("routes MORE to the pager, never to a model", async () => {
+      const nextPage = vi.fn(async () => ({
+        body: "page two",
+        status: "paged" as const,
+      }));
+      const result = await routeInboundMessage(
+        deps({ nextPage }),
+        event("MORE"),
+      );
+
+      expect(nextPage).toHaveBeenCalledOnce();
+      expect(result.outcome).toEqual({ kind: "paging", status: "paged" });
+      expect(result.replies).toHaveLength(1);
+      expect(result.replies[0]?.body).toBe("page two");
+      // Answering the customer's own message, so it rides on that message rather than on a
+      // standing consent basis.
+      expect(result.replies[0]?.category).toBe("inquiry_reply");
+    });
+
+    it("answers MORE with no pending list honestly, and still calls no model", async () => {
+      // Case 6. The pager reports that nothing was pending; the words are code's, and the
+      // customer is never met with silence.
+      const nextPage = vi.fn(async () => ({
+        body: "I don't have a list going right now. What are you looking for?",
+        status: "no_pending_list" as const,
+      }));
+      const result = await routeInboundMessage(
+        deps({ nextPage }),
+        event("MORE"),
+      );
+
+      expect(result.outcome).toEqual({ kind: "paging", status: "no_pending_list" });
+      expect(result.replies).toHaveLength(1);
+      expect(result.replies[0]?.body).toMatch(/looking for/i);
+    });
+
+    it("accepts NEXT as the same paging request", async () => {
+      const nextPage = vi.fn(async () => ({
+        body: "page two",
+        status: "paged" as const,
+      }));
+      await routeInboundMessage(deps({ nextPage }), event("NEXT"));
+      expect(nextPage).toHaveBeenCalledOnce();
+    });
+
+    it("keys the reply to the provider event, so a replay reuses the outbox row", async () => {
+      const nextPage = vi.fn(async () => ({
+        body: "page two",
+        status: "paged" as const,
+      }));
+      const result = await routeInboundMessage(
+        deps({ nextPage }),
+        event("MORE", "evt-paging-7"),
+      );
+      expect(result.replies[0]?.logicalKey).toContain("evt-paging-7");
+    });
+
+    // Golden Rule #2. MORE is ordered AFTER STOP and can never shadow it — asserted by
+    // giving the router a pager that detonates, so a STOP reaching paging fails outright.
+    it("never lets paging shadow an opt-out", async () => {
+      const explodingPager = async () => {
+        throw new Error("PAGING REACHED on a compliance path — Golden Rule #2 violated");
+      };
+      for (const word of ["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]) {
+        const { db } = recordingDb();
+        const result = await routeInboundMessage(
+          deps({ db, nextPage: explodingPager }),
+          event(word),
+        );
+        expect(result.outcome, word).toMatchObject({
+          kind: "consent",
+          transition: "stop",
+        });
+      }
+    });
+
+    it("never lets paging swallow a confirmation token", async () => {
+      // max, 2026-07-31 — direction ONE of "both work": YES/NO still reach the confirmation
+      // path with the paging branch present. A pager that throws proves it structurally.
+      const explodingPager = async () => {
+        throw new Error("PAGING REACHED for a confirmation token");
+      };
+      for (const token of ["YES", "NO"]) {
+        const { db } = recordingDb([]);
+        const result = await routeInboundMessage(
+          deps({ db, nextPage: explodingPager }),
+          event(token),
+        );
+        expect(result.outcome, token).toEqual({
+          kind: "confirmation",
+          status: "no_open_proposal",
+        });
+      }
+    });
+
+    it("never lets a MORE reach the confirmation path", async () => {
+      // Direction TWO: paging must not consume, expire, or answer an open confirmation. The
+      // db stub records every statement, so a proposal lookup on this path is visible.
+      const { db, queries } = recordingDb([{ id: "proposal-1" }]);
+      const nextPage = vi.fn(async () => ({
+        body: "page two",
+        status: "paged" as const,
+      }));
+      const result = await routeInboundMessage(
+        deps({ db, nextPage }),
+        event("MORE"),
+      );
+
+      expect(result.outcome).toMatchObject({ kind: "paging" });
+      expect(
+        queries.some((q) => q.includes("inventory_publication_proposals")),
+      ).toBe(false);
+      expect(queries.some((q) => q.includes("insert into inventory_revisions"))).toBe(
+        false,
+      );
+    });
+
+    it("treats a paging word inside a sentence as free text", async () => {
+      // "any more eggs?" is a QUESTION. Swallowing it as paging would answer with the wrong
+      // list, or with "I don't have a list going" to someone who asked a real question.
+      const freeText = vi.fn(async () => ({ replies: [], handled: "none" as const }));
+      const explodingPager = async () => {
+        throw new Error("PAGING REACHED for a sentence containing 'more'");
+      };
+      await routeInboundMessage(
+        deps({ freeText, nextPage: explodingPager }),
+        event("any more eggs?"),
+      );
+      expect(freeText).toHaveBeenCalledOnce();
+    });
+
+    it("refuses a STALE MORE, because paging advances conversation state", async () => {
+      // The offset is conversation state: a delayed MORE arriving after a newer question
+      // would page a list the customer has already replaced.
+      const explodingPager = async () => {
+        throw new Error("PAGING REACHED for a stale event");
+      };
+      const result = await routeInboundMessage(
+        deps({ nextPage: explodingPager }),
+        { ...event("MORE"), isStale: true },
+      );
+      expect(result.outcome).toEqual({
+        kind: "stale",
+        failureCode: "stale_conversation_event",
+      });
+      expect(result.replies).toEqual([]);
     });
   });
 });
