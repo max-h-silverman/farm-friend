@@ -26,7 +26,7 @@ import {
   ORIGIN_LIMITATION_STATEMENT,
   PUBLIC_MAP_URL,
   RECIPE_SCOPE_STATEMENT,
-  renderGroundedAnswer,
+  renderResultPage,
   renderProposedSnapshot,
   validateFactSelection,
   validateInterpretation,
@@ -37,6 +37,32 @@ import {
   type RetrievedFact,
 } from "@farm-friend/core";
 import { containsRawPhone, redactOutbound } from "@farm-friend/sms";
+
+/**
+ * Render the answer a selection produces, exactly as the SMS path does (F-046): dereference
+ * the chosen identifiers against the retrieved set, then page-render.
+ *
+ * Written here rather than imported because the production version lives in `apps/web` and
+ * these evals deliberately exercise `packages/core` in isolation. What it must NOT do is
+ * re-implement the rendering — that comes from `renderResultPage`, the one renderer.
+ */
+function renderSelectedAnswer(
+  factIds: string[],
+  retrieved: RetrievedFact[],
+  clock: FixedClock,
+): string {
+  const byId = new Map(retrieved.map((fact) => [fact.factId, fact]));
+  const facts = factIds
+    .map((factId) => byId.get(factId))
+    .filter((fact): fact is RetrievedFact => fact !== undefined);
+  return renderResultPage({
+    itemsRequested: [],
+    facts,
+    offset: 0,
+    total: facts.length,
+    clock,
+  }).body;
+}
 
 /** A model that returns whatever an attacker wishes it would, and records what it saw. */
 export class HostileLLMProvider implements LLMProvider {
@@ -329,7 +355,7 @@ hx("inquiry: a smuggled factual string is refused, not stripped", () => {
 // H9. The delivered answer contains ONLY code-rendered retrieved values. Even on a legitimate
 //     selection, every word a customer reads is dereferenced from typed facts.
 hx("inquiry: the rendered answer carries only code-rendered retrieved values", () => {
-  const answer = renderGroundedAnswer(["loc-1"], RETRIEVED, EVAL_CLOCK);
+  const answer = renderSelectedAnswer(["loc-1"], RETRIEVED, EVAL_CLOCK);
   return (
     answer.includes("Alpha Stand") &&
     answer.includes("Kale (6 bunches)") &&
@@ -449,7 +475,7 @@ hx("recipe: a flagged request still yields code-rendered availability", () => {
   if (intent.value.outOfScopeRequest !== true) return false;
 
   // The availability half is rendered from typed facts, exactly as any other inquiry.
-  const answer = renderGroundedAnswer(["loc-1"], RETRIEVED, EVAL_CLOCK);
+  const answer = renderSelectedAnswer(["loc-1"], RETRIEVED, EVAL_CLOCK);
   const factual = answer.includes("Alpha Stand") && answer.includes("Kale (6 bunches)");
 
   // The scope statement is a code constant. Nothing the model wrote appears in either half.
@@ -651,7 +677,7 @@ hx("proximity: an injected directions demand has no field to answer through", ()
 // H24. Even a legitimate selection renders no geography, because the retrieved projection
 //      carries none. A model cannot order by a distance code never computed.
 hx("proximity: the rendered answer contains no distance the model could have supplied", () => {
-  const answer = renderGroundedAnswer(["loc-1"], RETRIEVED, EVAL_CLOCK);
+  const answer = renderSelectedAnswer(["loc-1"], RETRIEVED, EVAL_CLOCK);
   return (
     answer.includes("Alpha Stand") &&
     !/\d+(\.\d+)?\s*(mi|miles?|km)\b/i.test(answer) &&

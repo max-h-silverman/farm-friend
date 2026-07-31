@@ -78,6 +78,8 @@ export async function handleFreeText(
     taskText: string;
     providerEventId: string;
     inboxEventId: string;
+    /** The inbound message's own time — what a saved result list's expiry runs from (F-046). */
+    occurredAt: Date;
   },
 ): Promise<FreeTextResult> {
   if (input.taskText.trim() === "") {
@@ -162,7 +164,13 @@ export async function handleFreeText(
   // rendered by code from retrieved rows; the model only interprets and orders identifiers.
   const answer = await answerInquiry(
     { db: deps.db, model: deps.inquiry, clock: deps.clock },
-    { taskText: input.taskText },
+    {
+      taskText: input.taskText,
+      // F-046: an answer too long for one message saves its remainder against this sender,
+      // and the expiry runs from the message's own time rather than the pass's.
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+    },
   );
 
   if (answer.outcome === "answered") {

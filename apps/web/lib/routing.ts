@@ -21,6 +21,7 @@ import {
   openFarmerOnboardingRequest,
   type Db,
 } from "@farm-friend/db";
+import type { PagingStatus } from "./paging";
 
 // Deterministic inbound routing (F-023, docs/ARCHITECTURE.md §"Deterministic routing").
 //
@@ -33,9 +34,11 @@ import {
 //   1. compliance keywords   — STOP/START/JOIN/HELP/INFO, by CODE, before any model call
 //   2. FLAG                  — the human-handoff safety rail, also upstream of the model
 //   3. commitment YES/NO     — context- and version-bound to the sender's ONE open proposal
-//   4. free text             — only here may a model seam run
+//   4. farmer keywords       — SIGNUP/LINK, still upstream of the model
+//   5. MORE                  — the next page of the sender's pending result list (F-046)
+//   6. free text             — only here may a model seam run
 //
-// Steps 1-3 are `parseCommand` output, which takes the body and NOTHING else: no
+// Steps 1-5 are `parseCommand` output, which takes the body and NOTHING else: no
 // conversation state exists for it to consult, so no state can reinterpret a STOP. The
 // model seams are reached through `freeText`, a callback this module invokes only after
 // `parseCommand` returns `kind: "none"` — so "no model call on the compliance path" is a
@@ -67,6 +70,12 @@ export type RouteOutcome =
    * authorized farmer.
    */
   | { kind: "farmer"; keyword: FarmerKeyword; status: string }
+  /**
+   * A `MORE` (F-046). `paged` served the next page of the sender's pending list;
+   * `no_pending_list` is the honest reply when there is nothing to page — never asked,
+   * expired, or exhausted.
+   */
+  | { kind: "paging"; status: PagingStatus }
   | { kind: "free_text"; handled: "farmer" | "customer" | "none" }
   /**
    * A stale event this router declined to act on. The caller finalizes it as `rejected`
@@ -103,7 +112,19 @@ export interface RouteDeps {
     taskText: string;
     providerEventId: string;
     inboxEventId: string;
+    occurredAt: Date;
   }): Promise<{ replies: RoutedReply[]; handled: "farmer" | "customer" | "none" }>;
+  /**
+   * Serve the next page of the sender's pending result list (F-046).
+   *
+   * A callback for the same reason `freeText` is one — this module owns the deterministic
+   * ORDER and nothing else, so retrieval and rendering stay outside it. Unlike `freeText`,
+   * the handler behind this one takes no model dependency at all: `MORE` is code end to end.
+   */
+  nextPage(input: {
+    senderHash: string;
+    occurredAt: Date;
+  }): Promise<{ body: string; status: PagingStatus }>;
 }
 
 export interface RouteInput {
@@ -213,12 +234,40 @@ export async function routeInboundMessage(
     return routeFarmerKeyword(deps, input, command.keyword);
   }
 
-  // STEP 4 — and only now may a model run.
+  // F-046 — MORE. Ordered AFTER the compliance keywords and the commitment tokens, which is
+  // what makes "paging can never shadow an opt-out" structural: reaching here means the
+  // message matched neither. It is still upstream of the model, and the handler behind it has
+  // no model to reach.
+  //
+  // Deliberately does NOT touch the sender's open confirmation (max, 2026-07-31). A farmer
+  // with a proposal open can page and keep it; the two are different words with no overlap,
+  // so blocking either would solve a collision that does not exist.
+  if (command.kind === "paging") {
+    const page = await deps.nextPage({
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+    });
+    return {
+      outcome: { kind: "paging", status: page.status },
+      replies: [
+        {
+          body: page.body,
+          // Answering the customer's own message, so it rides on that message rather than on
+          // a standing consent basis.
+          category: "inquiry_reply",
+          logicalKey: `paging-${input.providerEventId}`,
+        },
+      ],
+    };
+  }
+
+  // STEP 6 — and only now may a model run.
   const handled = await deps.freeText({
     senderHash: input.senderHash,
     taskText: body,
     providerEventId: input.providerEventId,
     inboxEventId: input.inboxEventId,
+    occurredAt: input.occurredAt,
   });
   return {
     outcome: { kind: "free_text", handled: handled.handled },

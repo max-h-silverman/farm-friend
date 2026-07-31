@@ -14,8 +14,6 @@
 // There is deliberately no path by which a model-supplied string becomes customer-facing
 // factual text.
 
-import type { Clock } from "../clock";
-
 /**
  * What kind of claim a retrieved fact supports (F-045).
  *
@@ -30,13 +28,24 @@ import type { Clock } from "../clock";
  */
 export type FactBasis = "confirmed" | "offering";
 
-/** One retrieved sales location with the authoritative values the renderer needs. */
+/**
+ * One retrieved sales location with the authoritative values the renderer needs.
+ *
+ * There is exactly ONE fact type, deliberately (F-046). Selection validation and page
+ * rendering used to take near-identical shapes differing only in whether the address could be
+ * null — and the nullable half was the true one, which is how F-045 shipped the literal word
+ * "null" to customers past a compiler that was satisfied.
+ */
 export interface RetrievedFact {
   /** Opaque stable identifier. The only thing the model may hand back. */
   factId: string;
   locationName: string;
   farmName: string;
-  publicAddress: string;
+  /**
+   * Nullable, because the column is: two real stands carry no public address. A stand with no
+   * address is still a real answer to "who has lamb?" — it just cannot be navigated to.
+   */
+  publicAddress: string | null;
   /** The matched items this location publishes, in published order. */
   matchedItems: RetrievedItem[];
   /**
@@ -61,13 +70,6 @@ export interface RetrievedItem {
  * hiding an old listing serves the customer worse than labelling it (PRODUCT_BRIEF).
  */
 export const STALE_AFTER_HOURS = 48;
-
-export class AnswerRenderError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AnswerRenderError";
-  }
-}
 
 /**
  * The model's selection: ordered opaque IDs, or a bare signal that it cannot choose.
@@ -169,7 +171,13 @@ export function isStale(asOf: Date, now: Date): boolean {
   return now.getTime() - asOf.getTime() >= STALE_AFTER_HOURS * 3_600_000;
 }
 
-function renderItem(item: RetrievedItem): string {
+/**
+ * Render one published item — "Kale (6 bunches, $4)" — from typed values.
+ *
+ * Exported so the page renderer shares it (F-046). A second copy in `paging.ts` would be two
+ * places a quantity could come to be formatted differently for the same row.
+ */
+export function renderItem(item: RetrievedItem): string {
   const detail =
     item.quantity !== undefined && item.unit !== undefined
       ? `${item.quantity} ${item.unit}`
@@ -252,69 +260,3 @@ export const ORIGIN_LIMITATION_STATEMENT =
   "Farm Friend cannot work out which stand is closest to you over text. " +
   `The map at ${PUBLIC_MAP_URL} can sort stands by distance if you allow location access.`;
 
-/**
- * Render the authoritative answer from the selected facts, in the model's chosen order.
- * Every value comes from the typed retrieved projection; nothing is model-authored.
- */
-export function renderGroundedAnswer(
-  selectedFactIds: string[],
-  retrieved: RetrievedFact[],
-  clock: Clock,
-): string {
-  const byId = new Map(retrieved.map((fact) => [fact.factId, fact]));
-  const now = clock.now();
-
-  const facts = selectedFactIds.map((factId) => {
-    const fact = byId.get(factId);
-    if (!fact) {
-      // Unreachable via validateFactSelection; fail loudly rather than render a gap.
-      throw new AnswerRenderError(`fact ${factId} is not in the retrieved set`);
-    }
-    return fact;
-  });
-
-  if (facts.length === 0) return renderNoCurrentListing([]);
-
-  // Confirmed stock leads; typical offerings follow under their own label. The model's
-  // order is preserved WITHIN each group — it ranked relevance, and this grouping is a
-  // property of the claim, not of the ranking.
-  const confirmed = facts.filter((fact) => fact.basis === "confirmed");
-  const offerings = facts.filter((fact) => fact.basis === "offering");
-
-  const withAddress = (fact: RetrievedFact): string =>
-    fact.publicAddress === ""
-      ? fact.locationName
-      : `${fact.locationName} (${fact.publicAddress})`;
-
-  const sections: string[] = [];
-
-  if (confirmed.length > 0) {
-    sections.push(
-      confirmed
-        .map((fact) => {
-          const items = fact.matchedItems.map(renderItem).join(", ");
-          const recency = renderRecency(fact.asOf, now);
-          const stale = isStale(fact.asOf, now) ? " - may be out of date" : "";
-          // The recency phrase is how this stays honest: it reports when a farmer last
-          // confirmed, never that the item is on the table now.
-          const body = items === "" ? withAddress(fact) : `${withAddress(fact)}: ${items}`;
-          return `${body} (${recency}${stale})`;
-        })
-        .join("\n"),
-    );
-  }
-
-  if (offerings.length > 0) {
-    // Introduced rather than concatenated, so a customer can see where confirmation stops
-    // and description begins. The wording shifts when there is nothing confirmed above it,
-    // because "these other stands" would be dangling.
-    const lead =
-      confirmed.length > 0
-        ? "These other stands also list this as a typical offering:"
-        : "Nobody has confirmed this recently. These stands list it as a typical offering:";
-    // No recency, no staleness: nothing here was ever confirmed.
-    sections.push([lead, ...offerings.map((fact) => withAddress(fact))].join("\n"));
-  }
-
-  return sections.join("\n\n");
-}

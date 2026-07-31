@@ -894,6 +894,168 @@ describe("inbound routing end to end (integration)", () => {
       expect(proposals[0]?.consumed_token).toBe("yes");
     });
 
+    // F-046, max's decision (2026-07-31): BOTH work. A farmer with an open inventory
+    // confirmation who texts MORE gets their next page AND keeps the confirmation; a
+    // confirmation reply never swallows a MORE. YES/NO and MORE are different words with no
+    // overlap, so blocking either would solve a collision that does not exist while making a
+    // farmer feel ignored.
+    //
+    // BOTH DIRECTIONS are asserted, because each alone is satisfiable by the very defect it
+    // is meant to forbid: "the confirmation survived" passes trivially if MORE did nothing,
+    // and "the page was served" passes trivially if the confirmation was never open.
+    it("a farmer can page without disturbing an open confirmation, in both directions", async () => {
+      await seedFarmer();
+
+      // An open, ACTIVATED proposal — the state in which a YES would genuinely commit. An
+      // un-activated one would make direction two vacuous.
+      await deliverInboundOnly({
+        fromPhone: farmerPhone,
+        text: "kale and eggs",
+        occurredAt: at(0),
+      });
+      const provider = new ScriptedProvider({
+        "inventory-extraction": JSON.stringify({
+          kind: "edits",
+          additions: [{ itemName: "kale" }],
+          changes: [],
+          removals: [],
+        }),
+      });
+      await runInboundPass({
+        db: database(),
+        interpreter: createInventoryInterpreter(provider),
+        inquiry: createInquiryModel(provider),
+        clock: new FixedClock(at(1)),
+        publicBaseUrl: "https://farmfriend.example",
+      });
+      await client()`
+        update inventory_publication_proposals
+        set activation_outbox_id = (
+              select id from outbox_work where recipient_hash = ${farmerHash}
+                and message_category = 'inventory_confirmation' limit 1
+            ),
+            activated_version = proposal_version,
+            activated_at = ${at(2)},
+            expires_at = ${at(180)}
+        where sender_hash = ${farmerHash} and state = 'open'
+      `;
+
+      // A pending result list for the SAME sender, as a question of theirs would have left.
+      //
+      // The identifiers must RESOLVE to real published stands: the pager dereferences them
+      // fresh and skips a page whose stands have all gone, so a list of invented ids would
+      // drain itself and the assertions below would be about nothing.
+      const pagedStands: string[] = [];
+      for (let index = 0; index < 9; index += 1) {
+        const farm = await client()`
+          insert into farms (name) values (${`Paging Farm ${index}`}) returning id
+        `;
+        const stand = await client()`
+          insert into sales_locations (
+            farm_id, kind, name, public_address, public_latitude, public_longitude,
+            farm_bucks_accepted, farm_bucks_eligible
+          )
+          values (${farm[0]?.id as string}, 'farm_stand', ${`Paging Stand ${index}`},
+                  ${`${200 + index} Paging Rd`}, 47.45, -122.46, false, false)
+          returning id
+        `;
+        const standId = stand[0]?.id as string;
+        await client()`
+          insert into sales_location_offerings (sales_location_id, item, sort_order)
+          values (${standId}, 'eggs', 0)
+        `;
+        pagedStands.push(`offering-${standId}`);
+      }
+      await client()`
+        insert into pending_result_lists (
+          sender_hash, fact_ids, items_requested, "offset", created_at, expires_at
+        )
+        values (${farmerHash}, ${pagedStands}, ${["eggs"]}, 3, ${at(2)}, ${at(62)})
+      `;
+
+      // Preconditions, asserted rather than assumed.
+      const openBefore = await client()`
+        select state, activated_at from inventory_publication_proposals
+        where sender_hash = ${farmerHash}
+      `;
+      expect(openBefore).toHaveLength(1);
+      expect(openBefore[0]?.state).toBe("open");
+      expect(openBefore[0]?.activated_at).not.toBeNull();
+
+      // ---- DIRECTION ONE: MORE does not consume, expire, or answer the confirmation.
+      //
+      // `deliverInboundOnly`, not `deliverInbound`: the latter also drives the kick route,
+      // which builds its own deps from the composition root with the REAL clock — and that
+      // expires a fixture proposal anchored a day in the past before the assertions run.
+      await deliverInboundOnly({
+        fromPhone: farmerPhone,
+        text: "MORE",
+        occurredAt: at(3),
+      });
+      const forbidden = await runPassWithForbiddenModel();
+      // Paging is code end to end: not one model call for a MORE.
+      expect(forbidden.calls).toBe(0);
+
+      const afterMore = await client()`
+        select state, consumed_token, activated_at
+        from inventory_publication_proposals where sender_hash = ${farmerHash}
+      `;
+      expect(afterMore[0]?.state, "MORE must not consume the confirmation").toBe("open");
+      expect(afterMore[0]?.consumed_token).toBeNull();
+      // And nothing published behind it.
+      const noRevisions = await client()`
+        select count(*)::integer as count from inventory_revisions
+      `;
+      expect(noRevisions[0]?.count).toBe(0);
+
+      // MORE was actually SERVED, so this is not passing because paging did nothing.
+      //
+      // Asserted on the QUEUED REPLY, not only on the offset: an implementation that claims
+      // a page and then discards it still advances the offset, so the offset alone is
+      // satisfied by the defect where the customer receives "I don't have a list going".
+      // Caught by exactly that sabotage.
+      const pagedReply = await client()`
+        select body, message_category from outbox_work
+        where recipient_hash = ${farmerHash} and logical_key like 'paging-%'
+      `;
+      expect(pagedReply, "a MORE must queue exactly one reply").toHaveLength(1);
+      expect(pagedReply[0]?.body).toContain("Paging Stand 3");
+      expect(pagedReply[0]?.body).toMatch(/4-6 of 9/);
+      expect(pagedReply[0]?.body).not.toMatch(/don't have a list/i);
+      expect(pagedReply[0]?.message_category).toBe("inquiry_reply");
+
+      const pagedList = await client()`
+        select "offset" from pending_result_lists where sender_hash = ${farmerHash}
+      `;
+      expect(pagedList[0]?.offset, "the page must actually have been served").toBe(6);
+
+      // ---- DIRECTION TWO: the confirmation still works, and does not swallow the list.
+      await deliverInboundOnly({
+        fromPhone: farmerPhone,
+        text: "YES",
+        occurredAt: at(4),
+      });
+      await runPassWithForbiddenModel();
+
+      const afterYes = await client()`
+        select state, consumed_token from inventory_publication_proposals
+        where sender_hash = ${farmerHash}
+      `;
+      expect(afterYes[0]?.state, "the confirmation must still commit").toBe("accepted");
+      expect(afterYes[0]?.consumed_token).toBe("yes");
+      const published = await client()`
+        select count(*)::integer as count from inventory_revisions
+      `;
+      expect(published[0]?.count).toBe(1);
+
+      // The pending list is untouched by the confirmation — a YES is not a page request.
+      const listAfterYes = await client()`
+        select "offset" from pending_result_lists where sender_hash = ${farmerHash}
+      `;
+      expect(listAfterYes).toHaveLength(1);
+      expect(listAfterYes[0]?.offset).toBe(6);
+    });
+
     it("a customer question is answered from retrieved rows, not model prose", async () => {
       const { locationId, farmId } = await seedFarmer();
 
