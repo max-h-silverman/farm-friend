@@ -152,4 +152,53 @@ describe("migration generator metadata (GL-006)", () => {
         `The generator would treat each as brand new. See GL-006.`,
     ).toEqual([]);
   });
+
+  it("creates every CHECK constraint schema.ts declares in some migration (F-046)", () => {
+    // THE FAILURE THIS CATCHES: a constraint that exists in `schema.ts` and in nobody's
+    // database. Every suite stays green — fixtures satisfy the rule anyway — while production
+    // enforces nothing, and the code believes it is guarded.
+    //
+    // Observed 2026-07-31, which is why this exists. Asked to generate a snapshot for
+    // migration 0009, drizzle-kit also wrote its own migration for the same table whose SQL
+    // silently OMITTED all three CHECK constraints: the generator translates only the parts
+    // of a table declaration it understands, and drops the rest without a warning. Had that
+    // file been the one kept, `pending_result_lists` would have accepted an empty list and an
+    // out-of-range offset in production, both of which render as "no results" to a customer.
+    //
+    // Deliberately checked against the MIGRATION SQL rather than the snapshot: SQL is what
+    // actually runs against a database. A snapshot agreeing with the schema proves the
+    // generator's bookkeeping, not that any constraint was ever created.
+    const schemaSource = readFileSync(
+      resolve(repoRoot, "packages/db/src/schema.ts"),
+      "utf8",
+    );
+    // `check("name", sql`…`)` is the one declaration form used. The name is what a migration
+    // must also create.
+    const declared = [
+      ...schemaSource.matchAll(/\bcheck\(\s*"([a-z0-9_]+)"/g),
+    ].map((match) => match[1] as string);
+
+    expect(
+      declared.length,
+      "found no check() declarations to verify — the pattern above has drifted",
+    ).toBeGreaterThan(0);
+
+    // Read the migrations the JOURNAL lists, not the directory: an orphaned .sql file nobody
+    // applies must not satisfy this, or a constraint could look created while the migration
+    // carrying it never runs.
+    const migrationSql = journal().entries
+      .map((entry) => readFileSync(resolve(migrationsDir, `${entry.tag}.sql`), "utf8"))
+      .join("\n");
+
+    const missing = declared.filter(
+      (name) => !new RegExp(`CONSTRAINT\\s+"${name}"`, "i").test(migrationSql),
+    );
+
+    expect(
+      missing,
+      `CHECK constraints declared in schema.ts that NO migration creates: ${missing.join(", ")}. ` +
+        "The database does not enforce them, whatever the schema says. Add them to a " +
+        "migration by hand — drizzle-kit omits CHECK constraints when it generates SQL.",
+    ).toEqual([]);
+  });
 });
