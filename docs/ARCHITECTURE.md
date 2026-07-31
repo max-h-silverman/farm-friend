@@ -226,9 +226,17 @@ order:
    synonym ever collided with `STOP`, an opt-out would stop working. Neither grants anything:
    `SIGNUP` writes a record with no grant column, and `LINK` is refused unless the sender already
    holds a live authorization.
-5. **Active conversation state** routes the message to its in-flight flow.
-6. **Authority and consent gates** determine what the sender may do.
-7. **Only then** may a model seam run.
+5. **`MORE`** (F-046) returns the next page of the sender's pending result list. Also a **Farm
+   Friend product keyword, never a carrier-mandated one**, and parsed **alongside the farmer
+   keywords at the end** for the same reason: paging must never shadow an opt-out or a commitment
+   token. It is **context-bound like a confirmation token, never global** — it means nothing
+   without a pending list, and it must match the **entire message**, so "any more eggs?" stays a
+   question. It is deliberately **independent of `YES`/`NO`**: a farmer with an open inventory
+   confirmation can page and keep the confirmation, because the words do not overlap and blocking
+   one for the other would solve a collision that does not exist.
+6. **Active conversation state** routes the message to its in-flight flow.
+7. **Authority and consent gates** determine what the sender may do.
+8. **Only then** may a model seam run.
 
 A confirmation token is accepted only for the sender's one open inventory proposal, after the
 current prompt has been accepted by Telnyx, and only when the token's provider occurrence time

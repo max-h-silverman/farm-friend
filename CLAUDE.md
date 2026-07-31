@@ -148,11 +148,19 @@ Full detail — and the tripwires you need before touching anything — in
   no default.
 - **Never rotate `PHONE_HASH_SALT`** — it is the input to the only lookup key for every phone.
 - **Open, HIGH**: B-024 (a farmer's address published against her written instruction).
-- **Deployed 2026-07-30**: F-042 (212 offering tags live on the map) and F-040 (farmer onboarding:
-  `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>` behind a never-expiring link whose only safety
-  net is revocation). Production is at **9 migrations**. **Owed: nobody has looked at F-040's two
-  pages** — `/stand/<token>` and `/admin/farmers` have never been seen rendered. (F-042's tag
-  styling has now been seen, in F-043's poster pass.)
+- **Deployed 2026-07-30**: F-045 (SMS reads the offerings corpus and matches by meaning — every
+  question used to answer "no current listing" because production holds **0** inventory revisions),
+  plus F-042 and F-040 (farmer onboarding: `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>`
+  behind a never-expiring link whose only safety net is revocation). Production is at **9
+  migrations**. **Owed: nobody has looked at F-040's two pages.**
+- **Merged but INERT — F-046 parts 1-2** (SMS result paging). Rendering, the `MORE` keyword, and
+  migration 0009 exist; **nothing wires them**, so `MORE` still falls through to free text. Repo is
+  at **10 migrations**, production at 9. **Production still shows F-045's `(null)` bug** for the
+  two stands with no address — fixed in the merged renderer, not deployed. Part 3 is the routing
+  branch.
+- **drizzle-kit drops CHECK constraints when generating SQL** — write them into migrations by hand.
+  Tripwired in `migration-metadata.test.ts`. Also: `array_length` of an empty array is **NULL**, and
+  a CHECK **passes** on NULL — `coalesce` or the constraint admits what it forbids.
 - **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
   vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
   **Owed: a physical-handset tap on the contact card.**

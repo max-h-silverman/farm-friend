@@ -45,6 +45,17 @@ commit or decline.
 | `SIGNUP` / `SIGN UP` | Ask VIGA to set this farmer up. **Grants nothing** — it opens one queue entry a coordinator acts on, and the reply deliberately does not read as a yes. Repeats are answered identically and produce one entry. |
 | `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets the signup acknowledgement and no link. |
 
+### Customer paging keyword (F-046 — never carrier-registered)
+
+| Keyword | Behavior |
+|---|---|
+| `MORE` / `NEXT` | Return the next page of the sender's pending result list. **Context-bound, never global** — it means nothing without a pending list, and with none it answers honestly rather than failing silently. Must match the **entire message**, so "any more eggs?" stays a question and reaches the model as free text. |
+
+`MORE` is deliberately **independent of `YES`/`NO`** (max, 2026-07-31): a farmer with an open
+inventory confirmation can page and keep the confirmation open. The words do not overlap, so
+blocking one for the other would solve a collision that does not exist while making a farmer feel
+ignored.
+
 These are **Farm Friend product keywords, exactly like `FLAG`** — not carrier-mandated, and they
 must **never** be registered as compliance keywords or transcribed into `TELNYX_10DLC_FIELD_VALUES.txt`.
 `farmer-keywords.test.ts` asserts both directions.

@@ -11,7 +11,99 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-07-30 (latest) — F-043's poster pass: the map made to look like VIGA's, and two defects live in production
+## 2026-07-31 (latest) — F-045 shipped: SMS could not see the offerings corpus, and matched food by string equality
+
+max texted the production number "Who has lamb?" and "Any leafy greens available?" and got
+"No stand has a current listing" to both, while the public map showed those stands the whole
+time. **Two defects, one root cause**, and the root cause is the interesting part.
+
+### The inquiry path was reading a table that is empty in production
+
+`retrieveCurrentListings` queried only `inventory_revisions` + `inventory_entries` — farmer
+**confirmed** stock. Production holds **zero** current inventory revisions, because no farmer has
+published yet. So retrieval returned empty on *every* question, short-circuited to the honest
+"no current listing", and never reached the fact-selection seam at all. Meanwhile the **212
+offering tags** F-042 shipped to the map sat in `sales_location_offerings`, which this path never
+queried. **One desk was giving two answers**: the map knew Holmestead sells lamb; SMS did not.
+
+Retrieval now unions both, tagging each candidate with its `basis` — `confirmed` or `offering`.
+
+### Comparing strings to answer a question about meaning
+
+`rankCandidates` filtered candidates by **exact normalized item-name equality**. "leafy greens"
+never matched "butter lettuce"; "root vegetables" never matched "beets". The corpus proves it
+cuts both ways: it holds a literal `"leafy greens"` tag *and* `"baby lettuce mix"`, so even exact
+matching hit inconsistently — which reads worse to a customer than never hitting.
+
+The filter ran **before** the model, so the only layer that could understand "beets are root
+vegetables" never saw beets. The fix is not a synonym table — that is the food-taxonomy-as-policy
+CLAUDE.md forbids, and no finite list covers an open corpus of farmer-authored names. **Code
+stopped deciding which items answer a request.** It now orders and caps candidates
+(`MAX_INQUIRY_CANDIDATES`, a stated bound rather than one inherited from corpus size) and the
+model selects across them.
+
+**Grounding is untouched** — code retrieves, validates every returned identifier against the
+retrieved set, and renders every word. **What moved is RECALL**, which is a quality property, not
+an authority one. So recall became something *measured*: five live fixtures over real corpus
+vocabulary, each with distractors, and the `live-recall` group **exits non-zero** rather than
+merely recording. A model that cannot category-match is not a degraded experience; it is this
+defect restored.
+
+**Mistral Small 24B passes all five**, so the model upgrade max pre-approved was not needed and
+nothing extra is being spent. The swap remains one env var if recall ever regresses.
+
+### Two defects the tests caught mid-build, and one they didn't
+
+Caught: `offering:<uuid>` identifiers were refused by `assertOpaqueId` (a colon is not an
+identifier shape — the guard was right); and removing the item filter made an answer about kale
+recite the eggs, so **rendering** now narrows by exact name separately from **retrieval**, which
+does not.
+
+**Not caught, and shipped to production:** `publicAddress` is **nullable**, two real stands carry
+no address, and the renderer printed the literal word **"null"** to customers. The guard was
+`publicAddress === ""`; the type said `string`, so the compiler was satisfied and every fixture
+had an address. Textbook NULL-semantics miss. Fixed in F-046's renderer, not yet deployed.
+
+### F-046 designed and half-built
+
+max's follow-up: the replies are hard to parse. Measured against the real corpus — the *common*
+questions are the big ones (eggs 16 stands, flowers 15, leafy greens 9) and name+address runs
+22-57 chars — so **three per page** is the honest maximum inside **two billed segments**. The
+shipped format was 488 characters / **four** segments.
+
+Built this session: page rendering, `MORE` as a deterministic keyword ordered after `STOP`, and
+migration 0009's `pending_result_lists`. **Not yet wired** — a customer texting `MORE` still
+falls through to free text. Part 3 is the routing branch.
+
+**max chose (2026-07-31)**: page 3 at a time; `MORE` **replays the saved list** rather than
+re-running retrieval, so paging is consistent and costs no model call, accepting that stock
+confirmed mid-paging waits for the next question; and **`YES`/`NO` and `MORE` both work** — a
+farmer with an open confirmation can page without disturbing it.
+
+### drizzle-kit omits CHECK constraints, silently
+
+Asked to generate a snapshot, drizzle-kit also wrote **its own migration** for the same table
+whose SQL **dropped all three CHECK constraints**, with a journal timestamp **older** than the
+hand-written one — which is B-022's silent-skip trap. The timestamp half was already tripwired;
+the dropped-constraint half was not. **Now it is**: `migration-metadata.test.ts` fails when a
+CHECK constraint declared in `schema.ts` reaches no migration. Checked against migration **SQL**,
+not the snapshot, because SQL is what runs. No drift today — all 71 declared constraints present.
+
+`array_length` of an empty array returns **NULL**, and a CHECK constraint **passes** on NULL, so
+the obvious spelling of "the list must not be empty" admits empty lists. `coalesce` is required,
+and each constraint was verified by trying to violate it.
+
+### Verified
+
+F-045: unit 735/735, integration 407/407, evals 11/11 + 4/4 + 29/29, `evals:live` containment
+4/4 / recall 5/5 / quality 6/6. **13 sabotages, all caught.** Deployed 2026-07-30 —
+`web-00012-glc` / `worker-00013-b9t`, digest `sha256:b178bf93`, no migration owed.
+
+This session's wrap: unit **758/758**, integration **407/407**, typecheck and lint clean, evals
+green. F-046 parts 1-2 merged but **inert and undeployed** — production keeps today's behavior,
+including the `(null)` bug.
+
+## 2026-07-30 — F-043's poster pass: the map made to look like VIGA's, and two defects live in production
 
 max compared the deployed map against the **actual poster image** — supplied this session for the
 first time; the previous palette was derived from a *description* of it — and it did not read as
@@ -841,188 +933,5 @@ none**, 4 stand-data flags, 0 names carrying an annotation, 0 PII in any seeded 
 
 **Offerings are NOT seeded to production** — `sales_location_offerings` is 0 there. That is the
 separate approved-artifact step (`npm run db:seed-offerings` against `maps/offerings-proposals.json`).
-
----
-
-## 2026-07-29 — B-021 closed, F-038's schema and map built, F-040 filed
-
-Three tranches: finish B-021's two owed follow-ups, build F-038 on the strength of a new data
-export, and settle the farmer-onboarding design that F-038's questions kept running into.
-
-### B-021: the drift was never mysterious, and the annotation design was a trap
-
-The "persistent `tofu plan` drift" had an ordinary cause. The emergency
-`gcloud run services update` that ended the outage injected `ROTATION_APPLIED_AT` onto the **live
-services only**, so every subsequent plan wanted to strip it. That standing "2 to change" is
-exactly what made the no-op apply look real. It is now a declared variable in `common_env`, so the
-config round-trips; what remains in a clean-tree plan is **provenance only** —
-`client`/`client_version = "gcloud"` annotations and a top-level `scaling` block the CLI wrote —
-confirmed by diffing the plan JSON field by field, and self-clearing on the next apply.
-
-**The prevention flipped mid-investigation, on evidence.** B-021's notes preferred a revision
-annotation carrying secret version IDs, and so did I: it *prevents* rather than detects. Building
-it requires resolving `latest` to a version number, which needs
-`data.google_secret_manager_secret_version` — and that data source pulls the secret's **cleartext
-payload** into the plan and into state. A probe put a **live Neon password** in `prior_state`,
-caught by `plan-assertions.py`'s existing "no postgres connection string" check. The metadata-only
-data source carries no version number, and the Google provider implements no `ephemeral` resource.
-The tfvars variant reintroduces silent staleness one level up.
-
-So the design is a **timestamp comparison** — `infra/deploy_assertions.py`, every serving revision
-newer than every enabled secret version it consumes. Both sides are metadata with no path to a
-payload. It reads `latestReadyRevisionName`, not `latestCreated`, because a revision that failed
-its startup probe exists but serves nothing. Ties fail closed, every stale service is reported, and
-**an empty lookup is a failure rather than a pass** — the "green because it looked at nothing"
-shape this repo keeps finding.
-
-`test_deploy_assertions.py` exists because **the live project is healthy and cannot produce the
-failing case**; the B-021 timeline (revision 16:09:26 vs. secret 16:35:29) is a fixture. Three
-sabotages verified. `plan-assertions.py` went 24 → 29, anchored to the **secret mounts** rather
-than the variable's name, so a service that stops mounting secrets is legitimately exempt.
-
-### F-038: two properties, and an address is what makes a farm visitable
-
-A new export landed mid-session — the **2026 Google Forms responses**, 32 rows, well-formed,
-2026-current, with hours/season/stocking as separate columns. It also contains a case the original
-F-038 filing did not have: **Open Gate Lamb's address cell reads "On island delivery for orders
-over $50"** — not missing data, but a farmer saying there is nowhere to visit.
-
-That settled the model. Seedrain has an address and sells *services*; Open Gate Lamb has **no
-address at all**. One enum cannot carry both without a value per combination, so: **two independent
-properties**, `visitability` and `offering_type`, migration 0007, both defaulting to the pre-F-038
-meaning so no seeded listing is reclassified. `coherent_visitability` is all-or-nothing in **both**
-directions; the `contact_only` direction is the one that protects customers, since the legacy map
-export carries real coordinates for Open Gate Lamb.
-
-**max corrected a wrong proposal here, and the correction matters.** Asked about Breathing Meadows
-— which has coordinates and says "Open only by appointment" — I proposed relaxing the constraint so
-a pin could exist without an address, calling coordinates the load-bearing fact. max: *"an address
-is needed for visitability."* Right, and my reasoning was backwards — a coordinate says where a
-farm *is*, an address says where a customer can *go*; they collapse into one fact only for an
-ordinary stand. And "by appointment" means a customer specifically **cannot** turn up, which is the
-definition of a farm you contact first. So Breathing Meadows is `contact_only`, loses its pin, and
-**the constraint as originally built was already correct** — the proposed relaxation would have
-introduced the bug. Recorded because the wrong turn was mine and the data was on max's side.
-
-"By appointment" is deliberately **not** a tracked type: one instance in 32, and the same language
-appears at Lavender Hill and Ostara, which have ordinary stands. It is a fact about *arranging a
-visit*, not about whether a place exists — folding it in reproduces the combination explosion the
-two-property split avoids.
-
-### Two silent map defects, both found by writing the test first
-
-`public-listing.ts` cast with `as string` and `Number(...)`. Against a NULL that produced address
-`null` and coordinates **0, 0 — a pin in the Atlantic off Africa** — with **no type error
-anywhere**. `Number(null)` is `0`, not NaN, which is why nothing caught it.
-
-Worse, `withApproximateDistance` then sorted that farm **first**: distance to an absent coordinate
-is NaN, and NaN in a comparator makes `sort` order-dependent, so the unlocatable farm surfaced as
-the *nearest place to shop*. Fixed by spreading place fields conditionally (the B-013 shape) and
-sorting undistanced stands last — the `nulls last` reasoning one level up. Both sabotage-verified.
-
-### "Any farm may publish" — a decision to build nothing, so it became a tripwire
-
-max settled F-038's open product question: **participation is not gated on farm type.** Onboarding
-captures typical offerings as reference; current stock is separate and may be empty.
-
-Verified rather than assumed — the only `sales_location_kind` reference outside schema and seeder
-is a type alias, and every `kind ===` hit is an unrelated discriminated union. So the decision
-required almost no code, which is exactly the property that erodes silently: a future "skip service
-businesses" would look sensible and quietly remove a farmer's ability to publish.
-`architecture.test.ts` now fails if any publication-path source compares against a location-type
-enum **value**. It flagged `public-listing.ts` on its first run — a false positive, since the read
-path decides *display* — which is what narrowed the scan to the claim actually being made. That
-exclusion is itself guarded: both excluded files must stay free of any durable write.
-
-### The form reader, measured against the corpus rather than argued from the code
-
-**31 stands — 30 visitable, 1 `contact_only`, 2 needing review, 1 refused.** Address classification
-is **inverted on purpose**: assume any stated address is real, look only for a stated
-*non-location*. My first instinct — match what looks like an address — had already flagged Littlest
-Bird Farm's "15624 115th AV SW" as address-less because the pattern did not know "AV". Spurious,
-and in the dangerous direction. Same lesson the availability parser learned with ten false flags.
-
-Corpus edge cases: **Pacific Crest** states two addresses and labels them, so `(farmstand)` wins —
-publishing the mailing address is wrong in the way a customer discovers by driving there.
-**Sweet Alyssum** ("Bank Road, East of Town") and **Peak Moon** ("300' north of 28815 Vashon Hwy
-SW") are followable by a person but yield no coordinate, so they stay visitable, keep the farmer's
-words, and carry `addressNeedsReview`. **Forest Garden Farm**'s entire submission is `(same info as
-last year)` plus a name — refused here, resolvable from the map export.
-
-**The two sources are complementary, not competing.** The form file has **no coordinates at all**;
-the map export has them plus the farms that did not submit. So switching sources means the seeder
-takes *both* — a material correction to the earlier "switch to the form file" framing.
-
-Five sabotages, including **flagging everything for review**, which also fails — so the flag cannot
-decay into noise.
-
-### F-040: identity and channel are different questions
-
-The gap: **`farmer_authorizations` has no writer outside tests.** Every insert in the tree is a
-fixture. Publishing needs that authorization *plus* a farm approval; the approval has an operator
-screen, the authorization has none — so a real farmer texting an update falls through to the
-*customer* branch, and nothing reports why. A green suite cannot see this, because every test hands
-itself the thing a real farmer has no way to get.
-
-I first framed the design question as "pick a channel." max's answer — *"some farmers may prefer
-web form, some prefer text… help me come up with a good system"* — was the better question, and the
-fix was separating **identity** (a one-time trust step: VIGA always approves, either side may
-start) from **channel** (SMS, texted link, or bookmarked form; all landing on the same confirmation
-gate). No passwords: the phone is the identity, reusing F-032's magic-link mechanism.
-
-max chose a bookmarked link that **never expires until revoked**, which makes revocation the only
-safety net. Recorded with its consequence: revocation must take effect on the next request, VIGA
-must be able to see and revoke every farmer, and the blast radius is bounded by construction — a
-leaked link can at worst *propose* a wrong listing on one stand.
-
-### Verified
-
-`npm test` **556/556 across 57 files**; `npm run test:integration` **327/327 across 20 files** on
-real Postgres 16, all **8** migrations from empty; typecheck 0 errors; lint clean;
-`infra/plan-assertions.py` **29/29**; `infra/test_deploy_assertions.py` **10/10**; `tofu validate`
-clean; `deploy_assertions.py` passes against live production. Evals **not** re-run — no seam
-projection, schema, or output contract changed. B-020's deadlock did not reproduce across three
-integration runs.
-
-### The wrap found a silent production defect: migration 0007 was skipped
-
-`npm run db:migrate` printed the target, printed **"migrations applied"**, exited 0 — and changed
-nothing. Verifying by effect (not by the message) showed still 7 migrations, `public_address` still
-NOT NULL, `coherent_visitability` absent.
-
-**Cause: 0007's generated `when` was 1785352095637, OLDER than 0006's hand-rounded 1785500000000.**
-Drizzle applies a migration only when its journal timestamp exceeds the newest already-applied
-`created_at` (`pg-core/dialect.js`: `Number(lastDbMigration.created_at) < migration.folderMillis`).
-Earlier timestamps are treated as already done, with no warning and no non-zero exit. Migrations
-0002–0006 carry hand-rounded values; drizzle-kit generated a real clock value that fell before them.
-
-**No suite could have caught it.** Every test database is built from EMPTY, where each migration is
-compared against the row just inserted, so file order wins and out-of-order timestamps are
-invisible. "All 8 migrations from an empty database" is genuinely green and genuinely blind here.
-The defect is reachable only on a **partially migrated** database — which is to say production.
-
-Fixed by renumbering 0007 to 1785600000000 (the same spacing as its neighbours; the snapshot chain
-is UUID-based and unaffected), then re-applying and **verifying by effect**: 8 migrations, the two
-new columns present, the three place columns nullable, the constraint present, and a `contact_only`
-row carrying an address **refused by the database** inside a rolled-back transaction. Fingerprint
-unchanged at 1 contact / 0 stands.
-`packages/core/src/migration-ordering.test.ts` now fails on any non-increasing timestamp, and
-treats a TIE as a defect too, because the comparison is `<`.
-
-### The Terraform drift, finally pinned
-
-The `gcloud` provenance annotations cleared on the apply. What remains is **permanent and not ours**:
-the top-level `scaling` block, where the API returns `{manual_instance_count: 0,
-min_instance_count: 0}` and the config omits the block, so the provider plans to null it and the API
-echoes the defaults back. It never converges. So **"2 to change" is the expected steady state** —
-read the plan's contents, never its count, which is precisely the conflation that made the original
-no-op apply look real.
-
-The apply created **no new revision** (00005/00006 still serving), correctly: `ROTATION_APPLIED_AT`
-already held that value from the emergency fix, so the template was unchanged.
-`deploy_assertions.py` passes against production.
-
-Merged to `main` as `1df55df`; migration 0007 applied and verified by effect; `tofu apply` run with
-plan assertions 29/29.
 
 ---
