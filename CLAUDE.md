@@ -156,8 +156,8 @@ Full detail — and the tripwires you need before touching anything — in
 - **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
   vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
   **Owed: a physical-handset tap on the contact card.**
-- **F-043** (interactive island map) is live; its **poster pass is MERGED AND UNDEPLOYED** — the
-  only thing on `main` production lacks. Web-only, image-only, no migration. Numbered pins are
+- **F-043** (interactive island map) is live, **poster pass deployed 2026-07-30** (revisions
+  `…web-00011-dpd` / `…worker-00012-c26`, digest `sha256:e1893b13`). Numbered pins are
   **alphabetical by farm**, so sorting and filtering never renumber; the map is **light only**.
   `open_days` is 0% island-wide, so `Open now` is season + time-of-day. **`resize_window` does
   not change the viewport** — check phone width in a 390px iframe, or the phone layout is never

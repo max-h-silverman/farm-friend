@@ -130,6 +130,25 @@ that structural rather than incidental. The card headings were already clean.
 real Postgres from empty; typecheck and lint clean; evals 11/11 + 4/4 + 29/29. `evals:live` not
 required — web-only, no seam projection, schema, or output contract changed.
 
+### Deployed
+
+Shipped the same session, after the wrap: revisions `farm-friend-web-00011-dpd` /
+`farm-friend-worker-00012-c26`, one digest `sha256:e1893b13…` on both. Image-only — no migration
+owed, production stays at 9 migrations. `plan-assertions.py` 29/29, `deploy_assertions.py` PASSED,
+`served_card_assertions.py` PASSED. The plan was read leaf by leaf: one real leaf per service
+(`containers[0].image`), plus the known non-converging `scaling` block.
+
+Verified by effect in production, not by the apply's exit code: 32 numbered pins, 34 list badges,
+8 wooded areas, 12 "Hours not listed", 33 "Usually sells:", the page title gone, and **0**
+`prefers-color-scheme` rules in the served CSS with every dark token absent. In a real browser on
+a dark-mode machine the page renders light with no emulation; `Open now` narrowed 34 → **18** at
+10pm (the computed dusk genuinely closing stands) with **zero renumbered** and all 12 unstated
+stands still visible.
+
+One probe misled and is worth recording: `/api/farmer/stand` answered **400** where CURRENT_STATE
+records 403 for a fabricated token. Not a regression — the route is untouched by this tranche, and
+the payload was hitting the schema check before reaching the token check. The 403 paths are intact.
+
 **F-043 is closed.** The Squarespace embed handshake — the one acceptance criterion it could never
 meet, because it needs a second origin — is split out as **F-044** rather than held open as a tail
 on a finished item. Until VIGA pastes the listener the embed still works, falling back to the

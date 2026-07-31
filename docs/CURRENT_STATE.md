@@ -17,9 +17,21 @@ assertion suites **were** re-run as part of F-043's deploy — see below.
 > One integration run hit **B-020**'s known `40P01` truncate deadlock; it passed on rerun, which is
 > what marks it environmental rather than a defect in this work.
 
-**F-043's poster pass is MERGED AND UNDEPLOYED** — the only thing on `main` that production does
-not have. Web-only: no schema, no seam, no new env var, so a deploy is image-only with no
-migration owed. Everything else below is already live.
+**Nothing is merged-and-undeployed.** F-043's poster pass shipped 2026-07-30 — revisions
+`farm-friend-web-00011-dpd` / `farm-friend-worker-00012-c26`, one digest `sha256:e1893b13…` on
+both. Image-only, no migration owed, so production stays at **9 migrations**.
+`plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED, `served_card_assertions.py` PASSED
+(153 bytes / 6 CRLF / 0 bare LF). The plan was read leaf by leaf: exactly one real leaf per
+service (`containers[0].image`, `b9a020f1` → `e1893b13`), plus the known non-converging `scaling`
+block.
+**Verified by effect in production**: health `{"ok":true}`; 34 stands / 212 tags unchanged; the
+served page carries **32 numbered pins**, **34** list badges, **8** wooded areas, **12** "Hours not
+listed" and **33** "Usually sells:"; the page title is gone (0 occurrences); and the CSS has **0**
+`prefers-color-scheme` rules with `color-scheme:light` present — every dark token absent. In a
+real browser on a **dark-mode machine** the page renders light with no emulation, and `Open now`
+narrowed 34 → 18 at 10pm with **zero renumbered** and all **12** unstated stands still visible.
+Boundaries unchanged: webhook 401, cron 404 on the public service, `/admin` 200, `/api/admin/farmers`
+403, worker 404 from outside.
 
 F-043 shipped 2026-07-30 alongside F-042 and F-040 (below) —
 revisions `farm-friend-web-00010-7mc` / `farm-friend-worker-00011-l2w`, one digest
@@ -198,7 +210,7 @@ fixtures supply what production never creates.
   description-based guess; pins take the poster's green, and brick red is a *text* colour there.
   Dark mode is not the poster inverted (that gave dim pins on dim land): land stays muted, pins go
   bright. The poster's colour-only legend was **not** copied — the three-signal rule holds.
-  **2026-07-30 — max's poster review. MERGED to `main`, NOT YET DEPLOYED.** Compared against the
+  **2026-07-30 — max's poster review. MERGED and DEPLOYED.** Compared against the
   actual poster image (supplied this session; the earlier palette came from a *description* of
   it) the map did not read as VIGA's. Five changes: the wooded parks drawn as **real OSM
   polygons** through the same projection as the pins; the coastline re-traced at 25m rather than
