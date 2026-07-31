@@ -6,7 +6,7 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-31** (`f-046-part3-routing`, part 3 committed at `392b5b1`): `npm test`
+**Verified 2026-07-31** (`main`, F-046 part 3 merged): `npm test`
 **766/766** (71 files); `npm run test:integration` **434/434** (24 files) on real Postgres 16, all
 **10** migrations from empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4,
 adversarial 29/29. `evals:live` was run for **F-045** — containment **4/4**, **recall 5/5**,
@@ -19,17 +19,35 @@ public-surface model-free tripwire and the architecture tripwires still pass.
 > **Its test name was not captured**, so it is recorded as environmental — consistent with
 > **B-020** — rather than *attributed* to B-020.
 
-**BUILT AND UNDEPLOYED — F-046 is now COMPLETE in the repo.** Part 3 (`392b5b1`, on branch
-`f-046-part3-routing`, **not merged**) wires what parts 1-2 left inert: `MORE` reaches the pager
-instead of falling through to the model. Production is unchanged, still at **9 migrations**; the
-repo is at **10**. **Production therefore still carries F-045's `(null)` bug** — Open Gate Lamb
-and Grazing renders as `Open Gate Lamb and Grazing (null)` — fixed in the renderer, not yet live.
-**A deploy is owed**, and the handset tap waits on it.
+**Deployed 2026-07-31 (F-046, complete)** — revisions `farm-friend-web-00013-djk` /
+`farm-friend-worker-00014-qv2`, one digest `sha256:5e6a4d49…` on both, built from `1fa68d1`.
+**Migration `0009_pending_result_lists` was applied FIRST** — order matters, since deploying the
+image first would have shipped code whose table did not exist. Production is now at **10
+migrations**, matching the repo. `plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED,
+`served_card_assertions.py` PASSED (153 bytes / 6 CRLF). The plan was read leaf by leaf: exactly
+one real leaf per service (`containers[0].image`, `b178bf93` → `5e6a4d49`), plus the known
+non-converging `scaling` block.
+
+**Migration verified by effect, not by its "migrations applied" message**: 10 rows in
+`drizzle.__drizzle_migrations`; the table present with all three CHECKs and both indexes; **every
+pre-existing count unchanged** (1 contact, 35 locations, 212 offerings, 1 administrator, 4 flags,
+0 revisions). Each CHECK was then **proven to reject in production** — empty `fact_ids`, an
+out-of-range offset, and an expiry preceding creation — with a **valid-row positive control** so
+the rejections are not vacuous, plus the unique index refusing a second list for one sender.
+Cleanup left **0 rows**.
+
+**Verified by effect in production**: health `{"ok":true}`; `/api/public/stands` **34 stands /
+212 tags** unchanged; webhook **401**, cron **404** on the public service, `/admin` **200**,
+`/api/admin/farmers` **403**. **No errors on either new revision.** Against real production rows,
+`Open Gate Lamb and Grazing` renders **`address not listed`** — **F-045's `(null)` bug is dead.**
+
+**Owed: a handset tap.** Only a real phone proves threading and segment behaviour on a live
+device. Everything else about F-046 is shipped.
 
 **Verified by effect against the real corpus** (34 stands / 212 tags seeded from the tracked
 `maps/offerings-proposals.json`, matching production's counts): `"any eggs?"` matches **13
 stands** and pages **5 pages, every one 2 segments** — against F-045's single 488-character /
-4-segment message. `address not listed` renders for the three addressless stands and they are
+4-segment message. `address not listed` renders for the addressless stands and they are
 still **listed, not dropped**. The last page closes with the map link; a sixth `MORE` gets the
 honest no-pending-list reply. `"honey?"` matches 2 stands and saves **no row at all** — the
 small-answer case the machinery must not intrude on. The corpus's **three widest** name+address
@@ -94,6 +112,24 @@ on the public service (on `POST`, the only method it exports — a `GET` is **40
 before any handler runs), `/admin` 200, and the contact card **153 bytes / 6 CRLF** by hex dump on
 both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one leaf changed per service
 (`containers[0].image`), plus the known non-converging `scaling` block.
+
+## Next session — F-047, landmark filtering ("eggs near Burton")
+
+max chose this 2026-07-31; F-046 unblocked it. `/pm show F-047` carries the seven cases, the
+measured corpus numbers, and the acceptance criteria.
+
+**One structural question to settle FIRST, before writing code**: F-047 scopes landmark
+resolution into `packages/core`, but `ISLAND_PLACES` lives in `apps/web/lib/island-geometry.ts`
+(line ~650) and **`packages/core` has zero dependencies by design** — it cannot import from
+`apps/web`. The item also forbids a second landmark list ("two sources for 'where is Burton'
+would drift"). So the list has to move, or resolution does. Decide deliberately; this is exactly
+the kind of thing that becomes two lists by accident.
+
+**Also worth knowing going in**: `renderResultPage` (`packages/core/src/inquiry/paging.ts`) is now
+the **only** SMS answer renderer — `renderGroundedAnswer` was deleted in F-046 part 3 — and the
+"add a place" tip F-047 asks for belongs in it. **`evals:live` is REQUIRED** for F-047 (it changes
+the interpretation seam's schema and output contract) and **costs money**, so it needs max's
+approval before running.
 
 ## What works end to end
 
@@ -192,16 +228,16 @@ fixtures supply what production never creates.
   the group **exits non-zero** rather than recording. Containment can read 100% while recall reads
   0%. **Mistral Small 24B passes 5/5**, so the pre-approved model upgrade was not needed.
   **13 sabotages, all caught**, including restoring the original defect.
-  **Known defect live in production**: `publicAddress` is nullable and two stands carry none, so
-  the renderer prints the literal word **"null"**. Fixed in F-046's renderer, **not yet deployed**.
-- **F-046 — COMPLETE IN THE REPO, NOT DEPLOYED, NOT MERGED.** SMS result paging.
+  **The `(null)` defect this shipped is FIXED and DEPLOYED** (F-046, 2026-07-31): `publicAddress`
+  is nullable and two stands carry none, so the renderer printed the literal word **"null"**.
+  Verified dead against real production rows.
+- **F-046 — BUILT, MERGED, and DEPLOYED 2026-07-31. Owed: a handset tap.** SMS result paging.
   Measured against the real corpus: the *common* questions are the big ones (eggs 13 stands,
   flowers 9, leafy greens 9) and name+address runs 22-64 chars, so **three per page** is the
   honest maximum inside **two billed segments**.
-  **Parts 1-2** (merged, `54397d6`): page rendering, the `MORE` keyword ordered after `STOP`,
-  and migration **0009** `pending_result_lists`.
-  **Part 3** (`392b5b1`, branch `f-046-part3-routing`): the routing branch, the repository, and
-  the wiring.
+  **Parts 1-2** (`54397d6`): page rendering, the `MORE` keyword ordered after `STOP`, and
+  migration **0009** `pending_result_lists`.
+  **Part 3** (`392b5b1`, PR #66): the routing branch, the repository, and the wiring.
   **`MORE` is a `nextPage` callback on `RouteDeps`, mirroring `freeText`** — routing keeps owning
   only the deterministic order. The handler behind it takes **no model dependency at all**, so
   "paging reaches no model" is a property of its signature rather than of a seam that happens not
@@ -237,9 +273,10 @@ fixtures supply what production never creates.
   **The two-segment ceiling is asserted in `packages/sms`**, not core, because segment arithmetic
   lives there and **core imports no other package**. It is what actually constrains `PAGE_SIZE`:
   raising it to 4 fails that test.
-  **Owed: the deploy** — migration `0009_pending_result_lists` first, then the image, since the
-  table must exist before the code that reads it. (10 migration FILES, `0000`-`0009`; production
-  has applied 9, through `0008`.) And **a handset tap**, which waits on the deploy.
+  **Deployed 2026-07-31**, migration first then image; production is at **10 migrations**. Note
+  for anyone reading older notes: there is **no migration "0010"** — there are 10 migration
+  *files*, `0000`-`0009`, and production has now applied all 10 of them.
+  **Owed: a handset tap** — only a real phone proves threading and segment behaviour.
 - **drizzle-kit omits CHECK constraints when it generates SQL** — found 2026-07-31. Asked to
   generate a snapshot it also wrote its *own* migration for the same table, dropping all three
   CHECKs, with a journal timestamp **older** than the hand-written one (B-022's silent-skip trap).

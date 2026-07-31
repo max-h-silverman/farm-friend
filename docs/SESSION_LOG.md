@@ -6,12 +6,108 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 40. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 42. A log too large to open
 mid-session defeats its own purpose.
 
 ---
 
-## 2026-07-31 (latest) — F-045 shipped: SMS could not see the offerings corpus, and matched food by string equality
+## 2026-07-31 (latest) — F-046 part 3: paging wired, deployed, and the two tests that could not fail
+
+Parts 1-2 had merged deliberately inert: the page renderer, the `MORE` keyword, and migration
+`0009_pending_result_lists` all existed and **nothing wired them**, so a customer texting `MORE`
+fell through to free text and reached the model as a question. This session connected them and
+shipped it.
+
+### The shape: one callback, one repository, one renderer
+
+`MORE` is a `nextPage` callback on `RouteDeps`, mirroring `freeText` — routing keeps owning only
+the deterministic order, and retrieval/rendering stay outside it. The difference worth stating:
+**the handler behind `nextPage` takes no model dependency at all**, so "paging reaches no model"
+is a property of its signature rather than of a seam that happens not to be called. Ordering it
+after the compliance keywords and commitment tokens is what makes "paging can never shadow an
+opt-out" structural.
+
+The repository (`packages/db/src/pending-result-list.ts`) makes the database the arbiter rather
+than application code: save replaces via the unique index on `sender_hash`; a page is claimed and
+the offset advanced in **one locked transaction**; expiry is measured against the **message's own
+time**, never `now()`, so a delayed pass can neither refuse a page asked for in time nor silently
+extend the window. Expired and exhausted rows are deleted as found — "never asked", "expired",
+and "exhausted" become one honest reply instead of three shades of no.
+
+**Replay, not re-retrieval** (max's call, this session): identity and order frozen at question
+time, values dereferenced **fresh** at page time, because the table stores no copy of them. A
+stand withdrawn mid-paging is dropped rather than rendered stale; a page whose stands have *all*
+gone is **skipped**, since an empty page reads to a customer as "no results" — a false claim
+while later pages still hold real answers.
+
+### Deleting the second renderer, and the type that hid the (null) bug
+
+After part 3, `renderGroundedAnswer` had **no production consumer left**. It also carried a
+second fact type differing from the pager's in exactly one way: a non-nullable `publicAddress`.
+**The nullable half was the true one** — the column is nullable, two real stands carry no
+address — and that mismatch is precisely how F-045 shipped the literal word "null" to customers
+past a fully satisfied compiler. Both are now gone, leaving one renderer and one fact type. The
+grounding assertions moved to the survivor rather than retiring with the function, and the evals
+render through the same path; sabotaging that renderer fails two adversarial fixtures, so they
+genuinely exercise it.
+
+### The two sabotages that survived — both were defects in my own tests
+
+24 sabotages applied. Two initially survived, and both are the "a test that cannot fail proves
+nothing" class:
+
+1. **The concurrency test could not fail.** `Promise.all` over six claimants did not race them —
+   measured, not assumed: each claim completed in under a millisecond, so every transaction
+   committed before the next one read, and deleting `for update` passed the whole suite. The fix
+   is to *manufacture* contention: a separate connection takes the row lock and holds it until
+   every claimant has queued behind it, signalled by awaiting actual acquisition rather than a
+   sleep. Now, without the lock **all six** claimants are served the same stands; with it,
+   exactly three. This is the CLAUDE.md warning about `Promise.all` not racing async branches,
+   met head-on.
+2. **"The page was actually served" was asserted on the offset** — which an implementation that
+   claims a page and then discards it *also* satisfies, since the claim advances the offset
+   regardless. It now asserts the queued reply body.
+
+Both directions of the confirmation/paging independence are asserted end to end through the real
+webhook, for the same reason: each direction alone is satisfiable by the defect it forbids
+("the confirmation survived" passes trivially if `MORE` did nothing; "the page was served" passes
+trivially if no confirmation was ever open).
+
+### Two things learned about the fixtures themselves
+
+`deliverInbound` also drives the kick route, which builds its own deps from the composition root
+with the **real** clock — and that expires a fixture proposal anchored a day in the past. The
+existing suite already used `deliverInboundOnly` for exactly this reason; worth knowing before
+debugging a phantom expiry again. Separately, a pending list of **invented** fact IDs drains
+itself, because the pager dereferences and skips empty pages by design — a fixture list must name
+real published stands or the assertions are about nothing.
+
+### Verified against the real corpus, then in production
+
+The offerings corpus is tracked (`maps/offerings-proposals.json`, 34 stands / 212 tags, matching
+production), so paging was exercised over real names and real address widths rather than
+fixtures: `"any eggs?"` matches **13 stands** and pages **5 pages, every one 2 segments**, against
+F-045's single 488-character / 4-segment message. `"honey?"` matches 2 and saves **no row at
+all**. The corpus's three widest name+address entries on one page render **285 chars / 2
+segments**, so the two-segment ceiling holds against real data.
+
+**Deployed** — migration first (`0009_pending_result_lists`, verified by effect: 10 applied,
+every pre-existing count unchanged, all three CHECKs proven to reject *with a valid-row positive
+control*, cleanup left 0 rows), then the image. Revisions `farm-friend-web-00013-djk` /
+`farm-friend-worker-00014-qv2`, digest `sha256:5e6a4d49`. Plan read leaf by leaf: exactly one
+real leaf per service plus the known non-converging `scaling` block. Against real production
+rows, `Open Gate Lamb and Grazing` now renders **`address not listed`** — the `(null)` bug is
+dead.
+
+**A doc correction worth carrying**: there is no migration "0010". There are 10 migration
+*files*, `0000`–`0009`; production had applied 9 of them, through `0008`. Earlier wording in
+CLAUDE.md and CURRENT_STATE invented a 0010 and was fixed.
+
+**Still owed: a handset tap.** Only a real phone proves threading and segment behaviour.
+
+---
+
+## 2026-07-31 — F-045 shipped: SMS could not see the offerings corpus, and matched food by string equality
 
 max texted the production number "Who has lamb?" and "Any leafy greens available?" and got
 "No stand has a current listing" to both, while the public map showed those stands the whole
@@ -825,113 +921,3 @@ is correct** — the property belongs to the platform, so nothing local could se
 B-009 and B-005–B-008, and found only because the rule is *verify the real thing by effect in the
 deployment*. A malformed card fails by opening **nothing**, which is exactly the silent shape this
 route was built to avoid.
-
----
-
-## 2026-07-29 — B-002 closed: the seed join, and production seeded with 35 real stands
-
-The last piece of B-002. F-038's schema, map layer, and form reader were done; what remained was
-joining the two exports and seeding production. Both landed, and the seed found a stale deployment
-nobody would otherwise have looked for.
-
-### The corpus decided the matcher, and the decision was not the obvious one
-
-The form export has the 2026 details and **no coordinates**; the map export has coordinates and the
-farms that submitted no form. Neither seeds a visitable location alone, so the seeder now reads both
-and joins by name — the names differ between files (Aeggy's/Aeggy's Farm, Provo Farms/Provo Farm,
-Olive Farm/Olive Farm Stand, Flora Hill/Flora Hill Farm).
-
-The instinct is a fuzzy matcher. **Measuring one over the real 32×31 rows killed it**: a Jaccard
-score ranked **Lavender Hill Farm against Flora Hill Farm** as its best candidate (0.33). Both are
-"⟨word⟩ Hill Farm", and Lavender Hill appears in no map row, so a threshold matcher has nothing
-better to prefer. Any threshold loose enough to catch the four true pairs would have seeded Lavender
-Hill at Flora Hill's coordinates — **a published address sending a customer to a stranger's
-driveway, with every test green.**
-
-The true pairs turn out not to need fuzziness at all: each differs only by a word carrying no
-identity. So the key is an **exact normalized identity** — annotations, curly apostrophes and NBSP
-normalized, generic words ("farm", "stand") dropped, everything else preserved exactly. Measured:
-**27 of 35 matched across both files, 0 false matches.** The failure direction is chosen
-deliberately — a missed pair is a *reported refusal* a human resolves; a wrongly joined pair is a
-silently wrong address.
-
-This is the "measure against the real corpus" rule earning its keep for the third time (after the
-availability parser's ten spurious flags and the offerings parser's "rotational grazing for
-chickens"). Arguing from the code would not have surfaced Lavender Hill.
-
-### Layering: the join reports, the seeder decides
-
-First cut had `joinStandSources` refusing a visitable stand with no coordinates. Wrong layer — the
-seeder holds hand-supplied points the join cannot know about, so the refusal fired before the
-supplement could apply. The join now reports what the exports contain (a stand with no point, a
-map-only farm with no address) and the **seeder** refuses what is still unplaceable. Same guarantee,
-correct owner, and it is what let max's two coordinates close the last refusals without touching the
-join.
-
-### Four defects found this session, each only visible at a specific moment
-
-1. **Supplemental data keyed by raw name silently missed.** Two farms carry VIGA's
-   `*does not accept VIGA Bucks*` annotation, so the entry was present, the farm was still refused,
-   and **nothing reported the mismatch**. Supplements are now keyed through the same matcher the
-   join uses.
-2. **"All self-service" classified a cut-flower farm as a service business** — the `SERVICES`
-   pattern matched the word inside "self-service". Self-service is the defining trait of an
-   unattended honor-system stand, i.e. most of this corpus, so the bug mislabelled the *most
-   ordinary* farms as the *rarest* type. Only visible once that farm stopped being refused.
-3. **Four farms were seeding the annotation as part of their NAME** — the map would have rendered
-   "Flora Hill *does not accept VIGA Bucks*" as what the farm calls itself. `standDisplayName`
-   strips only the editorial annotation; `matchStandName` destroys information to compare
-   spreadsheets, and the two are deliberately separate functions.
-4. **A test survived its own sabotage.** Asserting two farm names stay distinct passes for a weaker
-   reason than it claims — adding "hill" to the generic list still leaves "lavender" ≠ "flora". It
-   was re-anchored to the construct that actually protects them: the discriminating word surviving
-   normalization. **The repo's "anchor to the construct, not the vocabulary" lesson, hit again** —
-   the third time in this codebase.
-
-### Seeding production exposed a STALE DEPLOYMENT, not a seed defect
-
-`/api/public/stands` served **Open Gate Lamb at `latitude: 0, longitude: 0`** — a pin in the
-Atlantic. The database was correct (NULL) and `public-listing.ts` was correct: it omits the three
-place fields together, and its own comment names this exact failure.
-
-**The deployed image predated the fix.** F-038's reader fix merged in `1df55df` (PR #56) at 13:16
-local; revision `farm-friend-web-00005` was created at 17:34 **UTC** — B-021's credential-rotation
-restart, which forced a new revision of the **existing image** rather than building a new one. So a
-merged fix was never deployed, and every check stayed green because **the defect is only reachable
-with a `contact_only` row in the database, which did not exist until this seed.**
-
-Same family as B-010/B-011/B-012 (three merged fixes production had never received) and the reason
-the standing rule is "deploy immediately after every merge". **A forced restart is not a deploy** —
-it re-runs the image you already had.
-
-Fixed by building `main` @ `8e03ad4` and deploying (web `00006-x6l`, worker `00007-92x`). The plan
-diff was read **field by field**, not by its count: image digest on both services plus the known
-non-converging `scaling` block, nothing else.
-
-### Two operational notes worth carrying
-
-- **`gcloud builds submit` fails with an empty image tag** unless `SHORT_SHA` is supplied — a plain
-  directory upload does not populate it, so the tag renders as `…/farm-friend:` and docker rejects
-  it with "invalid reference format". Use
-  `--substitutions=SHORT_SHA=$(git rev-parse --short=7 HEAD)`.
-- **CLAUDE.md's "admin 403" was wrong.** `/admin` returns **200** — it is the public sign-in page,
-  and it leaks nothing (no farm names, no E.164, no hashes; verified by scanning the rendered HTML).
-  The 403 belongs to the admin **API** routes. Corrected in the snapshot.
-
-### Verified
-
-Unit **575/575** (59 files), integration **329/329** (20 files) on real Postgres from an empty
-database, lint and typecheck clean. Evals **not** re-run — no seam projection, schema, or output
-contract changed; last results stand. `plan-assertions.py` **29/29**, `deploy_assertions.py`
-**PASSED** (both serving revisions newer than every secret version).
-
-Production, verified by effect: **35 locations — 33 visitable with a pin, 2 `contact_only` with
-none**, 4 stand-data flags, 0 names carrying an annotation, 0 PII in any seeded text column,
-**0 pins at 0,0**, 0 recency claims (nothing is confirmed, correctly). Structural invariants held —
-`inventory_revisions` / `inventory_entries` / `farmer_authorizations` / `farm_approvals` all **0**,
-`contacts` still **1**. Idempotent: a second run seeds 0 / skips 35.
-
-**Offerings are NOT seeded to production** — `sales_location_offerings` is 0 there. That is the
-separate approved-artifact step (`npm run db:seed-offerings` against `maps/offerings-proposals.json`).
-
----

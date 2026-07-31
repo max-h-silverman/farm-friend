@@ -1,7 +1,7 @@
-# Farm Friend — Session Log Archive (through 2026-07-28)
+# Farm Friend — Session Log Archive (through 2026-07-29)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-07-30.
+everything older lives here. Last rotated 2026-07-31.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -10,6 +10,115 @@ current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), tho
 
 ---
 
+## 2026-07-29 — B-002 closed: the seed join, and production seeded with 35 real stands
+
+The last piece of B-002. F-038's schema, map layer, and form reader were done; what remained was
+joining the two exports and seeding production. Both landed, and the seed found a stale deployment
+nobody would otherwise have looked for.
+
+### The corpus decided the matcher, and the decision was not the obvious one
+
+The form export has the 2026 details and **no coordinates**; the map export has coordinates and the
+farms that submitted no form. Neither seeds a visitable location alone, so the seeder now reads both
+and joins by name — the names differ between files (Aeggy's/Aeggy's Farm, Provo Farms/Provo Farm,
+Olive Farm/Olive Farm Stand, Flora Hill/Flora Hill Farm).
+
+The instinct is a fuzzy matcher. **Measuring one over the real 32×31 rows killed it**: a Jaccard
+score ranked **Lavender Hill Farm against Flora Hill Farm** as its best candidate (0.33). Both are
+"⟨word⟩ Hill Farm", and Lavender Hill appears in no map row, so a threshold matcher has nothing
+better to prefer. Any threshold loose enough to catch the four true pairs would have seeded Lavender
+Hill at Flora Hill's coordinates — **a published address sending a customer to a stranger's
+driveway, with every test green.**
+
+The true pairs turn out not to need fuzziness at all: each differs only by a word carrying no
+identity. So the key is an **exact normalized identity** — annotations, curly apostrophes and NBSP
+normalized, generic words ("farm", "stand") dropped, everything else preserved exactly. Measured:
+**27 of 35 matched across both files, 0 false matches.** The failure direction is chosen
+deliberately — a missed pair is a *reported refusal* a human resolves; a wrongly joined pair is a
+silently wrong address.
+
+This is the "measure against the real corpus" rule earning its keep for the third time (after the
+availability parser's ten spurious flags and the offerings parser's "rotational grazing for
+chickens"). Arguing from the code would not have surfaced Lavender Hill.
+
+### Layering: the join reports, the seeder decides
+
+First cut had `joinStandSources` refusing a visitable stand with no coordinates. Wrong layer — the
+seeder holds hand-supplied points the join cannot know about, so the refusal fired before the
+supplement could apply. The join now reports what the exports contain (a stand with no point, a
+map-only farm with no address) and the **seeder** refuses what is still unplaceable. Same guarantee,
+correct owner, and it is what let max's two coordinates close the last refusals without touching the
+join.
+
+### Four defects found this session, each only visible at a specific moment
+
+1. **Supplemental data keyed by raw name silently missed.** Two farms carry VIGA's
+   `*does not accept VIGA Bucks*` annotation, so the entry was present, the farm was still refused,
+   and **nothing reported the mismatch**. Supplements are now keyed through the same matcher the
+   join uses.
+2. **"All self-service" classified a cut-flower farm as a service business** — the `SERVICES`
+   pattern matched the word inside "self-service". Self-service is the defining trait of an
+   unattended honor-system stand, i.e. most of this corpus, so the bug mislabelled the *most
+   ordinary* farms as the *rarest* type. Only visible once that farm stopped being refused.
+3. **Four farms were seeding the annotation as part of their NAME** — the map would have rendered
+   "Flora Hill *does not accept VIGA Bucks*" as what the farm calls itself. `standDisplayName`
+   strips only the editorial annotation; `matchStandName` destroys information to compare
+   spreadsheets, and the two are deliberately separate functions.
+4. **A test survived its own sabotage.** Asserting two farm names stay distinct passes for a weaker
+   reason than it claims — adding "hill" to the generic list still leaves "lavender" ≠ "flora". It
+   was re-anchored to the construct that actually protects them: the discriminating word surviving
+   normalization. **The repo's "anchor to the construct, not the vocabulary" lesson, hit again** —
+   the third time in this codebase.
+
+### Seeding production exposed a STALE DEPLOYMENT, not a seed defect
+
+`/api/public/stands` served **Open Gate Lamb at `latitude: 0, longitude: 0`** — a pin in the
+Atlantic. The database was correct (NULL) and `public-listing.ts` was correct: it omits the three
+place fields together, and its own comment names this exact failure.
+
+**The deployed image predated the fix.** F-038's reader fix merged in `1df55df` (PR #56) at 13:16
+local; revision `farm-friend-web-00005` was created at 17:34 **UTC** — B-021's credential-rotation
+restart, which forced a new revision of the **existing image** rather than building a new one. So a
+merged fix was never deployed, and every check stayed green because **the defect is only reachable
+with a `contact_only` row in the database, which did not exist until this seed.**
+
+Same family as B-010/B-011/B-012 (three merged fixes production had never received) and the reason
+the standing rule is "deploy immediately after every merge". **A forced restart is not a deploy** —
+it re-runs the image you already had.
+
+Fixed by building `main` @ `8e03ad4` and deploying (web `00006-x6l`, worker `00007-92x`). The plan
+diff was read **field by field**, not by its count: image digest on both services plus the known
+non-converging `scaling` block, nothing else.
+
+### Two operational notes worth carrying
+
+- **`gcloud builds submit` fails with an empty image tag** unless `SHORT_SHA` is supplied — a plain
+  directory upload does not populate it, so the tag renders as `…/farm-friend:` and docker rejects
+  it with "invalid reference format". Use
+  `--substitutions=SHORT_SHA=$(git rev-parse --short=7 HEAD)`.
+- **CLAUDE.md's "admin 403" was wrong.** `/admin` returns **200** — it is the public sign-in page,
+  and it leaks nothing (no farm names, no E.164, no hashes; verified by scanning the rendered HTML).
+  The 403 belongs to the admin **API** routes. Corrected in the snapshot.
+
+### Verified
+
+Unit **575/575** (59 files), integration **329/329** (20 files) on real Postgres from an empty
+database, lint and typecheck clean. Evals **not** re-run — no seam projection, schema, or output
+contract changed; last results stand. `plan-assertions.py` **29/29**, `deploy_assertions.py`
+**PASSED** (both serving revisions newer than every secret version).
+
+Production, verified by effect: **35 locations — 33 visitable with a pin, 2 `contact_only` with
+none**, 4 stand-data flags, 0 names carrying an annotation, 0 PII in any seeded text column,
+**0 pins at 0,0**, 0 recency claims (nothing is confirmed, correctly). Structural invariants held —
+`inventory_revisions` / `inventory_entries` / `farmer_authorizations` / `farm_approvals` all **0**,
+`contacts` still **1**. Idempotent: a second run seeds 0 / skips 35.
+
+**Offerings are NOT seeded to production** — `sales_location_offerings` is 0 there. That is the
+separate approved-artifact step (`npm run db:seed-offerings` against `maps/offerings-proposals.json`).
+
+---
+
+---
 ## 2026-07-29 — B-021 closed, F-038's schema and map built, F-040 filed
 
 Three tranches: finish B-021's two owed follow-ups, build F-038 on the strength of a new data
