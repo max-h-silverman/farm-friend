@@ -20,7 +20,12 @@ import {
   type Db,
   type Sql,
 } from "@farm-friend/db";
-import { confirmFromLink, proposeFromLink, resolveStandFromToken } from "./farmer-stand";
+import {
+  confirmFromLink,
+  proposeFromLink,
+  resolveStandFromToken,
+  saveParticipantsFromLink,
+} from "./farmer-stand";
 
 // F-040 — THE BLAST RADIUS OF A LEAKED LINK.
 //
@@ -85,6 +90,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
   let client: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
+  let farmerStandRoute: typeof import("../app/api/farmer/stand/route");
 
   const anchor = Date.now() - 24 * 60 * 60 * 1000;
   const at = (hours: number) => new Date(anchor + hours * 60 * 60 * 1000);
@@ -116,7 +122,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
     const farmId = farms[0]?.id as string;
     const locations = await sql()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
@@ -198,6 +204,8 @@ describe("the farmer web surface behind a standing link (integration)", () => {
     await migrate(drizzle(migrationClient), { migrationsFolder: migrationsDir });
     await migrationClient.end({ timeout: 5 });
     db = createDb(url);
+    process.env.DATABASE_URL = url;
+    farmerStandRoute = await import("../app/api/farmer/stand/route");
 
     const administrators = await sql()`
       insert into administrators (email, authorized_at)
@@ -210,6 +218,8 @@ describe("the farmer web surface behind a standing link (integration)", () => {
   afterAll(async () => {
     if (db) await db.close();
     if (client) await client.end({ timeout: 5 });
+    const { publicReadContext } = await import("./public-context");
+    await publicReadContext().db.close();
     if (adminClient && testDatabaseName) {
       await adminClient.unsafe(`drop database if exists "${testDatabaseName}"`);
       await adminClient.end({ timeout: 5 });
@@ -274,6 +284,121 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         where revision.sales_location_id = ${salesLocationId} and revision.is_current
       `;
       expect(entries.map((row) => row.item_name)).toEqual(["carrots"]);
+    });
+  });
+
+  describe("owner-confirmed names of other sellers", () => {
+    it("accepts the structured save over HTTP and returns the durable active list", async () => {
+      const { token, salesLocationId } = await farmer();
+
+      const response = await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token,
+            action: "save_participants",
+            participantNames: ["Guest Growers", "Island Apiary"],
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        status: "saved",
+        activeDisplayNames: ["Guest Growers", "Island Apiary"],
+      });
+      expect(await sql()`
+        select display_name from sales_location_participants
+        where sales_location_id = ${salesLocationId} and retired_at is null
+        order by display_name
+      `).toEqual([
+        { display_name: "Guest Growers" },
+        { display_name: "Island Apiary" },
+      ]);
+    });
+
+    it("saves a complete active list and retires omissions without deleting history", async () => {
+      const { token, salesLocationId } = await farmer();
+      const d = deps({ kind: "clear_all" });
+
+      expect(
+        await saveParticipantsFromLink(d, {
+          token,
+          activeDisplayNames: ["Guest Growers", "Island Apiary"],
+        }),
+      ).toMatchObject({
+        status: "saved",
+        activeDisplayNames: ["Guest Growers", "Island Apiary"],
+      });
+      expect(
+        await saveParticipantsFromLink(d, {
+          token,
+          activeDisplayNames: ["Island Apiary"],
+        }),
+      ).toMatchObject({
+        status: "saved",
+        activeDisplayNames: ["Island Apiary"],
+        retiredDisplayNames: ["Guest Growers"],
+      });
+
+      expect(await sql()`
+        select display_name, retired_at is not null as retired
+        from sales_location_participants
+        where sales_location_id = ${salesLocationId}
+        order by display_name
+      `).toEqual([
+        { display_name: "Guest Growers", retired: true },
+        { display_name: "Island Apiary", retired: false },
+      ]);
+    });
+
+    it("can write only the location carried by its own token", async () => {
+      const victim = await farmer();
+      const holder = await farmer();
+
+      expect(
+        await saveParticipantsFromLink(deps({ kind: "clear_all" }), {
+          token: holder.token,
+          activeDisplayNames: ["Named By Holder"],
+        }),
+      ).toMatchObject({ status: "saved" });
+
+      expect(await sql()`
+        select display_name from sales_location_participants
+        where sales_location_id = ${victim.salesLocationId}
+      `).toEqual([]);
+      expect(await sql()`
+        select display_name from sales_location_participants
+        where sales_location_id = ${holder.salesLocationId}
+      `).toEqual([{ display_name: "Named By Holder" }]);
+    });
+
+    it("refuses unsafe public text and a link revoked before the next save", async () => {
+      const holder = await farmer();
+      const d = deps({ kind: "clear_all" });
+
+      expect(
+        await saveParticipantsFromLink(d, {
+          token: holder.token,
+          activeDisplayNames: ["Call 206-555-0199"],
+        }),
+      ).toMatchObject({ status: "refused", reason: "unsafe_public_text" });
+      await revokeFarmerAuthorization(database(), {
+        authorizationId: holder.authorizationId,
+        administratorId,
+        occurredAt: at(4),
+      });
+      expect(
+        await saveParticipantsFromLink(d, {
+          token: holder.token,
+          activeDisplayNames: ["Guest Growers"],
+        }),
+      ).toEqual({ status: "not_authorized" });
+      expect(await sql()`
+        select id from sales_location_participants
+        where sales_location_id = ${holder.salesLocationId}
+      `).toEqual([]);
     });
   });
 

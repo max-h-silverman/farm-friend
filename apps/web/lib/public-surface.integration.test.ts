@@ -216,7 +216,7 @@ describe("public web surface boundary (integration)", () => {
 
     const location = await client()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (${ids.farm}, 'farm_stand', 'Provo Stand', '123 Vashon Hwy',
@@ -230,6 +230,52 @@ describe("public web surface boundary (integration)", () => {
       select id from inventory_entries where inventory_revision_id = ${ids.revision}
     `;
     ids.entry = entry[0]?.id as string;
+  });
+
+  describe("owner-confirmed names of other sellers (F-050)", () => {
+    it("returns active names separately from aggregate inventory and never invents the owner", async () => {
+      const authorization = await client()`
+        select id from farmer_authorizations where farm_id = ${ids.farm}
+      `;
+      await client()`
+        insert into sales_location_participants (
+          owner_farm_id, sales_location_id, display_name,
+          confirmed_by_authorization_id, confirmed_at,
+          retired_by_authorization_id, retired_at
+        ) values
+          (
+            ${ids.farm}, ${ids.location}, 'Guest Growers',
+            ${authorization[0]?.id as string}, ${T0}, null, null
+          ),
+          (
+            ${ids.farm}, ${ids.location}, 'Island Apiary',
+            ${authorization[0]?.id as string}, ${hoursAgo(4)},
+            ${authorization[0]?.id as string}, ${T0}
+          )
+      `;
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect(stands[0]?.participantNames).toEqual(["Guest Growers"]);
+      expect(stands[0]?.participantNames).not.toContain("Provo Farms");
+      expect(stands[0]?.items).toEqual([{ itemName: "kale" }]);
+      expect(Object.keys(stands[0]?.items[0] ?? {})).toEqual(["itemName"]);
+
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as {
+        stands: { alsoSellingHere?: string[]; items: Record<string, unknown>[] }[];
+      };
+      expect(body.stands[0]?.alsoSellingHere).toEqual(["Guest Growers"]);
+      expect(body.stands[0]?.items).toEqual([{ itemName: "kale" }]);
+    });
+
+    it("returns an explicit empty participant list when the owner added nobody", async () => {
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as {
+        stands: { alsoSellingHere?: string[] }[];
+      };
+      expect(body.stands[0]?.alsoSellingHere).toEqual([]);
+      expect("alsoSellingHere" in body.stands[0]!).toBe(true);
+    });
   });
 
   describe("a stand nobody has confirmed yet (B-013)", () => {
@@ -308,7 +354,7 @@ describe("public web surface boundary (integration)", () => {
       // hides the majority or flattens "confirmed 3 hours ago" into "we have no idea".
       const second = await client()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${ids.farm}, 'farm_stand', 'Unseeded Stand', '456 Vashon Hwy',
@@ -359,7 +405,7 @@ describe("public web surface boundary (integration)", () => {
     async function insertContactOnly(name: string): Promise<string> {
       const rows = await client()`
         insert into sales_locations (
-          farm_id, kind, name, visitability, offering_type,
+          owner_farm_id, kind, name, visitability, offering_type,
           public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
@@ -708,7 +754,7 @@ describe("public web surface boundary (integration)", () => {
       // still sort behind a confirmed one, or the map opens on the least certain listings.
       const second = await client()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', '456 Vashon Hwy',

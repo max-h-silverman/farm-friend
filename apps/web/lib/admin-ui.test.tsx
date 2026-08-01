@@ -395,6 +395,82 @@ describe("administrator queue interactions", () => {
 });
 
 describe("the farmer stand form", () => {
+  it("saves the one-name-per-line seller list separately from inventory", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn().mockResolvedValue(
+      response(200, {
+        status: "saved",
+        activeDisplayNames: ["Guest Growers", "Island Apiary"],
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <StandForm token="private-token" initialParticipantNames={["Guest Growers"]} />,
+    );
+
+    const names = screen.getByRole("textbox", { name: "Also selling here" });
+    expect(names).toHaveValue("Guest Growers");
+    expect(screen.getByText(/one farm or business name per line/i)).toBeTruthy();
+    expect(screen.getByText(/does not give anyone access/i)).toBeTruthy();
+    await user.type(names, "{enter}Island Apiary");
+    await user.click(screen.getByRole("button", { name: "Save seller names" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/seller names saved/i);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/farmer/stand",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          token: "private-token",
+          action: "save_participants",
+          participantNames: ["Guest Growers", "Island Apiary"],
+        }),
+      }),
+    );
+  });
+
+  it("lets the owner save an empty seller list explicitly", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        response(200, { status: "saved", activeDisplayNames: [] }),
+      ),
+    );
+    render(<StandForm token="private-token" initialParticipantNames={[]} />);
+
+    expect(screen.getByRole("textbox", { name: "Also selling here" })).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Save seller names" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/no other sellers are shown/i);
+  });
+
+  it("keeps seller names unchanged on validation error and shows revocation recovery", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(409, { message: "Please remove the phone number." }))
+      .mockResolvedValueOnce(response(403));
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <StandForm token="private-token" initialParticipantNames={["Guest Growers"]} />,
+    );
+
+    const names = screen.getByRole("textbox", { name: "Also selling here" });
+    await user.type(names, "{enter}Call 206-555-0199");
+    await user.click(screen.getByRole("button", { name: "Save seller names" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Please remove the phone number.",
+    );
+    expect(names).toHaveValue("Guest Growers\nCall 206-555-0199");
+
+    await user.click(screen.getByRole("button", { name: "Save seller names" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/link is no longer active/i);
+    expect(screen.getByRole("link", { name: "How to get a new link" })).toHaveAttribute(
+      "href",
+      "#new-link-help",
+    );
+  });
+
   it("moves through clarification, exact preview, decline, and publication with honest effects", async () => {
     const user = userEvent.setup();
     const fetcher = vi

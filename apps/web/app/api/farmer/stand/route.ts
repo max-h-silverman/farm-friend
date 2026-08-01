@@ -3,10 +3,12 @@ import {
   type Db,
 } from "@farm-friend/db";
 import { appContext } from "../../../../lib/composition";
+import { publicReadContext } from "../../../../lib/public-context";
 import {
   confirmFromLink,
   proposeFromLink,
   resolveStandFromToken,
+  saveParticipantsFromLink,
 } from "../../../../lib/farmer-stand";
 
 // The farmer's own web surface (F-040) — the HTTP half.
@@ -43,6 +45,7 @@ export async function POST(req: Request): Promise<Response> {
     text?: unknown;
     proposalId?: unknown;
     confirmationText?: unknown;
+    participantNames?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -52,11 +55,42 @@ export async function POST(req: Request): Promise<Response> {
 
   const token = typeof body.token === "string" ? body.token : null;
   const action =
-    body.action === "propose" || body.action === "confirm" || body.action === "decline"
+    body.action === "propose" ||
+    body.action === "confirm" ||
+    body.action === "decline" ||
+    body.action === "save_participants"
       ? body.action
       : null;
   if (token === null || action === null) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
+  }
+
+  // Structured metadata save: deterministic and model-free. Keep this branch above
+  // `appContext()`, whose dependency set includes the model-backed inventory interpreter.
+  if (action === "save_participants") {
+    if (
+      !Array.isArray(body.participantNames) ||
+      !body.participantNames.every((name): name is string => typeof name === "string")
+    ) {
+      return Response.json({ error: "invalid_request" }, { status: 400 });
+    }
+    const context = publicReadContext();
+    const result = await saveParticipantsFromLink(context, {
+      token,
+      activeDisplayNames: body.participantNames,
+    });
+    if (result.status === "saved") return Response.json(result);
+    if (result.status === "not_authorized") {
+      return Response.json({ error: "not_authorized" }, { status: 403 });
+    }
+    return Response.json(
+      {
+        status: result.status,
+        reason: result.reason,
+        ...(result.message !== undefined ? { message: result.message } : {}),
+      },
+      { status: result.reason === "invalid_names" ? 400 : 409 },
+    );
   }
 
   const context = appContext();

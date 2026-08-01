@@ -27,6 +27,7 @@ const stands: PublicStandPayload[] = [
     updated: "updated 2 hours ago",
     stale: false,
     availability: {},
+    alsoSellingHere: [],
     items: [{ itemName: "Kale", quantity: 6, unit: "bunches" }],
   },
   {
@@ -41,6 +42,7 @@ const stands: PublicStandPayload[] = [
     updated: "updated 9 days ago",
     stale: true,
     availability: {},
+    alsoSellingHere: [],
     items: [{ itemName: "Potatoes" }],
   },
 ];
@@ -81,6 +83,22 @@ describe("buildMapView", () => {
     expect(view.stands.map((s) => s.updated).sort()).toEqual([
       "updated 2 hours ago",
       "updated 9 days ago",
+    ]);
+  });
+
+  it("carries owner-confirmed seller names separately from inventory", () => {
+    const named = {
+      ...stands[0]!,
+      alsoSellingHere: ["Guest Growers", "Island Apiary"],
+    };
+    const view = buildMapView([named], null);
+
+    expect(view.stands[0]!.alsoSellingHere).toEqual([
+      "Guest Growers",
+      "Island Apiary",
+    ]);
+    expect(view.stands[0]!.items).toEqual([
+      { itemName: "Kale", quantity: 6, unit: "bunches" },
     ]);
   });
 
@@ -133,6 +151,7 @@ describe("buildMapView", () => {
       latitude: 47.46,
       longitude: -122.4594,
       availability: {},
+      alsoSellingHere: [],
       items: [],
     };
 
@@ -178,6 +197,7 @@ describe("buildMapView", () => {
       visitability: "contact_only",
       offeringType: "by_order",
       availability: {},
+      alsoSellingHere: [],
       items: [],
     };
 
@@ -279,6 +299,7 @@ describe("buildMapView", () => {
         longitude: -122.46,
         usuallySells: ["eggs"],
         availability: {},
+        alsoSellingHere: [],
         items: [],
       };
 
@@ -315,6 +336,7 @@ describe("standListingLines (F-042)", () => {
     latitude: 47.5,
     longitude: -122.46,
     availability: {},
+    alsoSellingHere: [],
     items: [],
   };
 
@@ -601,6 +623,7 @@ describe("applyStandFilters (F-043)", () => {
       latitude: 47.44,
       longitude: -122.46,
       availability: {},
+      alsoSellingHere: [],
       items: [],
       ...overrides,
     };
@@ -768,6 +791,15 @@ describe("applyStandFilters (F-043)", () => {
       const result = ask(all, { sells: "eggs" });
 
       expect(result.map((s) => s.id)).toEqual(["tagged"]);
+    });
+
+    it("does not treat participant names as item provenance", () => {
+      const all = [
+        stand("host", { alsoSellingHere: ["Island Apiary"] }),
+        stand("inventory", { items: [{ itemName: "Apiary honey" }] }),
+      ];
+
+      expect(ask(all, { sells: "apiary" }).map((s) => s.id)).toEqual(["inventory"]);
     });
 
     it("is case-insensitive and matches partial words", () => {

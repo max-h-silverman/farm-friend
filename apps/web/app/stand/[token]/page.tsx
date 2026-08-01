@@ -1,4 +1,5 @@
 import { resolveStandFromToken } from "../../../lib/farmer-stand";
+import { listActiveSalesLocationParticipants } from "@farm-friend/db";
 import { publicReadContext } from "../../../lib/public-context";
 import { StandForm } from "./stand-form";
 
@@ -44,6 +45,10 @@ export default async function StandPage({
   const locations = await db.sql`
     select name from sales_locations where id = ${stand.salesLocationId}
   `;
+  const participantNames = await listActiveSalesLocationParticipants(
+    db,
+    stand.salesLocationId,
+  );
 
   return (
     <main className="farmer-form">
@@ -59,7 +64,7 @@ export default async function StandPage({
         your stand will say, and <strong>nothing changes until you confirm it</strong>.
       </p>
 
-      <StandForm token={params.token} />
+      <StandForm token={params.token} initialParticipantNames={participantNames} />
 
       <p id="new-link-help" className="farmer-form-note">
         This link is private — anyone with it can update this stand. If it stops working, text

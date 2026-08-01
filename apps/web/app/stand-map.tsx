@@ -56,6 +56,20 @@ const OPEN_STATE_LABEL: Record<FilteredStand["openState"], string | null> = {
   unknown: "Hours not listed",
 };
 
+function ParticipantNames({ names }: { names: readonly string[] }) {
+  if (names.length === 0) return null;
+  return (
+    <div className="stand-participants">
+      <p className="stand-participants-label">Also selling here</p>
+      <ul className="participant-names">
+        {names.map((name) => (
+          <li key={name}>{name}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
   const { state, request, clear } = useTransientOrigin();
   const origin = state.status === "ready" ? state.origin : null;
@@ -420,6 +434,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                     ) : null}
                   </div>
                   <p className="farm">{stand.farmName}</p>
+                  <ParticipantNames names={stand.alsoSellingHere} />
 
                   {stand.closure?.state === "upcoming" ? (
                     <p className="open-state open-state-upcoming">{stand.closure.label}</p>
@@ -590,6 +605,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                 </span>
               </h2>
               <p className="sheet-farm">{selectedStand.farmName}</p>
+              <ParticipantNames names={selectedStand.alsoSellingHere} />
             </div>
             <button
               type="button"

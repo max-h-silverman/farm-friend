@@ -8,6 +8,7 @@ import {
 import {
   confirmInventoryPublication,
   resolveFarmerLink,
+  saveSalesLocationParticipants,
   type Db,
   type ResolvedFarmerLink,
 } from "@farm-friend/db";
@@ -119,6 +120,41 @@ export async function proposeFromLink(
   );
 
   return outcome;
+}
+
+export type FarmerStandParticipantSave =
+  | {
+      status: "saved";
+      activeDisplayNames: string[];
+      addedDisplayNames: string[];
+      retiredDisplayNames: string[];
+    }
+  | { status: "not_authorized" }
+  | { status: "refused"; reason: "invalid_names" | "unsafe_public_text"; message?: string };
+
+/** Save owner-confirmed public seller names for the token's one location. */
+export async function saveParticipantsFromLink(
+  deps: Pick<FarmerStandDeps, "db" | "clock">,
+  input: { token: string; activeDisplayNames: readonly string[] },
+): Promise<FarmerStandParticipantSave> {
+  const stand = await resolveStandFromToken(deps.db, input.token);
+  if (stand === null) return { status: "not_authorized" };
+
+  const result = await saveSalesLocationParticipants(deps.db, {
+    senderHash: stand.senderHash,
+    salesLocationId: stand.salesLocationId,
+    activeDisplayNames: input.activeDisplayNames,
+    occurredAt: deps.clock.now(),
+  });
+  if (result.status === "saved" || result.status === "not_authorized") return result;
+  if (result.status === "unsafe_public_text") {
+    return {
+      status: "refused",
+      reason: result.status,
+      message: renderPublicStringRefusal(result.prohibited),
+    };
+  }
+  return { status: "refused", reason: result.status };
 }
 
 export type FarmerStandConfirmation =

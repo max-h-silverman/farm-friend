@@ -94,7 +94,9 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   web inquiry**.
   `GET /api/public/stands` serves discovery and the map UI at `apps/web/app/page.tsx` renders those
   published records — every card carries code-rendered recency, and a stale listing stays visible
-  with a warning. One canonical read-time closure projection feeds the map/detail status, the
+  with a warning. Active owner-confirmed participant names appear as plain text under **Also
+  selling here** on map cards and mobile detail, separate from aggregate inventory. One canonical
+  read-time closure projection feeds the map/detail status, the
   `Open now` decision, destination actions, discovery, and customer SMS: an active owner-confirmed
   closure overrides the standing schedule, while a future closure is shown as upcoming. Optional
   browser geolocation sorts by approximate straight-line distance in the browser;
@@ -115,6 +117,9 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   carrier prompt to be accepted, so the window is opened against a queued confirmation message the
   farmer also receives. A leaked link can at worst propose a wrong listing on ONE stand;
   `apps/web/lib/farmer-stand.integration.test.ts` asserts and sabotages each bound.
+  The same page has a structured one-name-per-line participant save. That save is its own
+  confirmation and audit event: it is routed through db + clock before full model composition,
+  re-resolves the link, and cannot grant access or attach names to profiles.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
@@ -315,6 +320,7 @@ Every workflow has **one authoritative core use case and one durable path**:
 | Farmer onboarding | Verify the phone, associate the farm, capture preferences, record VIGA approval separately |
 | SMS ingress | Verify the raw-body signature, commit one minimized provider event, serialize ordinary stateful work per sender, and fail closed on stale events |
 | Inventory publishing | Maintain one open proposal per sender; after its current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
+| Participant display | Let the location owner save the complete active **Also selling here** name list as structured public metadata; validate names with the shared public-string guard, retire omissions without deletion, and expose no item provenance or edit access |
 | Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally ask for current inventory; a reply uses the ordinary inventory flow; free-text customer SMS cannot queue an alert; never alter public inventory |
 | Customer inquiry | After deterministic SMS routing, obtain model interpretation of the current request; code validates it and retrieves typed current facts; for non-empty retrieval the model selects/orders fact IDs; code validates membership, renders the factual reply, and queues it; the direct response creates no later proactive subscription |
 | Launch SMS consent | Maintain one launch-program consent state with provenance; `START` and documented farmer onboarding establish or restore it, `JOIN` establishes it for first-time senders only (B-011); message categories do not have separate enrollment |

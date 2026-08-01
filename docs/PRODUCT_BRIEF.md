@@ -66,7 +66,10 @@ site. The default view centers on **actionable purchase locations**; other farm 
 prominent and easy to view so farms without stands don't feel omitted. The customer sees the same
 listing and inventory facts available through SMS. With permission, transient browser geolocation
 may show approximate straight-line proximity. Destination-only Google Maps links may be offered;
-the mapping application resolves the customer's origin and route. Public discovery is model-free.
+the mapping application resolves the customer's origin and route. When a location hosts other
+sellers, active owner-confirmed names appear as plain-text **Also selling here** metadata, separate
+from the aggregate current-inventory list; no item is attributed to a seller. Public discovery is
+model-free.
 
 ### Customer inquiry (SMS)
 

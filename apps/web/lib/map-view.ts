@@ -79,6 +79,8 @@ export interface PublicStandPayload {
    */
   availability: StandAvailability;
   closure?: PublicClosure;
+  /** Active owner-confirmed names; never item provenance and never profile links. */
+  alsoSellingHere: string[];
   items: {
     itemName: string;
     quantity?: number;

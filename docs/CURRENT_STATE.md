@@ -6,14 +6,29 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-08-01** (`f-055-admin-ui-completion`, rebased onto F-049 at `8ae4d32`):
-`npm test` **828/828** (79 files); `npm run test:integration` **482/482** (29 files) against
-real Postgres using isolated empty schemas; typecheck, lint, and the production web build exit 0.
-The first two full integration runs each hit one Postgres `40P01` deadlock in a routing-test
-`TRUNCATE`; the named test moved between runs, no assertion failed, the branch was clean, and the
-third identical full run passed 482/482. The build retains two known warnings:
+**Verified 2026-08-01** (`f-050-participant-names`, based on local `main` at `ebeb2f1`):
+`npm test` **839/839** (81 files); `npm run test:integration` **503/503** (31 files) against
+real Postgres using isolated empty databases; typecheck, lint, and the production web build exit 0.
+The build retains two known warnings:
 `outputFileTracingRoot` is not recognized by this Next.js version, and its ESLint plugin is not
 detected.
+
+**F-050 owner-confirmed participant names are complete on this branch and are not deployed.**
+`sales_locations.owner_farm_id` now names ownership explicitly. The append-only
+`sales_location_participants` history records owner-confirmed names without creating a guest farm,
+profile, authorization, inventory source, or edit access. A farmer's standing link can save the
+complete active list through a structured deterministic action; omissions retire history. The
+public map and wire response expose active names separately as **Also selling here** and do not use
+them for inventory search. The populated 0000–0010 → 0011 migration preserved ownership,
+visibility, and open-state fields and created zero participant rows.
+
+Browser verification used the real local server and Postgres at 1440px and a true 390px device
+viewport. Captures cover populated and empty lists, populated and empty save success, an unsafe-name
+refusal with input preserved, a link revoked after page load refusing the next save, the public
+desktop card, and the mobile marker/detail sheet. Durable-row checks confirmed empty save retired
+both historical names and the revoked save left its separate stand unchanged. No visual defect was
+found. `evals:live` was not run: F-050 adds a structured deterministic action and public field but
+does not change a model seam's projection, schema, or output contract.
 
 **F-049 was independently verified 2026-08-01 at exact SHA `8ae4d32`.** Unit **817/817**
 (78 files); real-Postgres empty-schema integration **482/482** (29 files), including a populated
@@ -43,8 +58,9 @@ raw E.164 numbers nor 64-hex credentials. Visual review found one contradictory 
 green publication message survived beside a later request error — and the test-first fix now
 clears the completed state when a new proposal begins.
 
-Production remains on the F-046 deployment and **10 migrations**. F-049 closure behavior and the
-F-055 UI completion exist only on this unmerged branch.
+Production remains on the F-046 deployment and **10 migrations**. F-049 closure behavior and F-055
+UI completion are on local `main`; F-050 exists only on this branch. None of those three changes is
+deployed.
 
 **Deployed 2026-07-31 (F-046, complete)** — revisions `farm-friend-web-00013-djk` /
 `farm-friend-worker-00014-qv2`, one digest `sha256:5e6a4d49…` on both, built from `1fa68d1`.

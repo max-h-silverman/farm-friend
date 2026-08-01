@@ -118,6 +118,8 @@ export interface PublicStand {
   availability: StandAvailability;
   /** Active or upcoming only; expired/reopened instructions disappear at read time. */
   closure?: PublicClosure;
+  /** Active owner-confirmed display names, separate from aggregate inventory provenance. */
+  participantNames: string[];
   items: PublicStandItem[];
 }
 
@@ -269,13 +271,25 @@ export async function listPublicStands(
         ),
         array[]::text[]
       ) as usual_offerings,
+      coalesce(
+        (
+          select array_agg(
+            participant.display_name
+            order by lower(participant.display_name), participant.display_name, participant.id
+          )
+          from sales_location_participants participant
+          where participant.sales_location_id = l.id
+            and participant.retired_at is null
+        ),
+        array[]::text[]
+      ) as participant_names,
       e.item_name as item_name,
       e.quantity as quantity,
       e.unit as unit,
       e.price_text as price_text,
       e.approximation as approximation
     from sales_locations l
-    join farms f on f.id = l.farm_id
+    join farms f on f.id = l.owner_farm_id
     left join inventory_revisions r
       on r.sales_location_id = l.id and r.is_current
     left join closure_revisions c
@@ -339,6 +353,7 @@ export async function listPublicStands(
         // the stated/unstated distinction; see `readAvailability`.
         availability: readAvailability(row),
         ...(closure !== undefined ? { closure } : {}),
+        participantNames: (row.participant_names as string[] | null) ?? [],
         items: [],
       };
       byLocation.set(locationId, stand);
@@ -435,6 +450,7 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     // fields INSIDE are what carry stated-vs-unstated, and they are already absent rather
     // than null, so this passes straight through.
     availability: stand.availability,
+    alsoSellingHere: stand.participantNames,
     ...(stand.closure !== undefined ? { closure: stand.closure } : {}),
     items: stand.items,
   };

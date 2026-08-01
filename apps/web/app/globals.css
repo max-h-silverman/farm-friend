@@ -262,6 +262,30 @@ body {
   color: var(--ink-faint);
 }
 
+.stand-participants {
+  margin: 0.65rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--line);
+}
+
+.stand-participants-label {
+  margin: 0 0 0.2rem;
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.participant-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
 .items {
   list-style: none;
   margin: 0 0 0.8rem;
@@ -858,6 +882,26 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.farmer-participants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.farmer-participants h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.farmer-participants .farmer-participants-save {
+  color: var(--card);
+  background: var(--green);
+  border-color: var(--green);
 }
 
 @media (max-width: 34rem) {
