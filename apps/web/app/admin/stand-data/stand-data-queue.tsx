@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AdminRecoveryError } from "../admin-shell";
 
 // The stand-data queue's interactive half (F-037).
 //
@@ -41,6 +42,8 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   async function resolve(flagId: string) {
     const note = (notes[flagId] ?? "").trim();
@@ -50,6 +53,8 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
     }
     setPending(flagId);
     setError(null);
+    setSessionExpired(false);
+    setSuccess(null);
     try {
       const response = await fetch("/api/admin/stand-data-flags", {
         method: "POST",
@@ -57,10 +62,9 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
         body: JSON.stringify({ flagId, note }),
       });
       if (!response.ok) {
-        setError(
-          response.status === 403
-            ? "Your session is no longer authorized. Sign in again."
-            : response.status === 409
+        if (response.status === 403) setSessionExpired(true);
+        else setError(
+          response.status === 409
               ? "Someone else already resolved this question. Reload to see their decision."
               : "That change did not go through. Reload and try again.",
         );
@@ -71,6 +75,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
           row.flagId === flagId ? { ...row, resolutionNote: note } : row,
         ),
       );
+      setSuccess("Decision recorded. The public listing is unchanged.");
     } catch {
       setError("That change did not go through. Reload and try again.");
     } finally {
@@ -95,6 +100,14 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
       {error !== null && (
         <p className="admin-error" role="alert">
           {error}
+        </p>
+      )}
+      {sessionExpired && (
+        <AdminRecoveryError>Your session expired before the decision was saved.</AdminRecoveryError>
+      )}
+      {success !== null && (
+        <p className="admin-success" role="status">
+          {success}
         </p>
       )}
       <ul className="admin-farms">

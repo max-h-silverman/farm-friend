@@ -239,6 +239,159 @@ describe("administrator queue interactions", () => {
     expect(screen.queryByRole("button", { name: /edit listing/i })).toBeNull();
     expect(screen.getByRole("textbox", { name: "Resolution note for Road stand" })).toBeTruthy();
   });
+
+  it("recovers every review queue from an expired session", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => response(403)));
+
+    const { unmount: unmountFlag } = render(
+      <FlagQueue
+        flags={[
+          {
+            flagId: "flag-expired",
+            senderMask: "(•••) •••-0701",
+            reasonCode: "requested_review",
+            status: "open",
+            dispositionCode: null,
+            disposedByEmail: null,
+            disposedAt: null,
+            createdAt: "2026-08-01T10:00:00Z",
+            hasReadableThread: true,
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "View thread" }));
+    expect(await screen.findByRole("link", { name: "Sign in again" })).toHaveAttribute(
+      "href",
+      "/admin/login",
+    );
+    unmountFlag();
+
+    const { unmount: unmountReport } = render(
+      <ReportQueue
+        reports={[
+          {
+            reportId: "report-expired",
+            farmName: "Example Farm",
+            salesLocationName: "Road stand",
+            itemText: "eggs",
+            status: "open",
+            reviewedByEmail: null,
+            reportedAt: "2026-08-01T10:00:00Z",
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Mark reviewed" }));
+    expect(await screen.findByRole("link", { name: "Sign in again" })).toHaveAttribute(
+      "href",
+      "/admin/login",
+    );
+    unmountReport();
+
+    render(
+      <StandDataQueue
+        flags={[
+          {
+            flagId: "data-expired",
+            standName: "Road stand",
+            reason: "contradictory_hours",
+            sourceText: "Open 8 and open 9",
+            resolutionNote: null,
+            resolvedByEmail: null,
+            createdAt: "2026-08-01T10:00:00Z",
+          },
+        ]}
+      />,
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Resolution note for Road stand" }),
+      "Confirmed with VIGA",
+    );
+    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    expect(await screen.findByRole("link", { name: "Sign in again" })).toHaveAttribute(
+      "href",
+      "/admin/login",
+    );
+  });
+
+  it("announces the effects of flag, report, and stand-data decisions", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => response(200)));
+    vi.spyOn(window, "prompt").mockReturnValue("Called the sender");
+
+    const { unmount: unmountFlag } = render(
+      <FlagQueue
+        flags={[
+          {
+            flagId: "flag-action",
+            senderMask: "(•••) •••-0701",
+            reasonCode: "requested_review",
+            status: "open",
+            dispositionCode: null,
+            disposedByEmail: null,
+            disposedAt: null,
+            createdAt: "2026-08-01T10:00:00Z",
+            hasReadableThread: true,
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      /expired thread messages are now eligible for deletion/i,
+    );
+    expect(screen.getByText(/resolved — called the sender/i)).toBeTruthy();
+    unmountFlag();
+
+    const { unmount: unmountReport } = render(
+      <ReportQueue
+        reports={[
+          {
+            reportId: "report-action",
+            farmName: "Example Farm",
+            salesLocationName: "Road stand",
+            itemText: "eggs",
+            status: "open",
+            reviewedByEmail: null,
+            reportedAt: "2026-08-01T10:00:00Z",
+          },
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Mark reviewed" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      /report marked reviewed.*public listing is unchanged/i,
+    );
+    expect(screen.getByText("Reviewed")).toBeTruthy();
+    unmountReport();
+
+    render(
+      <StandDataQueue
+        flags={[
+          {
+            flagId: "data-action",
+            standName: "Road stand",
+            reason: "contradictory_hours",
+            sourceText: "Open 8 and open 9",
+            resolutionNote: null,
+            resolvedByEmail: null,
+            createdAt: "2026-08-01T10:00:00Z",
+          },
+        ]}
+      />,
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Resolution note for Road stand" }),
+      "Confirmed 9am opening",
+    );
+    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      /decision recorded.*public listing is unchanged/i,
+    );
+    expect(screen.getByText(/resolved: confirmed 9am opening/i)).toBeTruthy();
+  });
 });
 
 describe("the farmer stand form", () => {

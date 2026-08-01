@@ -58,6 +58,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
     }
     setOpenThread(flagId);
     if (threads[flagId] !== undefined) return;
+    setSessionExpired(false);
     setThreadLoading(flagId);
     setThreadErrors((current) => {
       const next = { ...current };
@@ -67,10 +68,12 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
     try {
       const response = await fetch(`/api/admin/flags/${flagId}/thread`);
       if (!response.ok) {
-        setThreadErrors((current) => ({
-          ...current,
-          [flagId]: "That thread could not be loaded. Reload and try again.",
-        }));
+        if (response.status === 403) setSessionExpired(true);
+        else
+          setThreadErrors((current) => ({
+            ...current,
+            [flagId]: "That thread could not be loaded. Reload and try again.",
+          }));
         return;
       }
       const payload = (await response.json()) as {

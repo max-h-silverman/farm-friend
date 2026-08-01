@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AdminRecoveryError } from "../admin-shell";
 
 // The stock-out report queue's interactive half (F-030).
 //
@@ -32,10 +33,14 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
   const [rows, setRows] = useState(reports);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   async function decide(reportId: string, action: "review" | "dismiss") {
     setPending(reportId);
     setError(null);
+    setSessionExpired(false);
+    setSuccess(null);
     try {
       const response = await fetch("/api/admin/stock-out-reports", {
         method: "POST",
@@ -43,10 +48,9 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
         body: JSON.stringify({ reportId, action }),
       });
       if (!response.ok) {
-        setError(
-          response.status === 403
-            ? "Your session is no longer authorized. Sign in again."
-            : response.status === 409
+        if (response.status === 403) setSessionExpired(true);
+        else setError(
+          response.status === 409
               ? "Someone else already triaged this report. Reload to see their decision."
               : "That change did not go through. Reload and try again.",
         );
@@ -58,6 +62,11 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
             ? { ...row, status: action === "review" ? "reviewed" : "dismissed" }
             : row,
         ),
+      );
+      setSuccess(
+        action === "review"
+          ? "Report marked reviewed. The public listing is unchanged."
+          : "Report dismissed. The public listing is unchanged.",
       );
     } catch {
       setError("That change did not go through. Reload and try again.");
@@ -82,6 +91,14 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
       {error !== null && (
         <p className="admin-error" role="alert">
           {error}
+        </p>
+      )}
+      {sessionExpired && (
+        <AdminRecoveryError>Your session expired before the decision was saved.</AdminRecoveryError>
+      )}
+      {success !== null && (
+        <p className="admin-success" role="status">
+          {success}
         </p>
       )}
       <ul className="admin-farms">
