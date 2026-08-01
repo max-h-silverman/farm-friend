@@ -6,6 +6,8 @@ import {
   type ModelSafeContext,
 } from "./index";
 
+const CURRENT_LOCAL_DATE = "2026-08-06";
+
 /** A provider that records what it was shown and returns whatever it is told to. */
 class RecordingProvider implements LLMProvider {
   readonly name = "recording";
@@ -25,6 +27,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     await createInventoryInterpreter(provider).interpret({
       taskText: "kale is out",
       currentEntries: [{ entryId: "e1", itemName: "kale" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
 
     expect(provider.seen).toHaveLength(1);
@@ -32,6 +35,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     expect(Object.keys(provider.seen[0]!.fields as object).sort()).toEqual([
       "currentClosure",
       "currentEntries",
+      "currentLocalDate",
       "taskText",
     ]);
   });
@@ -51,6 +55,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
         { entryId: "e1", itemName: "kale" },
         { entryId: "e2", itemName: "tomatoes" },
       ],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
 
     expect(result.kind).toBe("edits");
@@ -83,6 +88,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     const result = await createInventoryInterpreter(provider).interpret({
       taskText: "tomatoes and a dozen eggs",
       currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
     expect(result.kind).toBe("edits");
     if (result.kind === "edits") {
@@ -106,6 +112,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     const result = await createInventoryInterpreter(provider).interpret({
       taskText: "kale gone",
       currentEntries: [{ entryId: "e1", itemName: "kale" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
 
     // Never a silent guess: it asks rather than acting on a shape it does not accept.
@@ -118,6 +125,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     const result = await createInventoryInterpreter(provider).interpret({
       taskText: "we have plenty of everything",
       currentEntries: [{ entryId: "e1", itemName: "kale" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
 
     expect(result.kind).toBe("clarification");
@@ -129,6 +137,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     const result = await createInventoryInterpreter(provider).interpret({
       taskText: "x",
       currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
     expect(result.kind).toBe("clarification");
   });
@@ -143,6 +152,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     const result = await createInventoryInterpreter(provider).interpret({
       taskText: "kale's done",
       currentEntries: [{ entryId: "e1", itemName: "kale" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
 
     expect(result.kind).toBe("clarification");
@@ -158,6 +168,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     const result = await createInventoryInterpreter(provider).interpret({
       taskText: "everything is sold out",
       currentEntries: [{ entryId: "e1", itemName: "kale" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
     expect(result.kind).toBe("clear_all");
   });

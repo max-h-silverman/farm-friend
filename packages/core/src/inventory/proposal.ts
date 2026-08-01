@@ -84,6 +84,8 @@ export interface InventoryInterpretationRequest {
   currentEntries: { entryId: string; itemName: string }[];
   /** Current or pending location-wide instruction, never an arbitrary note. */
   currentClosure: ClosureInstruction | null;
+  /** Code-supplied current calendar date in Vashon's reviewed timezone. */
+  currentLocalDate: string;
 }
 
 /**

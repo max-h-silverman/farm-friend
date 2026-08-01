@@ -22,6 +22,7 @@ import {
 const safe: ModelSafeContext<InventoryExtractionFields> = projectInventoryExtraction({
   taskText: "kale and eggs",
   currentEntries: [{ entryId: "e1", itemName: "kale" }],
+  currentLocalDate: "2026-08-06",
 });
 void safe;
 
@@ -53,6 +54,7 @@ void forged;
 void projectInventoryExtraction({
   taskText: "kale",
   currentEntries: [],
+  currentLocalDate: "2026-08-06",
   // @ts-expect-error a projection accepts no fields beyond its seam's declared input
   internalNote: "farmer owes VIGA dues",
 });
@@ -61,6 +63,7 @@ void projectInventoryExtraction({
 // attach consent, contact, or audit data to an entry it passes in.
 void projectInventoryExtraction({
   taskText: "kale",
+  currentLocalDate: "2026-08-06",
   currentEntries: [
     // @ts-expect-error retrieved entries carry only an opaque id and a public item name
     { entryId: "e1", itemName: "kale", consentState: "subscribed" },

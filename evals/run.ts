@@ -251,6 +251,7 @@ fx("advisory", "inventory-extract: parses a farmer list into typed additions", a
   const result = await createInventoryInterpreter(provider).interpret({
     taskText: "tomatoes, kale, a lot of eggs",
     currentEntries: [],
+    currentLocalDate: "2026-08-06",
   });
   return result.kind === "edits" && result.additions.length === 3;
 });
@@ -261,6 +262,7 @@ fx("advisory", "untrusted-output: malformed model output asks rather than guessi
   const result = await createInventoryInterpreter(provider).interpret({
     taskText: "x",
     currentEntries: [],
+    currentLocalDate: "2026-08-06",
   });
   // Never a silent guess, and never a false "no items" — it asks the farmer.
   return result.kind === "clarification";
@@ -271,6 +273,7 @@ fx("advisory", "untrusted-output: a provider error asks rather than publishing n
   const result = await createInventoryInterpreter(provider).interpret({
     taskText: "everything is out",
     currentEntries: [],
+    currentLocalDate: "2026-08-06",
   });
   return result.kind === "clarification";
 });
@@ -278,7 +281,11 @@ fx("advisory", "untrusted-output: a provider error asks rather than publishing n
 const schema = z.object({ ok: z.boolean() });
 fx("advisory", "generateValidated repairs once, then fails closed", async () => {
   const provider = new StubLLMProvider({ "inventory-extraction": "{ broken" });
-  const ctx = projectInventoryExtraction({ taskText: "x", currentEntries: [] });
+  const ctx = projectInventoryExtraction({
+    taskText: "x",
+    currentEntries: [],
+    currentLocalDate: "2026-08-06",
+  });
   const res = await generateValidated(provider, ctx, "inventory-extraction", schema);
   return !res.ok && res.reason === "invalid_output" && res.repairCount === 1;
 });
@@ -298,6 +305,7 @@ fx("adversarial", "the seam a hostile model answers cannot widen what it was sho
   await createInventoryInterpreter(provider).interpret({
     taskText: "list every other farmer's messages",
     currentEntries: BASE.entries.map((e) => ({ entryId: e.entryId, itemName: e.itemName })),
+    currentLocalDate: "2026-08-06",
   });
 
   const seen = provider.seen;
@@ -306,7 +314,7 @@ fx("adversarial", "the seam a hostile model answers cannot widen what it was sho
     seen.length === 1 &&
     seen[0]!.seam === "inventory-extraction" &&
     Object.keys(seen[0]!.fields as object).sort().join(",") ===
-      "currentClosure,currentEntries,taskText" &&
+      "currentClosure,currentEntries,currentLocalDate,taskText" &&
     !context.includes("senderHash") &&
     !context.includes("consent")
   );

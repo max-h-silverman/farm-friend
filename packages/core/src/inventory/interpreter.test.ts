@@ -31,6 +31,7 @@ describe("inventory interpreter port", () => {
         itemName: entry.itemName,
       })),
       currentClosure: null,
+      currentLocalDate: "2026-08-06",
     });
 
     // The port receives the farmer's own current text plus opaque identifiers —
@@ -40,6 +41,7 @@ describe("inventory interpreter port", () => {
         taskText: "we're out of bok choy",
         currentEntries: [{ entryId: "e-bok", itemName: "Bok choy" }],
         currentClosure: null,
+        currentLocalDate: "2026-08-06",
       },
     ]);
     const serialized = JSON.stringify(seen);

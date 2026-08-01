@@ -9,6 +9,8 @@ import {
   type ModelSafeContext,
 } from "./index";
 
+const CURRENT_LOCAL_DATE = "2026-08-06";
+
 // F-015 runtime enforcement. These tests prove what the projection DEMONSTRABLY does:
 // it constructs one explicit minimal record from named arguments, so a caller cannot
 // widen the model's view by handing it a bigger object. They do not claim the task text
@@ -19,12 +21,14 @@ describe("inventory-extraction projection — the only permitted model input for
     const ctx = projectInventoryExtraction({
       taskText: "tomatoes gone, added kale",
       currentEntries: [{ entryId: "e1", itemName: "tomatoes" }],
+      currentLocalDate: "2026-08-06",
     });
 
     expect(ctx.seam).toBe("inventory-extraction");
     expect(Object.keys(ctx.fields).sort()).toEqual([
       "currentClosure",
       "currentEntries",
+      "currentLocalDate",
       "taskText",
     ]);
     expect(ctx.fields.taskText).toBe("tomatoes gone, added kale");
@@ -32,6 +36,7 @@ describe("inventory-extraction projection — the only permitted model input for
       { entryId: "e1", itemName: "tomatoes" },
     ]);
     expect(ctx.fields.currentClosure).toBeNull();
+    expect(ctx.fields.currentLocalDate).toBe("2026-08-06");
   });
 
   it("copies only canonical closure facts and cannot leak a wider row", () => {
@@ -47,6 +52,7 @@ describe("inventory-extraction projection — the only permitted model input for
       taskText: "open again",
       currentEntries: [],
       currentClosure,
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
 
     expect(ctx.fields.currentClosure).toEqual({
@@ -57,6 +63,16 @@ describe("inventory-extraction projection — the only permitted model input for
     });
     expect(JSON.stringify(ctx)).not.toContain("private note");
     expect(JSON.stringify(ctx)).not.toContain("deadbeef");
+  });
+
+  it("refuses a malformed code-supplied local date", () => {
+    expect(() =>
+      projectInventoryExtraction({
+        taskText: "closed this weekend",
+        currentEntries: [],
+        currentLocalDate: "August 6, 2026",
+      }),
+    ).toThrow(ProjectionError);
   });
 
   it("copies each entry field-by-field, so an over-broad record cannot widen the context", () => {
@@ -73,6 +89,7 @@ describe("inventory-extraction projection — the only permitted model input for
     const ctx = projectInventoryExtraction({
       taskText: "still have tomatoes",
       currentEntries: [overBroad],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
 
     expect(Object.keys(ctx.fields.currentEntries[0]!).sort()).toEqual([
@@ -85,7 +102,11 @@ describe("inventory-extraction projection — the only permitted model input for
 
   it("does not alias the caller's arrays or objects, so later mutation cannot widen it", () => {
     const entries = [{ entryId: "e1", itemName: "tomatoes" }];
-    const ctx = projectInventoryExtraction({ taskText: "hi", currentEntries: entries });
+    const ctx = projectInventoryExtraction({
+      taskText: "hi",
+      currentEntries: entries,
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
 
     entries.push({ entryId: "e2", itemName: "secret crop" });
     (entries[0] as Record<string, unknown>).internalNote = "leaked";
@@ -104,6 +125,7 @@ describe("inventory-extraction projection — the only permitted model input for
       projectInventoryExtraction({
         taskText: "still have kale",
         currentEntries: [{ entryId: "e1", itemName: "call (206) 555-1234 for kale" }],
+        currentLocalDate: CURRENT_LOCAL_DATE,
       }),
     ).toThrow(ProjectionError);
   });
@@ -114,6 +136,7 @@ describe("inventory-extraction projection — the only permitted model input for
     const ctx = projectInventoryExtraction({
       taskText: "reach me at 206-555-1234, kale is out",
       currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
     expect(ctx.fields.taskText).toContain("kale is out");
   });
@@ -122,6 +145,7 @@ describe("inventory-extraction projection — the only permitted model input for
     const ctx: ModelSafeContext = projectInventoryExtraction({
       taskText: "kale",
       currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
     });
     expect(ctx.seam).toBe("inventory-extraction");
   });
@@ -273,6 +297,7 @@ describe("opaque identifiers are checked for shape, never scanned as content", (
         projectInventoryExtraction({
           taskText: "kale",
           currentEntries: [{ entryId: id, itemName: "Kale" }],
+          currentLocalDate: CURRENT_LOCAL_DATE,
         }),
       ).not.toThrow();
       expect(() =>

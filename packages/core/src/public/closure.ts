@@ -113,7 +113,8 @@ export function validateClosureInstruction(candidate: unknown): ClosureValidatio
   };
 }
 
-function localDate(at: Date): string {
+/** Convert an instant to the code-owned local calendar date used for Vashon closures. */
+export function vashonLocalDate(at: Date): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: VASHON_TIME_ZONE,
     year: "numeric",
@@ -135,7 +136,7 @@ export function projectClosure(
 ): ClosureProjection {
   if (!instruction || instruction.result === "reopen") return { state: "none" };
 
-  const today = localDate(at);
+  const today = vashonLocalDate(at);
   if (instruction.closedThrough !== undefined && today > instruction.closedThrough) {
     return { state: "none" };
   }

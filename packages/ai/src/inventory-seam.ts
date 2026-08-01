@@ -96,6 +96,7 @@ export function createInventoryInterpreter(provider: LLMProvider) {
       taskText: string;
       currentEntries: { entryId: string; itemName: string }[];
       currentClosure?: import("@farm-friend/core").ClosureInstruction | null;
+      currentLocalDate: string;
     }) {
       // The ONLY context that crosses the seam, constructed field by field.
       const ctx = projectInventoryExtraction(request);

@@ -7,12 +7,12 @@
 > This is the **only** place build status lives. The architecture docs carry none.
 
 **Verified 2026-08-01** (`f-049-closure`, not merged or deployed): `npm test`
-**797/797** (76 files); `npm run test:integration` **481/481** (29 files) on real Postgres from
+**798/798** (76 files); `npm run test:integration` **482/482** (29 files) on real Postgres from
 empty schemas, including a populated 0000–0009 → 0010 migration; typecheck, lint, and the web
 production build exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29. Migration
 generation is a no-op after the hand-authored CHECK constraints and metadata. `evals:live` is
-owed because F-049 changes the inventory seam's projection, schema, and output contract; it has
-not run because paid API execution did not have approval accepted by the execution gate.
+owed because F-049 changes the inventory seam's projection, schema, and output contract; the
+approved paid run remains pending until the final F-049 commit.
 
 Production remains on the F-046 deployment and **10 migrations**. Closure state, confirmation,
 public status, Open-now exclusion, and inquiry exclusion exist only on the unmerged F-049 branch.

@@ -38,4 +38,3 @@ export function readPublicClosure(
   if (label === null) return undefined;
   return { ...projection, label };
 }
-

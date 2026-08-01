@@ -4,6 +4,7 @@ import {
   projectClosure,
   renderProposedFarmerUpdate,
   validateInterpretation,
+  vashonLocalDate,
   type ClosureInstruction,
   type Clock,
   type InventoryCompositionBase,
@@ -208,6 +209,7 @@ export async function applyInterpretedInventory(
       itemName: entry.itemName,
     })),
     currentClosure: state.closureBase,
+    currentLocalDate: vashonLocalDate(deps.clock.now()),
   });
 
   const validated = validateInterpretation(raw, state.inventoryBase);

@@ -124,7 +124,11 @@ describe("seam output contracts (F-024)", () => {
 
   it("each projection hands its seam's shapes to the model, verbatim", () => {
     const contexts = [
-      projectInventoryExtraction({ taskText: "x", currentEntries: [] }),
+      projectInventoryExtraction({
+        taskText: "x",
+        currentEntries: [],
+        currentLocalDate: "2026-08-06",
+      }),
       projectInquiryInterpretation({ taskText: "x" }),
       projectFactSelection({ items: ["kale"], ranking: "freshest", facts: [] }),
       projectStockOutParse({ taskText: "x", listedItems: [] }),

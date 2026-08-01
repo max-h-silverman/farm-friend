@@ -39,6 +39,8 @@
 // injection would live. Neither ever sees a farmer's contact, a recipient, or another
 // customer's message.
 
+import { isLocalDate } from "@farm-friend/core";
+
 declare const modelSafeBrand: unique symbol;
 
 /**
@@ -106,7 +108,9 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "plain-ASCII question (it is sent by SMS). A location-wide close uses result close, kind " +
     "temporary or seasonal, and an exact local YYYY-MM-DD startsOn; temporary may have an " +
     "inclusive closedThrough. Reopening uses result reopen and no dates. Put closure on edits " +
-    "for a mixed message, or use kind closure when inventory is unchanged. Ask rather than " +
+    "for a mixed message, or use kind closure when inventory is unchanged. Resolve relative " +
+    "dates such as this weekend against currentLocalDate, the code-supplied current Vashon " +
+    "calendar date. Ask rather than " +
     "guess for vague timing, conflicting dates, a sub-operation closure, multiple windows, " +
     "or a future closure that conflicts with currentClosure.",
   "inquiry-interpretation":
@@ -209,6 +213,8 @@ export interface InventoryExtractionFields {
   /** Opaque published or draft identifiers plus item names needed to resolve a reference. */
   readonly currentEntries: readonly RetrievedEntryRef[];
   readonly currentClosure: import("@farm-friend/core").ClosureInstruction | null;
+  /** Current Vashon calendar date supplied by code, never inferred by the model. */
+  readonly currentLocalDate: string;
 }
 
 /**
@@ -225,10 +231,17 @@ export function projectInventoryExtraction(input: {
   taskText: string;
   currentEntries: readonly RetrievedEntryRef[];
   currentClosure?: import("@farm-friend/core").ClosureInstruction | null;
+  currentLocalDate: string;
 }): ModelSafeContext<InventoryExtractionFields> {
+  if (!isLocalDate(input.currentLocalDate)) {
+    throw new ProjectionError(
+      "Refusing to build model context: currentLocalDate is not an exact local date.",
+    );
+  }
   const fields: InventoryExtractionFields = {
     // The sender's own words return only to the sender; they are not vetted here.
     taskText: input.taskText,
+    currentLocalDate: input.currentLocalDate,
     currentEntries: input.currentEntries.map((entry, index) => ({
       entryId: assertOpaqueId(entry.entryId, `currentEntries[${index}].entryId`),
       itemName: assertNoRawPhone(entry.itemName, `currentEntries[${index}].itemName`),

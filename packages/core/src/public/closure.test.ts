@@ -4,6 +4,7 @@ import {
   projectClosure,
   renderClosureStatus,
   VASHON_TIME_ZONE,
+  vashonLocalDate,
   type ClosureInstruction,
 } from "./closure";
 
@@ -12,6 +13,7 @@ const at = (iso: string) => new Date(iso);
 describe("canonical stand closure projection", () => {
   it("uses the one reviewed island timezone", () => {
     expect(VASHON_TIME_ZONE).toBe("America/Los_Angeles");
+    expect(vashonLocalDate(at("2026-08-01T06:30:00Z"))).toBe("2026-07-31");
   });
 
   it("keeps a bounded temporary closure active through its inclusive local end date", () => {
@@ -96,4 +98,3 @@ describe("canonical stand closure projection", () => {
     ).toBe("open");
   });
 });
-

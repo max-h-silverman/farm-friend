@@ -266,7 +266,9 @@ sections keep independent base revisions but share one confirmation transaction,
 publishes both or neither. Closure is append-only history separate from inventory: closing or
 reopening never refreshes or clears the inventory revision, and a bounded closure expires only in
 the shared read projection. No timer mutates history. Code renders closure status from kind and
-local Vashon dates; there is no farmer-authored public closure note.
+local Vashon dates; there is no farmer-authored public closure note. Before interpretation, code
+converts the injected clock to the current Vashon calendar date and projects that exact value to the
+model, so relative phrases such as “this weekend” do not depend on a model guessing the date.
 
 The structured proposal is a distinct pending payload, not a draft inventory revision. Inventory
 revisions are immutable published history. `NO` or expiry creates no revision. A successful `YES`

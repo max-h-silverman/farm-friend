@@ -128,6 +128,7 @@ export async function runInterpretationPath(input: {
       itemName: entry.itemName,
     })),
     currentClosure: null,
+    currentLocalDate: "2026-08-06",
   });
 
   const validated = validateInterpretation(raw, input.base);
@@ -284,6 +285,7 @@ hx("projection cannot be widened by an over-broad retrieved record", async () =>
         consentState: "subscribed",
       } as { entryId: string; itemName: string },
     ],
+    currentLocalDate: "2026-08-06",
   });
 
   const context = JSON.stringify(provider.seen);
@@ -301,6 +303,7 @@ hx("a raw phone in retrieved public facts fails closed at the projection", async
     projectInventoryExtraction({
       taskText: "still have kale",
       currentEntries: [{ entryId: "e1", itemName: "kale, call 206-555-1234" }],
+      currentLocalDate: "2026-08-06",
     });
     return false;
   } catch (error) {

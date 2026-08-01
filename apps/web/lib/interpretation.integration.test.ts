@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   FixedClock,
+  vashonLocalDate,
   type InventoryInterpretation,
   type InventoryInterpreter,
 } from "@farm-friend/core";
@@ -158,6 +159,38 @@ describe("interpreted inventory → pending proposal (integration)", () => {
       clock: new FixedClock(T0),
     };
   }
+
+  it("supplies the current Vashon date from code before relative-date interpretation", async () => {
+    const seen: Parameters<InventoryInterpreter["interpret"]>[0][] = [];
+    const interpreter: InventoryInterpreter = {
+      async interpret(request) {
+        seen.push(request);
+        return { kind: "clarification", question: "Which dates?" };
+      },
+    };
+
+    await applyInterpretedInventory(
+      {
+        db: db as Db,
+        interpreter,
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash: farmerHash,
+        salesLocationId: ids.location as string,
+        taskText: "closed this weekend",
+      },
+    );
+
+    expect(seen).toEqual([
+      {
+        taskText: "closed this weekend",
+        currentEntries: [],
+        currentClosure: null,
+        currentLocalDate: vashonLocalDate(T0),
+      },
+    ]);
+  });
 
   it("opens a first-publication proposal from typed additions", async () => {
     const result = await applyInterpretedInventory(
@@ -556,10 +589,11 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     expect(context).not.toContain(ids.farmerContact as string);
     expect(context).not.toContain(ids.adminContact as string);
     expect(context).not.toContain(ids.farm as string);
-    // Only the seam's two permitted fields crossed.
+    // Only the seam's four permitted fields crossed.
     expect(Object.keys(provider.seen[0]!.fields as object).sort()).toEqual([
       "currentClosure",
       "currentEntries",
+      "currentLocalDate",
       "taskText",
     ]);
   });

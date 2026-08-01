@@ -97,4 +97,3 @@ describe("closure interpretation is one section of the farmer update proposal", 
     }
   });
 });
-
