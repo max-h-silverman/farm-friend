@@ -68,6 +68,7 @@ export async function handleNextPage(
     const facts = await dereferenceFacts(deps.db, {
       factIds: claimed.factIds,
       itemsRequested: claimed.itemsRequested,
+      at: deps.clock.now(),
     });
 
     if (facts.length === 0) {

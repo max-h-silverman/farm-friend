@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  date,
   doublePrecision,
   foreignKey,
   index,
@@ -62,6 +63,8 @@ export const inventoryApproximation = pgEnum("inventory_approximation", [
   "limited",
   "plentiful",
 ]);
+export const closureResult = pgEnum("closure_result", ["close", "reopen"]);
+export const closureKind = pgEnum("closure_kind", ["temporary", "seasonal"]);
 
 // F-035 — stand availability as FILTERABLE data rather than free-form text.
 //
@@ -1393,10 +1396,16 @@ export const inventoryPublicationProposals = pgTable(
     yesToken: text("yes_token").notNull(),
     noToken: text("no_token").notNull(),
     state: proposalState("state").notNull().default("open"),
+    // A proposal may carry inventory, closure, or both. Existing proposals are inventory
+    // proposals; defaults make the forward migration preserve that populated state.
+    hasInventory: boolean("has_inventory").notNull().default(true),
+    hasClosure: boolean("has_closure").notNull().default(false),
     // The complete pending snapshot is bound to the base it was computed from, so a
     // newer publication invalidates it rather than being silently overwritten.
     baseRevisionId: uuid("base_revision_id"),
-    baseIsFirstPublication: boolean("base_is_first_publication").notNull(),
+    baseIsFirstPublication: boolean("base_is_first_publication"),
+    closureBaseRevisionId: uuid("closure_base_revision_id"),
+    closureBaseIsFirstInstruction: boolean("closure_base_is_first_instruction"),
     // Expiry is activation-relative: the 12-hour window starts only when Telnyx
     // accepts the current prompt, so an unactivated proposal has no live window.
     expiresAt: timestamp("expires_at", { withTimezone: true }),
@@ -1460,12 +1469,45 @@ export const inventoryPublicationProposals = pgTable(
       "inventory_publication_proposals_base_binding_coherent",
       sql`
         (
-          ${table.baseIsFirstPublication}
-          and ${table.baseRevisionId} is null
+          ${table.hasInventory}
+          and ${table.baseIsFirstPublication} is not null
+          and (
+            (${table.baseIsFirstPublication} and ${table.baseRevisionId} is null)
+            or (not ${table.baseIsFirstPublication} and ${table.baseRevisionId} is not null)
+          )
         )
         or (
-          not ${table.baseIsFirstPublication}
-          and ${table.baseRevisionId} is not null
+          not ${table.hasInventory}
+          and ${table.baseIsFirstPublication} is null
+          and ${table.baseRevisionId} is null
+        )
+      `,
+    ),
+    atLeastOneSection: check(
+      "inventory_publication_proposals_at_least_one_section",
+      sql`${table.hasInventory} or ${table.hasClosure}`,
+    ),
+    closureBaseBindingCoherent: check(
+      "inventory_publication_proposals_closure_base_binding_coherent",
+      sql`
+        (
+          ${table.hasClosure}
+          and ${table.closureBaseIsFirstInstruction} is not null
+          and (
+            (
+              ${table.closureBaseIsFirstInstruction}
+              and ${table.closureBaseRevisionId} is null
+            )
+            or (
+              not ${table.closureBaseIsFirstInstruction}
+              and ${table.closureBaseRevisionId} is not null
+            )
+          )
+        )
+        or (
+          not ${table.hasClosure}
+          and ${table.closureBaseIsFirstInstruction} is null
+          and ${table.closureBaseRevisionId} is null
         )
       `,
     ),
@@ -1624,6 +1666,91 @@ export const inventoryEntries = pgTable(
     nonnegativeSortOrder: check(
       "inventory_entries_nonnegative_sort_order",
       sql`${table.sortOrder} >= 0`,
+    ),
+  }),
+);
+
+/** Append-only owner-confirmed location closure/reopening history (F-049). */
+export const closureRevisions = pgTable(
+  "closure_revisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerFarmId: uuid("owner_farm_id").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    proposalId: uuid("proposal_id").notNull(),
+    ownerAuthorizationId: uuid("owner_authorization_id").notNull(),
+    ownerApprovalId: uuid("owner_approval_id").notNull(),
+    result: closureResult("result").notNull(),
+    closureKind: closureKind("closure_kind"),
+    startsOn: date("starts_on", { mode: "string" }),
+    closedThrough: date("closed_through", { mode: "string" }),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+    isCurrent: boolean("is_current").notNull().default(true),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+  },
+  (table) => ({
+    idAndLocationUnique: unique("closure_revisions_id_location_unique").on(
+      table.id,
+      table.salesLocationId,
+    ),
+    proposalUnique: unique("closure_revisions_proposal_unique").on(table.proposalId),
+    proposalReference: foreignKey({
+      name: "closure_revisions_proposal_fk",
+      columns: [table.proposalId],
+      foreignColumns: [inventoryPublicationProposals.id],
+    }).onDelete("restrict"),
+    oneCurrentPerLocation: uniqueIndex("closure_revisions_one_current_per_location")
+      .on(table.salesLocationId)
+      .where(sql`${table.isCurrent}`),
+    locationOwnerReference: foreignKey({
+      name: "closure_revisions_location_owner_fk",
+      columns: [table.salesLocationId, table.ownerFarmId],
+      foreignColumns: [salesLocations.id, salesLocations.farmId],
+    }).onDelete("restrict"),
+    authorizationOwnerReference: foreignKey({
+      name: "closure_revisions_authorization_owner_fk",
+      columns: [table.ownerAuthorizationId, table.ownerFarmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("restrict"),
+    approvalOwnerReference: foreignKey({
+      name: "closure_revisions_approval_owner_fk",
+      columns: [table.ownerApprovalId, table.ownerFarmId],
+      foreignColumns: [farmApprovals.id, farmApprovals.farmId],
+    }).onDelete("restrict"),
+    resultShape: check(
+      "closure_revisions_result_shape",
+      sql`
+        (
+          ${table.result} = 'reopen'
+          and ${table.closureKind} is null
+          and ${table.startsOn} is null
+          and ${table.closedThrough} is null
+        )
+        or (
+          ${table.result} = 'close'
+          and ${table.closureKind} is not null
+          and ${table.startsOn} is not null
+        )
+      `,
+    ),
+    seasonalHasNoEnd: check(
+      "closure_revisions_seasonal_has_no_end",
+      sql`${table.closureKind} is null or ${table.closureKind} <> 'seasonal' or ${table.closedThrough} is null`,
+    ),
+    endNotBeforeStart: check(
+      "closure_revisions_end_not_before_start",
+      sql`${table.closedThrough} is null or (${table.startsOn} is not null and ${table.closedThrough} >= ${table.startsOn})`,
+    ),
+    currentStateCoherent: check(
+      "closure_revisions_current_state_coherent",
+      sql`
+        (${table.isCurrent} and ${table.supersededAt} is null)
+        or (
+          not ${table.isCurrent}
+          and ${table.supersededAt} is not null
+          and ${table.supersededAt} > ${table.publishedAt}
+        )
+      `,
     ),
   }),
 );

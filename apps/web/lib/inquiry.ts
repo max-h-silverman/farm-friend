@@ -16,6 +16,7 @@ import {
 } from "@farm-friend/core";
 import type { InquiryModel } from "@farm-friend/ai";
 import { savePendingResultList, type Db } from "@farm-friend/db";
+import { readPublicClosure } from "./closure-projection";
 
 // Customer inquiry: question → code-rendered grounded answer.
 //
@@ -105,7 +106,7 @@ export interface LocationRow {
  * Retrieval stays deliberately general — it selects rows, and the layers above order and
  * select. There is no food vocabulary or farm name in this query.
  */
-async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
+async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]> {
   const rows = await db.sql`
     select
       l.id as location_id,
@@ -118,12 +119,18 @@ async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
       e.unit as unit,
       e.price_text as price_text,
       e.approximation as approximation,
-      e.sort_order as sort_order
+      e.sort_order as sort_order,
+      c.result as closure_result,
+      c.closure_kind as closure_kind,
+      c.starts_on::text as closure_starts_on,
+      c.closed_through::text as closure_closed_through
     from sales_locations l
     join farms f on f.id = l.farm_id
     join inventory_revisions r
       on r.sales_location_id = l.id and r.is_current
     join inventory_entries e on e.inventory_revision_id = r.id
+    left join closure_revisions c
+      on c.sales_location_id = l.id and c.is_current
     where l.is_public
     order by l.id asc, e.sort_order asc
   `;
@@ -131,6 +138,7 @@ async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
   const byLocation = new Map<string, LocationRow>();
   for (const raw of rows) {
     const row = raw as Record<string, unknown>;
+    if (readPublicClosure(row, at)?.state === "active") continue;
     const locationId = row.location_id as string;
 
     let entry = byLocation.get(locationId);
@@ -168,10 +176,16 @@ async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
       f.name as farm_name,
       l.created_at as created_at,
       o.item as item,
-      o.sort_order as sort_order
+      o.sort_order as sort_order,
+      c.result as closure_result,
+      c.closure_kind as closure_kind,
+      c.starts_on::text as closure_starts_on,
+      c.closed_through::text as closure_closed_through
     from sales_locations l
     join farms f on f.id = l.farm_id
     join sales_location_offerings o on o.sales_location_id = l.id
+    left join closure_revisions c
+      on c.sales_location_id = l.id and c.is_current
     where l.is_public
     order by l.id asc, o.sort_order asc
   `;
@@ -179,6 +193,7 @@ async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
   const offeringsByLocation = new Map<string, LocationRow>();
   for (const raw of offeringRows) {
     const row = raw as Record<string, unknown>;
+    if (readPublicClosure(row, at)?.state === "active") continue;
     const locationId = row.location_id as string;
 
     let entry = offeringsByLocation.get(locationId);
@@ -224,10 +239,10 @@ async function retrieveCurrentListings(db: Db): Promise<LocationRow[]> {
  */
 export async function dereferenceFacts(
   db: Db,
-  input: { factIds: string[]; itemsRequested: string[] },
+  input: { factIds: string[]; itemsRequested: string[]; at: Date },
 ): Promise<PageableFact[]> {
   const byId = new Map(
-    (await retrieveCurrentListings(db)).map((row) => [row.factId, row]),
+    (await retrieveCurrentListings(db, input.at)).map((row) => [row.factId, row]),
   );
   return input.factIds
     .map((factId) => byId.get(factId))
@@ -314,7 +329,8 @@ export async function answerInquiry(
     notes.length === 0 ? body : [body, ...notes].join("\n\n");
 
   // Step 3 — CODE retrieves, then ranks by the validated interpretation.
-  const listings = await retrieveCurrentListings(deps.db);
+  const now = deps.clock.now();
+  const listings = await retrieveCurrentListings(deps.db, now);
   const candidates: InquiryCandidate[] = listings.map((row) => ({
     factId: row.factId,
     farmName: row.farmName,
@@ -357,7 +373,6 @@ export async function answerInquiry(
   );
 
   // Step 4 — select. This call sees the retrieved facts and NOT the raw question.
-  const now = deps.clock.now();
   const rawSelection = await deps.model.select({
     items: intent.value.items,
     ranking: intent.value.ranking,

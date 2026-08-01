@@ -67,8 +67,10 @@ export type ModelSafeContext<T = unknown> = {
  */
 export const SEAM_OUTPUT_SHAPES = {
   "inventory-extraction": [
-    '{"kind":"edits","additions":[{"itemName":"tomatoes","quantity":12,"unit":"lb","priceText":"$4/lb","approximation":"plentiful"}],"changes":[{"entryId":"e1","quantity":6}],"removals":[{"entryId":"e2"}]}',
+    '{"kind":"edits","additions":[{"itemName":"tomatoes","quantity":12,"unit":"lb","priceText":"$4/lb","approximation":"plentiful"}],"changes":[{"entryId":"e1","quantity":6}],"removals":[{"entryId":"e2"}],"closure":{"result":"close","closureKind":"temporary","startsOn":"2026-08-02","closedThrough":"2026-08-04"}}',
     '{"kind":"clear_all"}',
+    '{"kind":"closure","closure":{"result":"close","closureKind":"seasonal","startsOn":"2026-08-02"}}',
+    '{"kind":"closure","closure":{"result":"reopen"}}',
     '{"kind":"clarification","question":"Could you list what your stand has right now?"}',
   ],
   "inquiry-interpretation": [
@@ -100,8 +102,13 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "entries and their entryId MUST be one of the currentEntries ids. quantity is always a " +
     'NUMBER - write "a dozen" as 12 - and goes with unit ("lb", "dozen") or is omitted; ' +
     "include only details the message states, never invented ones. If the message is not a " +
-    "readable inventory update, return the clarification shape with one short plain-ASCII " +
-    "question (it is sent by SMS).",
+    "readable inventory or stand-status update, return the clarification shape with one short " +
+    "plain-ASCII question (it is sent by SMS). A location-wide close uses result close, kind " +
+    "temporary or seasonal, and an exact local YYYY-MM-DD startsOn; temporary may have an " +
+    "inclusive closedThrough. Reopening uses result reopen and no dates. Put closure on edits " +
+    "for a mixed message, or use kind closure when inventory is unchanged. Ask rather than " +
+    "guess for vague timing, conflicting dates, a sub-operation closure, multiple windows, " +
+    "or a future closure that conflicts with currentClosure.",
   "inquiry-interpretation":
     "items are the product words the customer asks about, as plain nouns. ranking MUST be " +
     'exactly "freshest", "coverage", or "any": "coverage" when they want places carrying ' +
@@ -201,6 +208,7 @@ export interface InventoryExtractionFields {
   readonly taskText: string;
   /** Opaque published or draft identifiers plus item names needed to resolve a reference. */
   readonly currentEntries: readonly RetrievedEntryRef[];
+  readonly currentClosure: import("@farm-friend/core").ClosureInstruction | null;
 }
 
 /**
@@ -216,6 +224,7 @@ export interface InventoryExtractionFields {
 export function projectInventoryExtraction(input: {
   taskText: string;
   currentEntries: readonly RetrievedEntryRef[];
+  currentClosure?: import("@farm-friend/core").ClosureInstruction | null;
 }): ModelSafeContext<InventoryExtractionFields> {
   const fields: InventoryExtractionFields = {
     // The sender's own words return only to the sender; they are not vetted here.
@@ -224,6 +233,25 @@ export function projectInventoryExtraction(input: {
       entryId: assertOpaqueId(entry.entryId, `currentEntries[${index}].entryId`),
       itemName: assertNoRawPhone(entry.itemName, `currentEntries[${index}].itemName`),
     })),
+    currentClosure:
+      input.currentClosure === undefined || input.currentClosure === null
+        ? null
+        : input.currentClosure.result === "reopen"
+          ? { result: "reopen" }
+          : input.currentClosure.closureKind === "seasonal"
+            ? {
+                result: "close",
+                closureKind: "seasonal",
+                startsOn: input.currentClosure.startsOn,
+              }
+            : {
+                result: "close",
+                closureKind: "temporary",
+                startsOn: input.currentClosure.startsOn,
+                ...(input.currentClosure.closedThrough !== undefined
+                  ? { closedThrough: input.currentClosure.closedThrough }
+                  : {}),
+              },
   };
 
   return {

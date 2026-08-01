@@ -84,6 +84,12 @@ render an honest "updated X ago" without a second provenance axis.
 - **inventory revisions and inventory entries** — a revision is an immutable published version of a
   location's inventory; entries are the items in it, with quantity/unit/price text or an
   approximate label. Revisions have no draft state and are created only by successful confirmation.
+- **closure revisions** (F-049) — append-only owner-confirmed close/reopen history, separate from
+  inventory. A close carries `temporary` or `seasonal` plus a Vashon-local start date; temporary may
+  carry an inclusive end date. Reopen carries no kind or dates. Composite foreign keys bind the
+  location, authorization, and approval to the same owner farm. One current instruction per
+  location and one revision per proposal are database constraints; bounded expiry is computed by
+  the canonical reader and never rewrites these rows.
 - **customer stock-out reports** — private; each carries a required sales-location identifier bound
   by the web/QR reporting surface, and may reference a listed entry or name an unlisted item. A
   model does not supply the consequential location identifier.
@@ -102,11 +108,12 @@ render an honest "updated X ago" without a second provenance axis.
   replaces the former free-text `message_kind` plus `is_required` boolean, which were two
   overlapping ways to say one thing and could not express a direct reply that is permitted by the
   recipient's own message without being carrier-required.
-- **one open inventory-publication confirmation per sender** — target sales location, distinct
-  structured complete-snapshot payload/version, allowed `YES`/`NO` tokens, provider-accepted prompt
-  activation, expiry, and consumption state. Existing entries retain their opaque reference IDs in
-  that payload; code issues opaque draft IDs for new entries so later unconfirmed edits can target
-  them. This is not an inventory revision.
+- **one open farmer-update confirmation per sender** — target sales location, explicit inventory
+  and closure section-presence flags, an independent base binding for each included section,
+  structured complete payload/version, allowed `YES`/`NO` tokens, provider-accepted prompt
+  activation, expiry, and consumption state. Existing inventory entries retain their opaque
+  reference IDs in that payload; code issues opaque draft IDs for new entries so later unconfirmed
+  edits can target them. This is neither an inventory nor a closure revision.
 - **one pending result list per sender** (F-046) — the ordered fact identifiers a customer's last
   answer selected, the product words it was about, how far through them they have read, and an
   expiry. `MORE` **replays** this list rather than re-running retrieval, so paging is consistent
@@ -135,12 +142,16 @@ These are **database-level** requirements, not application conventions:
   authorized but never resolved carries `dispatch_authorized_at`, and past a fixed lease it becomes
   `ambiguous` rather than being retried or left `dispatching` forever. It is never returned to
   `queued`: the provider may already have delivered the message (GL-003).
-- **One open inventory confirmation per sender** — a partial uniqueness constraint prevents
+- **One open farmer-update confirmation per sender** — a partial uniqueness constraint prevents
   overlapping proposals from making generic `YES`/`NO` ambiguous. `NO` and expiry create no
-  revision; `YES` creates the immutable revision and entries only after the transaction rechecks
-  the current prompt/version, farmer authority, and VIGA approval.
+  revision; `YES` creates every included immutable section or neither only after the transaction
+  rechecks the current prompt/version, independent bases, owner authority, and VIGA approval.
 - **One currently published inventory revision per sales location** — "which revision is current"
   is a constraint, not a fragile `max(published_at)`.
+- **One current closure instruction per location and one closure revision per proposal** — partial
+  and ordinary unique indexes make both claims structural. CHECK constraints reject malformed
+  reopen/close shapes, seasonal end dates, reversed dates, and incoherent current/superseded state;
+  each nullable case is tested against real Postgres because a CHECK otherwise passes on NULL.
 - **Farmer authority over inventory publication** — only an authorized farmer for that location can
   publish, and only an approved farm publishes publicly. Both are re-read while the confirmation
   transaction holds the sender and pending-confirmation locks.

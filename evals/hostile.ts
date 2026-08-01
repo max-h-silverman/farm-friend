@@ -127,6 +127,7 @@ export async function runInterpretationPath(input: {
       entryId: entry.entryId,
       itemName: entry.itemName,
     })),
+    currentClosure: null,
   });
 
   const validated = validateInterpretation(raw, input.base);

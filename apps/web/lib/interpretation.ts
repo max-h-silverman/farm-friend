@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   applyInventoryEdits,
-  renderProposedSnapshot,
+  projectClosure,
+  renderProposedFarmerUpdate,
   validateInterpretation,
+  type ClosureInstruction,
   type Clock,
   type InventoryCompositionBase,
   type InventoryInterpreter,
+  type ProposedSnapshot,
   type SnapshotEntry,
 } from "@farm-friend/core";
 import { openOrReviseProposal, type Db } from "@farm-friend/db";
@@ -60,48 +63,59 @@ function pendingEntries(payload: unknown): SnapshotEntry[] {
   return entries as SnapshotEntry[];
 }
 
+function pendingClosure(payload: unknown): ClosureInstruction | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  return (payload as { closure?: ClosureInstruction }).closure;
+}
+
+interface CompositionState {
+  inventoryBase: InventoryCompositionBase;
+  closureBase: ClosureInstruction | null;
+  pendingInventory?: ProposedSnapshot;
+  pendingClosure?: ClosureInstruction;
+  closureBaseRevisionId: string | null;
+  closureBaseIsFirstInstruction: boolean;
+}
+
 /**
  * Read the sender's complete pending result when one exists for this location. Only when
  * none exists does a new proposal start from the current published snapshot.
  */
-async function compositionBase(
+async function compositionState(
   db: Db,
   senderHash: string,
   salesLocationId: string,
-): Promise<InventoryCompositionBase> {
+): Promise<CompositionState> {
   const pending = await db.sql`
-    select payload, base_revision_id, base_is_first_publication
+    select payload, has_inventory, has_closure,
+      base_revision_id, base_is_first_publication,
+      closure_base_revision_id, closure_base_is_first_instruction
     from inventory_publication_proposals
     where sender_hash = ${senderHash}
       and sales_location_id = ${salesLocationId}
       and state = 'open'
   `;
-  if (pending.length > 0) {
-    return {
-      entries: pendingEntries(pending[0]?.payload),
-      baseRevisionId:
-        (pending[0]?.base_revision_id as string | null | undefined) ?? null,
-      isFirstPublication: pending[0]?.base_is_first_publication as boolean,
-    };
-  }
+  const pendingRow = pending[0] as Record<string, unknown> | undefined;
 
   const revisions = await db.sql`
     select id from inventory_revisions
     where sales_location_id = ${salesLocationId} and is_current
   `;
   const revisionId = revisions[0]?.id as string | undefined;
-  if (!revisionId) return null;
 
-  const entries = await db.sql`
-    select id, item_name, quantity, unit, price_text, approximation
-    from inventory_entries
-    where inventory_revision_id = ${revisionId}
-    order by sort_order asc
-  `;
+  const entries = revisionId
+    ? await db.sql`
+        select id, item_name, quantity, unit, price_text, approximation
+        from inventory_entries
+        where inventory_revision_id = ${revisionId}
+        order by sort_order asc
+      `
+    : [];
 
-  return {
-    revisionId,
-    entries: entries.map((row) => {
+  const publishedInventory: InventoryCompositionBase = revisionId
+    ? {
+        revisionId,
+        entries: entries.map((row) => {
       const record = row as Record<string, unknown>;
       return {
         entryId: record.id as string,
@@ -120,7 +134,54 @@ async function compositionBase(
             }
           : {}),
       };
-    }),
+        }),
+      }
+    : null;
+
+  const closures = await db.sql`
+    select id, result, closure_kind, starts_on::text, closed_through::text
+    from closure_revisions
+    where sales_location_id = ${salesLocationId} and is_current
+  `;
+  const closureRow = closures[0] as Record<string, unknown> | undefined;
+  const currentClosure: ClosureInstruction | null = !closureRow
+    ? null
+    : closureRow.result === "reopen"
+      ? { result: "reopen" }
+      : {
+          result: "close",
+          closureKind: closureRow.closure_kind as "temporary" | "seasonal",
+          startsOn: closureRow.starts_on as string,
+          ...(closureRow.closed_through !== null
+            ? { closedThrough: closureRow.closed_through as string }
+            : {}),
+        };
+
+  const pendingInventory =
+    pendingRow?.has_inventory === true
+      ? {
+          entries: pendingEntries(pendingRow.payload),
+          baseRevisionId:
+            (pendingRow.base_revision_id as string | null | undefined) ?? null,
+          isFirstPublication: pendingRow.base_is_first_publication as boolean,
+        }
+      : undefined;
+  const composedClosure =
+    pendingRow?.has_closure === true ? pendingClosure(pendingRow.payload) : undefined;
+
+  return {
+    inventoryBase: pendingInventory ?? publishedInventory,
+    closureBase: composedClosure ?? currentClosure,
+    ...(pendingInventory !== undefined ? { pendingInventory } : {}),
+    ...(composedClosure !== undefined ? { pendingClosure: composedClosure } : {}),
+    closureBaseRevisionId:
+      pendingRow?.has_closure === true
+        ? ((pendingRow.closure_base_revision_id as string | null | undefined) ?? null)
+        : ((closureRow?.id as string | undefined) ?? null),
+    closureBaseIsFirstInstruction:
+      pendingRow?.has_closure === true
+        ? (pendingRow.closure_base_is_first_instruction as boolean)
+        : closureRow === undefined,
   };
 }
 
@@ -133,7 +194,7 @@ export async function applyInterpretedInventory(
   deps: InterpretationDeps,
   input: InterpretationInput,
 ): Promise<InterpretationOutcome> {
-  const base = await compositionBase(
+  const state = await compositionState(
     deps.db,
     input.senderHash,
     input.salesLocationId,
@@ -142,13 +203,14 @@ export async function applyInterpretedInventory(
   // Only the current task text and opaque identifiers cross the seam.
   const raw = await deps.interpreter.interpret({
     taskText: input.taskText,
-    currentEntries: (base?.entries ?? []).map((entry) => ({
+    currentEntries: (state.inventoryBase?.entries ?? []).map((entry) => ({
       entryId: entry.entryId,
       itemName: entry.itemName,
     })),
+    currentClosure: state.closureBase,
   });
 
-  const validated = validateInterpretation(raw, base);
+  const validated = validateInterpretation(raw, state.inventoryBase);
   if (!validated.ok) {
     return { outcome: "rejected", reason: validated.reason };
   }
@@ -157,31 +219,73 @@ export async function applyInterpretedInventory(
     return { outcome: "clarification", question: validated.value.question };
   }
 
-  const proposed = applyInventoryEdits(
-    base,
-    validated.value,
-    () => `draft_${randomUUID()}`,
-  );
+  const inventoryChange =
+    validated.value.kind === "edits" || validated.value.kind === "clear_all"
+      ? validated.value
+      : undefined;
+  const closureChange = validated.value.closure;
+
+  const proposedInventory = inventoryChange
+    ? applyInventoryEdits(
+        state.inventoryBase,
+        inventoryChange,
+        () => `draft_${randomUUID()}`,
+      )
+    : state.pendingInventory;
+  const proposedClosure = closureChange ?? state.pendingClosure;
+
+  // A future close cannot silently replace one that is active now. The farmer must first
+  // reopen or clarify which window they intend; Phase 1 stores one current/upcoming window.
+  if (
+    closureChange?.result === "close" &&
+    projectClosure(closureChange, deps.clock.now()).state === "upcoming" &&
+    projectClosure(state.closureBase, deps.clock.now()).state === "active"
+  ) {
+    return {
+      outcome: "clarification",
+      question:
+        "Your stand is already closed. Reopen it first, or tell me which closure should apply.",
+    };
+  }
+
+  if (proposedInventory === undefined && proposedClosure === undefined) {
+    return { outcome: "rejected", reason: "update contains no inventory or closure" };
+  }
   const opened = await openOrReviseProposal(deps.db, {
     senderHash: input.senderHash,
     salesLocationId: input.salesLocationId,
-    entries: proposed.entries.map((entry) => ({
-      entryId: entry.entryId,
-      itemName: entry.itemName,
-      quantity: entry.quantity,
-      unit: entry.unit,
-      priceText: entry.priceText,
-      approximation: entry.approximation,
-    })),
+    ...(proposedInventory !== undefined
+      ? {
+          entries: proposedInventory.entries.map((entry) => ({
+            entryId: entry.entryId,
+            itemName: entry.itemName,
+            quantity: entry.quantity,
+            unit: entry.unit,
+            priceText: entry.priceText,
+            approximation: entry.approximation,
+          })),
+          baseRevisionId: proposedInventory.baseRevisionId,
+          baseIsFirstPublication: proposedInventory.isFirstPublication,
+        }
+      : {}),
+    ...(proposedClosure !== undefined
+      ? {
+          closure: proposedClosure,
+          closureBaseRevisionId: state.closureBaseRevisionId,
+          closureBaseIsFirstInstruction: state.closureBaseIsFirstInstruction,
+        }
+      : {}),
     now: deps.clock.now(),
-    baseRevisionId: proposed.baseRevisionId,
-    baseIsFirstPublication: proposed.isFirstPublication,
   });
 
   return {
     outcome: "proposed",
     proposalId: opened.proposalId,
     proposalVersion: opened.proposalVersion,
-    confirmationText: renderProposedSnapshot(proposed),
+    confirmationText: renderProposedFarmerUpdate({
+      ...(proposedInventory !== undefined ? { inventory: proposedInventory } : {}),
+      ...(proposedClosure !== undefined ? { closure: proposedClosure } : {}),
+      at: deps.clock.now(),
+    }),
   };
 }

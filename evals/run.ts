@@ -305,7 +305,8 @@ fx("adversarial", "the seam a hostile model answers cannot widen what it was sho
   return (
     seen.length === 1 &&
     seen[0]!.seam === "inventory-extraction" &&
-    Object.keys(seen[0]!.fields as object).sort().join(",") === "currentEntries,taskText" &&
+    Object.keys(seen[0]!.fields as object).sort().join(",") ===
+      "currentClosure,currentEntries,taskText" &&
     !context.includes("senderHash") &&
     !context.includes("consent")
   );

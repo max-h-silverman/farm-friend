@@ -46,6 +46,7 @@ const OPEN_STATE_LABEL: Record<FilteredStand["openState"], string | null> = {
   // `open` gets no badge: the whole list is "what's here", and badging the normal case adds
   // noise to every card to say nothing.
   open: null,
+  farmer_closed: "Closed by farmer",
   closed: "Closed right now",
   closed_today: "Closed today",
   out_of_season: "Closed for the season",
@@ -420,6 +421,10 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                   </div>
                   <p className="farm">{stand.farmName}</p>
 
+                  {stand.closure?.state === "upcoming" ? (
+                    <p className="open-state open-state-upcoming">{stand.closure.label}</p>
+                  ) : null}
+
                   {/*
                     F-043 — the open-state badge, and the honesty rule it carries.
 
@@ -433,7 +438,9 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                   */}
                   {OPEN_STATE_LABEL[stand.openState] !== null ? (
                     <p className={`open-state open-state-${stand.openState}`}>
-                      {OPEN_STATE_LABEL[stand.openState]}
+                      {stand.closure?.state === "active"
+                        ? stand.closure.label
+                        : OPEN_STATE_LABEL[stand.openState]}
                     </p>
                   ) : null}
 
@@ -595,9 +602,16 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           </div>
 
           {/* Same honesty rule as the card: a stand we could not judge says so. */}
+          {selectedStand.closure?.state === "upcoming" ? (
+            <p className="open-state open-state-upcoming">
+              {selectedStand.closure.label}
+            </p>
+          ) : null}
           {OPEN_STATE_LABEL[selectedStand.openState] !== null ? (
             <p className={`open-state open-state-${selectedStand.openState}`}>
-              {OPEN_STATE_LABEL[selectedStand.openState]}
+              {selectedStand.closure?.state === "active"
+                ? selectedStand.closure.label
+                : OPEN_STATE_LABEL[selectedStand.openState]}
             </p>
           ) : null}
 

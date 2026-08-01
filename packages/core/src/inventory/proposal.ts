@@ -1,4 +1,12 @@
 import type { Clock } from "../clock";
+import {
+  projectClosure,
+  renderClosureStatus,
+  validateClosureInstruction,
+  type ClosureInstruction,
+} from "../public/closure";
+
+export type { ClosureInstruction } from "../public/closure";
 
 // The inventory publication proposal (F-014).
 //
@@ -61,8 +69,11 @@ export type InventoryInterpretation =
       additions: ProposedAddition[];
       changes: ProposedChange[];
       removals: ProposedRemoval[];
+      /** Optional second section; both sections publish in the same confirmation transaction. */
+      closure?: ClosureInstruction;
     }
-  | { kind: "clear_all" }
+  | { kind: "clear_all"; closure?: ClosureInstruction }
+  | { kind: "closure"; closure: ClosureInstruction }
   | { kind: "clarification"; question: string };
 
 /** The minimal projection the interpreter port receives. */
@@ -71,6 +82,8 @@ export interface InventoryInterpretationRequest {
   taskText: string;
   /** Opaque stable identifiers plus the item names needed to interpret a reference. */
   currentEntries: { entryId: string; itemName: string }[];
+  /** Current or pending location-wide instruction, never an arbitrary note. */
+  currentClosure: ClosureInstruction | null;
 }
 
 /**
@@ -151,10 +164,31 @@ export function validateInterpretation(
   const record = candidate as Record<string, unknown>;
 
   if (record.kind === "clear_all") {
-    if (!hasOnlyKeys(record, ["kind"])) {
+    if (!hasOnlyKeys(record, ["kind", "closure"])) {
       return { ok: false, reason: "clear_all carries no other fields" };
     }
-    return { ok: true, value: { kind: "clear_all" } };
+    const closure =
+      record.closure === undefined
+        ? undefined
+        : validateClosureInstruction(record.closure);
+    if (closure !== undefined && !closure.ok) return closure;
+    return {
+      ok: true,
+      value: {
+        kind: "clear_all",
+        ...(closure?.ok ? { closure: closure.value } : {}),
+      },
+    };
+  }
+
+  if (record.kind === "closure") {
+    if (!hasOnlyKeys(record, ["kind", "closure"])) {
+      return { ok: false, reason: "closure carries only its typed instruction" };
+    }
+    const closure = validateClosureInstruction(record.closure);
+    return closure.ok
+      ? { ok: true, value: { kind: "closure", closure: closure.value } }
+      : closure;
   }
 
   if (record.kind === "clarification") {
@@ -173,7 +207,7 @@ export function validateInterpretation(
   if (record.kind !== "edits") {
     return { ok: false, reason: `unsupported interpretation kind` };
   }
-  if (!hasOnlyKeys(record, ["kind", "additions", "changes", "removals"])) {
+  if (!hasOnlyKeys(record, ["kind", "additions", "changes", "removals", "closure"])) {
     // A field like `publish` or `recipientHash` is a consequence the model never owns.
     return { ok: false, reason: "edits carry no consequential fields" };
   }
@@ -184,6 +218,11 @@ export function validateInterpretation(
   }
 
   const known = new Set((base?.entries ?? []).map((entry) => entry.entryId));
+  const closure =
+    record.closure === undefined
+      ? undefined
+      : validateClosureInstruction(record.closure);
+  if (closure !== undefined && !closure.ok) return closure;
 
   for (const addition of additions) {
     if (typeof addition !== "object" || addition === null) {
@@ -258,6 +297,7 @@ export function validateInterpretation(
       additions: additions as ProposedAddition[],
       changes: changes as ProposedChange[],
       removals: removals as ProposedRemoval[],
+      ...(closure?.ok ? { closure: closure.value } : {}),
     },
   };
 }
@@ -279,7 +319,7 @@ function withoutUndefined(entry: SnapshotEntry): SnapshotEntry {
  */
 export function applyInventoryEdits(
   base: InventoryCompositionBase,
-  interpretation: Exclude<InventoryInterpretation, { kind: "clarification" }>,
+  interpretation: Extract<InventoryInterpretation, { kind: "edits" | "clear_all" }>,
   issueDraftEntryId: DraftEntryIdIssuer,
 ): ProposedSnapshot {
   const baseRevisionId =
@@ -362,6 +402,26 @@ export function renderProposedSnapshot(proposed: ProposedSnapshot): string {
   return [`Your stand will show:`, ...lines].join("\n");
 }
 
+/** Render every section this single confirmation will publish. */
+export function renderProposedFarmerUpdate(input: {
+  inventory?: ProposedSnapshot;
+  closure?: ClosureInstruction;
+  at: Date;
+}): string {
+  const sections: string[] = [];
+  if (input.closure !== undefined) {
+    sections.push(
+      input.closure.result === "reopen"
+        ? "Your stand will show as open."
+        : (renderClosureStatus(projectClosure(input.closure, input.at)) ??
+          "Your stand status will be updated."),
+    );
+  }
+  if (input.inventory !== undefined) sections.push(renderProposedSnapshot(input.inventory));
+  if (sections.length === 0) throw new Error("a farmer update needs at least one section");
+  return sections.join("\n\n");
+}
+
 /** The activation and binding facts a confirmation token is checked against. */
 export interface ProposalConfirmationState {
   proposalVersion: number;
@@ -369,6 +429,8 @@ export interface ProposalConfirmationState {
   activatedAt: Date | null;
   expiresAt: Date | null;
   baseRevisionId: string | null;
+  /** False for a closure-only proposal, whose inventory must not create a false conflict. */
+  hasInventory?: boolean;
 }
 
 export interface ConfirmationContext {
@@ -418,7 +480,7 @@ export function confirmationEligibility(
   if (context.clock.now() >= proposal.expiresAt) {
     return { status: "expired" };
   }
-  if (proposal.baseRevisionId !== context.currentRevisionId) {
+  if (proposal.hasInventory !== false && proposal.baseRevisionId !== context.currentRevisionId) {
     return { status: "base_conflict" };
   }
   return { status: "eligible" };

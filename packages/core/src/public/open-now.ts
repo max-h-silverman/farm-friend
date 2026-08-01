@@ -1,4 +1,5 @@
 import { VASHON, localMinutesOfDay, sunTimes } from "./daylight";
+import type { ClosureProjection } from "./closure";
 
 // F-043 — "is this stand open right now".
 //
@@ -75,6 +76,7 @@ export interface StandAvailabilityFacts {
  */
 export type OpenState =
   | "open"
+  | "farmer_closed"
   | "closed"
   | "closed_today"
   | "out_of_season"
@@ -97,6 +99,8 @@ export interface OpenNowAnswer {
 
 export interface OpenNowInput {
   availability: StandAvailabilityFacts;
+  /** The canonical read-time closure projection. Active closure overrides all schedules. */
+  closure?: ClosureProjection;
   /** The instant being asked about. */
   at: Date;
   /** Minutes to add to UTC for local clock time. Explicit, never read from the host. */
@@ -188,6 +192,7 @@ function inSeason(
  */
 export function openNow(input: OpenNowInput): OpenNowAnswer {
   const { availability, at, utcOffsetMinutes } = input;
+  if (input.closure?.state === "active") return { state: "farmer_closed" };
   const { month, day, weekday } = localDateParts(at, utcOffsetMinutes);
 
   const seasonal = inSeason(availability.season, month, day);

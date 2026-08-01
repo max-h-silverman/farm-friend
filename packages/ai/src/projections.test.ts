@@ -22,11 +22,41 @@ describe("inventory-extraction projection — the only permitted model input for
     });
 
     expect(ctx.seam).toBe("inventory-extraction");
-    expect(Object.keys(ctx.fields).sort()).toEqual(["currentEntries", "taskText"]);
+    expect(Object.keys(ctx.fields).sort()).toEqual([
+      "currentClosure",
+      "currentEntries",
+      "taskText",
+    ]);
     expect(ctx.fields.taskText).toBe("tomatoes gone, added kale");
     expect(ctx.fields.currentEntries).toEqual([
       { entryId: "e1", itemName: "tomatoes" },
     ]);
+    expect(ctx.fields.currentClosure).toBeNull();
+  });
+
+  it("copies only canonical closure facts and cannot leak a wider row", () => {
+    const currentClosure = {
+      result: "close" as const,
+      closureKind: "temporary" as const,
+      startsOn: "2026-08-02",
+      closedThrough: "2026-08-04",
+      farmerNote: "private note",
+      ownerPhoneHash: "deadbeef",
+    };
+    const ctx = projectInventoryExtraction({
+      taskText: "open again",
+      currentEntries: [],
+      currentClosure,
+    });
+
+    expect(ctx.fields.currentClosure).toEqual({
+      result: "close",
+      closureKind: "temporary",
+      startsOn: "2026-08-02",
+      closedThrough: "2026-08-04",
+    });
+    expect(JSON.stringify(ctx)).not.toContain("private note");
+    expect(JSON.stringify(ctx)).not.toContain("deadbeef");
   });
 
   it("copies each entry field-by-field, so an over-broad record cannot widen the context", () => {

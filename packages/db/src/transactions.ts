@@ -5,6 +5,7 @@ import type {
   LaunchConsentRecord,
   LaunchMessageCategory,
   ProhibitedPublicStringKind,
+  ClosureInstruction,
 } from "@farm-friend/core";
 import {
   confirmationEligibility,
@@ -557,11 +558,17 @@ export interface ProposalEntryInput {
 export interface OpenProposalInput {
   senderHash: string;
   salesLocationId: string;
-  entries: ProposalEntryInput[];
+  /** Complete inventory section. Absent means this proposal does not refresh inventory. */
+  entries?: ProposalEntryInput[];
+  /** Complete owner-only closure section. */
+  closure?: ClosureInstruction;
   now: Date;
   /** Defaults to the location's current published revision. */
   baseRevisionId?: string | null;
   baseIsFirstPublication?: boolean;
+  /** Defaults to the location's current closure instruction. */
+  closureBaseRevisionId?: string | null;
+  closureBaseIsFirstInstruction?: boolean;
   schemaVersion?: string;
 }
 
@@ -646,6 +653,9 @@ export async function openOrReviseProposal(
   input: OpenProposalInput,
 ): Promise<OpenProposalResult> {
   const sql = driver(db);
+  if (input.entries === undefined && input.closure === undefined) {
+    throw new Error("a proposal requires inventory, closure, or both");
+  }
 
   const opened = (await sql.begin(async (tx) => {
     await tx`
@@ -658,12 +668,40 @@ export async function openOrReviseProposal(
       where sender_hash = ${input.senderHash} for update
     `;
 
-    let baseRevisionId: string | null;
-    let isFirstPublication: boolean;
-    if (input.baseIsFirstPublication !== undefined) {
+    // Proposal creation is consequential too: an unauthorized sender must not be able to
+    // persist an owner-only closure for later activation. Take the same leading lock order
+    // as confirmation — sender, location, proposal, then authorization — before reading
+    // either base revision.
+    const locations = await tx`
+      select farm_id from sales_locations
+      where id = ${input.salesLocationId}
+      for update
+    `;
+    if (locations.length === 0) throw new Error("sales location does not exist");
+
+    const existing = await tx`
+      select id, proposal_version from inventory_publication_proposals
+      where sender_hash = ${input.senderHash} and state = 'open'
+      for update
+    `;
+    const ownerAuthorization = await tx`
+      select farmer.id from farmer_authorizations as farmer
+      join contacts on contacts.id = farmer.contact_id
+      where farmer.farm_id = ${locations[0]?.farm_id as string}
+        and contacts.phone_hash = ${input.senderHash}
+        and farmer.revoked_at is null
+      for update of farmer
+    `;
+    if (ownerAuthorization.length === 0) {
+      throw new Error("sender is not authorized for this sales location");
+    }
+
+    let baseRevisionId: string | null = null;
+    let isFirstPublication: boolean | null = null;
+    if (input.entries !== undefined && input.baseIsFirstPublication !== undefined) {
       baseRevisionId = input.baseRevisionId ?? null;
       isFirstPublication = input.baseIsFirstPublication;
-    } else {
+    } else if (input.entries !== undefined) {
       const current = await tx`
         select id from inventory_revisions
         where sales_location_id = ${input.salesLocationId} and is_current
@@ -672,16 +710,28 @@ export async function openOrReviseProposal(
       isFirstPublication = baseRevisionId === null;
     }
 
-    // The pending payload is the complete resulting snapshot, stored as opaque JSON.
-    const payload = { entries: input.entries } as unknown as Parameters<
+    let closureBaseRevisionId: string | null = null;
+    let closureBaseIsFirstInstruction: boolean | null = null;
+    if (input.closure !== undefined && input.closureBaseIsFirstInstruction !== undefined) {
+      closureBaseRevisionId = input.closureBaseRevisionId ?? null;
+      closureBaseIsFirstInstruction = input.closureBaseIsFirstInstruction;
+    } else if (input.closure !== undefined) {
+      const current = await tx`
+        select id from closure_revisions
+        where sales_location_id = ${input.salesLocationId} and is_current
+      `;
+      closureBaseRevisionId = (current[0]?.id as string | undefined) ?? null;
+      closureBaseIsFirstInstruction = closureBaseRevisionId === null;
+    }
+
+    // Both optional sections are complete results, never deltas. Presence is explicit in
+    // columns so a closure-only proposal cannot refresh inventory by accident.
+    const payload = {
+      ...(input.entries !== undefined ? { entries: input.entries } : {}),
+      ...(input.closure !== undefined ? { closure: input.closure } : {}),
+    } as unknown as Parameters<
       Tx["json"]
     >[0];
-    const existing = await tx`
-      select id, proposal_version from inventory_publication_proposals
-      where sender_hash = ${input.senderHash} and state = 'open'
-      for update
-    `;
-
     if (existing.length > 0) {
       const id = existing[0]?.id as string;
       const nextVersion = (existing[0]?.proposal_version as number) + 1;
@@ -692,8 +742,12 @@ export async function openOrReviseProposal(
         set payload = ${tx.json(payload)},
             proposal_version = ${nextVersion},
             sales_location_id = ${input.salesLocationId},
+            has_inventory = ${input.entries !== undefined},
+            has_closure = ${input.closure !== undefined},
             base_revision_id = ${baseRevisionId},
             base_is_first_publication = ${isFirstPublication},
+            closure_base_revision_id = ${closureBaseRevisionId},
+            closure_base_is_first_instruction = ${closureBaseIsFirstInstruction},
             activation_outbox_id = null,
             activated_version = null,
             activated_at = null,
@@ -707,13 +761,18 @@ export async function openOrReviseProposal(
     const inserted = await tx`
       insert into inventory_publication_proposals (
         sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, base_revision_id, base_is_first_publication,
+        yes_token, no_token, has_inventory, has_closure,
+        base_revision_id, base_is_first_publication,
+        closure_base_revision_id, closure_base_is_first_instruction,
         created_at, updated_at
       )
       values (
         ${input.senderHash}, ${input.salesLocationId}, ${tx.json(payload)},
-        ${input.schemaVersion ?? "1"}, 1, 'YES', 'NO', ${baseRevisionId},
-        ${isFirstPublication}, ${input.now}, ${input.now}
+        ${input.schemaVersion ?? "2"}, 1, 'YES', 'NO',
+        ${input.entries !== undefined}, ${input.closure !== undefined},
+        ${baseRevisionId}, ${isFirstPublication},
+        ${closureBaseRevisionId}, ${closureBaseIsFirstInstruction},
+        ${input.now}, ${input.now}
       )
       returning id
     `;
@@ -758,7 +817,11 @@ export interface ConfirmPublicationInput {
 }
 
 export type ConfirmPublicationResult =
-  | { status: "published"; revisionId: string }
+  | {
+      status: "published";
+      revisionId?: string;
+      closureRevisionId?: string;
+    }
   | { status: "declined" }
   | { status: "not_activated" }
   | { status: "awaiting_new_prompt" }
@@ -822,6 +885,12 @@ export async function confirmInventoryPublication(
       where sales_location_id = ${salesLocationId} and is_current
     `;
     const currentRevisionId = (currentRevision[0]?.id as string | undefined) ?? null;
+    const currentClosure = await tx`
+      select id from closure_revisions
+      where sales_location_id = ${salesLocationId} and is_current
+    `;
+    const currentClosureRevisionId =
+      (currentClosure[0]?.id as string | undefined) ?? null;
 
     const eligibility = confirmationEligibility(
       {
@@ -830,6 +899,7 @@ export async function confirmInventoryPublication(
         activatedAt: (proposal.activated_at as Date | null) ?? null,
         expiresAt: (proposal.expires_at as Date | null) ?? null,
         baseRevisionId: (proposal.base_revision_id as string | null) ?? null,
+        hasInventory: proposal.has_inventory as boolean,
       },
       {
         occurredAt: input.occurredAt,
@@ -858,6 +928,19 @@ export async function confirmInventoryPublication(
     }
     if (eligibility.status !== "eligible") {
       return { status: eligibility.status };
+    }
+
+    if (
+      proposal.has_closure === true &&
+      ((proposal.closure_base_revision_id as string | null) ?? null) !==
+        currentClosureRevisionId
+    ) {
+      await tx`
+        update inventory_publication_proposals
+        set state = 'invalidated', closed_at = ${input.occurredAt}, updated_at = ${input.occurredAt}
+        where id = ${input.proposalId}
+      `;
+      return { status: "base_conflict" };
     }
 
     if (input.token === "no") {
@@ -899,7 +982,10 @@ export async function confirmInventoryPublication(
     `;
     if (approval.length === 0) return { status: "not_approved" };
 
-    const payload = proposal.payload as { entries?: ProposalEntryInput[] };
+    const payload = proposal.payload as {
+      entries?: ProposalEntryInput[];
+      closure?: ClosureInstruction;
+    };
     const entries = payload.entries ?? [];
     const publicStrings = entries.flatMap((entry) =>
       [entry.itemName, entry.unit, entry.priceText].filter(
@@ -924,7 +1010,7 @@ export async function confirmInventoryPublication(
       where id = ${input.proposalId}
     `;
 
-    if (currentRevisionId !== null) {
+    if (proposal.has_inventory === true && currentRevisionId !== null) {
       await tx`
         update inventory_revisions
         set is_current = false, superseded_at = ${input.occurredAt}
@@ -932,43 +1018,89 @@ export async function confirmInventoryPublication(
       `;
     }
 
-    const revision = await tx`
-      insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-        farm_approval_id, published_at
-      )
-      values (
-        ${farmId}, ${salesLocationId}, ${input.proposalId},
-        ${authorization[0]?.id as string}, ${approval[0]?.id as string},
-        ${input.occurredAt}
-      )
-      returning id
-    `;
-    const revisionId = revision[0]?.id as string;
-
-    for (const [index, entry] of entries.entries()) {
-      await tx`
-        insert into inventory_entries (
-          inventory_revision_id, sales_location_id, item_name, quantity, unit,
-          price_text, approximation, sort_order
+    let revisionId: string | undefined;
+    if (proposal.has_inventory === true) {
+      const revision = await tx`
+        insert into inventory_revisions (
+          farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+          farm_approval_id, published_at
         )
         values (
-          ${revisionId}, ${salesLocationId}, ${entry.itemName},
-          ${entry.quantity ?? null}, ${entry.unit ?? null}, ${entry.priceText ?? null},
-          ${entry.approximation ?? null}, ${index}
+          ${farmId}, ${salesLocationId}, ${input.proposalId},
+          ${authorization[0]?.id as string}, ${approval[0]?.id as string},
+          ${input.occurredAt}
         )
+        returning id
       `;
+      revisionId = revision[0]?.id as string;
+
+      for (const [index, entry] of entries.entries()) {
+        await tx`
+          insert into inventory_entries (
+            inventory_revision_id, sales_location_id, item_name, quantity, unit,
+            price_text, approximation, sort_order
+          )
+          values (
+            ${revisionId}, ${salesLocationId}, ${entry.itemName},
+            ${entry.quantity ?? null}, ${entry.unit ?? null}, ${entry.priceText ?? null},
+            ${entry.approximation ?? null}, ${index}
+          )
+        `;
+      }
+    }
+
+    let closureRevisionId: string | undefined;
+    if (proposal.has_closure === true) {
+      const closure = payload.closure;
+      if (closure === undefined) throw new Error("closure proposal payload is missing closure");
+      if (currentClosureRevisionId !== null) {
+        await tx`
+          update closure_revisions
+          set is_current = false, superseded_at = ${input.occurredAt}
+          where id = ${currentClosureRevisionId}
+        `;
+      }
+      const inserted = await tx`
+        insert into closure_revisions (
+          owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+          owner_approval_id, result, closure_kind, starts_on, closed_through,
+          published_at
+        ) values (
+          ${farmId}, ${salesLocationId}, ${input.proposalId},
+          ${authorization[0]?.id as string}, ${approval[0]?.id as string},
+          ${closure.result},
+          ${closure.result === "close" ? closure.closureKind : null},
+          ${closure.result === "close" ? closure.startsOn : null},
+          ${closure.result === "close" ? closure.closedThrough ?? null : null},
+          ${input.occurredAt}
+        ) returning id
+      `;
+      closureRevisionId = inserted[0]?.id as string;
     }
 
     await queueOutbox(tx, {
-      logicalKey: `inventory-published-${revisionId}`,
+      logicalKey:
+        revisionId !== undefined && closureRevisionId === undefined
+          ? `inventory-published-${revisionId}`
+          : closureRevisionId !== undefined && revisionId === undefined
+            ? `closure-published-${closureRevisionId}`
+            : `farmer-update-published-${input.proposalId}`,
       recipientHash: input.senderHash,
       messageCategory: "inquiry_reply",
-      body: "Your listing is updated. Thank you!",
+      body:
+        proposal.has_inventory === true && proposal.has_closure === true
+          ? "Your stand status and listing are updated. Thank you!"
+          : proposal.has_closure === true
+            ? "Your stand status is updated. Thank you!"
+            : "Your listing is updated. Thank you!",
       now: input.occurredAt,
     });
 
-    return { status: "published", revisionId };
+    return {
+      status: "published",
+      ...(revisionId !== undefined ? { revisionId } : {}),
+      ...(closureRevisionId !== undefined ? { closureRevisionId } : {}),
+    };
   }) as Promise<ConfirmPublicationResult>;
 }
 

@@ -66,7 +66,7 @@ never a constant baked into the architecture.
 
 ## The model-vs-code line (the model proposes; code commits)
 
-The model **may**: interpret language; infer search intent; propose inventory changes; select and
+The model **may**: interpret language; infer search intent; propose inventory or closure changes; select and
 rank identifiers from relevant retrieved options; draft non-authoritative language where a seam
 permits it; suggest escalation. Model-authored prose may be returned only to the same actor whose
 current task text supplied its private context. Any cross-actor message is code-rendered from
@@ -98,7 +98,7 @@ for it in the meantime.
 
 | Seam | Permitted model input |
 |---|---|
-| inventory extraction | the current farmer message, plus opaque published or code-issued draft entry IDs and public item names from the sender's complete pending snapshot when open, otherwise the current published snapshot, for the farmer's own location |
+| inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), plus the current or pending canonical closure instruction for the farmer's own location |
 | stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
 | inquiry interpretation | the current customer SMS request |
 | grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
@@ -172,8 +172,12 @@ The catalog is **deliberately small** — a new seam must earn its place; prefer
 existing seam over adding a near-duplicate. Each is schema-validated, with one repair retry, then
 clarify or flag:
 
-- **inventory extraction** — farmer text → a structured inventory proposal (items, quantities or
-  approximate labels). Reused wherever a farmer describes stock naturally.
+- **inventory extraction** — farmer text → a structured farmer-update proposal: inventory edits,
+  owner-only close/reopen, both sections, or clarification. Closure output is restricted to typed
+  kind and exact local dates; vague timing, conflicting dates, sub-operation closure, multiple
+  windows, and a future close conflicting with an active one ask rather than guess. Code validates
+  the shape and authority and renders every public status; the model cannot publish or author a
+  public closure note. Reused wherever a farmer describes stock or stand status naturally.
 - **stock-out item parsing** — on the web/QR reporting surface, free text → which item (a listed
   entry or normalized text for an unlisted one). The surface supplies the sales-location identifier
   in code; it is never a model output. A free-text SMS may receive a link to the reporting surface

@@ -6,13 +6,16 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-07-31** (`main`, F-046 part 3 merged): `npm test`
-**766/766** (71 files); `npm run test:integration` **434/434** (24 files) on real Postgres 16, all
-**10** migrations from empty; typecheck and lint exit 0; `evals` critical 11/11, advisory 4/4,
-adversarial 29/29. `evals:live` was run for **F-045** — containment **4/4**, **recall 5/5**,
-quality **6/6** on Mistral Small 24B — and is **not owed** for F-046: no seam projection, schema,
-or output contract changed, and the selection projection never carried an address. The
-public-surface model-free tripwire and the architecture tripwires still pass.
+**Verified 2026-08-01** (`f-049-closure`, not merged or deployed): `npm test`
+**797/797** (76 files); `npm run test:integration` **481/481** (29 files) on real Postgres from
+empty schemas, including a populated 0000–0009 → 0010 migration; typecheck, lint, and the web
+production build exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29. Migration
+generation is a no-op after the hand-authored CHECK constraints and metadata. `evals:live` is
+owed because F-049 changes the inventory seam's projection, schema, and output contract; it has
+not run because paid API execution did not have approval accepted by the execution gate.
+
+Production remains on the F-046 deployment and **10 migrations**. Closure state, confirmation,
+public status, Open-now exclusion, and inquiry exclusion exist only on the unmerged F-049 branch.
 
 > One integration run out of ~12 this session failed and did not reproduce across the eleven
 > others (434/434 each), nor across six consecutive runs of the three suites this change touches.

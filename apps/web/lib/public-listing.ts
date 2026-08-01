@@ -10,6 +10,7 @@ import type {
   StandHours,
   StandSeason,
 } from "./map-view";
+import { readPublicClosure, type PublicClosure } from "./closure-projection";
 
 // Public web discovery — the MODEL-FREE half of F-019's channel boundary.
 //
@@ -115,6 +116,8 @@ export interface PublicStand {
    * a season and a time of day are separate things a farmer may or may not have given.
    */
   availability: StandAvailability;
+  /** Active or upcoming only; expired/reopened instructions disappear at read time. */
+  closure?: PublicClosure;
   items: PublicStandItem[];
 }
 
@@ -246,6 +249,10 @@ export async function listPublicStands(
       l.open_days as open_days,
       f.name as farm_name,
       r.published_at as published_at,
+      c.result as closure_result,
+      c.closure_kind as closure_kind,
+      c.starts_on::text as closure_starts_on,
+      c.closed_through::text as closure_closed_through,
       -- F-042 — aggregated in a subquery rather than joined alongside inventory_entries.
       -- A second LEFT JOIN would make this query a CROSS PRODUCT: 3 tags x 2 confirmed items
       -- is 6 rows, and the loop below would push each item three times and each tag twice.
@@ -271,6 +278,8 @@ export async function listPublicStands(
     join farms f on f.id = l.farm_id
     left join inventory_revisions r
       on r.sales_location_id = l.id and r.is_current
+    left join closure_revisions c
+      on c.sales_location_id = l.id and c.is_current
     left join inventory_entries e on e.inventory_revision_id = r.id
     where l.is_public
     order by r.published_at desc nulls last, l.id asc, e.sort_order asc
@@ -300,6 +309,7 @@ export async function listPublicStands(
       const latitude = row.public_latitude as number | null;
       const longitude = row.public_longitude as number | null;
       const isVisitable = row.visitability === "visitable";
+      const closure = readPublicClosure(row, now);
 
       stand = {
         factId: locationId,
@@ -328,6 +338,7 @@ export async function listPublicStands(
         // F-043 — always present, `{}` when the stand stated nothing. The inner fields carry
         // the stated/unstated distinction; see `readAvailability`.
         availability: readAvailability(row),
+        ...(closure !== undefined ? { closure } : {}),
         items: [],
       };
       byLocation.set(locationId, stand);
@@ -424,6 +435,7 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     // fields INSIDE are what carry stated-vs-unstated, and they are already absent rather
     // than null, so this passes straight through.
     availability: stand.availability,
+    ...(stand.closure !== undefined ? { closure: stand.closure } : {}),
     items: stand.items,
   };
 }

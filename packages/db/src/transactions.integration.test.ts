@@ -367,7 +367,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
       order by column_name
     `;
     expect(proposalColumns).toEqual([
-      { column_name: "base_is_first_publication", is_nullable: "NO" },
+      { column_name: "base_is_first_publication", is_nullable: "YES" },
       { column_name: "base_revision_id", is_nullable: "YES" },
       // Activation-relative: an unactivated proposal has no window at all.
       { column_name: "expires_at", is_nullable: "YES" },

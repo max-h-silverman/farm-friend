@@ -30,6 +30,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     expect(provider.seen).toHaveLength(1);
     expect(provider.seen[0]!.seam).toBe("inventory-extraction");
     expect(Object.keys(provider.seen[0]!.fields as object).sort()).toEqual([
+      "currentClosure",
       "currentEntries",
       "taskText",
     ]);

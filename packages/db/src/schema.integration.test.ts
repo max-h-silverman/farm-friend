@@ -38,6 +38,7 @@ const expectedTables = [
   "admin_sessions",
   "administrators",
   "audit_events",
+  "closure_revisions",
   "consent_transition_watermarks",
   "contacts",
   "farm_approvals",

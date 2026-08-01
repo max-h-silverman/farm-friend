@@ -14,6 +14,7 @@ export * from "./public/throttle";
 export * from "./public/proximity";
 export * from "./public/daylight";
 export * from "./public/open-now";
+export * from "./public/closure";
 export * from "./public/island-projection";
 export * from "./public/vcard";
 export * from "./public/public-string";

@@ -9,6 +9,7 @@ import {
   openNow,
   type OpenState,
 } from "@farm-friend/core/open-now";
+import type { PublicClosure } from "./closure-projection";
 
 // The public map's view model (F-017).
 //
@@ -77,6 +78,7 @@ export interface PublicStandPayload {
    * optional would put two absences in a row and force every reader to handle both.
    */
   availability: StandAvailability;
+  closure?: PublicClosure;
   items: {
     itemName: string;
     quantity?: number;
@@ -329,7 +331,9 @@ export function buildMapView(
       // implausible coordinate, but it cannot be handed `undefined`, and defaulting to 0 here
       // would ask it to route to the Gulf of Guinea.
       routingLink:
-        stand.latitude !== undefined && stand.longitude !== undefined
+        stand.closure?.state !== "active" &&
+        stand.latitude !== undefined &&
+        stand.longitude !== undefined
           ? destinationRoutingLink({
               latitude: stand.latitude,
               longitude: stand.longitude,
@@ -506,6 +510,7 @@ export function applyStandFilters<Stand extends PublicStandPayload>(
       ...stand,
       openState: openNow({
         availability: stand.availability,
+        closure: stand.closure,
         at: moment.at,
         utcOffsetMinutes: moment.utcOffsetMinutes,
         ...(stand.latitude !== undefined && stand.longitude !== undefined
@@ -518,6 +523,7 @@ export function applyStandFilters<Stand extends PublicStandPayload>(
         // `open`, `unknown` and `by_appointment` all stay. Only a stand we can positively say
         // is shut — because the farmer stated the fact that shuts it — is removed.
         const definitelyShut =
+          stand.openState === "farmer_closed" ||
           stand.openState === "closed" ||
           stand.openState === "closed_today" ||
           stand.openState === "out_of_season";

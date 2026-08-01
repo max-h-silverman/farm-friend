@@ -24,6 +24,24 @@ const itemFields = {
   priceText: nullAsAbsent(z.string()),
   approximation: nullAsAbsent(z.enum(["some", "limited", "plentiful"])),
 };
+const closureSchema = z.union([
+  z.object({ result: z.literal("reopen") }).strict(),
+  z
+    .object({
+      result: z.literal("close"),
+      closureKind: z.literal("temporary"),
+      startsOn: z.string(),
+      closedThrough: nullAsAbsent(z.string()),
+    })
+    .strict(),
+  z
+    .object({
+      result: z.literal("close"),
+      closureKind: z.literal("seasonal"),
+      startsOn: z.string(),
+    })
+    .strict(),
+]);
 
 // Every member is `.strict()`, INCLUDING at the top level. Zod strips unknown keys by
 // default rather than rejecting them, which would silently discard a smuggled `publish`
@@ -47,9 +65,13 @@ export const interpretationSchema = z.discriminatedUnion("kind", [
           .strict(),
       ),
       removals: z.array(z.object({ entryId: z.string() }).strict()),
+      closure: nullAsAbsent(closureSchema),
     })
     .strict(),
-  z.object({ kind: z.literal("clear_all") }).strict(),
+  z
+    .object({ kind: z.literal("clear_all"), closure: nullAsAbsent(closureSchema) })
+    .strict(),
+  z.object({ kind: z.literal("closure"), closure: closureSchema }).strict(),
   z.object({ kind: z.literal("clarification"), question: z.string().min(1) }).strict(),
 ]);
 
@@ -73,6 +95,7 @@ export function createInventoryInterpreter(provider: LLMProvider) {
     async interpret(request: {
       taskText: string;
       currentEntries: { entryId: string; itemName: string }[];
+      currentClosure?: import("@farm-friend/core").ClosureInstruction | null;
     }) {
       // The ONLY context that crosses the seam, constructed field by field.
       const ctx = projectInventoryExtraction(request);

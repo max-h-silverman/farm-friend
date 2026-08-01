@@ -94,8 +94,11 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   web inquiry**.
   `GET /api/public/stands` serves discovery and the map UI at `apps/web/app/page.tsx` renders those
   published records — every card carries code-rendered recency, and a stale listing stays visible
-  with a warning. Optional browser geolocation sorts by approximate straight-line distance in the
-  browser; destination-only Google Maps links delegate routing.
+  with a warning. One canonical read-time closure projection feeds the map/detail status, the
+  `Open now` decision, destination actions, discovery, and customer SMS: an active owner-confirmed
+  closure overrides the standing schedule, while a future closure is shown as upcoming. Optional
+  browser geolocation sorts by approximate straight-line distance in the browser;
+  destination-only Google Maps links delegate routing.
   `POST /api/public/stock-out` is the one public model-backed handler, behind the throttle.
   **The model-free property is structural, not a convention:** the public read path imports
   `lib/public-context.ts` (db + clock) rather than the full composition root, so no model seam is
@@ -215,8 +218,9 @@ order:
    establishes it only for a sender with no record, and otherwise replies naming `START`.
 2. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). FLAG is a
    **Farm Friend product safety feature**, not a carrier-mandated keyword.
-3. **Live inventory confirmation** — a context-bound `YES` or `NO` that applies to the sender's one
-   open inventory proposal. It is **never global**, commits **exactly once**, and **expires**. A token
+3. **Live farmer-update confirmation** — a context-bound `YES` or `NO` that applies to the sender's
+   one open proposal, carrying inventory, owner-only closure/reopening, or both. It is **never
+   global**, commits **exactly once**, and **expires**. A token
    must match deterministically and be the **entire message**; anything else is free text for the
    steps below.
 4. **Farmer product keywords** (F-040) — `SIGNUP` asks VIGA to set the farmer up, `LINK` asks for
@@ -238,7 +242,7 @@ order:
 7. **Authority and consent gates** determine what the sender may do.
 8. **Only then** may a model seam run.
 
-A confirmation token is accepted only for the sender's one open inventory proposal, after the
+A confirmation token is accepted only for the sender's one open farmer-update proposal, after the
 current prompt has been accepted by Telnyx, and only when the token's provider occurrence time
 follows that activation. Recording Telnyx's acceptance and activating that exact current proposal
 version are one database commit after the provider call; either both become durable or neither
@@ -251,11 +255,18 @@ derived from the registered 10DLC keyword lists, and a test reads
 
 ## Confirmation
 
-Launch has one confirmation mechanism and one consumer: **inventory publication**. A database
-constraint permits at most one open inventory proposal per sender. It records the proposal/version,
+Launch has one confirmation mechanism and one consumer: **farmer-update publication**. A database
+constraint permits at most one open proposal per sender. It records the proposal/version,
 allowed `YES`/`NO` tokens, expiry, and the outbox prompt that activates it. New farmer inventory
 text revises that same pending proposal rather than creating a second one; the proposal-version
 change suspends token acceptance until Telnyx accepts the new prompt.
+
+A proposal has explicit complete sections: inventory, owner-only closure/reopening, or both. The
+sections keep independent base revisions but share one confirmation transaction, so a mixed message
+publishes both or neither. Closure is append-only history separate from inventory: closing or
+reopening never refreshes or clears the inventory revision, and a bounded closure expires only in
+the shared read projection. No timer mutates history. Code renders closure status from kind and
+local Vashon dates; there is no farmer-authored public closure note.
 
 The structured proposal is a distinct pending payload, not a draft inventory revision. Inventory
 revisions are immutable published history. `NO` or expiry creates no revision. A successful `YES`
@@ -276,8 +287,9 @@ grant (when used) -> proposal -> authorizations -> approvals**. A revocation loc
 authorization, access, or approval row that confirmation validates; because it needs only that
 decision row, it introduces no reverse lock edge. Whichever transaction locks that row first defines
 the honest result without a deadlock. Confirmation then verifies the prompt/version and expiry,
-rechecks current farmer authority and VIGA approval under those locks, conditionally consumes the
-pending row once, and queues its response in the outbox. Before `YES` consumes anything or inserts a
+rechecks current owner authority and VIGA approval under those locks, conditionally consumes the
+pending row once, and queues its response in the outbox. Proposal creation also verifies owner
+authority before persisting an owner-only closure. Before `YES` consumes anything or inserts a
 revision, the shared publication boundary validates every free-form public inventory string — item
 name, unit, and price text — and refuses the whole proposal if it contains a phone number, email
 address, web link, or direct-contact instruction. SMS and farmer web render the same deterministic

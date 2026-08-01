@@ -122,7 +122,7 @@ export async function proposeFromLink(
 }
 
 export type FarmerStandConfirmation =
-  | { status: "published"; revisionId: string }
+  | { status: "published"; revisionId?: string; closureRevisionId?: string }
   | { status: "declined" }
   | { status: "not_authorized" }
   | { status: "refused"; reason: string; message?: string };
@@ -182,7 +182,13 @@ export async function confirmFromLink(
   });
 
   if (result.status === "published") {
-    return { status: "published", revisionId: result.revisionId };
+    return {
+      status: "published",
+      ...(result.revisionId !== undefined ? { revisionId: result.revisionId } : {}),
+      ...(result.closureRevisionId !== undefined
+        ? { closureRevisionId: result.closureRevisionId }
+        : {}),
+    };
   }
   if (result.status === "declined") return { status: "declined" };
   if (result.status === "unsafe_public_text") {
