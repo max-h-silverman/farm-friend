@@ -210,6 +210,8 @@ describe("interpreted inventory → pending proposal (integration)", () => {
       where sender_hash = ${farmerHash} and state = 'open'
     `;
     expect(afterFirst).toHaveLength(1);
+    const proposalId = afterFirst[0]?.id as string;
+    const firstVersion = afterFirst[0]?.proposal_version as number;
     const firstPayload = afterFirst[0]?.payload as {
       entries: { entryId: string; itemName: string }[];
     };
@@ -223,12 +225,24 @@ describe("interpreted inventory → pending proposal (integration)", () => {
         available_at, state, dispatch_authorized_at, completed_at, created_at
       )
       values (
-        'b028-first-prompt', ${farmerHash}, 'inventory_confirmation', 'Confirm',
+        ${`proposal-prompt-${proposalId}-${firstVersion}`}, ${farmerHash},
+        'inventory_confirmation', 'Confirm',
         ${new Date(T0.getTime() + 172_800_000)}, ${T0}, 'sent', ${T0}, ${T0}, ${T0}
       )
       returning id
     `;
     await activateAcceptedPrompt(db as Db, firstPrompt[0]?.id as string, T0);
+    const firstActivation = await client()`
+      select activation_outbox_id, activated_version, activated_at
+      from inventory_publication_proposals where id = ${proposalId}
+    `;
+    expect(firstActivation).toEqual([
+      {
+        activation_outbox_id: firstPrompt[0]?.id as string,
+        activated_version: firstVersion,
+        activated_at: T0,
+      },
+    ]);
 
     const secondSeen: { entryId: string; itemName: string }[][] = [];
     const secondInterpreter: InventoryInterpreter = {
@@ -328,7 +342,8 @@ describe("interpreted inventory → pending proposal (integration)", () => {
         available_at, state, dispatch_authorized_at, completed_at, created_at
       )
       values (
-        'b028-final-prompt', ${farmerHash}, 'inventory_confirmation', 'Confirm',
+        ${`proposal-prompt-${proposalId}-${afterThird[0]?.proposal_version as number}`},
+        ${farmerHash}, 'inventory_confirmation', 'Confirm',
         ${new Date(T0.getTime() + 172_800_000)}, ${finalPromptAt}, 'sent',
         ${finalPromptAt}, ${finalPromptAt}, ${finalPromptAt}
       )
@@ -342,7 +357,7 @@ describe("interpreted inventory → pending proposal (integration)", () => {
 
     const confirmedAt = new Date(T0.getTime() + 180_000);
     const published = await confirmInventoryPublication(db as Db, {
-      proposalId: afterFirst[0]?.id as string,
+      proposalId,
       senderHash: farmerHash,
       token: "yes",
       occurredAt: confirmedAt,

@@ -68,6 +68,7 @@ const unsafeCases = publicStringFields.flatMap((field) =>
 
 function proposedEntries(field: PublicStringField, value: string): ProposalEntryInput[] {
   const entry: ProposalEntryInput = {
+    entryId: `draft_public_string_${field}`,
     itemName: "eggs",
     quantity: 2,
     unit: "dozen",
@@ -169,7 +170,6 @@ describe("public-string safety at the shared publication boundary (integration)"
     if (input.activateForSms) {
       await proposal.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: `safety-prompt-${proposal.proposalId}`,
       });
     }
     return proposal.proposalId;
@@ -332,8 +332,20 @@ describe("public-string safety at the shared publication boundary (integration)"
   it("SMS publishes legitimate digit-bearing inventory", async () => {
     const actor = await farmer();
     const entries: ProposalEntryInput[] = [
-      { itemName: "2 dozen eggs", quantity: 2, unit: "dozen", priceText: "$12" },
-      { itemName: "potatoes", quantity: 18, unit: "lbs", priceText: "$1.50/lb" },
+      {
+        entryId: "draft_sms_eggs",
+        itemName: "2 dozen eggs",
+        quantity: 2,
+        unit: "dozen",
+        priceText: "$12",
+      },
+      {
+        entryId: "draft_sms_potatoes",
+        itemName: "potatoes",
+        quantity: 18,
+        unit: "lbs",
+        priceText: "$1.50/lb",
+      },
     ];
     const proposalId = await openProposal({
       ...actor,
@@ -358,14 +370,28 @@ describe("public-string safety at the shared publication boundary (integration)"
       db: database(),
       clock: new FixedClock(at(7)),
     })).find((stand) => stand.factId === actor.salesLocationId);
-    expect(publicStand?.items).toMatchObject(entries);
+    expect(publicStand?.items).toEqual(
+      entries.map(({ entryId: _draftId, ...publicValues }) => publicValues),
+    );
   });
 
   it("farmer web publishes legitimate digit-bearing inventory", async () => {
     const actor = await farmer();
     const entries: ProposalEntryInput[] = [
-      { itemName: "2 dozen eggs", quantity: 2, unit: "dozen", priceText: "$12" },
-      { itemName: "potatoes", quantity: 18, unit: "lbs", priceText: "$1.50/lb" },
+      {
+        entryId: "draft_web_eggs",
+        itemName: "2 dozen eggs",
+        quantity: 2,
+        unit: "dozen",
+        priceText: "$12",
+      },
+      {
+        entryId: "draft_web_potatoes",
+        itemName: "potatoes",
+        quantity: 18,
+        unit: "lbs",
+        priceText: "$1.50/lb",
+      },
     ];
     const proposalId = await openProposal({
       ...actor,
@@ -406,6 +432,8 @@ describe("public-string safety at the shared publication boundary (integration)"
       db: database(),
       clock: new FixedClock(at(7)),
     })).find((stand) => stand.factId === actor.salesLocationId);
-    expect(publicStand?.items).toMatchObject(entries);
+    expect(publicStand?.items).toEqual(
+      entries.map(({ entryId: _draftId, ...publicValues }) => publicValues),
+    );
   });
 });

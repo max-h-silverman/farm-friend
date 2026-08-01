@@ -188,7 +188,14 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
     const proposal = await openOrReviseProposal(database(), {
       senderHash: farmerHash,
       salesLocationId: locationId,
-      entries: [{ itemName: "kale", quantity: 2, unit: "bunches" }],
+      entries: [
+        {
+          entryId: "draft_b026_rollback_kale",
+          itemName: "kale",
+          quantity: 2,
+          unit: "bunches",
+        },
+      ],
       now: T0,
       baseIsFirstPublication: true,
     });
@@ -266,7 +273,7 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
     const v1 = await openOrReviseProposal(database(), {
       senderHash: farmerHash,
       salesLocationId: locationId,
-      entries: [{ itemName: "kale" }],
+      entries: [{ entryId: "draft_b026_v1_kale", itemName: "kale" }],
       now: T0,
       baseIsFirstPublication: true,
     });
@@ -275,7 +282,14 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
     const v2 = await openOrReviseProposal(database(), {
       senderHash: farmerHash,
       salesLocationId: locationId,
-      entries: [{ itemName: "eggs", quantity: 3, unit: "dozen" }],
+      entries: [
+        {
+          entryId: "draft_b026_v2_eggs",
+          itemName: "eggs",
+          quantity: 3,
+          unit: "dozen",
+        },
+      ],
       now: at(1),
       baseIsFirstPublication: true,
     });
@@ -285,7 +299,7 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
     const otherProposal = await openOrReviseProposal(database(), {
       senderHash: secondFarmerHash,
       salesLocationId: locationId,
-      entries: [{ itemName: "flowers" }],
+      entries: [{ entryId: "draft_b026_other_flowers", itemName: "flowers" }],
       now: at(1),
       baseIsFirstPublication: true,
     });
