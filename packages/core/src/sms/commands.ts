@@ -25,7 +25,7 @@ export type CommitmentToken = "YES" | "NO";
  * Neither one grants anything by itself — `SIGNUP` opens a queue entry VIGA acts on, and
  * `LINK` is refused unless the sender is already an authorized farmer.
  */
-export type FarmerKeyword = "SIGNUP" | "LINK";
+export type FarmerKeyword = "SIGNUP" | "LINK" | "STAND" | "SETTINGS";
 
 export type ParsedCommand =
   | { kind: "compliance"; keyword: ComplianceKeyword; global: boolean }
@@ -46,6 +46,8 @@ export type ParsedCommand =
    * collision that does not exist.
    */
   | { kind: "paging"; contextBound: true }
+  /** A numbered choice from the sender's current server-issued STAND menu. */
+  | { kind: "stand_selection"; optionNumber: number; contextBound: true }
   | { kind: "none" };
 
 // The keywords registered with the carrier in docs/TELNYX_10DLC_FIELD_VALUES.txt and promised
@@ -104,6 +106,8 @@ const FARMER_WORDS: Record<string, FarmerKeyword> = {
   SIGNUP: "SIGNUP",
   "SIGN UP": "SIGNUP",
   LINK: "LINK",
+  STAND: "STAND",
+  SETTINGS: "SETTINGS",
 };
 
 /**
@@ -159,6 +163,16 @@ export function parseCommand(body: string): ParsedCommand {
   // them.
   if (PAGING_WORDS.has(normalized)) {
     return { kind: "paging", contextBound: true };
+  }
+  // A number is meaningful only against the sender's current server-issued stand menu.
+  // Leading zeroes are refused so the reply has one canonical spelling and cannot become a
+  // second command grammar. The menu repository — not this parser — decides whether the
+  // number is bound, current, and authorized.
+  if (/^[1-9]\d*$/.test(normalized)) {
+    const optionNumber = Number(normalized);
+    if (Number.isSafeInteger(optionNumber)) {
+      return { kind: "stand_selection", optionNumber, contextBound: true };
+    }
   }
   return { kind: "none" };
 }

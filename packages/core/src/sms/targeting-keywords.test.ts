@@ -1,0 +1,71 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  bypassesModel,
+  parseCommand,
+  REGISTERED_HELP_KEYWORDS,
+  REGISTERED_OPT_IN_KEYWORDS,
+  REGISTERED_OPT_OUT_KEYWORDS,
+} from "./commands";
+
+const registeredFieldValues = resolve(
+  __dirname,
+  "../../../../docs/TELNYX_10DLC_FIELD_VALUES.txt",
+);
+
+describe("deterministic stand targeting keywords (F-051)", () => {
+  it("parses STAND and SETTINGS as whole-message farmer commands that bypass the model", () => {
+    for (const keyword of ["STAND", "SETTINGS"] as const) {
+      expect(parseCommand(keyword)).toEqual({ kind: "farmer", keyword });
+      expect(bypassesModel(keyword)).toBe(true);
+      expect(parseCommand(`open ${keyword.toLowerCase()}`)).toEqual({ kind: "none" });
+    }
+  });
+
+  it("parses a whole positive number as a context-bound stand choice", () => {
+    expect(parseCommand(" 2. ")).toEqual({
+      kind: "stand_selection",
+      optionNumber: 2,
+      contextBound: true,
+    });
+    for (const body of ["0", "-1", "2 stands", "1.5", "01"]) {
+      expect(parseCommand(body), body).toEqual({ kind: "none" });
+    }
+  });
+
+  it("keeps the full fixed precedence: compliance, commitment, farmer, paging, stand choice", () => {
+    for (const keyword of [
+      ...REGISTERED_OPT_OUT_KEYWORDS,
+      ...REGISTERED_OPT_IN_KEYWORDS,
+      ...REGISTERED_HELP_KEYWORDS,
+      "FLAG",
+    ]) {
+      expect(parseCommand(keyword).kind, keyword).toBe("compliance");
+    }
+    for (const token of ["YES", "NO", "Y", "N"]) {
+      expect(parseCommand(token).kind, token).toBe("commitment");
+    }
+    for (const keyword of ["SIGNUP", "LINK", "STAND", "SETTINGS"]) {
+      expect(parseCommand(keyword).kind, keyword).toBe("farmer");
+    }
+    for (const keyword of ["MORE", "NEXT"]) {
+      expect(parseCommand(keyword).kind, keyword).toBe("paging");
+    }
+    expect(parseCommand("1").kind).toBe("stand_selection");
+  });
+
+  it("never represents product targeting words as carrier-registered keywords", () => {
+    const registeredWords: readonly string[] = [
+      ...REGISTERED_OPT_OUT_KEYWORDS,
+      ...REGISTERED_OPT_IN_KEYWORDS,
+      ...REGISTERED_HELP_KEYWORDS,
+    ];
+    const registered = readFileSync(registeredFieldValues, "utf8");
+    const keywordBlock = registered.slice(registered.indexOf("KEYWORDS"));
+    for (const keyword of ["STAND", "SETTINGS"]) {
+      expect(registeredWords).not.toContain(keyword);
+      expect(keywordBlock).not.toMatch(new RegExp(`\\b${keyword}\\b`));
+    }
+  });
+});
