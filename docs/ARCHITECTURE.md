@@ -266,10 +266,14 @@ applies them to produce the *complete* pending snapshot the farmer is shown. Omi
 item; it never deletes one. `YES` publishes exactly that snapshot, so there is no durable delta,
 patch log, or replay mechanism, and confirmation always yields one complete immutable revision.
 
-The confirmation transaction locks the sender and pending row, verifies the prompt/version and
-expiry, rechecks current farmer authority and VIGA approval, conditionally consumes the pending row
-once, and queues its response in the outbox. `YES` publishes; `NO` declines without publication.
-Revoked authority or approval produces no publication.
+The confirmation transaction uses one shared lock order: **sender -> location -> participant/access
+grant (when used) -> proposal -> authorizations -> approvals**. A revocation locks the same
+authorization, access, or approval row that confirmation validates; because it needs only that
+decision row, it introduces no reverse lock edge. Whichever transaction locks that row first defines
+the honest result without a deadlock. Confirmation then verifies the prompt/version and expiry,
+rechecks current farmer authority and VIGA approval under those locks, conditionally consumes the
+pending row once, and queues its response in the outbox. `YES` publishes; `NO` declines without
+publication. Revoked authority or approval produces no publication.
 
 A stock-out alert is informational: it may ask the farmer to send current inventory. That reply
 enters the ordinary proposal and `YES`/`NO` flow. `OUT` and `IGNORE` are not commitment tokens and

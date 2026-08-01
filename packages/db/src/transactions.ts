@@ -751,9 +751,10 @@ export type ConfirmPublicationResult =
   | { status: "no_open_proposal" };
 
 /**
- * Consume the sender's one open proposal exactly once. The transaction locks the sender
- * and the pending row, rechecks the prompt/version, expiry, base revision, current
- * farmer authority and VIGA approval, then publishes and queues the response together.
+ * Consume the sender's one open proposal exactly once. Publication locks shared rows in
+ * this order: sender -> location -> participant/access grant (when one exists) -> proposal
+ * -> authorizations -> approvals. Revocation takes the same authority/approval rows, so
+ * whichever transaction locks first defines the honest result without a deadlock.
  *
  * `YES` publishes exactly the stored complete snapshot — never a replayed delta.
  */
@@ -772,6 +773,20 @@ export async function confirmInventoryPublication(
       where sender_hash = ${input.senderHash} for update
     `;
 
+    // The sender lock makes this preliminary binding stable: proposal revision also takes
+    // sender first. The proposal row itself is locked only after location, in shared order.
+    const target = await tx`
+      select sales_location_id from inventory_publication_proposals
+      where id = ${input.proposalId} and sender_hash = ${input.senderHash}
+    `;
+    if (target.length === 0) return { status: "no_open_proposal" };
+    const salesLocationId = target[0]?.sales_location_id as string;
+    const location = await tx`
+      select farm_id from sales_locations
+      where id = ${salesLocationId}
+      for update
+    `;
+
     const rows = await tx`
       select * from inventory_publication_proposals
       where id = ${input.proposalId} and sender_hash = ${input.senderHash}
@@ -781,7 +796,6 @@ export async function confirmInventoryPublication(
     const proposal = rows[0] as Record<string, unknown>;
     if (proposal.state !== "open") return { status: "already_consumed" };
 
-    const salesLocationId = proposal.sales_location_id as string;
     const currentRevision = await tx`
       select id from inventory_revisions
       where sales_location_id = ${salesLocationId} and is_current
@@ -843,11 +857,8 @@ export async function confirmInventoryPublication(
       return { status: "declined" };
     }
 
-    // Authority and approval are re-read while the locks are held: a revocation that
-    // committed after the prompt was sent must prevent publication.
-    const location = await tx`
-      select farm_id from sales_locations where id = ${salesLocationId}
-    `;
+    // These are the final shared locks. If revocation committed first, the filtered lock
+    // returns no row; if confirmation locked first, revocation queues until publication.
     const farmId = location[0]?.farm_id as string;
 
     const authorization = await tx`
@@ -856,12 +867,14 @@ export async function confirmInventoryPublication(
       where farmer.farm_id = ${farmId}
         and contacts.phone_hash = ${input.senderHash}
         and farmer.revoked_at is null
+      for update of farmer
     `;
     if (authorization.length === 0) return { status: "not_authorized" };
 
     const approval = await tx`
       select id from farm_approvals
       where farm_id = ${farmId} and revoked_at is null
+      for update
     `;
     if (approval.length === 0) return { status: "not_approved" };
 

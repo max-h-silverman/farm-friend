@@ -19,6 +19,8 @@ import {
   recordDispatchResult,
   recoverAbandonedDispatches,
   releaseAbandonedClaims,
+  revokeFarmApproval,
+  revokeFarmerAuthorization,
   type Db,
 } from "./index";
 
@@ -57,6 +59,7 @@ const farmerHash = "1".repeat(64);
  */
 const newcomerHash = "3".repeat(64);
 const customerHash = "2".repeat(64);
+const secondFarmerHash = "4".repeat(64);
 
 // The fixture timeline is ANCHORED TO THE REAL CLOCK, not to a calendar date.
 //
@@ -76,6 +79,31 @@ const at = (minutesFromT0: number) => new Date(T0.getTime() + minutesFromT0 * 60
 
 /** Far enough ahead of any row's `created_at` to satisfy the retention constraint. */
 const BODY_EXPIRES_AT = at(48 * 60);
+
+async function waitForBlockedSessions(
+  observer: Sql,
+  blockerPid: number,
+  expected: number,
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const rows = await observer`
+      with recursive queued(pid) as (
+        select pid from pg_stat_activity
+        where datname = current_database()
+          and ${blockerPid} = any(pg_blocking_pids(pid))
+        union
+        select activity.pid from pg_stat_activity as activity
+        join queued on queued.pid = any(pg_blocking_pids(activity.pid))
+        where activity.datname = current_database()
+      )
+      select count(*)::integer as count from queued
+    `;
+    if ((rows[0]?.count as number) >= expected) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`expected ${expected} session(s) queued behind blocker ${blockerPid}`);
+}
 
 describe("authoritative SMS transactions (integration)", () => {
   let adminClient: Sql | undefined;
@@ -124,6 +152,73 @@ describe("authoritative SMS transactions (integration)", () => {
     return db;
   }
 
+  async function holdDecisionRowLock(
+    table: "authorization" | "approval" | "location",
+    rowId: string,
+  ): Promise<{ blockerPid: number; release: () => Promise<void> }> {
+    const blocker = postgres(
+      testDatabaseUrl(requiredDatabaseUrl(), testDatabaseName as string),
+      { max: 1 },
+    );
+    let releaseGate!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    let locked!: (pid: number) => void;
+    const lockHeld = new Promise<number>((resolve) => {
+      locked = resolve;
+    });
+    const blocking = blocker.begin(async (tx) => {
+      const backend = await tx`select pg_backend_pid()::integer as pid`;
+      // On decision rows, SHARE blocks both the explicit confirmation lock and revocation's
+      // non-key update while remaining compatible with the FK's KEY SHARE. A stronger blocker
+      // would let this pass later at the FK even if the explicit lock were deleted.
+      if (table === "authorization") {
+        await tx`select id from farmer_authorizations where id = ${rowId} for share`;
+      } else if (table === "approval") {
+        await tx`select id from farm_approvals where id = ${rowId} for share`;
+      } else {
+        await tx`select id from sales_locations where id = ${rowId} for key share`;
+      }
+      locked(backend[0]?.pid as number);
+      await held;
+    });
+
+    const blockerPid = await lockHeld;
+    return {
+      blockerPid,
+      release: async () => {
+        releaseGate();
+        await blocking;
+        await blocker.end({ timeout: 5 });
+      },
+    };
+  }
+
+  async function queueBehindBlocker<T, U>(
+    blocker: { blockerPid: number; release: () => Promise<void> },
+    first: () => Promise<T>,
+    second: () => Promise<U>,
+  ): Promise<[T, U]> {
+    const firstPromise = first();
+    let secondPromise: Promise<U> | undefined;
+    try {
+      await waitForBlockedSessions(client(), blocker.blockerPid, 1);
+      secondPromise = second();
+      await waitForBlockedSessions(client(), blocker.blockerPid, 2);
+    } catch (error) {
+      await blocker.release();
+      await Promise.allSettled(
+        secondPromise === undefined
+          ? [firstPromise]
+          : [firstPromise, secondPromise],
+      );
+      throw error;
+    }
+    await blocker.release();
+    return Promise.all([firstPromise, secondPromise as Promise<U>]);
+  }
+
   beforeEach(async () => {
     // Each test starts from a clean, fully-approved fixture farm.
     await client()`
@@ -140,7 +235,7 @@ describe("authoritative SMS transactions (integration)", () => {
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash)
       values ('+12065550301', ${farmerHash}), ('+12065550302', ${customerHash}),
-             ('+12065550303', ${newcomerHash})
+             ('+12065550303', ${newcomerHash}), ('+12065550304', ${secondFarmerHash})
       returning id, phone_hash
     `;
     for (const row of contacts) ids[row.phone_hash as string] = row.id as string;
@@ -575,6 +670,124 @@ describe("authoritative SMS transactions (integration)", () => {
       });
     }
 
+    async function raceRevocationAgainstConfirmation(
+      kind: "authorization" | "approval",
+      winner: "confirmation" | "revocation",
+    ): Promise<void> {
+      const proposal = await openProposal();
+      await proposal.activate({
+        providerAcceptedAt: at(5),
+        outboxLogicalKey: `wf-${kind}-${winner}-prompt`,
+      });
+      const blocker =
+        winner === "confirmation"
+          ? await holdDecisionRowLock(
+              kind,
+              kind === "authorization"
+                ? (ids.authorization as string)
+                : (ids.approval as string),
+            )
+          : await holdDecisionRowLock("location", ids.location as string);
+
+      const confirm = () =>
+        confirmInventoryPublication(database(), {
+          proposalId: proposal.proposalId,
+          senderHash: farmerHash,
+          token: "yes",
+          occurredAt: at(6),
+          providerEventId: `confirm-${kind}-${winner}`,
+          clock: new FixedClock(at(6)),
+        });
+      const revoke = async (): Promise<{ status: string }> =>
+        kind === "authorization"
+          ? await revokeFarmerAuthorization(database(), {
+              authorizationId: ids.authorization as string,
+              administratorId: ids.administrator as string,
+              occurredAt: at(winner === "revocation" ? 5.5 : 6.5),
+            })
+          : await revokeFarmApproval(database(), {
+              farmId: ids.farm as string,
+              administratorId: ids.administrator as string,
+              occurredAt: at(winner === "revocation" ? 5.5 : 6.5),
+            });
+
+      let confirmation: Awaited<ReturnType<typeof confirm>>;
+      let revocation: Awaited<ReturnType<typeof revoke>>;
+      if (winner === "confirmation") {
+        [confirmation, revocation] = await queueBehindBlocker(
+          blocker,
+          confirm,
+          revoke,
+        );
+      } else {
+        const confirming = confirm();
+        try {
+          await waitForBlockedSessions(client(), blocker.blockerPid, 1);
+          revocation = await revoke();
+        } catch (error) {
+          await blocker.release();
+          await confirming.catch(() => undefined);
+          throw error;
+        }
+        await blocker.release();
+        confirmation = await confirming;
+      }
+
+      expect(revocation.status).toBe("revoked");
+      expect(confirmation.status).toBe(
+        winner === "confirmation"
+          ? "published"
+          : kind === "authorization"
+            ? "not_authorized"
+            : "not_approved",
+      );
+
+      const proposalRows = await client()`
+        select state, consumed_token
+        from inventory_publication_proposals where id = ${proposal.proposalId}
+      `;
+      expect(proposalRows[0]?.state).toBe(
+        winner === "confirmation" ? "accepted" : "open",
+      );
+      expect(proposalRows[0]?.consumed_token).toBe(
+        winner === "confirmation" ? "yes" : null,
+      );
+
+      const published = await client()`
+        select revision.is_current, entry.item_name
+        from inventory_revisions as revision
+        join inventory_entries as entry on entry.inventory_revision_id = revision.id
+        where revision.proposal_id = ${proposal.proposalId}
+      `;
+      expect(published).toHaveLength(winner === "confirmation" ? 1 : 0);
+      if (winner === "confirmation") {
+        expect(published[0]?.is_current).toBe(true);
+        expect(published[0]?.item_name).toBe("Potatoes");
+      }
+
+      const receipts = await client()`
+        select body from outbox_work
+        where logical_key like 'inventory-published-%'
+      `;
+      expect(receipts.map((row) => row.body)).toEqual(
+        winner === "confirmation"
+          ? ["Your listing is updated. Thank you!"]
+          : [],
+      );
+
+      const revoked =
+        kind === "authorization"
+          ? await client()`
+              select revoked_at from farmer_authorizations
+              where id = ${ids.authorization as string}
+            `
+          : await client()`
+              select revoked_at from farm_approvals
+              where id = ${ids.approval as string}
+            `;
+      expect(revoked[0]?.revoked_at).not.toBeNull();
+    }
+
     it("keeps exactly one open proposal per sender and increments its version", async () => {
       const first = await openProposal();
       const revised = await openProposal({ entries: [{ itemName: "Bok choy" }] });
@@ -695,6 +908,156 @@ describe("authoritative SMS transactions (integration)", () => {
         select count(*)::integer as count from inventory_revisions
       `;
       expect(revisions[0]?.count).toBe(0);
+    });
+
+    it("locks farmer authority before publishing", async () => {
+      const proposal = await openProposal();
+      await proposal.activate({
+        providerAcceptedAt: at(5),
+        outboxLogicalKey: "wf-prompt-authority-lock",
+      });
+
+      const blocker = postgres(
+        testDatabaseUrl(requiredDatabaseUrl(), testDatabaseName as string),
+        { max: 1 },
+      );
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let locked!: (pid: number) => void;
+      const lockHeld = new Promise<number>((resolve) => {
+        locked = resolve;
+      });
+      const blocking = blocker.begin(async (tx) => {
+        const backend = await tx`select pg_backend_pid()::integer as pid`;
+        await tx`
+          select id from farmer_authorizations
+          where id = ${ids.authorization as string}
+          for key share
+        `;
+        locked(backend[0]?.pid as number);
+        await held;
+      });
+
+      const blockerPid = await lockHeld;
+      const confirming = confirmInventoryPublication(database(), {
+        proposalId: proposal.proposalId,
+        senderHash: farmerHash,
+        token: "yes",
+        occurredAt: at(6),
+        providerEventId: "confirm-authority-lock",
+        clock: new FixedClock(at(6)),
+      });
+
+      try {
+        await waitForBlockedSessions(client(), blockerPid, 1);
+      } finally {
+        release();
+        await blocking;
+        await blocker.end({ timeout: 5 });
+      }
+
+      expect((await confirming).status).toBe("published");
+    });
+
+    for (const kind of ["authorization", "approval"] as const) {
+      for (const winner of ["revocation", "confirmation"] as const) {
+        it(`${kind} ${winner} wins its queued race honestly`, async () => {
+          await raceRevocationAgainstConfirmation(kind, winner);
+        });
+      }
+    }
+
+    it("turns two contacts' first-publication race into one clean base conflict", async () => {
+      await client()`
+        insert into farmer_authorizations (
+          farm_id, contact_id, phone_verified_at, authorized_at
+        )
+        values (
+          ${ids.farm as string}, ${ids[secondFarmerHash] as string}, ${T0}, ${T0}
+        )
+      `;
+
+      const first = await openProposal({ entries: [{ itemName: "Potatoes" }] });
+      const second = await openOrReviseProposal(database(), {
+        senderHash: secondFarmerHash,
+        salesLocationId: ids.location as string,
+        entries: [{ itemName: "Eggs" }],
+        now: T0,
+      });
+      await first.activate({
+        providerAcceptedAt: at(5),
+        outboxLogicalKey: "wf-first-publication-a",
+      });
+      await second.activate({
+        providerAcceptedAt: at(5),
+        outboxLogicalKey: "wf-first-publication-b",
+      });
+
+      const blocker = await holdDecisionRowLock(
+        "location",
+        ids.location as string,
+      );
+      const confirmFirst = () =>
+        confirmInventoryPublication(database(), {
+          proposalId: first.proposalId,
+          senderHash: farmerHash,
+          token: "yes",
+          occurredAt: at(6),
+          providerEventId: "confirm-first-publication-a",
+          clock: new FixedClock(at(6)),
+        });
+      const confirmSecond = () =>
+        confirmInventoryPublication(database(), {
+          proposalId: second.proposalId,
+          senderHash: secondFarmerHash,
+          token: "yes",
+          occurredAt: at(6),
+          providerEventId: "confirm-first-publication-b",
+          clock: new FixedClock(at(6)),
+        });
+
+      const results = await queueBehindBlocker(
+        blocker,
+        confirmFirst,
+        confirmSecond,
+      );
+      expect(results.map((result) => result.status).sort()).toEqual([
+        "base_conflict",
+        "published",
+      ]);
+
+      const proposalRows = await client()`
+        select id, state, consumed_token
+        from inventory_publication_proposals
+        where id in (${first.proposalId}, ${second.proposalId})
+      `;
+      expect(proposalRows.map((row) => row.state).sort()).toEqual([
+        "accepted",
+        "invalidated",
+      ]);
+      expect(
+        proposalRows.filter((row) => row.consumed_token === "yes"),
+      ).toHaveLength(1);
+
+      const published = await client()`
+        select revision.proposal_id, revision.is_current, entry.item_name
+        from inventory_revisions as revision
+        join inventory_entries as entry on entry.inventory_revision_id = revision.id
+        where revision.sales_location_id = ${ids.location as string}
+      `;
+      expect(published).toHaveLength(1);
+      expect(published[0]?.is_current).toBe(true);
+      expect(["Potatoes", "Eggs"]).toContain(published[0]?.item_name);
+
+      const receipts = await client()`
+        select body from outbox_work
+        where logical_key like 'inventory-published-%'
+      `;
+      expect(receipts.map((row) => row.body)).toEqual([
+        "Your listing is updated. Thank you!",
+      ]);
     });
 
     it("refuses to publish when VIGA approval was revoked", async () => {
