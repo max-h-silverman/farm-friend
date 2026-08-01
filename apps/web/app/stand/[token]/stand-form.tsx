@@ -267,7 +267,6 @@ export function StandForm({
           value={participantText}
           rows={4}
           onChange={(event) => setParticipantText(event.target.value)}
-          placeholder={"Guest Growers\nIsland Apiary"}
         />
         <button
           className="farmer-participants-save"

@@ -26,9 +26,11 @@ Browser verification used the real local server and Postgres at 1440px and a tru
 viewport. Captures cover populated and empty lists, populated and empty save success, an unsafe-name
 refusal with input preserved, a link revoked after page load refusing the next save, the public
 desktop card, and the mobile marker/detail sheet. Durable-row checks confirmed empty save retired
-both historical names and the revoked save left its separate stand unchanged. No visual defect was
-found. `evals:live` was not run: F-050 adds a structured deterministic action and public field but
-does not change a model seam's projection, schema, or output contract.
+both historical names and the revoked save left its separate stand unchanged. Visual review found
+that the empty textarea's example-name placeholder contradicted the successful empty state; the
+test-first fix removes that placeholder, and the corrected 390px capture is honestly blank.
+`evals:live` was not run: F-050 adds a structured deterministic action and public field but does not
+change a model seam's projection, schema, or output contract.
 
 **F-049 was independently verified 2026-08-01 at exact SHA `8ae4d32`.** Unit **817/817**
 (78 files); real-Postgres empty-schema integration **482/482** (29 files), including a populated

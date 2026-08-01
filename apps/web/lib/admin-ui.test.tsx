@@ -439,9 +439,12 @@ describe("the farmer stand form", () => {
     );
     render(<StandForm token="private-token" initialParticipantNames={[]} />);
 
-    expect(screen.getByRole("textbox", { name: "Also selling here" })).toHaveValue("");
+    const names = screen.getByRole("textbox", { name: "Also selling here" });
+    expect(names).toHaveValue("");
+    expect(names).not.toHaveAttribute("placeholder");
     await user.click(screen.getByRole("button", { name: "Save seller names" }));
     expect(await screen.findByRole("status")).toHaveTextContent(/no other sellers are shown/i);
+    expect(names).not.toHaveAttribute("placeholder");
   });
 
   it("keeps seller names unchanged on validation error and shows revocation recovery", async () => {
