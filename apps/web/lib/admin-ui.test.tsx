@@ -471,4 +471,40 @@ describe("the farmer stand form", () => {
       "#new-link-help",
     );
   });
+
+  it("clears a prior terminal status when a new proposal begins and fails", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          response(200, {
+            outcome: "proposed",
+            proposalId: "proposal-1",
+            confirmationText: "Kale — $3/bunch",
+          }),
+        )
+        .mockResolvedValueOnce(response(200, { outcome: "published" }))
+        .mockResolvedValueOnce(response(500, { message: "Could not save the proposal." })),
+    );
+    render(<StandForm token="private-token" />);
+
+    const input = screen.getByRole("textbox", {
+      name: "What does your stand have today?",
+    });
+    await user.type(input, "kale $3 a bunch");
+    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
+
+    const nextInput = screen.getByRole("textbox", {
+      name: "What does your stand have today?",
+    });
+    await user.type(nextInput, "eggs");
+    await user.click(screen.getByRole("button", { name: "Preview update" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save the proposal.");
+    expect(screen.queryByText("Your stand is updated. Thank you!")).toBeNull();
+  });
 });

@@ -72,6 +72,10 @@ export function StandForm({ token }: { token: string }) {
 
   async function propose() {
     if (text.trim() === "") return;
+    // A publication, decline, or clarification describes the request that just ended.
+    // Once another proposal starts, keeping that terminal message beside a new failure
+    // would make two contradictory claims about the current request.
+    setStage({ step: "typing" });
     const payload = await post({ action: "propose", text });
     if (payload === null) return;
 

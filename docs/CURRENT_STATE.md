@@ -6,26 +6,45 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-08-01** (`f-049-closure`, not merged or deployed): `npm test`
-**817/817** (78 files); `npm run test:integration` **482/482** (29 files) on real Postgres from
-empty schemas, including a populated 0000–0009 → 0010 migration; typecheck, lint, and the web
-production build exit 0; `evals` critical 11/11, advisory 4/4, adversarial 29/29. Migration
-generation is a no-op after the hand-authored CHECK constraints and metadata. `evals:live` is
-owed because F-049 changes the inventory seam's projection, schema, and output contract. The first
-approved run kept containment **4/4** and recall **5/5**, but only **2/7** required closure outcomes
-passed: the model copied static example dates, dropped inventory from mixed updates, and guessed
-through three ambiguity classes. That runner incorrectly exited 0 because closure cases were still
-observational quality. The branch now resolves supported timing before the model, rejects output
-that disagrees with code evidence, removes the date anchors, and makes all seven closure cases a
-required live gate. The paid rerun is still owed.
+**Verified 2026-08-01** (`f-055-admin-ui-completion`, rebased onto F-049 at `8ae4d32`):
+`npm test` **828/828** (79 files); `npm run test:integration` **482/482** (29 files) against
+real Postgres using isolated empty schemas; typecheck, lint, and the production web build exit 0.
+The first two full integration runs each hit one Postgres `40P01` deadlock in a routing-test
+`TRUNCATE`; the named test moved between runs, no assertion failed, the branch was clean, and the
+third identical full run passed 482/482. The build retains two known warnings:
+`outputFileTracingRoot` is not recognized by this Next.js version, and its ESLint plugin is not
+detected.
 
-Production remains on the F-046 deployment and **10 migrations**. Closure state, confirmation,
-public status, Open-now exclusion, and inquiry exclusion exist only on the unmerged F-049 branch.
+**F-049 was independently verified 2026-08-01 at exact SHA `8ae4d32`.** Unit **817/817**
+(78 files); real-Postgres empty-schema integration **482/482** (29 files), including a populated
+0000–0009 → 0010 migration; typecheck, lint, production build, and non-live evals passed. Closure
+is a lifecycle separate from inventory; supported timing is resolved deterministically from the
+supplied Vashon local date before the model, and model output must agree with that code evidence.
+The first approved paid run passed containment **4/4** and recall **5/5** but only **2/7** closure
+cases: static example dates leaked into output, mixed updates dropped inventory, and three
+ambiguity classes were guessed through. The runner also incorrectly treated those failures as
+observational. After removing date anchors and making all seven closure cases a required gate, the
+approved exact-SHA rerun passed **4/4 containment, 7/7 closure, 6/6 quality, and 5/5 recall**.
+Do not rerun it for F-055: the UI work changes no model projection, schema, or output contract.
 
-> One integration run out of ~12 this session failed and did not reproduce across the eleven
-> others (434/434 each), nor across six consecutive runs of the three suites this change touches.
-> **Its test name was not captured**, so it is recorded as environmental — consistent with
-> **B-020** — rather than *attributed* to B-020.
+**F-055 browser verification is complete locally and is not deployed.** The standalone production
+build was exercised with synthetic data at a true 390px viewport and at 1440px. Retained captures
+cover all five admin routes with populated and empty queues; flag-thread loading and retained
+messages; approval, flag, report, and stand-data success states; a concurrent-review conflict;
+expired-action and generic signed-out recovery; real session revocation on sign-out; the farmer
+form's typing, clarification, loading, exact preview, decline, publication, request-error, and
+revoked-link states. Admin decisions, one-time link issue/copy, thread reading, and sign-out used
+the real local server and database. Farmer-stage HTTP responses were intercepted because the
+configured deterministic model stub cannot propose inventory; publication authority and durable
+effects remain covered by the real-Postgres integration suite, not claimed from those captures.
+Every exercised page had no horizontal overflow; rendered workflow controls were at least 48px;
+keyboard focus was visible; sampled normal text met 4.5:1 contrast; and admin HTML carried neither
+raw E.164 numbers nor 64-hex credentials. Visual review found one contradictory state — an old
+green publication message survived beside a later request error — and the test-first fix now
+clears the completed state when a new proposal begins.
+
+Production remains on the F-046 deployment and **10 migrations**. F-049 closure behavior and the
+F-055 UI completion exist only on this unmerged branch.
 
 **Deployed 2026-07-31 (F-046, complete)** — revisions `farm-friend-web-00013-djk` /
 `farm-friend-worker-00014-qv2`, one digest `sha256:5e6a4d49…` on both, built from `1fa68d1`.
@@ -468,9 +487,10 @@ fixtures supply what production never creates.
   confirmation (asserting "refused" and "still open" was satisfiable by the exact attack it
   forbids), the two independent cross-farmer defenses being indistinguishable, and the token shape
   guard (null with or without it — now asserted by query count).
-  **Owed: nobody has looked at the screens.** `/stand/<token>` and `/admin/farmers` serve correct
-  markup and classes, but the CSS has **not been seen rendered** — the browser extension was not
-  connected. Same debt F-042 carries.
+  **The screens have now been exercised in F-055's local production build.** `/stand/<token>` and
+  `/admin/farmers` were checked at 390px and 1440px with populated, empty, loading, error, success,
+  revoked-link, and expired-session states. This visual completion is committed but not deployed;
+  production still serves the previously deployed F-040 surface until Max approves a release.
   **Live in production**, migration first then image. No farmer has been authorized yet — the
   tables are empty, so the first real use is VIGA setting someone up at `/admin/farmers`.
 - **B-025 — CLOSED 2026-07-30. Cause was the MINIFIER, not the network.** The filed diagnosis was
