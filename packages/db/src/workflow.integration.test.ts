@@ -664,7 +664,7 @@ describe("authoritative SMS transactions (integration)", () => {
       return openOrReviseProposal(database(), {
         senderHash: farmerHash,
         salesLocationId: ids.location as string,
-        entries: [{ itemName: "Potatoes" }],
+        entries: [{ entryId: "draft_workflow_potatoes", itemName: "Potatoes" }],
         now: T0,
         ...overrides,
       });
@@ -973,11 +973,13 @@ describe("authoritative SMS transactions (integration)", () => {
         )
       `;
 
-      const first = await openProposal({ entries: [{ itemName: "Potatoes" }] });
+      const first = await openProposal({
+        entries: [{ entryId: "draft_first_potatoes", itemName: "Potatoes" }],
+      });
       const second = await openOrReviseProposal(database(), {
         senderHash: secondFarmerHash,
         salesLocationId: ids.location as string,
-        entries: [{ itemName: "Eggs" }],
+        entries: [{ entryId: "draft_second_eggs", itemName: "Eggs" }],
         now: T0,
       });
       await first.activate({
@@ -1118,7 +1120,7 @@ describe("authoritative SMS transactions (integration)", () => {
       const stale = await openOrReviseProposal(database(), {
         senderHash: farmerHash,
         salesLocationId: ids.location as string,
-        entries: [{ itemName: "Green beans" }],
+        entries: [{ entryId: "draft_stale_beans", itemName: "Green beans" }],
         now: at(7),
         baseRevisionId: null,
         baseIsFirstPublication: true,

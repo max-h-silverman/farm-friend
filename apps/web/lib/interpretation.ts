@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import {
   applyInventoryEdits,
   renderProposedSnapshot,
   validateInterpretation,
   type Clock,
+  type InventoryCompositionBase,
   type InventoryInterpreter,
-  type PublishedSnapshot,
+  type SnapshotEntry,
 } from "@farm-friend/core";
 import { openOrReviseProposal, type Db } from "@farm-friend/db";
 
@@ -14,8 +16,8 @@ import { openOrReviseProposal, type Db } from "@farm-friend/db";
 // farmer's own current text plus opaque entry identifiers — the `inventory-extraction`
 // projection in `packages/ai` is what constructs that, and it is the only context that
 // crosses the seam. Output is validated against the retrieved snapshot before anything acts
-// on it, and the resulting pending payload is the complete snapshot bound to the base
-// revision it was computed from.
+// on it, and the resulting pending payload is the complete snapshot bound to the published
+// revision the proposal started from.
 //
 // Validation runs HERE even though the seam's schema already checked shape: that schema
 // cannot see the snapshot, so membership of every selected entry ID is this layer's job.
@@ -47,11 +49,42 @@ export type InterpretationOutcome =
   | { outcome: "clarification"; question: string }
   | { outcome: "rejected"; reason: string };
 
-/** Read the location's current published snapshot with its stable entry identifiers. */
-async function currentSnapshot(
+function pendingEntries(payload: unknown): SnapshotEntry[] {
+  if (typeof payload !== "object" || payload === null) {
+    throw new Error("pending inventory payload must be an object");
+  }
+  const entries = (payload as { entries?: unknown }).entries;
+  if (!Array.isArray(entries)) {
+    throw new Error("pending inventory payload must contain entries");
+  }
+  return entries as SnapshotEntry[];
+}
+
+/**
+ * Read the sender's complete pending result when one exists for this location. Only when
+ * none exists does a new proposal start from the current published snapshot.
+ */
+async function compositionBase(
   db: Db,
+  senderHash: string,
   salesLocationId: string,
-): Promise<PublishedSnapshot | null> {
+): Promise<InventoryCompositionBase> {
+  const pending = await db.sql`
+    select payload, base_revision_id, base_is_first_publication
+    from inventory_publication_proposals
+    where sender_hash = ${senderHash}
+      and sales_location_id = ${salesLocationId}
+      and state = 'open'
+  `;
+  if (pending.length > 0) {
+    return {
+      entries: pendingEntries(pending[0]?.payload),
+      baseRevisionId:
+        (pending[0]?.base_revision_id as string | null | undefined) ?? null,
+      isFirstPublication: pending[0]?.base_is_first_publication as boolean,
+    };
+  }
+
   const revisions = await db.sql`
     select id from inventory_revisions
     where sales_location_id = ${salesLocationId} and is_current
@@ -100,7 +133,11 @@ export async function applyInterpretedInventory(
   deps: InterpretationDeps,
   input: InterpretationInput,
 ): Promise<InterpretationOutcome> {
-  const base = await currentSnapshot(deps.db, input.salesLocationId);
+  const base = await compositionBase(
+    deps.db,
+    input.senderHash,
+    input.salesLocationId,
+  );
 
   // Only the current task text and opaque identifiers cross the seam.
   const raw = await deps.interpreter.interpret({
@@ -120,11 +157,16 @@ export async function applyInterpretedInventory(
     return { outcome: "clarification", question: validated.value.question };
   }
 
-  const proposed = applyInventoryEdits(base, validated.value);
+  const proposed = applyInventoryEdits(
+    base,
+    validated.value,
+    () => `draft_${randomUUID()}`,
+  );
   const opened = await openOrReviseProposal(deps.db, {
     senderHash: input.senderHash,
     salesLocationId: input.salesLocationId,
     entries: proposed.entries.map((entry) => ({
+      entryId: entry.entryId,
       itemName: entry.itemName,
       quantity: entry.quantity,
       unit: entry.unit,

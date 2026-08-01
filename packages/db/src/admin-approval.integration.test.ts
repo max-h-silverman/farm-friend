@@ -74,7 +74,7 @@ describe("farm approval and admin sessions (integration)", () => {
     const proposal = await openOrReviseProposal(handle(), {
       senderHash: farmerHash,
       salesLocationId: ids.location as string,
-      entries: [{ itemName: "eggs" }],
+      entries: [{ entryId: "draft_admin_eggs", itemName: "eggs" }],
       now: when,
     });
     await proposal.activate({

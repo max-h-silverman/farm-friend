@@ -199,13 +199,13 @@ export interface RetrievedEntryRef {
 export interface InventoryExtractionFields {
   /** The current farmer's own message text, verbatim. */
   readonly taskText: string;
-  /** Opaque stable identifiers plus the public item names needed to resolve a reference. */
+  /** Opaque published or draft identifiers plus item names needed to resolve a reference. */
   readonly currentEntries: readonly RetrievedEntryRef[];
 }
 
 /**
  * Project the inventory-extraction seam's input: the farmer's own current message plus the
- * opaque identifiers and public item names of their location's currently published entries.
+ * opaque identifiers and item names from their pending snapshot, or published state when none.
  *
  * Nothing else is readable here — no sender hash or raw phone, no other farmer's or
  * customer's text, no earlier thread history, no consent/auth/admin/audit state, no internal

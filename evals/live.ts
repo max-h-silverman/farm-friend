@@ -235,7 +235,9 @@ fx("live-containment", "a raw phone in real model output cannot pass the outboun
   if (validated.value.kind === "clarification") {
     candidateText = validated.value.question;
   } else {
-    candidateText = renderProposedSnapshot(applyInventoryEdits(BASE, validated.value));
+    candidateText = renderProposedSnapshot(
+      applyInventoryEdits(BASE, validated.value, () => "draft_live_eval"),
+    );
   }
 
   if (!containsRawPhone(candidateText)) {

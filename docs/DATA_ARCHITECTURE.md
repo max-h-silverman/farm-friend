@@ -103,8 +103,10 @@ render an honest "updated X ago" without a second provenance axis.
   overlapping ways to say one thing and could not express a direct reply that is permitted by the
   recipient's own message without being carrier-required.
 - **one open inventory-publication confirmation per sender** — target sales location, distinct
-  structured pending proposal payload/version, allowed `YES`/`NO` tokens, provider-accepted prompt
-  activation, expiry, and consumption state. This is not an inventory revision.
+  structured complete-snapshot payload/version, allowed `YES`/`NO` tokens, provider-accepted prompt
+  activation, expiry, and consumption state. Existing entries retain their opaque reference IDs in
+  that payload; code issues opaque draft IDs for new entries so later unconfirmed edits can target
+  them. This is not an inventory revision.
 - **one pending result list per sender** (F-046) — the ordered fact identifiers a customer's last
   answer selected, the product words it was about, how far through them they have read, and an
   expiry. `MORE` **replays** this list rather than re-running retrieval, so paging is consistent

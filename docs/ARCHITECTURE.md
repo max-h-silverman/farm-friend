@@ -263,10 +263,13 @@ transaction creates the new revision and entries, makes it current, and supersed
 current revision.
 
 **Patch language in, complete snapshot out.** Farmers speak in edits — add this, drop that, it's all
-gone — so the interpreter returns typed edits against the current published snapshot, and code
-applies them to produce the *complete* pending snapshot the farmer is shown. Omission preserves an
-item; it never deletes one. `YES` publishes exactly that snapshot, so there is no durable delta,
-patch log, or replay mechanism, and confirmation always yields one complete immutable revision.
+gone — so the interpreter returns typed edits against the sender's complete pending snapshot when
+one is open, and against the current published snapshot otherwise. Code applies the edits to produce
+the *complete* pending snapshot the farmer is shown. Existing entries retain their opaque IDs; code
+issues opaque draft IDs for new pending entries so a later unconfirmed message can change or remove
+them. Omission preserves an item; it never deletes one. `YES` publishes exactly that snapshot, so
+there is no durable delta, patch log, or replay mechanism, and confirmation always yields one
+complete immutable revision.
 
 The confirmation transaction uses one shared lock order: **sender -> location -> participant/access
 grant (when used) -> proposal -> authorizations -> approvals**. A revocation locks the same
