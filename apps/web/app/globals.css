@@ -438,8 +438,73 @@ body {
   padding: 1.5rem 1.1rem 3rem;
 }
 
-.admin-header h1 {
+.admin-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-header h1,
+.admin-signed-out h1 {
   margin: 0 0 0.2rem;
+  font-size: clamp(1.55rem, 7vw, 2rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.admin-eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--green);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-session {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-sign-out,
+.admin-primary-link {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0 1rem;
+  color: var(--green);
+  background: var(--green-soft);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.admin-sign-out:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.admin-signed-out {
+  max-width: 34rem;
+}
+
+.admin-signed-out p:not(.admin-eyebrow) {
+  margin: 0.65rem 0 1.25rem;
+  color: var(--ink-soft);
+}
+
+.admin-content > .admin-note:first-child {
+  margin-top: 1.25rem;
 }
 
 .admin-note {
@@ -454,6 +519,30 @@ body {
   background: var(--amber-soft);
   border: 1px solid var(--amber-line);
   border-radius: 10px;
+}
+
+.admin-error a {
+  color: inherit;
+  font-weight: 700;
+}
+
+.admin-success {
+  padding: 0.7rem 0.9rem;
+  color: var(--green);
+  background: var(--green-soft);
+  border: 1px solid var(--green);
+  border-radius: 10px;
+}
+
+.admin-boundary-note,
+.admin-retention-warning {
+  margin: 1rem 0 0;
+  padding: 0.7rem 0.9rem;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border-left: 4px solid var(--green);
+  border-radius: 0 10px 10px 0;
+  font-size: 0.9rem;
 }
 
 /* The sign-in form (F-032). One field and one button — the whole screen is a single
@@ -519,6 +608,10 @@ body {
   border-radius: 12px;
 }
 
+.admin-farm > div {
+  min-width: 0;
+}
+
 .admin-farm h2 {
   margin: 0 0 0.15rem;
   font-size: 1.05rem;
@@ -550,6 +643,32 @@ body {
   cursor: pointer;
 }
 
+.admin-farm select,
+.admin-farm input {
+  min-height: 48px;
+  width: 100%;
+  padding: 0 0.75rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.admin-control-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.admin-link-reveal {
+  display: grid;
+  width: min(100%, 28rem);
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
 .admin-farm button:disabled {
   opacity: 0.65;
   cursor: default;
@@ -559,14 +678,29 @@ body {
    one operator surface, not a second one per screen. */
 .admin-nav {
   display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  margin: 0.9rem 0 0.4rem;
-  font-size: 0.94rem;
+  gap: 0.25rem;
+  margin: 0.8rem -0.35rem 0.4rem;
+  padding: 0.2rem 0.35rem;
+  overflow-x: auto;
+  font-size: 0.88rem;
+  scrollbar-width: thin;
 }
 
 .admin-nav a {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  flex: none;
+  padding: 0 0.75rem;
   color: var(--ink-soft);
+  border-radius: 9px;
+  text-decoration: none;
+}
+
+.admin-nav a[aria-current="page"] {
+  color: var(--green);
+  background: var(--green-soft);
+  font-weight: 700;
 }
 
 .admin-flag {
@@ -596,8 +730,25 @@ body {
   overflow-wrap: anywhere;
 }
 
+.admin-thread-panel {
+  margin-top: 0.8rem;
+}
+
+.admin-retention-warning {
+  margin: 0;
+  border-left-color: var(--amber-line);
+}
+
 .admin-thread-flagged {
   font-weight: 600;
+  padding-left: 0.45rem;
+  border-left: 4px solid var(--amber-line);
+}
+
+.admin :focus-visible,
+.farmer-form :focus-visible {
+  outline: 3px solid var(--amber-line);
+  outline-offset: 3px;
 }
 
 /* ── The farmer's own stand form (F-040) ─────────────────────────────────────────────
@@ -701,6 +852,34 @@ body {
 .farmer-form button:disabled {
   opacity: 0.65;
   cursor: default;
+}
+
+.farmer-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (max-width: 34rem) {
+  .admin-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-sign-out {
+    align-self: flex-start;
+  }
+
+  .admin-farm,
+  .admin-farm > div,
+  .admin-flag-actions {
+    width: 100%;
+  }
+
+  .admin-farm button,
+  .admin-flag-actions button {
+    flex: 1 1 10rem;
+  }
 }
 
 /* What the stand will actually say. Monospace and boxed so it reads as a QUOTATION of the

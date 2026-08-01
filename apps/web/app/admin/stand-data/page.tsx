@@ -1,10 +1,10 @@
 import { headers } from "next/headers";
-import Link from "next/link";
 import { hasRole } from "@farm-friend/core";
 import { listStandDataFlags } from "@farm-friend/db";
 import { resolvePrincipal } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { StandDataQueue } from "./stand-data-queue";
+import { AdminShell, SignedOutAdmin } from "../admin-shell";
 
 // The stand-data flag surface (F-037). Same server-side authorization shape as `/admin`:
 // an unauthenticated caller is never handed queue data, because it is never fetched.
@@ -20,34 +20,18 @@ export default async function StandDataPage() {
   );
 
   if (principal === null || !hasRole(principal, "admin")) {
-    return (
-      <main className="admin">
-        <h1>Farm Friend admin</h1>
-        <p>
-          You are not signed in. Open the magic link sent to your VIGA email address to
-          continue.
-        </p>
-      </main>
-    );
+    return <SignedOutAdmin />;
   }
 
   const { db } = publicReadContext();
   const flags = await listStandDataFlags(db, { status: "all" });
 
   return (
-    <main className="admin">
-      <header className="admin-header">
-        <h1>Stand data questions</h1>
-        <p className="admin-note">Signed in as {principal.personId}</p>
-      </header>
-
-      <nav className="admin-nav">
-        <Link href="/admin">Farm approval</Link>
-        <Link href="/admin/flags">Flag review</Link>
-        <Link href="/admin/reports">Stock-out reports</Link>
-        <Link href="/admin/farmers">Farmer access</Link>
-      </nav>
-
+    <AdminShell
+      currentPath="/admin/stand-data"
+      title="Stand data questions"
+      signedInAs={principal.personId}
+    >
       <p className="admin-note">
         When VIGA&apos;s stand data contradicts itself — two different opening times, a season
         nobody can pin down, a note saying the stand closed — the loader records the question
@@ -67,6 +51,6 @@ export default async function StandDataPage() {
           createdAt: flag.createdAt.toISOString(),
         }))}
       />
-    </main>
+    </AdminShell>
   );
 }

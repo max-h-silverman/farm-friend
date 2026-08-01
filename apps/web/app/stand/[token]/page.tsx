@@ -30,7 +30,7 @@ export default async function StandPage({
     return (
       <main className="farmer-form">
         <h1>This link is not active</h1>
-        <p>
+        <p id="new-link-help">
           It may have been replaced or turned off. Text <strong>LINK</strong> to VIGA Farm
           Friend to get a new one.
         </p>
@@ -61,9 +61,10 @@ export default async function StandPage({
 
       <StandForm token={params.token} />
 
-      <p className="farmer-form-note">
-        This link is private — anyone with it can update this stand. If you lose your phone or
-        share it by accident, ask VIGA to turn it off.
+      <p id="new-link-help" className="farmer-form-note">
+        This link is private — anyone with it can update this stand. If it stops working, text
+        <strong> LINK</strong> to VIGA Farm Friend for a new one. If you share it by accident,
+        ask VIGA to turn it off.
       </p>
     </main>
   );

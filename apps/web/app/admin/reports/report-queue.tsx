@@ -76,6 +76,9 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
 
   return (
     <>
+      <p className="admin-boundary-note">
+        Reviewing or dismissing a report does not edit the public listing.
+      </p>
       {error !== null && (
         <p className="admin-error" role="alert">
           {error}

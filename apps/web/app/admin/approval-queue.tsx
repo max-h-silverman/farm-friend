@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AdminRecoveryError } from "./admin-shell";
 
 // The approval queue's interactive half. It renders what the server already decided the
 // viewer may see and posts decisions back to `/api/admin/farms`, which re-checks authority
@@ -32,10 +33,14 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
   const [rows, setRows] = useState(farms);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
   async function decide(farmId: string, action: "approve" | "revoke") {
     setPending(farmId);
     setError(null);
+    setSessionExpired(false);
+    setSuccess(null);
     try {
       const response = await fetch("/api/admin/farms", {
         method: "POST",
@@ -45,11 +50,8 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
       if (!response.ok) {
         // Say what happened rather than silently reverting: an operator who thinks they
         // approved a farm that is still blocked is worse off than one who sees an error.
-        setError(
-          response.status === 403
-            ? "Your session is no longer authorized. Sign in again."
-            : "That change did not go through. Reload and try again.",
-        );
+        if (response.status === 403) setSessionExpired(true);
+        else setError("That change did not go through. Reload and try again.");
         return;
       }
       // Reflect the committed decision. The authoritative record is the database's; this is
@@ -65,6 +67,12 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
               }
             : row,
         ),
+      );
+      const farmName = rows.find((row) => row.farmId === farmId)?.name ?? "Farm";
+      setSuccess(
+        action === "approve"
+          ? `${farmName} is approved for publication.`
+          : `${farmName}'s approval is revoked. Existing publication is unchanged.`,
       );
     } catch {
       setError("That change did not go through. Reload and try again.");
@@ -82,6 +90,14 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
       {error !== null && (
         <p className="admin-error" role="alert">
           {error}
+        </p>
+      )}
+      {sessionExpired && (
+        <AdminRecoveryError>Your session expired before the change was saved.</AdminRecoveryError>
+      )}
+      {success !== null && (
+        <p className="admin-success" role="status">
+          {success}
         </p>
       )}
       <ul className="admin-farms">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AdminRecoveryError } from "../admin-shell";
 
 // The farmer access queue's interactive half (F-040). It renders what the server already
 // decided the viewer may see and posts decisions back to `/api/admin/farmers`, which
@@ -56,6 +57,8 @@ export function FarmerQueue({
   const [farmChoice, setFarmChoice] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
   /**
    * A freshly minted link, held only in this component's state and only until the operator
    * navigates away. It is never re-readable from the server, which is correct for a standing
@@ -71,6 +74,8 @@ export function FarmerQueue({
   ): Promise<{ ok: boolean; payload: Record<string, unknown> }> {
     setBusy(key);
     setError(null);
+    setSessionExpired(false);
+    setSuccess(null);
     try {
       const response = await fetch("/api/admin/farmers", {
         method: "POST",
@@ -84,11 +89,8 @@ export function FarmerQueue({
       if (!response.ok) {
         // Say what happened rather than silently reverting: an operator who believes they
         // revoked a link that is still live is worse off than one who sees an error.
-        setError(
-          response.status === 403
-            ? "Your session is no longer authorized. Sign in again."
-            : "That change did not go through. Reload and try again.",
-        );
+        if (response.status === 403) setSessionExpired(true);
+        else setError("That change did not go through. Reload and try again.");
         return { ok: false, payload };
       }
       return { ok: true, payload };
@@ -113,6 +115,7 @@ export function FarmerQueue({
     setPendingRequests((current) =>
       current.filter((request) => request.requestId !== requestId),
     );
+    setSuccess("Farmer authorized. Reload to see their access record.");
   }
 
   async function revoke(authorizationId: string) {
@@ -132,6 +135,7 @@ export function FarmerQueue({
       ),
     );
     if (freshLink?.id === authorizationId) setFreshLink(null);
+    setSuccess("Farmer access revoked. Their private link is no longer active.");
   }
 
   async function issueLink(authorizationId: string) {
@@ -148,6 +152,17 @@ export function FarmerQueue({
           : row,
       ),
     );
+    setSuccess("Private link created. Copy it now; it will not be shown again.");
+  }
+
+  async function copyFreshLink() {
+    if (freshLink === null) return;
+    try {
+      await navigator.clipboard.writeText(freshLink.link);
+      setSuccess("Private link copied.");
+    } catch {
+      setError("Copy failed. Select the private link and copy it before leaving this page.");
+    }
   }
 
   return (
@@ -155,6 +170,14 @@ export function FarmerQueue({
       {error !== null && (
         <p className="admin-error" role="alert">
           {error}
+        </p>
+      )}
+      {sessionExpired && (
+        <AdminRecoveryError>Your session expired before the change was saved.</AdminRecoveryError>
+      )}
+      {success !== null && (
+        <p className="admin-success" role="status">
+          {success}
         </p>
       )}
 
@@ -175,7 +198,7 @@ export function FarmerQueue({
               </div>
               <div>
                 <label>
-                  Farm
+                  <span className="admin-control-label">Farm for {request.senderMask}</span>
                   <select
                     value={farmChoice[request.requestId] ?? ""}
                     onChange={(event) =>
@@ -231,10 +254,15 @@ export function FarmerQueue({
                         : "No private link yet — they can text LINK for one."}
                   </p>
                   {freshLink?.id === row.authorizationId && (
-                    <p className="admin-note">
-                      <strong>Copy this now — it is not shown again.</strong>{" "}
-                      <code>{freshLink.link}</code>
-                    </p>
+                    <div className="admin-link-reveal" role="group" aria-label="New private link">
+                      <p className="admin-note">
+                        <strong>Copy this now — it is not shown again.</strong>
+                      </p>
+                      <input aria-label="Private link" readOnly value={freshLink.link} />
+                      <button type="button" onClick={() => void copyFreshLink()}>
+                        Copy private link
+                      </button>
+                    </div>
                   )}
                 </div>
                 {!revoked && (

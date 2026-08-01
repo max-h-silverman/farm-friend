@@ -1,10 +1,10 @@
 import { headers } from "next/headers";
-import Link from "next/link";
 import { hasRole } from "@farm-friend/core";
 import { listFarmsForApproval } from "@farm-friend/db";
 import { resolvePrincipal } from "../../lib/auth";
 import { publicReadContext } from "../../lib/public-context";
 import { ApprovalQueue } from "./approval-queue";
+import { AdminShell, SignedOutAdmin } from "./admin-shell";
 
 // The VIGA operator surface (F-025a): sign in, see every farm, approve or revoke.
 //
@@ -31,38 +31,14 @@ export default async function AdminPage() {
   );
 
   if (principal === null || !hasRole(principal, "admin")) {
-    return (
-      <main className="admin">
-        <h1>Farm Friend admin</h1>
-        <p>
-          You are not signed in. <Link href="/admin/login">Request a sign-in link</Link> and
-          open it from your VIGA email address to continue.
-        </p>
-        <p className="admin-note">
-          Only provisioned administrators can sign in. If your address is not recognized,
-          ask whoever runs Farm Friend to authorize it.
-        </p>
-      </main>
-    );
+    return <SignedOutAdmin />;
   }
 
   const { db } = publicReadContext();
   const farms = await listFarmsForApproval(db);
 
   return (
-    <main className="admin">
-      <header className="admin-header">
-        <h1>Farm approval</h1>
-        <p className="admin-note">Signed in as {principal.personId}</p>
-      </header>
-
-      <nav className="admin-nav">
-        <Link href="/admin/flags">Flag review</Link>
-        <Link href="/admin/reports">Stock-out reports</Link>
-        <Link href="/admin/stand-data">Stand data</Link>
-        <Link href="/admin/farmers">Farmer access</Link>
-      </nav>
-
+    <AdminShell currentPath="/admin" title="Farm approval" signedInAs={principal.personId}>
       <p className="admin-note">
         Only approved farms publish publicly. Approval is <strong>your act</strong>, recorded
         separately from a farmer completing onboarding — verify the farm is real, is a VIGA
@@ -78,6 +54,6 @@ export default async function AdminPage() {
           approvedByEmail: farm.approvedByEmail,
         }))}
       />
-    </main>
+    </AdminShell>
   );
 }

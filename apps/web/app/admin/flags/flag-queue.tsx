@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AdminRecoveryError } from "../admin-shell";
 
 // The flag queue's interactive half (F-030). Like the approval queue, this renders what the
 // server already decided the viewer may see and posts decisions back to `/api/admin/flags`,
@@ -43,8 +44,12 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
   const [rows, setRows] = useState(flags);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
   const [openThread, setOpenThread] = useState<string | null>(null);
   const [threads, setThreads] = useState<Record<string, ThreadMessage[]>>({});
+  const [threadLoading, setThreadLoading] = useState<string | null>(null);
+  const [threadErrors, setThreadErrors] = useState<Record<string, string>>({});
 
   async function viewThread(flagId: string) {
     if (openThread === flagId) {
@@ -53,10 +58,19 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
     }
     setOpenThread(flagId);
     if (threads[flagId] !== undefined) return;
+    setThreadLoading(flagId);
+    setThreadErrors((current) => {
+      const next = { ...current };
+      delete next[flagId];
+      return next;
+    });
     try {
       const response = await fetch(`/api/admin/flags/${flagId}/thread`);
       if (!response.ok) {
-        setError("That thread could not be loaded. Reload and try again.");
+        setThreadErrors((current) => ({
+          ...current,
+          [flagId]: "That thread could not be loaded. Reload and try again.",
+        }));
         return;
       }
       const payload = (await response.json()) as {
@@ -64,7 +78,12 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
       };
       setThreads((current) => ({ ...current, [flagId]: payload.thread.messages }));
     } catch {
-      setError("That thread could not be loaded. Reload and try again.");
+      setThreadErrors((current) => ({
+        ...current,
+        [flagId]: "That thread could not be loaded. Reload and try again.",
+      }));
+    } finally {
+      setThreadLoading(null);
     }
   }
 
@@ -80,6 +99,8 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
 
     setPending(flagId);
     setError(null);
+    setSessionExpired(false);
+    setSuccess(null);
     try {
       const response = await fetch("/api/admin/flags", {
         method: "POST",
@@ -87,10 +108,9 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
         body: JSON.stringify({ flagId, action, dispositionCode }),
       });
       if (!response.ok) {
-        setError(
-          response.status === 403
-            ? "Your session is no longer authorized. Sign in again."
-            : response.status === 409
+        if (response.status === 403) setSessionExpired(true);
+        else setError(
+          response.status === 409
               ? "Someone else already reviewed this flag. Reload to see their decision."
               : "That change did not go through. Reload and try again.",
         );
@@ -107,6 +127,9 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
               }
             : row,
         ),
+      );
+      setSuccess(
+        `Flag ${action === "resolve" ? "resolved" : "dismissed"}. Expired thread messages are now eligible for deletion.`,
       );
     } catch {
       setError("That change did not go through. Reload and try again.");
@@ -131,6 +154,14 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
           {error}
         </p>
       )}
+      {sessionExpired && (
+        <AdminRecoveryError>Your session expired before the decision was saved.</AdminRecoveryError>
+      )}
+      {success !== null && (
+        <p className="admin-success" role="status">
+          {success}
+        </p>
+      )}
       <ul className="admin-farms">
         {rows.map((row) => (
           <li key={row.flagId} className="admin-farm admin-flag">
@@ -148,31 +179,55 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
               )}
 
               {openThread === row.flagId && (
-                <ol className="admin-thread">
-                  {(threads[row.flagId] ?? []).map((message) => (
-                    <li
-                      key={message.messageId}
-                      className={message.isFlagged ? "admin-thread-flagged" : undefined}
-                    >
-                      <span className="admin-note">{formatWhen(message.receivedAt)}</span>{" "}
-                      {message.bodyPurged ? (
-                        <em className="admin-note">
-                          (message content deleted on its retention schedule)
-                        </em>
-                      ) : (
-                        message.body
-                      )}
-                    </li>
-                  ))}
-                  {(threads[row.flagId] ?? []).length === 0 && (
-                    <li className="admin-note">No retained messages in this thread.</li>
+                <div id={`thread-${row.flagId}`} className="admin-thread-panel">
+                  <p className="admin-retention-warning">
+                    Review before closing this flag. Closing this flag releases expired
+                    messages to the normal deletion schedule.
+                  </p>
+                  {threadLoading === row.flagId && (
+                    <p className="admin-note" role="status">
+                      Loading thread…
+                    </p>
                   )}
-                </ol>
+                  {threadErrors[row.flagId] !== undefined && (
+                    <p className="admin-error" role="alert">
+                      {threadErrors[row.flagId]}
+                    </p>
+                  )}
+                  {threadLoading !== row.flagId && threadErrors[row.flagId] === undefined && (
+                    <ol className="admin-thread">
+                      {(threads[row.flagId] ?? []).map((message) => (
+                        <li
+                          key={message.messageId}
+                          className={message.isFlagged ? "admin-thread-flagged" : undefined}
+                          aria-label={message.isFlagged ? "Flagged message" : undefined}
+                        >
+                          <span className="admin-note">{formatWhen(message.receivedAt)}</span>{" "}
+                          {message.bodyPurged ? (
+                            <em className="admin-note">
+                              (message content deleted on its retention schedule)
+                            </em>
+                          ) : (
+                            message.body
+                          )}
+                        </li>
+                      ))}
+                      {(threads[row.flagId] ?? []).length === 0 && (
+                        <li className="admin-note">No retained messages in this thread.</li>
+                      )}
+                    </ol>
+                  )}
+                </div>
               )}
             </div>
 
             <div className="admin-flag-actions">
-              <button type="button" onClick={() => viewThread(row.flagId)}>
+              <button
+                type="button"
+                aria-expanded={openThread === row.flagId}
+                aria-controls={`thread-${row.flagId}`}
+                onClick={() => viewThread(row.flagId)}
+              >
                 {openThread === row.flagId ? "Hide thread" : "View thread"}
               </button>
               {row.status === "open" && (

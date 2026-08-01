@@ -1,10 +1,10 @@
 import { headers } from "next/headers";
-import Link from "next/link";
 import { hasRole } from "@farm-friend/core";
 import { listStockOutReports } from "@farm-friend/db";
 import { resolvePrincipal } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { ReportQueue } from "./report-queue";
+import { AdminShell, SignedOutAdmin } from "../admin-shell";
 
 // The stock-out report surface (F-030). Same server-side authorization shape as `/admin`:
 // an unauthenticated caller is never handed report data, because it is never fetched.
@@ -20,34 +20,18 @@ export default async function ReportsPage() {
   );
 
   if (principal === null || !hasRole(principal, "admin")) {
-    return (
-      <main className="admin">
-        <h1>Farm Friend admin</h1>
-        <p>
-          You are not signed in. Open the magic link sent to your VIGA email address to
-          continue.
-        </p>
-      </main>
-    );
+    return <SignedOutAdmin />;
   }
 
   const { db } = publicReadContext();
   const reports = await listStockOutReports(db, { status: "all" });
 
   return (
-    <main className="admin">
-      <header className="admin-header">
-        <h1>Stock-out reports</h1>
-        <p className="admin-note">Signed in as {principal.personId}</p>
-      </header>
-
-      <nav className="admin-nav">
-        <Link href="/admin">Farm approval</Link>
-        <Link href="/admin/flags">Flag review</Link>
-        <Link href="/admin/stand-data">Stand data</Link>
-        <Link href="/admin/farmers">Farmer access</Link>
-      </nav>
-
+    <AdminShell
+      currentPath="/admin/reports"
+      title="Stock-out reports"
+      signedInAs={principal.personId}
+    >
       <p className="admin-note">
         Customers report privately when something looks sold out. These are{" "}
         <strong>signals, not corrections</strong> — marking one reviewed records that you
@@ -66,6 +50,6 @@ export default async function ReportsPage() {
           reportedAt: report.reportedAt.toISOString(),
         }))}
       />
-    </main>
+    </AdminShell>
   );
 }

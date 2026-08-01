@@ -89,6 +89,9 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
 
   return (
     <>
+      <p className="admin-boundary-note">
+        Resolving a data question records the decision; it does not edit the public listing.
+      </p>
       {error !== null && (
         <p className="admin-error" role="alert">
           {error}
@@ -114,6 +117,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
             {row.resolutionNote === null && (
               <div className="admin-flag-actions">
                 <input
+                  aria-label={`Resolution note for ${row.standName}`}
                   type="text"
                   placeholder="What did you decide?"
                   value={notes[row.flagId] ?? ""}

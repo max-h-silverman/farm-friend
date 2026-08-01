@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 
 // The farmer's stand form (F-040) — two steps, never one.
 //
@@ -25,12 +26,19 @@ export function StandForm({ token }: { token: string }) {
   const [stage, setStage] = useState<Stage>({ step: "typing" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linkInactive, setLinkInactive] = useState(false);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (stage.step === "asked") textRef.current?.focus();
+  }, [stage]);
 
   async function post(
     body: Record<string, unknown>,
   ): Promise<Record<string, unknown> | null> {
     setBusy(true);
     setError(null);
+    setLinkInactive(false);
     try {
       const response = await fetch("/api/farmer/stand", {
         method: "POST",
@@ -44,9 +52,10 @@ export function StandForm({ token }: { token: string }) {
       if (!response.ok) {
         const refusalMessage =
           typeof payload.message === "string" ? payload.message : null;
+        if (response.status === 403) setLinkInactive(true);
         setError(
           response.status === 403
-            ? "This link is no longer active. Text LINK to VIGA Farm Friend for a new one."
+            ? "This link is no longer active. Your listing is unchanged."
             : refusalMessage ??
                 "That did not go through. Your listing is unchanged — try again.",
         );
@@ -97,7 +106,10 @@ export function StandForm({ token }: { token: string }) {
     <>
       {error !== null && (
         <p className="farmer-form-error" role="alert">
-          {error}
+          {error}{" "}
+          {linkInactive && (
+            <Link href="#new-link-help">How to get a new link</Link>
+          )}
         </p>
       )}
 
@@ -124,6 +136,7 @@ export function StandForm({ token }: { token: string }) {
 
           <label htmlFor="farmer-form-text">What does your stand have today?</label>
           <textarea
+            ref={textRef}
             id="farmer-form-text"
             value={text}
             rows={4}
@@ -131,25 +144,30 @@ export function StandForm({ token }: { token: string }) {
             placeholder="a dozen eggs, lots of kale, plum jam $6"
           />
           <button type="button" disabled={busy || text.trim() === ""} onClick={() => void propose()}>
-            {busy ? "Checking…" : "See what it will say"}
+            {busy ? "Checking…" : "Preview update"}
           </button>
         </>
       )}
 
       {stage.step === "confirming" && (
-        <>
+        <section
+          className="farmer-confirmation"
+          role="region"
+          aria-label="Exact publication preview"
+        >
           <p className="farmer-form-note">
-            <strong>This is exactly what people will see.</strong> Nothing has changed yet.
+            <strong>This is exactly what people will see.</strong>
           </p>
+          <p className="farmer-form-note">Nothing has changed yet.</p>
           {/* Code-rendered from the validated snapshot — never model prose. */}
           <pre className="farmer-form-snapshot">{stage.confirmationText}</pre>
           <button type="button" disabled={busy} onClick={() => void settle(true)}>
-            {busy ? "Publishing…" : "Yes, publish this"}
+            {busy ? "Publishing…" : "Confirm and publish"}
           </button>
           <button type="button" disabled={busy} onClick={() => void settle(false)}>
-            No, leave it alone
+            Decline this update
           </button>
-        </>
+        </section>
       )}
     </>
   );

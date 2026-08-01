@@ -1,10 +1,10 @@
 import { headers } from "next/headers";
-import Link from "next/link";
 import { hasRole } from "@farm-friend/core";
 import { listFlagsForReview } from "@farm-friend/db";
 import { resolvePrincipal } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { FlagQueue } from "./flag-queue";
+import { AdminShell, SignedOutAdmin } from "../admin-shell";
 
 // The flag review surface (F-030).
 //
@@ -23,34 +23,14 @@ export default async function FlagsPage() {
   );
 
   if (principal === null || !hasRole(principal, "admin")) {
-    return (
-      <main className="admin">
-        <h1>Farm Friend admin</h1>
-        <p>
-          You are not signed in. Open the magic link sent to your VIGA email address to
-          continue.
-        </p>
-      </main>
-    );
+    return <SignedOutAdmin />;
   }
 
   const { db } = publicReadContext();
   const flags = await listFlagsForReview(db, { status: "all" });
 
   return (
-    <main className="admin">
-      <header className="admin-header">
-        <h1>Flag review</h1>
-        <p className="admin-note">Signed in as {principal.personId}</p>
-      </header>
-
-      <nav className="admin-nav">
-        <Link href="/admin">Farm approval</Link>
-        <Link href="/admin/reports">Stock-out reports</Link>
-        <Link href="/admin/stand-data">Stand data</Link>
-        <Link href="/admin/farmers">Farmer access</Link>
-      </nav>
-
+    <AdminShell currentPath="/admin/flags" title="Flag review" signedInAs={principal.personId}>
       <p className="admin-note">
         Someone texted <strong>FLAG</strong>. Read the thread, take whatever action is needed
         outside the system, then record what you did. Phone numbers are shown masked.
@@ -71,6 +51,6 @@ export default async function FlagsPage() {
           hasReadableThread: flag.hasReadableThread,
         }))}
       />
-    </main>
+    </AdminShell>
   );
 }

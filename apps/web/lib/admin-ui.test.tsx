@@ -1,0 +1,321 @@
+// @vitest-environment jsdom
+
+import React from "react";
+import "@testing-library/jest-dom/vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { AdminShell, SignedOutAdmin } from "../app/admin/admin-shell";
+import { ApprovalQueue } from "../app/admin/approval-queue";
+import { FarmerQueue } from "../app/admin/farmers/farmer-queue";
+import { FlagQueue } from "../app/admin/flags/flag-queue";
+import { ReportQueue } from "../app/admin/reports/report-queue";
+import { StandDataQueue } from "../app/admin/stand-data/stand-data-queue";
+import { StandForm } from "../app/stand/[token]/stand-form";
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function response(status: number, payload: Record<string, unknown> = {}): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("the shared administrator shell", () => {
+  it("identifies the current workflow and signs out through the durable endpoint", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn(async () => new Response(null, { status: 204 }));
+    const signedOut = vi.fn();
+
+    render(
+      <AdminShell
+        currentPath="/admin/flags"
+        title="Flag review"
+        signedInAs="operator@viga.example"
+        fetcher={fetcher}
+        onSignedOut={signedOut}
+      >
+        <p>Queue</p>
+      </AdminShell>,
+    );
+
+    expect(screen.getByRole("link", { name: "Flag review" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByRole("heading", { name: "Flag review" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+
+    expect(fetcher).toHaveBeenCalledWith("/api/auth/logout", { method: "POST" });
+    expect(signedOut).toHaveBeenCalledOnce();
+  });
+
+  it("renders one generic signed-out recovery state with no membership clue", () => {
+    render(<SignedOutAdmin />);
+
+    expect(screen.getByRole("link", { name: "Go to sign in" })).toHaveAttribute(
+      "href",
+      "/admin/login",
+    );
+    expect(screen.getByText(/session may have expired/i)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/recognized|provisioned|authorized address/i);
+  });
+});
+
+describe("administrator queue interactions", () => {
+  it("announces a committed farm approval and exposes sign-in recovery on expiry", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(200))
+      .mockResolvedValueOnce(response(403));
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <ApprovalQueue
+        farms={[
+          {
+            farmId: "farm-1",
+            name: "Example Farm",
+            approved: false,
+            approvedAt: null,
+            approvedByEmail: null,
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Example Farm is approved");
+
+    await user.click(screen.getByRole("button", { name: "Revoke approval" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/session expired/i);
+    expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute(
+      "href",
+      "/admin/login",
+    );
+  });
+
+  it("authorizes a masked farmer and shows a one-time link as a copyable control", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(200))
+      .mockResolvedValueOnce(response(200, { link: "https://ff.example/stand/private" }));
+    vi.stubGlobal("fetch", fetcher);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn(async () => undefined) },
+    });
+
+    render(
+      <FarmerQueue
+        requests={[
+          { requestId: "request-1", senderMask: "(•••) •••-0701", requestedAt: "2026-08-01T10:00:00Z" },
+        ]}
+        authorizations={[
+          {
+            authorizationId: "authorization-1",
+            farmId: "farm-1",
+            farmName: "Example Farm",
+            senderMask: "(•••) •••-0702",
+            authorizedAt: "2026-08-01T10:00:00Z",
+            revokedAt: null,
+            hasLiveLink: false,
+          },
+        ]}
+        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+      />,
+    );
+
+    expect(document.body.textContent).not.toContain("+1206");
+    await user.selectOptions(screen.getByRole("combobox", { name: /farm for/i }), "farm-1");
+    await user.click(screen.getByRole("button", { name: "Authorize" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/authorized/i);
+
+    await user.click(screen.getByRole("button", { name: "Create link" }));
+    const copy = await screen.findByRole("button", { name: "Copy private link" });
+    await user.click(copy);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "https://ff.example/stand/private",
+    );
+  });
+
+  it("loads a retained thread honestly and marks the flagged message accessibly", async () => {
+    const user = userEvent.setup();
+    let finish!: (value: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    );
+
+    render(
+      <FlagQueue
+        flags={[
+          {
+            flagId: "flag-1",
+            senderMask: "(•••) •••-0701",
+            reasonCode: "requested_review",
+            status: "open",
+            dispositionCode: null,
+            disposedByEmail: null,
+            disposedAt: null,
+            createdAt: "2026-08-01T10:00:00Z",
+            hasReadableThread: true,
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "View thread" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Loading thread");
+
+    finish(
+      response(200, {
+        thread: {
+          messages: [
+            {
+              messageId: "message-1",
+              receivedAt: "2026-08-01T10:00:00Z",
+              body: "Please review this",
+              bodyPurged: false,
+              isFlagged: true,
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(await screen.findByLabelText("Flagged message")).toHaveTextContent(
+      "Please review this",
+    );
+    expect(screen.getByText(/closing this flag releases expired messages/i)).toBeTruthy();
+  });
+
+  it("keeps review and resolution actions explicitly separate from public listings", () => {
+    render(
+      <>
+        <ReportQueue
+          reports={[
+            {
+              reportId: "report-1",
+              farmName: "Example Farm",
+              salesLocationName: "Road stand",
+              itemText: "eggs",
+              status: "open",
+              reviewedByEmail: null,
+              reportedAt: "2026-08-01T10:00:00Z",
+            },
+          ]}
+        />
+        <StandDataQueue
+          flags={[
+            {
+              flagId: "data-1",
+              standName: "Road stand",
+              reason: "contradictory_hours",
+              sourceText: "Open 8 and open 9",
+              resolutionNote: null,
+              resolvedByEmail: null,
+              createdAt: "2026-08-01T10:00:00Z",
+            },
+          ]}
+        />
+      </>,
+    );
+
+    expect(screen.getAllByText(/does not edit the public listing/i)).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: /edit listing/i })).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Resolution note for Road stand" })).toBeTruthy();
+  });
+});
+
+describe("the farmer stand form", () => {
+  it("moves through clarification, exact preview, decline, and publication with honest effects", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(200, { outcome: "clarification", question: "Which kind of squash?" }))
+      .mockResolvedValueOnce(
+        response(200, {
+          outcome: "proposed",
+          proposalId: "proposal-1",
+          confirmationText: "Winter squash — 3 at $4",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { outcome: "declined" }))
+      .mockResolvedValueOnce(
+        response(200, {
+          outcome: "proposed",
+          proposalId: "proposal-2",
+          confirmationText: "Kale — $3/bunch",
+        }),
+      )
+      .mockResolvedValueOnce(response(200, { outcome: "published" }));
+    vi.stubGlobal("fetch", fetcher);
+
+    render(<StandForm token="private-token" />);
+    const input = screen.getByRole("textbox", { name: "What does your stand have today?" });
+    await user.type(input, "squash");
+    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Which kind of squash?");
+    expect(input).toHaveFocus();
+
+    await user.clear(input);
+    await user.type(input, "three winter squash at $4");
+    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
+      "Winter squash — 3 at $4",
+    );
+    expect(screen.getByText("Nothing has changed yet.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Decline this update" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Nothing changed");
+
+    const returnedInput = screen.getByRole("textbox", {
+      name: "What does your stand have today?",
+    });
+    await user.clear(returnedInput);
+    await user.type(returnedInput, "kale $3 a bunch");
+    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
+
+    for (const call of fetcher.mock.calls) {
+      expect(call[0]).toBe("/api/farmer/stand");
+      expect(JSON.parse((call[1] as RequestInit).body as string)).toHaveProperty(
+        "token",
+        "private-token",
+      );
+    }
+  });
+
+  it("keeps a failed request unchanged and gives a revoked link a recovery action", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => response(403)));
+    render(<StandForm token="private-token" />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "What does your stand have today?" }),
+      "eggs",
+    );
+    await user.click(screen.getByRole("button", { name: "Preview update" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/listing is unchanged/i);
+    expect(screen.getByRole("link", { name: "How to get a new link" })).toHaveAttribute(
+      "href",
+      "#new-link-help",
+    );
+  });
+});

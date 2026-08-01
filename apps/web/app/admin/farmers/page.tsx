@@ -9,6 +9,7 @@ import {
 import { resolvePrincipal } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { FarmerQueue } from "./farmer-queue";
+import { AdminShell, SignedOutAdmin } from "../admin-shell";
 
 // The farmer authorization surface (F-040). Same server-side authorization shape as every
 // other admin page: an unauthenticated caller is never handed queue data, because it is
@@ -33,15 +34,7 @@ export default async function FarmersPage() {
   );
 
   if (principal === null || !hasRole(principal, "admin")) {
-    return (
-      <main className="admin">
-        <h1>Farm Friend admin</h1>
-        <p>
-          You are not signed in. Open the magic link sent to your VIGA email address to
-          continue.
-        </p>
-      </main>
-    );
+    return <SignedOutAdmin />;
   }
 
   const { db } = publicReadContext();
@@ -52,19 +45,11 @@ export default async function FarmersPage() {
   ]);
 
   return (
-    <main className="admin">
-      <header className="admin-header">
-        <h1>Farmer access</h1>
-        <p className="admin-note">Signed in as {principal.personId}</p>
-      </header>
-
-      <nav className="admin-nav">
-        <Link href="/admin">Farm approval</Link>
-        <Link href="/admin/flags">Flag review</Link>
-        <Link href="/admin/reports">Stock-out reports</Link>
-        <Link href="/admin/stand-data">Stand data</Link>
-      </nav>
-
+    <AdminShell
+      currentPath="/admin/farmers"
+      title="Farmer access"
+      signedInAs={principal.personId}
+    >
       <p className="admin-note">
         Authorizing a farmer lets them publish what their stand has — by text, or through
         their own private link. <strong>Check first that the person really runs the farm.</strong>{" "}
@@ -96,6 +81,6 @@ export default async function FarmersPage() {
         }))}
         farms={farms.map((farm) => ({ farmId: farm.farmId, name: farm.name }))}
       />
-    </main>
+    </AdminShell>
   );
 }
