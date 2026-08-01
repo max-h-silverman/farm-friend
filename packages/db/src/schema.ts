@@ -175,6 +175,11 @@ export const consentTransition = pgEnum("consent_transition", [
   "start",
   "stop",
 ]);
+export const farmerTargetMenuPurpose = pgEnum("farmer_target_menu_purpose", [
+  "update",
+  "link",
+  "settings",
+]);
 export const proposalState = pgEnum("proposal_state", [
   "open",
   "accepted",
@@ -877,6 +882,119 @@ export const salesLocations = pgTable(
         (${table.stockingCadence} = 'specific_days') = (${table.stockingDays} is not null)
         or (${table.stockingCadence} is null and ${table.stockingDays} is null)
       `,
+    ),
+  }),
+);
+
+/**
+ * The sender's current SMS stand plus their one live numbered STAND menu (F-051).
+ *
+ * The selected pair is convenience, never authority: every consumer joins it back through
+ * the current authorization and current location ownership before use. Keeping selection
+ * and the menu envelope together gives a sender one targeting context rather than parallel
+ * preference and conversation mechanisms.
+ */
+export const farmerTargetContexts = pgTable(
+  "farmer_target_contexts",
+  {
+    senderHash: text("sender_hash")
+      .primaryKey()
+      .references(() => contacts.phoneHash, { onDelete: "cascade" }),
+    selectedAuthorizationId: uuid("selected_authorization_id"),
+    selectedOwnerFarmId: uuid("selected_owner_farm_id"),
+    selectedSalesLocationId: uuid("selected_sales_location_id"),
+    selectedAt: timestamp("selected_at", { withTimezone: true }),
+    menuIssuedAt: timestamp("menu_issued_at", { withTimezone: true }),
+    menuExpiresAt: timestamp("menu_expires_at", { withTimezone: true }),
+    menuPurpose: farmerTargetMenuPurpose("menu_purpose"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    selectedAuthorizationOwnerReference: foreignKey({
+      name: "farmer_target_contexts_selected_authorization_owner_fk",
+      columns: [table.selectedAuthorizationId, table.selectedOwnerFarmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("cascade"),
+    selectedLocationOwnerReference: foreignKey({
+      name: "farmer_target_contexts_selected_location_owner_fk",
+      columns: [table.selectedSalesLocationId, table.selectedOwnerFarmId],
+      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    }).onDelete("cascade"),
+    selectedAuthorizationLookup: index(
+      "farmer_target_contexts_selected_authorization",
+    ).on(table.selectedAuthorizationId),
+    selectedLocationLookup: index(
+      "farmer_target_contexts_selected_location",
+    ).on(table.selectedSalesLocationId),
+    selectedContextCoherent: check(
+      "farmer_target_contexts_selected_context_coherent",
+      sql`
+        (
+          ${table.selectedAuthorizationId} is null
+          and ${table.selectedOwnerFarmId} is null
+          and ${table.selectedSalesLocationId} is null
+          and ${table.selectedAt} is null
+        )
+        or (
+          ${table.selectedAuthorizationId} is not null
+          and ${table.selectedOwnerFarmId} is not null
+          and ${table.selectedSalesLocationId} is not null
+          and ${table.selectedAt} is not null
+        )
+      `,
+    ),
+    menuContextCoherent: check(
+      "farmer_target_contexts_menu_context_coherent",
+      sql`
+        (
+          ${table.menuIssuedAt} is null
+          and ${table.menuExpiresAt} is null
+          and ${table.menuPurpose} is null
+        )
+        or (
+          ${table.menuIssuedAt} is not null
+          and ${table.menuExpiresAt} is not null
+          and ${table.menuPurpose} is not null
+          and ${table.menuExpiresAt} > ${table.menuIssuedAt}
+        )
+      `,
+    ),
+  }),
+);
+
+/** The immutable number-to-target bindings for the sender's current STAND menu. */
+export const farmerTargetMenuOptions = pgTable(
+  "farmer_target_menu_options",
+  {
+    senderHash: text("sender_hash").notNull(),
+    optionNumber: integer("option_number").notNull(),
+    authorizationId: uuid("authorization_id").notNull(),
+    ownerFarmId: uuid("owner_farm_id").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+  },
+  (table) => ({
+    key: primaryKey({ columns: [table.senderHash, table.optionNumber] }),
+    contextReference: foreignKey({
+      name: "farmer_target_menu_options_context_fk",
+      columns: [table.senderHash],
+      foreignColumns: [farmerTargetContexts.senderHash],
+    }).onDelete("cascade"),
+    authorizationOwnerReference: foreignKey({
+      name: "farmer_target_menu_options_authorization_owner_fk",
+      columns: [table.authorizationId, table.ownerFarmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("cascade"),
+    locationOwnerReference: foreignKey({
+      name: "farmer_target_menu_options_location_owner_fk",
+      columns: [table.salesLocationId, table.ownerFarmId],
+      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    }).onDelete("cascade"),
+    oneNumberPerPair: unique(
+      "farmer_target_menu_options_one_number_per_pair",
+    ).on(table.senderHash, table.authorizationId, table.salesLocationId),
+    positiveOption: check(
+      "farmer_target_menu_options_positive_option",
+      sql`${table.optionNumber} > 0`,
     ),
   }),
 );
