@@ -272,8 +272,12 @@ authorization, access, or approval row that confirmation validates; because it n
 decision row, it introduces no reverse lock edge. Whichever transaction locks that row first defines
 the honest result without a deadlock. Confirmation then verifies the prompt/version and expiry,
 rechecks current farmer authority and VIGA approval under those locks, conditionally consumes the
-pending row once, and queues its response in the outbox. `YES` publishes; `NO` declines without
-publication. Revoked authority or approval produces no publication.
+pending row once, and queues its response in the outbox. Before `YES` consumes anything or inserts a
+revision, the shared publication boundary validates every free-form public inventory string — item
+name, unit, and price text — and refuses the whole proposal if it contains a phone number, email
+address, web link, or direct-contact instruction. SMS and farmer web render the same deterministic
+refusal naming what to remove; neither silently strips text. `YES` otherwise publishes; `NO`
+declines without publication. Revoked authority or approval produces no publication.
 
 A stock-out alert is informational: it may ask the farmer to send current inventory. That reply
 enters the ordinary proposal and `YES`/`NO` flow. `OUT` and `IGNORE` are not commitment tokens and

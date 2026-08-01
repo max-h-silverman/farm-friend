@@ -4,8 +4,13 @@ import type {
   ConsentState,
   LaunchConsentRecord,
   LaunchMessageCategory,
+  ProhibitedPublicStringKind,
 } from "@farm-friend/core";
-import { confirmationEligibility, isProactiveSendPermitted } from "@farm-friend/core";
+import {
+  confirmationEligibility,
+  isProactiveSendPermitted,
+  validatePublicStrings,
+} from "@farm-friend/core";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 
@@ -747,6 +752,7 @@ export type ConfirmPublicationResult =
   | { status: "base_conflict" }
   | { status: "not_authorized" }
   | { status: "not_approved" }
+  | { status: "unsafe_public_text"; prohibited: ProhibitedPublicStringKind[] }
   | { status: "already_consumed" }
   | { status: "no_open_proposal" };
 
@@ -878,6 +884,23 @@ export async function confirmInventoryPublication(
     `;
     if (approval.length === 0) return { status: "not_approved" };
 
+    const payload = proposal.payload as { entries?: ProposalEntryInput[] };
+    const entries = payload.entries ?? [];
+    const publicStrings = entries.flatMap((entry) =>
+      [entry.itemName, entry.unit, entry.priceText].filter(
+        (value): value is string => value !== undefined,
+      ),
+    );
+    const publicStringValidation = validatePublicStrings(publicStrings);
+    if (!publicStringValidation.ok) {
+      // Refuse the whole proposal. It stays open and unconsumed so the farmer can revise it;
+      // silently stripping one field would publish text they never reviewed or confirmed.
+      return {
+        status: "unsafe_public_text",
+        prohibited: publicStringValidation.prohibited,
+      };
+    }
+
     await tx`
       update inventory_publication_proposals
       set state = 'accepted', consumed_token = 'yes',
@@ -908,8 +931,6 @@ export async function confirmInventoryPublication(
     `;
     const revisionId = revision[0]?.id as string;
 
-    const payload = proposal.payload as { entries?: ProposalEntryInput[] };
-    const entries = payload.entries ?? [];
     for (const [index, entry] of entries.entries()) {
       await tx`
         insert into inventory_entries (

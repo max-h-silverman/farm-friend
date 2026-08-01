@@ -122,7 +122,14 @@ export async function POST(req: Request): Promise<Response> {
   if (result.status === "refused") {
     // 409: the decision was NOT recorded. Answering 200 would be a lie about whether a
     // farmer's listing changed.
-    return Response.json({ status: "refused", reason: result.reason }, { status: 409 });
+    return Response.json(
+      {
+        status: "refused",
+        reason: result.reason,
+        ...(result.message !== undefined ? { message: result.message } : {}),
+      },
+      { status: 409 },
+    );
   }
   return Response.json({ status: result.status });
 }

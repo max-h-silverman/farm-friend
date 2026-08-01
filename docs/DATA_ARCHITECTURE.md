@@ -216,8 +216,10 @@ These are **database-level** requirements, not application conventions:
   retrieval store; request/response logging is disabled where supported; and any unavoidable
   provider retention has an approved documented maximum compatible with Farm Friend's raw-context
   retention.
-- **Public listings expose** stand addresses and farmer-selected links. **Direct farmer phone
-  numbers and email addresses are never public.**
+- **Public listings expose** stand addresses and farmer-selected links from their code-owned listing
+  fields. Model-writable public strings are validated together at publication and the whole write is
+  refused — never sanitized — when they contain phone numbers, email addresses, web links, or
+  direct-contact instructions. **Direct farmer contact is never public.**
 - **Consent:** active launch-program consent gates every proactive non-required SMS. `START` and
   documented farmer onboarding establish or restore it with provenance; `JOIN` establishes it only
   for a sender with **no** consent record, because the carrier's own opt-out list is cleared by
