@@ -920,7 +920,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const proposal = await openOrReviseProposal(database(), {
         senderHash: contactHash,
         salesLocationId,
-        entries: [{ itemName: "duck eggs" }],
+        entries: [{ entryId: "draft_authorized_duck_eggs", itemName: "duck eggs" }],
         now: at(2),
       });
       await proposal.activate({
@@ -959,7 +959,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const proposal = await openOrReviseProposal(database(), {
         senderHash: contactHash,
         salesLocationId,
-        entries: [{ itemName: "lamb" }],
+        entries: [{ entryId: "draft_revoked_lamb", itemName: "lamb" }],
         now: at(2),
       });
       await proposal.activate({

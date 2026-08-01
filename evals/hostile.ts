@@ -140,7 +140,11 @@ export async function runInterpretationPath(input: {
     };
   }
 
-  const proposed = applyInventoryEdits(input.base, validated.value);
+  const proposed = applyInventoryEdits(
+    input.base,
+    validated.value,
+    () => "draft_hostile_eval",
+  );
   return {
     seen: provider.seen,
     decision: {

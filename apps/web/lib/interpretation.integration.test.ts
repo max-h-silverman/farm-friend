@@ -14,7 +14,13 @@ import {
   type LLMProvider,
   type ModelSafeContext,
 } from "@farm-friend/ai";
-import { createDb, type Db, type Sql } from "@farm-friend/db";
+import {
+  activateAcceptedPrompt,
+  confirmInventoryPublication,
+  createDb,
+  type Db,
+  type Sql,
+} from "@farm-friend/db";
 import { containsRawPhone } from "@farm-friend/sms";
 import { applyInterpretedInventory } from "./interpretation";
 
@@ -182,6 +188,187 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     expect(proposals[0]?.proposal_version).toBe(1);
   });
 
+  it("composes later messages from the pending snapshot and can remove a draft entry", async () => {
+    const first = await applyInterpretedInventory(
+      deps({
+        kind: "edits",
+        additions: [{ itemName: "Winter squash" }],
+        changes: [],
+        removals: [],
+      }),
+      {
+        senderHash: farmerHash,
+        salesLocationId: ids.location,
+        taskText: "add winter squash",
+      },
+    );
+    expect(first.outcome).toBe("proposed");
+
+    const afterFirst = await client()`
+      select id, payload, proposal_version
+      from inventory_publication_proposals
+      where sender_hash = ${farmerHash} and state = 'open'
+    `;
+    expect(afterFirst).toHaveLength(1);
+    const firstPayload = afterFirst[0]?.payload as {
+      entries: { entryId: string; itemName: string }[];
+    };
+    expect(firstPayload.entries).toHaveLength(1);
+    const squashId = firstPayload.entries[0]?.entryId as string;
+    expect(squashId).toMatch(/^draft_[0-9a-f-]{36}$/);
+
+    const firstPrompt = await client()`
+      insert into outbox_work (
+        logical_key, recipient_hash, message_category, body, body_expires_at,
+        available_at, state, dispatch_authorized_at, completed_at, created_at
+      )
+      values (
+        'b028-first-prompt', ${farmerHash}, 'inventory_confirmation', 'Confirm',
+        ${new Date(T0.getTime() + 172_800_000)}, ${T0}, 'sent', ${T0}, ${T0}, ${T0}
+      )
+      returning id
+    `;
+    await activateAcceptedPrompt(db as Db, firstPrompt[0]?.id as string, T0);
+
+    const secondSeen: { entryId: string; itemName: string }[][] = [];
+    const secondInterpreter: InventoryInterpreter = {
+      async interpret(request) {
+        secondSeen.push(request.currentEntries);
+        return {
+          kind: "edits",
+          additions: [{ itemName: "Pears" }],
+          changes: [],
+          removals: [],
+        };
+      },
+    };
+    const second = await applyInterpretedInventory(
+      {
+        db: db as Db,
+        interpreter: secondInterpreter,
+        clock: new FixedClock(new Date(T0.getTime() + 60_000)),
+      },
+      {
+        senderHash: farmerHash,
+        salesLocationId: ids.location,
+        taskText: "also pears",
+      },
+    );
+
+    expect(secondSeen).toEqual([
+      [{ entryId: squashId, itemName: "Winter squash" }],
+    ]);
+    expect(second.outcome).toBe("proposed");
+    if (second.outcome !== "proposed") return;
+    expect(second.confirmationText).toContain("Winter squash");
+    expect(second.confirmationText).toContain("Pears");
+
+    const afterSecond = await client()`
+      select id, payload, proposal_version, activation_outbox_id,
+             activated_version, activated_at, expires_at,
+             base_revision_id, base_is_first_publication
+      from inventory_publication_proposals
+      where sender_hash = ${farmerHash} and state = 'open'
+    `;
+    expect(afterSecond).toHaveLength(1);
+    expect(afterSecond[0]?.id).toBe(afterFirst[0]?.id);
+    expect(afterSecond[0]?.proposal_version).toBe(2);
+    expect(afterSecond[0]?.activation_outbox_id).toBeNull();
+    expect(afterSecond[0]?.activated_version).toBeNull();
+    expect(afterSecond[0]?.activated_at).toBeNull();
+    expect(afterSecond[0]?.expires_at).toBeNull();
+    expect(afterSecond[0]?.base_revision_id).toBeNull();
+    expect(afterSecond[0]?.base_is_first_publication).toBe(true);
+
+    const secondPayload = afterSecond[0]?.payload as {
+      entries: { entryId: string; itemName: string }[];
+    };
+    expect(secondPayload.entries.map((entry) => entry.itemName)).toEqual([
+      "Winter squash",
+      "Pears",
+    ]);
+    expect(secondPayload.entries[0]?.entryId).toBe(squashId);
+    const pearsId = secondPayload.entries[1]?.entryId as string;
+    expect(pearsId).toMatch(/^draft_[0-9a-f-]{36}$/);
+    expect(pearsId).not.toBe(squashId);
+
+    const third = await applyInterpretedInventory(
+      deps({
+        kind: "edits",
+        additions: [],
+        changes: [],
+        removals: [{ entryId: squashId }],
+      }),
+      {
+        senderHash: farmerHash,
+        salesLocationId: ids.location,
+        taskText: "remove the winter squash",
+      },
+    );
+    expect(third.outcome).toBe("proposed");
+    if (third.outcome !== "proposed") return;
+    expect(third.confirmationText).not.toContain("Winter squash");
+    expect(third.confirmationText).toContain("Pears");
+
+    const afterThird = await client()`
+      select payload, proposal_version, activated_at
+      from inventory_publication_proposals
+      where sender_hash = ${farmerHash} and state = 'open'
+    `;
+    expect(afterThird[0]?.proposal_version).toBe(3);
+    expect(afterThird[0]?.activated_at).toBeNull();
+    expect(afterThird[0]?.payload).toEqual({
+      entries: [{ entryId: pearsId, itemName: "Pears" }],
+    });
+
+    const finalPromptAt = new Date(T0.getTime() + 120_000);
+    const finalPrompt = await client()`
+      insert into outbox_work (
+        logical_key, recipient_hash, message_category, body, body_expires_at,
+        available_at, state, dispatch_authorized_at, completed_at, created_at
+      )
+      values (
+        'b028-final-prompt', ${farmerHash}, 'inventory_confirmation', 'Confirm',
+        ${new Date(T0.getTime() + 172_800_000)}, ${finalPromptAt}, 'sent',
+        ${finalPromptAt}, ${finalPromptAt}, ${finalPromptAt}
+      )
+      returning id
+    `;
+    await activateAcceptedPrompt(
+      db as Db,
+      finalPrompt[0]?.id as string,
+      finalPromptAt,
+    );
+
+    const confirmedAt = new Date(T0.getTime() + 180_000);
+    const published = await confirmInventoryPublication(db as Db, {
+      proposalId: afterFirst[0]?.id as string,
+      senderHash: farmerHash,
+      token: "yes",
+      occurredAt: confirmedAt,
+      providerEventId: "b028-confirmation-event",
+      clock: new FixedClock(confirmedAt),
+    });
+    expect(published.status).toBe("published");
+
+    const durableEntries = await client()`
+      select item_name from inventory_entries
+      where sales_location_id = ${ids.location}
+      order by sort_order
+    `;
+    expect(durableEntries).toEqual([{ item_name: "Pears" }]);
+    const current = await client()`
+      select is_current from inventory_revisions
+      where sales_location_id = ${ids.location}
+    `;
+    expect(current).toEqual([{ is_current: true }]);
+    const receipt = await client()`
+      select body from outbox_work
+      where logical_key like 'inventory-published-%'
+    `;
+    expect(receipt).toEqual([{ body: "Your listing is updated. Thank you!" }]);
+  });
+
   it("preserves omitted published items when revising", async () => {
     // Seed a published base revision with two items. The prompt outbox row and the
     // activation it implies are what a real confirmation would have created.
@@ -257,6 +444,20 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     if (result.outcome !== "proposed") return;
     expect(result.confirmationText).toContain("Potatoes");
     expect(result.confirmationText).not.toContain("Bok choy");
+
+    const pending = await client()`
+      select payload from inventory_publication_proposals
+      where sender_hash = ${farmerHash} and state = 'open'
+    `;
+    expect(pending[0]?.payload).toEqual({
+      entries: [
+        {
+          entryId: entries.find((entry) => entry.item_name === "Potatoes")
+            ?.id as string,
+          itemName: "Potatoes",
+        },
+      ],
+    });
   });
 
   it("queues a clarification and creates no proposal", async () => {

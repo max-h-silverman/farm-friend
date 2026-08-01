@@ -13,6 +13,7 @@ import {
 // interprets; these pure functions decide nothing about authority, consent, or delivery.
 
 const t0 = new Date("2026-07-25T12:00:00Z");
+const issueDraftId = () => "draft_test";
 
 const published: PublishedSnapshot = {
   revisionId: "rev-1",
@@ -32,7 +33,7 @@ describe("inventory proposal — patch-like edits over a complete snapshot", () 
       removals: [],
     };
 
-    const proposed = applyInventoryEdits(published, interpretation);
+    const proposed = applyInventoryEdits(published, interpretation, issueDraftId);
 
     // Omission is not deletion: the three existing items survive untouched.
     expect(proposed.entries.map((entry) => entry.itemName)).toEqual([
@@ -53,7 +54,7 @@ describe("inventory proposal — patch-like edits over a complete snapshot", () 
       removals: [{ entryId: "e-potato" }],
     };
 
-    const proposed = applyInventoryEdits(published, interpretation);
+    const proposed = applyInventoryEdits(published, interpretation, issueDraftId);
 
     expect(proposed.entries).toEqual([
       { entryId: "e-bok", itemName: "Bok choy", approximation: "plentiful" },
@@ -70,37 +71,66 @@ describe("inventory proposal — patch-like edits over a complete snapshot", () 
     };
 
     // The model selects identifiers; code validates membership before any consequence.
-    expect(() => applyInventoryEdits(published, interpretation)).toThrow(
+    expect(() => applyInventoryEdits(published, interpretation, issueDraftId)).toThrow(
       /not part of the base snapshot/i,
     );
   });
 
   it("clear-all intent produces an empty snapshot rather than preserving items", () => {
-    const proposed = applyInventoryEdits(published, { kind: "clear_all" });
+    const proposed = applyInventoryEdits(
+      published,
+      { kind: "clear_all" },
+      issueDraftId,
+    );
     expect(proposed.entries).toEqual([]);
     expect(proposed.baseRevisionId).toBe("rev-1");
   });
 
   it("builds a first-publication proposal from the absence of a base revision", () => {
-    const proposed = applyInventoryEdits(null, {
-      kind: "edits",
-      additions: [{ itemName: "Potatoes" }],
-      changes: [],
-      removals: [],
-    });
+    const proposed = applyInventoryEdits(
+      null,
+      {
+        kind: "edits",
+        additions: [{ itemName: "Potatoes" }],
+        changes: [],
+        removals: [],
+      },
+      issueDraftId,
+    );
 
     expect(proposed.isFirstPublication).toBe(true);
     expect(proposed.baseRevisionId).toBeNull();
     expect(proposed.entries.map((entry) => entry.itemName)).toEqual(["Potatoes"]);
   });
 
+  it("issues draft IDs so a later unconfirmed edit can target an addition", () => {
+    const proposed = applyInventoryEdits(
+      null,
+      {
+        kind: "edits",
+        additions: [{ itemName: "Winter squash" }],
+        changes: [],
+        removals: [],
+      },
+      () => "draft_opaque_1",
+    );
+
+    expect(proposed.entries).toEqual([
+      { entryId: "draft_opaque_1", itemName: "Winter squash" },
+    ]);
+  });
+
   it("renders the complete resulting snapshot, never a delta", () => {
-    const proposed = applyInventoryEdits(published, {
-      kind: "edits",
-      additions: [{ itemName: "Green beans" }],
-      changes: [],
-      removals: [{ entryId: "e-potato" }],
-    });
+    const proposed = applyInventoryEdits(
+      published,
+      {
+        kind: "edits",
+        additions: [{ itemName: "Green beans" }],
+        changes: [],
+        removals: [{ entryId: "e-potato" }],
+      },
+      issueDraftId,
+    );
 
     const rendered = renderProposedSnapshot(proposed);
 

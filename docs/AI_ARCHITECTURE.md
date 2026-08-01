@@ -98,7 +98,7 @@ for it in the meantime.
 
 | Seam | Permitted model input |
 |---|---|
-| inventory extraction | the current farmer message, plus opaque entry IDs and public item names for the farmer's own location |
+| inventory extraction | the current farmer message, plus opaque published or code-issued draft entry IDs and public item names from the sender's complete pending snapshot when open, otherwise the current published snapshot, for the farmer's own location |
 | stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
 | inquiry interpretation | the current customer SMS request |
 | grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |

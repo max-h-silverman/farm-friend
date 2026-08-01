@@ -90,6 +90,12 @@ export interface ProposedSnapshot {
   isFirstPublication: boolean;
 }
 
+/** Published state or the sender's complete pending result, used as the next edit base. */
+export type InventoryCompositionBase = PublishedSnapshot | ProposedSnapshot | null;
+
+/** Code-owned issuer for identifiers that exist only inside a pending proposal. */
+export type DraftEntryIdIssuer = () => string;
+
 export class InventoryEditError extends Error {
   constructor(message: string) {
     super(message);
@@ -137,7 +143,7 @@ export type InterpretationValidation =
  */
 export function validateInterpretation(
   candidate: unknown,
-  base: PublishedSnapshot | null,
+  base: InventoryCompositionBase,
 ): InterpretationValidation {
   if (typeof candidate !== "object" || candidate === null) {
     return { ok: false, reason: "interpretation must be an object" };
@@ -272,11 +278,22 @@ function withoutUndefined(entry: SnapshotEntry): SnapshotEntry {
  * it queues a question instead of creating or revising a proposal.
  */
 export function applyInventoryEdits(
-  base: PublishedSnapshot | null,
+  base: InventoryCompositionBase,
   interpretation: Exclude<InventoryInterpretation, { kind: "clarification" }>,
+  issueDraftEntryId: DraftEntryIdIssuer,
 ): ProposedSnapshot {
-  const baseRevisionId = base?.revisionId ?? null;
-  const isFirstPublication = base === null;
+  const baseRevisionId =
+    base === null
+      ? null
+      : "baseRevisionId" in base
+        ? base.baseRevisionId
+        : base.revisionId;
+  const isFirstPublication =
+    base === null
+      ? true
+      : "isFirstPublication" in base
+        ? base.isFirstPublication
+        : false;
 
   if (interpretation.kind === "clear_all") {
     return { entries: [], baseRevisionId, isFirstPublication };
@@ -305,7 +322,14 @@ export function applyInventoryEdits(
   }
 
   for (const addition of interpretation.additions) {
-    entries.push(withoutUndefined({ entryId: "", ...addition } as SnapshotEntry));
+    const entryId = issueDraftEntryId();
+    if (entryId === "" || known.has(entryId)) {
+      throw new InventoryEditError("draft entry id must be non-empty and unique");
+    }
+    known.add(entryId);
+    entries.push(
+      withoutUndefined({ entryId, ...addition } as SnapshotEntry),
+    );
   }
 
   return { entries, baseRevisionId, isFirstPublication };

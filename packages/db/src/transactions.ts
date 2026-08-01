@@ -540,6 +540,8 @@ export async function applyConsentTransition(
 }
 
 export interface ProposalEntryInput {
+  /** Published entry ID or code-issued draft ID used by later pending edits. */
+  entryId: string;
   itemName: string;
   quantity?: number;
   unit?: string;
