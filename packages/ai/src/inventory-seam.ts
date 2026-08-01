@@ -8,6 +8,11 @@
 // and the confirmation the farmer sees is code-rendered from typed facts.
 
 import { z } from "zod";
+import {
+  closureMatchesTiming,
+  preflightClosureTiming,
+  type ClosureInstruction,
+} from "@farm-friend/core";
 import { generateValidated, nullAsAbsent, type LLMProvider } from "./index";
 import { projectInventoryExtraction } from "./projections";
 
@@ -98,6 +103,13 @@ export function createInventoryInterpreter(provider: LLMProvider) {
       currentClosure?: import("@farm-friend/core").ClosureInstruction | null;
       currentLocalDate: string;
     }) {
+      const timing = preflightClosureTiming(
+        request.taskText,
+        request.currentLocalDate,
+      );
+      if (timing.kind === "clarification") {
+        return { kind: "clarification" as const, question: timing.question };
+      }
       // The ONLY context that crosses the seam, constructed field by field.
       const ctx = projectInventoryExtraction(request);
 
@@ -114,6 +126,17 @@ export function createInventoryInterpreter(provider: LLMProvider) {
           kind: "clarification" as const,
           question:
             "Sorry, I could not read that. Could you list what your stand has right now?",
+        };
+      }
+      const closure: ClosureInstruction | undefined =
+        result.value.kind === "clarification" ? undefined : result.value.closure;
+      if (
+        result.value.kind !== "clarification" &&
+        !closureMatchesTiming(closure, timing.evidence)
+      ) {
+        return {
+          kind: "clarification" as const,
+          question: "What exact dates should I use for the closure?",
         };
       }
       return result.value;

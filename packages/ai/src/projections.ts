@@ -39,7 +39,11 @@
 // injection would live. Neither ever sees a farmer's contact, a recipient, or another
 // customer's message.
 
-import { isLocalDate } from "@farm-friend/core";
+import {
+  isLocalDate,
+  preflightClosureTiming,
+  type ClosureTimingEvidence,
+} from "@farm-friend/core";
 
 declare const modelSafeBrand: unique symbol;
 
@@ -69,9 +73,9 @@ export type ModelSafeContext<T = unknown> = {
  */
 export const SEAM_OUTPUT_SHAPES = {
   "inventory-extraction": [
-    '{"kind":"edits","additions":[{"itemName":"tomatoes","quantity":12,"unit":"lb","priceText":"$4/lb","approximation":"plentiful"}],"changes":[{"entryId":"e1","quantity":6}],"removals":[{"entryId":"e2"}],"closure":{"result":"close","closureKind":"temporary","startsOn":"2026-08-02","closedThrough":"2026-08-04"}}',
+    '{"kind":"edits","additions":[{"itemName":"ITEM_NAME","quantity":12,"unit":"UNIT","priceText":"PRICE","approximation":"plentiful"}],"changes":[{"entryId":"ENTRY_ID","quantity":6}],"removals":[{"entryId":"ENTRY_ID"}],"closure":{"result":"close","closureKind":"temporary","startsOn":"START_DATE","closedThrough":"END_DATE"}}',
     '{"kind":"clear_all"}',
-    '{"kind":"closure","closure":{"result":"close","closureKind":"seasonal","startsOn":"2026-08-02"}}',
+    '{"kind":"closure","closure":{"result":"close","closureKind":"seasonal","startsOn":"START_DATE"}}',
     '{"kind":"closure","closure":{"result":"reopen"}}',
     '{"kind":"clarification","question":"Could you list what your stand has right now?"}',
   ],
@@ -99,6 +103,9 @@ type SeamName = keyof typeof SEAM_OUTPUT_SHAPES;
  */
 const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
   "inventory-extraction":
+    "EVERY independent fact in the farmer message MUST survive in one result. If the message " +
+    "contains both inventory and closure facts, return kind edits with the inventory changes " +
+    "and its closure field; closure-only output would discard inventory and is wrong. " +
     "For edits, all three arrays (additions, changes, removals) are REQUIRED, each possibly " +
     "empty. additions are items not currently listed; changes and removals refer to listed " +
     "entries and their entryId MUST be one of the currentEntries ids. quantity is always a " +
@@ -108,11 +115,10 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "plain-ASCII question (it is sent by SMS). A location-wide close uses result close, kind " +
     "temporary or seasonal, and an exact local YYYY-MM-DD startsOn; temporary may have an " +
     "inclusive closedThrough. Reopening uses result reopen and no dates. Put closure on edits " +
-    "for a mixed message, or use kind closure when inventory is unchanged. Resolve relative " +
-    "dates such as this weekend against currentLocalDate, the code-supplied current Vashon " +
-    "calendar date. Ask rather than " +
-    "guess for vague timing, conflicting dates, a sub-operation closure, multiple windows, " +
-    "or a future closure that conflicts with currentClosure.",
+    "for a mixed message, or use kind closure when inventory is unchanged. closureTiming is " +
+    "computed by code before this call. For a close, copy its kind and dates EXACTLY; never " +
+    "calculate, substitute, or invent dates. A future closure that conflicts with " +
+    "currentClosure requires clarification.",
   "inquiry-interpretation":
     "items are the product words the customer asks about, as plain nouns. ranking MUST be " +
     'exactly "freshest", "coverage", or "any": "coverage" when they want places carrying ' +
@@ -144,11 +150,24 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "items array.",
 };
 
-function outputInstructionsFor(seam: SeamName): string {
+function outputInstructionsFor(
+  seam: SeamName,
+  inventoryFacts?: {
+    currentLocalDate: string;
+    closureTiming: ClosureTimingEvidence;
+  },
+): string {
   return [
-    "Return ONLY one JSON object, matching exactly one of these shapes (values are examples):",
-    ...SEAM_OUTPUT_SHAPES[seam],
     SEAM_OUTPUT_NOTES[seam],
+    ...(seam === "inventory-extraction" && inventoryFacts !== undefined
+      ? [
+          `The exact current Vashon date is ${inventoryFacts.currentLocalDate}.`,
+          `The deterministic closureTiming is ${JSON.stringify(inventoryFacts.closureTiming)}.`,
+        ]
+      : []),
+    "Return ONLY one JSON object matching one template below. Template strings such as " +
+      "ITEM_NAME, ENTRY_ID, START_DATE, and END_DATE are placeholders, never values to copy.",
+    ...SEAM_OUTPUT_SHAPES[seam],
   ].join("\n");
 }
 
@@ -215,6 +234,22 @@ export interface InventoryExtractionFields {
   readonly currentClosure: import("@farm-friend/core").ClosureInstruction | null;
   /** Current Vashon calendar date supplied by code, never inferred by the model. */
   readonly currentLocalDate: string;
+  /** Closure dates and kind already resolved by deterministic code. */
+  readonly closureTiming: ClosureTimingEvidence;
+}
+
+function copyClosureTiming(timing: ClosureTimingEvidence): ClosureTimingEvidence {
+  if (timing.kind === "none" || timing.kind === "reopen") {
+    return { kind: timing.kind };
+  }
+  return {
+    kind: "close",
+    closureKind: timing.closureKind,
+    startsOn: timing.startsOn,
+    ...(timing.closedThrough !== undefined
+      ? { closedThrough: timing.closedThrough }
+      : {}),
+  };
 }
 
 /**
@@ -238,10 +273,17 @@ export function projectInventoryExtraction(input: {
       "Refusing to build model context: currentLocalDate is not an exact local date.",
     );
   }
+  const timing = preflightClosureTiming(input.taskText, input.currentLocalDate);
+  if (timing.kind === "clarification") {
+    throw new ProjectionError(
+      "Refusing to build model context: closure timing requires clarification.",
+    );
+  }
   const fields: InventoryExtractionFields = {
     // The sender's own words return only to the sender; they are not vetted here.
     taskText: input.taskText,
     currentLocalDate: input.currentLocalDate,
+    closureTiming: copyClosureTiming(timing.evidence),
     currentEntries: input.currentEntries.map((entry, index) => ({
       entryId: assertOpaqueId(entry.entryId, `currentEntries[${index}].entryId`),
       itemName: assertNoRawPhone(entry.itemName, `currentEntries[${index}].itemName`),
@@ -270,7 +312,10 @@ export function projectInventoryExtraction(input: {
   return {
     seam: "inventory-extraction",
     fields,
-    outputInstructions: outputInstructionsFor("inventory-extraction"),
+    outputInstructions: outputInstructionsFor("inventory-extraction", {
+      currentLocalDate: fields.currentLocalDate,
+      closureTiming: fields.closureTiming,
+    }),
   } as ModelSafeContext<InventoryExtractionFields>;
 }
 

@@ -589,8 +589,9 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     expect(context).not.toContain(ids.farmerContact as string);
     expect(context).not.toContain(ids.adminContact as string);
     expect(context).not.toContain(ids.farm as string);
-    // Only the seam's four permitted fields crossed.
+    // Only the seam's five permitted fields crossed.
     expect(Object.keys(provider.seen[0]!.fields as object).sort()).toEqual([
+      "closureTiming",
       "currentClosure",
       "currentEntries",
       "currentLocalDate",

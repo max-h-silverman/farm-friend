@@ -59,6 +59,14 @@ void projectInventoryExtraction({
   internalNote: "farmer owes VIGA dues",
 });
 
+void projectInventoryExtraction({
+  taskText: "closed this weekend",
+  currentEntries: [],
+  currentLocalDate: "2026-08-06",
+  // @ts-expect-error closure timing is computed by code inside the projection, never supplied
+  closureTiming: { kind: "close", startsOn: "2099-01-01" },
+});
+
 // BYPASS 5 — retrieved facts carry only opaque identifiers and public names. A caller cannot
 // attach consent, contact, or audit data to an entry it passes in.
 void projectInventoryExtraction({

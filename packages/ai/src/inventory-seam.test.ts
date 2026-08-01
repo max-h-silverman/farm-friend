@@ -20,6 +20,151 @@ class RecordingProvider implements LLMProvider {
 }
 
 describe("inventory-extraction seam — the live interpreter over a provider", () => {
+  it("projects deterministic explicit-date evidence instead of asking the model to calculate it", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "closure",
+        closure: {
+          result: "close",
+          closureKind: "temporary",
+          startsOn: "2026-08-08",
+          closedThrough: "2026-08-10",
+        },
+      }),
+    );
+    await createInventoryInterpreter(provider).interpret({
+      taskText: "Closed August 8 through August 10.",
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(provider.seen[0]!.fields).toMatchObject({
+      closureTiming: {
+        kind: "close",
+        closureKind: "temporary",
+        startsOn: "2026-08-08",
+        closedThrough: "2026-08-10",
+      },
+    });
+    expect(provider.seen[0]!.outputInstructions).not.toMatch(/2026-08-0[234]/);
+  });
+
+  it("resolves this weekend deterministically before the model call", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "closure",
+        closure: {
+          result: "close",
+          closureKind: "temporary",
+          startsOn: "2026-08-08",
+          closedThrough: "2026-08-09",
+        },
+      }),
+    );
+    await createInventoryInterpreter(provider).interpret({
+      taskText: "Closed this weekend.",
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(provider.seen[0]!.fields).toMatchObject({
+      closureTiming: {
+        kind: "close",
+        closureKind: "temporary",
+        startsOn: "2026-08-08",
+        closedThrough: "2026-08-09",
+      },
+    });
+  });
+
+  it.each([
+    ["vague timing", "We will be closed for a while."],
+    ["sub-operation conflict", "The egg fridge is closed this weekend, but the stand is open."],
+    ["multiple windows", "Closed August 8-10 and again August 20-22."],
+  ])("clarifies %s without calling a model", async (_label, taskText) => {
+    const provider = new RecordingProvider(
+      JSON.stringify({ kind: "closure", closure: { result: "reopen" } }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText,
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("clarification");
+    expect(provider.seen).toHaveLength(0);
+  });
+
+  it("rejects model dates that contradict deterministic timing evidence", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "closure",
+        closure: {
+          result: "close",
+          closureKind: "temporary",
+          startsOn: "2026-08-02",
+          closedThrough: "2026-08-04",
+        },
+      }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "Closed this weekend.",
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("clarification");
+  });
+
+  it("rejects a hallucinated reopen on an inventory-only message", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({ kind: "closure", closure: { result: "reopen" } }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "Still have eggs.",
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("clarification");
+  });
+
+  it("accepts an explicit reopen while rejecting implicit model invention", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({ kind: "closure", closure: { result: "reopen" } }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "The stand is open again.",
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("closure");
+    expect(result.kind === "closure" && result.closure).toEqual({ result: "reopen" });
+  });
+
+  it("clarifies a reversed explicit range without calling a model", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "closure",
+        closure: {
+          result: "close",
+          closureKind: "temporary",
+          startsOn: "2026-08-12",
+          closedThrough: "2026-08-10",
+        },
+      }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "Closed August 12 through August 10.",
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("clarification");
+    expect(provider.seen).toHaveLength(0);
+  });
+
   it("shows the provider only the seam's projection", async () => {
     const provider = new RecordingProvider(
       JSON.stringify({ kind: "edits", additions: [], changes: [], removals: [] }),
@@ -33,6 +178,7 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     expect(provider.seen).toHaveLength(1);
     expect(provider.seen[0]!.seam).toBe("inventory-extraction");
     expect(Object.keys(provider.seen[0]!.fields as object).sort()).toEqual([
+      "closureTiming",
       "currentClosure",
       "currentEntries",
       "currentLocalDate",

@@ -148,4 +148,19 @@ describe("seam output contracts (F-024)", () => {
       }
     }
   });
+
+  it("puts closure decision rules before shape templates and requires mixed facts to survive", () => {
+    const ctx = projectInventoryExtraction({
+      taskText: "Closed this weekend; still have eggs.",
+      currentEntries: [],
+      currentLocalDate: "2026-08-06",
+    });
+    const instructions = ctx.outputInstructions ?? "";
+
+    expect(instructions).toContain("EVERY independent fact");
+    expect(instructions).toContain("closureTiming");
+    expect(instructions.indexOf("EVERY independent fact")).toBeLessThan(
+      instructions.indexOf('{"kind":"edits"'),
+    );
+  });
 });

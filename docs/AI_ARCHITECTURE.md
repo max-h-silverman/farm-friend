@@ -98,7 +98,7 @@ for it in the meantime.
 
 | Seam | Permitted model input |
 |---|---|
-| inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), the current or pending canonical closure instruction for the farmer's own location, and the exact current Vashon calendar date supplied by code |
+| inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), the current or pending canonical closure instruction for the farmer's own location, the exact current Vashon calendar date, and deterministic closure timing evidence derived by code before the call |
 | stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
 | inquiry interpretation | the current customer SMS request |
 | grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
@@ -174,12 +174,15 @@ clarify or flag:
 
 - **inventory extraction** — farmer text → a structured farmer-update proposal: inventory edits,
   owner-only close/reopen, both sections, or clarification. Closure output is restricted to typed
-  kind and exact local dates. Code supplies the current Vashon date through the narrow projection,
-  so relative phrases such as “this weekend” resolve against an explicit fact rather than model
-  clock knowledge. Vague timing, conflicting dates, sub-operation closure, multiple windows, and a
-  future close conflicting with an active one ask rather than guess. Code validates the shape and
-  authority and renders every public status; the model cannot publish or author a public closure
-  note. Reused wherever a farmer describes stock or stand status naturally.
+  kind and exact local dates. Before any model call, code resolves supported month/day ranges,
+  “this weekend,” unqualified whole-stand closure, seasonal closure, and explicit reopening from
+  the current Vashon date. Vague timing, reversed or multiple ranges, and sub-operation/whole-stand
+  conflicts return code-rendered clarification without reaching a model. The narrow projection
+  carries the resulting typed evidence; model dates must match it exactly or code clarifies. The
+  model still interprets arbitrary inventory language and must preserve inventory plus closure in
+  one mixed result. Code validates the shape and authority and renders every public status; the
+  model cannot publish or author a public closure note. Reused wherever a farmer describes stock or
+  stand status naturally.
 - **stock-out item parsing** — on the web/QR reporting surface, free text → which item (a listed
   entry or normalized text for an unlisted one). The surface supplies the sales-location identifier
   in code; it is never a model output. A free-text SMS may receive a link to the reporting surface

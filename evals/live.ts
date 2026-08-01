@@ -12,10 +12,13 @@
 //                        pass — the pass condition is "the barrier held", not "the model
 //                        behaved". Several fixtures actively invite the model to comply with
 //                        an injection so the barrier is what gets exercised.
+//   - live-closure     : must pass 100%. These are F-049's required interpretation outcomes;
+//                        a model that misses one cannot ship the closure feature.
 //   - live-quality     : recorded, non-fatal. What the brain is trusted for. Observed output
 //                        is printed so two models can be compared run against run.
 //
-// Cost: 22 short completions per run, fractions of a cent. Run with:
+// Cost: 18 short completions per run; four deterministic closure fixtures make no model call.
+// Run with:
 //   DEEPINFRA_MODEL=<model-id> npm run evals:live
 // (DEEPINFRA_API_KEY comes from .env via --env-file; a real environment value wins.)
 
@@ -25,6 +28,8 @@ import {
   createInquiryModel,
   createInventoryInterpreter,
   extractOfferings,
+  liveEvalFailureReason,
+  type LiveEvalGroup,
 } from "@farm-friend/ai";
 import {
   applyInventoryEdits,
@@ -145,7 +150,7 @@ const RECALL_FACTS = [
   },
 ];
 
-type Group = "live-containment" | "live-quality" | "live-recall";
+type Group = LiveEvalGroup;
 interface Fixture {
   name: string;
   group: Group;
@@ -273,7 +278,7 @@ fx("live-quality", "extracts a plain farmer list into typed additions", async ()
   return { ok, observed };
 });
 
-fx("live-quality", "extracts a bounded closure and inventory as one typed update", async () => {
+fx("live-closure", "extracts a bounded closure and inventory as one typed update", async () => {
   const raw = await interpreter.interpret({
     taskText: "Closed August 8 through August 10, but we still have eggs.",
     currentEntries: [],
@@ -291,7 +296,7 @@ fx("live-quality", "extracts a bounded closure and inventory as one typed update
   return { ok, observed };
 });
 
-fx("live-quality", "resolves a relative weekend from the code-supplied Vashon date", async () => {
+fx("live-closure", "resolves a relative weekend from the code-supplied Vashon date", async () => {
   const raw = await interpreter.interpret({
     taskText: "Closed this weekend; still have eggs.",
     currentEntries: [],
@@ -310,7 +315,7 @@ fx("live-quality", "resolves a relative weekend from the code-supplied Vashon da
 });
 
 const closureClarificationCase = (name: string, taskText: string) =>
-  fx("live-quality", name, async () => {
+  fx("live-closure", name, async () => {
     const raw = await interpreter.interpret({
       taskText,
       currentEntries: [],
@@ -337,7 +342,7 @@ closureClarificationCase(
   "Closed starting August 12 through August 10.",
 );
 
-fx("live-quality", "extracts an explicit reopening without dates", async () => {
+fx("live-closure", "extracts an explicit reopening without dates", async () => {
   const raw = await interpreter.interpret({
     taskText: "The stand is open again.",
     currentEntries: [],
@@ -527,6 +532,7 @@ async function main() {
   console.log(`live evals — deepinfra model: ${model}\n`);
   const results: Record<Group, { pass: number; fail: number }> = {
     "live-containment": { pass: 0, fail: 0 },
+    "live-closure": { pass: 0, fail: 0 },
     "live-quality": { pass: 0, fail: 0 },
     // F-045: recall is measured, never assumed. Containment can read 100% while recall
     // reads 0% — a model that safely answers "nobody has that" about a stand carrying the
@@ -549,32 +555,25 @@ async function main() {
   }
 
   console.log();
-  for (const group of ["live-containment", "live-quality", "live-recall"] as Group[]) {
+  for (const group of [
+    "live-containment",
+    "live-closure",
+    "live-quality",
+    "live-recall",
+  ] as Group[]) {
     const r = results[group];
     console.log(`${group}: ${r.pass}/${r.pass + r.fail} passed`);
   }
 
-  if (results["live-containment"].fail > 0) {
+  const failureReason = liveEvalFailureReason(results);
+  if (failureReason !== null) {
     console.error(
-      "\nLIVE EVALS FAILED: a containment fixture did not hold against the real model. " +
-        "STOP AND REPORT (F-024) — do not edit fixtures to go green.",
-    );
-    process.exit(1);
-  }
-  // Recall is FATAL, unlike quality (F-045). Since code stopped pre-filtering candidates by
-  // item name, a model that cannot match a category is not a degraded experience — it is the
-  // production defect this work exists to fix, restored. A model failing here is unfit to
-  // serve customers however perfectly contained it is, so this gates rather than records.
-  if (results["live-recall"].fail > 0) {
-    console.error(
-      "\nLIVE EVALS FAILED: a recall fixture missed a stand that carries the item. " +
-        "The configured model cannot do the semantic matching code stopped doing (F-045). " +
-        "Try a stronger model before shipping — do not weaken the fixtures.",
+      `\nLIVE EVALS FAILED: ${failureReason}. STOP AND REPORT — do not weaken the fixtures.`,
     );
     process.exit(1);
   }
   console.log(
-    "\nlive evals OK (containment and recall at 100%; quality recorded above).",
+    "\nlive evals OK (containment, closure, and recall at 100%; quality recorded above).",
   );
 }
 

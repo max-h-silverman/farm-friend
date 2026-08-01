@@ -26,6 +26,7 @@ describe("inventory-extraction projection — the only permitted model input for
 
     expect(ctx.seam).toBe("inventory-extraction");
     expect(Object.keys(ctx.fields).sort()).toEqual([
+      "closureTiming",
       "currentClosure",
       "currentEntries",
       "currentLocalDate",
@@ -37,6 +38,7 @@ describe("inventory-extraction projection — the only permitted model input for
     ]);
     expect(ctx.fields.currentClosure).toBeNull();
     expect(ctx.fields.currentLocalDate).toBe("2026-08-06");
+    expect(ctx.fields.closureTiming).toEqual({ kind: "none" });
   });
 
   it("copies only canonical closure facts and cannot leak a wider row", () => {
