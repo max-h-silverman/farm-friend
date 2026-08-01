@@ -61,6 +61,7 @@ const expectedTables = [
   "pending_result_lists",
   "provider_inbox_events",
   "sales_location_offerings",
+  "sales_location_participants",
   "sales_location_payment_methods",
   "sales_locations",
   "sender_states",
@@ -359,7 +360,7 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude,
+          owner_farm_id, kind, name, public_address, public_latitude,
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
@@ -372,7 +373,7 @@ describe("clean launch database foundation (integration)", () => {
 
     const locationRows = await db()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude,
+        owner_farm_id, kind, name, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       )
       values
@@ -394,7 +395,7 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude,
+          owner_farm_id, kind, name, public_address, public_latitude,
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
@@ -406,7 +407,7 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude,
+          owner_farm_id, kind, name, public_address, public_latitude,
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
@@ -927,7 +928,7 @@ describe("clean launch database foundation (integration)", () => {
     ): Promise<void> {
       const columns = Object.keys(fields);
       const base = `insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible${columns.length ? ", " + columns.map((c) => `"${c}"`).join(", ") : ""}
       ) values (
         '${storedId("farm")}', 'farm_stand', 'Constraint Probe ${randomUUID()}', '9 Probe Way',
@@ -1107,7 +1108,7 @@ describe("clean launch database foundation (integration)", () => {
     beforeAll(async () => {
       const rows = await db()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${storedId("farm")}, 'farm_stand', 'Specialty Probe Stand', '11 Specialty Way',
@@ -1181,7 +1182,7 @@ describe("clean launch database foundation (integration)", () => {
     beforeAll(async () => {
       const rows = await db()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${storedId("farm")}, 'farm_stand', 'Flag Probe Stand', '12 Flag Way',

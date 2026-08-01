@@ -85,7 +85,7 @@ describe.skipIf(!databaseUrl)("visitability and offering type (integration)", ()
   }) {
     return db()`
       insert into sales_locations (
-        farm_id, kind, name, visitability, offering_type,
+        owner_farm_id, kind, name, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -271,7 +271,7 @@ describe.skipIf(!databaseUrl)("visitability and offering type (integration)", ()
     // application would report it.
     const rows = await db()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (

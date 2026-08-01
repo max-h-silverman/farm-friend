@@ -125,7 +125,7 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
       c.starts_on::text as closure_starts_on,
       c.closed_through::text as closure_closed_through
     from sales_locations l
-    join farms f on f.id = l.farm_id
+    join farms f on f.id = l.owner_farm_id
     join inventory_revisions r
       on r.sales_location_id = l.id and r.is_current
     join inventory_entries e on e.inventory_revision_id = r.id
@@ -182,7 +182,7 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
       c.starts_on::text as closure_starts_on,
       c.closed_through::text as closure_closed_through
     from sales_locations l
-    join farms f on f.id = l.farm_id
+    join farms f on f.id = l.owner_farm_id
     join sales_location_offerings o on o.sales_location_id = l.id
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current

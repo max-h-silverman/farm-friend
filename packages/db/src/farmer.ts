@@ -349,7 +349,7 @@ export async function resolveFarmerLink(
     join farmer_authorizations as auth
       on auth.id = link.authorization_id
     join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location on location.farm_id = auth.farm_id
+    join sales_locations as location on location.owner_farm_id = auth.farm_id
     where link.token_hash = ${input.tokenHash}
       and link.revoked_at is null
       and auth.revoked_at is null

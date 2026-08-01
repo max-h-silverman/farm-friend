@@ -100,7 +100,7 @@ describe("farmer authorization and standing links (integration)", () => {
     const farmId = farms[0]?.id as string;
     const locations = await sql()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
@@ -856,7 +856,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const { farmId } = await farmWithStand(`Two Stands ${randomUUID()}`);
       await sql()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (

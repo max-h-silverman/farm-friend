@@ -50,7 +50,7 @@ async function resolveFarmerLocation(
     select l.id
     from farmer_authorizations a
     join contacts c on c.id = a.contact_id
-    join sales_locations l on l.farm_id = a.farm_id
+    join sales_locations l on l.owner_farm_id = a.farm_id
     where c.phone_hash = ${senderHash}
       and a.revoked_at is null
       and a.phone_verified_at is not null

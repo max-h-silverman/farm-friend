@@ -430,7 +430,7 @@ export async function listStockOutReports(
       administrator.email as reviewed_by_email
     from stock_out_reports as report
     join sales_locations as location on location.id = report.sales_location_id
-    join farms as farm on farm.id = location.farm_id
+    join farms as farm on farm.id = location.owner_farm_id
     left join inventory_entries as entry
       on entry.id = report.referenced_inventory_entry_id
     left join administrators as administrator

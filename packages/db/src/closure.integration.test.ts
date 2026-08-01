@@ -104,7 +104,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     ids.farm = farms[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${ids.farm}, 'farm_stand', 'Closure Stand', '1 Closure Way', 47.44, -122.46,
@@ -386,7 +386,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     const otherFarmId = otherFarms[0]?.id as string;
     const otherLocations = await client()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${otherFarmId}, 'farm_stand', 'Binding Stand', '2 Closure Way', 47.43, -122.45,
@@ -463,7 +463,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       markLocked = resolve;
     });
     const holding = blocker.begin(async (tx) => {
-      await tx`select farm_id from sales_locations where id = ${ids.location} for update`;
+      await tx`select owner_farm_id from sales_locations where id = ${ids.location} for update`;
       markLocked();
       await releasePromise;
     });
@@ -496,7 +496,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
           from pg_stat_activity
           where datname = current_database()
             and wait_event_type = 'Lock'
-            and query like '%select farm_id from sales_locations%'
+            and query like '%select owner_farm_id from sales_locations%'
         `;
         queued = rows[0]?.count as number;
         if (queued < 2) await new Promise((resolve) => setTimeout(resolve, 10));

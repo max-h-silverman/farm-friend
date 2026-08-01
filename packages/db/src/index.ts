@@ -10,6 +10,7 @@ export * from "./transactions";
 export * from "./admin";
 export * from "./farmer";
 export * from "./pending-result-list";
+export * from "./participants";
 export * from "./review";
 export type { Sql } from "./sql";
 

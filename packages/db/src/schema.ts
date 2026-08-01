@@ -627,7 +627,8 @@ export const salesLocations = pgTable(
   "sales_locations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    farmId: uuid("farm_id")
+    /** The farm that controls location facts. Ownership does not imply seller participation. */
+    ownerFarmId: uuid("owner_farm_id")
       .notNull()
       .references(() => farms.id, { onDelete: "restrict" }),
     kind: salesLocationKind("kind").notNull(),
@@ -706,9 +707,9 @@ export const salesLocations = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    idAndFarmUnique: unique("sales_locations_id_farm_unique").on(
+    idAndOwnerUnique: unique("sales_locations_id_owner_unique").on(
       table.id,
-      table.farmId,
+      table.ownerFarmId,
     ),
     nameNotBlank: check(
       "sales_locations_name_not_blank",
@@ -875,6 +876,73 @@ export const salesLocations = pgTable(
       sql`
         (${table.stockingCadence} = 'specific_days') = (${table.stockingDays} is not null)
         or (${table.stockingCadence} is null and ${table.stockingDays} is null)
+      `,
+    ),
+  }),
+);
+
+/**
+ * Owner-confirmed names of other sellers active at a sales location (F-050).
+ *
+ * These are public display strings, not identities. There is deliberately no participant-farm
+ * reference: F-050 has no confirmed linking flow, and name matching would fabricate authority.
+ * Retirement is the only mutation; history is never deleted or rewritten.
+ */
+export const salesLocationParticipants = pgTable(
+  "sales_location_participants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerFarmId: uuid("owner_farm_id").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    displayName: text("display_name").notNull(),
+    confirmedByAuthorizationId: uuid("confirmed_by_authorization_id").notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull(),
+    retiredByAuthorizationId: uuid("retired_by_authorization_id"),
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    locationOwnerReference: foreignKey({
+      name: "sales_location_participants_location_owner_fk",
+      columns: [table.salesLocationId, table.ownerFarmId],
+      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    }).onDelete("restrict"),
+    confirmingOwnerReference: foreignKey({
+      name: "sales_location_participants_confirming_owner_fk",
+      columns: [table.confirmedByAuthorizationId, table.ownerFarmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("restrict"),
+    retiringOwnerReference: foreignKey({
+      name: "sales_location_participants_retiring_owner_fk",
+      columns: [table.retiredByAuthorizationId, table.ownerFarmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("restrict"),
+    oneActiveNormalizedName: uniqueIndex(
+      "sales_location_participants_one_active_normalized_name",
+    )
+      .on(
+        table.salesLocationId,
+        sql`lower(regexp_replace(trim(${table.displayName}), '[[:space:]]+', ' ', 'g'))`,
+      )
+      .where(sql`${table.retiredAt} is null`),
+    displayNameNotBlank: check(
+      "sales_location_participants_display_name_not_blank",
+      sql`length(trim(${table.displayName})) > 0`,
+    ),
+    retirementCoherent: check(
+      "sales_location_participants_retirement_coherent",
+      sql`
+        (
+          ${table.retiredAt} is null
+          and ${table.retiredByAuthorizationId} is null
+        )
+        or (
+          ${table.retiredAt} is not null
+          and ${table.retiredByAuthorizationId} is not null
+          and ${table.retiredAt} >= ${table.confirmedAt}
+        )
       `,
     ),
   }),
@@ -1602,7 +1670,7 @@ export const inventoryRevisions = pgTable(
     locationFarmReference: foreignKey({
       name: "inventory_revisions_location_farm_fk",
       columns: [table.salesLocationId, table.farmId],
-      foreignColumns: [salesLocations.id, salesLocations.farmId],
+      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
     }).onDelete("restrict"),
     authorizationFarmReference: foreignKey({
       name: "inventory_revisions_authorization_farm_fk",
@@ -1705,7 +1773,7 @@ export const closureRevisions = pgTable(
     locationOwnerReference: foreignKey({
       name: "closure_revisions_location_owner_fk",
       columns: [table.salesLocationId, table.ownerFarmId],
-      foreignColumns: [salesLocations.id, salesLocations.farmId],
+      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
     }).onDelete("restrict"),
     authorizationOwnerReference: foreignKey({
       name: "closure_revisions_authorization_owner_fk",

@@ -87,7 +87,7 @@ describe("seeding VIGA's stands (B-002)", () => {
     const rows = await client`
       select f.name as farm_name, l.name as location_name, l.public_address,
              l.public_latitude, l.public_longitude, l.is_public
-      from sales_locations l join farms f on f.id = l.farm_id
+      from sales_locations l join farms f on f.id = l.owner_farm_id
       order by l.name
     `;
     expect(rows).toHaveLength(2);

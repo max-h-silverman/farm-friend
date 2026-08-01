@@ -359,7 +359,7 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
 
       const locationRows = await tx`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
           visitability, offering_type,
           hours_text, is_public, farm_bucks_accepted, farm_bucks_eligible,
           season_kind, season_start_month, season_start_day, season_end_month,

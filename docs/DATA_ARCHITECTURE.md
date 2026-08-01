@@ -20,9 +20,9 @@ Launch is a **single VIGA operation** and a **greenfield build**. Accordingly:
 - **No tenancy.** No `tenant_id`, no tenant registry, no tenant-scoped queries.
 - **No gleaning, volunteer, or Farm Bucks transaction state.** These are plausible future programs;
   the architecture leaves room for them by staying small, **not** by pre-creating their tables.
-- **No legacy-migration provenance.** There is no production-data compatibility requirement and no
-  non-destructive migration. Initial listing data is **seeded** from reference input. There is no
-  `migrated` vs `farmer_confirmed` provenance axis and no claim-state machine.
+- **No legacy-import provenance.** Initial listing data was **seeded** from reviewed reference
+  input, while later schema migrations preserve live rows. There is no `migrated` vs
+  `farmer_confirmed` provenance axis, no corpus backfill, and no claim-state machine.
 - **No native-app or multi-level-role state.** One administrator level at launch.
 
 Recency is expressed by **when a revision was published and by whom**, which is sufficient to
@@ -30,8 +30,10 @@ render an honest "updated X ago" without a second provenance axis.
 
 ## Minimum durable data
 
-- **farms and sales locations** — the farm, its stands or sales points, and their public location.
-  A farm without a public stand records an exact, approximate, or hidden map location.
+- **farms and sales locations** — the farm and its stands or sales points. A location's
+  `owner_farm_id` is the farm authorized to govern address, hours, closure, and visibility; owner
+  authority is not seller participation. A farm without a public stand records an exact,
+  approximate, or hidden map location.
 - **farmer contacts and authorization** — who may act for a farm, and proof they control the phone
   number. **VIGA always grants this**, because a phone proves possession of a phone and not
   ownership of a farm: the only writer is administrator-gated, re-reads the administrator's
@@ -90,6 +92,12 @@ render an honest "updated X ago" without a second provenance axis.
   location, authorization, and approval to the same owner farm. One current instruction per
   location and one revision per proposal are database constraints; bounded expiry is computed by
   the canonical reader and never rewrites these rows.
+- **sales-location participants** (F-050) — owner-confirmed public display names for other sellers
+  at a location, separate from both ownership and inventory. Names are unlinked plain text: code
+  does no farm/profile/alias matching, the owner is not inserted automatically, and inventory
+  entries carry no participant or seller provenance. Retirement records the owner authorization
+  and time without deleting history. The public reader returns active names under **Also selling
+  here**, separately from the single aggregate inventory list.
 - **customer stock-out reports** — private; each carries a required sales-location identifier bound
   by the web/QR reporting surface, and may reference a listed entry or name an unlisted item. A
   model does not supply the consequential location identifier.
@@ -152,6 +160,11 @@ These are **database-level** requirements, not application conventions:
   and ordinary unique indexes make both claims structural. CHECK constraints reject malformed
   reopen/close shapes, seasonal end dates, reversed dates, and incoherent current/superseded state;
   each nullable case is tested against real Postgres because a CHECK otherwise passes on NULL.
+- **One active normalized participant name per location** (F-050) — a partial unique index is the
+  first-insert arbiter; row locks cannot serialize a row that does not exist. Composite foreign
+  keys bind the location and confirming/retiring authorization to the same owner. CHECKs reject
+  blank names, half-populated retirement state, and retirement before confirmation; deletion and
+  mutation of history are refused.
 - **Farmer authority over inventory publication** — only an authorized farmer for that location can
   publish, and only an approved farm publishes publicly. Both are re-read while the confirmation
   transaction holds the sender and pending-confirmation locks.

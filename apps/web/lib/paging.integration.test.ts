@@ -107,7 +107,7 @@ describe("SMS result paging end to end (integration)", () => {
       const farm = await client()`insert into farms (name) values (${name}) returning id`;
       const location = await client()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${farm[0]?.id as string}, 'farm_stand', ${name},
@@ -131,9 +131,9 @@ describe("SMS result paging end to end (integration)", () => {
   async function publishEggs(index: number): Promise<void> {
     const locationId = locationIds[index]!;
     const farms = await client()`
-      select farm_id from sales_locations where id = ${locationId}
+      select owner_farm_id from sales_locations where id = ${locationId}
     `;
-    const farmId = farms[0]?.farm_id as string;
+    const farmId = farms[0]?.owner_farm_id as string;
 
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash)
@@ -427,7 +427,7 @@ describe("SMS result paging end to end (integration)", () => {
     const farm = await client()`insert into farms (name) values ('Latecomer Farm') returning id`;
     const location = await client()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (${farm[0]?.id as string}, 'farm_stand', 'Latecomer Farm', '1 New Rd',

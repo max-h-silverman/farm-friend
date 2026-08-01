@@ -203,7 +203,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       `;
       const location = await client()`
         insert into sales_locations (
-          farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${ids[`${key}Farm`]}, 'farm_stand', ${`${name} Stand`}, '1 Road',

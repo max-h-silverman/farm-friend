@@ -673,7 +673,7 @@ export async function openOrReviseProposal(
     // as confirmation — sender, location, proposal, then authorization — before reading
     // either base revision.
     const locations = await tx`
-      select farm_id from sales_locations
+      select owner_farm_id from sales_locations
       where id = ${input.salesLocationId}
       for update
     `;
@@ -687,7 +687,7 @@ export async function openOrReviseProposal(
     const ownerAuthorization = await tx`
       select farmer.id from farmer_authorizations as farmer
       join contacts on contacts.id = farmer.contact_id
-      where farmer.farm_id = ${locations[0]?.farm_id as string}
+      where farmer.farm_id = ${locations[0]?.owner_farm_id as string}
         and contacts.phone_hash = ${input.senderHash}
         and farmer.revoked_at is null
       for update of farmer
@@ -866,7 +866,7 @@ export async function confirmInventoryPublication(
     if (target.length === 0) return { status: "no_open_proposal" };
     const salesLocationId = target[0]?.sales_location_id as string;
     const location = await tx`
-      select farm_id from sales_locations
+      select owner_farm_id from sales_locations
       where id = ${salesLocationId}
       for update
     `;
@@ -963,7 +963,7 @@ export async function confirmInventoryPublication(
 
     // These are the final shared locks. If revocation committed first, the filtered lock
     // returns no row; if confirmation locked first, revocation queues until publication.
-    const farmId = location[0]?.farm_id as string;
+    const farmId = location[0]?.owner_farm_id as string;
 
     const authorization = await tx`
       select farmer.id from farmer_authorizations as farmer
