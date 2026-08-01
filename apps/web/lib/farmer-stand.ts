@@ -1,5 +1,6 @@
 import {
   hashFarmerLinkToken,
+  renderPublicStringRefusal,
   renderProposedSnapshot,
   type Clock,
   type InventoryInterpreter,
@@ -124,7 +125,7 @@ export type FarmerStandConfirmation =
   | { status: "published"; revisionId: string }
   | { status: "declined" }
   | { status: "not_authorized" }
-  | { status: "refused"; reason: string };
+  | { status: "refused"; reason: string; message?: string };
 
 /**
  * Confirm or decline the farmer's pending proposal — the SAME gate SMS lands on.
@@ -184,6 +185,13 @@ export async function confirmFromLink(
     return { status: "published", revisionId: result.revisionId };
   }
   if (result.status === "declined") return { status: "declined" };
+  if (result.status === "unsafe_public_text") {
+    return {
+      status: "refused",
+      reason: result.status,
+      message: renderPublicStringRefusal(result.prohibited),
+    };
+  }
   // Every other status is a refusal to commit — expired, base conflict, revoked authority,
   // withdrawn approval. The farmer is told rather than left believing they published.
   return { status: "refused", reason: result.status };

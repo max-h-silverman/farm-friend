@@ -275,6 +275,14 @@ belong to the retrieved set, and code renders the factual response from the corr
 authoritative values. A durable write, a recipient choice, a factual answer value, or a consent
 decision **never** comes from model output.
 
+Shape validation does not make a model-writable string safe for a public surface. The inventory
+publication transaction therefore runs one shared deterministic public-string validator over every
+free-form field it could publish and refuses the complete proposal on phone numbers, email
+addresses, web links, or direct-contact instructions. This is downstream of both SMS and farmer web
+and is deliberately not a prompt instruction or a model-seam filter: a farmer can type the same
+content without any model involvement, and direct farmer contact is a code-owned launch boundary.
+Participant names reuse this validator when that public field exists; there is no second scanner.
+
 ## Evals
 
 Evals run against the stub provider in **critical** and **advisory** groups:

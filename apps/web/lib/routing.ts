@@ -9,6 +9,7 @@ import {
   REGISTERED_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
   renderClarificationRequest,
+  renderPublicStringRefusal,
   type Clock,
   type ComplianceKeyword,
   type FarmerKeyword,
@@ -526,7 +527,10 @@ async function routeCommitment(
       ? []
       : [
           {
-            body: renderClarificationRequest(),
+            body:
+              result.status === "unsafe_public_text"
+                ? renderPublicStringRefusal(result.prohibited)
+                : renderClarificationRequest(),
             category: "inquiry_reply",
             logicalKey: `confirm-${result.status}-${input.providerEventId}`,
           },

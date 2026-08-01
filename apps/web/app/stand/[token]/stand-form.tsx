@@ -42,10 +42,13 @@ export function StandForm({ token }: { token: string }) {
         unknown
       >;
       if (!response.ok) {
+        const refusalMessage =
+          typeof payload.message === "string" ? payload.message : null;
         setError(
           response.status === 403
             ? "This link is no longer active. Text LINK to VIGA Farm Friend for a new one."
-            : "That did not go through. Your listing is unchanged — try again.",
+            : refusalMessage ??
+                "That did not go through. Your listing is unchanged — try again.",
         );
         return null;
       }
