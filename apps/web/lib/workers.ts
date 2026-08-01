@@ -1,7 +1,6 @@
 import type { Clock, InventoryInterpreter } from "@farm-friend/core";
 import type { InquiryModel } from "@farm-friend/ai";
 import {
-  activateAcceptedPrompt,
   applyPendingDeliveryEvents,
   authorizeDispatch,
   claimNextInboundEvent,
@@ -302,13 +301,8 @@ export async function runOutboundPass(
       });
 
       if (result.outcome === "accepted") {
-        // The provider accepted this prompt, so the confirmation window opens now. A
-        // non-confirmation message matches no open proposal and this is a no-op.
-        await activateAcceptedPrompt(
-          deps.context.db,
-          outboxWorkId,
-          deps.clock.now(),
-        );
+        // The result transaction also opened an exact current confirmation prompt. A
+        // non-confirmation message or an older proposal version matched nothing.
         sent += 1;
       }
       if (result.outcome === "ambiguous") ambiguous += 1;

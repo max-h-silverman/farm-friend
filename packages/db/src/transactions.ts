@@ -571,7 +571,6 @@ export interface OpenProposalResult {
    */
   activate(input: {
     providerAcceptedAt: Date;
-    outboxLogicalKey: string;
   }): Promise<void>;
 }
 
@@ -592,29 +591,42 @@ export interface OpenProposalResult {
  * concurrent revision had already superseded.
  *
  * The guards make this safe to call after ANY accepted dispatch: it matches only an `open`
- * proposal belonging to the outbox row's own recipient, and only where that row is an
- * `inventory_confirmation`. A non-confirmation message matches nothing and is a no-op.
+ * proposal belonging to the outbox row's own recipient, only where that row is an
+ * `inventory_confirmation`, and only where its logical key names the proposal's CURRENT
+ * version. A non-confirmation message or an accepted prompt for an older version matches
+ * nothing and is a no-op.
  */
-export async function activateAcceptedPrompt(
-  db: Db,
+async function activateAcceptedPromptInTransaction(
+  tx: Tx,
   outboxWorkId: string,
   acceptedAt: Date,
 ): Promise<void> {
-  await driver(db)`
-    update inventory_publication_proposals
+  await tx`
+    update inventory_publication_proposals as proposal
     set activation_outbox_id = ${outboxWorkId},
         activated_version = proposal_version,
         activated_at = ${acceptedAt},
         expires_at = ${new Date(acceptedAt.getTime() + CONFIRMATION_WINDOW_MS)},
         updated_at = ${acceptedAt}
-    where state = 'open'
-      and sender_hash = (
-        select recipient_hash from outbox_work where id = ${outboxWorkId}
+    from outbox_work as work
+    where work.id = ${outboxWorkId}
+      and proposal.state = 'open'
+      and proposal.sender_hash = work.recipient_hash
+      and work.message_category = 'inventory_confirmation'
+      and work.logical_key = concat(
+        'proposal-prompt-', proposal.id::text, '-', proposal.proposal_version::text
       )
-      and (
-        select message_category from outbox_work where id = ${outboxWorkId}
-      ) = 'inventory_confirmation'
   `;
+}
+
+export async function activateAcceptedPrompt(
+  db: Db,
+  outboxWorkId: string,
+  acceptedAt: Date,
+): Promise<void> {
+  await driver(db).begin((tx) =>
+    activateAcceptedPromptInTransaction(tx, outboxWorkId, acceptedAt),
+  );
 }
 
 /**
@@ -703,7 +715,7 @@ export async function openOrReviseProposal(
 
   return {
     ...opened,
-    async activate({ providerAcceptedAt, outboxLogicalKey }) {
+    async activate({ providerAcceptedAt }) {
       // Fixture setup: the dispatched prompt row. In production the outbound worker has
       // already queued and sent this; here it is stood up directly so a test can reach
       // the activation without running a dispatch pass.
@@ -713,7 +725,8 @@ export async function openOrReviseProposal(
           available_at, state, dispatch_authorized_at, completed_at, created_at
         )
         values (
-          ${outboxLogicalKey}, ${input.senderHash}, 'inventory_confirmation',
+          ${`proposal-prompt-${opened.proposalId}-${opened.proposalVersion}`},
+          ${input.senderHash}, 'inventory_confirmation',
           'Confirm this inventory', ${new Date(providerAcceptedAt.getTime() + DEFAULT_BODY_TTL_MS)},
           ${providerAcceptedAt}, 'sent', ${providerAcceptedAt}, ${providerAcceptedAt},
           ${providerAcceptedAt}
@@ -1109,6 +1122,7 @@ export async function recordDispatchResult(
         update outbox_work set state = 'sent', completed_at = ${input.now}
         where id = ${workId}
       `;
+      await activateAcceptedPromptInTransaction(tx, workId, input.now);
       return { retryable: false };
     }
 

@@ -925,7 +925,6 @@ describe("farmer authorization and standing links (integration)", () => {
       });
       await proposal.activate({
         providerAcceptedAt: at(2),
-        outboxLogicalKey: `prompt-${proposal.proposalId}`,
       });
 
       const confirmed = await confirmInventoryPublication(database(), {
@@ -964,7 +963,6 @@ describe("farmer authorization and standing links (integration)", () => {
       });
       await proposal.activate({
         providerAcceptedAt: at(2),
-        outboxLogicalKey: `prompt-${proposal.proposalId}`,
       });
 
       // Revoked AFTER the prompt was sent, BEFORE the farmer answered.

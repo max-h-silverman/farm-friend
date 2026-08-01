@@ -79,7 +79,6 @@ describe("farm approval and admin sessions (integration)", () => {
     });
     await proposal.activate({
       providerAcceptedAt: when,
-      outboxLogicalKey: `prompt-${randomUUID()}`,
     });
 
     const confirmedAt = new Date(when.getTime() + 60_000);

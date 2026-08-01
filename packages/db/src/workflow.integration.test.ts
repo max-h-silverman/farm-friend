@@ -677,7 +677,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const proposal = await openProposal();
       await proposal.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: `wf-${kind}-${winner}-prompt`,
       });
       const blocker =
         winner === "confirmation"
@@ -825,7 +824,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const proposal = await openProposal();
       await proposal.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-prompt-1",
       });
 
       const confirm = (eventId: string) =>
@@ -854,7 +852,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const proposal = await openProposal();
       await proposal.activate({
         providerAcceptedAt: at(0),
-        outboxLogicalKey: "wf-prompt-2",
       });
 
       const justInside = await confirmInventoryPublication(database(), {
@@ -870,7 +867,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const second = await openProposal({ entries: [{ itemName: "Bok choy" }] });
       await second.activate({
         providerAcceptedAt: at(720),
-        outboxLogicalKey: "wf-prompt-3",
       });
       const past = await confirmInventoryPublication(database(), {
         proposalId: second.proposalId,
@@ -887,7 +883,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const proposal = await openProposal();
       await proposal.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-prompt-4",
       });
       await client()`
         update farmer_authorizations set revoked_at = ${at(5.5)}
@@ -914,7 +909,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const proposal = await openProposal();
       await proposal.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-prompt-authority-lock",
       });
 
       const blocker = postgres(
@@ -988,11 +982,9 @@ describe("authoritative SMS transactions (integration)", () => {
       });
       await first.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-first-publication-a",
       });
       await second.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-first-publication-b",
       });
 
       const blocker = await holdDecisionRowLock(
@@ -1064,7 +1056,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const proposal = await openProposal();
       await proposal.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-prompt-5",
       });
       await client()`
         update farm_approvals set revoked_at = ${at(5.5)}
@@ -1087,7 +1078,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const proposal = await openProposal();
       await proposal.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-prompt-6",
       });
 
       const result = await confirmInventoryPublication(database(), {
@@ -1114,7 +1104,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const first = await openProposal();
       await first.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-prompt-7",
       });
       await confirmInventoryPublication(database(), {
         proposalId: first.proposalId,
@@ -1136,7 +1125,6 @@ describe("authoritative SMS transactions (integration)", () => {
       });
       await stale.activate({
         providerAcceptedAt: at(8),
-        outboxLogicalKey: "wf-prompt-8",
       });
 
       const result = await confirmInventoryPublication(database(), {
@@ -1159,7 +1147,6 @@ describe("authoritative SMS transactions (integration)", () => {
       const proposal = await openProposal();
       await proposal.activate({
         providerAcceptedAt: at(5),
-        outboxLogicalKey: "wf-prompt-9",
       });
       const published = await confirmInventoryPublication(database(), {
         proposalId: proposal.proposalId,

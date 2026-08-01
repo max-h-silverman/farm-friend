@@ -240,7 +240,9 @@ order:
 
 A confirmation token is accepted only for the sender's one open inventory proposal, after the
 current prompt has been accepted by Telnyx, and only when the token's provider occurrence time
-follows that activation. It must never commit an earlier proposal version.
+follows that activation. Recording Telnyx's acceptance and activating that exact current proposal
+version are one database commit after the provider call; either both become durable or neither
+does. It must never commit an earlier proposal version.
 
 F-012 removed the superseded generic commitment machine and its `OUT`/`IGNORE` tokens; the
 inventory confirmation described below is the one mechanism. The parser's keyword tables are
@@ -316,6 +318,11 @@ accepted is recorded as **ambiguous** and is not automatically resent unless Tel
 separately verified outbound idempotency facility. `message.sent` and `message.finalized` events
 advance delivery state monotonically by provider occurrence time; late events never regress a
 terminal result.
+
+For an accepted inventory-confirmation prompt, the accepted dispatch result and activation of the
+exact proposal/version named by that outbox row commit in the **same** transaction. The provider
+call remains outside it. An accepted older prompt or another message category still records its
+honest dispatch result but activates no proposal.
 
 **An abandoned authorization is quarantined, never resent or silently dropped** (GL-003). The claim
 commits `dispatching` before the body read, redaction, recipient resolution, provider call, and

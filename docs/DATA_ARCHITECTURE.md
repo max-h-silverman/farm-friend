@@ -166,6 +166,10 @@ These are **database-level** requirements, not application conventions:
 - **Outbox uniqueness and bounded attempts** — business state and one logical outbound item commit
   together. A definitive retryable rejection may create another bounded attempt; a result that may
   have been provider-accepted becomes `ambiguous` and is not automatically resent.
+- **Accepted confirmation dispatch and exact proposal activation are atomic** — after the external
+  provider call, recording acceptance and opening the named current proposal version's window are
+  one transaction. A failure leaves neither a `sent` outbox row nor an activated proposal; an old
+  version or non-confirmation category activates nothing.
 - **Monotonic provider delivery state** — duplicate or out-of-order delivery events cannot regress a
   terminal result.
 - **Bounded valid states and transitions** — states are enumerated and illegal transitions rejected.
