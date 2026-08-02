@@ -34,11 +34,23 @@ IAM grant are deleted. `/admin/login` serves the fixed `board@vigavashon.org` pa
 request-link and callback routes return 404, and an unauthenticated `/admin` request renders only the
 sign-in surface.
 
+F-057 is merged on `main` as `c480b01` but is **not deployed**. It makes standalone `MAP` a
+deterministic SMS command, returning only the configured `PUBLIC_MAP_URL` before model-assisted
+handling. STOP/START and consent safeguards retain their existing precedence. The deploy plan now
+refuses an absent non-HTTPS map URL or a web/worker mismatch; the container build and Cloud Run apply
+await explicit approval because Cloud Build can incur charges.
+
 Every standing link names one exact authorized stand, sales-location ownership is `owner_farm_id`,
 and proposal rows contain only the fields the current confirmation flow reads. There is no rolling
 or nullable compatibility state.
 
 ## Verification
+
+F-057 passes 857 unit tests, typecheck, lint, and the production web build. Its two focused
+real-Postgres MAP cases prove that the configured URL is queued without a model call and that a
+stopped sender remains suppressed. The focused integration run uses an isolated disposable database;
+no production rows were read or written. The three deploy-assertion test suites also pass. No
+model-facing seam changed, so no model evaluation is owed.
 
 The locally verified, **not deployed** administrator-dashboard refinement has four top-level
 workflows: Stands, Users, Flags, and Notifications. Stands use expandable metadata cards; Users
