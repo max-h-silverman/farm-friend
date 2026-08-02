@@ -5,19 +5,21 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Pushed commit `ab30a81` is live on Cloud Run as one image across web
-revision `farm-friend-web-00016-khb` and worker revision `farm-friend-worker-00017-spq`, both at
-digest `sha256:eec86a430e1ebe84cd35d4339af1c4f878e58e9995615dd47f39326d4d867940`.
-The runtime application is the pushed F-056 source; `ab30a81` adds only the isolated Argon2 image
-build correction and its test. Active-state documentation commit `f321ee5` is also pushed, and
-`origin/main` resolves exactly to it. Production Postgres is `neondb` with all 16 migrations applied
-(`0000`–`0015`, through journal timestamp `1786400000000`). Production now includes:
+Farm Friend is **pre-go-live**. Pushed commit `c34b092` is live on Cloud Run as one image across web
+revision `farm-friend-web-00017-tt8` and worker revision `farm-friend-worker-00018-w8q`, both at
+digest `sha256:8b1c30409aec390ac7e9a190ce258073c125745423c59a02f164e0dff95e6e0b`.
+Deploy-safety commit `737b39b` is also pushed; it changes only the completed secret-cutover plan
+guard and its tests, so it does not require a different runtime image. Production Postgres is
+`neondb` with all 16 migrations applied (`0000`–`0015`, through journal timestamp `1786400000000`).
+Production now includes:
 
 - F-049: owner-confirmed stand closure and reopening;
 - F-050: owner-confirmed **Also selling here** names;
 - F-051: deterministic `STAND` / `SETTINGS` and exact multi-stand targeting;
 - F-052: scheduled inventory prompts and context-bound `SAME`;
 - F-055: completed and visually exercised administrator and farmer web workflows;
+- VIGA-only Squarespace admin embedding through a partitioned session cookie, a framing allowlist,
+  and independent same-origin checks on authenticated writes;
 - B-031/B-032: one final pre-launch identity and data architecture, with no compatibility paths;
 - B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
   removed; active documentation reconciled to the final architecture.
@@ -38,9 +40,11 @@ or nullable compatibility state.
 
 ## Verification
 
-The deployed commit passes 879 unit tests, 572 integration tests across 39 files against
-an isolated real Postgres server, 44 scripted eval cases, typecheck, lint, and the production web
-build. The integration run creates empty databases and also exercises the populated B-031/B-032
+The deployed commit passes 845 unit tests, 553 integration tests across 40 files against an
+isolated real Postgres server, 44 scripted eval cases, typecheck, lint, and the production web
+build. The saved deploy plan passed 35/35 assertions; the completed-cutover guard passes its 2
+focused tests, and the post-deploy assertion failure cases pass 10/10. The integration run creates
+empty databases and also exercises the populated B-031/B-032
 forward-migration proofs: authority, participant, location, proposal, and revision rows survive;
 exact-target and required-section NULL cases fail with Postgres `23502`; removed columns and
 defaults remain absent; and all 15 migrations are durable. Drizzle generation is a true no-op.
@@ -89,8 +93,11 @@ five representative provider message arrays are byte-identical to the pre-B-033 
 `80d9dbc6da7ec487f70acd1c2842775b81372a170c3f047c78f3025eacf3b1b5`). Therefore no paid
 `evals:live` run is owed for B-033. Scripted evals remain required.
 
-Production release verification passed the live health, public, protected-admin, SMS, and removed
-admin-GET route checks. The Cloud Tasks queue is `RUNNING`; the Cloud Scheduler job is `ENABLED`.
+Production release verification passed revision/secret freshness for both services, exact shared
+image digest and 100% traffic, live health and public reads, protected-admin refusal, internal
+worker ingress, and the served vCard's exact bytes. `/admin/login` serves HTTP 200 with
+`frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org`. The Cloud Tasks queue is
+`RUNNING`; the Cloud Scheduler job is `ENABLED`.
 
 ## What is live
 
@@ -137,7 +144,8 @@ admin-GET route checks. The Cloud Tasks queue is `RUNNING`; the Cloud Scheduler 
   dependency advisory groups: direct `drizzle-orm`, direct Next.js, and transitive PostCSS. Upgrade
   to supported lines and assess application reachability. No exploit was observed, and not every
   advisory is known to be reachable in Farm Friend.
-- **F-044:** verify the Squarespace embed handshake on VIGA's actual page.
+- **F-044:** verify the public map and administrator embeds on VIGA's actual Squarespace pages,
+  including sign-in and an authenticated write inside the admin iframe.
 - Physical-handset checks remain owed for the vCard and paged SMS threading/segments.
 - Exercise the complete farmer onboarding/status update, administrator view, farmer settings,
   customer inquiry, and farmer update flows against production and verify database effects rather
