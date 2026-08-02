@@ -33,6 +33,17 @@ ALTER TABLE "inventory_publication_proposals" ADD COLUMN "has_inventory" boolean
 ALTER TABLE "inventory_publication_proposals" ADD COLUMN "has_closure" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "inventory_publication_proposals" ADD COLUMN "closure_base_revision_id" uuid;--> statement-breakpoint
 ALTER TABLE "inventory_publication_proposals" ADD COLUMN "closure_base_is_first_instruction" boolean;--> statement-breakpoint
+-- B-032: defaults above exist only long enough to classify rows from the populated pre-change
+-- schema. New writes must state all four independent facts explicitly.
+ALTER TABLE "sales_locations" ALTER COLUMN "visitability" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "sales_locations" ALTER COLUMN "offering_type" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "inventory_publication_proposals" ALTER COLUMN "has_inventory" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "inventory_publication_proposals" ALTER COLUMN "has_closure" DROP DEFAULT;--> statement-breakpoint
+-- Confirmation language is fixed deterministic parser behavior, not proposal data.
+ALTER TABLE "inventory_publication_proposals" DROP CONSTRAINT "inventory_publication_proposals_distinct_tokens";--> statement-breakpoint
+ALTER TABLE "inventory_publication_proposals" DROP COLUMN "schema_version";--> statement-breakpoint
+ALTER TABLE "inventory_publication_proposals" DROP COLUMN "yes_token";--> statement-breakpoint
+ALTER TABLE "inventory_publication_proposals" DROP COLUMN "no_token";--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "closure_revisions" ADD CONSTRAINT "closure_revisions_proposal_fk" FOREIGN KEY ("proposal_id") REFERENCES "public"."inventory_publication_proposals"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION

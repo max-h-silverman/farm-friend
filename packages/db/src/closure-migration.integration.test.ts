@@ -131,7 +131,7 @@ describe("F-049 forward migration from populated pre-change schema (integration)
     `;
 
     const before = await client()`
-      select p.id, p.payload, p.schema_version, p.proposal_version,
+      select p.id, p.payload, p.proposal_version,
              r.id as revision_id, r.published_at, e.item_name
       from inventory_publication_proposals p
       join inventory_revisions r on r.proposal_id = p.id
@@ -142,7 +142,7 @@ describe("F-049 forward migration from populated pre-change schema (integration)
     await migrate(drizzle(client()), { migrationsFolder: migrationsDir });
 
     const after = await client()`
-      select p.id, p.payload, p.schema_version, p.proposal_version,
+      select p.id, p.payload, p.proposal_version,
              p.has_inventory, p.has_closure, p.base_is_first_publication,
              p.closure_base_revision_id, p.closure_base_is_first_instruction,
              r.id as revision_id, r.published_at, e.item_name
@@ -162,6 +162,35 @@ describe("F-049 forward migration from populated pre-change schema (integration)
       }),
     ]);
     expect(await client()`select id from closure_revisions`).toHaveLength(0);
+    expect(await client()`
+      select name, owner_farm_id, timezone, visitability, offering_type
+      from sales_locations where id = ${locationId}
+    `).toEqual([{
+      name: "Existing Stand",
+      owner_farm_id: farmId,
+      timezone: "America/Los_Angeles",
+      visitability: "visitable",
+      offering_type: "produce",
+    }]);
+    expect(await client()`
+      select table_name, column_name, column_default
+      from information_schema.columns
+      where (table_name = 'sales_locations'
+             and column_name in ('visitability', 'offering_type'))
+         or (table_name = 'inventory_publication_proposals'
+             and column_name in ('has_inventory', 'has_closure'))
+      order by table_name, column_name
+    `).toEqual([
+      { table_name: "inventory_publication_proposals", column_name: "has_closure", column_default: null },
+      { table_name: "inventory_publication_proposals", column_name: "has_inventory", column_default: null },
+      { table_name: "sales_locations", column_name: "offering_type", column_default: null },
+      { table_name: "sales_locations", column_name: "visitability", column_default: null },
+    ]);
+    expect(await client()`
+      select column_name from information_schema.columns
+      where table_name = 'inventory_publication_proposals'
+        and column_name in ('schema_version', 'yes_token', 'no_token')
+    `).toHaveLength(0);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
     ).toEqual([{ count: 15 }]);

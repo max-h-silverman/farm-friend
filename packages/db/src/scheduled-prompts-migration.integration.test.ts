@@ -75,11 +75,11 @@ describe("F-052 forward migration from populated pre-prompt schema (integration)
     const farmId = farms[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values
-        (${farmId}, 'farm_stand', 'Existing Stand', '1 Existing Way', 47.44, -122.46, false, false),
-        (${farmId}, 'farmers_market', 'Existing Market', '2 Existing Way', 47.45, -122.47, false, true)
+        (${farmId}, 'farm_stand', 'Existing Stand', 'visitable', 'produce', '1 Existing Way', 47.44, -122.46, false, false),
+        (${farmId}, 'farmers_market', 'Existing Market', 'visitable', 'produce', '2 Existing Way', 47.45, -122.47, false, true)
       returning id, name
     `;
 
@@ -95,9 +95,9 @@ describe("F-052 forward migration from populated pre-prompt schema (integration)
     expect(await client()`select proposal_id from scheduled_inventory_prompt_subjects`).toHaveLength(0);
     await expect(client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
-      ) values (${farmId}, 'farm_stand', 'Unreviewed Zone', '3 Existing Way', 47.46, -122.48, false, false)
+      ) values (${farmId}, 'farm_stand', 'Unreviewed Zone', 'visitable', 'produce', '3 Existing Way', 47.46, -122.48, false, false)
     `).rejects.toThrow(/timezone|null value/i);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,

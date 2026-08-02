@@ -155,10 +155,10 @@ describe("F-051 durable farmer target context (integration)", () => {
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${farmId}, 'farm_stand', ${locationName}, 'America/Los_Angeles', '1 Target Way', 47.44, -122.46,
+        ${farmId}, 'farm_stand', ${locationName}, 'America/Los_Angeles', 'visitable', 'produce', '1 Target Way', 47.44, -122.46,
         false, false
       ) returning id
     `;
@@ -446,10 +446,10 @@ describe("F-051 durable farmer target context (integration)", () => {
     const first = await target(contactId, "Many Stands Farm", "North Stand");
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${first.farmId}, 'farm_stand', 'South Stand', 'America/Los_Angeles', '2 Target Way', 47.45, -122.47,
+        ${first.farmId}, 'farm_stand', 'South Stand', 'America/Los_Angeles', 'visitable', 'produce', '2 Target Way', 47.45, -122.47,
         false, false
       ) returning id
     `;

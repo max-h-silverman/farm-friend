@@ -44,10 +44,10 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     ids.farm = farm[0]?.id as string;
     const location = await db.sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${ids.farm}, 'farm_stand', 'Schedule Stand', 'America/Los_Angeles',
+        ${ids.farm}, 'farm_stand', 'Schedule Stand', 'America/Los_Angeles', 'visitable', 'produce',
         '1 Schedule Way', 47.45, -122.46, false, true
       ) returning id
     `;
@@ -113,12 +113,12 @@ describe("scheduled inventory prompt preferences (integration)", () => {
 
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_revision_id, base_is_first_publication
       ) values (
-        ${senderHash}, ${ids.location}, ${handle().sql.json({ items: [] })}, '1', 1,
-        'YES-OLD', 'NO-OLD', true, false, null, true
+        ${senderHash}, ${ids.location}, ${handle().sql.json({ items: [] })}, 1,
+        true, false, null, true
       ) returning id
     `;
     const outbox = await handle().sql`
@@ -145,7 +145,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
 
     await handle().sql`
       update inventory_publication_proposals
-      set proposal_version = 2, yes_token = 'YES-NEW', no_token = 'NO-NEW'
+      set proposal_version = 2
       where id = ${proposal[0]?.id as string}
     `;
     await handle().sql`
@@ -201,12 +201,12 @@ describe("scheduled inventory prompt preferences (integration)", () => {
 
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_revision_id, base_is_first_publication
       ) values (
-        ${senderHash}, ${ids.location}, ${handle().sql.json({ items: [] })}, '1', 1,
-        'YES-NULL', 'NO-NULL', true, false, null, true
+        ${senderHash}, ${ids.location}, ${handle().sql.json({ items: [] })}, 1,
+        true, false, null, true
       ) returning id
     `;
     const outbox = await handle().sql`
@@ -286,12 +286,11 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     for (const label of ["winner", "claimant"]) {
       const proposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, has_inventory, has_closure,
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure,
           base_revision_id, base_is_first_publication, state, closed_at
         ) values (
-          ${senderHash}, ${ids.location}, ${handle().sql.json({ entries: [] })}, '1', 1,
-          ${`YES-${label}-${randomUUID()}`}, ${`NO-${label}-${randomUUID()}`},
+          ${senderHash}, ${ids.location}, ${handle().sql.json({ entries: [] })}, 1,
           true, false, null, true, 'invalidated', ${NOW}
         ) returning id
       `;

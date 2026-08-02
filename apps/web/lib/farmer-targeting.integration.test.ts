@@ -73,9 +73,9 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     for (const name of names) {
       const inserted = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
-        ) values (${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', '1 Stand Way', 47.44, -122.46, false, false)
+        ) values (${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce', '1 Stand Way', 47.44, -122.46, false, false)
         returning id
       `;
       locations.push(inserted[0]?.id as string);

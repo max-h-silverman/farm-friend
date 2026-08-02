@@ -115,10 +115,10 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${farms[0]?.id as string}, 'farm_stand', 'B-026 Stand', 'America/Los_Angeles', '26 Atomic Way',
+        ${farms[0]?.id as string}, 'farm_stand', 'B-026 Stand', 'America/Los_Angeles', 'visitable', 'produce', '26 Atomic Way',
         47.45, -122.46, false, false
       ) returning id
     `;

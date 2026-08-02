@@ -91,10 +91,10 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
     const authorizationId = authorizations[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${farmId}, 'farm_stand', 'Populated Stand', '1 Existing Way', 47.44, -122.46,
+        ${farmId}, 'farm_stand', 'Populated Stand', 'visitable', 'produce', '1 Existing Way', 47.44, -122.46,
         false, false
       ) returning id
     `;

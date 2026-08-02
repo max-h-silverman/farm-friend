@@ -63,10 +63,10 @@ describe("scheduled inventory prompt pass (integration)", () => {
     ids.farm = farms[0]?.id as string;
     const locations = await handle().sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${ids.farm}, 'farm_stand', 'Prompt Stand', 'America/Los_Angeles',
+        ${ids.farm}, 'farm_stand', 'Prompt Stand', 'America/Los_Angeles', 'visitable', 'produce',
         '1 Prompt Way', 47.45, -122.46, false, true
       ) returning id
     `;
@@ -93,12 +93,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
 
     const baselineProposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_revision_id, base_is_first_publication, state, closed_at
       ) values (
-        ${senderHash}, ${ids.location}, ${handle().sql.json({ entries: [] })}, '1', 1,
-        'YES-BASE', 'NO-BASE', true, false, null, true, 'invalidated', ${BASE}
+        ${senderHash}, ${ids.location}, ${handle().sql.json({ entries: [] })}, 1,
+        true, false, null, true, 'invalidated', ${BASE}
       ) returning id
     `;
     const revisions = await handle().sql`
@@ -172,10 +172,10 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const farmId = farm[0]?.id as string;
     const location = await handle().sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${farmId}, 'farm_stand', ${`Dispatch Stand ${suffix}`}, 'America/Los_Angeles',
+        ${farmId}, 'farm_stand', ${`Dispatch Stand ${suffix}`}, 'America/Los_Angeles', 'visitable', 'produce',
         ${`${suffix} Dispatch Way`}, 47.45, -122.46, false, true
       ) returning id
     `;
@@ -208,12 +208,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
     if (options?.inventory !== "none") {
       const baselineProposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, has_inventory, has_closure,
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure,
           base_revision_id, base_is_first_publication, state, closed_at
         ) values (
-          ${fixtureSender}, ${salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
-          ${`YES-${suffix}`}, ${`NO-${suffix}`}, true, false, null, true, 'invalidated', ${BASE}
+          ${fixtureSender}, ${salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
+          true, false, null, true, 'invalidated', ${BASE}
         ) returning id
       `;
       const revision = await handle().sql`
@@ -242,13 +242,13 @@ describe("scheduled inventory prompt pass (integration)", () => {
     if (options?.upcomingClosure || options?.unboundedClosure) {
       const closureProposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, has_inventory, has_closure,
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure,
           base_revision_id, base_is_first_publication,
           closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
         ) values (
-          ${fixtureSender}, ${salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
-          ${`YES-C-${suffix}`}, ${`NO-C-${suffix}`}, false, true,
+          ${fixtureSender}, ${salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
+          false, true,
           null, null, null, true, 'invalidated', ${BASE}
         ) returning id
       `;
@@ -354,12 +354,11 @@ describe("scheduled inventory prompt pass (integration)", () => {
     `;
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_revision_id, base_is_first_publication, state, closed_at
       ) values (
-        ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
-        ${`YES-FRESH-${fixture.proposalId}`}, ${`NO-FRESH-${fixture.proposalId}`},
+        ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
         true, false, ${fixture.inventoryRevisionId}, false, 'invalidated', ${changedAt}
       ) returning id
     `;
@@ -380,13 +379,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
   ) {
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_revision_id, base_is_first_publication,
         closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
       ) values (
-        ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
-        ${`YES-CLOSE-${fixture.proposalId}`}, ${`NO-CLOSE-${fixture.proposalId}`},
+        ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
         false, true, null, null, null, true, 'invalidated', ${changedAt}
       ) returning id
     `;
@@ -661,12 +659,11 @@ describe("scheduled inventory prompt pass (integration)", () => {
       `;
       const proposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, has_inventory, has_closure,
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure,
           base_revision_id, base_is_first_publication, state, closed_at
         ) values (
-          ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
-          ${`YES-FRESH-${fixture.proposalId}`}, ${`NO-FRESH-${fixture.proposalId}`},
+          ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
           true, false, ${fixture.inventoryRevisionId}, false, 'invalidated', ${changedAt}
         ) returning id
       `;
@@ -682,13 +679,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
     } else if (reason === "closure base") {
       const proposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, has_inventory, has_closure,
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure,
           base_revision_id, base_is_first_publication,
           closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
         ) values (
-          ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
-          ${`YES-CLOSE-${fixture.proposalId}`}, ${`NO-CLOSE-${fixture.proposalId}`},
+          ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
           false, true, null, null, null, true, 'invalidated', ${changedAt}
         ) returning id
       `;
@@ -990,14 +986,13 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const reopenedAt = new Date("2026-03-15T17:00:01.000Z");
     const reopenProposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_revision_id, base_is_first_publication,
         closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
       ) values (
         ${fixture.senderHash}, ${fixture.salesLocationId},
-        ${handle().sql.json({ closure: { result: "reopen" } })}, '2', 1,
-        ${`YES-REOPEN-${fixture.preferenceId}`}, ${`NO-REOPEN-${fixture.preferenceId}`},
+        ${handle().sql.json({ closure: { result: "reopen" } })}, 1,
         false, true, null, null, ${fixture.closureRevisionId}, false,
         'invalidated', ${reopenedAt}
       ) returning id
@@ -1054,10 +1049,10 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const fixture = await createQueuedFixture({ autoSchedule: false });
     const secondLocation = await handle().sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${fixture.farmId}, 'farm_stand', 'Second Due Stand', 'America/Los_Angeles',
+        ${fixture.farmId}, 'farm_stand', 'Second Due Stand', 'America/Los_Angeles', 'visitable', 'produce',
         '2 Due Way', 47.45, -122.46, false, true
       ) returning id
     `;

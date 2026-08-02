@@ -128,7 +128,7 @@ render an honest "updated X ago" without a second provenance axis.
   recipient's own message without being carrier-required.
 - **one open farmer-update confirmation per sender** — target sales location, explicit inventory
   and closure section-presence flags, an independent base binding for each included section,
-  structured complete payload/version, allowed `YES`/`NO` tokens, provider-accepted prompt
+  structured complete payload/version, provider-accepted prompt
   activation, expiry, and consumption state. Existing inventory entries retain their opaque
   reference IDs in that payload; code issues opaque draft IDs for new entries so later unconfirmed
   edits can target them. This is neither an inventory nor a closure revision.

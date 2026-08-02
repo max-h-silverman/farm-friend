@@ -284,7 +284,8 @@ derived from the registered 10DLC keyword lists, and a test reads
 
 Launch has one confirmation mechanism and one consumer: **farmer-update publication**. A database
 constraint permits at most one open proposal per sender. It records the proposal/version,
-allowed `YES`/`NO` tokens, expiry, and the outbox prompt that activates it. New farmer inventory
+expiry, and the outbox prompt that activates it. The deterministic parser owns the fixed
+`YES`/`NO` variants; proposals store no token vocabulary. New farmer inventory
 text revises that same pending proposal rather than creating a second one; the proposal-version
 change suspends token acceptance until Telnyx accepts the new prompt.
 

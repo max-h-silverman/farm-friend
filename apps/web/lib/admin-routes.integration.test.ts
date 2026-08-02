@@ -715,11 +715,11 @@ describe("admin routes (integration)", () => {
       const token = await sessionFor(ids.administrator as string);
       const locations = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (
-          ${ids.farm as string}, 'farm_stand', 'Route Stand', 'America/Los_Angeles', '1 Vashon Hwy',
+          ${ids.farm as string}, 'farm_stand', 'Route Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Vashon Hwy',
           47.4, -122.4, false, false
         )
         returning id
@@ -808,12 +808,12 @@ describe("admin routes (integration)", () => {
       `;
       const locations = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (
           ${farms[0]?.id as string}, 'farm_stand', ${`Data Stand ${randomUUID()}`}, 'America/Los_Angeles',
-          '9 Vashon Hwy', 47.42, -122.44, false, false
+          'visitable', 'produce', '9 Vashon Hwy', 47.42, -122.44, false, false
         )
         returning id
       `;
@@ -1035,12 +1035,12 @@ describe("admin routes (integration)", () => {
 
       const locations = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address,
           public_latitude, public_longitude, farm_bucks_accepted, farm_bucks_eligible
         ) values
-          (${farmId}, 'farm_stand', 'North Stand', 'America/Los_Angeles', '1 North Rd',
+          (${farmId}, 'farm_stand', 'North Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 North Rd',
             47.4, -122.4, false, false),
-          (${farmId}, 'farm_stand', 'South Stand', 'America/Los_Angeles', '2 South Rd',
+          (${farmId}, 'farm_stand', 'South Stand', 'America/Los_Angeles', 'visitable', 'produce', '2 South Rd',
             47.41, -122.41, false, false)
         returning id, name
       `;

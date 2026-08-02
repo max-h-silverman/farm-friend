@@ -100,11 +100,11 @@ describe("authoritative SMS transaction schema (integration)", () => {
 
     const locations = await client`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${ids.farm}, 'farm_stand', 'Transaction Stand', 'America/Los_Angeles', '5 Stand Way',
+        ${ids.farm}, 'farm_stand', 'Transaction Stand', 'America/Los_Angeles', 'visitable', 'produce', '5 Stand Way',
         47.45, -122.46, true, true
       )
       returning id
@@ -374,12 +374,12 @@ describe("authoritative SMS transaction schema (integration)", () => {
     // An unactivated proposal has no live window at all; expiry is activation-relative.
     const openProposal = await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version,
-        proposal_version, yes_token, no_token, base_is_first_publication
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure, base_is_first_publication
       )
       values (
-        ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })}, '1',
-        1, 'YES', 'NO', true
+        ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+        1, true, false, true
       )
       returning id, expires_at
     `;
@@ -471,26 +471,26 @@ describe("authoritative SMS transaction schema (integration)", () => {
     await expect(
       db()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version,
-          proposal_version, yes_token, no_token, base_revision_id,
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure, base_revision_id,
           base_is_first_publication
         )
         values (
           ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
-          '1', 1, 'YES', 'NO', ${storedId("revision1")}, true
+          1, true, false, ${storedId("revision1")}, true
         )
       `,
     ).rejects.toThrow();
 
     const bound = await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version,
-        proposal_version, yes_token, no_token, base_revision_id,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure, base_revision_id,
         base_is_first_publication
       )
       values (
         ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
-        '1', 1, 'YES', 'NO', ${storedId("revision1")}, false
+        1, true, false, ${storedId("revision1")}, false
       )
       returning id
     `;
@@ -513,13 +513,13 @@ describe("authoritative SMS transaction schema (integration)", () => {
     // An invalidated proposal frees the single open slot for its replacement.
     await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version,
-        proposal_version, yes_token, no_token, base_revision_id,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure, base_revision_id,
         base_is_first_publication
       )
       values (
         ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
-        '1', 2, 'YES', 'NO', ${storedId("revision1")}, false
+        2, true, false, ${storedId("revision1")}, false
       )
     `;
 

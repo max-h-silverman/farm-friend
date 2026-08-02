@@ -154,11 +154,11 @@ describe("operator review queues (integration)", () => {
 
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${id("farm")}, 'farm_stand', 'Provo Farms Stand', 'America/Los_Angeles', '1 Vashon Hwy',
+        ${id("farm")}, 'farm_stand', 'Provo Farms Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Vashon Hwy',
         47.4, -122.4, false, false
       )
       returning id
@@ -735,12 +735,12 @@ describe("operator review queues (integration)", () => {
       // uses `invalidated` — a legal closed state that needs no activation.
       const proposals = await client()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, state, base_is_first_publication, closed_at
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure, state, base_is_first_publication, closed_at
         )
         values (
-          ${farmerHash}, ${id("location")}, '{}'::jsonb, 'v1', 1,
-          'yes-1', 'no-1', 'invalidated', true, ${T0}
+          ${farmerHash}, ${id("location")}, '{}'::jsonb, 1,
+          true, false, 'invalidated', true, ${T0}
         )
         returning id
       `;
@@ -936,12 +936,12 @@ describe("operator review queues (integration)", () => {
       `;
       const proposals = await client()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, state, base_is_first_publication, closed_at
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure, state, base_is_first_publication, closed_at
         )
         values (
-          ${farmerHash}, ${id("location")}, '{}'::jsonb, 'v1', 1,
-          'yes-1', 'no-1', 'invalidated', true, ${T0}
+          ${farmerHash}, ${id("location")}, '{}'::jsonb, 1,
+          true, false, 'invalidated', true, ${T0}
         )
         returning id
       `;
@@ -1023,12 +1023,12 @@ describe("operator review queues (integration)", () => {
       `;
       const proposals = await client()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, state, base_is_first_publication, closed_at
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure, state, base_is_first_publication, closed_at
         )
         values (
-          ${farmerHash}, ${id("location")}, '{}'::jsonb, 'v1', 1,
-          'yes-1', 'no-1', 'invalidated', true, ${T0}
+          ${farmerHash}, ${id("location")}, '{}'::jsonb, 1,
+          true, false, 'invalidated', true, ${T0}
         )
         returning id
       `;

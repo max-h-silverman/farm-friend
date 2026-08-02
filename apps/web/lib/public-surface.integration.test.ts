@@ -135,14 +135,14 @@ describe("public web surface boundary (integration)", () => {
     `;
     const proposal = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, base_is_first_publication, state,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure, base_is_first_publication, state,
         activation_outbox_id, activated_version, activated_at, expires_at,
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${farmerHash}, ${ids.location}, ${client().json({ entries: [] })}, '1', 1,
-        'YES', 'NO', true, 'accepted',
+        ${farmerHash}, ${ids.location}, ${client().json({ entries: [] })}, 1,
+        true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
       )
@@ -215,10 +215,10 @@ describe("public web surface boundary (integration)", () => {
 
     const location = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
-      values (${ids.farm}, 'farm_stand', 'Provo Stand', 'America/Los_Angeles', '123 Vashon Hwy',
+      values (${ids.farm}, 'farm_stand', 'Provo Stand', 'America/Los_Angeles', 'visitable', 'produce', '123 Vashon Hwy',
               47.4471, -122.4594, false, false)
       returning id
     `;
@@ -353,10 +353,10 @@ describe("public web surface boundary (integration)", () => {
       // hides the majority or flattens "confirmed 3 hours ago" into "we have no idea".
       const second = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${ids.farm}, 'farm_stand', 'Unseeded Stand', 'America/Los_Angeles', '456 Vashon Hwy',
+        values (${ids.farm}, 'farm_stand', 'Unseeded Stand', 'America/Los_Angeles', 'visitable', 'produce', '456 Vashon Hwy',
                 47.4480, -122.4600, false, true)
         returning id
       `;
@@ -753,10 +753,10 @@ describe("public web surface boundary (integration)", () => {
       // still sort behind a confirmed one, or the map opens on the least certain listings.
       const second = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', 'America/Los_Angeles', '456 Vashon Hwy',
+        values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', 'America/Los_Angeles', 'visitable', 'produce', '456 Vashon Hwy',
                 47.448, -122.46, false, false)
         returning id
       `;

@@ -1331,27 +1331,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "schema_version": {
-          "name": "schema_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "proposal_version": {
           "name": "proposal_version",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "yes_token": {
-          "name": "yes_token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "no_token": {
-          "name": "no_token",
-          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -1367,15 +1349,13 @@
           "name": "has_inventory",
           "type": "boolean",
           "primaryKey": false,
-          "notNull": true,
-          "default": true
+          "notNull": true
         },
         "has_closure": {
           "name": "has_closure",
           "type": "boolean",
           "primaryKey": false,
-          "notNull": true,
-          "default": false
+          "notNull": true
         },
         "base_revision_id": {
           "name": "base_revision_id",
@@ -2465,16 +2445,14 @@
           "type": "sales_location_visitability",
           "typeSchema": "public",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'visitable'"
+          "notNull": true
         },
         "offering_type": {
           "name": "offering_type",
           "type": "sales_location_offering_type",
           "typeSchema": "public",
           "primaryKey": false,
-          "notNull": true,
-          "default": "'produce'"
+          "notNull": true
         },
         "public_address": {
           "name": "public_address",

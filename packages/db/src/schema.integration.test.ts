@@ -370,12 +370,12 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
           ${storedId("Exact Projection Farm")}, 'farm_stand', 'America/Los_Angeles',
-          'Conflicting Public Location', '0 Stand Way',
+          'Conflicting Public Location', 'visitable', 'produce', '0 Stand Way',
           47.45, -122.46, false, false
         )
       `,
@@ -383,17 +383,17 @@ describe("clean launch database foundation (integration)", () => {
 
     const locationRows = await db()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       )
       values
         (
-          ${storedId("farm")}, 'farm_stand', 'Exact Farm Stand', 'America/Los_Angeles', '1 Stand Way',
+          ${storedId("farm")}, 'farm_stand', 'Exact Farm Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Stand Way',
           47.45, -122.46, true, true
         ),
         (
           ${storedId("farm")}, 'farmers_market', 'VIGA Farmers Market', 'America/Los_Angeles',
-          '2 Market Way', 47.44, -122.45, false, true
+          'visitable', 'produce', '2 Market Way', 47.44, -122.45, false, true
         )
       returning id, kind
     `;
@@ -405,11 +405,11 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
-          ${storedId("farm")}, 'farm_stand', 'Bad Coordinates', 'America/Los_Angeles', '3 Stand Way',
+          ${storedId("farm")}, 'farm_stand', 'Bad Coordinates', 'America/Los_Angeles', 'visitable', 'produce', '3 Stand Way',
           91, -122.4, false, false
         )
       `,
@@ -417,11 +417,11 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
-          ${storedId("farm")}, 'farm_stand', 'Bad Farm Bucks Fact', 'America/Los_Angeles', '4 Stand Way',
+          ${storedId("farm")}, 'farm_stand', 'Bad Farm Bucks Fact', 'America/Los_Angeles', 'visitable', 'produce', '4 Stand Way',
           47.4, -122.4, true, false
         )
       `,
@@ -631,13 +631,13 @@ describe("clean launch database foundation (integration)", () => {
 
     const proposalRows = await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version,
-        proposal_version, yes_token, no_token, base_is_first_publication,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure, base_is_first_publication,
         expires_at, activation_outbox_id, activated_version, activated_at
       )
       values (
-        ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })}, '1',
-        1, 'YES', 'NO', true, ${tomorrow}, ${storedId("prompt1")}, 1, ${later}
+        ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+        1, true, false, true, ${tomorrow}, ${storedId("prompt1")}, 1, ${later}
       )
       returning id
     `;
@@ -646,12 +646,12 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version,
-          proposal_version, yes_token, no_token, base_is_first_publication
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure, base_is_first_publication
         )
         values (
-          ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })}, '1',
-          1, 'YES', 'NO', true
+          ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+          1, true, false, true
         )
       `,
     ).rejects.toThrow();
@@ -718,15 +718,15 @@ describe("clean launch database foundation (integration)", () => {
     const secondPromptId = secondPromptRows[0]?.id as string;
     const secondProposalRows = await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version,
-        proposal_version, yes_token, no_token, base_is_first_publication,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure, base_is_first_publication,
         state, expires_at, activation_outbox_id, activated_version,
         activated_at, consumed_token, consumption_provider_event_id, closed_at
       )
       values (
         ${farmerHash}, ${storedId("location")},
-        ${db().json({ items: [{ name: "Revised item" }] })}, '1',
-        1, 'YES', 'NO', true, 'accepted', ${tomorrow},
+        ${db().json({ items: [{ name: "Revised item" }] })},
+        1, true, false, true, 'accepted', ${tomorrow},
         ${secondPromptId}, 1, ${later}, 'yes', 'accept-2', ${later}
       )
       returning id
@@ -938,10 +938,10 @@ describe("clean launch database foundation (integration)", () => {
     ): Promise<void> {
       const columns = Object.keys(fields);
       const base = `insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible${columns.length ? ", " + columns.map((c) => `"${c}"`).join(", ") : ""}
       ) values (
-        '${storedId("farm")}', 'farm_stand', 'Constraint Probe ${randomUUID()}', 'America/Los_Angeles', '9 Probe Way',
+        '${storedId("farm")}', 'farm_stand', 'Constraint Probe ${randomUUID()}', 'America/Los_Angeles', 'visitable', 'produce', '9 Probe Way',
         47.45, -122.46, false, true${columns.length ? ", " + columns.map((_, i) => `$${i + 1}`).join(", ") : ""}
       )`;
       await db().unsafe(base, Object.values(fields) as never[]);
@@ -1118,10 +1118,10 @@ describe("clean launch database foundation (integration)", () => {
     beforeAll(async () => {
       const rows = await db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${storedId("farm")}, 'farm_stand', 'Specialty Probe Stand', 'America/Los_Angeles', '11 Specialty Way',
+        values (${storedId("farm")}, 'farm_stand', 'Specialty Probe Stand', 'America/Los_Angeles', 'visitable', 'produce', '11 Specialty Way',
                 47.44, -122.47, false, true)
         returning id
       `;
@@ -1192,10 +1192,10 @@ describe("clean launch database foundation (integration)", () => {
     beforeAll(async () => {
       const rows = await db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${storedId("farm")}, 'farm_stand', 'Flag Probe Stand', 'America/Los_Angeles', '12 Flag Way',
+        values (${storedId("farm")}, 'farm_stand', 'Flag Probe Stand', 'America/Los_Angeles', 'visitable', 'produce', '12 Flag Way',
                 47.43, -122.48, false, true)
         returning id
       `;

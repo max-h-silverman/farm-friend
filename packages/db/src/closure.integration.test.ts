@@ -103,10 +103,10 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     ids.farm = farms[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${ids.farm}, 'farm_stand', 'Closure Stand', 'America/Los_Angeles', '1 Closure Way', 47.44, -122.46,
+        ${ids.farm}, 'farm_stand', 'Closure Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Closure Way', 47.44, -122.46,
         false, false
       ) returning id
     `;
@@ -319,12 +319,12 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       closureFirst: boolean | null;
     }) => client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_is_first_publication, closure_base_is_first_instruction
       ) values (
         ${farmerHash}, ${ids.location}, ${client().json({ closure: { result: "reopen" } })},
-        '2', 1, 'YES', 'NO', ${input.hasInventory}, ${input.hasClosure},
+        1, ${input.hasInventory}, ${input.hasClosure},
         ${input.inventoryFirst}, ${input.closureFirst}
       )
     `;
@@ -385,10 +385,10 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     const otherFarmId = otherFarms[0]?.id as string;
     const otherLocations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${otherFarmId}, 'farm_stand', 'Binding Stand', 'America/Los_Angeles', '2 Closure Way', 47.43, -122.45,
+        ${otherFarmId}, 'farm_stand', 'Binding Stand', 'America/Los_Angeles', 'visitable', 'produce', '2 Closure Way', 47.43, -122.45,
         false, false
       ) returning id
     `;

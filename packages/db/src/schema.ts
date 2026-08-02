@@ -640,17 +640,9 @@ export const salesLocations = pgTable(
     name: text("name").notNull(),
     /** No schema default: every new location must deliberately choose a reviewed zone. */
     timezone: salesLocationTimezone("timezone").notNull(),
-    /**
-     * F-038. Both default to the pre-F-038 meaning, so every stand seeded before this
-     * migration keeps exactly the classification it already had. A default of anything else
-     * would silently reclassify 28 real listings.
-     */
-    visitability: salesLocationVisitability("visitability")
-      .notNull()
-      .default("visitable"),
-    offeringType: salesLocationOfferingType("offering_type")
-      .notNull()
-      .default("produce"),
+    /** Current writers must state both independent classifications deliberately. */
+    visitability: salesLocationVisitability("visitability").notNull(),
+    offeringType: salesLocationOfferingType("offering_type").notNull(),
 
     /**
      * Present only for a `visitable` location — see `coherentVisitability` below.
@@ -1629,15 +1621,11 @@ export const inventoryPublicationProposals = pgTable(
     senderHash: text("sender_hash").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
     payload: jsonb("payload").notNull(),
-    schemaVersion: text("schema_version").notNull(),
     proposalVersion: integer("proposal_version").notNull(),
-    yesToken: text("yes_token").notNull(),
-    noToken: text("no_token").notNull(),
     state: proposalState("state").notNull().default("open"),
-    // A proposal may carry inventory, closure, or both. Existing proposals are inventory
-    // proposals; defaults make the forward migration preserve that populated state.
-    hasInventory: boolean("has_inventory").notNull().default(true),
-    hasClosure: boolean("has_closure").notNull().default(false),
+    // A proposal may carry inventory, closure, or both. Every writer states both sections.
+    hasInventory: boolean("has_inventory").notNull(),
+    hasClosure: boolean("has_closure").notNull(),
     // The complete pending snapshot is bound to the base it was computed from, so a
     // newer publication invalidates it rather than being silently overwritten.
     baseRevisionId: uuid("base_revision_id"),
@@ -1694,10 +1682,6 @@ export const inventoryPublicationProposals = pgTable(
     objectPayload: check(
       "inventory_publication_proposals_object_payload",
       sql`jsonb_typeof(${table.payload}) = 'object'`,
-    ),
-    distinctTokens: check(
-      "inventory_publication_proposals_distinct_tokens",
-      sql`${table.yesToken} <> ${table.noToken}`,
     ),
     // The (base_revision_id, sales_location_id) foreign key to inventory_revisions is
     // declared in SQL by the migration rather than here: inventory_revisions already

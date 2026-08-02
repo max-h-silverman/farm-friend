@@ -107,10 +107,10 @@ describe("SMS result paging end to end (integration)", () => {
       const farm = await client()`insert into farms (name) values (${name}) returning id`;
       const location = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${farm[0]?.id as string}, 'farm_stand', ${name}, 'America/Los_Angeles',
+        values (${farm[0]?.id as string}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce',
                 ${`${10000 + index} SW 220th St`}, 47.45, -122.46, false, false)
         returning id
       `;
@@ -167,14 +167,14 @@ describe("SMS result paging end to end (integration)", () => {
     `;
     const proposal = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, base_is_first_publication, state,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure, base_is_first_publication, state,
         activation_outbox_id, activated_version, activated_at, expires_at,
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${"7".repeat(64)}, ${locationId}, ${client().json({ entries: [] })}, '1', 1,
-        'YES', 'NO', true, 'accepted', ${prompt[0]?.id as string}, 1, ${T0},
+        ${"7".repeat(64)}, ${locationId}, ${client().json({ entries: [] })}, 1,
+        true, false, true, 'accepted', ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3_600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
       )
       returning id
@@ -427,10 +427,10 @@ describe("SMS result paging end to end (integration)", () => {
     const farm = await client()`insert into farms (name) values ('Latecomer Farm') returning id`;
     const location = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
-      values (${farm[0]?.id as string}, 'farm_stand', 'Latecomer Farm', 'America/Los_Angeles', '1 New Rd',
+      values (${farm[0]?.id as string}, 'farm_stand', 'Latecomer Farm', 'America/Los_Angeles', 'visitable', 'produce', '1 New Rd',
               47.45, -122.46, false, false)
       returning id
     `;

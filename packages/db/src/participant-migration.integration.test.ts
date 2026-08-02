@@ -75,10 +75,10 @@ describe("F-050 forward migration from populated pre-change schema (integration)
     const farmId = farms[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         is_public, farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${farmId}, 'farm_stand', 'Flagged Hidden Stand', '50 Migration Lane',
+        ${farmId}, 'farm_stand', 'Flagged Hidden Stand', 'visitable', 'produce', '50 Migration Lane',
         47.44, -122.46, false, false, false
       ) returning id, farm_id, is_public
     `;

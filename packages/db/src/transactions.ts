@@ -570,7 +570,6 @@ export interface OpenProposalInput {
   /** Defaults to the location's current closure instruction. */
   closureBaseRevisionId?: string | null;
   closureBaseIsFirstInstruction?: boolean;
-  schemaVersion?: string;
 }
 
 export interface OpenProposalResult {
@@ -789,15 +788,14 @@ export async function openOrReviseProposal(
 
     const inserted = await tx`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_revision_id, base_is_first_publication,
         closure_base_revision_id, closure_base_is_first_instruction,
         created_at, updated_at
       )
       values (
-        ${input.senderHash}, ${input.salesLocationId}, ${tx.json(payload)},
-        ${input.schemaVersion ?? "2"}, 1, 'YES', 'NO',
+        ${input.senderHash}, ${input.salesLocationId}, ${tx.json(payload)}, 1,
         ${input.entries !== undefined}, ${input.closure !== undefined},
         ${baseRevisionId}, ${isFirstPublication},
         ${closureBaseRevisionId}, ${closureBaseIsFirstInstruction},

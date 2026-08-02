@@ -92,9 +92,10 @@ message rather than riding on the inbound message that asked for it.
 |---|---|
 | `YES` / `NO` | Commit / decline the sender's **one live inventory-publication confirmation**. `YES` accepts the fixed variants `Y` / `YEP` / `YEA` / `SURE`; `NO` accepts `N` / `NOPE` / `NAH` / `NO THANKS` / `NO THANK YOU`. **Context-bound** — a YES/NO reply with no live pending inventory proposal does **not** commit or decline. A valid confirmation consumes the current proposal **exactly once** and **expires** (GC'd). |
 
-A database constraint permits at most one open inventory proposal per sender. It carries its allowed
-tokens, proposal version, expiry, and current prompt activation. New inventory text revises that
-proposal and suspends token acceptance until Telnyx accepts the replacement prompt. A token whose
+A database constraint permits at most one open inventory proposal per sender. The deterministic
+parser owns one fixed `YES`/`NO` vocabulary; proposal rows store only their version, expiry, and
+current prompt activation. New inventory text revises that proposal and suspends token acceptance
+until Telnyx accepts the replacement prompt. A token whose
 provider occurrence time does not follow the current prompt cannot consume the proposal.
 The proposal is a distinct pending payload, not a draft inventory revision. `YES` creates the
 immutable published revision; `NO` and expiry create no revision.

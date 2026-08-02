@@ -736,10 +736,10 @@ describe("inbound routing end to end (integration)", () => {
 
       const location = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${farmId}, 'farm_stand', 'Test Stand', 'America/Los_Angeles', '1 Test Rd', 47.45, -122.46,
+        values (${farmId}, 'farm_stand', 'Test Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Test Rd', 47.45, -122.46,
                 false, false)
         returning id
       `;
@@ -946,10 +946,10 @@ describe("inbound routing end to end (integration)", () => {
         `;
         const stand = await client()`
           insert into sales_locations (
-            owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+            owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
             farm_bucks_accepted, farm_bucks_eligible
           )
-          values (${farm[0]?.id as string}, 'farm_stand', ${`Paging Stand ${index}`}, 'America/Los_Angeles',
+          values (${farm[0]?.id as string}, 'farm_stand', ${`Paging Stand ${index}`}, 'America/Los_Angeles', 'visitable', 'produce',
                   ${`${200 + index} Paging Rd`}, 47.45, -122.46, false, false)
           returning id
         `;
@@ -1068,14 +1068,14 @@ describe("inbound routing end to end (integration)", () => {
       `;
       const proposal = await client()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, schema_version, proposal_version,
-          yes_token, no_token, base_is_first_publication, state,
+          sender_hash, sales_location_id, payload, proposal_version,
+          has_inventory, has_closure, base_is_first_publication, state,
           activation_outbox_id, activated_version, activated_at, expires_at,
           consumed_token, consumption_provider_event_id, closed_at
         )
         values (
-          ${farmerHash}, ${locationId}, ${client().json({ entries: [] })}, '1', 1,
-          'YES', 'NO', true, 'accepted',
+          ${farmerHash}, ${locationId}, ${client().json({ entries: [] })}, 1,
+          true, false, true, 'accepted',
           ${prompt[0]?.id as string}, 1, ${at(-31)},
           ${new Date(T0.getTime() + 3_600_000)}, 'yes', ${`ev-${randomUUID()}`},
           ${at(-31)}

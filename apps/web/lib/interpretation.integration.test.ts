@@ -142,10 +142,10 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
-      values (${ids.farm}, 'farm_stand', 'Interpreted Stand', 'America/Los_Angeles', '11 Stand Way',
+      values (${ids.farm}, 'farm_stand', 'Interpreted Stand', 'America/Los_Angeles', 'visitable', 'produce', '11 Stand Way',
               47.45, -122.46, false, false)
       returning id
     `;
@@ -436,14 +436,14 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     `;
     const proposal = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, base_is_first_publication, state,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure, base_is_first_publication, state,
         activation_outbox_id, activated_version, activated_at, expires_at,
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${farmerHash}, ${ids.location}, ${client().json({ entries: [] })}, '1', 1,
-        'YES', 'NO', true, 'accepted',
+        ${farmerHash}, ${ids.location}, ${client().json({ entries: [] })}, 1,
+        true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', 'seed-event', ${T0}
       )

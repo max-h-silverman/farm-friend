@@ -113,11 +113,11 @@ describe("farmer authorization and standing links (integration)", () => {
     const farmId = farms[0]?.id as string;
     const locations = await sql()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${farmId}, 'farm_stand', ${`${name} Stand`}, 'America/Los_Angeles', '1 Vashon Hwy', 47.4, -122.4,
+        ${farmId}, 'farm_stand', ${`${name} Stand`}, 'America/Los_Angeles', 'visitable', 'produce', '1 Vashon Hwy', 47.4, -122.4,
         false, false
       )
       returning id
@@ -910,11 +910,11 @@ describe("farmer authorization and standing links (integration)", () => {
       );
       const second = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (
-          ${farmId}, 'farm_stand', ${`Second Stand ${randomUUID()}`}, 'America/Los_Angeles', '2 Vashon Hwy',
+          ${farmId}, 'farm_stand', ${`Second Stand ${randomUUID()}`}, 'America/Los_Angeles', 'visitable', 'produce', '2 Vashon Hwy',
           47.41, -122.41, false, false
         )
         returning id

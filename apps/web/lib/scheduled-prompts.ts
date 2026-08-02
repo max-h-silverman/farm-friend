@@ -206,12 +206,12 @@ async function schedulePreference(
 
     const proposal = await tx`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, schema_version, proposal_version,
-        yes_token, no_token, has_inventory, has_closure,
+        sender_hash, sales_location_id, payload, proposal_version,
+        has_inventory, has_closure,
         base_revision_id, base_is_first_publication, created_at, updated_at
       ) values (
         ${candidate.sender_hash}, ${salesLocationId}, ${tx.json({ entries } as unknown as JSONValue)},
-        '2', 1, 'YES', 'NO', true, false, ${revisionId}, ${revisionId === null},
+        1, true, false, ${revisionId}, ${revisionId === null},
         ${now}, ${now}
       ) returning id
     `;

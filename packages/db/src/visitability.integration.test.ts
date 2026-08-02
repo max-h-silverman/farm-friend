@@ -265,22 +265,4 @@ describe.skipIf(!databaseUrl)("visitability and offering type (integration)", ()
     ).rejects.toThrow();
   });
 
-  it("defaults existing rows to visitable produce, so the migration cannot silently reclassify", async () => {
-    // Every stand seeded before F-038 is a visitable produce stand. If the migration defaulted
-    // to anything else it would rewrite the meaning of 28 real listings, and nothing in the
-    // application would report it.
-    const rows = await db()`
-      insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
-      )
-      values (
-        ${farmId}, 'farm_stand', 'Legacy Shaped Insert', 'America/Los_Angeles', '5 Legacy Way',
-        47.45, -122.46, false, false
-      )
-      returning visitability, offering_type
-    `;
-    expect(rows[0]!.visitability).toBe("visitable");
-    expect(rows[0]!.offering_type).toBe("produce");
-  });
 });
