@@ -570,9 +570,9 @@ Manager versions through stdin and record replacements in the password manager w
 | `TELNYX_API_KEY` | Secret Manager `farm-friend-telnyx-api-key` | Telnyx console |
 | `PHONE_HASH_SALT` | Secret Manager `farm-friend-phone-hash-salt` | **Never rotate** |
 
-`TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY`, `PUBLIC_BASE_URL`, and
-`SMS_PROVIDER` are identifiers/public verification material, not secrets. `CRON_SECRET` does not
-exist.
+`TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY`, `PUBLIC_BASE_URL`,
+`PUBLIC_MAP_URL`, and `SMS_PROVIDER` are identifiers/public verification material, not secrets.
+`CRON_SECRET` does not exist.
 
 ### Order
 

@@ -69,7 +69,7 @@ the new password, revoke every old administrator session per the main runbook.
 
 It holds non-secret Telnyx identifiers and three deployment inputs. None of it is a credential —
 `TELNYX_API_KEY` lives in Secret Manager — but it is environment-specific, so it is not committed.
-A fresh checkout must recreate it with all five values:
+A fresh checkout must recreate it with all six values:
 
     telnyx_public_key           = "..."   # ed25519 webhook key, base64, MUST decode to 32 bytes
     telnyx_messaging_profile_id = "..."
