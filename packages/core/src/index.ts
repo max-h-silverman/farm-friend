@@ -8,6 +8,7 @@ export * from "./sms/auto-responses";
 export * from "./sms/onboarding-copy";
 export * from "./inventory/proposal";
 export * from "./inventory/closure-timing";
+export * from "./inventory/prompt-schedule";
 export * from "./inquiry/retrieval";
 export * from "./inquiry/answer";
 export * from "./inquiry/paging";
