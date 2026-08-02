@@ -3,10 +3,10 @@
 
     cd infra && python3 test_deploy_assertions.py
 
-WHY A TEST FOR AN ASSERTION SCRIPT. `plan-assertions.py` has no test file: it runs against a
-real plan on every deploy, and a mistake in it shows up immediately as a failed check on a
-plan whose contents are known. `deploy-assertions.py` is different in the way that matters —
-it only ever sees the healthy case. Production is currently healthy (revisions newer than
+WHY A TEST FOR THIS ASSERTION SCRIPT. `plan-assertions.py` runs against a real plan on every deploy,
+and its state-dependent secret-change rule also has focused tests. `deploy-assertions.py` is
+different in the way that matters — it only ever sees the healthy case. Production is currently
+healthy (revisions newer than
 every secret version), so running it against the live project passes whether or not the
 comparison inside it works at all. The B-021 window it exists to catch lasted 25 minutes and
 is gone; there is no live input that can make it fail.
