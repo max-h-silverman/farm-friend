@@ -180,6 +180,16 @@ export const farmerTargetMenuPurpose = pgEnum("farmer_target_menu_purpose", [
   "link",
   "settings",
 ]);
+/** Reviewed location timezones. Adding a location outside Vashon requires an explicit review. */
+export const salesLocationTimezone = pgEnum("sales_location_timezone", [
+  "America/Los_Angeles",
+]);
+export const inventoryPromptCadence = pgEnum("inventory_prompt_cadence", [
+  "every_2_days",
+  "weekly",
+  "every_2_weeks",
+  "paused",
+]);
 export const proposalState = pgEnum("proposal_state", [
   "open",
   "accepted",
@@ -659,6 +669,8 @@ export const salesLocations = pgTable(
       .references(() => farms.id, { onDelete: "restrict" }),
     kind: salesLocationKind("kind").notNull(),
     name: text("name").notNull(),
+    /** No schema default: every new location must deliberately choose a reviewed zone. */
+    timezone: salesLocationTimezone("timezone").notNull(),
     /**
      * F-038. Both default to the pre-F-038 meaning, so every stand seeded before this
      * migration keeps exactly the classification it already had. A default of anything else
@@ -1016,6 +1028,56 @@ export const farmerTargetMenuOptions = pgTable(
     positiveOption: check(
       "farmer_target_menu_options_positive_option",
       sql`${table.optionNumber} > 0`,
+    ),
+  }),
+);
+
+/** One farmer-selected scheduled inventory prompt preference per stand (F-052). */
+export const inventoryPromptPreferences = pgTable(
+  "inventory_prompt_preferences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerFarmId: uuid("owner_farm_id").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    designatedAuthorizationId: uuid("designated_authorization_id").notNull(),
+    cadence: inventoryPromptCadence("cadence").notNull(),
+    version: integer("version").notNull(),
+    nextDueAt: timestamp("next_due_at", { withTimezone: true }),
+    lastDueSlotAt: timestamp("last_due_slot_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    onePerLocation: unique("inventory_prompt_preferences_location_unique").on(
+      table.salesLocationId,
+    ),
+    locationOwnerReference: foreignKey({
+      name: "inventory_prompt_preferences_location_owner_fk",
+      columns: [table.salesLocationId, table.ownerFarmId],
+      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    }).onDelete("restrict"),
+    authorizationOwnerReference: foreignKey({
+      name: "inventory_prompt_preferences_authorization_owner_fk",
+      columns: [table.designatedAuthorizationId, table.ownerFarmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("restrict"),
+    positiveVersion: check(
+      "inventory_prompt_preferences_positive_version",
+      sql`${table.version} > 0`,
+    ),
+    dueStateCoherent: check(
+      "inventory_prompt_preferences_due_state_coherent",
+      sql`
+        (${table.cadence} = 'paused' and ${table.nextDueAt} is null)
+        or (${table.cadence} <> 'paused' and ${table.nextDueAt} is not null)
+      `,
+    ),
+    dueSlotsOrdered: check(
+      "inventory_prompt_preferences_due_slots_ordered",
+      sql`
+        ${table.lastDueSlotAt} is null
+        or ${table.nextDueAt} is null
+        or ${table.nextDueAt} > ${table.lastDueSlotAt}
+      `,
     ),
   }),
 );
@@ -1957,6 +2019,90 @@ export const closureRevisions = pgTable(
           and ${table.supersededAt} is not null
           and ${table.supersededAt} > ${table.publishedAt}
         )
+      `,
+    ),
+  }),
+);
+
+/**
+ * Exact durable meaning of one scheduled prompt. Dispatch joins this row and revalidates
+ * every basis; it never parses a category or logical key to reconstruct authority.
+ */
+export const scheduledInventoryPromptSubjects = pgTable(
+  "scheduled_inventory_prompt_subjects",
+  {
+    proposalId: uuid("proposal_id").primaryKey(),
+    proposalVersion: integer("proposal_version").notNull(),
+    preferenceId: uuid("preference_id").notNull(),
+    preferenceVersion: integer("preference_version").notNull(),
+    authorizationId: uuid("authorization_id").notNull(),
+    ownerFarmId: uuid("owner_farm_id").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    inventoryBaseRevisionId: uuid("inventory_base_revision_id"),
+    closureBaseRevisionId: uuid("closure_base_revision_id"),
+    closureBaseIsFirstInstruction: boolean(
+      "closure_base_is_first_instruction",
+    ).notNull(),
+    dueSlotAt: timestamp("due_slot_at", { withTimezone: true }).notNull(),
+    outboxWorkId: uuid("outbox_work_id").notNull(),
+    offersSame: boolean("offers_same").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    proposalReference: foreignKey({
+      name: "scheduled_prompt_subjects_proposal_fk",
+      columns: [table.proposalId],
+      foreignColumns: [inventoryPublicationProposals.id],
+    }).onDelete("restrict"),
+    preferenceReference: foreignKey({
+      name: "scheduled_prompt_subjects_preference_fk",
+      columns: [table.preferenceId],
+      foreignColumns: [inventoryPromptPreferences.id],
+    }).onDelete("restrict"),
+    authorizationOwnerReference: foreignKey({
+      name: "scheduled_prompt_subjects_authorization_owner_fk",
+      columns: [table.authorizationId, table.ownerFarmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("restrict"),
+    locationOwnerReference: foreignKey({
+      name: "scheduled_prompt_subjects_location_owner_fk",
+      columns: [table.salesLocationId, table.ownerFarmId],
+      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    }).onDelete("restrict"),
+    inventoryBaseReference: foreignKey({
+      name: "scheduled_prompt_subjects_inventory_base_fk",
+      columns: [table.inventoryBaseRevisionId, table.salesLocationId],
+      foreignColumns: [inventoryRevisions.id, inventoryRevisions.salesLocationId],
+    }).onDelete("restrict"),
+    closureBaseReference: foreignKey({
+      name: "scheduled_prompt_subjects_closure_base_fk",
+      columns: [table.closureBaseRevisionId, table.salesLocationId],
+      foreignColumns: [closureRevisions.id, closureRevisions.salesLocationId],
+    }).onDelete("restrict"),
+    outboxReference: foreignKey({
+      name: "scheduled_prompt_subjects_outbox_fk",
+      columns: [table.outboxWorkId],
+      foreignColumns: [outboxWork.id],
+    }).onDelete("restrict"),
+    preferenceSlotUnique: unique(
+      "scheduled_prompt_subjects_preference_due_slot_unique",
+    ).on(table.preferenceId, table.dueSlotAt),
+    outboxUnique: unique("scheduled_prompt_subjects_outbox_unique").on(
+      table.outboxWorkId,
+    ),
+    positiveVersions: check(
+      "scheduled_prompt_subjects_positive_versions",
+      sql`${table.proposalVersion} > 0 and ${table.preferenceVersion} > 0`,
+    ),
+    visibleSnapshotForSame: check(
+      "scheduled_prompt_subjects_visible_snapshot_for_same",
+      sql`not ${table.offersSame} or ${table.inventoryBaseRevisionId} is not null`,
+    ),
+    closureBaseCoherent: check(
+      "scheduled_prompt_subjects_closure_base_coherent",
+      sql`
+        (${table.closureBaseIsFirstInstruction} and ${table.closureBaseRevisionId} is null)
+        or (not ${table.closureBaseIsFirstInstruction} and ${table.closureBaseRevisionId} is not null)
       `,
     ),
   }),

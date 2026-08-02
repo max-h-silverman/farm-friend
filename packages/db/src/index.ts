@@ -13,6 +13,7 @@ export * from "./farmer-targeting";
 export * from "./pending-result-list";
 export * from "./participants";
 export * from "./review";
+export * from "./scheduled-prompts";
 export type { Sql } from "./sql";
 
 export interface Db {

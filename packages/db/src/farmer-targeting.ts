@@ -49,7 +49,7 @@ function targetFromRow(row: TargetRow): FarmerTarget {
   };
 }
 
-async function lockSenderState(
+export async function lockKnownSenderState(
   tx: Tx,
   senderHash: string,
   occurredAt: Date,
@@ -91,7 +91,7 @@ async function lockSender(
   senderHash: string,
   occurredAt: Date,
 ): Promise<boolean> {
-  if (!(await lockSenderState(tx, senderHash, occurredAt))) return false;
+  if (!(await lockKnownSenderState(tx, senderHash, occurredAt))) return false;
   await ensureTargetContext(tx, senderHash, occurredAt);
   return true;
 }
