@@ -67,17 +67,18 @@ the new password, revoke every old administrator session per the main runbook.
 
 ## `terraform.tfvars` is gitignored
 
-It holds non-secret Telnyx identifiers and two deployment inputs. None of it is a credential —
+It holds non-secret Telnyx identifiers and three deployment inputs. None of it is a credential —
 `TELNYX_API_KEY` lives in Secret Manager — but it is environment-specific, so it is not committed.
-A fresh checkout must recreate it with all five values:
+A fresh checkout must recreate it with all six values:
 
     telnyx_public_key           = "..."   # ed25519 webhook key, base64, MUST decode to 32 bytes
     telnyx_messaging_profile_id = "..."
     telnyx_from_number          = "+1..." # EXACT E.164 — anything else 400s on every send
+    public_map_url              = "https://www.vigavashon.org/farm-stand-map"
     cloud_run_host_suffix       = "..."   # e.g. p5mfxfp5za-uw; see the bootstrapping note below
     rotation_applied_at         = "..."   # e.g. 2026-07-29T17-35; see "Rotating a secret"
 
-`rotation_applied_at` deliberately has **no default**. A default would be a value that silently
+`public_map_url` and `rotation_applied_at` deliberately have **no default**. A default would be a value that silently
 goes stale, and a stale marker reverts the revision template — un-restarting the containers a
 rotation was supposed to restart, which is the B-021 failure wearing a different hat. Every one of
 these fails at plan time when absent, which is the right failure.

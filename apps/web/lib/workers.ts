@@ -38,6 +38,8 @@ export interface InboundWorkerDeps {
    * texted credential points.
    */
   publicBaseUrl: string;
+  /** Configured canonical customer map URL for the deterministic MAP command. */
+  publicMapUrl: string;
   /** Bound on how much work one pass will do. */
   maxEvents?: number;
 }
@@ -141,6 +143,7 @@ export async function runInboundPass(
           db: deps.db,
           clock: deps.clock,
           publicBaseUrl: deps.publicBaseUrl,
+          publicMapUrl: deps.publicMapUrl,
           freeText: (input) =>
             handleFreeText(
               {

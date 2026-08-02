@@ -112,6 +112,7 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     // F-040. A configured origin, because a farmer's standing link is built against it and
     // must never come from a request header.
     publicBaseUrl: "https://farmfriend.example",
+    publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
     freeText: forbiddenFreeText(),
     nextPage: forbiddenNextPage(),
     farmerTarget: forbiddenFarmerTarget(),
@@ -131,6 +132,31 @@ describe("SAME routing (F-052)", () => {
       occurredAt: T0,
       providerEventId: "evt-1",
     });
+  });
+});
+
+describe("MAP routing (F-057)", () => {
+  it("returns only the configured public-map URL without reaching a model", async () => {
+    const result = await routeInboundMessage(deps(), event(" MAP. "));
+
+    expect(result.outcome).toEqual({ kind: "map" });
+    expect(result.replies).toEqual([
+      {
+        body: "https://www.vigavashon.org/farm-stand-map",
+        category: "inquiry_reply",
+        logicalKey: "map-evt-1",
+      },
+    ]);
+  });
+
+  it("still returns the link for a stale event because MAP has no conversation state", async () => {
+    const result = await routeInboundMessage(
+      deps(),
+      { ...event("MAP"), isStale: true },
+    );
+
+    expect(result.outcome).toEqual({ kind: "map" });
+    expect(result.replies[0]?.body).toBe("https://www.vigavashon.org/farm-stand-map");
   });
 });
 

@@ -38,6 +38,7 @@ locals {
     TELNYX_FROM_NUMBER          = var.telnyx_from_number
     TELNYX_PUBLIC_KEY           = var.telnyx_public_key
     PUBLIC_BASE_URL             = local.web_url
+    PUBLIC_MAP_URL              = var.public_map_url
 
     # ROTATION_APPLIED_AT — the reason a rotated secret reaches running containers at all.
     #

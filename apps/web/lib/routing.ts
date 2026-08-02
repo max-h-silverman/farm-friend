@@ -30,15 +30,16 @@ import type { PagingStatus } from "./paging";
 // The order is Golden Rule #2 and is not negotiable:
 //
 //   1. compliance keywords   — STOP/START/JOIN/HELP/INFO, by CODE, before any model call
-//   2. FLAG                  — the human-handoff safety rail, also upstream of the model
-//   3. commitment YES/NO     — context- and version-bound to the sender's ONE open proposal
-//   4. SAME                  — only the exact active scheduled full-snapshot subject
-//   5. farmer keywords       — SIGNUP/LINK/STAND/SETTINGS, upstream of the model
-//   6. MORE                  — the next page of the sender's pending result list (F-046)
-//   7. stand menu number     — exact server-bound authorization+location selection
-//   8. free text             — only here may a model seam run
+//   2. MAP                   — configured public-map URL, no state or model
+//   3. FLAG                  — the human-handoff safety rail, also upstream of the model
+//   4. commitment YES/NO     — context- and version-bound to the sender's ONE open proposal
+//   5. SAME                  — only the exact active scheduled full-snapshot subject
+//   6. farmer keywords       — SIGNUP/LINK/STAND/SETTINGS, upstream of the model
+//   7. MORE                  — the next page of the sender's pending result list (F-046)
+//   8. stand menu number     — exact server-bound authorization+location selection
+//   9. free text             — only here may a model seam run
 //
-// Steps 1-6 are `parseCommand` output, which takes the body and NOTHING else: no
+// Steps 1-7 are `parseCommand` output, which takes the body and NOTHING else: no
 // conversation state exists for it to consult, so no state can reinterpret a STOP. The
 // model seams are reached through `freeText`, a callback this module invokes only after
 // `parseCommand` returns `kind: "none"` — so "no model call on the compliance path" is a
@@ -62,6 +63,7 @@ export interface RoutedReply {
 export type RouteOutcome =
   | { kind: "consent"; transition: "start" | "stop"; applied: boolean }
   | { kind: "help" }
+  | { kind: "map" }
   | { kind: "flag"; flagId: string }
   | { kind: "confirmation"; status: string }
   /**
@@ -104,6 +106,8 @@ export interface RouteDeps {
    * primitive against the one credential that has no password behind it.
    */
   publicBaseUrl: string;
+  /** The validated canonical URL returned by the stateless MAP command. */
+  publicMapUrl: string;
   /**
    * Handle a message that is NOT any deterministic keyword or token. Invoked only after
    * `parseCommand` returns `kind: "none"`; this is the only path on which a model may run.
@@ -227,13 +231,28 @@ export async function routeInboundMessage(
   // to interpret. Nothing is the honest consequence.
   const body = input.body ?? "";
 
-  // STEP 1-3 — deterministic parsing, before any model call.
+  // STEP 1-4 — deterministic parsing, before any model call.
   const command = parseCommand(body);
 
   // Compliance keywords are exempt from conversation staleness (see the contract above) and
   // are therefore checked BEFORE it — the ordering that makes a delayed STOP reach consent.
   if (command.kind === "compliance") {
     return routeCompliance(deps, input, command.keyword);
+  }
+
+  // F-057. MAP has no conversation state to corrupt, so like compliance it remains useful
+  // for a delayed carrier event. It is still ordered after every compliance command: a STOP
+  // always records the opt-out, and dispatch will suppress this inquiry reply for a stopped
+  // sender. The body is configuration, never model or sender data.
+  if (command.kind === "map") {
+    return {
+      outcome: { kind: "map" },
+      replies: [{
+        body: deps.publicMapUrl,
+        category: "inquiry_reply",
+        logicalKey: `map-${input.providerEventId}`,
+      }],
+    };
   }
 
   // Everything below mutates conversation state, so a stale event fails closed here.

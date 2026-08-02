@@ -223,6 +223,10 @@ def main() -> int:
           bool(web_env.get("PUBLIC_BASE_URL", "").startswith("https://")),
           f"PUBLIC_BASE_URL={web_env.get('PUBLIC_BASE_URL')}")
 
+    check("the web service has a canonical public map url",
+          bool(web_env.get("PUBLIC_MAP_URL", "").startswith("https://")),
+          f"PUBLIC_MAP_URL={web_env.get('PUBLIC_MAP_URL')}")
+
     # The worker needs PUBLIC_BASE_URL too — `resolveConfig` requires it before any pass runs,
     # and omitting it crashed every scheduled run with a ConfigurationError that only the
     # worker's logs revealed.
@@ -234,6 +238,10 @@ def main() -> int:
     check("the worker also has PUBLIC_BASE_URL",
           bool(worker_env.get("PUBLIC_BASE_URL")),
           "absent — the worker fails closed on every scheduled run")
+
+    check("both services agree on the public map url",
+          worker_env.get("PUBLIC_MAP_URL") == web_env.get("PUBLIC_MAP_URL"),
+          f"web={web_env.get('PUBLIC_MAP_URL')} worker={worker_env.get('PUBLIC_MAP_URL')}")
 
     def secret_names(service: dict) -> set[str]:
         container = ((service.get("template") or [{}])[0].get("containers") or [{}])[0]

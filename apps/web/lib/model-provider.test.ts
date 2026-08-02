@@ -14,10 +14,18 @@ const baseEnv = {
   DATABASE_URL: "postgres://user@localhost:5432/db",
   PHONE_HASH_SALT: "salt",
   PUBLIC_BASE_URL: "https://farmfriend.example",
+  PUBLIC_MAP_URL: "https://www.vigavashon.org/farm-stand-map",
   SMS_PROVIDER: "simulator",
 } satisfies EnvVars;
 
 describe("model provider selection (F-024)", () => {
+  it("refuses startup when the public-map URL is absent (F-057)", () => {
+    const { PUBLIC_MAP_URL: _mapUrl, ...withoutMapUrl } = baseEnv;
+    expect(() => resolveConfig({ ...withoutMapUrl, LLM_PROVIDER: "stub" })).toThrow(
+      /PUBLIC_MAP_URL/,
+    );
+  });
+
   it("REFUSES to start when LLM_PROVIDER is absent (GL-019)", () => {
     // Until this, an absent `LLM_PROVIDER` selected the stub. Production had no
     // `LLM_PROVIDER` at all, so the deployment ran the deterministic test double against
