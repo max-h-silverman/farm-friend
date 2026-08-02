@@ -26,17 +26,10 @@ export default async function StandDataPage() {
   const flags = await listStandDataFlags(db, { status: "all" });
 
   return (
-    <AdminShell
-      currentPath="/admin/stand-data"
-      title="Stand data questions"
-      signedInAs={administrator.email}
-    >
+    <AdminShell currentPath="/admin/stand-data">
       <p className="admin-note">
-        When VIGA&apos;s stand data contradicts itself — two different opening times, a season
-        nobody can pin down, a note saying the stand closed — the loader records the question
-        here instead of guessing. Resolving one records <strong>your decision</strong> for the
-        record; it does not edit the listing. If the listing itself needs correcting, that
-        happens through the farmer or a listing edit, not here.
+        Farm Friend brings a question here when it needs help reading a listing. Leave a note with
+        your decision; it will not change what&apos;s on the map.
       </p>
 
       <StandDataQueue

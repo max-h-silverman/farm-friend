@@ -33,12 +33,10 @@ export default async function FlagsPage() {
   ]);
 
   return (
-    <AdminShell currentPath="/admin/flags" title="Flags" signedInAs={administrator.email}>
+    <AdminShell currentPath="/admin/flags">
       <p className="admin-note">
-        Someone texted <strong>FLAG</strong>. Read the thread, take whatever action is needed
-        outside the system, then record what you did. Phone numbers are shown masked.
-        Resolving or dismissing a flag also releases its messages to the normal deletion
-        schedule, so review the thread before you close it.
+        Someone has asked for help through <strong>FLAG</strong>. Read the conversation, help as
+        needed, then leave a note about what happened. Phone numbers are partly hidden.
       </p>
 
       <FlagQueue
@@ -55,10 +53,10 @@ export default async function FlagsPage() {
         }))}
       />
 
-      <h2 className="admin-section-title">Stand data questions</h2>
+      <h2 className="admin-section-title">Listing questions</h2>
       <p className="admin-note">
-        These are source-data questions recorded instead of guessed. Resolving one records
-        your decision; it does not edit a public listing.
+        These are places where Farm Friend needs a little help reading a listing. Leave a note
+        with your decision; it will not change what&apos;s on the map.
       </p>
       <StandDataQueue
         flags={standDataFlags.map((flag) => ({

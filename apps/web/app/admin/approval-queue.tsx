@@ -16,7 +16,7 @@ export interface ApprovalRow {
 }
 
 function formatApproved(row: ApprovalRow): string {
-  if (!row.approved) return "Not approved";
+  if (!row.approved) return "Not approved yet";
   const when =
     row.approvedAt === null
       ? ""
@@ -71,8 +71,8 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
       const farmName = rows.find((row) => row.farmId === farmId)?.name ?? "Farm";
       setSuccess(
         action === "approve"
-          ? `${farmName} is approved for publication.`
-          : `${farmName}'s approval is revoked. Existing publication is unchanged.`,
+          ? `${farmName} is approved. Its stands can appear on Farm Friend.`
+          : `${farmName}'s approval was removed. Existing map listings stay as they are.`,
       );
     } catch {
       setError("That change did not go through. Reload and try again.");
@@ -82,7 +82,7 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
   }
 
   if (rows.length === 0) {
-    return <p className="admin-note">No farms yet. Seed listing data first.</p>;
+    return <p className="admin-note">No farms to approve yet.</p>;
   }
 
   return (
@@ -117,8 +117,8 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
               {pending === row.farmId
                 ? "Saving…"
                 : row.approved
-                  ? "Revoke approval"
-                  : "Approve"}
+                  ? "Remove approval"
+                  : "Approve farm"}
             </button>
           </li>
         ))}

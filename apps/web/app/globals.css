@@ -41,6 +41,13 @@
   --amber-line: #d9a24a;
   --radius: 14px;
 
+  /* Administrator accents: warm, light, and purely structural. Status colours above retain
+     their existing meaning so a visual refresh cannot change what a state communicates. */
+  --admin-orange: #e55720;
+  --admin-yellow: #f7bc3a;
+  --admin-leaf: #c6dc9a;
+  --admin-cream: #e6ecd4;
+
   /* F-043 — VIGA's palette, from the printed farm map. Adopted for the ARTWORK and the
    * controls; the meaning colours above are untouched, because green-is-confirmed and
    * amber-is-stale already carry product meaning a brand refresh must not quietly repaint.
@@ -457,9 +464,9 @@ body {
 /* The VIGA operator surface (F-025a). Reuses the public palette rather than introducing a
    second visual system — one product, seen from two sides. */
 .admin {
-  max-width: 46rem;
+  max-width: 72rem;
   margin: 0 auto;
-  padding: 1.5rem 1.1rem 3rem;
+  padding: 1rem clamp(1.1rem, 3vw, 2.5rem) 3rem;
 }
 
 .admin-header {
@@ -488,14 +495,7 @@ body {
   text-transform: uppercase;
 }
 
-.admin-session {
-  margin: 0;
-  color: var(--ink-faint);
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
-}
-
-.admin-sign-out,
+.admin-nav-sign-out,
 .admin-primary-link {
   display: inline-flex;
   min-height: 48px;
@@ -503,9 +503,9 @@ body {
   justify-content: center;
   flex: none;
   padding: 0 1rem;
-  color: var(--green);
-  background: var(--green-soft);
-  border: 1px solid transparent;
+  color: var(--ink);
+  background: var(--admin-cream);
+  border: 1px solid var(--admin-leaf);
   border-radius: 10px;
   font: inherit;
   font-weight: 600;
@@ -513,7 +513,7 @@ body {
   cursor: pointer;
 }
 
-.admin-sign-out:disabled {
+.admin-nav-sign-out:disabled {
   opacity: 0.65;
   cursor: default;
 }
@@ -541,7 +541,7 @@ body {
   padding: 0.7rem 0.9rem;
   color: var(--ink);
   background: var(--amber-soft);
-  border: 1px solid var(--amber-line);
+  border: 1px solid var(--admin-yellow);
   border-radius: 10px;
 }
 
@@ -646,8 +646,17 @@ body {
   background: transparent;
   border: 0;
   font: inherit;
+  list-style: none;
   text-align: left;
   cursor: pointer;
+}
+
+.admin-stand-summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-stand-summary:hover {
+  background: var(--admin-cream);
 }
 
 .admin-stand-name {
@@ -679,8 +688,8 @@ body {
 .admin-stand-states span {
   padding: 0.2rem 0.45rem;
   color: var(--ink-soft);
-  background: var(--paper);
-  border: 1px solid var(--line);
+  background: var(--admin-cream);
+  border: 1px solid var(--admin-leaf);
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 600;
@@ -694,41 +703,121 @@ body {
   white-space: nowrap;
 }
 
-.admin-stand-details {
+.admin-stand-hide {
+  display: none;
+}
+
+.admin-stand details[open] .admin-stand-show {
+  display: none;
+}
+
+.admin-stand details[open] .admin-stand-hide {
+  display: inline;
+}
+
+.admin-stand-detail-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: 0.8rem;
+  margin: 0;
+  padding: 1rem;
+  background: var(--paper);
+  border-top: 2px solid var(--admin-yellow);
+}
+
+.admin-stand-detail-section {
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.admin-stand-detail-section--prominent {
+  grid-column: 1 / -1;
+}
+
+.admin-stand-detail-section h3 {
+  margin: 0;
+  padding: 0.65rem 0.8rem;
+  color: var(--ink);
+  background: var(--admin-cream);
+  border-bottom: 1px solid var(--admin-leaf);
+  font-size: 0.92rem;
+}
+
+.admin-stand-detail-section dl {
   display: grid;
   gap: 0;
   margin: 0;
-  padding: 0 1rem 0.9rem;
-  border-top: 1px solid var(--line);
 }
 
-.admin-stand-details div {
+.admin-stand-detail-section dl > div {
   display: grid;
   grid-template-columns: minmax(8rem, 0.55fr) minmax(0, 1fr);
   gap: 0.8rem;
-  padding: 0.55rem 0;
+  padding: 0.6rem 0.8rem;
   border-bottom: 1px solid var(--line);
   font-size: 0.9rem;
 }
 
-.admin-stand-details div:last-child {
+.admin-stand-detail-section dl > div:last-child {
   border-bottom: 0;
 }
 
-.admin-stand-details dt {
+.admin-stand-detail-section dt {
   color: var(--ink-faint);
   font-weight: 600;
 }
 
-.admin-stand-details dd {
+.admin-stand-detail-section dd {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
 }
 
+.admin-stand-detail-item--primary {
+  grid-column: 1 / -1;
+  padding: 0.8rem !important;
+  background: var(--card);
+}
+
+.admin-stand-detail-item--primary dt {
+  color: var(--green);
+}
+
+.admin-stand-detail-item--primary dd {
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
 .admin-section-title {
   margin: 2rem 0 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid var(--admin-leaf);
   font-size: 1.2rem;
+}
+
+/* Put decisions that can unblock someone above reference material. The light rule keeps the
+   distinction visible without turning a small coordinator tool into a dashboard. */
+.admin-priority {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem 1rem;
+  background: var(--admin-cream);
+  border-left: 4px solid var(--admin-orange);
+  border-radius: 0 12px 12px 0;
+}
+
+.admin-priority--farm-approval,
+.admin-priority--farmer-access {
+  border-left-color: var(--admin-yellow);
+}
+
+.admin-priority .admin-section-title {
+  margin-top: 0;
+}
+
+.admin-priority .admin-farms {
+  margin-top: 1rem;
 }
 
 .admin-users {
@@ -861,11 +950,20 @@ body {
    one operator surface, not a second one per screen. */
 .admin-nav {
   display: flex;
-  gap: 0.25rem;
-  margin: 0.8rem -0.35rem 0.4rem;
-  padding: 0.2rem 0.35rem;
-  overflow-x: auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 -0.35rem 0.75rem;
+  padding: 0.2rem 0.35rem 0.7rem;
+  border-bottom: 2px solid var(--admin-leaf);
   font-size: 0.88rem;
+}
+
+.admin-nav-links {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 0.25rem;
+  overflow-x: auto;
   scrollbar-width: thin;
 }
 
@@ -881,8 +979,8 @@ body {
 }
 
 .admin-nav a[aria-current="page"] {
-  color: var(--green);
-  background: var(--green-soft);
+  color: var(--ink);
+  background: var(--admin-yellow);
   font-weight: 700;
 }
 
@@ -919,7 +1017,7 @@ body {
 
 .admin-retention-warning {
   margin: 0;
-  border-left-color: var(--amber-line);
+  border-left-color: var(--admin-yellow);
 }
 
 .admin-thread-flagged {
@@ -1206,10 +1304,6 @@ body {
     flex-direction: column;
   }
 
-  .admin-sign-out {
-    align-self: flex-start;
-  }
-
   .admin-farm,
   .admin-farm > div,
   .admin-flag-actions {
@@ -1221,7 +1315,7 @@ body {
     flex: 1 1 10rem;
   }
 
-  .admin-stand-details div {
+  .admin-stand-detail-section dl > div {
     grid-template-columns: 1fr;
     gap: 0.1rem;
   }

@@ -6,9 +6,9 @@ import { useState } from "react";
 
 const ADMIN_ROUTES = [
   { href: "/admin", label: "Stands" },
-  { href: "/admin/farmers", label: "Users" },
-  { href: "/admin/flags", label: "Flags" },
-  { href: "/admin/reports", label: "Notifications" },
+  { href: "/admin/farmers", label: "People" },
+  { href: "/admin/flags", label: "Needs attention" },
+  { href: "/admin/reports", label: "Stock reports" },
 ] as const;
 
 export function SignedOutAdmin() {
@@ -37,15 +37,11 @@ export function AdminRecoveryError({ children }: { children: ReactNode }) {
 
 export function AdminShell({
   currentPath,
-  title,
-  signedInAs,
   children,
   fetcher = fetch,
   onSignedOut,
 }: {
   currentPath: (typeof ADMIN_ROUTES)[number]["href"] | "/admin/stand-data";
-  title: string;
-  signedInAs: string;
   children: ReactNode;
   fetcher?: typeof fetch;
   onSignedOut?: () => void;
@@ -73,32 +69,26 @@ export function AdminShell({
 
   return (
     <main className="admin">
-      <header className="admin-header">
-        <div>
-          <p className="admin-eyebrow">VIGA operations</p>
-          <h1>{title}</h1>
-          <p className="admin-session">Signed in as {signedInAs}</p>
+      <nav className="admin-nav" aria-label="Administrator workflows">
+        <div className="admin-nav-links">
+          {ADMIN_ROUTES.map((route) => (
+            <Link
+              key={route.href}
+              href={route.href}
+              aria-current={route.href === currentPath ? "page" : undefined}
+            >
+              {route.label}
+            </Link>
+          ))}
         </div>
         <button
-          className="admin-sign-out"
+          className="admin-nav-sign-out"
           type="button"
           disabled={signingOut}
           onClick={() => void signOut()}
         >
           {signingOut ? "Signing out…" : "Sign out"}
         </button>
-      </header>
-
-      <nav className="admin-nav" aria-label="Administrator workflows">
-        {ADMIN_ROUTES.map((route) => (
-          <Link
-            key={route.href}
-            href={route.href}
-            aria-current={route.href === currentPath ? "page" : undefined}
-          >
-            {route.label}
-          </Link>
-        ))}
       </nav>
 
       {signOutError && (

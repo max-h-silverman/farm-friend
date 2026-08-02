@@ -26,16 +26,10 @@ export default async function ReportsPage() {
   const reports = await listStockOutReports(db, { status: "all" });
 
   return (
-    <AdminShell
-      currentPath="/admin/reports"
-      title="Notifications"
-      signedInAs={administrator.email}
-    >
+    <AdminShell currentPath="/admin/reports">
       <p className="admin-note">
-        Customers report privately when something looks sold out. These are{" "}
-        <strong>signals, not corrections</strong> — marking one reviewed records that you
-        looked, and changes nothing a customer sees. Only the farmer&apos;s own confirmed
-        update changes a listing. If reports pile up for one stand, chase the farmer.
+        Customers can let us know when an item may be sold out. Take a look, then contact the
+        farmer if a stand needs an update. These reports never change the map.
       </p>
 
       <ReportQueue

@@ -132,7 +132,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
         ),
       );
       setSuccess(
-        `Flag ${action === "resolve" ? "resolved" : "dismissed"}. Expired thread messages are now eligible for deletion.`,
+      `${action === "resolve" ? "Flag resolved" : "Flag dismissed"}. Older messages can now be deleted on their normal schedule.`,
       );
     } catch {
       setError("That change did not go through. Reload and try again.");
@@ -144,8 +144,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
   if (rows.length === 0) {
     return (
       <p className="admin-note">
-        No open flags. A customer or farmer who texts <strong>FLAG</strong> appears here for
-        review.
+        No FLAG messages need review.
       </p>
     );
   }
@@ -171,7 +170,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
             <div className="admin-flag-main">
               <h2>{row.senderMask}</h2>
               <p className="admin-note">
-                {row.reasonCode} · flagged {formatWhen(row.createdAt)}
+                FLAG message · received {formatWhen(row.createdAt)}
               </p>
               {row.status !== "open" && (
                 <p className="admin-approved">
@@ -184,8 +183,8 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
               {openThread === row.flagId && (
                 <div id={`thread-${row.flagId}`} className="admin-thread-panel">
                   <p className="admin-retention-warning">
-                    Review before closing this flag. Closing this flag releases expired
-                    messages to the normal deletion schedule.
+                    Read this before closing the flag. Once it is closed, older messages can be
+                    deleted on their normal schedule.
                   </p>
                   {threadLoading === row.flagId && (
                     <p className="admin-note" role="status">
@@ -207,9 +206,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
                         >
                           <span className="admin-note">{formatWhen(message.receivedAt)}</span>{" "}
                           {message.bodyPurged ? (
-                            <em className="admin-note">
-                              (message content deleted on its retention schedule)
-                            </em>
+                            <em className="admin-note">(message deleted on schedule)</em>
                           ) : (
                             message.body
                           )}

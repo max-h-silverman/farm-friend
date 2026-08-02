@@ -118,7 +118,7 @@ export function FarmerQueue({
     setPendingRequests((current) =>
       current.filter((request) => request.requestId !== requestId),
     );
-    setSuccess("Farmer authorized. Reload to see their access record.");
+    setSuccess("Farmer access given. Reload to see their access record.");
   }
 
   async function revoke(authorizationId: string) {
@@ -139,7 +139,7 @@ export function FarmerQueue({
       ),
     );
     if (freshLink?.id === authorizationId) setFreshLink(null);
-    setSuccess("Farmer access revoked. Their private link is no longer active.");
+    setSuccess("Farmer access removed. Their private link no longer works.");
   }
 
   async function issueLink(row: AuthorizationRow) {
@@ -167,7 +167,7 @@ export function FarmerQueue({
           : currentRow,
       ),
     );
-    setSuccess("Private link created. Copy it now; it will not be shown again.");
+    setSuccess("Private link created. Copy it now — it will not be shown again.");
   }
 
   async function copyFreshLink() {
@@ -196,10 +196,10 @@ export function FarmerQueue({
         </p>
       )}
 
-      <h2>Waiting on you</h2>
+      <h2>Farmers waiting to join</h2>
       {pendingRequests.length === 0 ? (
         <p className="admin-note">
-          Nobody is waiting. Farmers text <strong>SIGNUP</strong> to ask.
+          No requests right now. Farmers can text <strong>SIGNUP</strong> to get started.
         </p>
       ) : (
         <ul className="admin-farms">
@@ -213,7 +213,7 @@ export function FarmerQueue({
               </div>
               <div>
                 <label>
-                  <span className="admin-control-label">Farm for {request.senderMask}</span>
+                  <span className="admin-control-label">Which farm do they run?</span>
                   <select
                     value={farmChoice[request.requestId] ?? ""}
                     onChange={(event) =>
@@ -236,7 +236,7 @@ export function FarmerQueue({
                   disabled={busy === request.requestId}
                   onClick={() => void authorize(request.requestId)}
                 >
-                  {busy === request.requestId ? "Saving…" : "Authorize"}
+                  {busy === request.requestId ? "Saving…" : "Give access"}
                 </button>
               </div>
             </li>
@@ -244,9 +244,9 @@ export function FarmerQueue({
         </ul>
       )}
 
-      <h2>Farmer access</h2>
+      <h2>Current farmer access</h2>
       {rows.length === 0 ? (
-        <p className="admin-note">No farmer has been authorized yet.</p>
+        <p className="admin-note">No one has farmer access yet.</p>
       ) : (
         <ul className="admin-farms">
           {rows.map((row) => {
@@ -263,15 +263,15 @@ export function FarmerQueue({
                   </p>
                   <p className="admin-note">
                     {revoked
-                      ? "This farmer can no longer publish, and their link is dead."
+                      ? "Access was removed, so their private link no longer works."
                       : row.hasLiveLink && row.liveLinkStand !== null
-                        ? `Has a working private link for ${row.liveLinkStand.name}.`
-                        : "No private link yet — they can text LINK for one."}
+                        ? `Private link works for ${row.liveLinkStand.name}.`
+                        : "No private link yet. They can text LINK whenever they need one."}
                   </p>
                   {freshLink?.id === row.authorizationId && (
                     <div className="admin-link-reveal" role="group" aria-label="New private link">
                       <p className="admin-note">
-                        <strong>Copy this now — it is not shown again.</strong>
+                        <strong>Copy this now — we only show it once.</strong>
                       </p>
                       <input aria-label="Private link" readOnly value={freshLink.link} />
                       <button type="button" onClick={() => void copyFreshLink()}>
@@ -283,7 +283,7 @@ export function FarmerQueue({
                 {!revoked && (
                   <div>
                     <label>
-                      <span className="admin-control-label">Stand for private link</span>
+                      <span className="admin-control-label">Which stand can this link update?</span>
                       <select
                         value={
                           standChoice[row.authorizationId] ??
@@ -319,7 +319,7 @@ export function FarmerQueue({
                       disabled={busy === row.authorizationId}
                       onClick={() => void revoke(row.authorizationId)}
                     >
-                      {busy === row.authorizationId ? "Saving…" : "Revoke access"}
+                      {busy === row.authorizationId ? "Saving…" : "Remove access"}
                     </button>
                   </div>
                 )}

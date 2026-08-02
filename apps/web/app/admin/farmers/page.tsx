@@ -47,52 +47,44 @@ export default async function FarmersPage() {
   ]);
 
   return (
-    <AdminShell
-      currentPath="/admin/farmers"
-      title="Users"
-      signedInAs={administrator.email}
-    >
+    <AdminShell currentPath="/admin/farmers">
       <p className="admin-note">
-        User records show only a masked phone number, current farmer status, and farm access.
-        Filter by whether a person can currently publish as a farmer.
+        See who has been in touch with Farm Friend and who can update a farm. Phone numbers are
+        partly hidden.
       </p>
 
-      <UserList users={users} />
+      <section className="admin-priority admin-priority--farmer-access" aria-labelledby="farmer-access-heading">
+        <h2 id="farmer-access-heading" className="admin-section-title">Farmer access</h2>
+        <p className="admin-note">
+          If you know they run the farm, you can give them access here. The farm will still need
+          <Link href="/admin"> approval</Link> before it appears on the map.
+        </p>
+        <FarmerQueue
+          requests={requests.map((request) => ({
+            requestId: request.requestId,
+            senderMask: request.senderMask,
+            requestedAt: request.requestedAt.toISOString(),
+          }))}
+          authorizations={authorizations.map((authorization) => ({
+            authorizationId: authorization.authorizationId,
+            farmId: authorization.farmId,
+            farmName: authorization.farmName,
+            senderMask: authorization.senderMask,
+            authorizedAt: authorization.authorizedAt.toISOString(),
+            revokedAt: authorization.revokedAt?.toISOString() ?? null,
+            hasLiveLink: authorization.hasLiveLink,
+            stands: authorization.stands,
+            liveLinkStand: authorization.liveLinkStand,
+          }))}
+          farms={farms.map((farm) => ({ farmId: farm.farmId, name: farm.name }))}
+        />
+      </section>
 
-      <h2 className="admin-section-title">Farmer access</h2>
-      <p className="admin-note">
-        Authorizing a farmer lets them publish what their stand has — by text, or through
-        their own private link. <strong>Check first that the person really runs the farm.</strong>{" "}
-        A phone number only proves someone has that phone, so this decision is yours and
-        nothing automates it. A farmer still confirms every listing before it goes live, and a
-        farm also needs <Link href="/admin">approval</Link> before anything publishes.
-      </p>
-
-      <p className="admin-note">
-        A farmer&apos;s link keeps working until you revoke it here. If a farmer loses their
-        phone, or a link is shared by accident, revoke it — it stops working immediately, and
-        they can text <strong>LINK</strong> for a new one.
-      </p>
-
-      <FarmerQueue
-        requests={requests.map((request) => ({
-          requestId: request.requestId,
-          senderMask: request.senderMask,
-          requestedAt: request.requestedAt.toISOString(),
-        }))}
-        authorizations={authorizations.map((authorization) => ({
-          authorizationId: authorization.authorizationId,
-          farmId: authorization.farmId,
-          farmName: authorization.farmName,
-          senderMask: authorization.senderMask,
-          authorizedAt: authorization.authorizedAt.toISOString(),
-          revokedAt: authorization.revokedAt?.toISOString() ?? null,
-          hasLiveLink: authorization.hasLiveLink,
-          stands: authorization.stands,
-          liveLinkStand: authorization.liveLinkStand,
-        }))}
-        farms={farms.map((farm) => ({ farmId: farm.farmId, name: farm.name }))}
-      />
+      <section aria-labelledby="people-list-heading">
+        <h2 id="people-list-heading" className="admin-section-title">Everyone who&apos;s been in touch</h2>
+        <p className="admin-note">Filter by whether they can currently update a farm.</p>
+        <UserList users={users} />
+      </section>
     </AdminShell>
   );
 }

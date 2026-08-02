@@ -16,23 +16,23 @@ export function UserList({ users }: { users: AdminUserRow[] }) {
   );
 
   return (
-    <section className="admin-users" aria-label="Users">
+    <section className="admin-users" aria-label="People">
       <label className="admin-user-filter">
-        <span className="admin-control-label">User type</span>
+        <span className="admin-control-label">Show</span>
         <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
-          <option value="all">All users</option>
-          <option value="farmer">Farmers</option>
-          <option value="not_farmer">Not farmers</option>
+          <option value="all">Everyone</option>
+          <option value="farmer">People with farmer access</option>
+          <option value="not_farmer">People without farmer access</option>
         </select>
       </label>
       {visible.length === 0 ? (
-        <p className="admin-note">No users match this filter.</p>
+        <p className="admin-note">No people match this filter.</p>
       ) : (
         <ul className="admin-user-list">
           {visible.map((user) => (
             <li key={user.userId}>
               <span>{user.senderMask}</span>
-              <span>{user.isFarmer ? `Farmer — ${user.farms.join(", ")}` : "Not a farmer"}</span>
+              <span>{user.isFarmer ? `Can update: ${user.farms.join(", ")}` : "No farmer access"}</span>
             </li>
           ))}
         </ul>
