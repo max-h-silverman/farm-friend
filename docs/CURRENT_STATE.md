@@ -5,13 +5,13 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Local commit `ab30a81` is live on Cloud Run as one image across web
+Farm Friend is **pre-go-live**. Pushed commit `ab30a81` is live on Cloud Run as one image across web
 revision `farm-friend-web-00016-khb` and worker revision `farm-friend-worker-00017-spq`, both at
 digest `sha256:eec86a430e1ebe84cd35d4339af1c4f878e58e9995615dd47f39326d4d867940`.
 The runtime application is the pushed F-056 source; `ab30a81` adds only the isolated Argon2 image
-build correction and its test, and has not yet been pushed. Production Postgres is `neondb` with all
-16 migrations applied (`0000`–`0015`, through journal timestamp `1786400000000`). Production now
-includes:
+build correction and its test. Active-state documentation commit `f321ee5` is also pushed, and
+`origin/main` resolves exactly to it. Production Postgres is `neondb` with all 16 migrations applied
+(`0000`–`0015`, through journal timestamp `1786400000000`). Production now includes:
 
 - F-049: owner-confirmed stand closure and reopening;
 - F-050: owner-confirmed **Also selling here** names;
@@ -127,10 +127,9 @@ admin-GET route checks. The Cloud Tasks queue is `RUNNING`; the Cloud Scheduler 
 
 - **F-029:** complete the remaining live carrier/JOIN launch verification. Its migration and deploy
   legs are complete.
-- **F-056:** push the local image-build correction and this active-state update when Max approves.
-  Max must still prove every protected administrator page, logout and copied-cookie refusal,
-  throttle behavior, expiry/revocation, mobile/desktop layout, keyboard/focus, and recovery copy in
-  a live browser before the item can leave `in review`.
+- **F-056:** Max must still prove every protected administrator page, logout and copied-cookie
+  refusal, throttle behavior, expiry/revocation, mobile/desktop layout, keyboard/focus, and recovery
+  copy in a live browser before the item can leave `in review`.
 - **B-024:** permanently encode the farmer's no-public-address instruction in seed behavior before
   any reseed. Production is currently hidden as an approved interim correction.
 - **B-008:** the deployed web build still lacks a truthful lint gate.
