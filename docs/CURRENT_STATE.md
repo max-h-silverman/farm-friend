@@ -5,13 +5,11 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Pushed commit `c34b092` is live on Cloud Run as one image across web
-revision `farm-friend-web-00017-tt8` and worker revision `farm-friend-worker-00018-w8q`, both at
-digest `sha256:8b1c30409aec390ac7e9a190ce258073c125745423c59a02f164e0dff95e6e0b`.
-Deploy-safety commit `737b39b` is also pushed; it changes only the completed secret-cutover plan
-guard and its tests, so it does not require a different runtime image. Production Postgres is
-`neondb` with all 16 migrations applied (`0000`–`0015`, through journal timestamp `1786400000000`).
-Production now includes:
+Farm Friend is **pre-go-live**. Pushed commit `77bcf36` is live on Cloud Run as one image across web
+revision `farm-friend-web-00018-44h` and worker revision `farm-friend-worker-00019-gwq`, both at
+digest `sha256:a0110733234905983c1df0ef854a15d9cea899912615c4074d7483e6f6770c2e`.
+Production Postgres is `neondb` with all 16 migrations applied (`0000`–`0015`, through journal
+timestamp `1786400000000`). Production now includes:
 
 - F-049: owner-confirmed stand closure and reopening;
 - F-050: owner-confirmed **Also selling here** names;
@@ -20,6 +18,8 @@ Production now includes:
 - F-055: completed and visually exercised administrator and farmer web workflows;
 - VIGA-only Squarespace admin embedding through a partitioned session cookie, a framing allowlist,
   and independent same-origin checks on authenticated writes;
+- one shared iframe-height handshake across map, admin, and farmer pages; it measures actual content
+  so a VIGA embed grows and shrinks without an inner scrollbar;
 - B-031/B-032: one final pre-launch identity and data architecture, with no compatibility paths;
 - B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
   removed; active documentation reconciled to the final architecture.
@@ -40,7 +40,7 @@ or nullable compatibility state.
 
 ## Verification
 
-The deployed commit passes 845 unit tests, 553 integration tests across 40 files against an
+The deployed commit passes 847 unit tests, 553 integration tests across 40 files against an
 isolated real Postgres server, 44 scripted eval cases, typecheck, lint, and the production web
 build. The saved deploy plan passed 35/35 assertions; the completed-cutover guard passes its 2
 focused tests, and the post-deploy assertion failure cases pass 10/10. The integration run creates
@@ -96,8 +96,9 @@ five representative provider message arrays are byte-identical to the pre-B-033 
 Production release verification passed revision/secret freshness for both services, exact shared
 image digest and 100% traffic, live health and public reads, protected-admin refusal, internal
 worker ingress, and the served vCard's exact bytes. `/admin/login` serves HTTP 200 with
-`frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org`. The Cloud Tasks queue is
-`RUNNING`; the Cloud Scheduler job is `ENABLED`.
+`frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org`; its served shared-layout
+bundle contains the content measurement, `ResizeObserver`, and `farm-friend:height` message. The
+Cloud Tasks queue is `RUNNING`; the Cloud Scheduler job is `ENABLED`.
 
 ## What is live
 
