@@ -44,7 +44,7 @@ describe("the DeepInfra adapter", () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    const raw = await provider.generateJson(context, "offerings");
+    const raw = await provider.generateJson(context);
     expect(JSON.parse(raw)).toEqual({ items: ["eggs"] });
 
     expect(String(fetchImpl.mock.calls[0]![0])).toContain("/chat/completions");
@@ -61,7 +61,7 @@ describe("the DeepInfra adapter", () => {
       model: "m",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    await provider.generateJson(context, "offerings");
+    await provider.generateJson(context);
 
     const sent = JSON.parse(sentBody(fetchImpl));
     // `statefulStorage: false` is attested to the gate; nothing here may quietly rely on
@@ -89,7 +89,6 @@ describe("the DeepInfra adapter", () => {
     });
     await provider.generateJson(
       projectOfferingExtraction({ sourceText: "eggs" }),
-      "offerings",
     );
 
     const body = sentBody(fetchImpl);
@@ -106,7 +105,7 @@ describe("the DeepInfra adapter", () => {
       model: "m",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    await provider.generateJson(context, "offerings");
+    await provider.generateJson(context);
 
     expect(String(fetchImpl.mock.calls[0]![0])).not.toContain("super-secret-key");
     expect(sentBody(fetchImpl)).not.toContain("super-secret-key");
@@ -121,7 +120,7 @@ describe("the DeepInfra adapter", () => {
       model: "m",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    expect(JSON.parse(await provider.generateJson(context, "offerings"))).toEqual({
+    expect(JSON.parse(await provider.generateJson(context))).toEqual({
       items: ["eggs"],
     });
   });
@@ -137,12 +136,12 @@ describe("the DeepInfra adapter", () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
-    await expect(provider.generateJson(context, "offerings")).rejects.toThrow(
+    await expect(provider.generateJson(context)).rejects.toThrow(
       /deepinfra responded 400/,
     );
     // The thrown message must not become a log line carrying a sender's phone number.
     await provider
-      .generateJson(context, "offerings")
+      .generateJson(context)
       .catch((error: Error) => {
         expect(error.message).not.toContain("206-555-0100");
       });
@@ -159,7 +158,6 @@ describe("the DeepInfra adapter", () => {
     const result = await generateValidated(
       provider,
       context,
-      "offerings",
       z.object({ items: z.array(z.string()) }),
     );
     expect(result.ok).toBe(false);
@@ -173,7 +171,7 @@ describe("the DeepInfra adapter", () => {
       model: "m",
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    await expect(provider.generateJson(context, "offerings")).rejects.toThrow(
+    await expect(provider.generateJson(context)).rejects.toThrow(
       /no message content/,
     );
   });

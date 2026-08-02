@@ -22,10 +22,10 @@
 //
 // EACH SEAM GETS ITS OWN PROJECTION; THERE IS NO GENERIC ONE. `assembleContext(seam, fields)`
 // was deleted in F-015 precisely because it let any caller hand the model a record of its own
-// choosing. Four projections exist, for the seams that have real consumers: inventory
-// extraction (F-015), and inquiry interpretation, grounded fact selection, and stock-out item
-// parsing (F-013). Message classification remains unbuilt and unprojected — F-012's, and it
-// has no caller.
+// choosing. Five projections exist, for the seams that have real consumers: inventory
+// extraction (F-015), inquiry interpretation, grounded fact selection, stock-out item
+// parsing (F-013), and offering extraction (F-035). Message classification remains unbuilt and
+// unprojected — F-012's, and it has no caller.
 //
 // When you build a new seam, ADD ITS OWN PROJECTION HERE — copying each permitted field
 // explicitly, as below — and add its bypass assertions to safety-boundary.type-test.ts. Do not
@@ -54,7 +54,7 @@ declare const modelSafeBrand: unique symbol;
 export type ModelSafeContext<T = unknown> = {
   readonly seam: string;
   readonly fields: T;
-  readonly outputInstructions?: string;
+  readonly outputInstructions: string;
 } & { readonly [modelSafeBrand]: true };
 
 /**

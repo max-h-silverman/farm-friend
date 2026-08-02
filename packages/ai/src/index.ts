@@ -34,10 +34,9 @@ export type GenerateResult<T> =
  * acquire context beyond the projection it is handed (docs/AI_ARCHITECTURE.md).
  */
 export interface LLMProvider {
-  readonly name: string;
   /** Produce a raw JSON string for a seam given a projected context. Output is UNTRUSTED —
    *  the validate-and-repair wrapper below validates it before anything acts on it. */
-  generateJson(ctx: ModelSafeContext, schemaName: string): Promise<string>;
+  generateJson(ctx: ModelSafeContext): Promise<string>;
 }
 
 /**
@@ -51,13 +50,12 @@ export interface LLMProvider {
 export async function generateValidated<S extends z.ZodTypeAny>(
   provider: LLMProvider,
   ctx: ModelSafeContext,
-  schemaName: string,
   schema: S,
 ): Promise<GenerateResult<z.output<S>>> {
   for (let attempt = 0; attempt <= 1; attempt++) {
     let raw: string;
     try {
-      raw = await provider.generateJson(ctx, schemaName);
+      raw = await provider.generateJson(ctx);
     } catch {
       return { ok: false, reason: "provider_error", repairCount: attempt };
     }
@@ -73,10 +71,9 @@ export async function generateValidated<S extends z.ZodTypeAny>(
 
 /** Deterministic stub provider for tests/evals. Returns a fixed response per seam. */
 export class StubLLMProvider implements LLMProvider {
-  readonly name = "stub";
   constructor(private readonly responses: Record<string, string> = {}) {}
 
-  async generateJson(ctx: ModelSafeContext, _schemaName: string): Promise<string> {
+  async generateJson(ctx: ModelSafeContext): Promise<string> {
     const canned = this.responses[ctx.seam];
     if (canned === undefined) {
       throw new Error(`StubLLMProvider has no canned response for seam "${ctx.seam}"`);

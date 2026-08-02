@@ -31,7 +31,6 @@ const at = (minutes: number) => new Date(T0.getTime() + minutes * 60_000);
 const hoursAgo = (h: number) => new Date(T0.getTime() - h * 3_600_000);
 
 class ScriptedProvider implements LLMProvider {
-  readonly name = "scripted";
   readonly seen: ModelSafeContext[] = [];
   constructor(private readonly payloads: Record<string, string>) {}
   async generateJson(ctx: ModelSafeContext): Promise<string> {

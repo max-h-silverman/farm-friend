@@ -1,4 +1,4 @@
-import { listStandDataFlags, resolveStandDataFlag } from "@farm-friend/db";
+import { resolveStandDataFlag } from "@farm-friend/db";
 import {
   requireAdministrator,
   statusForWriteResult,
@@ -16,31 +16,6 @@ import { publicReadContext } from "../../../../lib/public-context";
 // unaudited editing surface.
 
 export const dynamic = "force-dynamic";
-
-/** The queue. `?status=all` includes flags already resolved. */
-export async function GET(req: Request): Promise<Response> {
-  const caller = await requireAdministrator(req);
-  if (caller instanceof Response) return caller;
-
-  const status =
-    new URL(req.url).searchParams.get("status") === "all" ? "all" : "open";
-  const { db } = publicReadContext();
-  const flags = await listStandDataFlags(db, { status });
-
-  return Response.json({
-    flags: flags.map((flag) => ({
-      flagId: flag.flagId,
-      salesLocationId: flag.salesLocationId,
-      standName: flag.standName,
-      reason: flag.reason,
-      sourceText: flag.sourceText,
-      resolutionNote: flag.resolutionNote,
-      resolvedByEmail: flag.resolvedByEmail,
-      resolvedAt: flag.resolvedAt?.toISOString() ?? null,
-      createdAt: flag.createdAt.toISOString(),
-    })),
-  });
-}
 
 /** Resolve a flag with the operator's note. The actor comes from the session, never the body. */
 export async function POST(req: Request): Promise<Response> {

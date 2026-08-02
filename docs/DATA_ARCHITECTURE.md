@@ -20,7 +20,7 @@ Launch is a **single VIGA operation** and a **greenfield build**. Accordingly:
 - **No tenancy.** No `tenant_id`, no tenant registry, no tenant-scoped queries.
 - **No gleaning, volunteer, or Farm Bucks transaction state.** These are plausible future programs;
   the architecture leaves room for them by staying small, **not** by pre-creating their tables.
-- **No legacy-import provenance.** Initial listing data was **seeded** from reviewed reference
+- **No import provenance.** Initial listing data was **seeded** from reviewed reference
   input, while later schema migrations preserve live rows. There is no `migrated` vs
   `farmer_confirmed` provenance axis, no corpus backfill, and no claim-state machine.
 - **No native-app or multi-level-role state.** One administrator level at launch.

@@ -86,6 +86,17 @@ describe("admin routes (integration)", () => {
     return token;
   }
 
+  /** The surviving flag-thread GET is the browser-consumed read route and auth probe. */
+  async function probeAdministrator(token: string): Promise<number> {
+    const flagId = randomUUID();
+    return (
+      await threadRoute.GET(
+        request(`https://ff.example/api/admin/flags/${flagId}/thread`, { token }),
+        { params: { flagId } },
+      )
+    ).status;
+  }
+
   beforeAll(async () => {
     const baseUrl = requiredDatabaseUrl();
     testDatabaseName = `farm_friend_routes_${process.pid}_${randomUUID().replaceAll("-", "")}`;
@@ -139,8 +150,6 @@ describe("admin routes (integration)", () => {
 
   describe("every admin route refuses an unauthorized caller", () => {
     it("refuses a caller with no session at all", async () => {
-      const noCookie = () => request("https://ff.example/api/admin/farms");
-      expect((await farmsRoute.GET(noCookie())).status).toBe(403);
       expect(
         (
           await farmsRoute.POST(
@@ -151,11 +160,7 @@ describe("admin routes (integration)", () => {
           )
         ).status,
       ).toBe(403);
-      expect(
-        (await flagsRoute.GET(request("https://ff.example/api/admin/flags"))).status,
-      ).toBe(403);
-
-      // F-030's routes. Every method on every one of them, so a new handler that forgets its
+      // Every live method, so a new handler that forgets its
       // guard fails here rather than in production.
       expect(
         (
@@ -181,13 +186,6 @@ describe("admin routes (integration)", () => {
       ).toBe(403);
       expect(
         (
-          await reportsRoute.GET(
-            request("https://ff.example/api/admin/stock-out-reports"),
-          )
-        ).status,
-      ).toBe(403);
-      expect(
-        (
           await reportsRoute.POST(
             request("https://ff.example/api/admin/stock-out-reports", {
               method: "POST",
@@ -197,12 +195,9 @@ describe("admin routes (integration)", () => {
         ).status,
       ).toBe(403);
 
-      // F-040's route, both methods. The farmer surface grants publication authority and
+      // F-040's mutation grants publication authority and
       // revokes standing links, so an unguarded handler here is authority over every farm's
       // published state.
-      expect(
-        (await farmersRoute.GET(request("https://ff.example/api/admin/farmers"))).status,
-      ).toBe(403);
       expect(
         (
           await farmersRoute.POST(
@@ -218,14 +213,7 @@ describe("admin routes (integration)", () => {
         ).status,
       ).toBe(403);
 
-      // F-037's route, both methods, same rule: a handler that forgets its guard fails here.
-      expect(
-        (
-          await standDataRoute.GET(
-            request("https://ff.example/api/admin/stand-data-flags"),
-          )
-        ).status,
-      ).toBe(403);
+      // F-037's mutation, same rule: a handler that forgets its guard fails here.
       expect(
         (
           await standDataRoute.POST(
@@ -242,30 +230,18 @@ describe("admin routes (integration)", () => {
       // The token is opaque random material checked against the database, so inventing one
       // is not a matter of forging a signature — there is nothing to forge.
       const token = issueSessionToken();
-      expect(
-        (
-          await farmsRoute.GET(
-            request("https://ff.example/api/admin/farms", { token }),
-          )
-        ).status,
-      ).toBe(403);
+      expect(await probeAdministrator(token)).toBe(403);
     });
 
     it("refuses a revoked session", async () => {
       const token = await sessionFor(ids.administrator as string);
-      expect(
-        (await farmsRoute.GET(request("https://ff.example/api/admin/farms", { token })))
-          .status,
-      ).toBe(200);
+      expect(await probeAdministrator(token)).toBe(404);
 
       await sql()`
         update admin_sessions set revoked_at = now()
         where token_hash = ${hashSessionToken(token)}
       `;
-      expect(
-        (await farmsRoute.GET(request("https://ff.example/api/admin/farms", { token })))
-          .status,
-      ).toBe(403);
+      expect(await probeAdministrator(token)).toBe(403);
     });
 
     it("refuses a live session whose administrator was revoked", async () => {
@@ -276,19 +252,13 @@ describe("admin routes (integration)", () => {
       `;
       const administratorId = administrators[0]?.id as string;
       const token = await sessionFor(administratorId);
-      expect(
-        (await farmsRoute.GET(request("https://ff.example/api/admin/farms", { token })))
-          .status,
-      ).toBe(200);
+      expect(await probeAdministrator(token)).toBe(404);
 
       await sql()`
         update administrators set revoked_at = now() where id = ${administratorId}
       `;
       // Immediately, not when the session would have expired.
-      expect(
-        (await farmsRoute.GET(request("https://ff.example/api/admin/farms", { token })))
-          .status,
-      ).toBe(403);
+      expect(await probeAdministrator(token)).toBe(403);
     });
   });
 
@@ -375,13 +345,7 @@ describe("admin routes (integration)", () => {
       // And the session it minted actually authorizes.
       const sessionToken = /ff_admin_session=([0-9a-f]{64})/.exec(cookie ?? "")?.[1];
       expect(sessionToken).toBeDefined();
-      expect(
-        (
-          await farmsRoute.GET(
-            request("https://ff.example/api/admin/farms", { token: sessionToken }),
-          )
-        ).status,
-      ).toBe(200);
+      expect(await probeAdministrator(sessionToken as string)).toBe(404);
     });
 
     // GL-004 — one link, one session. The email has always said "can be used once"; until
@@ -418,13 +382,7 @@ describe("admin routes (integration)", () => {
       expect(after[0]?.n).toBe(before[0]?.n);
 
       // The operator's real session survives the replay: a burnt link must not log them out.
-      expect(
-        (
-          await farmsRoute.GET(
-            request("https://ff.example/api/admin/farms", { token: firstSession }),
-          )
-        ).status,
-      ).toBe(200);
+      expect(await probeAdministrator(firstSession as string)).toBe(404);
     });
 
     it("mints one session when a link is opened EIGHT times at once", async () => {
@@ -568,17 +526,6 @@ describe("admin routes (integration)", () => {
       expect(after[0]?.n).toBe(before[0]?.n);
     });
 
-    it("exposes no phone number in the approval queue (Golden Rule #5)", async () => {
-      const token = await sessionFor(ids.administrator as string);
-      const response = await farmsRoute.GET(
-        request("https://ff.example/api/admin/farms", { token }),
-      );
-      const body = await response.text();
-
-      // No raw E.164 and no phone hash: approving a farm needs neither.
-      expect(body).not.toMatch(/\+1\d{10}/);
-      expect(body).not.toMatch(/[0-9a-f]{64}/);
-    });
   });
 
   describe("the review queues through their routes (F-030)", () => {
@@ -627,16 +574,9 @@ describe("admin routes (integration)", () => {
       return { flagId: flags[0]?.id as string };
     }
 
-    it("lists open flags and resolves one, recording the SESSION's administrator", async () => {
+    it("resolves an open flag, recording the SESSION's administrator", async () => {
       const token = await sessionFor(ids.administrator as string);
       const { flagId } = await flaggedMessage("something is wrong here");
-
-      const listed = await flagsRoute.GET(
-        request("https://ff.example/api/admin/flags", { token }),
-      );
-      expect(listed.status).toBe(200);
-      const payload = (await listed.json()) as { flags: { flagId: string }[] };
-      expect(payload.flags.map((flag) => flag.flagId)).toContain(flagId);
 
       const impostor = await sql()`
         insert into administrators (email, authorized_at)
@@ -711,7 +651,7 @@ describe("admin routes (integration)", () => {
       expect(rows[0]?.status).toBe("open");
     });
 
-    it("lists stock-out reports and triages one", async () => {
+    it("triages a stock-out report", async () => {
       const token = await sessionFor(ids.administrator as string);
       const locations = await sql()`
         insert into sales_locations (
@@ -732,16 +672,6 @@ describe("admin routes (integration)", () => {
         returning id
       `;
       const reportId = reports[0]?.id as string;
-
-      const listed = await reportsRoute.GET(
-        request("https://ff.example/api/admin/stock-out-reports", { token }),
-      );
-      expect(listed.status).toBe(200);
-      const listedBody = await listed.text();
-      expect(listedBody).toContain("green beans");
-      // A report has no reporter; the queue must not acquire one.
-      expect(listedBody).not.toMatch(/\+1\d{10}/);
-      expect(listedBody).not.toMatch(/[0-9a-f]{64}/);
 
       const triaged = await reportsRoute.POST(
         request("https://ff.example/api/admin/stock-out-reports", {
@@ -828,16 +758,9 @@ describe("admin routes (integration)", () => {
       return { flagId: flags[0]?.id as string };
     }
 
-    it("lists open flags and resolves one, recording the SESSION's administrator", async () => {
+    it("resolves an open stand-data flag, recording the SESSION's administrator", async () => {
       const token = await sessionFor(ids.administrator as string);
       const { flagId } = await standDataFlag();
-
-      const listed = await standDataRoute.GET(
-        request("https://ff.example/api/admin/stand-data-flags", { token }),
-      );
-      expect(listed.status).toBe(200);
-      const payload = (await listed.json()) as { flags: { flagId: string }[] };
-      expect(payload.flags.map((flag) => flag.flagId)).toContain(flagId);
 
       const impostor = await sql()`
         insert into administrators (email, authorized_at)
@@ -967,53 +890,7 @@ describe("admin routes (integration)", () => {
       expect(audit[0]?.actor_administrator_id).not.toBe(impostor[0]?.id);
     });
 
-    it("lists the queue without exposing a phone number or a hash", async () => {
-      // Golden Rule #5, asserted on the whole serialized response so a future field
-      // carrying either fails here.
-      //
-      // BOTH arrays must be populated for this to prove anything. Sabotage caught exactly
-      // that gap: adding a `contactHash` to the pending-REQUEST projection survived the
-      // whole suite, because the only fixture here had an authorization and no open
-      // request, so the requests array was empty and had nothing to leak.
-      const token = await sessionFor(ids.administrator as string);
-      const { contactHash, farmId } = await farmerAndFarm();
-      const requestId = await openRequestFor(contactHash);
-      await farmersRoute.POST(
-        request("https://ff.example/api/admin/farmers", {
-          method: "POST",
-          token,
-          body: JSON.stringify({ action: "authorize", farmId, requestId }),
-        }),
-      );
-
-      // An OPEN request too — a farmer who texted SIGNUP and is still waiting.
-      const waiting = await farmerAndFarm();
-      await sql()`
-        insert into farmer_onboarding_requests (contact_hash, requested_at)
-        values (${waiting.contactHash}, ${at(1).toISOString()})
-      `;
-
-      const listed = await farmersRoute.GET(
-        request("https://ff.example/api/admin/farmers", { token }),
-      );
-      expect(listed.status).toBe(200);
-      const body = await listed.text();
-      const payload = (await new Response(body).json()) as {
-        requests: unknown[];
-        authorizations: unknown[];
-      };
-
-      // Neither array is empty, so neither assertion below is vacuous.
-      expect(payload.requests.length).toBeGreaterThan(0);
-      expect(payload.authorizations.length).toBeGreaterThan(0);
-
-      expect(body).not.toMatch(/\+1\d{10}/);
-      expect(body).not.toMatch(/[0-9a-f]{64}/);
-      // The masked form IS present, so this is not passing because the queue is empty.
-      expect(body).toContain("•••");
-    });
-
-    it("returns a fresh link ONCE and never again from the queue", async () => {
+    it("returns a fresh link once and stores only its hash", async () => {
       const token = await sessionFor(ids.administrator as string);
       const { contactHash, farmId } = await farmerAndFarm();
       const requestId = await openRequestFor(contactHash);
@@ -1080,34 +957,6 @@ describe("admin routes (integration)", () => {
         from farmer_links where token_hash = ${hashFarmerLinkToken(issuedToken as string)}
       `;
       expect(links).toEqual([{ owner_farm_id: farmId, sales_location_id: southStandId }]);
-
-      // The queue reports that a link EXISTS and never what it is. An operator who navigates
-      // away must issue a new one — correct for a credential with no password behind it.
-      const listed = await farmersRoute.GET(
-        request("https://ff.example/api/admin/farmers", { token }),
-      );
-      const listedBody = await listed.text();
-      expect(listedBody).not.toContain(issuedToken as string);
-      const listedPayload = JSON.parse(listedBody) as {
-        authorizations: Array<{
-          authorizationId: string;
-          stands: Array<{ salesLocationId: string; name: string }>;
-          hasLiveLink: boolean;
-          liveLinkStand: { salesLocationId: string; name: string } | null;
-        }>;
-      };
-      const listedAuthorization = listedPayload.authorizations.find(
-        (row) => row.authorizationId === authorizationId,
-      );
-      expect(listedAuthorization).toEqual(
-        expect.objectContaining({
-          hasLiveLink: true,
-          liveLinkStand: { salesLocationId: southStandId, name: "South Stand" },
-          stands: expect.arrayContaining([
-            { salesLocationId: southStandId, name: "South Stand" },
-          ]),
-        }),
-      );
     });
 
     it("revokes a farmer's access through the route", async () => {
@@ -1206,10 +1055,7 @@ describe("admin routes (integration)", () => {
 
       // The copied token is dead server-side — clearing the cookie alone would have left a
       // working credential behind for anyone who had it.
-      expect(
-        (await farmsRoute.GET(request("https://ff.example/api/admin/farms", { token })))
-          .status,
-      ).toBe(403);
+      expect(await probeAdministrator(token)).toBe(403);
     });
   });
 });

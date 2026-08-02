@@ -45,7 +45,6 @@ function fakeInterpreter(result: InventoryInterpretation): InventoryInterpreter 
 
 /** A model that answers with whatever an attacker wishes, and records what it was shown. */
 class HostileProvider implements LLMProvider {
-  readonly name = "hostile";
   readonly seen: ModelSafeContext[] = [];
   constructor(private readonly payload: string) {}
   async generateJson(ctx: ModelSafeContext): Promise<string> {

@@ -88,7 +88,7 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   web inquiry, or generated recipe/food-safety content. Public proximity uses transient browser
   geolocation against seeded public coordinates; recipe requests receive grounded ingredient
   availability plus a code-rendered scope response.
-- **A legacy-migration provenance model.** This is a greenfield build; existing map content is
+- **An import-provenance model.** This is a greenfield build; existing map content is
   **reference input** that gets **seeded**, with no non-destructive migration requirement.
 - **Farm names, food vocabulary, produce taxonomy, or a fixed strategy catalog in behavioral
   branches.** Farms, foods, and listing details are **data**; the model supplies the understanding.

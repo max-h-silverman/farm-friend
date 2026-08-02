@@ -17,8 +17,8 @@ levels.
   reports, and handles exceptions the system cannot safely handle. Max is escalation.
 - **farmer** — owns their farm's listings and inventory through a separate farm authorization.
 
-Every admin route must enforce a **server-side authorization check** against durable records. Never
-trust a client-supplied identity or id.
+Every admin page and mutation route enforces a **server-side authorization check** against durable
+records. Never trust a client-supplied identity or id.
 
 **How identity works (F-025a).** An administrator is identified by **email**, because that is what
 the login path proves. Sign-in is a magic link: the signed, expiring token is verified, and then the
@@ -59,22 +59,22 @@ daily data entry, the product has failed its north star.
 
 ## Admin surfaces
 
-| Surface | Status | What the administrator does |
+| Surface | Path | What the administrator does |
 |---|---|---|
-| Sign-in | **Built** (F-032) — `/admin/login` | Request a 15-minute sign-in link. Public and unauthenticated, so it answers identically for every address. **Mail delivery pending F-031** |
-| Farm approval | **Built** (F-025a) — `/admin` | Verify a farm and **approve it for publication** — recorded separately from the farmer completing onboarding |
-| Flag review + thread viewer | **Built** (F-030) — `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
-| Stock-out report queue | **Built** (F-030) — `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
-| Stand-data questions | **Built** (F-037) — `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
-| Farmer access | **Built** (F-040) — `/admin/farmers` | Authorize a farmer to publish for a farm, see every farmer's access live and withdrawn, revoke it, and issue a replacement private link |
-| Exceptions | **Not built** | Handle requests the system cannot safely handle, with audit |
+| Sign-in | `/admin/login` | Request a 15-minute sign-in link. Public and unauthenticated, so it answers identically for every address |
+| Farm approval | `/admin` | Verify a farm and **approve it for publication** — recorded separately from the farmer completing onboarding |
+| Flag review + thread viewer | `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
+| Stock-out report queue | `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
+| Stand-data questions | `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
+| Farmer access | `/admin/farmers` | Authorize a farmer to publish for a farm, see every farmer's access live and withdrawn, revoke it, and issue a replacement private link |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
 
-**Every one of these routes resolves the administrator server-side** through one shared guard
-(`apps/web/lib/admin-guard.ts`), and the acting administrator always comes from the **session**,
-never the request body. The integration suite asserts the refusal per route and per method, so a
-new handler that forgets its guard fails there rather than in production.
+Each page resolves the administrator before querying its queue. The browser posts decisions to a
+guarded mutation route; the acting administrator always comes from the **session**, never the
+request body. Queue GET APIs do not exist because the pages already have the data. The one GET with
+a browser consumer is `/api/admin/flags/<flag-id>/thread`, guarded by the same
+`apps/web/lib/admin-guard.ts` mechanism and projected at the query boundary.
 
 **Disposing a flag is what lets retention terminate.** F-026's purge exempts a message body whose
 thread carries an **open** flag, and the exemption fails safe. Resolving *or* dismissing a flag ends

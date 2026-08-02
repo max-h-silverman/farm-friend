@@ -12,7 +12,6 @@ import type { LLMProvider, ModelSafeContext } from "./index";
 // Every source string is real, from the VIGA export.
 
 class Scripted implements LLMProvider {
-  readonly name = "scripted";
   lastContext: ModelSafeContext | undefined;
   constructor(private readonly payload: string) {}
   async generateJson(ctx: ModelSafeContext): Promise<string> {
@@ -22,7 +21,6 @@ class Scripted implements LLMProvider {
 }
 
 class Failing implements LLMProvider {
-  readonly name = "failing";
   async generateJson(): Promise<string> {
     throw new Error("provider exploded");
   }

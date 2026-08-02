@@ -66,13 +66,12 @@ function renderSelectedAnswer(
 
 /** A model that returns whatever an attacker wishes it would, and records what it saw. */
 export class HostileLLMProvider implements LLMProvider {
-  readonly name = "hostile";
   /** Every context this provider was handed, for inspection at the seam. */
   readonly seen: ModelSafeContext[] = [];
 
   constructor(private readonly payload: string) {}
 
-  async generateJson(ctx: ModelSafeContext, _schemaName: string): Promise<string> {
+  async generateJson(ctx: ModelSafeContext): Promise<string> {
     this.seen.push(ctx);
     return this.payload;
   }
@@ -87,7 +86,7 @@ export function hostileInterpreter(provider: HostileLLMProvider): InventoryInter
   return {
     async interpret(request) {
       const ctx = projectInventoryExtraction(request);
-      const raw = await provider.generateJson(ctx, "inventory-extraction");
+      const raw = await provider.generateJson(ctx);
       return JSON.parse(raw) as InventoryInterpretation;
     },
   };
@@ -715,7 +714,6 @@ hx("stock-out: the parse projection carries no location or recipient", () => {
 //     would let "the model tried to publish" pass unnoticed.
 hx("offering extraction refuses output carrying a consequential field", async () => {
   const hostile: LLMProvider = {
-    name: "hostile",
     async generateJson() {
       return JSON.stringify({
         items: ["eggs"],
@@ -736,7 +734,6 @@ hx("offering extraction refuses output carrying a consequential field", async ()
 hx("offering projection withholds everything but the description", async () => {
   const seen: ModelSafeContext[] = [];
   const hostile: LLMProvider = {
-    name: "hostile",
     async generateJson(ctx) {
       seen.push(ctx);
       return JSON.stringify({ items: ["eggs"] });
@@ -764,13 +761,11 @@ hx("offering projection withholds everything but the description", async () => {
 //     the seeder would commit it.
 hx("offering extraction distinguishes provider failure from an empty proposal", async () => {
   const failing: LLMProvider = {
-    name: "failing",
     async generateJson(): Promise<string> {
       throw new Error("provider exploded");
     },
   };
   const empty: LLMProvider = {
-    name: "empty",
     async generateJson() {
       return JSON.stringify({ items: [] });
     },

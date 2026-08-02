@@ -1,4 +1,4 @@
-import { disposeFlag, listFlagsForReview } from "@farm-friend/db";
+import { disposeFlag } from "@farm-friend/db";
 import {
   requireAdministrator,
   statusForWriteResult,
@@ -11,7 +11,7 @@ import { publicReadContext } from "../../../../lib/public-context";
 // commitment, so a flag no human could act on made the rail nominal; it was also why F-026's
 // retention exemption never terminated, since nothing moved a flag out of `open`.
 //
-// Both handlers resolve the principal server-side through `requireAdministrator`. The acting
+// The mutation resolves the administrator server-side through `requireAdministrator`. The acting
 // administrator comes from the SESSION, never the request body — a caller who names someone
 // else must not be able to act as them, and the audit trail records who really decided.
 //
@@ -19,32 +19,6 @@ import { publicReadContext } from "../../../../lib/public-context";
 // listing (Golden Rule #1). Disposing a flag records that a person reviewed a message.
 
 export const dynamic = "force-dynamic";
-
-/** The queue. `?status=all` includes flags already disposed of. */
-export async function GET(req: Request): Promise<Response> {
-  const caller = await requireAdministrator(req);
-  if (caller instanceof Response) return caller;
-
-  const status =
-    new URL(req.url).searchParams.get("status") === "all" ? "all" : "open";
-  const { db } = publicReadContext();
-  const flags = await listFlagsForReview(db, { status });
-
-  return Response.json({
-    flags: flags.map((flag) => ({
-      flagId: flag.flagId,
-      // Already masked at the query — the full number never left the database.
-      senderMask: flag.senderMask,
-      reasonCode: flag.reasonCode,
-      status: flag.status,
-      dispositionCode: flag.dispositionCode,
-      disposedByEmail: flag.disposedByEmail,
-      disposedAt: flag.disposedAt?.toISOString() ?? null,
-      createdAt: flag.createdAt.toISOString(),
-      hasReadableThread: flag.hasReadableThread,
-    })),
-  });
-}
 
 /** Resolve or dismiss a flag. Both dispositions end the retention exemption. */
 export async function POST(req: Request): Promise<Response> {

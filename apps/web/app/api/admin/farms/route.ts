@@ -1,6 +1,5 @@
 import {
   approveFarm,
-  listFarmsForApproval,
   revokeFarmApproval,
 } from "@farm-friend/db";
 import { requireAdministrator } from "../../../../lib/admin-guard";
@@ -10,7 +9,7 @@ import { publicReadContext } from "../../../../lib/public-context";
 // perform. Publication refuses with `not_approved` unless a live `farm_approvals` row
 // exists, and until this route the only way to create one was hand-written SQL.
 //
-// Both handlers resolve the administrator server-side through the shared `requireAdministrator`
+// The mutation resolves the administrator server-side through the shared `requireAdministrator`
 // guard (lib/admin-guard.ts), which every admin route uses. Identity is never read from the
 // request; see lib/auth.ts.
 //
@@ -19,24 +18,6 @@ import { publicReadContext } from "../../../../lib/public-context";
 // (Golden Rule #1).
 
 export const dynamic = "force-dynamic";
-
-/** The approval queue: every farm and its current approval state. */
-export async function GET(req: Request): Promise<Response> {
-  const caller = await requireAdministrator(req);
-  if (caller instanceof Response) return caller;
-
-  const { db } = publicReadContext();
-  const farms = await listFarmsForApproval(db);
-  return Response.json({
-    farms: farms.map((farm) => ({
-      farmId: farm.farmId,
-      name: farm.name,
-      approved: farm.approved,
-      approvedAt: farm.approvedAt?.toISOString() ?? null,
-      approvedByEmail: farm.approvedByEmail,
-    })),
-  });
-}
 
 /** Approve or revoke a farm. The acting administrator comes from the session, never the body. */
 export async function POST(req: Request): Promise<Response> {

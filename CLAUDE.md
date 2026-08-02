@@ -137,40 +137,6 @@ Suite details and when each is required: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.
 
 ## Status digest
 
-Full detail — and the tripwires you need before touching anything — in
-**[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)**. Read it before you start work.
-
-- **Live**: SMS round trip on a real handset, public map (34 public stands, 212 offering tags),
-  farmer onboarding, operator surface (one administrator exists; no link is *delivered* until
-  F-031), vCard contact card. Deployed on Cloud Run, one image / two services. Production
-  database is `neondb`.
-- **Costs money on real traffic**: `LLM_PROVIDER` is `deepinfra` + Mistral Small 24B, required with
-  no default.
-- **Never rotate `PHONE_HASH_SALT`** — it is the input to the only lookup key for every phone.
-- **Open, HIGH**: B-024 (a farmer's address published against her written instruction).
-- **Deployed 2026-07-30**: F-045 (SMS reads the offerings corpus and matches by meaning — every
-  question used to answer "no current listing" because production holds **0** inventory revisions),
-  plus F-042 and F-040 (farmer onboarding: `SIGNUP`/`LINK`, `/admin/farmers`, `/stand/<token>`
-  behind a never-expiring link whose only safety net is revocation).
-  **Owed: nobody has looked at F-040's two pages.**
-- **Deployed 2026-07-31**: F-046 complete (SMS result paging — `MORE` is deterministic, ordered
-  after `STOP`, and reaches a pager with **no model dependency at all**). Migration first, then
-  image; production is at **10 migrations**. F-045's `(null)` bug is **dead**. **Owed: a handset
-  tap.**
-- **drizzle-kit drops CHECK constraints when generating SQL** — write them into migrations by hand.
-  Tripwired in `migration-metadata.test.ts`. Also: `array_length` of an empty array is **NULL**, and
-  a CHECK **passes** on NULL — `coalesce` or the constraint admits what it forbids.
-- **Closed 2026-07-30**: B-023 (`board@vigavashon.org` is the first administrator) and B-025 (the
-  vCard's lost CRLF was the **minifier**, not the network — see CURRENT_STATE before re-deriving).
-  **Owed: a physical-handset tap on the contact card.**
-- **F-043** (interactive island map) is live, **poster pass deployed 2026-07-30** (revisions
-  `…web-00011-dpd` / `…worker-00012-c26`, digest `sha256:e1893b13`). Numbered pins are
-  **alphabetical by farm**, so sorting and filtering never renumber; the map is **light only**.
-  `open_days` is 0% island-wide, so `Open now` is season + time-of-day. **`resize_window` does
-  not change the viewport** — check phone width in a 390px iframe, or the phone layout is never
-  actually rendered. F-043 is **closed**; the untested embed handshake is now **F-044**.
-- **Open, other**: F-031 (no mail provider), F-036 (F-040 answered its farmer-web case), B-008 (lint
-  absent from deployed builds), B-020 (intermittent integration deadlock), B-001.
-- Each open item needs **separate implementation authorization**. Do not read a passing suite as a
-  working product — several gaps hide behind green tests whose fixtures supply what production never
-  creates.
+Read **[docs/CURRENT_STATE.md](docs/CURRENT_STATE.md)** before touching the repository. It is the
+only status record: deployed revision and migration count, locally verified work, known gaps, and
+owed live checks all live there. Do not duplicate those facts in this file.

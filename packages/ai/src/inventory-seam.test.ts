@@ -10,7 +10,6 @@ const CURRENT_LOCAL_DATE = "2026-08-06";
 
 /** A provider that records what it was shown and returns whatever it is told to. */
 class RecordingProvider implements LLMProvider {
-  readonly name = "recording";
   readonly seen: ModelSafeContext[] = [];
   constructor(private readonly payload: string) {}
   async generateJson(ctx: ModelSafeContext): Promise<string> {

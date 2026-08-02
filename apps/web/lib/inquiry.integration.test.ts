@@ -34,7 +34,6 @@ const hoursAgo = (h: number) => new Date(T0.getTime() - h * 3_600_000);
 
 /** A model that returns a scripted payload per seam and records what it was shown. */
 class ScriptedProvider implements LLMProvider {
-  readonly name = "scripted";
   readonly seen: ModelSafeContext[] = [];
   constructor(private readonly payloads: Record<string, string>) {}
   async generateJson(ctx: ModelSafeContext): Promise<string> {

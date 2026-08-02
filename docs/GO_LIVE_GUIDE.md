@@ -68,7 +68,7 @@ per row. Operator visibility remains with GL-016/GL-018.
 ### GL-004 — Make admin magic links genuinely one-use
 
 **Completed:** 2026-07-28 — `f6544a2`. The session insert atomically consumes a unique hashed
-nonce; concurrent/replayed and legacy nonce-less links fail closed without revealing administrator
+nonce; concurrent, replayed, and malformed links fail closed without revealing administrator
 membership. Operational contract: RUNBOOK §Bootstrap, then sign in.
 
 ### GL-005 — Make the typecheck cover what its name claims
@@ -329,7 +329,7 @@ string/array bounds, and the live request has no output-token limit.
 Production uses `createLastMileSender` and does not estimate, log, or cap segments. Long
 model-derived confirmation text can therefore create unexpected billable messages.
 
-GL-035 removed the legacy `SmsSimulator` the estimator and metrics logger used to hang off, and
+GL-035 removed the unused `SmsSimulator` the estimator and metrics logger used to hang off, and
 deleted the metrics logger with it — it had no other caller. `estimateSmsSegments` and
 `normalizeAvoidableSmsUnicode` survive in `packages/sms/src/segments.ts` and are the machinery this
 item attaches to the real send path; the normalizer is already on it, via the outbound guard.
@@ -555,8 +555,9 @@ The review found substantial strengths. Do not lose these while closing the gaps
 - Raw phone containment, exact-body webhook signature verification, minimized provider events, and
   body retention expiry are structurally strong.
 - Public browsing is model-free and browser location remains transient.
-- Admin routes share a server-side session guard; the acting administrator comes from the session,
-  not the request body; write transactions recheck authority and audit the action.
+- Admin pages resolve the session before reading; mutation routes and the flag-thread GET share the
+  server-side guard; the acting administrator comes from the session, not the request body; write
+  transactions recheck authority and audit the action.
 - The repository correctly avoids speculative tenancy, future-program enrollment, gleaning,
   volunteer, Farm Bucks transaction, native-app, and multi-organization machinery.
 

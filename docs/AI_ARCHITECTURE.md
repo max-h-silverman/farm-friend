@@ -88,6 +88,9 @@ One narrow task interface, with:
 - task-specific input variants whose explicit fields are the only public context constructors;
 - a low-level provider call that accepts only the resulting branded context and remains internal to
   `packages/ai`, so callers cannot supply an arbitrary record;
+- no provider label or duplicate schema-name argument on that call: the context's required seam and
+  output instructions are the single task contract, and the real validator is supplied directly to
+  the validation wrapper;
 - no repository, database client, record loader, provider-managed thread, or other capability to
   acquire context outside that projection.
 
@@ -336,7 +339,9 @@ structured JSON and never stated the expected shape.
 
 A live-containment failure **stops and reports**; fixtures are never edited to go green.
 
-Two supporting mechanisms keep the seams honest between live runs. `SEAM_OUTPUT_SHAPES` gives each
+Two supporting mechanisms keep the seams honest between live runs. Every projection carries
+required output instructions, assembled from `SEAM_OUTPUT_SHAPES` and its seam-specific notes;
+there is no instruction-less provider-call shape. `SEAM_OUTPUT_SHAPES` gives each
 seam example shapes plus semantic notes, and `output-contracts.test.ts` parses **every documented
 example through that seam's real schema** in both directions — so the prose a model reads cannot
 drift from the validator that judges it. `nullAsAbsent()` accepts an explicit `null` as absence

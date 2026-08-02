@@ -1,595 +1,96 @@
 # Farm Friend — Current State & Open Items
 
-> **Live snapshot, overwritten by `/session-wrap` — not a changelog.** Record only **verified** facts
-> (test counts from a real run, files read); replace stale lines, don't append. The *why* behind past
-> changes lives in [SESSION_LOG.md](SESSION_LOG.md) — open it deliberately, never to orient.
->
-> This is the **only** place build status lives. The architecture docs carry none.
+> **Live snapshot, overwritten by `/session-wrap` — not a changelog.** Record only verified facts.
+> The architecture docs own enduring contracts; historical reasoning lives in the session records.
 
-**Verified 2026-08-01** (`f-052-scheduled-prompts` at `698fdd1`): `npm test` **871/871**
-(88 files); `npm run test:integration` **566/566** (38 files) against real Postgres using isolated
-empty databases; typecheck, lint, the production web build, and Drizzle no-op generation pass. The
-build retains two known warnings: `outputFileTracingRoot` is not recognized by this Next.js version,
-and its ESLint plugin is not detected.
+## Release state
 
-**F-052 scheduled inventory prompts are implemented locally and are not deployed.**
+Farm Friend is **pre-go-live**. Production serves the Phase 0 confirmation repairs from commit
+`44110d2` on Cloud Run as one image across the public web and private worker services. Production
+Postgres is `neondb` with 10 applied migrations (`0000`–`0009`). The last production fingerprint
+found 1 contact, 35 sales locations, 212 offerings, 1 administrator, and no inventory revisions,
+proposals, farmer authorizations, farmer links, farm approvals, or admin sessions.
 
-The existing one-minute worker route now runs one bounded scheduled-prompt pass between inbound
-routing and outbound dispatch. Explicit per-stand cadences are every 2 days, weekly, every 2 weeks,
-or paused at 10:00 AM in the stand's reviewed timezone; there is no inferred or migrated preference.
-A typed durable subject binds each queued prompt to its exact proposal/version,
-preference/version, designated authorization, stand, inventory and closure bases, due slot, and
-outbox row. Dispatch joins and revalidates that subject under the shared lock order. Duplicate
-schedulers are arbitrated by the unique preference+due-slot constraint under genuine contention;
-delayed runs advance to one slot and never emit a catch-up burst.
+The local release candidate is ahead of production and is **not deployed**. It contains:
 
-When the complete current snapshot fits safely, the code-rendered prompt offers exact
-whole-message `SAME`. It is parsed after `STOP` and ordinary `YES`/`NO`, before farmer keywords,
-and reaches no model. A valid reply publishes an ordinary identical inventory revision, leaving
-`published_at` as the one recency fact. No inventory, an unshowable snapshot, replay, expiry,
-changed bases or preference, pause, closure, revocation, consent stop, or wrong provider prompt
-cannot publish. Farmer change text invalidates the scheduled proposal and opens the ordinary
-confirmation flow.
+- F-049: owner-confirmed stand closure and reopening;
+- F-050: owner-confirmed **Also selling here** names;
+- F-051: deterministic `STAND` / `SETTINGS` and exact multi-stand targeting;
+- F-052: scheduled inventory prompts and context-bound `SAME`;
+- F-055: completed and visually exercised administrator and farmer web workflows;
+- B-031/B-032: one final pre-launch identity and data architecture, with no compatibility paths;
+- B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
+  removed; active documentation reconciled to the final architecture.
 
-`/stand/<token>/settings` now exposes the explicit cadence or pause for every editable stand while
-keeping consent separate. Browser verification used real local Postgres and the app at a true
-390×844 viewport and at 1440×1000, covering initial, saved, recoverable-error, and revoked-link
-states. Each mobile capture measured 390px document/body width with zero horizontal scroll. The
-save was verified in the preference row, not only the success message.
+Migrations `0010`–`0014` are not applied in production. Because this is pre-go-live and the affected
+production tables contain no user workflow rows, those unapplied migrations define the final schema
+directly: administrator identity is email-only, every standing link names one exact authorized
+stand, sales-location ownership is `owner_farm_id`, and proposal rows contain only the fields the
+current confirmation flow reads. There is no rolling or nullable compatibility state.
 
-Migration 0014 adds the reviewed Vashon timezone, preferences, and typed scheduled subjects. Its
-populated pre-F-052 fixture preserves all existing location rows, maps them explicitly to
-`America/Los_Angeles`, and creates no preference or scheduled subject. Production remains below
-this migration and behavior.
+## Verification
 
-**F-051 deterministic multi-stand targeting is complete on this branch and is not deployed.**
-`STAND`, `SETTINGS`, and a live menu number are parsed in code after compliance and commitment
-tokens and before any model call. One live target auto-selects; several bind numbered options to
-exact authorization+location pairs for 12 hours. Free-text updates revalidate the durable target
-under sender → location → authorization locks before interpretation, and every preview, publish
-receipt, and decline receipt names the exact stand. The model receives no target options.
+The B-033 release candidate passes 879 unit tests, 572 integration tests across 39 files against
+an isolated real Postgres server, 44 scripted eval cases, typecheck, lint, and the production web
+build. The integration run creates empty databases and also exercises the populated B-031/B-032
+forward-migration proofs: authority, participant, location, proposal, and revision rows survive;
+exact-target and required-section NULL cases fail with Postgres `23502`; removed columns and
+defaults remain absent; and all 15 migrations are durable. Drizzle generation is a true no-op.
 
-`SETTINGS` reuses F-040's standing token and revocation lifecycle at
-`/stand/<token>/settings`. The page lists only that authorization's editable locations and edits
-the sender's default SMS stand; F-052 now adds cadence/pause there while leaving consent out. Browser
-verification used a production build with synthetic data at 390×844 and 1440×1000, covering
-active multi-stand, saved success, revocation after page load, and inactive-link states. The save
-was verified by reading the selected `South Stand` row, and the revocation error was verified by
-the link row, not only the screen. All controls were large, states readable, and no other contact
-identity or phone appeared.
+Sabotage made every load-bearing B-033 guard fail for its claimed effect, then the restored focused
+suite passed 10/10: all five removed queue GET exports, the surviving flag-thread browser call,
+provider label, schema-name argument, required output instructions, the deleted rehash utility, and
+the executable old/new-salt scan. The surviving thread route is exercised through a live admin
+session and returns only one retained flagged thread, with a masked sender and no contact-row phone
+or hash field in the response.
 
-The populated 0000–0011 → 0012/0013 migration preserved owner, participant, and authorization
-rows and created no target context or menu options. B-031's final pre-launch schema requires every
-standing link to name one exact owner+location pair and contains no nullable-target path. Genuine contention was observed on
-a separate connection before a concurrent revocation won and target resolution refused. Drizzle
-generation is a no-op after the hand-written CHECKs. `evals:live` was not run: target resolution,
-rendered stand naming, and settings are code-owned and change no model seam projection, schema, or
-output contract.
+B-033 changes no model projection, output schema, output contract, or actual provider message. The
+five representative provider message arrays are byte-identical to the pre-B-033 base (SHA-256
+`80d9dbc6da7ec487f70acd1c2842775b81372a170c3f047c78f3025eacf3b1b5`). Therefore no paid
+`evals:live` run is owed for B-033. Scripted evals remain required.
 
-**F-050 owner-confirmed participant names are complete on this branch and are not deployed.**
-`sales_locations.owner_farm_id` now names ownership explicitly. The append-only
-`sales_location_participants` history records owner-confirmed names without creating a guest farm,
-profile, authorization, inventory source, or edit access. A farmer's standing link can save the
-complete active list through a structured deterministic action; omissions retire history. The
-public map and wire response expose active names separately as **Also selling here** and do not use
-them for inventory search. The populated 0000–0010 → 0011 migration preserved ownership,
-visibility, and open-state fields and created zero participant rows.
+## What works in the local release candidate
 
-Browser verification used the real local server and Postgres at 1440px and a true 390px device
-viewport. Captures cover populated and empty lists, populated and empty save success, an unsafe-name
-refusal with input preserved, a link revoked after page load refusing the next save, the public
-desktop card, and the mobile marker/detail sheet. Durable-row checks confirmed empty save retired
-both historical names and the revoked save left its separate stand unchanged. Visual review found
-that the empty textarea's example-name placeholder contradicted the successful empty state; the
-test-first fix removes that placeholder, and the corrected 390px capture is honestly blank.
-`evals:live` was not run: F-050 adds a structured deterministic action and public field but does not
-change a model seam's projection, schema, or output contract.
+- **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
+  names, transient browser proximity, destination links, and a code-bound stock-out form.
+- **Farmer onboarding and web:** deterministic `SIGNUP` / `LINK`, VIGA authorization, one exact
+  stand per standing credential, inventory proposal/confirmation, participant editing, and reminder
+  settings. Revocation is re-read on every request.
+- **Farmer SMS:** deterministic compliance and commitment routing precedes every model call;
+  `STAND`, `SETTINGS`, `SAME`, and `MORE` are context-bound and model-free.
+- **Customer SMS:** model interpretation → code retrieval → model identifier selection → code
+  validation and rendering. Model output cannot author factual reply text or durable state.
+- **Administration:** server-rendered queues for farm approval, farmer access, flags, stock-out
+  reports, and stand-data questions. Browser actions use guarded POST routes. The flag-thread GET is
+  the only admin queue read API because it has a live browser consumer; phones are masked at query.
+- **Scheduled work:** Cloud Tasks handles immediate sender work; one Cloud Scheduler route runs
+  recovery, scheduled prompts, outbound delivery, carrier callbacks, and retention.
 
-**F-049 was independently verified 2026-08-01 at exact SHA `8ae4d32`.** Unit **817/817**
-(78 files); real-Postgres empty-schema integration **482/482** (29 files), including a populated
-0000–0009 → 0010 migration; typecheck, lint, production build, and non-live evals passed. Closure
-is a lifecycle separate from inventory; supported timing is resolved deterministically from the
-supplied Vashon local date before the model, and model output must agree with that code evidence.
-The first approved paid run passed containment **4/4** and recall **5/5** but only **2/7** closure
-cases: static example dates leaked into output, mixed updates dropped inventory, and three
-ambiguity classes were guessed through. The runner also incorrectly treated those failures as
-observational. After removing date anchors and making all seven closure cases a required gate, the
-approved exact-SHA rerun passed **4/4 containment, 7/7 closure, 6/6 quality, and 5/5 recall**.
-Do not rerun it for F-055: the UI work changes no model projection, schema, or output contract.
+## Live invariants
 
-**F-055 browser verification is complete locally and is not deployed.** The standalone production
-build was exercised with synthetic data at a true 390px viewport and at 1440px. Retained captures
-cover all five admin routes with populated and empty queues; flag-thread loading and retained
-messages; approval, flag, report, and stand-data success states; a concurrent-review conflict;
-expired-action and generic signed-out recovery; real session revocation on sign-out; the farmer
-form's typing, clarification, loading, exact preview, decline, publication, request-error, and
-revoked-link states. Admin decisions, one-time link issue/copy, thread reading, and sign-out used
-the real local server and database. Farmer-stage HTTP responses were intercepted because the
-configured deterministic model stub cannot propose inventory; publication authority and durable
-effects remain covered by the real-Postgres integration suite, not claimed from those captures.
-Every exercised page had no horizontal overflow; rendered workflow controls were at least 48px;
-keyboard focus was visible; sampled normal text met 4.5:1 contrast; and admin HTML carried neither
-raw E.164 numbers nor 64-hex credentials. Visual review found one contradictory state — an old
-green publication message survived beside a later request error — and the test-first fix now
-clears the completed state when a new proposal begins.
+- `STOP` is global and deterministic; confirmation and farmer/customer keywords never shadow it.
+- The model proposes; code commits. Publication rechecks farmer authority and VIGA approval under
+  the shared sender → location → authorization → proposal → approval lock order.
+- Phones are normalized at ingress, keyed and logged only by hash, never sent to a model, and masked
+  in administrator readers. Raw E.164 exists in exactly one database column for outbound delivery.
+- **`PHONE_HASH_SALT` never rotates.** No script, package command, environment exception, or
+  operational recovery path exists. A suspected compromise requires a new explicitly approved
+  data-migration design.
+- The public read graph cannot reach a model. Consequential and cross-actor text is code-rendered.
+- Drizzle generation omits hand-written CHECK constraints; migration metadata tests require every
+  declared CHECK to exist in executable SQL. Every nullable constraint needs its decisive NULL case.
 
-Production remains on the F-046 deployment and **10 migrations**. F-049 closure behavior and F-055
-UI completion are on local `main`; F-050 exists only on this branch. None of those three changes is
-deployed.
+## Open before go-live
 
-**Deployed 2026-07-31 (F-046, complete)** — revisions `farm-friend-web-00013-djk` /
-`farm-friend-worker-00014-qv2`, one digest `sha256:5e6a4d49…` on both, built from `1fa68d1`.
-**Migration `0009_pending_result_lists` was applied FIRST** — order matters, since deploying the
-image first would have shipped code whose table did not exist. Production is now at **10
-migrations**, matching the repo. `plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED,
-`served_card_assertions.py` PASSED (153 bytes / 6 CRLF). The plan was read leaf by leaf: exactly
-one real leaf per service (`containers[0].image`, `b178bf93` → `5e6a4d49`), plus the known
-non-converging `scaling` block.
-
-**Migration verified by effect, not by its "migrations applied" message**: 10 rows in
-`drizzle.__drizzle_migrations`; the table present with all three CHECKs and both indexes; **every
-pre-existing count unchanged** (1 contact, 35 locations, 212 offerings, 1 administrator, 4 flags,
-0 revisions). Each CHECK was then **proven to reject in production** — empty `fact_ids`, an
-out-of-range offset, and an expiry preceding creation — with a **valid-row positive control** so
-the rejections are not vacuous, plus the unique index refusing a second list for one sender.
-Cleanup left **0 rows**.
-
-**Verified by effect in production**: health `{"ok":true}`; `/api/public/stands` **34 stands /
-212 tags** unchanged; webhook **401**, cron **404** on the public service, `/admin` **200**,
-`/api/admin/farmers` **403**. **No errors on either new revision.** Against real production rows,
-`Open Gate Lamb and Grazing` renders **`address not listed`** — **F-045's `(null)` bug is dead.**
-
-**Owed: a handset tap.** Only a real phone proves threading and segment behaviour on a live
-device. Everything else about F-046 is shipped.
-
-**Verified by effect against the real corpus** (34 stands / 212 tags seeded from the tracked
-`maps/offerings-proposals.json`, matching production's counts): `"any eggs?"` matches **13
-stands** and pages **5 pages, every one 2 segments** — against F-045's single 488-character /
-4-segment message. `address not listed` renders for the addressless stands and they are
-still **listed, not dropped**. The last page closes with the map link; a sixth `MORE` gets the
-honest no-pending-list reply. `"honey?"` matches 2 stands and saves **no row at all** — the
-small-answer case the machinery must not intrude on. The corpus's **three widest** name+address
-entries on one page (64/55/54 chars) render **285 characters / 2 segments**, so the two-segment
-ceiling holds against real data rather than fixtures.
-
-**Deployed 2026-07-30 (F-045)** — revisions `farm-friend-web-00012-glc` /
-`farm-friend-worker-00013-b9t`, one digest `sha256:b178bf93…` on both. Image-only, no migration
-owed. `plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED, `served_card_assertions.py`
-PASSED (153 bytes / 6 CRLF). The plan was read leaf by leaf: exactly one real leaf per service
-(`containers[0].image`, `e1893b13` → `b178bf93`), plus the known non-converging `scaling` block.
-**Verified by effect in production**: health `{"ok":true}`; 34 stands / 212 tags unchanged;
-webhook 401, cron 404 on the public service, `/admin` 200, `/api/admin/farmers` 403. Against
-production data: **0 current inventory revisions** (the root cause), retrieval now reaching **33
-stands / 212 items** it previously never saw, **3 stands carrying lamb** and **9 with a
-leafy-greens member** — both of max's failing questions have real answers.
-
-**F-043's poster pass shipped 2026-07-30** — revisions `farm-friend-web-00011-dpd` /
-`farm-friend-worker-00012-c26`, digest `sha256:e1893b13…`. Verified by effect at the time: **32
-numbered pins**, **34** list badges, **8** wooded areas, **12** "Hours not listed", **33**
-"Usually sells:", **0** `prefers-color-scheme` rules with `color-scheme:light` present. `Open now`
-narrowed 34 → 18 at 10pm with zero renumbered.
-
-F-043 shipped 2026-07-30 alongside F-042 and F-040 (below) —
-revisions `farm-friend-web-00010-7mc` / `farm-friend-worker-00011-l2w`, one digest
-`sha256:b9a020f1…` on both. No migration was owed (F-043 changed no schema), so production stays at
-**9 migrations**. `plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED,
-`served_card_assertions.py` PASSED (153 bytes / 6 CRLF / 0 bare LF). The plan was read leaf by
-leaf: exactly one leaf changed per service (`containers[0].image`), plus the known non-converging
-`scaling` block.
-**Verified by effect**: health `{"ok":true}`; `/api/public/stands` serves **34** stands, **212**
-tags, **29** with a stated season and **22** with stated hours — the availability columns reach the
-browser for the first time. The served page carries the drawn island, **32 pins**, all five filter
-controls, **12** "Hours not listed" badges (matching the 12 stands that state no hours) and F-042's
-**33** "Usually sells:" lines. Webhook **401**, cron **404** on the public service, `/admin` 200.
-
-> **`.next/` is a shared artifact.** `contact-card-build.test.ts` (B-025) reads the **production
-> build output**, so running `next dev` clobbers it and the test fails with "no built chunk
-> containing BEGIN:VCARD". That failure is environmental. Run
-> `npm run build --workspace @farm-friend/web` and re-run before treating it as a defect.
-
-**Deployed 2026-07-30 (F-042 + F-040)** — revisions `farm-friend-web-00009-pvm` /
-`farm-friend-worker-00010-zdn`, one digest `sha256:ed998c4c…` on both. **Migration 0009 applied
-FIRST** (production is now at **9** migrations, with `farmer_onboarding_requests` and
-`farmer_links` present, both empty, every partial index and CHECK in place) — order matters, since
-deploying the image first would have shipped code whose tables did not exist.
-`plan-assertions.py` **29/29**, `deploy_assertions.py` PASSED, `served_card_assertions.py` PASSED
-(153 bytes / 6 CRLF / 0 bare LF). The plan was read leaf by leaf: exactly one leaf changed per
-service (`containers[0].image`), plus the known non-converging `scaling` block.
-Verified by effect: health `{"ok":true}`, `/api/public/stands` **34** stands now carrying **212
-tags across 33** (F-042 is live to customers), webhook **401**, `/admin` 200, cron **404** on the
-public service. F-040's surfaces are live and gated — `/stand/<bogus>` renders the honest "not
-active" page, `/api/farmer/stand` answers **403** for a fabricated token and **400** for a
-malformed body, and `/api/admin/farmers` answers **403** on both methods without a session. A
-scheduled recovery run left no worker errors.
-
-**Previously deployed 2026-07-30** — revisions `farm-friend-web-00008-bkl` /
-`farm-friend-worker-00009-bwj`, one digest `sha256:c91bfbb0…` on both. `plan-assertions.py` **29/29**, `deploy_assertions.py`
-PASSED (both revisions newer than every secret version). Verified by effect: health `{"ok":true}`,
-`/api/public/stands` **34** stands, webhook **401** (config resolves), `/api/internal/cron` **404**
-on the public service (on `POST`, the only method it exports — a `GET` is **405** from the framework
-before any handler runs), `/admin` 200, and the contact card **153 bytes / 6 CRLF** by hex dump on
-both HTTP/1.1 and HTTP/2. The plan diff was read leaf by leaf — exactly one leaf changed per service
-(`containers[0].image`), plus the known non-converging `scaling` block.
-
-## Next session — F-047, landmark filtering ("eggs near Burton")
-
-max chose this 2026-07-31; F-046 unblocked it. `/pm show F-047` carries the seven cases, the
-measured corpus numbers, and the acceptance criteria.
-
-**One structural question to settle FIRST, before writing code**: F-047 scopes landmark
-resolution into `packages/core`, but `ISLAND_PLACES` lives in `apps/web/lib/island-geometry.ts`
-(line ~650) and **`packages/core` has zero dependencies by design** — it cannot import from
-`apps/web`. The item also forbids a second landmark list ("two sources for 'where is Burton'
-would drift"). So the list has to move, or resolution does. Decide deliberately; this is exactly
-the kind of thing that becomes two lists by accident.
-
-**Also worth knowing going in**: `renderResultPage` (`packages/core/src/inquiry/paging.ts`) is now
-the **only** SMS answer renderer — `renderGroundedAnswer` was deleted in F-046 part 3 — and the
-"add a place" tip F-047 asks for belongs in it. **`evals:live` is REQUIRED** for F-047 (it changes
-the interpretation seam's schema and output contract) and **costs money**, so it needs max's
-approval before running.
-
-## What works end to end
-
-- **SMS round trip, on a real handset, on this runtime.** Inbound → deterministic route → queued
-  reply → Telnyx dispatch with a real provider message ID → delivery callbacks back through the
-  webhook. Compliance keywords, `FLAG`, context-bound `YES`/`NO`, then free text
-  (`apps/web/lib/routing.ts`); model seams are reachable only through a `freeText` callback after
-  `parseCommand` returns `none`, so "no model on the compliance path" is structural.
-- **Public map**, model-free in its module graph, reading the same published records as SMS.
-  35 stands seeded, **34 public** (see B-024), **212 offering tags** across 33 — **live in
-  production** as of F-042's deploy on 2026-07-30.
-- **Operator surface** — farm approval, flag review, stock-out triage, stand-data questions, and
-  farmer access (F-040: grant, see, revoke, re-issue a link). Built,
-  deployed, and now **reachable in principle**: one administrator exists
-  (`board@vigavashon.org`, authorized 2026-07-30). No link is *delivered* until F-031, so signing in
-  means minting a token out of band.
-- **One-tap add-to-contacts** (F-039) — `GET /api/public/contact-card` serves a vCard built from
-  `TELNYX_FROM_NUMBER`. **Deployed and correct on the wire**: 153 bytes, 6 CRLF, `file(1)` reads
-  "vCard visiting card, version 3.0". A **physical-handset tap is still owed** — a malformed card
-  fails by opening nothing, so only a real phone proves the sheet appears.
-- **Deployed on Cloud Run**: https://farm-friend-web-p5mfxfp5za-uw.a.run.app — one image, two
-  services (`farm-friend-web` public, `farm-friend-worker` internal+IAM) differing only by
-  `DEPLOYMENT_ROLE`. Cloud Scheduler drives four bounded passes (inbound, outbound, delivery,
-  retention); Cloud Tasks drives the per-sender kick. Vercel is gone.
-- **Production data**: `neondb`, **9 migrations**, **1 contact** (max's real number), 35
-  `sales_locations`, 212 offerings, **1 administrator**, **0** inventory revisions / entries /
-  farmer authorizations / farm approvals / onboarding requests / farmer links, 4 `stand_data_flags`.
-  Fingerprinted immediately before and after migration 0009 on 2026-07-30; every pre-existing count
-  unchanged, both new tables empty.
-
-## Live invariants worth knowing before you touch anything
-
-- **`LLM_PROVIDER` is required with no default** and no environment-dependent exemption — production
-  once ran the deterministic stub its entire life, silently, with every suite green. Now
-  `deepinfra` + `mistralai/Mistral-Small-24B-Instruct-2501`, so **model calls cost money on real
-  traffic**.
-- **The model authors no customer-facing factual text and writes no durable state.** Five seams have
-  explicit disjoint projections; the low-level provider call is unexported. `ambiguous` /
-  `clarification` / `outOfScopeRequest` / `originDependent` are **bare signals carrying no words** —
-  code renders the text.
-- **Consent**: `isProactiveSendPermitted` is the single predicate. **`JOIN` enrolls only a
-  first-time sender; once a consent record exists only `START` restores** — the carrier owns
-  STOP/START and 409s our reply while its block is active, so our record must not claim consent the
-  carrier will not honour. No provider response ever drives a consent transition.
-- **Privacy**: phones hashed, raw E.164 in one column read only by the send path; the admin surface
-  masks at the **query** (`right(phone_e164, 4)`). `purgeExpiredBodies` clears expired bodies;
-  flags/audit survive; the flagged-thread exemption fails safe and terminates on resolve *or*
-  dismiss.
-- **`PHONE_HASH_SALT` must never be rotated** — it is the input to the only lookup key for every
-  phone; rotating it orphans every hash with no way back.
-- **Post-response work is a durable queue, not a platform primitive.** The webhook commits,
-  **enqueues a Cloud Task, and awaits that enqueue** before returning 200. `enqueueSenderWork` never
-  throws and never retries — a queue outage must not turn a successful ingress into a 5xx.
-- **An abandoned dispatch claim is quarantined, never resent** — recovery resolves to `ambiguous`,
-  never `queued`, because a resend could duplicate an SMS someone already holds.
-- **Registered keywords and auto-response copy** are stated once in `packages/core/src/sms/` and
-  pinned character-for-character to `TELNYX_10DLC_FIELD_VALUES.txt`, a **transcript of live
-  console state** — change the console first, then transcribe. `ALREADY_JOINED_RESPONSE` lives
-  beside them but is **not** registered copy and must never be transcribed into that block.
-- **Architecture tripwires** (`packages/core/src/architecture.test.ts`) fail if: a `MapProvider` /
-  `geocode(` call returns; `packages/config` or `packages/contracts` reappears; the tenancy
-  identifier reappears; a fixture uses a date literal; or a publication-path source compares against
-  a location-type enum **value**.
-- **Seeding**: `npm run db:seed -- --form <f.csv> --map <m.csv>` (both required — the form has 2026
-  details and no coordinates, the map has coordinates). The join is an **exact normalized key**
-  (`matchStandName`), never a similarity score: a fuzzy matcher measured over the real corpus ranked
-  Lavender Hill against Flora Hill. Offerings are a separate step,
-  `npm run db:seed-offerings -- maps/offerings-proposals.json [--dry-run]`, keyed through that same
-  normalization; an ambiguous name refuses the whole batch, and `--dry-run` resolves against the
-  database.
-- **Deploy** = `gcloud builds submit --config cloudbuild.yaml
-  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)`, then `tofu plan`, then
-  `infra/plan-assertions.py` (29 checks), then apply, then `infra/deploy_assertions.py` — RUNBOOK
-  §Deploy. **Read a plan's CONTENTS, never its count**: a permanent 2-resource diff on the top-level
-  `scaling` block never converges and is expected steady state. Terraform owns infrastructure but
-  **never secret values or the image**.
-
-## Open work — each needs separate implementation authorization
-
-Do not read a passing suite as a working product: several gaps hide behind green tests whose
-fixtures supply what production never creates.
-
-- **F-045 — BUILT, MERGED, and DEPLOYED 2026-07-30.** SMS answers now read the offerings corpus
-  and match by meaning. Two defects, one root cause, found by max on a real handset: the inquiry
-  path queried only `inventory_revisions`, and **production holds zero current revisions**, so
-  every question short-circuited to "no current listing" while the map showed the same stands'
-  212 tags. Retrieval now unions confirmed inventory with published offerings, each candidate
-  carrying a `basis`.
-  **Code stopped deciding which items answer a request.** `rankCandidates` filtered by exact
-  normalized name equality, so "leafy greens" could never reach "butter lettuce" — and the filter
-  ran *before* the model, so the layer that understands the relationship never saw the candidate.
-  It now orders and caps (`MAX_INQUIRY_CANDIDATES`) and the model selects. A synonym table would
-  have been the food-taxonomy-as-policy CLAUDE.md forbids.
-  **Grounding is unchanged; RECALL moved from a code property to a model one** — so recall is
-  *measured*: five `live-recall` fixtures over real corpus vocabulary, each with distractors, and
-  the group **exits non-zero** rather than recording. Containment can read 100% while recall reads
-  0%. **Mistral Small 24B passes 5/5**, so the pre-approved model upgrade was not needed.
-  **13 sabotages, all caught**, including restoring the original defect.
-  **The `(null)` defect this shipped is FIXED and DEPLOYED** (F-046, 2026-07-31): `publicAddress`
-  is nullable and two stands carry none, so the renderer printed the literal word **"null"**.
-  Verified dead against real production rows.
-- **F-046 — BUILT, MERGED, and DEPLOYED 2026-07-31. Owed: a handset tap.** SMS result paging.
-  Measured against the real corpus: the *common* questions are the big ones (eggs 13 stands,
-  flowers 9, leafy greens 9) and name+address runs 22-64 chars, so **three per page** is the
-  honest maximum inside **two billed segments**.
-  **Parts 1-2** (`54397d6`): page rendering, the `MORE` keyword ordered after `STOP`, and
-  migration **0009** `pending_result_lists`.
-  **Part 3** (`392b5b1`, PR #66): the routing branch, the repository, and the wiring.
-  **`MORE` is a `nextPage` callback on `RouteDeps`, mirroring `freeText`** — routing keeps owning
-  only the deterministic order. The handler behind it takes **no model dependency at all**, so
-  "paging reaches no model" is a property of its signature rather than of a seam that happens not
-  to be called.
-  **The repository is the arbiter, not application code**: save replaces via the unique index on
-  `sender_hash`; a page is claimed and the offset advanced in **one locked transaction**; expiry
-  is measured against the **message's own time**, never `now()`, so a delayed pass cannot refuse a
-  page asked for in time nor silently extend the window. Expired and exhausted rows are **deleted
-  as found** — "never asked", "expired", and "exhausted" are one honest reply, not three shades
-  of no.
-  **Replay, not re-retrieval** (max, 2026-07-31): identity and order frozen at question time,
-  values dereferenced **fresh** at page time, because the table stores no copy of them. A stand
-  withdrawn mid-paging is dropped rather than rendered stale; a page whose stands have **all** gone
-  is **skipped**, since an empty page reads to a customer as "no results" — a false claim while
-  later pages hold real answers.
-  **One renderer, one fact type.** `renderGroundedAnswer` had no production consumer left and is
-  **deleted**, along with the near-duplicate fact shape whose only difference was a non-nullable
-  address — **the nullable half was the true one**, which is exactly how F-045 shipped the literal
-  word "null" past a satisfied compiler. Its grounding assertions moved to the surviving renderer
-  rather than retiring with it; the evals render through the same path, and sabotaging that
-  renderer fails two adversarial fixtures, so they genuinely exercise it.
-  **24 sabotages, all now caught. TWO INITIALLY SURVIVED, both real test defects:**
-  (1) the concurrency test **could not fail** — `Promise.all` did not race the claims (measured:
-  each completed in under a millisecond, so deleting `for update` passed). Contention is now
-  **manufactured**: a separate connection holds the row lock until every claimant queues behind
-  it. Without the lock **all six** claimants are served; with it, exactly three. (2) "the page was
-  actually served" was asserted on the **offset**, which an implementation that claims a page and
-  discards it also satisfies — it now asserts the **queued reply body**.
-  **Both directions of the confirmation/paging independence are asserted** end to end through the
-  real webhook, because each alone is satisfiable by the defect it forbids: a `MORE` leaves an
-  open, activated proposal open and unconsumed **and** queues a real page; a `YES` still commits
-  **and** leaves the pending list untouched.
-  **The two-segment ceiling is asserted in `packages/sms`**, not core, because segment arithmetic
-  lives there and **core imports no other package**. It is what actually constrains `PAGE_SIZE`:
-  raising it to 4 fails that test.
-  **Deployed 2026-07-31**, migration first then image; production is at **10 migrations**. Note
-  for anyone reading older notes: there is **no migration "0010"** — there are 10 migration
-  *files*, `0000`-`0009`, and production has now applied all 10 of them.
-  **Owed: a handset tap** — only a real phone proves threading and segment behaviour.
-- **drizzle-kit omits CHECK constraints when it generates SQL** — found 2026-07-31. Asked to
-  generate a snapshot it also wrote its *own* migration for the same table, dropping all three
-  CHECKs, with a journal timestamp **older** than the hand-written one (B-022's silent-skip trap).
-  The timestamp half was already tripwired; the dropped-constraint half now is too —
-  `migration-metadata.test.ts` fails when a CHECK declared in `schema.ts` reaches no migration,
-  checked against migration **SQL** rather than the snapshot, because SQL is what runs. No drift
-  today: all **71** declared constraints present. **Write CHECK constraints into migrations by
-  hand.**
-  Related trap, live in this migration: `array_length` of an empty array returns **NULL** and a
-  CHECK **passes** on NULL, so "the list must not be empty" admits empty lists without `coalesce`.
-- **F-043 — BUILT, MERGED, and DEPLOYED 2026-07-30.** The public map is now an interactive island
-  with filters and a linked stand list, live to customers. Web-only — no migration, no worker
-  change, no new env var.
-  **The gating question was answered first**: F-035's availability columns ARE populated in
-  production — season 85% (29/34), hours 65% (22/34), `stocking_cadence` 85% — but **`open_days`
-  is 0% island-wide**, so `Open now` is season + time-of-day only and the weekday dimension has no
-  data behind it. 21 stands state both season and hours, 13 are partly unstated. **F-035's note
-  naming Green Ears and Morgan Hill as unparseable is stale** — both parse cleanly; the four real
-  open flags are Holmestead and Open Gate (season) plus Peak Moon and Sweet Alyssum (**addresses**).
-  **The honesty rule this rests on** (max, 2026-07-30): a stand that never stated a fact is **never
-  excluded by a filter over that fact**. `openNow` returns a **three-state** answer — `unknown` is
-  first-class — and unstated stands appear under `Open now` badged "Hours not listed". Verified
-  against the real corpus through the running app: all **12** unstated stands survive the filter,
-  **0** are dropped.
-  **The sun is computed, not stored** (`packages/core/src/public/daylight.ts`) — migration 0005
-  refuses to store dawn/dusk as fixed hours, and dusk on Vashon moves ~5 hours across the year.
-  Checked against **US Naval Observatory** published times, an independent source, not a golden
-  file of its own output. Verified by effect: `Open now` returns **31** stands at 1pm and **18** at
-  2am, so the dusk arithmetic genuinely closes stands overnight.
-  **The island is drawn, not tiled** — no mapping provider, no per-view billing, no runtime seam.
-  The coastline is the **real** shoreline (OpenStreetMap `natural=coastline`, 4,961 nodes stitched
-  into one ring, Douglas-Peucker simplified to 92 vertices), baked in as a static array. **Two
-  hand-drawn outlines were thrown away first**: the initial one put **16 of 32 real farms in open
-  water** while every test passed, because nothing compared the artwork to the projection. That is
-  why `apps/web/lib/island-geometry.ts` exists as a `lib` module — `vitest.config.ts` covers
-  `apps/*/lib` and **not** `apps/*/app`, so a coastline defined beside its component is untestable
-  by construction. The test now checks every real farm coordinate and the highway route against the
-  drawn polygon.
-  **LOOKED AT IN A REAL BROWSER — the criterion is met**, at phone and desktop widths, in both
-  colour schemes, against a copy of the real corpus. Filters narrow 34 → 31 with the caption
-  tracking; pin→card and card→pin selection both work from one state; unstated stands stay visible
-  under `Open now` badged "Hours not listed"; no horizontal overflow.
-  **Five defects were found that the suites and the rendered-byte checks could not see**, all
-  fixed: (1) `globals.css` has carried a `prefers-color-scheme: dark` block since F-017, and the
-  new VIGA brand tokens had no dark values — the island rendered as a bright cream slab on a
-  near-black page; (2) the highway drawn in the water colour became a dark scar on dark land, so
-  it has its own `--road` token per theme; (3) the island rendered **828px tall on a 737px
-  viewport**, putting the first stand card 1293px down — capped at `58vh`; (4) SVG type scales
-  with the viewBox, so that cap shrank place labels to ~11px on glass, and **the first fix
-  silently did nothing** because a second `.island-place` rule placed *above* the original lost on
-  source order; (5) clicking a pin drew the browser's default blue focus rectangle —
-  `:focus-visible` rather than `:focus`.
-  **This is the lesson to carry**: every one of those passed 719 tests and a rendered-bytes
-  inspection. Bytes prove markup and geometry; they do not prove CSS.
-  **max's design pass then moved two structures** (both verified in Chrome): filters sit **above**
-  the map and list, not between them, where they read as a caption on the map; and a map tap on a
-  phone raises a **bottom sheet** instead of scrolling ~800px to a card — 294px of map stays
-  visible, and dismissal returns to the same view. Deliberately **not** "hide all other listings":
-  that would leave the map as the only route back to the full set, so a later filter change would
-  appear to do nothing. The palette now comes from **VIGA's actual printed farm map** (max supplied
-  it) — pale land on grey-green water with a cream panel, the opposite weighting from the
-  description-based guess; pins take the poster's green, and brick red is a *text* colour there.
-  Dark mode is not the poster inverted (that gave dim pins on dim land): land stays muted, pins go
-  bright. The poster's colour-only legend was **not** copied — the three-signal rule holds.
-  **2026-07-30 — max's poster review. MERGED and DEPLOYED.** Compared against the
-  actual poster image (supplied this session; the earlier palette came from a *description* of
-  it) the map did not read as VIGA's. Five changes: the wooded parks drawn as **real OSM
-  polygons** through the same projection as the pins; the coastline re-traced at 25m rather than
-  90m (**246 vertices, up from 92**); **numbered pins** keyed to the list; colours re-sampled
-  from the image; and the title/eyebrow removed, since this is embedded in VIGA's own page. The
-  honor-system line stays — it is why listings say "confirmed 4 hours ago" instead of claiming
-  stock.
-  **The numbering rule**: `numberStands` assigns alphabetically **by farm**, so sorting and
-  filtering reorder cards and renumber nothing. Positional numbers would relabel all 32 pins the
-  moment someone sorted by distance. Numbering runs over the full set *before* filtering.
-  **Not every real feature belongs on the drawing**: Fisher Pond and Fisher Creek are stored by
-  OSM as four-corner **parcel boundaries** and rendered as literal rectangles (caught by looking,
-  not by a test — source vertex count is now the exclusion rule), and **Banner Forest**, though
-  printed on the poster, is at -122.56 on the **Kitsap Peninsula** — mainland context in the
-  poster's water margin, not a Vashon landmark.
-  **TWO DEFECTS THIS FOUND THAT ARE LIVE IN PRODUCTION RIGHT NOW**: two place labels are anchored
-  in open water — Burton ~90m offshore, **Maury Island a full kilometre** offshore — because the
-  existing test covered farm coordinates and the highway but never the artwork's own labels. And
-  **the pins are too small to tap**: at a true 390px viewport the map renders at **0.351 scale**,
-  so r=14 came out **under 5px on glass** for the map's primary action. Both fixed here.
-  **The verification gap that hid them**: `resize_window` never changed the frame's
-  `innerWidth` — it stayed 1728 — so **the phone layout had never actually been on screen**,
-  including in the session that recorded "looked at it at phone width". Loading the page in a
-  **390px iframe** is what makes the media queries evaluate honestly. Contrast is now *measured*:
-  the woods first landed at **1.29:1 against the land in dark mode**, invisible, the same class
-  of miss as F-043's original dark-mode defect; now 1.66–1.77:1 in both themes.
-  **Verified by effect** in the browser against the real corpus: 34 cards / 32 pins (2
-  contact-only farms numbered but unpinned), numbers 1–34 with no duplicates, every pin matching
-  its card. `Open now` narrowed 34 → 26 with **zero renumbered**, restoring identical numbers —
-  the filter did something, so the pass is not vacuous. Sheet raises with 524px of map visible
-  and dismisses cleanly. 8 sabotages, all caught; **one initially survived** (distinct numbers
-  for duplicate farm names pass without the `id` tiebreak, since a stable sort falls back to
-  input order) and was replaced with a reorder-invariance assertion.
-  **LIGHT MODE ONLY** (max, 2026-07-30). Dark mode is gone from the public map: it was a second
-  value for every brand token, and each was a place the two themes could silently disagree —
-  which they did twice (F-043's bright-slab island, and this pass's woods at 1.29:1). The map is
-  VIGA's printed poster, a light artefact. `color-scheme: light` is **required, not decoration**:
-  without it a browser on a dark-mode machine still paints the `IN SEASON` select and the
-  scrollbars dark. **Known tradeoff, accepted**: checking a stand outdoors at night is now a
-  bright screen. Verified in the **served bytes** — zero `prefers-color-scheme` rules, every dark
-  token value absent — and rendered light on a dark-mode machine with no emulation.
-  **F-043 is CLOSED.** The Squarespace embed handshake — the one criterion it could never meet,
-  needing a second origin — is now **F-044**, not an open tail on this item. Until VIGA pastes the
-  listener the embed still works, falling back to the fixed `height="900"`. `apps/web/app/embed-height.tsx` posts the height; the listener VIGA pastes is in
-  ADMIN_OPERATIONS §Embedding the map. Until VIGA adds that snippet the embed still works — it just
-  falls back to the fixed `height="900"`.
-- **B-023 — CLOSED 2026-07-30.** `board@vigavashon.org` is the first administrator (a VIGA *org*
-  address, max's choice, so authority sits with the organization). Verified by reading the row and
-  by resolving it through `findAdministratorByEmail` in production — exact address, mixed case, and
-  stray whitespace all resolve; an unrelated address still finds nothing. **No link is delivered
-  until F-031**, so signing in today means minting a token out of band.
-- **B-024 (HIGH) — a farmer's address we should not have published.** Handpicked Homestead is
-  `is_public = false` in production (interim, max-approved): her form `extraNotes` said *"I don't
-  have my own farmstand … do not add my address"*, yet the seed gave her a pin at her home. Address
-  and coordinates preserved; the permanent shape (a *producer* whose goods sell at another farm's
-  stand) is an open product question, and **no producer/host relationship was invented for one row**.
-  **`extraNotes` is read only by `offering-type.ts`** — nothing consults it for visibility, so a
-  second such instruction would republish. Exactly one instance corpus-wide.
-- **F-042 — BUILT, MERGED, and DEPLOYED 2026-07-30.**
-  The 212 tags now reach customers for real: `/api/public/stands` in production serves **212 tags
-  across 33 of 34** public stands. `listPublicStands` selects them through an **aggregated
-  subquery** — a second LEFT JOIN would cross-product and repeat each confirmed item once per tag —
-  and serves them as `usuallySells`, **always present, `[]` when empty**. That asymmetry with the
-  absent-when-empty recency fields is load-bearing: it is what distinguishes "no tags and no
-  confirmation" from "tags, nothing confirmed".
-  **Where the rule lives**: `standListingLines` (`apps/web/lib/map-view.ts`) decides which lines a
-  stand gets; `stand-map.tsx` prints them and chooses nothing. This repo has **no
-  component-rendering harness**, so "Usually sells never takes a timestamp" had to leave the JSX to
-  be testable at all — `detail` is settable only on a confirmed line. Sabotage-verified.
-  `renderElapsed` was split out of `renderRecency` in core so the map's "Confirmed X ago" and SMS's
-  "updated X ago" share one arithmetic; **`renderRecency` output is byte-identical** to the previous
-  implementation across 57,601 minute-by-minute cases, so no seam contract changed and `evals:live`
-  was correctly not required. Also fixed: `page.tsx` held a **second copy of the wire format that
-  had already diverged** (it sent `updated: undefined` as a present key where the API omitted it);
-  both readers now call `serializePublicStand`.
-  **Verified by effect** against the real corpus (34 stands / 33 tagged / 212 tags, matching
-  production) served through the real app: rendered bytes carry 33 "Usually sells:" + 33 "Nothing
-  confirmed recently.", exactly **1** "No listing yet", and **no elapsed phrase within 400 chars of
-  any usual label**. A real revision published through the real proposal→confirmation chain rendered
-  "Confirmed 4 hours ago: flowers, duck eggs" over "Also usually sells: …" with the confirmed items
-  subtracted case-insensitively.
-  **Owed: nobody has looked at the styling.** The two voices are styled to differ at a glance
-  (filled chips vs. outlined) but that CSS has **not been seen rendered** — the browser extension
-  was not connected. **20 sabotages, all caught**; one initially survived (omitting `usuallySells`
-  when empty passed the whole suite, since the renderer treats absent and empty alike by design) and
-  now has its own assertion.
-- **F-040 — BUILT, MERGED, and DEPLOYED 2026-07-30.** All five pieces in one tranche. `farmer_authorizations` now has a real writer (`packages/db/src/farmer.ts`), so a
-  farmer who texts an update no longer falls through to the *customer* branch.
-  **Migration 0009** adds two records, and the split is load-bearing: `farmer_onboarding_requests`
-  is what a farmer *asked* for — no farm, no grant column, no message text, nothing reads it as
-  authority — and `farmer_links` is a **pointer to** an authorization, never authority itself.
-  **The link is not a signed claim**, deliberately: max chose one that never expires, so a
-  signature would keep verifying after revocation. It is 32 random bytes, hash-only in the database,
-  and `resolveFarmerLink` re-reads **both** revocation columns every request, so there is nothing
-  cached to reach around.
-  **Channels**: `SIGNUP`/`LINK` are farmer product keywords parsed **last** among the keyword
-  branches (so neither can shadow `STOP`) and **before** free text (so no model sees them);
-  `/admin/farmers` is VIGA's grant/see/revoke surface; `/stand/<token>` is the farmer's form. Every
-  channel lands on `confirmInventoryPublication` — **the web path has no bypass**, and no function
-  on that surface writes `inventory_revisions`.
-  **Approval is not consent**: the "you're all set" text is queued inside the authorization
-  transaction as a *proactive* category, so `authorizeDispatch` suppresses it for a farmer who never
-  texted JOIN/START. Asserted at the dispatch claim, plus the complement so it is not passing
-  because the message is undeliverable to everyone.
-  **Verified by effect** end to end against real Postgres and the running app: SIGNUP → masked
-  queue → authorize (text queued, `inventory_prompt`, `queued`) → LINK → resolve → propose (0
-  revisions) → confirm (published) → revoke (link resolves null on the **next** request, form
-  refuses, published listing untouched). Then the same round trip through the **real HTTP route and
-  the real model** — worth knowing: Mistral rendered "plum jam" twice, once bare and once priced.
-  That is interpretation quality, not a code defect, and it is precisely what the confirmation gate
-  lets a farmer catch.
-  **~35 sabotages; SIX survived and exposed real gaps in the tests**, all now closed — the
-  resolver's authorization check (revoking via the writer also kills links, so the link clause did
-  all the work), exact stand binding (no fixture had a two-stand farm), an internal contact-hash
-  leak into the pending-request projection (that array was empty in the fixture), the cross-farmer
-  confirmation (asserting "refused" and "still open" was satisfiable by the exact attack it
-  forbids), the two independent cross-farmer defenses being indistinguishable, and the token shape
-  guard (null with or without it — now asserted by query count).
-  **The screens have now been exercised in F-055's local production build.** `/stand/<token>` and
-  `/admin/farmers` were checked at 390px and 1440px with populated, empty, loading, error, success,
-  revoked-link, and expired-session states. This visual completion is committed but not deployed;
-  production still serves the previously deployed F-040 surface until Max approves a release.
-  **Live in production**, migration first then image. No farmer has been authorized yet — the
-  tables are empty, so the first real use is VIGA setting someone up at `/admin/farmers`.
-- **B-025 — CLOSED 2026-07-30. Cause was the MINIFIER, not the network.** The filed diagnosis was
-  wrong in both directions and is recorded here so it is not re-derived: it reproduces on a **local
-  standalone build**, and all three Next.js body forms plus the Cloud Run wire pass CRLF through
-  byte-for-byte — the suggested Buffer-with-content-length fix would have changed nothing. The build
-  folded `.join("\r\n")` into a template literal written with **raw CR/LF bytes**, which ECMA-262
-  normalizes to a bare LF at *parse* time. Fixed with `String.fromCharCode(13, 10)`, which emits no
-  newline byte to normalize. Verified by hex dump in production: **153 bytes / 6 CRLF**, `file(1)`
-  reads "vCard visiting card, version 3.0", on HTTP/1.1 and HTTP/2.
-  **Still owed: a physical-handset tap** — a malformed card fails by opening nothing, so only a real
-  phone proves the add-contact sheet appears.
-- **F-031 — no mail provider, so no sign-in link is delivered.** Everything up to the wire is built;
-  what remains is a vendor, credentials, **attested** data-handling terms, and SPF/DKIM/DMARC.
-  Blocked on what email infrastructure VIGA runs. **GCP has no first-party transactional email
-  API** — "email on GCP" means SendGrid via Marketplace, whose terms are Twilio's. Never infer the
-  attestation values.
-- **F-036 — where the model may run.** Seed-time: built and run. Query-time on the public map:
-  **blocked** (`public-surface-model-free.test.ts` polices the import graph). Farmer-authored web
-  submission was the **third case**, and F-040 (shipped 2026-07-30) now answers it: the farmer web auth that
-  did not exist is the standing link, and the submission runs the *same* interpreter seam through
-  the *same* confirmation gate as SMS rather than a second path. The model-free tripwire still
-  passes — the farmer form is its own entry point and is not reachable from the public map's graph.
-- **B-008 — lint does not run in deployed builds.** `apps/web` omits the `@typescript-eslint`
-  plugin/parser, so Next skips lint non-fatally and the build goes green with the gate absent. The
-  real work is extending `workspace-manifests.test.ts` to config-file dependency references.
-- **B-020 — integration deadlock** (`40P01`) on a fixture `truncate`, between suites' truncates
-  rather than Farm Friend's locking. Has not reproduced across many runs.
-- **B-001** stays open pending its caveat. `model_runs` has **no production writer**. No per-stand
-  pages or filter/search UI. Message classification has no consumer. SMS inquiry has no HTTP route
-  **by design** — reached from the webhook worker.
+- **F-029:** apply migrations, deploy the release candidate, wire/verify the live carrier path, and
+  execute the launch verification ladder.
+- **F-031:** select and attest a mail provider; until then administrator sign-in links are not
+  delivered and must be minted out of band.
+- **B-024:** permanently encode the farmer's no-public-address instruction in seed behavior before
+  any reseed. Production is currently hidden as an approved interim correction.
+- **B-008:** the deployed web build still lacks a truthful lint gate.
+- **F-044:** verify the Squarespace embed handshake on VIGA's actual page.
+- Physical-handset checks remain owed for the vCard and paged SMS threading/segments.
+- After deployment, exercise the complete farmer onboarding/status update, administrator view,
+  farmer settings, customer inquiry, and farmer update flows against the deployed system and verify
+  database effects rather than screen messages.

@@ -72,7 +72,6 @@ export async function extractOfferings(
   const result = await generateValidated(
     provider,
     context,
-    "offerings",
     offeringsSchema,
   );
 

@@ -286,7 +286,7 @@ fx("advisory", "generateValidated repairs once, then fails closed", async () => 
     currentEntries: [],
     currentLocalDate: "2026-08-06",
   });
-  const res = await generateValidated(provider, ctx, "inventory-extraction", schema);
+  const res = await generateValidated(provider, ctx, schema);
   return !res.ok && res.reason === "invalid_output" && res.repairCount === 1;
 });
 

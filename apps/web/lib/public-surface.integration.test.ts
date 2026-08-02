@@ -40,7 +40,6 @@ const hoursAgo = (h: number) => new Date(T0.getTime() - h * 3_600_000);
 
 /** A provider that fails loudly if anything reaches it. */
 class ForbiddenProvider implements LLMProvider {
-  readonly name = "forbidden";
   async generateJson(ctx: ModelSafeContext): Promise<string> {
     throw new Error(`public discovery must not call a model (seam: ${ctx.seam})`);
   }
@@ -51,7 +50,6 @@ class ForbiddenProvider implements LLMProvider {
  * in call order, so a two-step seam (interpret → select) is scripted by listing both.
  */
 class ScriptedProvider implements LLMProvider {
-  readonly name = "scripted";
   calls = 0;
   private readonly payloads: string[];
   constructor(...payloads: string[]) {

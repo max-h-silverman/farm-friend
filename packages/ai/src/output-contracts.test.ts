@@ -155,7 +155,7 @@ describe("seam output contracts (F-024)", () => {
       currentEntries: [],
       currentLocalDate: "2026-08-06",
     });
-    const instructions = ctx.outputInstructions ?? "";
+    const instructions = ctx.outputInstructions;
 
     expect(instructions).toContain("EVERY independent fact");
     expect(instructions).toContain("closureTiming");

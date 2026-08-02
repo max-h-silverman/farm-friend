@@ -49,7 +49,6 @@ type KeyPair = { privateKey: webcrypto.CryptoKey; publicKey: webcrypto.CryptoKey
  * claims.
  */
 class ForbiddenProvider implements LLMProvider {
-  readonly name = "forbidden";
   calls = 0;
   async generateJson(ctx: ModelSafeContext): Promise<string> {
     this.calls += 1;
@@ -59,7 +58,6 @@ class ForbiddenProvider implements LLMProvider {
 
 /** A model that returns scripted output per seam, for the free-text paths. */
 class ScriptedProvider implements LLMProvider {
-  readonly name = "scripted";
   readonly seen: ModelSafeContext[] = [];
   constructor(private readonly payloads: Record<string, string>) {}
   async generateJson(ctx: ModelSafeContext): Promise<string> {

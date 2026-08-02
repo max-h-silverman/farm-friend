@@ -116,7 +116,6 @@ export function createInventoryInterpreter(provider: LLMProvider) {
       const result = await generateValidated(
         provider,
         ctx,
-        "inventory-extraction",
         interpretationSchema,
       );
 

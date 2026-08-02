@@ -226,8 +226,8 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   code-rendering cross-actor text from permitted typed facts and returning model prose only to
   the actor whose own task text produced it (see [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)
   §"The code-enforced safety boundary and its verification").
-- Raw inbound bodies are **short-lived** (exact retention is an unresolved launch decision; flagged
-  threads exempt while the flag is open and for a bounded period after resolution); the phone is
+- Raw inbound bodies expire after **30 days**; flagged threads are exempt only while a flag is open
+  and become eligible on disposition, with no grace period. The phone is
   stored **hashed** for lookup/logging (the raw E.164 lives in **exactly one column**, read only by
   the outbound send path — see DATA_ARCHITECTURE §privacy).
 

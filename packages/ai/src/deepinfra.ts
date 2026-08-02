@@ -153,9 +153,7 @@ function renderPrompt(ctx: ModelSafeContext): string {
     `Task: ${ctx.seam}`,
     `Input (JSON): ${JSON.stringify(ctx.fields)}`,
   ];
-  if (ctx.outputInstructions !== undefined) {
-    parts.push(`Output requirements: ${ctx.outputInstructions}`);
-  }
+  parts.push(`Output requirements: ${ctx.outputInstructions}`);
   parts.push("Respond with a single JSON object and nothing else.");
   return parts.join("\n\n");
 }
@@ -178,9 +176,7 @@ export function createDeepInfraProvider(config: DeepInfraConfig): LLMProvider {
   const doFetch = config.fetchImpl ?? fetch;
 
   return {
-    name: "deepinfra",
-
-    async generateJson(ctx: ModelSafeContext, _schemaName: string): Promise<string> {
+    async generateJson(ctx: ModelSafeContext): Promise<string> {
       // Bounded so a hung provider cannot hold an SMS worker open indefinitely. The pass
       // that called this is itself budgeted; cron recovers whatever a timeout drops.
       const abort = new AbortController();

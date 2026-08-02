@@ -1,8 +1,6 @@
 import {
   authorizeFarmer,
   issueFarmerLink,
-  listFarmerAuthorizations,
-  listOpenFarmerOnboardingRequests,
   revokeFarmerAuthorization,
 } from "@farm-friend/db";
 import { farmerLinkUrl } from "@farm-friend/core";
@@ -27,41 +25,6 @@ import { publicReadContext } from "../../../../lib/public-context";
 // what their listing says, and still confirms every change (Golden Rule #1).
 
 export const dynamic = "force-dynamic";
-
-/** The queue: farmers waiting on VIGA, plus every authorization live or withdrawn. */
-export async function GET(req: Request): Promise<Response> {
-  const caller = await requireAdministrator(req);
-  if (caller instanceof Response) return caller;
-
-  const { db } = publicReadContext();
-  const [requests, authorizations] = await Promise.all([
-    listOpenFarmerOnboardingRequests(db),
-    listFarmerAuthorizations(db),
-  ]);
-
-  return Response.json({
-    requests: requests.map((request) => ({
-      requestId: request.requestId,
-      // Masked at the query. A request carries no message text at all, so there is nothing
-      // else here that could leak.
-      senderMask: request.senderMask,
-      requestedAt: request.requestedAt.toISOString(),
-    })),
-    authorizations: authorizations.map((authorization) => ({
-      authorizationId: authorization.authorizationId,
-      farmId: authorization.farmId,
-      farmName: authorization.farmName,
-      senderMask: authorization.senderMask,
-      authorizedAt: authorization.authorizedAt.toISOString(),
-      revokedAt: authorization.revokedAt?.toISOString() ?? null,
-      // Whether a live link EXISTS — never the link. The queue must not become a place to
-      // read a farmer's standing credential off a screen.
-      hasLiveLink: authorization.hasLiveLink,
-      stands: authorization.stands,
-      liveLinkStand: authorization.liveLinkStand,
-    })),
-  });
-}
 
 /**
  * Authorize a farmer, revoke one, or issue a fresh standing link.

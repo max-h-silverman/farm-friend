@@ -1,4 +1,4 @@
-import { listStockOutReports, triageStockOutReport } from "@farm-friend/db";
+import { triageStockOutReport } from "@farm-friend/db";
 import {
   requireAdministrator,
   statusForWriteResult,
@@ -20,32 +20,6 @@ import { publicReadContext } from "../../../../lib/public-context";
 // item, and status, and joins nowhere that could acquire a phone.
 
 export const dynamic = "force-dynamic";
-
-/** The queue. `?status=all` includes reports already triaged. */
-export async function GET(req: Request): Promise<Response> {
-  const caller = await requireAdministrator(req);
-  if (caller instanceof Response) return caller;
-
-  const status =
-    new URL(req.url).searchParams.get("status") === "all" ? "all" : "open";
-  const { db } = publicReadContext();
-  const reports = await listStockOutReports(db, { status });
-
-  return Response.json({
-    reports: reports.map((report) => ({
-      reportId: report.reportId,
-      farmId: report.farmId,
-      farmName: report.farmName,
-      salesLocationId: report.salesLocationId,
-      salesLocationName: report.salesLocationName,
-      itemText: report.itemText,
-      status: report.status,
-      reviewedByEmail: report.reviewedByEmail,
-      reviewedAt: report.reviewedAt?.toISOString() ?? null,
-      reportedAt: report.reportedAt.toISOString(),
-    })),
-  });
-}
 
 /** Mark a report reviewed or dismissed. The acting administrator comes from the session. */
 export async function POST(req: Request): Promise<Response> {

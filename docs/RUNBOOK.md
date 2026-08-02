@@ -306,9 +306,9 @@ command arguments, packages, or UI.
 
 ### Add an admin route or surface
 
-1. Guard it with the shared `requireAdministrator` from `apps/web/lib/admin-guard.ts`. Do not write
-   a second guard — one mechanism, several consumers, so an authorization check has one place to
-   drift rather than four.
+1. Load queue data in the server-rendered page after resolving the administrator. Do not add a
+   duplicate queue GET API. For a browser action or the flag-thread fetch, guard the route with the
+   shared `requireAdministrator` from `apps/web/lib/admin-guard.ts`.
 2. Take the acting administrator from the **session**, never the request body. A caller who names
    someone else must not be able to act as them.
 3. Re-read the administrator's authority **inside the transaction that writes**, and commit the
@@ -316,9 +316,9 @@ command arguments, packages, or UI.
 4. Project the minimum: no phone material unless the surface genuinely needs it, and mask it at the
    **query** (`right(phone_e164, 4)`) rather than in the renderer, so the raw number never leaves
    the database.
-5. Test-first, in `apps/web/lib/admin-routes.integration.test.ts`: add the refusal assertion for
-   **every method** on the new route to the unauthorized-caller block, and grep the whole serialized
-   response for an E.164 and for any 64-hex run.
+5. Test-first: assert an unauthorized caller is refused for every exported method. For a reader,
+   test the server page or the real browser-consumed GET and grep the whole projection for an E.164
+   and any 64-hex run.
 
 **A PUBLIC auth route is the exception, and inverts most of this.** `/api/auth/request-link` and
 `/api/auth/callback` are deliberately unauthenticated — they are how someone becomes authenticated,
@@ -533,7 +533,7 @@ Manager versions through stdin and record replacements in the password manager w
 
 - **`PHONE_HASH_SALT` MUST NOT be rotated — ever.** It is the input to the only lookup key for every
   phone. Rotation orphans consent, contacts, flags, and reports. A suspected compromise requires a
-  designed re-hash migration.
+  new, explicitly approved data-migration design; there is no generic recovery command.
 - Rotate in place against the existing production providers and database. Fingerprint the target
   before changing it.
 - Verify the new value before storing it; verify the deployed effect after a new revision; verify

@@ -92,7 +92,6 @@ export function createInquiryModel(provider: LLMProvider): InquiryModel {
       const result = await generateValidated(
         provider,
         ctx,
-        "inquiry-interpretation",
         intentSchema,
       );
       if (!result.ok) {
@@ -112,7 +111,6 @@ export function createInquiryModel(provider: LLMProvider): InquiryModel {
       const result = await generateValidated(
         provider,
         ctx,
-        "grounded-fact-selection",
         selectionSchema,
       );
       if (!result.ok) {
@@ -144,7 +142,7 @@ export function createStockOutModel(provider: LLMProvider): StockOutModel {
         taskText: input.taskText,
         listedItems: input.listedItems,
       });
-      const result = await generateValidated(provider, ctx, "stock-out-parse", stockOutSchema);
+      const result = await generateValidated(provider, ctx, stockOutSchema);
       if (!result.ok) return { kind: "unclear" as const };
       return result.value;
     },

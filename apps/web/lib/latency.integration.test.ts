@@ -52,7 +52,6 @@ type KeyPair = { privateKey: webcrypto.CryptoKey; publicKey: webcrypto.CryptoKey
 
 /** A model that fails the test if it is ever called. */
 class ForbiddenProvider implements LLMProvider {
-  readonly name = "forbidden";
   calls = 0;
   async generateJson(ctx: ModelSafeContext): Promise<string> {
     this.calls += 1;

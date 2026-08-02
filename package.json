@@ -25,8 +25,7 @@
     "db:seed-offerings": "tsx packages/db/scripts/seed-offerings.ts",
     "offerings:propose": "node --env-file=.env --import tsx packages/ai/scripts/propose-offerings.ts",
     "evals": "node --import tsx evals/run.ts",
-    "evals:live": "node --env-file=.env --import tsx evals/live.ts",
-    "db:rehash-phones": "tsx packages/db/scripts/rehash-phones.ts"
+    "evals:live": "node --env-file=.env --import tsx evals/live.ts"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
