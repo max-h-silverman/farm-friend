@@ -5,7 +5,13 @@ export interface AdminStandCard {
   status: string;
   openState: string;
   approved: boolean;
-  metadata: Array<readonly [label: string, value: string]>;
+  sections: AdminStandDetailSection[];
+}
+
+export interface AdminStandDetailSection {
+  title: string;
+  prominent?: boolean;
+  items: Array<readonly [label: string, value: string, emphasis?: "primary"]>;
 }
 
 /**
@@ -36,14 +42,28 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
                 <span className="admin-stand-hide">Hide details</span>
               </span>
             </summary>
-            <dl className="admin-stand-details">
-              {stand.metadata.map(([label, value]) => (
-                <div key={label}>
-                  <dt>{label}</dt>
-                  <dd>{value}</dd>
-                </div>
-              ))}
-            </dl>
+            <div className="admin-stand-detail-groups">
+              {stand.sections.map((section, index) => {
+                const headingId = `stand-${stand.standId}-section-${index}`;
+                return (
+                  <section
+                    key={section.title}
+                    className={section.prominent ? "admin-stand-detail-section admin-stand-detail-section--prominent" : "admin-stand-detail-section"}
+                    aria-labelledby={headingId}
+                  >
+                    <h3 id={headingId}>{section.title}</h3>
+                    <dl>
+                      {section.items.map(([label, value, emphasis]) => (
+                        <div key={label} className={emphasis === "primary" ? "admin-stand-detail-item--primary" : undefined}>
+                          <dt>{label}</dt>
+                          <dd>{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                );
+              })}
+            </div>
           </details>
         </li>
       ))}

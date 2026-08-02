@@ -117,11 +117,21 @@ describe("the stand list", () => {
             status: "Public",
             openState: "Open now",
             approved: true,
-            metadata: [
-              ["Farm", "Example Farm"],
-              ["Address", "123 Farm Lane"],
-              ["Hours", "Daily, 9am–5pm"],
-              ["Offerings", "Eggs, flowers"],
+            sections: [
+              {
+                title: "Availability",
+                items: [
+                  ["Current items", "Eggs, flowers"],
+                  ["Last confirmed", "Today"],
+                ],
+              },
+              {
+                title: "Visit",
+                items: [
+                  ["Address", "123 Farm Lane"],
+                  ["Hours", "Daily, 9am–5pm"],
+                ],
+              },
             ],
           },
         ]}
@@ -139,6 +149,8 @@ describe("the stand list", () => {
     await user.click(screen.getByText("Show details"));
 
     expect(details).toHaveAttribute("open");
+    expect(screen.getByRole("heading", { name: "Availability" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Visit" })).toBeTruthy();
     expect(screen.getByText("123 Farm Lane")).toBeTruthy();
     expect(screen.getByText("Eggs, flowers")).toBeTruthy();
   });
@@ -157,7 +169,7 @@ describe("administrator language", () => {
               status: "Shown on map",
               openState: "Open now",
               approved: true,
-              metadata: [["Visit in person", "Yes"]],
+              sections: [{ title: "Visit", items: [["Visit in person", "Yes"]] }],
             },
           ]}
         />
