@@ -10,7 +10,9 @@ import { ApprovalQueue } from "../app/admin/approval-queue";
 import { FarmerQueue } from "../app/admin/farmers/farmer-queue";
 import { FlagQueue } from "../app/admin/flags/flag-queue";
 import { ReportQueue } from "../app/admin/reports/report-queue";
+import { StandList } from "../app/admin/stand-list";
 import { StandDataQueue } from "../app/admin/stand-data/stand-data-queue";
+import { UserList } from "../app/admin/user-list";
 import { StandForm } from "../app/stand/[token]/stand-form";
 
 afterEach(() => {
@@ -27,6 +29,37 @@ function response(status: number, payload: Record<string, unknown> = {}): Respon
 }
 
 describe("the shared administrator shell", () => {
+  it("keeps the dashboard focused on four top-level work areas", () => {
+    render(
+      <AdminShell
+        currentPath="/admin"
+        title="Stands"
+        signedInAs="operator@viga.example"
+      >
+        <p>Stands</p>
+      </AdminShell>,
+    );
+
+    expect(
+      screen.getAllByRole("link", { name: /^(stands|users|flags|notifications)$/i }),
+    ).toHaveLength(4);
+    expect(screen.getByRole("link", { name: "Stands" })).toHaveAttribute("href", "/admin");
+    expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute(
+      "href",
+      "/admin/farmers",
+    );
+    expect(screen.getByRole("link", { name: "Flags" })).toHaveAttribute(
+      "href",
+      "/admin/flags",
+    );
+    expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute(
+      "href",
+      "/admin/reports",
+    );
+    expect(screen.queryByRole("link", { name: "Farm approval" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Stand data" })).toBeNull();
+  });
+
   it("identifies the current workflow and signs out through the durable endpoint", async () => {
     const user = userEvent.setup();
     const fetcher = vi.fn(async () => new Response(null, { status: 204 }));
@@ -44,7 +77,7 @@ describe("the shared administrator shell", () => {
       </AdminShell>,
     );
 
-    expect(screen.getByRole("link", { name: "Flag review" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Flags" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -65,6 +98,69 @@ describe("the shared administrator shell", () => {
     );
     expect(screen.getByText(/session may have expired/i)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/recognized|provisioned|authorized address/i);
+  });
+});
+
+describe("the stand list", () => {
+  it("keeps the scan view to stand, status, open state, and approval, then reveals metadata on demand", async () => {
+    const user = userEvent.setup();
+    render(
+      <StandList
+        stands={[
+          {
+            standId: "stand-1",
+            name: "North Stand",
+            farmName: "Example Farm",
+            status: "Public",
+            openState: "Open now",
+            approved: true,
+            metadata: [
+              ["Farm", "Example Farm"],
+              ["Address", "123 Farm Lane"],
+              ["Hours", "Daily, 9am–5pm"],
+              ["Offerings", "Eggs, flowers"],
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("North Stand")).toBeTruthy();
+    expect(screen.getByText("Public")).toBeTruthy();
+    expect(screen.getByText("Open now")).toBeTruthy();
+    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(screen.queryByText("123 Farm Lane")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Show details for North Stand" }));
+
+    expect(screen.getByText("123 Farm Lane")).toBeTruthy();
+    expect(screen.getByText("Eggs, flowers")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Hide details for North Stand" })).toBeTruthy();
+  });
+});
+
+describe("the user list", () => {
+  it("filters the directory by current farmer status", async () => {
+    const user = userEvent.setup();
+    render(
+      <UserList
+        users={[
+          { userId: "user-1", senderMask: "(•••) •••-0701", isFarmer: true, farms: ["Example Farm"] },
+          { userId: "user-2", senderMask: "(•••) •••-0702", isFarmer: false, farms: [] },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("(•••) •••-0701")).toBeTruthy();
+    expect(screen.getByText("(•••) •••-0702")).toBeTruthy();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "User type" }), "farmer");
+    expect(screen.getByText("(•••) •••-0701")).toBeTruthy();
+    expect(screen.queryByText("(•••) •••-0702")).toBeNull();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "User type" }), "not_farmer");
+    expect(screen.queryByText("(•••) •••-0701")).toBeNull();
+    expect(screen.getByText("(•••) •••-0702")).toBeTruthy();
   });
 });
 

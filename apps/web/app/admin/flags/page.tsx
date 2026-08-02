@@ -1,8 +1,9 @@
 import { headers } from "next/headers";
-import { listFlagsForReview } from "@farm-friend/db";
+import { listFlagsForReview, listStandDataFlags } from "@farm-friend/db";
 import { resolveAdministrator } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { FlagQueue } from "./flag-queue";
+import { StandDataQueue } from "../stand-data/stand-data-queue";
 import { AdminShell, SignedOutAdmin } from "../admin-shell";
 
 // The flag review surface (F-030).
@@ -26,10 +27,13 @@ export default async function FlagsPage() {
   }
 
   const { db } = publicReadContext();
-  const flags = await listFlagsForReview(db, { status: "all" });
+  const [flags, standDataFlags] = await Promise.all([
+    listFlagsForReview(db, { status: "all" }),
+    listStandDataFlags(db, { status: "all" }),
+  ]);
 
   return (
-    <AdminShell currentPath="/admin/flags" title="Flag review" signedInAs={administrator.email}>
+    <AdminShell currentPath="/admin/flags" title="Flags" signedInAs={administrator.email}>
       <p className="admin-note">
         Someone texted <strong>FLAG</strong>. Read the thread, take whatever action is needed
         outside the system, then record what you did. Phone numbers are shown masked.
@@ -48,6 +52,23 @@ export default async function FlagsPage() {
           disposedAt: flag.disposedAt?.toISOString() ?? null,
           createdAt: flag.createdAt.toISOString(),
           hasReadableThread: flag.hasReadableThread,
+        }))}
+      />
+
+      <h2 className="admin-section-title">Stand data questions</h2>
+      <p className="admin-note">
+        These are source-data questions recorded instead of guessed. Resolving one records
+        your decision; it does not edit a public listing.
+      </p>
+      <StandDataQueue
+        flags={standDataFlags.map((flag) => ({
+          flagId: flag.flagId,
+          standName: flag.standName,
+          reason: flag.reason,
+          sourceText: flag.sourceText,
+          resolutionNote: flag.resolutionNote,
+          resolvedByEmail: flag.resolvedByEmail,
+          createdAt: flag.createdAt.toISOString(),
         }))}
       />
     </AdminShell>
