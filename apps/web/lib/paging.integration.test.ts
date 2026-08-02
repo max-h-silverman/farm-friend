@@ -107,10 +107,10 @@ describe("SMS result paging end to end (integration)", () => {
       const farm = await client()`insert into farms (name) values (${name}) returning id`;
       const location = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${farm[0]?.id as string}, 'farm_stand', ${name},
+        values (${farm[0]?.id as string}, 'farm_stand', ${name}, 'America/Los_Angeles',
                 ${`${10000 + index} SW 220th St`}, 47.45, -122.46, false, false)
         returning id
       `;
@@ -427,10 +427,10 @@ describe("SMS result paging end to end (integration)", () => {
     const farm = await client()`insert into farms (name) values ('Latecomer Farm') returning id`;
     const location = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
-      values (${farm[0]?.id as string}, 'farm_stand', 'Latecomer Farm', '1 New Rd',
+      values (${farm[0]?.id as string}, 'farm_stand', 'Latecomer Farm', 'America/Los_Angeles', '1 New Rd',
               47.45, -122.46, false, false)
       returning id
     `;

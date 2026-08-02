@@ -6,12 +6,37 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-08-01** (`f-051-multi-stand-settings`, based on local `main` at `53c47e0`):
-`npm test` **852/852** (84 files); `npm run test:integration` **525/525** (35 files) against
-real Postgres using isolated empty databases; typecheck, lint, and the production web build exit 0.
-The build retains two known warnings:
-`outputFileTracingRoot` is not recognized by this Next.js version, and its ESLint plugin is not
-detected.
+**F-052 scheduled inventory prompts are implemented locally on `f-052-scheduled-prompts` and are
+not deployed.** The full repository gate set for the final branch commit is still pending; the
+focused F-052 suites, typecheck, and lint are green as of `5e4591e`.
+
+The existing one-minute worker route now runs one bounded scheduled-prompt pass between inbound
+routing and outbound dispatch. Explicit per-stand cadences are every 2 days, weekly, every 2 weeks,
+or paused at 10:00 AM in the stand's reviewed timezone; there is no inferred or migrated preference.
+A typed durable subject binds each queued prompt to its exact proposal/version,
+preference/version, designated authorization, stand, inventory and closure bases, due slot, and
+outbox row. Dispatch joins and revalidates that subject under the shared lock order. Duplicate
+schedulers are arbitrated by the unique preference+due-slot constraint under genuine contention;
+delayed runs advance to one slot and never emit a catch-up burst.
+
+When the complete current snapshot fits safely, the code-rendered prompt offers exact
+whole-message `SAME`. It is parsed after `STOP` and ordinary `YES`/`NO`, before farmer keywords,
+and reaches no model. A valid reply publishes an ordinary identical inventory revision, leaving
+`published_at` as the one recency fact. No inventory, an unshowable snapshot, replay, expiry,
+changed bases or preference, pause, closure, revocation, consent stop, or wrong provider prompt
+cannot publish. Farmer change text invalidates the scheduled proposal and opens the ordinary
+confirmation flow.
+
+`/stand/<token>/settings` now exposes the explicit cadence or pause for every editable stand while
+keeping consent separate. Browser verification used real local Postgres and the app at a true
+390×844 viewport and at 1440×1000, covering initial, saved, recoverable-error, and revoked-link
+states. Each mobile capture measured 390px document/body width with zero horizontal scroll. The
+save was verified in the preference row, not only the success message.
+
+Migration 0014 adds the reviewed Vashon timezone, preferences, and typed scheduled subjects. Its
+populated pre-F-052 fixture preserves all existing location rows, maps them explicitly to
+`America/Los_Angeles`, and creates no preference or scheduled subject. Production remains below
+this migration and behavior.
 
 **F-051 deterministic multi-stand targeting is complete on this branch and is not deployed.**
 `STAND`, `SETTINGS`, and a live menu number are parsed in code after compliance and commitment
@@ -22,7 +47,7 @@ receipt, and decline receipt names the exact stand. The model receives no target
 
 `SETTINGS` reuses F-040's standing token and revocation lifecycle at
 `/stand/<token>/settings`. The page lists only that authorization's editable locations and edits
-only the sender's default SMS stand; it has no F-052 cadence/pause or consent controls. Browser
+the sender's default SMS stand; F-052 now adds cadence/pause there while leaving consent out. Browser
 verification used a production build with synthetic data at 390×844 and 1440×1000, covering
 active multi-stand, saved success, revocation after page load, and inactive-link states. The save
 was verified by reading the selected `South Stand` row, and the revocation error was verified by

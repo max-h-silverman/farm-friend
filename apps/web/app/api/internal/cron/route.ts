@@ -13,9 +13,9 @@ import { runScheduledPromptPass } from "../../../../lib/scheduled-prompts";
 
 // The scheduled worker trigger (F-023, docs/RUNBOOK.md §"Scheduled work").
 //
-// ONE internal route runs every scheduled pass: inbound routing, outbound dispatch, B-012
-// delivery-callback application, and the F-026 retention purge. A new scheduled job adds its
-// call below — one mechanism, not a second cron surface per job.
+// ONE internal route runs every scheduled pass: inbound routing, F-052 inventory prompting,
+// outbound dispatch, B-012 delivery-callback application, and the F-026 retention purge. A new
+// scheduled job adds its call below — one mechanism, not a second cron surface per job.
 //
 // ## Authentication moved OUT of this process, and that is a strengthening
 //

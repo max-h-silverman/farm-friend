@@ -32,8 +32,9 @@ render an honest "updated X ago" without a second provenance axis.
 
 - **farms and sales locations** — the farm and its stands or sales points. A location's
   `owner_farm_id` is the farm authorized to govern address, hours, closure, and visibility; owner
-  authority is not seller participation. A farm without a public stand records an exact,
-  approximate, or hidden map location.
+  authority is not seller participation. Each location carries one reviewed timezone used for
+  local scheduled work; launch currently permits only `America/Los_Angeles`. A farm without a
+  public stand records an exact, approximate, or hidden map location.
 - **farmer contacts and authorization** — who may act for a farm, and proof they control the phone
   number. **VIGA always grants this**, because a phone proves possession of a phone and not
   ownership of a farm: the only writer is administrator-gated, re-reads the administrator's
@@ -58,6 +59,10 @@ render an honest "updated X ago" without a second provenance axis.
   sender, plus at most one 12-hour numbered menu whose options bind exact tuples. Selection is
   convenience, never authority: every use revalidates live authorization and location. Populated
   pre-F-051 links keep both target columns null and retain their one-location resolution rule.
+- **inventory-prompt preferences** (F-052) — at most one explicit farmer-selected cadence and
+  designated authorization per stand: every 2 days, weekly, every 2 weeks, or paused. No historical
+  behavior or migration creates a preference. Version, next due time, and last due slot let code
+  invalidate stale work and advance to one slot without a catch-up burst.
 - **VIGA approval** — recorded **separately** from onboarding completion; approval is VIGA's act,
   not a side effect of a farmer finishing a form. Approval and revocation both record **which
   administrator acted and when**, and revocation updates the row rather than deleting it: published
@@ -128,6 +133,12 @@ render an honest "updated X ago" without a second provenance axis.
   activation, expiry, and consumption state. Existing inventory entries retain their opaque
   reference IDs in that payload; code issues opaque draft IDs for new entries so later unconfirmed
   edits can target them. This is neither an inventory nor a closure revision.
+- **scheduled inventory-prompt subjects** (F-052) — the exact durable meaning of a queued prompt:
+  proposal and version, preference and version, designated authorization, owner and location,
+  inventory and closure bases, due slot, outbox row, and whether the complete visible snapshot made
+  `SAME` safe to offer. It stores no inferred meaning from message text; dispatch joins this typed
+  row and revalidates it. `SAME` publishes an ordinary identical inventory revision, so
+  `published_at` remains the one recency fact.
 - **one pending result list per sender** (F-046) — the ordered fact identifiers a customer's last
   answer selected, the product words it was about, how far through them they have read, and an
   expiry. `MORE` **replays** this list rather than re-running retrieval, so paging is consistent
@@ -189,6 +200,12 @@ These are **database-level** requirements, not application conventions:
   issue; every option number is positive and unique within the sender's exact menu. Targeted
   standing-link owner/location columns are both null or both populated, with composite foreign
   keys binding both the authorization and location to that owner.
+- **One prompt preference per stand and one subject per preference due slot** (F-052) — unique
+  constraints make both facts structural. Preference versions are positive; paused rows have no
+  next due time; active rows do. Subject versions are positive, owner/location/authorization and
+  inventory/closure bases are composite-FK bound, and a subject may offer `SAME` only when an
+  inventory base exists. The due-slot unique constraint, not a row lock on a nonexistent subject,
+  arbitrates concurrent schedulers.
 - **A farmer's standing link resolves through its authorization, every request** (F-040) — the link
   carries no claim and no cached state, so there is nothing that could still resolve after the
   authority behind it was revoked. This is a *shape* requirement rather than a constraint the

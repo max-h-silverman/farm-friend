@@ -216,10 +216,10 @@ describe("public web surface boundary (integration)", () => {
 
     const location = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
-      values (${ids.farm}, 'farm_stand', 'Provo Stand', '123 Vashon Hwy',
+      values (${ids.farm}, 'farm_stand', 'Provo Stand', 'America/Los_Angeles', '123 Vashon Hwy',
               47.4471, -122.4594, false, false)
       returning id
     `;
@@ -354,10 +354,10 @@ describe("public web surface boundary (integration)", () => {
       // hides the majority or flattens "confirmed 3 hours ago" into "we have no idea".
       const second = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${ids.farm}, 'farm_stand', 'Unseeded Stand', '456 Vashon Hwy',
+        values (${ids.farm}, 'farm_stand', 'Unseeded Stand', 'America/Los_Angeles', '456 Vashon Hwy',
                 47.4480, -122.4600, false, true)
         returning id
       `;
@@ -405,11 +405,11 @@ describe("public web surface boundary (integration)", () => {
     async function insertContactOnly(name: string): Promise<string> {
       const rows = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, visitability, offering_type,
+          owner_farm_id, kind, name, timezone, visitability, offering_type,
           public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${ids.farm}, 'farm_stand', ${name}, 'contact_only', 'by_order',
+        values (${ids.farm}, 'farm_stand', ${name}, 'America/Los_Angeles', 'contact_only', 'by_order',
                 null, null, null, false, false)
         returning id
       `;
@@ -754,10 +754,10 @@ describe("public web surface boundary (integration)", () => {
       // still sort behind a confirmed one, or the map opens on the least certain listings.
       const second = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', '456 Vashon Hwy',
+        values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', 'America/Los_Angeles', '456 Vashon Hwy',
                 47.448, -122.46, false, false)
         returning id
       `;

@@ -85,12 +85,12 @@ describe.skipIf(!databaseUrl)("visitability and offering type (integration)", ()
   }) {
     return db()`
       insert into sales_locations (
-        owner_farm_id, kind, name, visitability, offering_type,
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${farmId}, 'farm_stand', ${fields.name},
+        ${farmId}, 'farm_stand', ${fields.name}, 'America/Los_Angeles',
         ${fields.visitability}::sales_location_visitability,
         ${fields.offeringType}::sales_location_offering_type,
         ${fields.address}, ${fields.latitude}, ${fields.longitude},
@@ -271,11 +271,11 @@ describe.skipIf(!databaseUrl)("visitability and offering type (integration)", ()
     // application would report it.
     const rows = await db()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${farmId}, 'farm_stand', 'Legacy Shaped Insert', '5 Legacy Way',
+        ${farmId}, 'farm_stand', 'Legacy Shaped Insert', 'America/Los_Angeles', '5 Legacy Way',
         47.45, -122.46, false, false
       )
       returning visitability, offering_type

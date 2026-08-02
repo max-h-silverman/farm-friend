@@ -742,10 +742,10 @@ describe("inbound routing end to end (integration)", () => {
 
       const location = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${farmId}, 'farm_stand', 'Test Stand', '1 Test Rd', 47.45, -122.46,
+        values (${farmId}, 'farm_stand', 'Test Stand', 'America/Los_Angeles', '1 Test Rd', 47.45, -122.46,
                 false, false)
         returning id
       `;
@@ -952,10 +952,10 @@ describe("inbound routing end to end (integration)", () => {
         `;
         const stand = await client()`
           insert into sales_locations (
-            owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+            owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
             farm_bucks_accepted, farm_bucks_eligible
           )
-          values (${farm[0]?.id as string}, 'farm_stand', ${`Paging Stand ${index}`},
+          values (${farm[0]?.id as string}, 'farm_stand', ${`Paging Stand ${index}`}, 'America/Los_Angeles',
                   ${`${200 + index} Paging Rd`}, 47.45, -122.46, false, false)
           returning id
         `;

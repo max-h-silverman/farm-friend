@@ -102,10 +102,10 @@ describe("sales-location participant history constraints (integration)", () => {
     )?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${ids.ownerFarm}, 'farm_stand', 'Shared Stand', '50 Participant Way',
+        ${ids.ownerFarm}, 'farm_stand', 'Shared Stand', 'America/Los_Angeles', '50 Participant Way',
         47.44, -122.46, false, false
       ) returning id
     `;

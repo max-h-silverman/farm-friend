@@ -199,7 +199,7 @@ Inbound work has two triggers over the same Postgres-backed passes:
 | Trigger | Route | Role |
 |---|---|---|
 | Cloud Tasks | `POST /api/internal/kick` | Immediate inbound/outbound passes for one sender |
-| Cloud Scheduler | `POST /api/internal/cron` | Every-minute recovery: inbound → outbound → delivery → retention |
+| Cloud Scheduler | `POST /api/internal/cron` | Every-minute recovery: inbound → scheduled prompts → outbound → delivery → retention |
 
 The webhook commits first, then awaits one bounded Cloud Task creation before returning 200.
 `enqueueSenderWork` never throws and does not retry; a queue outage loses only latency because the
@@ -209,6 +209,9 @@ success. Postgres row locks and claims make task retries and concurrent schedule
 The scheduled passes are bounded and enumerate their own work:
 
 - **Inbound:** deterministic routing and state transitions.
+- **Scheduled prompts:** creates at most one due prompt per sender in deterministic stand order,
+  using the farmer's explicit per-stand cadence and 10:00 AM stand-local slot. It advances delayed
+  schedules without catch-up bursts and queues no work while paused or actively closed.
 - **Outbound:** dispatch claim, provider send, and result.
 - **Delivery:** applies stored carrier callbacks; provider acceptance alone is not delivery.
 - **Retention:** clears expired bodies, preserving rows, minimized projections, attempts, flags,
@@ -228,7 +231,11 @@ curl -X POST http://localhost:3000/api/internal/cron
 
 Verify the schedule by database effect, not its dashboard: expire an unflagged body, trigger or
 wait for the schedule, and confirm the body and `body_expires_at` become `NULL` while the row
-survives. Add future scheduled work inside `runScheduledWork`; never create a second cron surface.
+survives. For inventory prompts, make one preference due, trigger the same route, then verify the
+preference's due-slot advance, the open proposal, typed scheduled subject, and queued outbox row.
+Verify suppression by changing one dispatch basis before claim and observing both the outbox row and
+proposal become terminal without a provider send. Add future scheduled work inside
+`runScheduledWork`; never create a second cron surface.
 
 ## Telnyx webhook config
 

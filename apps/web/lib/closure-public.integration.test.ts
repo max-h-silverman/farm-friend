@@ -124,10 +124,10 @@ describe("one closure projection across public discovery and customer SMS (integ
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible, season_kind, open_hours_kind
       ) values (
-        ${farmId}, 'farm_stand', 'Reader Stand', '10 Reader Road', 47.44, -122.46,
+        ${farmId}, 'farm_stand', 'Reader Stand', 'America/Los_Angeles', '10 Reader Road', 47.44, -122.46,
         false, false, 'year_round', 'all_day'
       ) returning id
     `;

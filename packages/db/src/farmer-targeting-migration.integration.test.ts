@@ -149,6 +149,6 @@ describe("F-051 forward migration from populated pre-targeting schema (integrati
     expect(await client()`select * from farmer_target_menu_options`).toHaveLength(0);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
-    ).toEqual([{ count: 14 }]);
+    ).toEqual([{ count: 15 }]);
   });
 });

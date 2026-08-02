@@ -121,8 +121,9 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   confirmation and audit event: it is routed through db + clock before full model composition,
   re-resolves the link, and cannot grant access or attach names to profiles.
   `/stand/<token>/settings` reuses that same standing credential and revocation lifecycle. It
-  exposes only the authorization's editable locations and stores one default SMS target; it has
-  no second login, consent control, prompt cadence, or pause state.
+  exposes only the authorization's editable locations, stores one default SMS target, and lets the
+  farmer explicitly choose or pause one inventory-reminder cadence per stand. It has no second
+  login and no consent control; pausing reminders never changes launch-program consent.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
@@ -205,11 +206,16 @@ returning` against `sms_consents`' primary key — **not** by a read, and not by
 
 **Deterministic code decides three things about every outbound message, and the model decides none
 of them: who may receive it, whether launch-program consent permits it, and whether it exceeds the
-recipient's message-frequency limits.** The first two are enforced at the dispatch claim today. The
-third is a **requirement not yet built**: the farmer's preferred prompt cadence and any rate cap are
-a recorded-but-unresolved launch decision (PRODUCT_BRIEF §unresolved), and when they are set the cap
-belongs beside `isProactiveSendPermitted` at the same dispatch boundary — never in a prompt, never in
-model output, and never as a second consent mechanism.
+recipient's general message-frequency limit.** The first two are enforced at the dispatch claim.
+The third remains a **requirement not yet built**: launch has no general cross-category rate cap,
+and when one is set it belongs beside `isProactiveSendPermitted` at the same dispatch boundary —
+never in a prompt, never in model output, and never as a second consent mechanism.
+
+Scheduled inventory prompts have their narrower per-stand cadence now. They are created at 10:00
+AM in the stand's reviewed timezone and carry an exact durable subject. At dispatch code rechecks
+consent, designated authority, VIGA approval, preference version and due slot, current inventory
+and closure bases, active closure, and newer farmer activity before claiming the SMS. Pausing is a
+scheduling decision, never a second consent mechanism or the still-unbuilt general rate cap.
 
 Future programs require their own disclosed enrollment when they are approved and built. Launch has
 no program discriminator, future-program enrollment row, `JOIN <program>` grammar, or general
@@ -231,7 +237,11 @@ order:
    global**, commits **exactly once**, and **expires**. A token
    must match deterministically and be the **entire message**; anything else is free text for the
    steps below.
-4. **Farmer product keywords** (F-040/F-051) — `SIGNUP` asks VIGA to set the farmer up, `LINK` asks
+4. **Scheduled snapshot confirmation** (F-052) — exact whole-message `SAME` may publish an
+   identical inventory revision only for the sender's active, provider-accepted scheduled prompt
+   whose complete snapshot was shown. With no such prompt it changes nothing; text such as
+   "same eggs?" continues below as free text. It never confirms closure or profile data.
+5. **Farmer product keywords** (F-040/F-051) — `SIGNUP` asks VIGA to set the farmer up, `LINK` asks
    for their private web-form link, `STAND` issues an exact numbered target menu, and `SETTINGS`
    opens the settings view through the existing standing link. Like `FLAG` these are **Farm Friend product keywords, never
    carrier-mandated ones**, and must never be registered as such. They are parsed **last among the
@@ -239,7 +249,7 @@ order:
    synonym ever collided with `STOP`, an opt-out would stop working. Neither grants anything:
    `SIGNUP` writes a record with no grant column, and `LINK` is refused unless the sender already
    holds a live authorization.
-5. **`MORE`** (F-046) returns the next page of the sender's pending result list. Also a **Farm
+6. **`MORE`** (F-046) returns the next page of the sender's pending result list. Also a **Farm
    Friend product keyword, never a carrier-mandated one**, and parsed **alongside the farmer
    keywords at the end** for the same reason: paging must never shadow an opt-out or a commitment
    token. It is **context-bound like a confirmation token, never global** — it means nothing
@@ -247,12 +257,12 @@ order:
    question. It is deliberately **independent of `YES`/`NO`**: a farmer with an open inventory
    confirmation can page and keep the confirmation, because the words do not overlap and blocking
    one for the other would solve a collision that does not exist.
-6. **A positive whole-message number** selects only from the sender's live 12-hour `STAND` menu.
+7. **A positive whole-message number** selects only from the sender's live 12-hour `STAND` menu.
    The stored option binds an exact authorization+location pair; without that context it is a
    code-rendered refusal, never free text.
-7. **Active conversation state** routes the message to its in-flight flow.
-8. **Authority and consent gates** determine what the sender may do.
-9. **Only then** may a model seam run.
+8. **Active conversation state** routes the message to its in-flight flow.
+9. **Authority and consent gates** determine what the sender may do.
+10. **Only then** may a model seam run.
 
 Farmer free text resolves the sender's durable exact target in code before interpretation. One
 live target is selected automatically; several with no selection issue the same numbered menu.

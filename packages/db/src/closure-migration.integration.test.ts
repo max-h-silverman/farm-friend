@@ -164,6 +164,6 @@ describe("F-049 forward migration from populated pre-change schema (integration)
     expect(await client()`select id from closure_revisions`).toHaveLength(0);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
-    ).toEqual([{ count: 14 }]);
+    ).toEqual([{ count: 15 }]);
   });
 });

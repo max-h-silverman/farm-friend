@@ -33,7 +33,9 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   events are no-ops; concurrent ordinary stateful work is serialized per sender; stale events fail
   closed; an older START cannot undo a newer STOP; one open inventory confirmation is enforced; a
   token predating its current prompt cannot commit; confirmation rechecks farmer authority and VIGA
-  approval, commits exactly once, and expires.
+  approval, commits exactly once, and expires. `SAME` is exact and context-bound after `STOP` and
+  ordinary `YES`/`NO`; it reaches no model and publishes only the complete snapshot bound to its
+  active scheduled subject.
 - **A model seam:** trace it in AI_ARCHITECTURE.md; keep durable writes/recipient/consent out of
   model output; run the **swap test**; run evals **and `npm run evals:live`**. Give the seam an entry
   in `SEAM_OUTPUT_SHAPES` (its examples are parsed through the real schema, so they cannot drift).
@@ -51,7 +53,10 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   stateful work per sender with Postgres row locks, and fail closed on stale events.
 - **SMS delivery:** commit unique outbox work with business state; recheck consent at the atomic
   dispatch claim; suppress work when STOP commits first; do not claim recall after dispatch
-  authorization; never automatically retry a possibly accepted ambiguous result.
+  authorization; never automatically retry a possibly accepted ambiguous result. For a scheduled
+  prompt, also recheck designated authority, approval, preference version/due slot, inventory and
+  closure bases, active closure, and newer farmer activity under the shared lock order. Prove
+  duplicate due-slot contention with each claimant queued behind a separately held row lock.
 - **The public map or feed:** it reads the **same published records** as SMS — web and SMS answers
   must agree. Render recency honestly. **Look at it in a browser before calling it done, at phone
   width and in both colour schemes** — F-043 shipped five defects past 719 green tests and a

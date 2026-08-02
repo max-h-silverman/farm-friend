@@ -122,11 +122,11 @@ describe("the farmer web surface behind a standing link (integration)", () => {
     const farmId = farms[0]?.id as string;
     const locations = await sql()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${farmId}, 'farm_stand', ${`Web Stand ${randomUUID()}`}, '3 Vashon Hwy',
+        ${farmId}, 'farm_stand', ${`Web Stand ${randomUUID()}`}, 'America/Los_Angeles', '3 Vashon Hwy',
         47.43, -122.43, false, false
       )
       returning id

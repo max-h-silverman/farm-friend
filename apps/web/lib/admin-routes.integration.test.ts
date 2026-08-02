@@ -713,11 +713,11 @@ describe("admin routes (integration)", () => {
       const token = await sessionFor(ids.administrator as string);
       const locations = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (
-          ${ids.farm as string}, 'farm_stand', 'Route Stand', '1 Vashon Hwy',
+          ${ids.farm as string}, 'farm_stand', 'Route Stand', 'America/Los_Angeles', '1 Vashon Hwy',
           47.4, -122.4, false, false
         )
         returning id
@@ -806,11 +806,11 @@ describe("admin routes (integration)", () => {
       `;
       const locations = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (
-          ${farms[0]?.id as string}, 'farm_stand', ${`Data Stand ${randomUUID()}`},
+          ${farms[0]?.id as string}, 'farm_stand', ${`Data Stand ${randomUUID()}`}, 'America/Los_Angeles',
           '9 Vashon Hwy', 47.42, -122.44, false, false
         )
         returning id

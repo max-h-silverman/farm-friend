@@ -104,10 +104,10 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     ids.farm = farms[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${ids.farm}, 'farm_stand', 'Closure Stand', '1 Closure Way', 47.44, -122.46,
+        ${ids.farm}, 'farm_stand', 'Closure Stand', 'America/Los_Angeles', '1 Closure Way', 47.44, -122.46,
         false, false
       ) returning id
     `;
@@ -386,10 +386,10 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     const otherFarmId = otherFarms[0]?.id as string;
     const otherLocations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${otherFarmId}, 'farm_stand', 'Binding Stand', '2 Closure Way', 47.43, -122.45,
+        ${otherFarmId}, 'farm_stand', 'Binding Stand', 'America/Los_Angeles', '2 Closure Way', 47.43, -122.45,
         false, false
       ) returning id
     `;

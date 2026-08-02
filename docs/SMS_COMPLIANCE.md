@@ -58,6 +58,18 @@ inventory confirmation can page and keep the confirmation open. The words do not
 blocking one for the other would solve a collision that does not exist while making a farmer feel
 ignored.
 
+### Scheduled inventory keyword (F-052 — never carrier-registered)
+
+| Keyword | Behavior |
+|---|---|
+| `SAME` | Publish an identical inventory revision only for the sender's active, provider-accepted scheduled prompt when that prompt displayed the complete current snapshot. **Context-bound, never global** — without that exact prompt it changes nothing, and "same eggs?" remains free text. It never confirms closure or profile data. |
+
+`SAME` is parsed after compliance and ordinary `YES`/`NO` commitment tokens, and before farmer
+product keywords. `STOP` therefore always wins, while an ordinary inventory confirmation keeps its
+existing meaning. Replay, expiry, a changed inventory or closure base, a changed or paused
+preference, revoked consent or authority, and the wrong provider prompt all refuse without
+publishing.
+
 These are **Farm Friend product keywords, exactly like `FLAG`** — not carrier-mandated, and they
 must **never** be registered as compliance keywords or transcribed into `TELNYX_10DLC_FIELD_VALUES.txt`.
 `farmer-keywords.test.ts` asserts both directions.
@@ -141,7 +153,8 @@ carrier-mandated keyword in campaign registration or public compliance copy.
 - **Launch-program consent** — one durable consent state. `JOIN` **establishes** it for a sender
   with no record; `START` establishes **or restores** it from any state. `STOP` clears it and
   applies across all Farm Friend messaging. No **proactive non-required** SMS is sent without active
-  launch consent.
+  launch consent. Inventory reminders use the same consent; choosing or pausing a cadence does not
+  establish, restore, or revoke it.
 
   **Why the two opt-in keywords differ (B-011).** The carrier keeps its own opt-out list and
   enforces it independently of ours: while a number is on it, Telnyx refuses every send with

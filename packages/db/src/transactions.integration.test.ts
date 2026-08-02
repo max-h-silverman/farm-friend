@@ -102,11 +102,11 @@ describe("authoritative SMS transaction schema (integration)", () => {
 
     const locations = await client`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${ids.farm}, 'farm_stand', 'Transaction Stand', '5 Stand Way',
+        ${ids.farm}, 'farm_stand', 'Transaction Stand', 'America/Los_Angeles', '5 Stand Way',
         47.45, -122.46, true, true
       )
       returning id

@@ -142,10 +142,10 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
-      values (${ids.farm}, 'farm_stand', 'Interpreted Stand', '11 Stand Way',
+      values (${ids.farm}, 'farm_stand', 'Interpreted Stand', 'America/Los_Angeles', '11 Stand Way',
               47.45, -122.46, false, false)
       returning id
     `;
