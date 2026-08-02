@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { FixedClock } from "@farm-friend/core";
+import { FixedClock, type InventoryInterpreter } from "@farm-friend/core";
 import type { InquiryModel } from "@farm-friend/ai";
 import { resolveFarmerLink, type Db, type Sql } from "@farm-friend/db";
 import { handleFreeText } from "./free-text";
@@ -146,7 +146,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
   it("offers the durable stand menu before interpreting free text when no target is selected", async () => {
     const senderHash = "d".repeat(64);
     await authorize(senderHash, ["North Stand", "South Stand"]);
-    const interpret = vi.fn(async () => ({
+    const interpret = vi.fn(async (_request: Parameters<InventoryInterpreter["interpret"]>[0]) => ({
       kind: "edits" as const,
       additions: [{ itemName: "Kale" }],
       changes: [],
@@ -192,7 +192,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         providerEventId: "stand-choice-2",
       },
     );
-    const interpret = vi.fn(async () => ({
+    const interpret = vi.fn(async (_request: Parameters<InventoryInterpreter["interpret"]>[0]) => ({
       kind: "edits" as const,
       additions: [{ itemName: "Kale" }],
       changes: [],
