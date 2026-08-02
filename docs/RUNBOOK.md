@@ -105,19 +105,26 @@ the configured password proves access to that one account. There is no add-admin
 
 ### Provision, bootstrap, then sign in
 
-1. First make and inspect a targeted plan with the current immutable image digest; do not apply it
-   yet. Its assertion refuses any service, IAM, old-secret, or survivor action:
+1. First make and inspect a bootstrap plan with the current immutable image digest; do not apply it
+   yet. The four exclusions keep the retired secret, both services, and the runtime-read IAM block
+   out of this apply while allowing Terraform to record all four survivor address moves:
 
    ```bash
    cd infra
-   tofu plan -target='google_secret_manager_secret.protected["admin-password-hash"]' \
+   tofu plan \
+     -exclude='google_secret_manager_secret.app["magic-link-secret"]' \
+     -exclude='google_cloud_run_v2_service.web' \
+     -exclude='google_cloud_run_v2_service.worker' \
+     -exclude='google_secret_manager_secret_iam_member.runtime_reads' \
      -var="image_digest=$DIGEST" -out=/tmp/f056-password-secret.tfplan
-   tofu show -json /tmp/f056-password-secret.tfplan | python3 target-secret-plan-assertions.py
+   tofu show -json /tmp/f056-password-secret.tfplan | python3 bootstrap-secret-plan-assertions.py
    ```
 
-   Only after explicit approval limited to that reviewed plan, apply
-   `/tmp/f056-password-secret.tfplan`. It creates only the empty password container: no Cloud Run
-   revision, no magic-link-secret deletion, and no survivor replacement.
+   The assertion requires the four survivor address moves to be no-ops and the password-secret
+   container to be the only non-no-op action: `1 add, 0 change, 0 destroy`. Only after explicit
+   approval limited to that reviewed plan, apply `/tmp/f056-password-secret.tfplan`. It creates
+   only the empty password container: no Cloud Run revision, no magic-link-secret deletion, and no
+   survivor replacement.
 2. From a private terminal, run `npm run admin:provision-password --workspace @farm-friend/web`.
    It reads the password twice without echo, hashes it locally, and streams only the verifier to
    Secret Manager over stdin.
@@ -617,9 +624,10 @@ for deployed proof. Each can pass while production still uses the old secret.
 deploys, or every affected write fails in the gap. 0004 (B-010) was exactly this case.
 
 For the password cutover, do not let a full apply mount Secret Manager `latest` from an empty new
-container. First obtain explicit approval for a **targeted apply** that creates only
-`farm-friend-admin-password-hash`; confirm no Cloud Run service changed and the old magic secret
-still exists. Provision its first verifier through the private-terminal command. Then, with
+container. First obtain explicit approval for the **bootstrap plan** in §Provision, bootstrap, then
+sign in; confirm it records the four survivor address moves as no-ops, creates only
+`farm-friend-admin-password-hash`, changes no Cloud Run service, and retains the old magic secret.
+Provision its first verifier through the private-terminal command. Then, with
 separate explicit approval, fingerprint and migrate the production database (0015 revokes every
 pre-cutover session). Finally build the reviewed password-only image and review the full plan:
 it must destroy only the retired magic-link secret, retain all four survivors by address move, mount

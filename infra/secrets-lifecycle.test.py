@@ -1,7 +1,10 @@
 """F-056 source tripwire for protected Secret Manager lifecycle moves."""
 
 from pathlib import Path
+import json
 import re
+import subprocess
+import sys
 import unittest
 
 
@@ -47,6 +50,91 @@ class SecretLifecycleSourceTest(unittest.TestCase):
         self.assertIn("post_provision_secret_changes", plan_assertions)
         self.assertIn('google_secret_manager_secret.protected["admin-password-hash"]', plan_assertions)
         self.assertIn('google_secret_manager_secret.app["magic-link-secret"]', plan_assertions)
+
+    def test_bootstrap_plan_uses_only_the_safe_exclusions(self) -> None:
+        runbook = (ROOT.parent / "docs" / "RUNBOOK.md").read_text()
+        plan_command = re.search(
+            r"tofu plan (?P<command>.*?) -out=/tmp/f056-password-secret\.tfplan",
+            runbook,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(plan_command)
+        command = plan_command.group("command")
+        self.assertNotIn("-target", command)
+        self.assertEqual(command.count("-exclude="), 4)
+        self.assertEqual(
+            re.findall(r"-exclude='([^']+)'", command),
+            [
+                'google_secret_manager_secret.app["magic-link-secret"]',
+                "google_cloud_run_v2_service.web",
+                "google_cloud_run_v2_service.worker",
+                "google_secret_manager_secret_iam_member.runtime_reads",
+            ],
+        )
+        self.assertIn("python3 bootstrap-secret-plan-assertions.py", runbook)
+        self.assertNotIn("target-secret-plan-assertions.py", runbook)
+
+    def test_bootstrap_plan_assertion_requires_the_four_no_op_moves(self) -> None:
+        assertion_script = ROOT / "bootstrap-secret-plan-assertions.py"
+        self.assertTrue(assertion_script.exists())
+        survivor_keys = (
+            "database-url",
+            "phone-hash-salt",
+            "telnyx-api-key",
+            "deepinfra-api-key",
+        )
+        resource_changes = [
+            {
+                "address": f'google_secret_manager_secret.protected["{key}"]',
+                "previous_address": f'google_secret_manager_secret.app["{key}"]',
+                "change": {"actions": ["no-op"]},
+            }
+            for key in survivor_keys
+        ]
+        resource_changes.append(
+            {
+                "address": 'google_secret_manager_secret.protected["admin-password-hash"]',
+                "change": {"actions": ["create"]},
+            }
+        )
+
+        accepted = subprocess.run(
+            [sys.executable, assertion_script],
+            input=json.dumps({"resource_changes": resource_changes}),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+        missing_move = subprocess.run(
+            [sys.executable, assertion_script],
+            input=json.dumps({"resource_changes": resource_changes[1:]}),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(missing_move.returncode, 1)
+
+        collateral_change = subprocess.run(
+            [sys.executable, assertion_script],
+            input=json.dumps(
+                {
+                    "resource_changes": resource_changes
+                    + [
+                        {
+                            "address": "google_cloud_run_v2_service.web",
+                            "change": {"actions": ["update"]},
+                        }
+                    ]
+                }
+            ),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(collateral_change.returncode, 1)
 
 
 if __name__ == "__main__":
