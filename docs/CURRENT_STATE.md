@@ -5,13 +5,11 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production serves the Phase 0 confirmation repairs from commit
-`44110d2` on Cloud Run as one image across the public web and private worker services. Production
-Postgres is `neondb` with 10 applied migrations (`0000`–`0009`). The last production fingerprint
-found 1 contact, 35 sales locations, 212 offerings, 1 administrator, and no inventory revisions,
-proposals, farmer authorizations, farmer links, farm approvals, or admin sessions.
-
-The local release candidate is ahead of production and is **not deployed**. It contains:
+Farm Friend is **pre-go-live**. Commit `a7e1417` is live on Cloud Run as one image across web
+revision `farm-friend-web-00015-g76` and worker revision `farm-friend-worker-00016-gt2`, both at
+digest `sha256:9dbf6e6d97e7a3e765bcf856a798eaeb9577054b58f8c0ab401b79b28ed633d9`.
+Production Postgres is `neondb` with all 15 migrations applied (`0000`–`0014`, through journal
+timestamp `1786300000000`). Production now includes:
 
 - F-049: owner-confirmed stand closure and reopening;
 - F-050: owner-confirmed **Also selling here** names;
@@ -22,15 +20,13 @@ The local release candidate is ahead of production and is **not deployed**. It c
 - B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
   removed; active documentation reconciled to the final architecture.
 
-Migrations `0010`–`0014` are not applied in production. Because this is pre-go-live and the affected
-production tables contain no user workflow rows, those unapplied migrations define the final schema
-directly: administrator identity is email-only, every standing link names one exact authorized
-stand, sales-location ownership is `owner_farm_id`, and proposal rows contain only the fields the
-current confirmation flow reads. There is no rolling or nullable compatibility state.
+Administrator identity is email-only, every standing link names one exact authorized stand,
+sales-location ownership is `owner_farm_id`, and proposal rows contain only the fields the current
+confirmation flow reads. There is no rolling or nullable compatibility state.
 
 ## Verification
 
-The B-033 release candidate passes 879 unit tests, 572 integration tests across 39 files against
+The deployed commit passes 879 unit tests, 572 integration tests across 39 files against
 an isolated real Postgres server, 44 scripted eval cases, typecheck, lint, and the production web
 build. The integration run creates empty databases and also exercises the populated B-031/B-032
 forward-migration proofs: authority, participant, location, proposal, and revision rows survive;
@@ -49,7 +45,10 @@ five representative provider message arrays are byte-identical to the pre-B-033 
 `80d9dbc6da7ec487f70acd1c2842775b81372a170c3f047c78f3025eacf3b1b5`). Therefore no paid
 `evals:live` run is owed for B-033. Scripted evals remain required.
 
-## What works in the local release candidate
+Production release verification passed the live health, public, protected-admin, SMS, and removed
+admin-GET route checks. The Cloud Tasks queue is `RUNNING`; the Cloud Scheduler job is `ENABLED`.
+
+## What is live
 
 - **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
   names, transient browser proximity, destination links, and a code-bound stock-out form.
@@ -82,8 +81,6 @@ five representative provider message arrays are byte-identical to the pre-B-033 
 
 ## Open before go-live
 
-- **F-029:** apply migrations, deploy the release candidate, wire/verify the live carrier path, and
-  execute the launch verification ladder.
 - **F-031:** select and attest a mail provider; until then administrator sign-in links are not
   delivered and must be minted out of band.
 - **B-024:** permanently encode the farmer's no-public-address instruction in seed behavior before
@@ -91,6 +88,6 @@ five representative provider message arrays are byte-identical to the pre-B-033 
 - **B-008:** the deployed web build still lacks a truthful lint gate.
 - **F-044:** verify the Squarespace embed handshake on VIGA's actual page.
 - Physical-handset checks remain owed for the vCard and paged SMS threading/segments.
-- After deployment, exercise the complete farmer onboarding/status update, administrator view,
-  farmer settings, customer inquiry, and farmer update flows against the deployed system and verify
-  database effects rather than screen messages.
+- Exercise the complete farmer onboarding/status update, administrator view, farmer settings,
+  customer inquiry, and farmer update flows against production and verify database effects rather
+  than screen messages.

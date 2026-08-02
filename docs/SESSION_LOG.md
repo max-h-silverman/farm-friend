@@ -6,12 +6,61 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 42. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 43. A log too large to open
 mid-session defeats its own purpose.
 
 ---
 
-## 2026-07-31 (latest) — F-046 part 3: paging wired, deployed, and the two tests that could not fail
+## 2026-08-02 (latest) — one pre-go-live architecture shipped, with the dead alternatives removed
+
+Farm Friend's farmer-behavior tranche and final pre-go-live architecture are now in production at
+`a7e1417`. The deployment carries F-049 closure/reopening, F-050 participant names, F-051 exact
+multi-stand targeting and `STAND`/`SETTINGS`, F-052 scheduled prompts and `SAME`, and F-055's
+completed farmer/admin web workflows. The database moved first to all 15 migrations, through
+`1786300000000`; only then did web revision `farm-friend-web-00015-g76` and worker revision
+`farm-friend-worker-00016-gt2` take the shared digest
+`sha256:9dbf6e6d97e7a3e765bcf856a798eaeb9577054b58f8c0ab401b79b28ed633d9`.
+
+### Pre-go-live meant one architecture, not compatibility machinery
+
+B-031 removed the five access-bearing alternatives that had no launch consumer: nullable farmer
+link targets, raw-hash enrollment, nonce-less admin sessions, administrator phone identity, and a
+generic one-role facade. B-032 removed silent proposal/location defaults and proposal-owned schema
+and YES/NO token fields. Populated forward-migration tests preserve real rows while leaving future
+writes with one exact shape; decisive NULLs fail in Postgres rather than slipping through a CHECK.
+
+B-033 then deleted the misleading surfaces left around that final schema: five unused admin queue
+GET handlers beside the server-rendered pages, provider label and duplicate schema-name fields,
+optional output instructions that every real projection already supplied, and the runnable phone
+rehash path that contradicted the never-rotate salt rule. Only the flag-thread GET remains because
+the browser actually consumes it. Historical migrations and dated records remain evidence, never a
+second callable architecture.
+
+### The absence tests had to prove they could fail
+
+The new tripwires strip comments/imports and anchor to executable exports and call sites. Sabotage
+made all five deleted GETs, the surviving browser fetch, each AI contract removal, and both phone
+recovery guards fail for the claimed effect before restoration. Provider requests across all five
+model projections were byte-identical before and after B-033 (SHA-256
+`80d9dbc6da7ec487f70acd1c2842775b81372a170c3f047c78f3025eacf3b1b5`), so no paid live eval
+was owed: the type surface shrank without changing a projection, schema, output contract, or model
+message.
+
+Final local verification passed 879 unit tests, 572 real-Postgres integration tests across 39
+files, 44 scripted eval cases, typecheck, lint, production build, and true no-op Drizzle generation.
+One integration pass hit the known cross-suite fixture deadlock at a `TRUNCATE`; with the change
+stashed, the unchanged-base file passed 19/19, and the restored complete suite passed 572/572.
+
+### Production is current; user-journey proof remains pre-go-live work
+
+Live health, public, protected-admin, SMS, and removed-route checks passed after deployment. The
+Cloud Tasks queue is `RUNNING` and the Cloud Scheduler job is `ENABLED`. What remains is product
+exercise, not an owed release: run the complete farmer onboarding/status update, administrator,
+farmer settings, customer inquiry, and farmer update journeys against production and verify durable
+database effects. Mail-provider attestation, the Squarespace embed handshake, and physical-handset
+vCard/paging checks remain separate open gates.
+
+## 2026-07-31 — F-046 part 3: paging wired, deployed, and the two tests that could not fail
 
 Parts 1-2 had merged deliberately inert: the page renderer, the `MORE` keyword, and migration
 `0009_pending_result_lists` all existed and **nothing wired them**, so a customer texting `MORE`
@@ -801,123 +850,3 @@ friendlier "call ahead or take a chance", which nudges toward risk in VIGA's voi
 stating the absence. **Copy is approved; nothing is built.**
 
 ---
-
-## 2026-07-29 — F-041 offerings seeded, F-039 the vCard, and a farmer's address we should never have published
-
-A subagent session: two items built in isolated worktrees, both verified by the coordinator rather
-than relayed. Then the offerings seed, which found something more important than itself.
-
-### Both agents died uncommitted, and verifying rather than trusting caught two real defects
-
-A session limit killed both agents mid-edit with **nothing committed** — the exact "reported
-completion with uncommitted work" hazard the standing rules name, except neither got as far as
-reporting. Recovering their worktrees and re-running everything found two defects in work that
-otherwise looked finished:
-
-- **F-041 had a typecheck failure** at the line the agent died on (`indexLocationsByMatchKey(sql: Sql)`
-  called with a `Tx`; the two are deliberately distinct types).
-- **F-041's ambiguity test leaked its fixture.** It seeded two colliding stands and left them in the
-  shared database, so the *next* test inherited the collision and threw. It read as a defect in the
-  dry run; it was test isolation. **An ambiguity is a whole-database property, not a per-call one** —
-  a leaked colliding pair makes every later call in the suite throw. Had the agent's report been
-  relayed, this would have been a reported green that wasn't.
-- **F-039 had no route at all.** The renderer and its tests existed; `apps/web/lib/contact-card.ts`
-  and the route file did not, so the test file could not even load. Resumed the agent to finish it.
-
-### F-041 — key the loader through the seed join's own normalization
-
-`seedOfferings` matched `sales_locations.name` as an exact string, but the approved artifact records
-each farm's **map-export** name while the seed stores the **form** name. Measured against production:
-26 of 31 matched; five were silently reported unknown and given no tags. Fixed by reusing
-`matchStandName` — one mechanism, two consumers — rather than regenerating the artifact, so the loader
-survives the *next* naming difference. An ambiguous name **refuses the whole batch**, on the same
-reasoning the join itself uses: a wrongly joined pair is silently wrong, a missed one is a reported
-refusal. Measured after: **31/31, 0 unmatched, 0 ambiguous collisions across 35 stands.**
-
-**`--dry-run` now resolves against the database** (`planOfferings`), printing `Aeggy's -> "Aeggy's
-Farm"` when names differ. The old dry run only echoed the file, so it reported 31 entries while 26
-could land — *that* is how the five stayed invisible. A dry run that cannot see the database cannot
-show the facts a reviewer needs, so `DATABASE_URL` is now required for one.
-
-### Why four farms had no tags — not "newer", structurally unreachable
-
-The assumption was that they postdated the proposal run. **Three exist only in the FORM export**,
-which `offerings:propose` never reads (it takes the map CSV), and `parseStandCsv` anchors on the
-`POINT (` literal — so a row with no coordinate is **invisible rather than rejected**, with 0
-rejections reported. The fourth, Handpicked Homestead, appears in the map file only as text inside
-*another* farm's description. Proposed the three through the real seam and gate; max approved.
-
-### The real finding: we published an address a farmer asked us not to (B-024)
-
-Investigating those four surfaced that **Handpicked Homestead was live as a `visitable` stand at her
-home address with a real map pin**, while her own form `extraNotes` said *"I don't have my own
-farmstand - please add me under Plum Forest's location, do not add my address."* The map was sending
-customers to a private residence with no stand.
-
-**`extraNotes` is parsed but consumed only by `offering-type.ts`** — nothing reads it for visibility
-or visitability. The instruction was sitting in the record with no consumer: the same
-data-present/consumer-absent shape as B-013 and F-038's Atlantic pin, but worse in kind, because the
-coordinate is *correct* and it is someone's house.
-
-Scanned the whole corpus for the same class of language ("do not add", "don't have my own",
-"available at", "under X's location"): **exactly one instance**, so a contained fix rather than a
-re-seed. max approved unpublishing as the interim. `is_public = false` — chosen because it already
-gates `listPublicStands`, so no schema change and no new concept for one row. Her address and
-coordinates are **preserved**; she is really a *producer* whose goods sell at another farm's stand,
-and **no producer/host relationship was invented for a single row**.
-
-### Seeding is not the same as surfacing (F-042)
-
-212 tags landed across 33 of 35 stands, idempotent (second run: inserted 0, skipped 212), with every
-structural invariant intact — 0 inventory revisions, 0 entries, 0 authorizations, 0 approvals, so no
-fabricated confirmation. Then checking the live endpoint showed **0 stands exposing offerings**:
-`listPublicStands` never selects `sales_location_offerings`. All 33 tagged stands still render *"No
-listing yet."* The seed reported success, the database agreed, and the customer-facing surface was
-unchanged — filed as F-042 rather than calling F-041's goal met.
-
-### Also found: production has no administrator (B-023)
-
-`administrators` is **0 rows**, so the entire deployed operator surface is unreachable by anyone — a
-verified link for an address with no administrator row renders 401, correctly and permanently. Those
-4 seeded stand-data flags have nobody who can see them. **Distinct from F-031 and not blocked by it**:
-F-031 is mail transport, this is the authority row the link resolves against, and fixing mail alone
-still yields 401. `bootstrap-administrator.ts` exists and has never run against production.
-
-### Two decisions recorded
-
-**Display name `VIGA Farm Friend`** (max) — organization first, so it sorts near other VIGA contacts.
-An agent had written "Decided by max, 2026-07-29" into the code *before* max had actually chosen; that
-attribution was corrected to provisional mid-session and confirmed afterwards. **A tool-prompt result
-is not user input.**
-
-**A proposal pass over the newer farms was in scope** (max), so all reachable stands carry offerings.
-
-### Verified
-
-`npm test` **596/596** (61 files); `npm run test:integration` **334/334** (20 files) on real
-Postgres 16; typecheck and lint exit 0; `infra/test_deploy_assertions.py` **10/10**. Evals not
-re-run — the offering pass *used* the existing seam; no projection, schema, or output contract
-changed. Sabotage verified on both items: F-041 (exact lookup → 6 fail; ambiguity refusal off → 1;
-dry run made to write → 1) and F-039 (hard-coded number → 5 fail; `text/plain` → 2; a
-`NOTE:Text JOIN to subscribe` → 2). The vCard's well-formedness was proven by `file(1)` — an
-independent tool — reporting `vCard visiting card, version 3.0`, 153 bytes, 6 CRLF pairs, 0 bare LF.
-
-**CLAUDE.md was condensed this session** from ~87k chars to a lean snapshot; the displaced
-subsystem narratives are in this log's earlier entries and the archive, not deleted.
-
-### The deploy found one more platform defect, by effect (B-025)
-
-Deployed at the end of the wrap: build → plan → **29/29** plan assertions → apply → **deploy
-assertions PASSED** (revisions `web-00007-4mb` / `worker-00008-gg2`, one digest on both, each newer
-than every secret version). The plan diff was read field by field: only the image digest and the
-known non-converging `scaling` block changed.
-
-Then curling the newly shipped route found that **the vCard loses its CRLF line endings on the
-wire** — 147 bytes / 0 CRLF / 6 bare LF in production, where the renderer produces 153 / 6 / 0, and
-`file(1)` rejects it. The handler applies no transform (it passes the string straight into
-`new Response`), and it reproduces on **both HTTP/1.1 and HTTP/2**, so the Next.js response path or
-the proxy layer is normalizing the body. **596 unit tests pass and the renderer's own CRLF assertion
-is correct** — the property belongs to the platform, so nothing local could see it. Same family as
-B-009 and B-005–B-008, and found only because the rule is *verify the real thing by effect in the
-deployment*. A malformed card fails by opening **nothing**, which is exactly the silent shape this
-route was built to avoid.
