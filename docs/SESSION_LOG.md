@@ -58,7 +58,11 @@ Cloud Tasks queue is `RUNNING` and the Cloud Scheduler job is `ENABLED`. What re
 exercise, not an owed release: run the complete farmer onboarding/status update, administrator,
 farmer settings, customer inquiry, and farmer update journeys against production and verify durable
 database effects. Mail-provider attestation, the Squarespace embed handshake, and physical-handset
-vCard/paging checks remain separate open gates.
+vCard/paging checks remain separate open gates. `npm audit --omit=dev` also reports three
+high-severity production dependency advisory groups in direct `drizzle-orm`, direct Next.js, and
+transitive PostCSS; B-034 owns supported-line upgrades and application-reachability assessment,
+with no observed exploit and some advisory reachability still unconfirmed. F-029 remains open only
+for live carrier/JOIN launch verification; its migration and deploy legs are complete.
 
 ## 2026-07-31 — F-046 part 3: paging wired, deployed, and the two tests that could not fail
 

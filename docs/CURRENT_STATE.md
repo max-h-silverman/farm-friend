@@ -81,11 +81,17 @@ admin-GET route checks. The Cloud Tasks queue is `RUNNING`; the Cloud Scheduler 
 
 ## Open before go-live
 
+- **F-029:** complete the remaining live carrier/JOIN launch verification. Its migration and deploy
+  legs are complete.
 - **F-031:** select and attest a mail provider; until then administrator sign-in links are not
   delivered and must be minted out of band.
 - **B-024:** permanently encode the farmer's no-public-address instruction in seed behavior before
   any reseed. Production is currently hidden as an approved interim correction.
 - **B-008:** the deployed web build still lacks a truthful lint gate.
+- **B-034 (planned, high):** `npm audit --omit=dev` reports three high-severity production
+  dependency advisory groups: direct `drizzle-orm`, direct Next.js, and transitive PostCSS. Upgrade
+  to supported lines and assess application reachability. No exploit was observed, and not every
+  advisory is known to be reachable in Farm Friend.
 - **F-044:** verify the Squarespace embed handshake on VIGA's actual page.
 - Physical-handset checks remain owed for the vCard and paged SMS threading/segments.
 - Exercise the complete farmer onboarding/status update, administrator view, farmer settings,
