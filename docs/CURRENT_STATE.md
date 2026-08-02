@@ -20,13 +20,16 @@ timestamp `1786300000000`). Production now includes:
 - B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
   removed; active documentation reconciled to the final architecture.
 
-The deployed administrator path still uses its pre-F-056 email authentication. Every standing link names one exact authorized stand,
-sales-location ownership is `owner_farm_id`, and proposal rows contain only the fields the current
-confirmation flow reads. There is no rolling or nullable compatibility state.
+The F-056 code through `f041669` is merged into and pushed on `origin/main`, but is **not deployed**.
+The reviewed bootstrap plan created only the empty `farm-friend-admin-password-hash` Secret Manager
+container and recorded the four surviving secret-container address moves in Terraform state. The
+new container has zero versions. Web and worker remain on revisions `farm-friend-web-00015-g76` and
+`farm-friend-worker-00016-gt2` at the live digest above; both still mount `MAGIC_LINK_SECRET`, neither
+mounts `ADMIN_PASSWORD_HASH`, and production therefore still uses its pre-F-056 email authentication.
 
-The F-056 candidate on branch `f-056-admin-password-login` is **not deployed**. It replaces that
-admin path with the fixed `board@vigavashon.org` password account, durable dual-scope throttling,
-and migration `0015`; deployment proof and production secret cutover remain owed.
+Every standing link names one exact authorized stand, sales-location ownership is `owner_farm_id`,
+and proposal rows contain only the fields the current confirmation flow reads. There is no rolling
+or nullable compatibility state.
 
 ## Verification
 
@@ -36,6 +39,20 @@ build. The integration run creates empty databases and also exercises the popula
 forward-migration proofs: authority, participant, location, proposal, and revision rows survive;
 exact-target and required-section NULL cases fail with Postgres `23502`; removed columns and
 defaults remain absent; and all 15 migrations are durable. Drizzle generation is a true no-op.
+
+The pushed F-056 commit `f041669` passes 842 unit tests, 551 integration tests across 40 files
+against a fresh local Postgres cluster, typecheck, lint, 44 scripted eval cases, and the production
+web build. Its route manifest contains `/api/auth/login` and `/api/auth/logout` and no deleted
+magic-link request or callback route.
+
+The F-056 bootstrap plan used the deployed immutable image digest and exactly the four runbook
+exclusions. `bootstrap-secret-plan-assertions.py` and direct JSON inspection proved four no-op
+survivor address moves plus one password-container create, with no service, IAM, secret-version,
+old-secret, replacement, update, or deletion action: `1 add, 0 change, 0 destroy`. Applying that
+exact saved plan produced the same summary. Direct cloud and state checks then proved the new
+container exists with zero versions, every existing secret container and version retained its
+pre-apply identity and metadata, both service revisions and mounts were unchanged, and state holds
+the four survivors at protected addresses alongside the new container and retained old secret.
 
 Sabotage made every load-bearing B-033 guard fail for its claimed effect, then the restored focused
 suite passed 10/10: all five removed queue GET exports, the surviving flag-thread browser call,
@@ -87,8 +104,10 @@ admin-GET route checks. The Cloud Tasks queue is `RUNNING`; the Cloud Scheduler 
 
 - **F-029:** complete the remaining live carrier/JOIN launch verification. Its migration and deploy
   legs are complete.
-- **F-056:** merge, provision the web-only password verifier, apply migration `0015`, deploy, and
-  prove password login, logout/session revocation, and all administrator surfaces by effect.
+- **F-056:** next, Max privately provisions the web-only password verifier using the non-echoing
+  runbook command. That provisioning, migration `0015`, the full cutover plan, old-secret deletion,
+  deployment, and live browser proof of password login, logout/session revocation, and every
+  administrator surface all remain pending and require their separate approvals.
 - **B-024:** permanently encode the farmer's no-public-address instruction in seed behavior before
   any reseed. Production is currently hidden as an approved interim correction.
 - **B-008:** the deployed web build still lacks a truthful lint gate.
