@@ -1786,6 +1786,8 @@ export interface RetentionPassResult {
   outboxBodiesPurged: number;
   /** Expired inbound bodies retained because their thread is under flag review. */
   exempted: number;
+  /** Expired administrator brute-force buckets deleted this pass. */
+  adminLoginFailuresPurged: number;
 }
 
 /** How many rows of each kind one pass will touch. */
@@ -1885,9 +1887,22 @@ export async function purgeExpiredBodies(
       and f.status = 'open'
   `;
 
+  const purgedLoginFailures = await sql`
+    delete from admin_login_failures
+    where bucket_hash in (
+      select bucket_hash from admin_login_failures
+      where window_expires_at <= ${input.now}
+      order by window_expires_at asc
+      limit ${limit}
+      for update skip locked
+    )
+    returning bucket_hash
+  `;
+
   return {
     messageBodiesPurged: purgedMessages.length,
     outboxBodiesPurged: purgedOutbox.length,
     exempted: (exempt[0]?.count as number) ?? 0,
+    adminLoginFailuresPurged: purgedLoginFailures.length,
   };
 }

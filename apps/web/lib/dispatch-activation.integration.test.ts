@@ -99,7 +99,7 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
     )?.id as string;
     const administrators = await client()`
       insert into administrators (email, authorized_at)
-      values ('b026-admin@viga.example', ${T0}) returning id
+      values ('board@vigavashon.org', ${T0}) returning id
     `;
     const farms = await client()`
       insert into farms (name) values ('B-026 Farm') returning id

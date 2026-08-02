@@ -109,7 +109,7 @@ describe("one closure projection across public discovery and customer SMS (integ
     const contact = (hash: string) => contacts.find((row) => row.phone_hash === hash)?.id as string;
     const admins = await client()`
       insert into administrators (email, authorized_at)
-      values ('closure-reader@viga.example', ${T0}) returning id
+      values ('board@vigavashon.org', ${T0}) returning id
     `;
     const farms = await client()`insert into farms (name) values ('Reader Farm') returning id`;
     const farmId = farms[0]?.id as string;

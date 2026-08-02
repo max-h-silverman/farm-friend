@@ -30,11 +30,10 @@ variable "public_max_instances" {
   description = <<-EOT
     Maximum instances for the PUBLIC service. Deliberately 1 at launch.
 
-    The abuse and sign-in throttles are intentionally in-memory and non-durable
-    (`createPublicActionThrottle`). With more than one instance those budgets multiply by the
-    instance count, because each process keeps its own map — a 5-per-minute limit becomes
-    5N-per-minute with no code change and nothing reporting it. Raising this requires a
-    deliberate distributed-throttle design, not just a bigger number here.
+    The stock-out model-cost throttle is intentionally in-memory (`createPublicActionThrottle`).
+    With more than one instance that budget multiplies by the instance count, because each process
+    keeps its own map. Administrator login has its own durable Postgres throttle. Raising this
+    requires a deliberate distributed design for the remaining stock-out budget.
   EOT
   type        = number
   default     = 1

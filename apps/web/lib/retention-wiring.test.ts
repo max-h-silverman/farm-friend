@@ -98,7 +98,7 @@ describe("the retention purge logs nothing", () => {
   });
 
   it("returns counts only — no body, no identifier, no phone", () => {
-    // The shape of the result is the guarantee: three integers. A field carrying an ID or a
+    // The shape of the result is the guarantee: count fields only. A field carrying an ID or a
     // body would put purged content into the trigger's HTTP response, which is a log.
     const result = transactionsSource.slice(
       transactionsSource.indexOf("export interface RetentionPassResult"),
@@ -107,10 +107,16 @@ describe("the retention purge logs nothing", () => {
     expect(fields).toMatch(/messageBodiesPurged: number/);
     expect(fields).toMatch(/outboxBodiesPurged: number/);
     expect(fields).toMatch(/exempted: number/);
+    expect(fields).toMatch(/adminLoginFailuresPurged: number/);
     // Nothing else. Any other field name would be carrying something that is not a count.
     const declared = [...fields.matchAll(/^\s*(\w+):/gm)].map((match) => match[1]!);
     expect(declared.sort()).toEqual(
-      ["exempted", "messageBodiesPurged", "outboxBodiesPurged"].sort(),
+      [
+        "adminLoginFailuresPurged",
+        "exempted",
+        "messageBodiesPurged",
+        "outboxBodiesPurged",
+      ].sort(),
     );
   });
 

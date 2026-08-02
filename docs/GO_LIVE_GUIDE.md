@@ -65,11 +65,11 @@ Owned by ARCHITECTURE §SMS ingress and SMS_COMPLIANCE.
 ways. Abandoned dispatch leases become `ambiguous`, never queued for resend; failures are isolated
 per row. Operator visibility remains with GL-016/GL-018.
 
-### GL-004 — Make admin magic links genuinely one-use
+### GL-004 — Protect administrator sign-in
 
-**Completed:** 2026-07-28 — `f6544a2`. The session insert atomically consumes a unique hashed
-nonce; concurrent, replayed, and malformed links fail closed without revealing administrator
-membership. Operational contract: RUNBOOK §Bootstrap, then sign in.
+**Superseded by F-056:** administrator access is one fixed database identity plus a configured
+password, with durable client and account-wide throttles. Pre-cutover sessions are revoked by the
+cutover migration; no retired authentication path remains active.
 
 ### GL-005 — Make the typecheck cover what its name claims
 
@@ -118,20 +118,11 @@ customer can use it.
 - Provide honest success, malformed-input, throttled, and unavailable states without revealing
   private farmer information.
 
-### GL-009 — Deliver admin sign-in email
+### GL-009 — Make administrator sign-in operable
 
-**Confirmed gap**
-
-The request form, enumeration-resistant response, throttle, token, callback, session, and admin
-guard exist. The mail seam deliberately refuses to send pending F-031, so an operator cannot
-actually receive the link.
-
-**Required outcome**
-
-- Select and configure a mail provider under an explicit data-handling review.
-- Send the repository-rendered plain-text message without provider-authored templates or tracking.
-- Verify request → email → one-use callback → session → logout end to end.
-- Add delivery diagnostics that do not reveal which email addresses are administrators.
+**Superseded by F-056:** no mail provider is part of the launch architecture. Go-live proof is the
+fixed account signing in with its password, receiving a hashed durable session, reaching the admin
+surface, signing out, and having the copied cookie refused.
 
 ### GL-010 — Build farmer onboarding and number verification
 
@@ -603,7 +594,8 @@ Farm Friend is ready for a go-live decision only when:
 - no exposed credential remains valid;
 - the complete automated ladder is green under the declared runtime;
 - the deployed scheduler and all four worker passes are proven by effect;
-- an administrator can request and consume one sign-in link;
+- the fixed administrator can sign in, reach every admin surface, sign out, and have the copied
+  cookie refused;
 - a farmer can onboard, be approved, set preferences, publish confirmed inventory by SMS and web,
   and receive a stock-out prompt;
 - a customer can use the real map/listing, ask a grounded SMS question, and submit a private

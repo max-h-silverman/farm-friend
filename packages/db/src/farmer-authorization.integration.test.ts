@@ -139,7 +139,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
     const administrators = await sql()`
       insert into administrators (email, authorized_at)
-      values ('farmer-admin@viga.example', ${at(0).toISOString()})
+      values ('board@vigavashon.org', ${at(0).toISOString()})
       returning id
     `;
     administratorId = administrators[0]?.id as string;
@@ -311,7 +311,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const revoked = await sql()`
         insert into administrators (email, authorized_at, revoked_at)
         values (
-          ${`revoked-${randomUUID()}@viga.example`}, ${at(0).toISOString()},
+          'board@vigavashon.org', ${at(0).toISOString()},
           ${at(1).toISOString()}
         )
         returning id

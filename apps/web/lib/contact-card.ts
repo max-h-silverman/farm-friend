@@ -25,8 +25,8 @@ import {
 // ## Why there is no throttle
 //
 // `createPublicActionThrottle` fronts public handlers that perform an EXPENSIVE or
-// CONSEQUENTIAL action — a model call that costs money (the QR stock-out form) or a mail send
-// that reaches a real operator's inbox (F-032). This route does neither. It renders ~150 bytes
+// CONSEQUENTIAL action — such as the QR stock-out form's paid model call. This route does neither.
+// It renders ~150 bytes
 // of static text from an environment variable; the response is byte-identical for every
 // caller, so there is nothing to enumerate and nothing metered to exhaust. Capping it would be
 // the failure mode the repo rule names — "normal public lookup is never artificially capped" —

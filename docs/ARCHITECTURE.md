@@ -447,34 +447,30 @@ uses the SMS sender, consent, frequency, and delivery controls rather than a coa
 signal.
 
 Two such handlers exist at launch: the **QR stock-out form** (F-019), which ingests free text into a
-model, and the **sign-in link request** (F-032), which causes Farm Friend to send mail. They share
-one mechanism on **separate budgets** — sharing a single instance would let anonymous stock-out
-traffic from a shared NAT exhaust a real operator's ability to sign in, an availability failure on
-the admin surface's recovery path.
+model, and **administrator password login** (F-056). Their budgets are independent so anonymous
+stock-out traffic cannot exhaust the admin recovery path.
 
 `createPublicActionThrottle` in
 `packages/core/src/public/throttle.ts` is a sliding per-client window over the injected `Clock`; the
-composition root constructs both instances (stock-out 5 / 60s; sign-in 3 / 15min). It was
-`createModelCallThrottle` until the sign-in path arrived — the mechanism was always general and only
-the name was model-specific, so it was renamed rather than duplicated.
+composition root constructs the stock-out budget (5 / 60s).
 `apps/web/lib/client-signal.ts` derives the bucket key by hashing the **leftmost**
 `x-forwarded-for` hop with the deployment salt — so no raw address reaches the throttle map, and
 appending a hop cannot buy a fresh budget. The key is a **cost bucket, never identity**: it is not
 durable, not an authorization input, and not a customer profile.
 
-Two orderings are load-bearing and tested on both consumers: the throttle is consulted **before** the
-rationed work — the model call, or on the sign-in path the administrator lookup, so a refused request
-performs no database read and cannot be used to time the table — and a **malformed body is rejected
-before the throttle** so junk cannot spend a genuine caller's budget. An absent signal collapses to
-one shared bucket rather than an exemption.
+For stock-out, the throttle is consulted before the model call and malformed input is rejected before
+spending its budget. An absent signal collapses to one shared bucket rather than an exemption.
 
-The sign-in path adds a constraint the stock-out path does not have: the budget is keyed by
-**client, never by the email address being probed**. A per-address budget is itself an enumeration
-oracle — an attacker learns which addresses are real by watching which ones begin refusing.
+Password login has a durable Postgres throttle because Cloud Run can scale and restart. It reserves
+an account-wide aggregate row first and a coarse-client row second, before Argon2 verification. The
+stable lock order serializes claimants; the client budget limits one network and the aggregate limits
+distributed guessing. Only salted opaque hashes are stored. Success clears the account row and that
+client's row, while other client failures survive. Expired rows are deleted in the existing bounded
+retention pass.
 
 The public routes are `GET /api/public/stands` (model-free, unthrottled),
 `GET /api/public/contact-card` (model-free and database-free, unthrottled),
-`POST /api/public/stock-out` (throttled), and `POST /api/auth/request-link` (throttled); handlers
+`POST /api/public/stock-out` (throttled), and `POST /api/auth/login` (throttled); handlers
 live in `apps/web/lib/` because Next.js permits only its own fields as route exports.
 
 `GET /api/public/contact-card` (F-039) serves a `text/vcard` contact card so a customer can save the

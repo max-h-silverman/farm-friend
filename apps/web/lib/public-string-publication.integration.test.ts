@@ -268,7 +268,7 @@ describe("public-string safety at the shared publication boundary (integration)"
     db = createDb(url);
     const administrator = await sql()`
       insert into administrators (email, authorized_at)
-      values ('public-safety-admin@viga.example', ${at(0)})
+      values ('board@vigavashon.org', ${at(0)})
       returning id
     `;
     administratorId = administrator[0]?.id as string;

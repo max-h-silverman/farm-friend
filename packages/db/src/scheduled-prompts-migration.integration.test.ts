@@ -101,6 +101,6 @@ describe("F-052 forward migration from populated pre-prompt schema (integration)
     `).rejects.toThrow(/timezone|null value/i);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
-    ).toEqual([{ count: 15 }]);
+    ).toEqual([{ count: 16 }]);
   });
 });

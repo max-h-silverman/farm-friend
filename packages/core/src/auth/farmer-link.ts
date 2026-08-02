@@ -7,11 +7,9 @@ import { createHash, randomBytes } from "node:crypto";
 // authentication event — and that difference is the whole reason this is a handful of lines
 // rather than a second auth system.
 //
-// **Why this is not `magic-link.ts`.** The admin magic link is a SIGNED CLAIM: it carries an
-// email and an expiry, and the callback trades it for a session. Signing works there because
-// the claim is short-lived and single-use. Here neither is true, and a signed standing claim
-// would be exactly wrong: a signature is stateless, so a revoked farmer's link would keep
-// verifying forever with nothing able to say otherwise. Revocation is the ONLY safety net
+// A self-contained signed standing claim would be exactly wrong: a signature is stateless, so
+// a revoked farmer's link would keep verifying forever with nothing able to say otherwise.
+// Revocation is the ONLY safety net
 // this design has, so the link must be a lookup key into a row someone can withdraw — never
 // something a verifier can validate on its own.
 //
@@ -39,9 +37,8 @@ export function hashFarmerLinkToken(token: string): string {
 /**
  * Build the URL a farmer bookmarks.
  *
- * `baseUrl` is the CONFIGURED public origin, never a request header — the same rule the
- * sign-in link follows, and for the same reason: a `Host:` an attacker controls would let us
- * text a farmer a link pointing at the attacker's origin.
+ * `baseUrl` is the CONFIGURED public origin, never a request header: a `Host:` an attacker
+ * controls would let us text a farmer a link pointing at the attacker's origin.
  */
 export function farmerLinkUrl(baseUrl: string, token: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/stand/${encodeURIComponent(token)}`;

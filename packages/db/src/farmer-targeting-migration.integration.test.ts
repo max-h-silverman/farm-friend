@@ -75,7 +75,7 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
     const now = new Date(Date.now() - 60_000);
     await client()`
       insert into administrators (email, authorized_at)
-      values ('populated-admin@viga.example', ${now})
+      values ('board@vigavashon.org', ${now})
     `;
     const farms = await client()`insert into farms (name) values ('Populated Farm') returning id`;
     const farmId = farms[0]?.id as string;
@@ -169,10 +169,10 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
         and column_name = 'contact_id'
     `).toHaveLength(0);
     expect(await client()`
-      select is_nullable from information_schema.columns
+      select column_name from information_schema.columns
       where table_schema = 'public' and table_name = 'admin_sessions'
         and column_name = 'magic_nonce_hash'
-    `).toEqual([{ is_nullable: "NO" }]);
+    `).toHaveLength(0);
     expect(await client()`
       select indexname from pg_indexes
       where schemaname = 'public'
@@ -180,6 +180,6 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
     `).toHaveLength(0);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
-    ).toEqual([{ count: 15 }]);
+    ).toEqual([{ count: 16 }]);
   });
 });

@@ -62,16 +62,21 @@ locals {
   # because a service referencing itself is a dependency self-cycle. Both services share one
   # per-project host suffix, so substituting the name is exact.
   #
-  # Configuration rather than a derived `Host:` header on purpose: a header an attacker controls
-  # would let the sign-in endpoint mail a real operator a link pointing at the attacker's origin.
+  # Configuration rather than a derived `Host:` header on purpose: farmer links are bearer
+  # credentials and must never be built against an attacker-controlled origin.
 
-  secret_env = {
+  shared_secret_env = {
     DATABASE_URL      = google_secret_manager_secret.app["database-url"].secret_id
     PHONE_HASH_SALT   = google_secret_manager_secret.app["phone-hash-salt"].secret_id
-    MAGIC_LINK_SECRET = google_secret_manager_secret.app["magic-link-secret"].secret_id
     TELNYX_API_KEY    = google_secret_manager_secret.app["telnyx-api-key"].secret_id
     DEEPINFRA_API_KEY = google_secret_manager_secret.app["deepinfra-api-key"].secret_id
   }
+
+  # Password verification is a public-service concern. The worker neither mounts nor can
+  # accidentally read this value from its process environment.
+  web_secret_env = merge(local.shared_secret_env, {
+    ADMIN_PASSWORD_HASH = google_secret_manager_secret.app["admin-password-hash"].secret_id
+  })
 }
 
 # ---------------------------------------------------------------------------
@@ -154,7 +159,7 @@ resource "google_cloud_run_v2_service" "web" {
       }
 
       dynamic "env" {
-        for_each = local.secret_env
+        for_each = local.web_secret_env
         content {
           name = env.key
           value_source {
@@ -247,7 +252,7 @@ resource "google_cloud_run_v2_service" "worker" {
       }
 
       dynamic "env" {
-        for_each = local.secret_env
+        for_each = local.shared_secret_env
         content {
           name = env.key
           value_source {

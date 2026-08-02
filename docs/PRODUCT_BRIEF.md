@@ -227,8 +227,10 @@ just the code, is the product answer:
 - **Inventory proposals: patch language in, complete snapshot out.** Farmers speak in edits; code
   applies them to the current snapshot and the farmer confirms the *complete* result, so every
   confirmation publishes one immutable revision (ARCHITECTURE §confirmation).
-- **Admin sign-in: a magic link to a known administrator's email address.** The link proves an
-  address; a durable `administrators` lookup — never the link — confers authority.
+- **Admin sign-in: one fixed VIGA account and password.** The database admits only
+  `board@vigavashon.org`; the web service verifies its Argon2id password and re-reads durable
+  authority before issuing a hashed 12-hour session. Every refusal is identical, and durable
+  client plus account-wide budgets limit guessing.
 - **Model provider: one attested vendor behind the seam**, approved through the provider privacy
   gate rather than chosen by preference (AI_ARCHITECTURE §provider privacy gate).
 - **Seed geocoding: no provider at all.** Coordinates are validated seed input; an unresolved

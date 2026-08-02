@@ -20,9 +20,13 @@ timestamp `1786300000000`). Production now includes:
 - B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
   removed; active documentation reconciled to the final architecture.
 
-Administrator identity is email-only, every standing link names one exact authorized stand,
+The deployed administrator path still uses its pre-F-056 email authentication. Every standing link names one exact authorized stand,
 sales-location ownership is `owner_farm_id`, and proposal rows contain only the fields the current
 confirmation flow reads. There is no rolling or nullable compatibility state.
+
+The F-056 candidate on branch `f-056-admin-password-login` is **not deployed**. It replaces that
+admin path with the fixed `board@vigavashon.org` password account, durable dual-scope throttling,
+and migration `0015`; deployment proof and production secret cutover remain owed.
 
 ## Verification
 
@@ -83,8 +87,8 @@ admin-GET route checks. The Cloud Tasks queue is `RUNNING`; the Cloud Scheduler 
 
 - **F-029:** complete the remaining live carrier/JOIN launch verification. Its migration and deploy
   legs are complete.
-- **F-031:** select and attest a mail provider; until then administrator sign-in links are not
-  delivered and must be minted out of band.
+- **F-056:** merge, provision the web-only password verifier, apply migration `0015`, deploy, and
+  prove password login, logout/session revocation, and all administrator surfaces by effect.
 - **B-024:** permanently encode the farmer's no-public-address instruction in seed behavior before
   any reseed. Production is currently hidden as an approved interim correction.
 - **B-008:** the deployed web build still lacks a truthful lint gate.

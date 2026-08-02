@@ -115,7 +115,6 @@ describe("inbound routing end to end (integration)", () => {
     process.env.PHONE_HASH_SALT = phoneSalt;
     // Required by the composition root since F-032. Nothing on the SMS path uses them; they
     // are set so `appContext()` resolves at all.
-    process.env.MAGIC_LINK_SECRET = "test-magic-secret";
     process.env.PUBLIC_BASE_URL = "https://ff.example";
     // GL-019: no default provider. These suites drive deterministic paths and assert no
     // model is reached, so the stub is the right choice — it now has to be stated.
@@ -208,7 +207,8 @@ describe("inbound routing end to end (integration)", () => {
       truncate table provider_inbox_events, sms_messages, outbox_work, sms_consents,
         consent_transition_watermarks, sender_states, inventory_publication_proposals,
         inventory_revisions, inventory_entries, flags, farmer_authorizations,
-        farm_approvals, sales_locations, farms, contacts
+        farm_approvals, admin_login_failures, admin_sessions, administrators,
+        sales_locations, farms, contacts
       restart identity cascade
     `;
     await client()`
@@ -728,7 +728,7 @@ describe("inbound routing end to end (integration)", () => {
 
       const admin = await client()`
         insert into administrators (email, authorized_at)
-        values (${`routing-admin-${randomUUID()}@viga.example`}, ${at(-60)})
+        values ('board@vigavashon.org', ${at(-60)})
         returning id
       `;
 

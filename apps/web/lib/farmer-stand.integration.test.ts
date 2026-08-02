@@ -215,7 +215,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
 
     const administrators = await sql()`
       insert into administrators (email, authorized_at)
-      values ('web-admin@viga.example', ${at(0).toISOString()})
+      values ('board@vigavashon.org', ${at(0).toISOString()})
       returning id
     `;
     administratorId = administrators[0]?.id as string;

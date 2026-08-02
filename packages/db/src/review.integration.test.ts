@@ -74,6 +74,7 @@ describe("operator review queues (integration)", () => {
   let sql: Sql | undefined;
   let db: Db | undefined;
   let testDatabaseName: string | undefined;
+  let testUrl = "";
   const ids: Record<string, string> = {};
 
   function id(key: string): string {
@@ -89,6 +90,7 @@ describe("operator review queues (integration)", () => {
     await adminClient.unsafe(`create database "${testDatabaseName}"`);
 
     const url = testDatabaseUrl(baseUrl, testDatabaseName);
+    testUrl = url;
     const migrationClient = postgres(url, { max: 1 });
     await migrate(drizzle(migrationClient), { migrationsFolder: migrationsDir });
     await migrationClient.end({ timeout: 5 });
@@ -143,7 +145,7 @@ describe("operator review queues (integration)", () => {
 
     const admins = await client()`
       insert into administrators (email, authorized_at)
-      values ('review-admin@viga.example', ${T0}) returning id
+      values ('board@vigavashon.org', ${T0}) returning id
     `;
     ids.administrator = admins[0]?.id as string;
 
@@ -1172,7 +1174,7 @@ describe("operator review queues (integration)", () => {
       expect(await listStandDataFlags(database(), { status: "open" })).toHaveLength(0);
       const all = await listStandDataFlags(database(), { status: "all" });
       expect(all).toHaveLength(1);
-      expect(all[0]?.resolvedByEmail).toBe("review-admin@viga.example");
+      expect(all[0]?.resolvedByEmail).toBe("board@vigavashon.org");
     });
 
     it("refuses an unknown flag and a revoked administrator", async () => {
@@ -1201,33 +1203,44 @@ describe("operator review queues (integration)", () => {
       expect(rows[0]?.resolved_at).toBeNull();
     });
 
-    it("serializes concurrent resolutions by DIFFERENT operators so exactly one wins", async () => {
+    it("queues every concurrent resolution behind the one authority lock so exactly one wins", async () => {
       const flagId = await openStandDataFlag();
 
-      // Eight simultaneous claimants — and eight DISTINCT administrators. With one shared
-      // administrator, the authority re-read's `for update` on that single admin row
-      // serializes every transaction before the flag lock is ever contended, and the test
-      // passes with the flag lock deleted (sabotage-proven). Distinct operators are also
-      // the real scenario: "a second operator gets 409, not a silent overwrite."
-      const admins = await client()`
-        insert into administrators (email, authorized_at)
-        select 'racer-' || n || '@viga.example', ${T0}
-        from generate_series(1, 8) as n
-        returning id
-      `;
-      const attempts = await Promise.all(
-        admins.map((admin, index) =>
-          resolveStandDataFlag(database(), {
+      // One administrator is the final product architecture. Hold that authority row on a
+      // separate connection until all eight independent request handles are visibly waiting
+      // on a Postgres lock; Promise.all alone would not manufacture contention.
+      const blocker = postgres(testUrl, { max: 1 });
+      const handles = Array.from({ length: 8 }, () => createDb(testUrl));
+      let attempts: Array<Promise<Awaited<ReturnType<typeof resolveStandDataFlag>>>> = [];
+      await blocker.begin(async (tx) => {
+        await tx`
+          select id from administrators where id = ${id("administrator")} for update
+        `;
+        attempts = handles.map((handle, index) =>
+          resolveStandDataFlag(handle, {
             flagId,
-            administratorId: admin.id as string,
+            administratorId: id("administrator"),
             resolutionNote: `claimant-${index}`,
             occurredAt: at(3 * HOUR),
           }),
-        ),
-      );
+        );
+        let waitingCount = 0;
+        for (let tries = 0; tries < 20 && waitingCount < 8; tries += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          const waiting = await client()`
+            select count(*)::integer as count from pg_stat_activity
+            where datname = current_database() and wait_event_type = 'Lock'
+          `;
+          waitingCount = waiting[0]?.count as number;
+        }
+        expect(waitingCount).toBeGreaterThanOrEqual(8);
+      });
+      const results = await Promise.all(attempts);
+      await Promise.all(handles.map((handle) => handle.close()));
+      await blocker.end({ timeout: 5 });
 
-      expect(attempts.filter((a) => a.status === "resolved")).toHaveLength(1);
-      expect(attempts.filter((a) => a.status === "already_resolved")).toHaveLength(7);
+      expect(results.filter((a) => a.status === "resolved")).toHaveLength(1);
+      expect(results.filter((a) => a.status === "already_resolved")).toHaveLength(7);
       const audits = await client()`
         select count(*)::integer as count from audit_events where subject_id = ${flagId}
       `;

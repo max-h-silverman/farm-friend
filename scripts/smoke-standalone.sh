@@ -42,7 +42,6 @@ PORT="$PORT" NODE_ENV=production \
   PHONE_HASH_SALT=smoke-salt \
   LLM_PROVIDER=stub \
   SMS_PROVIDER=simulator \
-  MAGIC_LINK_SECRET=smoke-secret \
   PUBLIC_BASE_URL="http://localhost:$PORT" \
   node apps/web/server.js > "$LOG" 2>&1 &
 SRV=$!

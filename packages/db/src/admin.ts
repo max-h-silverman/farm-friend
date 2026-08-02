@@ -3,7 +3,7 @@ import {
   isSessionLive,
 } from "@farm-friend/core";
 import type { Db } from "./index";
-import type { Sql } from "./sql";
+import type { Sql, Tx } from "./sql";
 
 // The operator surface's durable writes (F-025a).
 //
@@ -30,33 +30,20 @@ export interface CreateAdminSessionInput {
   issuedAt: Date;
   /** Defaults to the core session TTL. */
   expiresAt?: Date;
-  /** The HASH of the exact magic link this session consumes (GL-004). */
-  magicNonceHash: string;
 }
 
 export type CreateAdminSessionResult =
   | { status: "created" }
-  | { status: "not_an_administrator" }
-  | { status: "link_already_used" };
+  | { status: "not_an_administrator" };
 
 /**
- * Persist a session for an administrator who has just proven their identity, consuming the
- * magic link that proved it.
+ * Persist a session for the fixed administrator after password verification.
  *
  * The caller supplies hashes, never tokens: this module cannot leak a credential it was
  * never given.
  *
- * **The single-use arbiter is the unique index, reached through this one insert.** The
- * tempting shape — look up whether the nonce has been used, then insert — is two acts, and
- * two concurrent callbacks both observe "unused" before either writes. A `select … for
- * update` does not rescue it either: `for update` locks rows that EXIST, and the first use
- * of a link has no row to lock (the same reasoning B-011 needed). So the exclusion lives in
- * `on conflict … do nothing returning id`, where the EMPTY result IS the signal that
- * another use won the race. Without `returning`, winner and loser are indistinguishable.
- *
- * Order matters: authority is re-read BEFORE the link is spent, so a revoked operator's link
- * is refused without being burned. A stranger replaying links against revoked administrators
- * therefore cannot destroy credentials they do not hold.
+ * Authority is re-read in the write transaction. The password is never accepted here and
+ * therefore cannot enter Postgres through this boundary.
  */
 export async function createAdminSession(
   db: Db,
@@ -69,10 +56,6 @@ export async function createAdminSession(
     // A session may only be issued to a LIVE administrator. Checking here as well as at
     // login keeps the invariant with the write rather than with one caller.
     //
-    // Deliberately NOT `for update`. Nothing here mutates the administrator, and locking it
-    // would serialize every concurrent use of one operator's link upstream of the index that
-    // is supposed to decide — which would make the race test unfalsifiable while proving
-    // nothing about single use (the F-037 lesson).
     const administrator = await tx`
       select id from administrators
       where id = ${input.administratorId} and revoked_at is null
@@ -82,21 +65,107 @@ export async function createAdminSession(
     }
 
     const inserted = await tx`
-      insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at,
-        magic_nonce_hash)
+      insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
       values (${input.tokenHash}, ${input.administratorId},
-        ${input.issuedAt.toISOString()}, ${expiresAt.toISOString()},
-        ${input.magicNonceHash})
-      on conflict (magic_nonce_hash) do nothing
+        ${input.issuedAt.toISOString()}, ${expiresAt.toISOString()})
       returning id
     `;
-    if (inserted.length === 0) {
-      // The link had already been spent. Nothing was written, and the session minted by
-      // whoever used it first is untouched — a refused replay must not sign an operator out.
-      return { status: "link_already_used" as const };
-    }
+    if (inserted.length === 0) throw new Error("admin session insert returned no row");
     return { status: "created" as const };
   });
+}
+
+export const ADMIN_LOGIN_CLIENT_LIMIT = 5;
+export const ADMIN_LOGIN_ACCOUNT_LIMIT = 20;
+export const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+
+export interface ReserveAdminLoginAttemptInput {
+  accountBucketHash: string;
+  clientBucketHash: string;
+  now: Date;
+  clientLimit?: number;
+  accountLimit?: number;
+  windowMs?: number;
+}
+
+export type AdminLoginReservation =
+  | { allowed: true; windowExpiresAt: Date }
+  | { allowed: false };
+
+async function reserveLoginBucket(
+  tx: Tx,
+  input: { bucketHash: string; now: Date; windowExpiresAt: Date; limit: number },
+): Promise<boolean> {
+  const rows = await tx`
+    insert into admin_login_failures
+      (bucket_hash, failure_count, window_expires_at, updated_at)
+    values (${input.bucketHash}, 1, ${input.windowExpiresAt}, ${input.now})
+    on conflict (bucket_hash) do update
+      set failure_count = case
+            when admin_login_failures.window_expires_at <= ${input.now} then 1
+            else admin_login_failures.failure_count + 1
+          end,
+          window_expires_at = case
+            when admin_login_failures.window_expires_at <= ${input.now}
+              then ${input.windowExpiresAt}
+            else admin_login_failures.window_expires_at
+          end,
+          updated_at = ${input.now}
+      where admin_login_failures.window_expires_at <= ${input.now}
+         or admin_login_failures.failure_count < ${input.limit}
+    returning window_expires_at
+  `;
+  return rows.length === 1;
+}
+
+/**
+ * Reserve one failed-login slot before password verification. The shared account row is
+ * always claimed before the client row. That stable order plus the account row's unique key
+ * serializes every claimant, including a first insert where no row existed to lock.
+ */
+export async function reserveAdminLoginAttempt(
+  db: Db,
+  input: ReserveAdminLoginAttemptInput,
+): Promise<AdminLoginReservation> {
+  const clientLimit = input.clientLimit ?? ADMIN_LOGIN_CLIENT_LIMIT;
+  const accountLimit = input.accountLimit ?? ADMIN_LOGIN_ACCOUNT_LIMIT;
+  const windowMs = input.windowMs ?? ADMIN_LOGIN_WINDOW_MS;
+  if (clientLimit < 1 || accountLimit < 1 || windowMs < 1) {
+    throw new Error("admin login throttle limits must be positive");
+  }
+  const windowExpiresAt = new Date(input.now.getTime() + windowMs);
+
+  return driver(db).begin(async (tx) => {
+    const accountAllowed = await reserveLoginBucket(tx, {
+      bucketHash: input.accountBucketHash,
+      now: input.now,
+      windowExpiresAt,
+      limit: accountLimit,
+    });
+    if (!accountAllowed) return { allowed: false as const };
+
+    const clientAllowed = await reserveLoginBucket(tx, {
+      bucketHash: input.clientBucketHash,
+      now: input.now,
+      windowExpiresAt,
+      limit: clientLimit,
+    });
+    if (!clientAllowed) return { allowed: false as const };
+    return { allowed: true as const, windowExpiresAt };
+  });
+}
+
+/** A proven login clears the shared account budget and only that caller's client budget. */
+export async function clearAdminLoginFailures(
+  db: Db,
+  input: { accountBucketHash: string; clientBucketHash: string },
+): Promise<{ cleared: number }> {
+  const rows = await driver(db)`
+    delete from admin_login_failures
+    where bucket_hash in (${input.accountBucketHash}, ${input.clientBucketHash})
+    returning bucket_hash
+  `;
+  return { cleared: rows.length };
 }
 
 /**

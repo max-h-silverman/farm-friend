@@ -66,11 +66,15 @@ render an honest "updated X ago" without a second provenance axis.
   not a side effect of a farmer finishing a form. Approval and revocation both record **which
   administrator acted and when**, and revocation updates the row rather than deleting it: published
   revisions reference the approval they were made under.
-- **administrators and their sessions** — an administrator is identified only by **email**, the
-  identity the login path proves. A session is a durable row holding only the **hash** of its token,
-  so a database read cannot recover a live credential, and administrator identity is re-read per
-  request so revocation is immediate. Sessions carry no
-  personal data beyond the administrator link.
+- **administrator and sessions** (F-056) — the only admitted identity is
+  `board@vigavashon.org`. The password verifier is a web-only secret, never a database value. A
+  session is a durable row holding only the **hash** of its token, so a database read cannot recover
+  a live credential; authority is re-read per request so revocation is immediate. Sessions carry no
+  personal data beyond the administrator foreign key.
+- **administrator login-failure budgets** — durable account-wide and coarse-client rows carry only
+  salted 64-hex bucket hashes, positive counts, and window timestamps. No raw network address,
+  email, password, or verifier enters the table. The existing bounded retention pass deletes
+  expired rows.
 - **structured public listing facts** — including payment methods and VIGA Farm Bucks acceptance or
   eligibility as **read-only facts**, plus farmer-selected web/social links and an optional photo
   or short biography.
@@ -184,9 +188,9 @@ These are **database-level** requirements, not application conventions:
 - **Farmer authority over inventory publication** — only an authorized farmer for that location can
   publish, and only an approved farm publishes publicly. Both are re-read while the confirmation
   transaction holds the sender and pending-confirmation locks.
-- **One live approval per farm, one live administrator per email** — partial unique indexes over
-  unrevoked rows. The email index is what keeps the login lookup unambiguous; revoked rows remain
-  for the audit trail and are excluded from both.
+- **One live approval per farm, one fixed administrator identity** — partial unique indexes over
+  unrevoked rows, plus a CHECK that refuses every administrator email except
+  `board@vigavashon.org`. Revoked administrator rows remain for audit history and authorize nothing.
 - **One live authorization per (farm, contact), one open onboarding request per phone, one live
   link per authorization** (F-040) — the same partial-index discipline. The authorization index is
   per *pair*, not per farm: a household where two people both text is ordinary, and refusing the

@@ -1,6 +1,6 @@
 import { createDb } from "../src/index";
 
-// Bootstrap the first administrator(s) (F-025a).
+// Bootstrap the one fixed administrator authority.
 //
 // Authorization has a chicken-and-egg problem: only an administrator can grant authority, so
 // the first one has to come from outside the application. The three ways to do that are not
@@ -16,17 +16,15 @@ import { createDb } from "../src/index";
 //
 // Run it once per environment against a database you intend to change:
 //
-//   DATABASE_URL=… npx tsx packages/db/scripts/bootstrap-administrator.ts you@example.org
+//   DATABASE_URL=… npx tsx packages/db/scripts/bootstrap-administrator.ts
 //
-// Afterwards, administrators are managed in the database. Idempotent: an address that is
-// already a live administrator is reported and left alone, so a re-run is safe.
+// Idempotent: the fixed live administrator is left alone on a re-run.
+
+const FIXED_ADMIN_EMAIL = "board@vigavashon.org";
 
 async function main(): Promise<number> {
-  const emails = process.argv.slice(2).map((value) => value.trim().toLowerCase());
-  if (emails.length === 0) {
-    process.stderr.write(
-      "usage: bootstrap-administrator.ts <email> [email…]\n",
-    );
+  if (process.argv.length > 2) {
+    process.stderr.write("usage: bootstrap-administrator.ts\n");
     return 2;
   }
 
@@ -36,31 +34,20 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  // The database's own check constraint is the real guard; validating here turns a constraint
-  // violation into a legible message before anything is written.
-  const invalid = emails.filter(
-    (email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
-  );
-  if (invalid.length > 0) {
-    process.stderr.write(`not an email address: ${invalid.join(", ")}\n`);
-    return 2;
-  }
-
   const db = createDb(databaseUrl);
   try {
-    for (const email of emails) {
-      const existing = await db.sql`
-        select id from administrators where email = ${email} and revoked_at is null
-      `;
-      if (existing.length > 0) {
-        process.stdout.write(`already an administrator: ${email}\n`);
-        continue;
-      }
-      await db.sql`
-        insert into administrators (email, authorized_at) values (${email}, now())
-      `;
-      process.stdout.write(`authorized: ${email}\n`);
+    const existing = await db.sql`
+      select id from administrators
+      where email = ${FIXED_ADMIN_EMAIL} and revoked_at is null
+    `;
+    if (existing.length > 0) {
+      process.stdout.write("fixed administrator already authorized\n");
+      return 0;
     }
+    await db.sql`
+      insert into administrators (email, authorized_at) values (${FIXED_ADMIN_EMAIL}, now())
+    `;
+    process.stdout.write("fixed administrator authorized\n");
     return 0;
   } finally {
     await db.close();

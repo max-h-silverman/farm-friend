@@ -270,14 +270,15 @@ export const administrators = pgTable(
   "administrators",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    // Administrator identity is EMAIL, because that is what the login path proves.
+    // One fixed administrator identity at launch. Password verification proves the same
+    // configured account; the database refuses every other identity.
     email: text("email").notNull(),
     authorizedAt: timestamp("authorized_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => ({
-    // The login lookup is by email, so at most one live administrator may hold an address.
-    // Revoked rows stay for the audit trail and are excluded here.
+    // Revoked rows stay for audit history. A second live row for the fixed identity remains
+    // impossible, while the CHECK below prevents a second identity from existing at all.
     oneActivePerEmail: uniqueIndex("administrators_one_active_per_email")
       .on(table.email)
       .where(sql`${table.revokedAt} is null`),
@@ -286,6 +287,10 @@ export const administrators = pgTable(
       // Lowercased and structurally an address: the login path lowercases before lookup,
       // so a mixed-case row would be authorization that can never be found.
       sql`${table.email} = lower(${table.email}) and ${table.email} ~ '^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$'`,
+    ),
+    fixedIdentity: check(
+      "administrators_fixed_identity",
+      sql`${table.email} = 'board@vigavashon.org'`,
     ),
     validRevocation: check(
       "administrators_valid_revocation",
@@ -307,8 +312,6 @@ export const adminSessions = pgTable(
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    // GL-004. Every session consumes one exact magic link; the hash is required.
-    magicNonceHash: text("magic_nonce_hash").notNull(),
   },
   (table) => ({
     tokenHashUnique: unique("admin_sessions_token_hash_unique").on(
@@ -316,15 +319,6 @@ export const adminSessions = pgTable(
     ),
     administratorLookup: index("admin_sessions_administrator").on(
       table.administratorId,
-    ),
-    // The single-use guarantee. Not a rule the application remembers to apply — the database
-    // refuses the second session, so a check-then-write above it cannot let a race through.
-    oneSessionPerMagicNonce: uniqueIndex(
-      "admin_sessions_one_per_magic_nonce",
-    ).on(table.magicNonceHash),
-    magicNonceHashShape: check(
-      "admin_sessions_magic_nonce_hash_shape",
-      sql`${table.magicNonceHash} ~ '^[0-9a-f]{64}$'`,
     ),
     // 32 random bytes hex-encoded. A short value here would mean the token was stored
     // rather than hashed, or truncated to something enumerable.
@@ -339,6 +333,38 @@ export const adminSessions = pgTable(
     validRevocation: check(
       "admin_sessions_valid_revocation",
       sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.issuedAt}`,
+    ),
+  }),
+);
+
+/**
+ * Durable failed-login budgets. Both the coarse client key and the account-wide key are
+ * opaque salted hashes; no network address, email, or password material is stored.
+ *
+ * One table and one reservation mechanism serve both scopes. The transaction always claims
+ * the account key first and the client key second, so concurrent requests cannot invent a
+ * conflicting lock order.
+ */
+export const adminLoginFailures = pgTable(
+  "admin_login_failures",
+  {
+    bucketHash: text("bucket_hash").primaryKey(),
+    failureCount: integer("failure_count").notNull(),
+    windowExpiresAt: timestamp("window_expires_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    bucketHashShape: check(
+      "admin_login_failures_bucket_hash_shape",
+      sql`${table.bucketHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    positiveCount: check(
+      "admin_login_failures_positive_count",
+      sql`${table.failureCount} > 0`,
+    ),
+    futureWindow: check(
+      "admin_login_failures_future_window",
+      sql`${table.windowExpiresAt} > ${table.updatedAt}`,
     ),
   }),
 );
@@ -509,9 +535,8 @@ export const farmerOnboardingRequests = pgTable(
  * and chosen location belong to the same farm; it is never read as independent authority.
  * There is still no cached "active" flag or signed claim that could survive revocation.
  *
- * Contrast the admin magic link, which is single-use and 15 minutes: that is an
- * authentication event whose consume record IS the session. This is a durable capability with
- * no session at all, which is why it is a table rather than a token.
+ * This is a durable farmer capability with no session at all, which is why it is a table-backed
+ * lookup rather than a self-contained signed claim.
  */
 export const farmerLinks = pgTable(
   "farmer_links",

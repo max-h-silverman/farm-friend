@@ -99,10 +99,10 @@ def main() -> int:
               isinstance(max_instances, int) and 0 < max_instances <= 10,
               f"max_instance_count={max_instances}")
 
-    # The in-memory abuse and sign-in throttles are per-process. With N instances a
-    # 5-per-minute budget silently becomes 5N-per-minute, with nothing reporting it.
+    # The stock-out model-cost throttle is per-process. With N instances its 5-per-minute
+    # budget silently becomes 5N-per-minute. Administrator login is durable in Postgres.
     web_scaling = ((web.get("template") or [{}])[0].get("scaling") or [{}])[0]
-    check("the public service is capped at one instance while throttles are in-memory",
+    check("the public service is capped at one instance while stock-out throttle is in-memory",
           web_scaling.get("max_instance_count") == 1,
           f"max_instance_count={web_scaling.get('max_instance_count')} — raising this needs a "
           "distributed-throttle design, not a bigger number")
@@ -127,6 +127,11 @@ def main() -> int:
     print("\nSecrets")
     secrets = by_type(plan, "google_secret_manager_secret")
     check("five application secrets are declared", len(secrets) == 5, f"found {len(secrets)}")
+    secret_ids = {value.get("secret_id") for value in secrets.values()}
+    check("the admin password verifier container is declared",
+          "farm-friend-admin-password-hash" in secret_ids)
+    check("the magic-link secret container is absent",
+          "farm-friend-magic-link-secret" not in secret_ids)
 
     # THE assertion that keeps credentials out of state. Terraform creates containers; values
     # are added out of band with `gcloud secrets versions add`. A value here would be written
@@ -197,6 +202,20 @@ def main() -> int:
     check("the worker also has PUBLIC_BASE_URL",
           bool(worker_env.get("PUBLIC_BASE_URL")),
           "absent — the worker fails closed on every scheduled run")
+
+    def secret_names(service: dict) -> set[str]:
+        container = ((service.get("template") or [{}])[0].get("containers") or [{}])[0]
+        return {
+            env.get("name") for env in container.get("env", [])
+            if isinstance(env, dict) and env.get("value_source")
+        }
+
+    check("the web service mounts ADMIN_PASSWORD_HASH",
+          "ADMIN_PASSWORD_HASH" in secret_names(web))
+    check("the worker does not mount ADMIN_PASSWORD_HASH",
+          "ADMIN_PASSWORD_HASH" not in secret_names(worker))
+    check("no service mounts MAGIC_LINK_SECRET",
+          all("MAGIC_LINK_SECRET" not in secret_names(service) for service in (web, worker)))
 
     print("\nSecret rotation reaches containers")
     # B-021. Cloud Run resolves `version = "latest"` at CONTAINER START, so adding a secret

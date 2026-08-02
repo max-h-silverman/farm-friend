@@ -2,8 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 
 // Durable admin sessions (F-025a). A session is a DATABASE record, not a signed claim.
 //
-// The magic link proves *who you are*, once. The session is what makes that durable and
-// REVOCABLE: administrator identity is looked up server-side on every
+// The configured password proves who you are. The session makes that durable and REVOCABLE:
+// administrator identity is looked up server-side on every
 // request, so revoking an administrator takes effect immediately rather than when a
 // self-contained token happens to expire.
 //
@@ -13,7 +13,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 /**
  * How long an operator session lasts. This is a standing credential to approve farms, so it
- * expires in a working day; re-authenticating is one email.
+ * expires in a working day; re-authenticating requires the configured password.
  */
 export const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 

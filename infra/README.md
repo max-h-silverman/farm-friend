@@ -8,6 +8,10 @@ Terraform for the Cloud Run deployment. Runs against `farm-friend-vashon` in `us
 queue, the Cloud Scheduler job, service accounts and their IAM, and the *existence* of five
 Secret Manager secrets.
 
+Those containers are database URL, phone-hash salt, administrator-password verifier, Telnyx API
+key, and DeepInfra API key. `ADMIN_PASSWORD_HASH` mounts on the web service only; the worker cannot
+read it.
+
 **Does not own — on purpose:**
 
 - **Secret VALUES.** Terraform creates each secret as an empty container; versions are added
@@ -55,6 +59,11 @@ So a rotation is always two edits and two checks:
 `plan-assertions.py` proves the mechanism is configured; `deploy_assertions.py` proves a revision
 actually happened. Neither substitutes for the other — a forgotten `rotation_applied_at` bump
 passes the first and fails the second.
+
+For the administrator password, do not use the generic `printf` command. Run
+`npm run admin:provision-password --workspace @farm-friend/web` from a private terminal; it reads
+without echo and streams only the Argon2id verifier to Secret Manager. After deploying and proving
+the new password, revoke every old administrator session per the main runbook.
 
 ## `terraform.tfvars` is gitignored
 

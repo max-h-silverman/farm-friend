@@ -13,7 +13,6 @@ import { ConfigurationError, resolveConfig, type EnvVars } from "./composition";
 const baseEnv = {
   DATABASE_URL: "postgres://user@localhost:5432/db",
   PHONE_HASH_SALT: "salt",
-  MAGIC_LINK_SECRET: "magic",
   PUBLIC_BASE_URL: "https://farmfriend.example",
   SMS_PROVIDER: "simulator",
 } satisfies EnvVars;

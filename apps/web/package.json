@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "admin:provision-password": "tsx scripts/provision-admin-password.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -14,6 +15,8 @@
     "@farm-friend/core": "*",
     "@farm-friend/db": "*",
     "@farm-friend/sms": "*",
+    "argon2": "^0.45.1",
+    "ipaddr.js": "^2.4.0",
     "next": "^14.2.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",

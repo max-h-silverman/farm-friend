@@ -194,7 +194,7 @@ describe("public web surface boundary (integration)", () => {
 
     const admins = await client()`
       insert into administrators (email, authorized_at)
-      values ('public-surface-admin@viga.example', ${T0}) returning id
+      values ('board@vigavashon.org', ${T0}) returning id
     `;
 
     const farm = await client()`

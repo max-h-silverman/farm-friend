@@ -23,11 +23,11 @@ locals {
   # LLM_API_KEY, SMOKE_TEST_TOKEN). Two of those hold the SAME exposed Telnyx credentials
   # F-034 tracks; they are removed during retirement, not reused here.
   app_secrets = {
-    database-url      = "Neon connection string. Pooled URL for the runtime; DDL uses the direct one."
-    phone-hash-salt   = "NEVER ROTATE. Input to the only lookup key for every phone in the system."
-    magic-link-secret = "Signs administrator sign-in links."
-    telnyx-api-key    = "Telnyx delivery credential."
-    deepinfra-api-key = "DeepInfra model provider credential."
+    database-url        = "Neon connection string. Pooled URL for the runtime; DDL uses the direct one."
+    phone-hash-salt     = "NEVER ROTATE. Input to the only lookup key for every phone in the system."
+    admin-password-hash = "Argon2id verifier for the fixed administrator. Web service only."
+    telnyx-api-key      = "Telnyx delivery credential."
+    deepinfra-api-key   = "DeepInfra model provider credential."
   }
 }
 

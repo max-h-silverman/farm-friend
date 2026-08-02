@@ -41,8 +41,7 @@ export function serializeSessionCookie(token: string, ttlMs: number): string {
     "HttpOnly",
     // Never sent over plaintext.
     "Secure",
-    // A cross-site request must not carry approval authority. Lax rather than Strict so a
-    // magic link followed from an email client lands on an authenticated page.
+    // A cross-site request must not carry approval authority.
     "SameSite=Lax",
     `Max-Age=${maxAgeSeconds}`,
   ].join("; ");

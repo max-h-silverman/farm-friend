@@ -64,16 +64,14 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `PHONE_HASH_SALT` | Required lookup-key input; **never rotate** |
 | `DEPLOYMENT_ROLE` | `web` (default) or `worker`; invalid values fail startup. The web role refuses `/api/internal/*` |
 | `CLOUD_TASKS_*` | Five variables, all or none. Omit all for local scheduled-pass-only operation |
-| `MAGIC_LINK_SECRET` | Required; no default |
+| `ADMIN_PASSWORD_HASH` | Required Argon2id verifier on the `web` role only; never log or pass as a command argument |
 | `PUBLIC_BASE_URL` | Required absolute origin. HTTPS except localhost; never derived from request headers |
 | `SMS_PROVIDER` | Required `simulator` or `telnyx`; no default |
 | `TELNYX_API_KEY`, `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY` | All required with Telnyx; the public key verifies webhook signatures |
 | `LLM_PROVIDER` | Required `stub` or `deepinfra`; no default or environment exception |
 | `DEEPINFRA_API_KEY`, `DEEPINFRA_MODEL` | Required with DeepInfra; `anthropic/` and `google/` models are refused because their terms are not attested |
 
-Mail remains deliberately unconfigured (F-031): requesting a link returns the enumeration-safe 202
-but the mail seam throws internally and sends nothing. There is no `CRON_SECRET`; Cloud Scheduler
-uses OIDC and IAM.
+There is no mail dependency and no `CRON_SECRET`; Cloud Scheduler uses OIDC and IAM.
 
 ## Migrations
 
@@ -94,36 +92,34 @@ Is message_category column in outbox_work table created or renamed from another 
 A wrong answer can recreate existing tables or rename production data. Commit both artifacts;
 `migration-metadata.test.ts` enforces the pair. Never edit an applied `.sql`.
 
-## Bootstrap the first administrator
+## Bootstrap the fixed administrator
 
 Run once per environment, against a database you intend to change:
 
 ```bash
-DATABASE_URL=… npx tsx packages/db/scripts/bootstrap-administrator.ts you@example.org
+DATABASE_URL=… npx tsx packages/db/scripts/bootstrap-administrator.ts
 ```
 
-The command is idempotent. It creates the first durable, auditable authority row; afterwards,
-administrators are managed in the database. The row—not possession of a signed link—confers
-authority. See [ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md) §administrator authority.
+The command is idempotent and can create only `board@vigavashon.org`. The row confers authority;
+the configured password proves access to that one account. There is no add-administrator path.
 
-### Bootstrap, then sign in
+### Provision, bootstrap, then sign in
 
-1. Run the bootstrap script above once per environment, against that environment's database.
-2. The operator opens `/admin/login` and enters that address.
-3. `POST /api/auth/request-link` mints a 15-minute, one-use link and hands it to the mail seam.
-4. Opening the link hits `/api/auth/callback`, which re-checks the administrator row, mints the
-   durable session, and **consumes the link**.
-
-Mail delivery is not configured (F-031); mint with `issueMagicToken` and deliver out of band.
+1. Apply infrastructure with the empty `farm-friend-admin-password-hash` secret container.
+2. From a private terminal, run `npm run admin:provision-password --workspace @farm-friend/web`.
+   It reads the password twice without echo, hashes it locally, and streams only the verifier to
+   Secret Manager over stdin.
+3. Run the bootstrap script above against the intended database.
+4. Deploy a web revision that mounts `ADMIN_PASSWORD_HASH`; the worker must not mount it.
+5. Open `/admin/login`, leave the fixed email unchanged, enter the password, and verify `/admin`.
 
 Properties to preserve:
 
-- The session insert atomically records the link nonce; simultaneous/replayed use gets the same 401
-  as a forged link. Revocation is checked first, so a refused link is not consumed.
-- Minting writes nothing. The public request response is byte-identical for valid, unknown,
-  malformed, and mail-failure cases.
-- The token appears only in the rendered mail and mailbox—never a response or log.
-- Rate limiting uses a separate per-client budget from the stock-out form, never a per-email budget.
+- Every refusal is byte-identical: wrong email, wrong password, malformed input, missing config,
+  revoked authority, and exhausted throttle.
+- Failed attempts reserve durable account-wide and coarse-client budgets before verification.
+- The browser receives the raw session token only in the secure cookie; Postgres stores its hash.
+- Administrator and session revocation take effect on the next protected request.
 
 ## Seeding initial listing data
 
@@ -320,18 +316,17 @@ command arguments, packages, or UI.
    test the server page or the real browser-consumed GET and grep the whole projection for an E.164
    and any 64-hex run.
 
-**A PUBLIC auth route is the exception, and inverts most of this.** `/api/auth/request-link` and
-`/api/auth/callback` are deliberately unauthenticated — they are how someone becomes authenticated,
-so `requireAdministrator` cannot apply. What replaces it:
+**The public password-login route is the exception.** `POST /api/auth/login` is deliberately
+unauthenticated, so `requireAdministrator` cannot apply. What replaces it:
 
 - **Answer identically for every input.** Not "return 200 in both cases" — identical status,
   headers, and body, asserted by comparing whole serialized responses. Include the failure paths:
-  a malformed address, and an internal error on work only a real administrator triggers.
-- **Front it with `createPublicActionThrottle` on its own budget**, and consult the throttle
-  *before* any database lookup, so a refused request performs no read and cannot be timed.
-- **Bucket by client, never by the identifier being probed.** A per-address budget tells an
-  attacker which addresses are real by which ones start refusing.
-- **Build outbound URLs from configured values**, never from `Host` or `X-Forwarded-Host`.
+  malformed input, missing configuration, revoked authority, and internal failure.
+- **Reserve both durable budgets before verification:** account-wide first, then coarse client.
+  The stable lock order prevents deadlocks and the aggregate prevents distributed guessing.
+- **Run the maintained Argon2id verifier for every syntactically valid email**, then re-read the
+  fixed authority row before comparing the email. Neither timing nor response reveals membership.
+- **Return the raw session token only in the secure cookie.** Store only its hash.
 
 ### Add a surface behind a farmer's standing link (F-040)
 
@@ -547,7 +542,7 @@ Manager versions through stdin and record replacements in the password manager w
 |---|---|---|
 | `DATABASE_URL` | Secret Manager `farm-friend-database-url`; local `.env` | Reset `neondb_owner` in Neon; update both |
 | `DEEPINFRA_API_KEY` | Secret Manager `farm-friend-deepinfra-api-key`; local `.env` | DeepInfra console; update both |
-| `MAGIC_LINK_SECRET` | Secret Manager `farm-friend-magic-link-secret` | Generate a new random value; invalidates outstanding links and sessions |
+| `ADMIN_PASSWORD_HASH` | Secret Manager `farm-friend-admin-password-hash`; web only | Use the private-terminal provisioning command; never handle the verifier directly |
 | `TELNYX_API_KEY` | Secret Manager `farm-friend-telnyx-api-key` | Telnyx console |
 | `PHONE_HASH_SALT` | Secret Manager `farm-friend-phone-hash-salt` | **Never rotate** |
 
@@ -558,14 +553,25 @@ exist.
 ### Order
 
 1. Create and verify the replacement against the intended provider/target.
-2. Add it to Secret Manager with `gcloud secrets versions add <name> --data-file=-`; update local
-   `.env` where the table requires it. Any scripted `.env` edit must assert exactly one match.
+2. Add it to Secret Manager over stdin; for the administrator password, use the provisioning
+   command so neither plaintext nor verifier reaches output or command arguments. Update local
+   `.env` only where the table requires it.
 3. Bump `rotation_applied_at` in `infra/terraform.tfvars`
    (`date -u +%Y-%m-%dT%H-%M`).
 4. Run the normal plan, assertions, and approved apply.
 5. Run `python3 infra/deploy_assertions.py`. A green apply is not a restart; every serving revision
    must be newer than every secret version it consumes.
-6. Verify the new value by effect and the old value by rejection.
+6. Verify the new value by effect and the old value by rejection. For an administrator password
+   rotation, revoke every existing session immediately after the new revision is proven.
+
+Administrator-password rotation revocation (fingerprint the target first):
+
+```sql
+update admin_sessions
+set revoked_at = greatest(issued_at, now())
+where revoked_at is null
+returning id;
+```
 
 ### Proof by effect
 
@@ -575,7 +581,7 @@ Run only after `deploy_assertions.py` confirms both services picked up the new v
 |---|---|
 | `DATABASE_URL` | a cold container opens a new database connection and produces a known database effect |
 | `TELNYX_API_KEY` | a real send returns a provider message ID; or a signed inbound webhook returns **401→200** path end to end |
-| `MAGIC_LINK_SECRET` | a freshly minted link signs in |
+| `ADMIN_PASSWORD_HASH` | the fixed account signs in and a durable session-hash row appears |
 | `DEEPINFRA_API_KEY` | with paid-call approval, local `evals:live` proves `.env`; a deployed model-backed path proves Secret Manager |
 | Telnyx configuration | unsigned webhook POST returns 401, not 500/503; a real send returns a provider ID |
 
@@ -583,7 +589,7 @@ Run only after `deploy_assertions.py` confirms both services picked up the new v
 |---|---|
 | old `DATABASE_URL` | a connection attempt with it is refused (`password authentication failed`) |
 | old `TELNYX_API_KEY` | a request to the Telnyx API with it returns **401** |
-| old `MAGIC_LINK_SECRET` | a link minted under the old secret is refused at the callback |
+| old administrator password | login returns the exact generic refusal; every pre-rotation cookie is refused after session revocation |
 | old `DEEPINFRA_API_KEY` | a request with it returns **401** |
 
 Do not substitute a warm pooled database request, an old scheduler result, or local `evals:live`
@@ -593,6 +599,11 @@ for deployed proof. Each can pass while production still uses the old secret.
 
 **Order matters.** A migration adding columns the new code writes must land *before* that code
 deploys, or every affected write fails in the gap. 0004 (B-010) was exactly this case.
+
+For the password cutover: create the new empty secret container first; provision its first version
+from a private terminal; apply migration 0015 (which revokes every pre-cutover session); deploy and
+prove the new login; then, only with separate approval, remove the retired secret from Terraform
+state and delete its Secret Manager container. Never let a plan destroy a secret implicitly.
 
 ```bash
 # 1. Migration FIRST. Use the DIRECT (non-pooled) Neon string for DDL.

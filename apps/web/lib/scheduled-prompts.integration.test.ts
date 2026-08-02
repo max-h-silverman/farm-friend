@@ -56,7 +56,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const contactId = contacts.find((row) => row.phone_hash === senderHash)?.id as string;
     const administrators = await handle().sql`
       insert into administrators (email, authorized_at)
-      values ('prompt-admin@viga.example', ${BASE}) returning id
+      values ('board@vigavashon.org', ${BASE}) returning id
     `;
     ids.administrator = administrators[0]?.id as string;
     const farms = await handle().sql`insert into farms (name) values ('Prompt Farm') returning id`;

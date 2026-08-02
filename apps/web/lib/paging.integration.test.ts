@@ -142,7 +142,7 @@ describe("SMS result paging end to end (integration)", () => {
     const farmerContactId = contacts[0]?.id as string;
     const admins = await client()`
       insert into administrators (email, authorized_at)
-      values ('paging-admin@viga.example', ${T0})
+      values ('board@vigavashon.org', ${T0})
       returning id
     `;
     const auth = await client()`

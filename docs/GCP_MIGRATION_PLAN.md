@@ -135,7 +135,7 @@ from the same project, keeping the worker off the public internet.
 - Add explicit `DEPLOYMENT_ROLE=web|worker`; internal routes return 404 from the public deployment
   before constructing application context.
 - Store five sensitive values in new, prefixed Secret Manager secrets: Neon URL, phone-hash salt,
-  magic-link secret, Telnyx API key, and DeepInfra API key. Pin Cloud Run revisions to numbered
+  administrator-password verifier, Telnyx API key, and DeepInfra API key. Pin Cloud Run revisions to numbered
   versions; secret values never enter Terraform state.
 - Keep model name, Telnyx public key/profile/from-number, region, queue name, and service URLs as
   non-secret configuration.
@@ -234,7 +234,8 @@ are the same act — performed once, against the new environment, rather than tw
 >
 > **Still a hard blocker on F-029 go-live.** Nothing here relaxes that.
 
-- Scope: `DATABASE_URL`, `TELNYX_API_KEY`, `DEEPINFRA_API_KEY`, and possibly `MAGIC_LINK_SECRET`.
+- Scope: `DATABASE_URL`, `TELNYX_API_KEY`, `DEEPINFRA_API_KEY`, and `ADMIN_PASSWORD_HASH` on the
+  web service only.
   `CRON_SECRET` **disappears** rather than rotating: the internal cron route stops using a shared
   secret and becomes worker-only under IAM, which also removes the GitHub-secret/Vercel-var pair
   that had to be kept in sync or every scheduled run 401s.

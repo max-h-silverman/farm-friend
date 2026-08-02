@@ -177,7 +177,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
 
     const admins = await client()`
       insert into administrators (email, authorized_at)
-      values ('inquiry-admin@viga.example', ${T0}) returning id
+      values ('board@vigavashon.org', ${T0}) returning id
     `;
 
     // Two farms, so a report at one can be proved never to reach the other.

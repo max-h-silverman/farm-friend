@@ -20,11 +20,9 @@ levels.
 Every admin page and mutation route enforces a **server-side authorization check** against durable
 records. Never trust a client-supplied identity or id.
 
-**How identity works (F-025a).** An administrator is identified by **email**, because that is what
-the login path proves. Sign-in is a magic link: the signed, expiring token is verified, and then the
-email is looked up in `administrators`. Holding a valid link proves you control an address — it does
-**not** make you an operator; only a row someone deliberately created does. A non-administrator
-receives the same refusal as a bad token.
+**How identity works (F-056).** There is one fixed account: `board@vigavashon.org`. The database
+refuses every other administrator identity. Sign-in verifies the configured password and re-reads
+that fixed authority row; neither the password nor its verifier is stored in Postgres.
 
 Success mints a **durable session**: a database row whose token the browser holds as an opaque
 `HttpOnly; Secure; SameSite=Lax` cookie. Only the token's **hash** is stored, so a database read
@@ -33,21 +31,10 @@ session, which is why revoking an administrator or a session takes effect on the
 request** rather than whenever a self-contained token would have expired. Sessions expire in 12
 hours; signing out revokes the record server-side, not just the cookie.
 
-**How you actually sign in (F-032).** Go to `/admin/login`, enter your VIGA email address, and open
-the link that arrives. The link expires in **15 minutes** and can be used once; requesting another
-is free. The page works without JavaScript, because sign-in is the recovery path for every other
-admin screen and must not be the one that breaks.
-
-The confirmation always reads *"if that address belongs to an administrator, a sign-in link is on
-its way"* — for **every** address, including a mistyped one. That is deliberate and not evasiveness:
-the page is public, so a message that distinguished a recognized address from an unrecognized one
-would let anyone on the internet discover who VIGA's operators are. If no link arrives, the likely
-causes are a typo, an address that was never authorized, or one that has been revoked — the screen
-cannot tell you which, and whoever runs Farm Friend can.
-
-> **Not yet delivering mail.** The provider is not configured (F-031), so *no link is actually
-> sent today*. Until it is, ask whoever runs Farm Friend to mint one for you directly. Everything
-> else on this path — the form, the throttle, the token, the expiry — is live.
+**How you actually sign in.** Go to `/admin/login`, keep the fixed email shown there, enter the
+administrator password, and choose **Sign in**. The page works without JavaScript. Every refusal has
+the same wording, whether the email, password, authority row, configuration, or throttle caused it.
+Failed attempts are limited by both a coarse client network and an account-wide durable budget.
 
 **An administrator is never a farmer.** A live administrator session resolves directly to its
 administrator row. Farmer authority is separate and always requires a live farm authorization
@@ -61,7 +48,7 @@ daily data entry, the product has failed its north star.
 
 | Surface | Path | What the administrator does |
 |---|---|---|
-| Sign-in | `/admin/login` | Request a 15-minute sign-in link. Public and unauthenticated, so it answers identically for every address |
+| Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
 | Farm approval | `/admin` | Verify a farm and **approve it for publication** — recorded separately from the farmer completing onboarding |
 | Flag review + thread viewer | `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
@@ -111,9 +98,9 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   prerequisite** for any farmer publishing anything, not a formality. Approval and revocation both
   record which administrator acted and when, in `farm_approvals` and the audit trail. Revoking
   blocks the *next* publication; it does not retract what is already published.
-- **Add an administrator:** the first one per environment comes from the bootstrap script in
-  [RUNBOOK.md](RUNBOOK.md); afterwards administrators live in the database. Authorization is
-  deliberately **data, not configuration** — an env-var allowlist could not record who granted it.
+- **Restore or rotate administrator access:** follow [RUNBOOK.md](RUNBOOK.md). Rotation adds a new
+  password-verifier secret version, deploys a new web revision, proves the new password, and revokes
+  every old session. There is no second account or add-administrator path.
 - **Watch stock-out reports:** open `/admin/reports`. The queue shows customer reports per farm and
   stand, with the item named — including when the report pointed at a published entry rather than
   free text. Reports **never** change the map, answers, or ranking, and the surface offers no action

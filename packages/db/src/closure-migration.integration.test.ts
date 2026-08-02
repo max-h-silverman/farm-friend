@@ -84,7 +84,7 @@ describe("F-049 forward migration from populated pre-change schema (integration)
       contacts.find((row) => row.phone_hash === hash)?.id as string;
     const administrators = await client()`
       insert into administrators (email, contact_id, authorized_at)
-      values ('pre-f049@viga.example', ${contact(adminHash)}, ${NOW}) returning id
+      values ('board@vigavashon.org', ${contact(adminHash)}, ${NOW}) returning id
     `;
     const farms = await client()`insert into farms (name) values ('Pre-F049 Farm') returning id`;
     const farmId = farms[0]?.id as string;
@@ -193,6 +193,6 @@ describe("F-049 forward migration from populated pre-change schema (integration)
     `).toHaveLength(0);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
-    ).toEqual([{ count: 15 }]);
+    ).toEqual([{ count: 16 }]);
   });
 });

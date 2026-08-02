@@ -242,7 +242,7 @@ describe("authoritative SMS transactions (integration)", () => {
 
     const admins = await client()`
       insert into administrators (email, authorized_at)
-      values ('workflow-admin@viga.example', ${T0}) returning id
+      values ('board@vigavashon.org', ${T0}) returning id
     `;
     ids.administrator = admins[0]?.id as string;
 

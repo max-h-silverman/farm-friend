@@ -117,6 +117,7 @@ describe("raw-context retention purge (integration)", () => {
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         outbox_work, consent_transition_watermarks, sms_consents, sender_states,
         stock_out_reports, flags, audit_events, model_runs,
+        admin_login_failures,
         farm_approvals, farmer_authorizations, sales_location_payment_methods,
         farm_links, sales_locations, administrators, farms, contacts
       restart identity cascade
@@ -131,7 +132,7 @@ describe("raw-context retention purge (integration)", () => {
 
     const admins = await client()`
       insert into administrators (email, authorized_at)
-      values ('retention-admin@viga.example', ${T0}) returning id
+      values ('board@vigavashon.org', ${T0}) returning id
     `;
     ids.administrator = admins[0]?.id as string;
   });
@@ -485,6 +486,38 @@ describe("raw-context retention purge (integration)", () => {
   });
 
   describe("safe beside live traffic", () => {
+    it("purges only expired login-failure buckets and bounds one pass", async () => {
+      const expired = Array.from({ length: 3 }, (_, index) =>
+        index.toString(16).padStart(64, "a"),
+      );
+      const live = "b".repeat(64);
+      for (const bucketHash of expired) {
+        await client()`
+          insert into admin_login_failures
+            (bucket_hash, failure_count, window_expires_at, updated_at)
+          values (${bucketHash}, 1, ${EXPIRES_EARLY}, ${T0})
+        `;
+      }
+      await client()`
+        insert into admin_login_failures
+          (bucket_hash, failure_count, window_expires_at, updated_at)
+        values (${live}, 1, ${EXPIRES_LATE}, ${T0})
+      `;
+
+      const first = await purgeExpiredBodies(database(), { now: PURGE_AT, limit: 2 });
+      expect(first.adminLoginFailuresPurged).toBe(2);
+      expect(await client()`
+        select count(*)::integer as count from admin_login_failures
+        where window_expires_at <= ${PURGE_AT}
+      `).toEqual([{ count: 1 }]);
+
+      const second = await purgeExpiredBodies(database(), { now: PURGE_AT, limit: 2 });
+      expect(second.adminLoginFailuresPurged).toBe(1);
+      expect(await client()`
+        select bucket_hash from admin_login_failures order by bucket_hash
+      `).toEqual([{ bucket_hash: live }]);
+    });
+
     it("never clears a body the dispatcher has not finished with", async () => {
       // `runOutboundPass` reads `outbox_work.body` to send it. Clearing the body of work
       // that is still queued or dispatching would race the dispatcher and deliver an empty

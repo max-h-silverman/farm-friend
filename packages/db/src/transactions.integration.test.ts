@@ -72,7 +72,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
 
     const administrators = await client`
       insert into administrators (email, authorized_at)
-      values ('transactions-admin@viga.example', ${t0})
+      values ('board@vigavashon.org', ${t0})
       returning id
     `;
     ids.administrator = administrators[0]?.id as string;

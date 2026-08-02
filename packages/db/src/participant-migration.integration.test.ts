@@ -116,6 +116,6 @@ describe("F-050 forward migration from populated pre-change schema (integration)
     expect(ownershipColumns).toEqual([{ column_name: "owner_farm_id" }]);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
-    ).toEqual([{ count: 15 }]);
+    ).toEqual([{ count: 16 }]);
   });
 });

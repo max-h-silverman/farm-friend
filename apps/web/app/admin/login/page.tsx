@@ -1,35 +1,33 @@
 import { LoginForm } from "./login-form";
 
-// The sign-in screen (F-032).
-//
-// Server-rendered and deliberately dumb: it knows nothing, checks nothing, and displays no
-// state that could differ between an operator and a stranger. Every meaningful decision
-// happens in `/api/auth/request-link`, which answers identically for every address.
-//
-// The copy below is written to be TRUE FOR EVERYONE who reads it. "If that address belongs
-// to an administrator" is not hedging — it is the same non-disclosure the endpoint makes,
-// carried into the UI so the page cannot become the oracle the API refuses to be.
+// The fixed-account sign-in screen. Authentication and throttling remain server-owned; this
+// page names no state that could distinguish a wrong password from revoked authority.
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage() {
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams?: { failed?: string };
+}) {
   return (
     <main className="admin">
       <header className="admin-header">
         <h1>Farm Friend admin</h1>
       </header>
 
-      <p className="admin-note">
-        Enter your VIGA email address and we will send you a sign-in link. The link expires
-        in 15 minutes.
-      </p>
+      <p className="admin-note">Sign in to manage Farm Friend for VIGA.</p>
+
+      {searchParams?.failed === "1" && (
+        <p className="admin-error" role="alert">
+          Could not sign in. Check the password and try again. Repeated attempts may be
+          temporarily blocked.
+        </p>
+      )}
 
       <LoginForm />
 
-      <p className="admin-note">
-        Only provisioned administrators can sign in. If your address is not recognized, no
-        link is sent — ask whoever runs Farm Friend to authorize it.
-      </p>
+      <p className="admin-note">If sign-in keeps failing, wait before trying again.</p>
     </main>
   );
 }

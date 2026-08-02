@@ -104,7 +104,6 @@ describe("inbound reply latency (integration)", () => {
     process.env.PHONE_HASH_SALT = phoneSalt;
     // Required by the composition root since F-032. Nothing on the SMS path uses them; they
     // are set so `appContext()` resolves at all.
-    process.env.MAGIC_LINK_SECRET = "test-magic-secret";
     process.env.PUBLIC_BASE_URL = "https://ff.example";
     // GL-019: no default provider. These suites drive deterministic paths and assert no
     // model is reached, so the stub is the right choice — it now has to be stated.

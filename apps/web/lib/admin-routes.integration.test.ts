@@ -7,7 +7,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   hashFarmerLinkToken,
   hashSessionToken,
-  issueMagicToken,
   issueSessionToken,
 } from "@farm-friend/core";
 import { createAdminSession, type Sql } from "@farm-friend/db";
@@ -44,7 +43,6 @@ describe("admin routes (integration)", () => {
 
   const anchor = Date.now() - 24 * 60 * 60 * 1000;
   const at = (hours: number) => new Date(anchor + hours * 60 * 60 * 1000);
-  const magicSecret = "test-magic-secret";
   const ids: Record<string, string> = {};
   let farmerCounter = 0;
   const sql = () => client as Sql;
@@ -57,7 +55,6 @@ describe("admin routes (integration)", () => {
   let reportsRoute: typeof import("../app/api/admin/stock-out-reports/route");
   let standDataRoute: typeof import("../app/api/admin/stand-data-flags/route");
   let farmersRoute: typeof import("../app/api/admin/farmers/route");
-  let callbackRoute: typeof import("../app/api/auth/callback/route");
   let logoutRoute: typeof import("../app/api/auth/logout/route");
 
   const request = (url: string, init?: RequestInit & { token?: string }) =>
@@ -80,7 +77,6 @@ describe("admin routes (integration)", () => {
       tokenHash: hashSessionToken(token),
       administratorId,
       issuedAt: new Date(),
-      magicNonceHash: randomUUID().replaceAll("-", "").repeat(2),
     });
     await db.close();
     return token;
@@ -109,13 +105,12 @@ describe("admin routes (integration)", () => {
     await migrationClient.end({ timeout: 5 });
 
     process.env.DATABASE_URL = url;
-    process.env.MAGIC_LINK_SECRET = magicSecret;
     // F-040: the farmer route builds a standing link against the CONFIGURED origin.
     process.env.PUBLIC_BASE_URL = "https://ff.example";
 
     const administrators = await sql()`
       insert into administrators (email, authorized_at)
-      values ('route-admin@viga.example', ${at(0).toISOString()})
+      values ('board@vigavashon.org', ${at(0).toISOString()})
       returning id
     `;
     ids.administrator = administrators[0]?.id as string;
@@ -131,7 +126,6 @@ describe("admin routes (integration)", () => {
     reportsRoute = await import("../app/api/admin/stock-out-reports/route");
     standDataRoute = await import("../app/api/admin/stand-data-flags/route");
     farmersRoute = await import("../app/api/admin/farmers/route");
-    callbackRoute = await import("../app/api/auth/callback/route");
     logoutRoute = await import("../app/api/auth/logout/route");
   }, 30_000);
 
@@ -245,12 +239,7 @@ describe("admin routes (integration)", () => {
     });
 
     it("refuses a live session whose administrator was revoked", async () => {
-      const administrators = await sql()`
-        insert into administrators (email, authorized_at)
-        values ('revoked-route@viga.example', ${at(0).toISOString()})
-        returning id
-      `;
-      const administratorId = administrators[0]?.id as string;
+      const administratorId = ids.administrator as string;
       const token = await sessionFor(administratorId);
       expect(await probeAdministrator(token)).toBe(404);
 
@@ -259,201 +248,21 @@ describe("admin routes (integration)", () => {
       `;
       // Immediately, not when the session would have expired.
       expect(await probeAdministrator(token)).toBe(403);
-    });
-  });
 
-  describe("magic-link callback", () => {
-    it("refuses a valid link for an email that is not an administrator", async () => {
-      // Holding a valid link proves control of an address; it does not make you an operator.
-      // This is what keeps the public callback URL from being first-user-wins.
-      const token = issueMagicToken(
-        "stranger@example.com",
-        magicSecret,
-        { now: () => new Date() },
-        60_000,
-      );
-      const sessionsBefore = await sql()`select count(*)::int as n from admin_sessions`;
-
-      const response = await callbackRoute.GET(
-        request(`https://ff.example/api/auth/callback?token=${token}`),
-      );
-      expect(response.status).toBe(401);
-      expect(response.headers.get("set-cookie")).toBeNull();
-
-      // Nothing was created on their behalf. Auto-provisioning here — "they proved the
-      // email, so make them an operator" — would be first-user-wins on a public URL, which
-      // is the specific hole the seed-script decision exists to close.
-      const administrators = await sql()`
-        select id from administrators where email = 'stranger@example.com'
+      // Restore the one fixed authority for the remaining independent route cases. The old
+      // session still names the revoked row and therefore remains dead.
+      const replacement = await sql()`
+        insert into administrators (email, authorized_at)
+        values ('board@vigavashon.org', ${at(1).toISOString()}) returning id
       `;
-      expect(administrators).toHaveLength(0);
-
-      const sessionsAfter = await sql()`select count(*)::int as n from admin_sessions`;
-      expect(sessionsAfter[0]?.n).toBe(sessionsBefore[0]?.n);
-    });
-
-    it("refuses a tampered or expired link", async () => {
-      const valid = issueMagicToken(
-        "route-admin@viga.example",
-        magicSecret,
-        { now: () => new Date() },
-        60_000,
-      );
-      const tampered = `${valid.slice(0, -2)}xy`;
-      expect(
-        (
-          await callbackRoute.GET(
-            request(`https://ff.example/api/auth/callback?token=${tampered}`),
-          )
-        ).status,
-      ).toBe(401);
-
-      const expired = issueMagicToken(
-        "route-admin@viga.example",
-        magicSecret,
-        { now: () => new Date(Date.now() - 120_000) },
-        60_000,
-      );
-      expect(
-        (
-          await callbackRoute.GET(
-            request(`https://ff.example/api/auth/callback?token=${expired}`),
-          )
-        ).status,
-      ).toBe(401);
-    });
-
-    it("establishes a session for a provisioned administrator, in the cookie only", async () => {
-      const token = issueMagicToken(
-        "route-admin@viga.example",
-        magicSecret,
-        { now: () => new Date() },
-        60_000,
-      );
-      const response = await callbackRoute.GET(
-        request(`https://ff.example/api/auth/callback?token=${token}`),
-      );
-      expect(response.status).toBe(303);
-
-      const cookie = response.headers.get("set-cookie");
-      expect(cookie).toContain(`${ADMIN_SESSION_COOKIE}=`);
-      expect(cookie).toMatch(/HttpOnly/i);
-
-      // The credential must NOT be in the body — a JSON token is one copied curl away.
-      expect(await response.text()).toBe("");
-
-      // And the session it minted actually authorizes.
-      const sessionToken = /ff_admin_session=([0-9a-f]{64})/.exec(cookie ?? "")?.[1];
-      expect(sessionToken).toBeDefined();
-      expect(await probeAdministrator(sessionToken as string)).toBe(404);
-    });
-
-    // GL-004 — one link, one session. The email has always said "can be used once"; until
-    // this item nothing enforced it, so a link that was forwarded, logged by a mail gateway,
-    // or left in a shared inbox stayed a working credential for its whole 15 minutes.
-
-    it("refuses a link that has already been used, with no second session", async () => {
-      const link = issueMagicToken(
-        "route-admin@viga.example",
-        magicSecret,
-        { now: () => new Date() },
-        60_000,
-      );
-      const url = `https://ff.example/api/auth/callback?token=${link}`;
-
-      const first = await callbackRoute.GET(request(url));
-      expect(first.status).toBe(303);
-      const firstCookie = first.headers.get("set-cookie") ?? "";
-      const firstSession = /ff_admin_session=([0-9a-f]{64})/.exec(firstCookie)?.[1];
-      expect(firstSession).toBeDefined();
-
-      const before = await sql()`select count(*)::int as n from admin_sessions`;
-
-      // Same link, still well inside its window, replayed.
-      const replay = await callbackRoute.GET(request(url));
-
-      // Indistinguishable from any other refusal — a distinct status would tell whoever holds
-      // a copied link that it was genuine and merely spent, which is the same disclosure the
-      // stranger case refuses to make.
-      expect(replay.status).toBe(401);
-      expect(replay.headers.get("set-cookie")).toBeNull();
-
-      const after = await sql()`select count(*)::int as n from admin_sessions`;
-      expect(after[0]?.n).toBe(before[0]?.n);
-
-      // The operator's real session survives the replay: a burnt link must not log them out.
-      expect(await probeAdministrator(firstSession as string)).toBe(404);
-    });
-
-    it("mints one session when a link is opened EIGHT times at once", async () => {
-      // The real shape of a replay is often concurrent — a mail scanner and the operator
-      // opening the same link within milliseconds. A check-then-write would let several
-      // through.
-      const link = issueMagicToken(
-        "route-admin@viga.example",
-        magicSecret,
-        { now: () => new Date() },
-        60_000,
-      );
-      const url = `https://ff.example/api/auth/callback?token=${link}`;
-      const before = await sql()`select count(*)::int as n from admin_sessions`;
-
-      const responses = await Promise.all(
-        Array.from({ length: 8 }, () => callbackRoute.GET(request(url))),
-      );
-
-      expect(responses.filter((r) => r.status === 303)).toHaveLength(1);
-      expect(responses.filter((r) => r.status === 401)).toHaveLength(7);
-
-      const after = await sql()`select count(*)::int as n from admin_sessions`;
-      expect(after[0]?.n).toBe((before[0]?.n as number) + 1);
-    });
-
-    it("gives two separate links two separate sessions", async () => {
-      // Single use is per LINK, not per administrator: an operator who requests a second link
-      // because the first was slow must still be able to sign in with it.
-      const clock = { now: () => new Date() };
-      const a = issueMagicToken("route-admin@viga.example", magicSecret, clock, 60_000);
-      const b = issueMagicToken("route-admin@viga.example", magicSecret, clock, 60_000);
-
-      const first = await callbackRoute.GET(
-        request(`https://ff.example/api/auth/callback?token=${a}`),
-      );
-      const second = await callbackRoute.GET(
-        request(`https://ff.example/api/auth/callback?token=${b}`),
-      );
-      expect(first.status).toBe(303);
-      expect(second.status).toBe(303);
-      expect(second.headers.get("set-cookie")).not.toBe(first.headers.get("set-cookie"));
-    });
-
-    it("refuses an expired link that was never used", async () => {
-      // Expiry did not become the weaker check. An unspent link past its window is still dead,
-      // and consuming nothing.
-      const expired = issueMagicToken(
-        "route-admin@viga.example",
-        magicSecret,
-        { now: () => new Date(Date.now() - 120_000) },
-        60_000,
-      );
-      const before = await sql()`select count(*)::int as n from admin_sessions`;
-      const response = await callbackRoute.GET(
-        request(`https://ff.example/api/auth/callback?token=${expired}`),
-      );
-      expect(response.status).toBe(401);
-      const after = await sql()`select count(*)::int as n from admin_sessions`;
-      expect(after[0]?.n).toBe(before[0]?.n);
+      ids.administrator = replacement[0]?.id as string;
     });
   });
 
   describe("approval through the route", () => {
     it("approves and revokes, recording the SESSION's administrator not the body's", async () => {
       const token = await sessionFor(ids.administrator as string);
-      const impostor = await sql()`
-        insert into administrators (email, authorized_at)
-        values ('impostor@viga.example', ${at(0).toISOString()})
-        returning id
-      `;
+      const impostorId = randomUUID();
 
       const approve = await farmsRoute.POST(
         request("https://ff.example/api/admin/farms", {
@@ -463,7 +272,7 @@ describe("admin routes (integration)", () => {
           body: JSON.stringify({
             farmId: ids.farm,
             action: "approve",
-            administratorId: impostor[0]?.id,
+            administratorId: impostorId,
           }),
         }),
       );
@@ -475,7 +284,7 @@ describe("admin routes (integration)", () => {
       `;
       expect(rows).toHaveLength(1);
       expect(rows[0]?.administrator_id).toBe(ids.administrator);
-      expect(rows[0]?.administrator_id).not.toBe(impostor[0]?.id);
+      expect(rows[0]?.administrator_id).not.toBe(impostorId);
 
       const revoke = await farmsRoute.POST(
         request("https://ff.example/api/admin/farms", {
@@ -578,11 +387,7 @@ describe("admin routes (integration)", () => {
       const token = await sessionFor(ids.administrator as string);
       const { flagId } = await flaggedMessage("something is wrong here");
 
-      const impostor = await sql()`
-        insert into administrators (email, authorized_at)
-        values (${`flag-impostor-${randomUUID()}@viga.example`}, ${at(0).toISOString()})
-        returning id
-      `;
+      const impostorId = randomUUID();
       const resolved = await flagsRoute.POST(
         request("https://ff.example/api/admin/flags", {
           method: "POST",
@@ -592,7 +397,7 @@ describe("admin routes (integration)", () => {
             flagId,
             action: "resolve",
             dispositionCode: "spoke_with_sender",
-            administratorId: impostor[0]?.id,
+            administratorId: impostorId,
           }),
         }),
       );
@@ -603,7 +408,7 @@ describe("admin routes (integration)", () => {
       `;
       expect(rows[0]?.status).toBe("resolved");
       expect(rows[0]?.disposed_by_administrator_id).toBe(ids.administrator);
-      expect(rows[0]?.disposed_by_administrator_id).not.toBe(impostor[0]?.id);
+      expect(rows[0]?.disposed_by_administrator_id).not.toBe(impostorId);
     });
 
     it("shows the flagged thread with the sender masked and no phone material", async () => {
@@ -762,11 +567,7 @@ describe("admin routes (integration)", () => {
       const token = await sessionFor(ids.administrator as string);
       const { flagId } = await standDataFlag();
 
-      const impostor = await sql()`
-        insert into administrators (email, authorized_at)
-        values (${`stand-impostor-${randomUUID()}@viga.example`}, ${at(0).toISOString()})
-        returning id
-      `;
+      const impostorId = randomUUID();
       const resolved = await standDataRoute.POST(
         request("https://ff.example/api/admin/stand-data-flags", {
           method: "POST",
@@ -775,7 +576,7 @@ describe("admin routes (integration)", () => {
           body: JSON.stringify({
             flagId,
             note: "confirmed with the farmer",
-            administratorId: impostor[0]?.id,
+            administratorId: impostorId,
           }),
         }),
       );
@@ -860,11 +661,7 @@ describe("admin routes (integration)", () => {
       const token = await sessionFor(ids.administrator as string);
       const { contactHash, farmId } = await farmerAndFarm();
       const requestId = await openRequestFor(contactHash);
-      const impostor = await sql()`
-        insert into administrators (email, authorized_at)
-        values (${`farmer-impostor-${randomUUID()}@viga.example`}, ${at(0).toISOString()})
-        returning id
-      `;
+      const impostorId = randomUUID();
 
       const response = await farmersRoute.POST(
         request("https://ff.example/api/admin/farmers", {
@@ -875,7 +672,7 @@ describe("admin routes (integration)", () => {
             action: "authorize",
             farmId,
             requestId,
-            administratorId: impostor[0]?.id,
+            administratorId: impostorId,
           }),
         }),
       );
@@ -887,7 +684,7 @@ describe("admin routes (integration)", () => {
         order by occurred_at desc limit 1
       `;
       expect(audit[0]?.actor_administrator_id).toBe(ids.administrator);
-      expect(audit[0]?.actor_administrator_id).not.toBe(impostor[0]?.id);
+      expect(audit[0]?.actor_administrator_id).not.toBe(impostorId);
     });
 
     it("returns a fresh link once and stores only its hash", async () => {
