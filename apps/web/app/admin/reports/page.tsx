@@ -26,11 +26,7 @@ export default async function ReportsPage() {
   const reports = await listStockOutReports(db, { status: "all" });
 
   return (
-    <AdminShell
-      currentPath="/admin/reports"
-      title="Stock reports"
-      signedInAs={administrator.email}
-    >
+    <AdminShell currentPath="/admin/reports">
       <p className="admin-note">
         Customers can let us know when an item may be sold out. Take a look, then contact the
         farmer if a stand needs an update. These reports never change the map.

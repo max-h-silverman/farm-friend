@@ -33,7 +33,7 @@ export default async function FlagsPage() {
   ]);
 
   return (
-    <AdminShell currentPath="/admin/flags" title="Needs attention" signedInAs={administrator.email}>
+    <AdminShell currentPath="/admin/flags">
       <p className="admin-note">
         Someone has asked for help through <strong>FLAG</strong>. Read the conversation, help as
         needed, then leave a note about what happened. Phone numbers are partly hidden.

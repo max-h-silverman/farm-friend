@@ -33,8 +33,6 @@ describe("the shared administrator shell", () => {
     render(
       <AdminShell
         currentPath="/admin"
-        title="Stands"
-        signedInAs="operator@viga.example"
       >
         <p>Stands</p>
       </AdminShell>,
@@ -61,6 +59,10 @@ describe("the shared administrator shell", () => {
     );
     expect(screen.queryByRole("link", { name: "Farm approval" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Stand data" })).toBeNull();
+    expect(screen.queryByRole("banner")).toBeNull();
+    expect(screen.getByRole("navigation")).toContainElement(
+      screen.getByRole("button", { name: "Sign out" }),
+    );
   });
 
   it("identifies the current workflow and signs out through the durable endpoint", async () => {
@@ -71,8 +73,6 @@ describe("the shared administrator shell", () => {
     render(
       <AdminShell
         currentPath="/admin/flags"
-        title="Flag review"
-        signedInAs="operator@viga.example"
         fetcher={fetcher}
         onSignedOut={signedOut}
       >
@@ -84,7 +84,7 @@ describe("the shared administrator shell", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getByRole("heading", { name: "Flag review" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Flag review" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Sign out" }));
 

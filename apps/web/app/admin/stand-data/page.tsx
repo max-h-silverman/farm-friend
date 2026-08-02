@@ -26,11 +26,7 @@ export default async function StandDataPage() {
   const flags = await listStandDataFlags(db, { status: "all" });
 
   return (
-    <AdminShell
-      currentPath="/admin/stand-data"
-      title="Listing questions"
-      signedInAs={administrator.email}
-    >
+    <AdminShell currentPath="/admin/stand-data">
       <p className="admin-note">
         Farm Friend brings a question here when it needs help reading a listing. Leave a note with
         your decision; it will not change what&apos;s on the map.

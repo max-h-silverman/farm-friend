@@ -47,11 +47,7 @@ export default async function FarmersPage() {
   ]);
 
   return (
-    <AdminShell
-      currentPath="/admin/farmers"
-      title="People"
-      signedInAs={administrator.email}
-    >
+    <AdminShell currentPath="/admin/farmers">
       <p className="admin-note">
         See who has been in touch with Farm Friend and who can update a farm. Phone numbers are
         partly hidden.

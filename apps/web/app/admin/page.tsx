@@ -196,7 +196,7 @@ export default async function AdminPage() {
   const [farms, stands] = await Promise.all([listFarmsForApproval(db), listStandsForAdministration(db)]);
 
   return (
-    <AdminShell currentPath="/admin" title="Stands" signedInAs={administrator.email}>
+    <AdminShell currentPath="/admin">
       <section className="admin-priority" aria-labelledby="approve-farms-heading">
         <h2 id="approve-farms-heading" className="admin-section-title">Approve farms</h2>
         <p className="admin-note">
