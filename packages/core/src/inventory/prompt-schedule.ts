@@ -1,3 +1,5 @@
+import { renderProposedSnapshot, type SnapshotEntry } from "./proposal";
+
 export type PromptCadence =
   | "every_2_days"
   | "weekly"
@@ -107,4 +109,3 @@ export function renderScheduledInventoryUpdateRequest(input: {
 }): string {
   return `${input.locationName}: no complete current listing can be shown here. Please text what is available now.`;
 }
-import { renderProposedSnapshot, type SnapshotEntry } from "./proposal";

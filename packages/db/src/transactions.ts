@@ -697,9 +697,12 @@ export async function openOrReviseProposal(
     if (locations.length === 0) throw new Error("sales location does not exist");
 
     const existing = await tx`
-      select id, proposal_version from inventory_publication_proposals
-      where sender_hash = ${input.senderHash} and state = 'open'
-      for update
+      select proposal.id, proposal.proposal_version,
+             subject.proposal_id as scheduled_subject
+      from inventory_publication_proposals as proposal
+      left join scheduled_inventory_prompt_subjects as subject on subject.proposal_id = proposal.id
+      where proposal.sender_hash = ${input.senderHash} and proposal.state = 'open'
+      for update of proposal
     `;
     const ownerAuthorization = await tx`
       select farmer.id from farmer_authorizations as farmer
@@ -749,7 +752,16 @@ export async function openOrReviseProposal(
     } as unknown as Parameters<
       Tx["json"]
     >[0];
-    if (existing.length > 0) {
+    // A scheduled full-snapshot prompt is an immutable typed subject. Farmer change text
+    // starts the ordinary update flow rather than revising that subject into something its
+    // accepted outbox never displayed.
+    if (existing[0]?.scheduled_subject !== null && existing[0]?.scheduled_subject !== undefined) {
+      await tx`
+        update inventory_publication_proposals
+        set state = 'invalidated', closed_at = ${input.now}, updated_at = ${input.now}
+        where id = ${existing[0]?.id as string} and state = 'open'
+      `;
+    } else if (existing.length > 0) {
       const id = existing[0]?.id as string;
       const nextVersion = (existing[0]?.proposal_version as number) + 1;
       // Revising invalidates the prior activation: the window restarts only once the
