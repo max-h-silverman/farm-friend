@@ -567,14 +567,16 @@ export async function listUsersForAdministration(db: Db): Promise<AdminUserRow[]
       contact.id as contact_id,
       right(contact.phone_e164, 4) as sender_last_four,
       exists (
-        select 1 from farmer_authorizations authorization
-        where authorization.contact_id = contact.id and authorization.revoked_at is null
+        select 1 from farmer_authorizations farmer_authorization
+        where farmer_authorization.contact_id = contact.id
+          and farmer_authorization.revoked_at is null
       ) as is_farmer,
       coalesce(
         (select array_agg(farm.name order by farm.name, farm.id)
-         from farmer_authorizations authorization
-         join farms farm on farm.id = authorization.farm_id
-         where authorization.contact_id = contact.id and authorization.revoked_at is null),
+         from farmer_authorizations farmer_authorization
+         join farms farm on farm.id = farmer_authorization.farm_id
+         where farmer_authorization.contact_id = contact.id
+           and farmer_authorization.revoked_at is null),
         array[]::text[]
       ) as farms
     from contacts contact
