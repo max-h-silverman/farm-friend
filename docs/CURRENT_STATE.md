@@ -52,11 +52,11 @@ stopped sender remains suppressed. The focused integration run uses an isolated 
 no production rows were read or written. The three deploy-assertion test suites also pass. No
 model-facing seam changed, so no model evaluation is owed.
 
-The locally verified, **not deployed** administrator interface refinement has four top-level
-workflows: **Stands**, **People**, **Needs attention**, and **Stock reports**. Its compact
-navigation includes sign-out; priority actions use a small yellow accent; desktop content can use a
-wider readable column. Stand cards use native disclosure, and expanded details are grouped by
-availability, visit and listing, hours and season, and other details. It passes 858 unit tests and
+The administrator interface refinement is merged on `main` as `c91dd54` but **not deployed**. It
+has four top-level workflows: **Stands**, **People**, **Needs attention**, and **Stock reports**.
+Its compact navigation includes sign-out; priority actions use a small yellow accent; desktop
+content can use a wider readable column. Stand cards use native disclosure. Its expanded details
+are grouped by availability, visit and listing, hours and season, and other details. It passes 858 unit tests and
 556 real-Postgres integration tests across 40 files, plus typecheck, lint, and the production web
 build. The integration run used an isolated disposable local Postgres server only; it did not read
 or write production data. No model-facing seam changed, so no model evaluation is owed. The final

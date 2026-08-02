@@ -13,7 +13,7 @@ mid-session defeats its own purpose.
 
 ## 2026-08-02 (latest) — one pre-go-live architecture shipped, with the dead alternatives removed
 
-### Administrator interface polish — merge candidate, not deployed
+### Administrator interface polish — merged, not deployed
 
 The signed-in administrator view now leads with four plain-language workflows: **Stands**,
 **People**, **Needs attention**, and **Stock reports**. The old header is gone; navigation and
