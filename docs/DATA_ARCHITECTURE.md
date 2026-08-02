@@ -47,11 +47,12 @@ render an honest "updated X ago" without a second provenance axis.
   inert. It is the one record on this list writable from an unauthenticated inbound SMS, which is
   why it holds only "this phone asked, at this time" plus the optional invite reference. One open
   request per phone; settled requests stay as history and record which administrator answered them.
-- **farmer invitations** — an administrator-created, one-use, seven-day farm-bound onboarding
-  link. Only the token hash is stored. Sharing happens through the administrator's own text or
-  email app, so the application does not invent an email provider or bypass SMS consent. A
-  redeemed invitation records its farm on the onboarding request; it still grants nothing until
-  VIGA authorizes the farmer.
+- **farmer invitations** — an administrator-created, one-use, seven-day onboarding link that may
+  be bound to an existing farm or left unbound for a new farm. Only the token hash is stored.
+  Sharing happens through the administrator's own text or email app, so the application does not
+  invent an email provider or bypass SMS consent. A redeemed, farm-bound invitation records its
+  farm on the onboarding request; an unbound invitation leaves that decision for the queue. Both
+  still grant nothing until VIGA authorizes the farmer.
 - **farmer standing links** (F-040, hardened by B-031) — a durable key letting a farmer reach *their own* listing form
   in a browser, with no password and no session. Only the **hash** of the token is stored, as with
   a session token. A link is a **pointer to an authorization, never authority itself**: resolution

@@ -30,13 +30,21 @@ export default async function FarmerOnboardingPage({
     fromNumber === undefined || fromNumber === ""
       ? null
       : buildSignupSmsUrl(fromNumber, params.token);
+  const farmHeading =
+    invitation.farmName === null
+      ? "Start farmer onboarding"
+      : `Start onboarding for ${invitation.farmName}`;
+  const invitationDescription =
+    invitation.farmName === null
+      ? "VIGA invited you to start onboarding a new farm on Farm Friend."
+      : `VIGA invited ${invitation.farmName} to join Farm Friend.`;
 
   return (
     <main className="farmer-onboarding">
       <p className="farmer-eyebrow">VIGA Farm Friend</p>
-      <h1>Start onboarding for {invitation.farmName}</h1>
+      <h1>{farmHeading}</h1>
       <p>
-        VIGA invited this farm to join Farm Friend. The first step is proving that you control
+        {invitationDescription} The first step is proving that you control
         the phone number Farm Friend will use for updates. This invitation arrived by {invitation.channel === "sms" ? "text" : "email"}.
       </p>
 
@@ -59,7 +67,11 @@ export default async function FarmerOnboardingPage({
         )}
         <p className="farmer-onboarding-instruction">
           The prepared message includes this invitation, so your request is connected to
-          <strong> {invitation.farmName}</strong>.
+          {invitation.farmName === null ? (
+            <strong> new-farm onboarding</strong>
+          ) : (
+            <strong> {invitation.farmName}</strong>
+          )}.
         </p>
       </section>
 

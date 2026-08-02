@@ -29,4 +29,16 @@ describe("farmer invite delivery", () => {
     expect(result).toContain(`body=${encodeURIComponent(message)}`);
     expect(result).toContain(`subject=${encodeURIComponent("Join VIGA Farm Friend")}`);
   });
+
+  it("describes an unbound invitation as new-farm onboarding", () => {
+    expect(
+      inviteMessage({
+        farmName: null,
+        link: "https://farmfriend.example/farmer/onboarding/token",
+      }),
+    ).toBe(
+      "VIGA Farm Friend: You are invited to start farmer onboarding. " +
+        "Open this link and follow the steps: https://farmfriend.example/farmer/onboarding/token",
+    );
+  });
 });

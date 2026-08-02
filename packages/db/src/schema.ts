@@ -419,9 +419,8 @@ export const farmerInvitations = pgTable(
   "farmer_invitations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    farmId: uuid("farm_id")
-      .notNull()
-      .references(() => farms.id, { onDelete: "restrict" }),
+    /** NULL means the invitation starts onboarding a farm that is not in Farm Friend yet. */
+    farmId: uuid("farm_id").references(() => farms.id, { onDelete: "restrict" }),
     tokenHash: text("token_hash").notNull(),
     channel: farmerInviteChannel("channel").notNull(),
     createdByAdministratorId: uuid("created_by_administrator_id")

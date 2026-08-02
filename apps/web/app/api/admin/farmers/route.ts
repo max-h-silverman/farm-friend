@@ -74,9 +74,14 @@ export async function POST(req: Request): Promise<Response> {
   const occurredAt = clock.now();
 
   if (action === "create_invite") {
-    const farmId = typeof body.farmId === "string" ? body.farmId : null;
+    const farmId =
+      body.farmId === undefined || body.farmId === null || body.farmId === ""
+        ? null
+        : typeof body.farmId === "string"
+          ? body.farmId
+          : undefined;
     const channel = body.channel === "sms" || body.channel === "email" ? body.channel : null;
-    if (farmId === null || channel === null) {
+    if (farmId === undefined || channel === null) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
     const result = await createFarmerInvitation(db, {

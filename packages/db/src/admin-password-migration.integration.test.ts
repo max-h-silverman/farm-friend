@@ -17,6 +17,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Sql } from "./sql";
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
+const currentMigrationCount = (
+  JSON.parse(readFileSync(resolve(migrationsDir, "meta/_journal.json"), "utf8")) as { entries: unknown[] }
+).entries.length;
 const NOW = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 const LATER = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 const contactHash = "f".repeat(64);
@@ -176,7 +179,7 @@ describe("F-056 forward migration from populated pre-change schema (integration)
     }]);
     expect(await sql`select * from admin_login_failures`).toHaveLength(0);
     expect(await sql`select count(*)::integer as count from drizzle.__drizzle_migrations`).toEqual([
-      { count: 16 },
+      { count: currentMigrationCount },
     ]);
   });
 });

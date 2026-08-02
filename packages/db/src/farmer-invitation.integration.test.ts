@@ -127,4 +127,41 @@ describe("administrator farmer invitations (integration)", () => {
       occurredAt: new Date(now.getTime() + 12_000),
     })).toEqual({ status: "farm_mismatch" });
   });
+
+  it("creates an unbound invitation for a new farm and leaves the queue farm blank", async () => {
+    const created = await createFarmerInvitation(database(), {
+      channel: "sms",
+      administratorId,
+      occurredAt: new Date(now.getTime() + 20_000),
+    });
+    expect(created).toMatchObject({
+      status: "created",
+      farmName: null,
+      channel: "sms",
+    });
+    if (created.status !== "created") return;
+
+    expect(await loadFarmerInvitation(database(), created.token, new Date(now.getTime() + 21_000)))
+      .toMatchObject({
+        status: "active",
+        farmId: null,
+        farmName: null,
+        channel: "sms",
+      });
+
+    const phoneHash = hashPhone("+12065550125", "test-phone-salt");
+    await sql()`insert into contacts (phone_e164, phone_hash) values ('+12065550125', ${phoneHash})`;
+    const opened = await openFarmerOnboardingRequest(database(), {
+      contactHash: phoneHash,
+      invitationToken: created.token,
+      occurredAt: new Date(now.getTime() + 22_000),
+    });
+    expect(opened.status).toBe("opened");
+
+    expect(await listOpenFarmerOnboardingRequests(database())).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ farmId: null, farmName: null }),
+      ]),
+    );
+  });
 });

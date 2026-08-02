@@ -73,7 +73,7 @@ export function FarmerQueue({
     deliveryUrl: string;
     channel: FarmerInviteChannel;
     message: string;
-    farmName: string;
+    farmName: string | null;
   } | null>(null);
   const [standChoice, setStandChoice] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -141,10 +141,6 @@ export function FarmerQueue({
   }
 
   async function createInvite() {
-    if (inviteFarmId === "") {
-      setError("Choose which farm this invitation is for.");
-      return;
-    }
     const destination =
       inviteChannel === "sms"
         ? normalizeInvitePhone(inviteDestination)
@@ -163,13 +159,17 @@ export function FarmerQueue({
     }
 
     const { ok, payload } = await post(
-      { action: "create_invite", farmId: inviteFarmId, channel: inviteChannel },
+      {
+        action: "create_invite",
+        ...(inviteFarmId === "" ? {} : { farmId: inviteFarmId }),
+        channel: inviteChannel,
+      },
       "create_invite",
     );
     if (!ok) return;
     if (
       typeof payload.link !== "string" ||
-      typeof payload.farmName !== "string" ||
+      (payload.farmName !== null && typeof payload.farmName !== "string") ||
       (payload.channel !== "sms" && payload.channel !== "email")
     ) {
       setError("The invitation was created without a usable link. Reload and try again.");
@@ -274,14 +274,15 @@ export function FarmerQueue({
       <section className="admin-invite" aria-labelledby="invite-farm-heading">
         <h3 id="invite-farm-heading">Invite a farm to join</h3>
         <p className="admin-note">
-          Choose a farm and send its private onboarding link by text or email. The farmer still
-          has to verify their phone and VIGA still decides whether to give access.
+          Choose an existing farm, or leave it blank for a new farm. Send the private onboarding
+          link by text or email. The farmer still has to verify their phone and VIGA still decides
+          whether to give access.
         </p>
         <div className="admin-invite-form">
           <label>
             <span className="admin-control-label">Farm</span>
             <select value={inviteFarmId} onChange={(event) => setInviteFarmId(event.target.value)}>
-              <option value="">Choose a farm…</option>
+              <option value="">New farm — choose later</option>
               {farms.map((farm) => (
                 <option key={farm.farmId} value={farm.farmId}>
                   {farm.name}
@@ -332,7 +333,7 @@ export function FarmerQueue({
         {invite !== null && (
           <div className="admin-link-reveal" role="group" aria-label="Farmer invitation">
             <p className="admin-note">
-              <strong>{invite.farmName}</strong> invitation ready. Open it to hand off to your
+              <strong>{invite.farmName ?? "New farm"}</strong> invitation ready. Open it to hand off to your
               {invite.channel === "sms" ? " text app" : " email app"}.
             </p>
             <a className="admin-primary-link" href={invite.deliveryUrl}>

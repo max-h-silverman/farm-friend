@@ -352,6 +352,44 @@ describe("administrator queue interactions", () => {
     );
   });
 
+  it("prepares a new-farm invitation without selecting a farm", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      response(200, {
+        status: "created",
+        channel: "email",
+        farmName: null,
+        link: "https://ff.example/farmer/onboarding/new-farm-token",
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <FarmerQueue
+        requests={[]}
+        authorizations={[]}
+        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+      />,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Email" }));
+    await user.type(screen.getByRole("textbox", { name: "Email address" }), "farmer@example.com");
+    await user.click(screen.getByRole("button", { name: "Create invitation" }));
+
+    expect(await screen.findByRole("link", { name: "Open email" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("mailto:farmer@example.com?"),
+    );
+    expect(screen.getByDisplayValue("https://ff.example/farmer/onboarding/new-farm-token")).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/admin/farmers",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ action: "create_invite", channel: "email" }),
+      }),
+    );
+  });
+
   it("loads a retained thread honestly and marks the flagged message accessibly", async () => {
     const user = userEvent.setup();
     let finish!: (value: Response) => void;

@@ -17,6 +17,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Sql } from "./sql";
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
+const currentMigrationCount = (
+  JSON.parse(readFileSync(resolve(migrationsDir, "meta/_journal.json"), "utf8")) as { entries: unknown[] }
+).entries.length;
 
 describe("B-031 final targeting migration from populated pre-change schema (integration)", () => {
   let admin: Sql | undefined;
@@ -180,6 +183,6 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
     `).toHaveLength(0);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
-    ).toEqual([{ count: 16 }]);
+    ).toEqual([{ count: currentMigrationCount }]);
   });
 });

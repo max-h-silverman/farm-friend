@@ -42,15 +42,15 @@ const FARMER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export type FarmerInviteChannel = "sms" | "email";
 
 export type CreateFarmerInvitationResult =
-  | { status: "created"; token: string; farmName: string; channel: FarmerInviteChannel }
+  | { status: "created"; token: string; farmName: string | null; channel: FarmerInviteChannel }
   | { status: "not_an_administrator" }
   | { status: "unknown_farm" };
 
-/** Create a one-use, farm-bound onboarding link for an administrator to share. */
+/** Create a one-use onboarding link for an administrator to share. */
 export async function createFarmerInvitation(
   db: Db,
   input: {
-    farmId: string;
+    farmId?: string | null;
     channel: FarmerInviteChannel;
     administratorId: string;
     occurredAt: Date;
@@ -64,9 +64,13 @@ export async function createFarmerInvitation(
     `;
     if (administrator.length === 0) return { status: "not_an_administrator" as const };
 
-    const farms = await tx`select id, name from farms where id = ${input.farmId}`;
-    const farmName = farms[0]?.name as string | undefined;
-    if (farmName === undefined) return { status: "unknown_farm" as const };
+    const farmId = input.farmId ?? null;
+    const farms =
+      farmId === null
+        ? []
+        : await tx`select id, name from farms where id = ${farmId}`;
+    const farmName = (farms[0]?.name as string | undefined) ?? null;
+    if (farmId !== null && farmName === null) return { status: "unknown_farm" as const };
 
     const token = issueFarmerInviteToken();
     const inserted = await tx`
@@ -74,7 +78,7 @@ export async function createFarmerInvitation(
         farm_id, token_hash, channel, created_by_administrator_id,
         created_at, expires_at
       ) values (
-        ${input.farmId}, ${hashFarmerInviteToken(token)}, ${input.channel},
+        ${farmId}, ${hashFarmerInviteToken(token)}, ${input.channel},
         ${input.administratorId}, ${input.occurredAt.toISOString()},
         ${new Date(input.occurredAt.getTime() + FARMER_INVITE_TTL_MS).toISOString()}
       )
@@ -98,8 +102,8 @@ export type FarmerInvitationLookup =
   | {
       status: "active";
       invitationId: string;
-      farmId: string;
-      farmName: string;
+      farmId: string | null;
+      farmName: string | null;
       channel: FarmerInviteChannel;
     }
   | { status: "invalid" };
@@ -114,7 +118,7 @@ export async function loadFarmerInvitation(
   const rows = await driver(db)`
     select invitation.id, invitation.farm_id, farm.name as farm_name, invitation.channel
     from farmer_invitations as invitation
-    join farms as farm on farm.id = invitation.farm_id
+    left join farms as farm on farm.id = invitation.farm_id
     where invitation.token_hash = ${hashFarmerInviteToken(token)}
       and invitation.redeemed_at is null
       and invitation.expires_at > ${now.toISOString()}
@@ -124,8 +128,8 @@ export async function loadFarmerInvitation(
   return {
     status: "active",
     invitationId: row.id as string,
-    farmId: row.farm_id as string,
-    farmName: row.farm_name as string,
+    farmId: (row.farm_id as string | null) ?? null,
+    farmName: (row.farm_name as string | null) ?? null,
     channel: row.channel as FarmerInviteChannel,
   };
 }

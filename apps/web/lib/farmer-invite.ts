@@ -7,9 +7,13 @@ export function normalizeInvitePhone(raw: string): string | null {
   return null;
 }
 
-export function inviteMessage(input: { farmName: string; link: string }): string {
+export function inviteMessage(input: { farmName: string | null; link: string }): string {
+  const opening =
+    input.farmName === null
+      ? "You are invited to start farmer onboarding."
+      : `${input.farmName} invited you to start farmer onboarding.`;
   return (
-    `VIGA Farm Friend: ${input.farmName} invited you to start farmer onboarding. ` +
+    `VIGA Farm Friend: ${opening} ` +
     `Open this link and follow the steps: ${input.link}`
   );
 }
