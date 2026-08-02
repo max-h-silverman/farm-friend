@@ -86,7 +86,7 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
   return (
     <>
       <p className="admin-boundary-note">
-        Reviewing a report does not change the map.
+        Marking a report reviewed does not change the map.
       </p>
       {error !== null && (
         <p className="admin-error" role="alert">

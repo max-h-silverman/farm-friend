@@ -196,10 +196,10 @@ export function FarmerQueue({
         </p>
       )}
 
-      <h2>Farmer requests</h2>
+      <h2>Farmers waiting to join</h2>
       {pendingRequests.length === 0 ? (
         <p className="admin-note">
-          No requests yet. Farmers can text <strong>SIGNUP</strong> to ask for access.
+          No requests right now. Farmers can text <strong>SIGNUP</strong> to get started.
         </p>
       ) : (
         <ul className="admin-farms">
@@ -244,7 +244,7 @@ export function FarmerQueue({
         </ul>
       )}
 
-      <h2>People with farmer access</h2>
+      <h2>Current farmer access</h2>
       {rows.length === 0 ? (
         <p className="admin-note">No one has farmer access yet.</p>
       ) : (
@@ -263,15 +263,15 @@ export function FarmerQueue({
                   </p>
                   <p className="admin-note">
                     {revoked
-                      ? "This person can no longer update the farm, and their private link no longer works."
+                      ? "Access was removed, so their private link no longer works."
                       : row.hasLiveLink && row.liveLinkStand !== null
                         ? `Private link works for ${row.liveLinkStand.name}.`
-                        : "No private link yet. They can text LINK to get one."}
+                        : "No private link yet. They can text LINK whenever they need one."}
                   </p>
                   {freshLink?.id === row.authorizationId && (
                     <div className="admin-link-reveal" role="group" aria-label="New private link">
                       <p className="admin-note">
-                        <strong>Copy this now — it is not shown again.</strong>
+                        <strong>Copy this now — we only show it once.</strong>
                       </p>
                       <input aria-label="Private link" readOnly value={freshLink.link} />
                       <button type="button" onClick={() => void copyFreshLink()}>

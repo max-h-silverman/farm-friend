@@ -35,8 +35,8 @@ export default async function FlagsPage() {
   return (
     <AdminShell currentPath="/admin/flags" title="Needs attention" signedInAs={administrator.email}>
       <p className="admin-note">
-        Review messages sent with <strong>FLAG</strong>. Read the conversation, take any needed
-        action, then record what you did. Phone numbers are partly hidden.
+        Someone has asked for help through <strong>FLAG</strong>. Read the conversation, help as
+        needed, then leave a note about what happened. Phone numbers are partly hidden.
       </p>
 
       <FlagQueue
@@ -55,8 +55,8 @@ export default async function FlagsPage() {
 
       <h2 className="admin-section-title">Listing questions</h2>
       <p className="admin-note">
-        These are questions about a listing that Farm Friend could not answer safely. Recording a
-        decision does not change the listing.
+        These are places where Farm Friend needs a little help reading a listing. Leave a note
+        with your decision; it will not change what&apos;s on the map.
       </p>
       <StandDataQueue
         flags={standDataFlags.map((flag) => ({

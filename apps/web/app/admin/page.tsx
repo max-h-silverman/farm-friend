@@ -200,7 +200,7 @@ export default async function AdminPage() {
       <section className="admin-priority" aria-labelledby="approve-farms-heading">
         <h2 id="approve-farms-heading" className="admin-section-title">Approve farms</h2>
         <p className="admin-note">
-          A farm must be approved before its stands can appear on Farm Friend.
+          Approve a farm when it&apos;s ready to join Farm Friend.
         </p>
         <ApprovalQueue
           farms={farms.map((farm) => ({
@@ -216,8 +216,8 @@ export default async function AdminPage() {
       <section aria-labelledby="all-stands-heading">
         <h2 id="all-stands-heading" className="admin-section-title">All stands</h2>
         <p className="admin-note">
-          Check what people can see. Open a stand for its full listing. “Open status not stated”
-          means there is not enough schedule information to tell whether it is open.
+          A quick view of what people see. Open any stand for the full listing. “Open status not
+          stated” simply means we do not have enough hours to tell.
         </p>
         <StandList stands={asStandCards(stands)} />
       </section>

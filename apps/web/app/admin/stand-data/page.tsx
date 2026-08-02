@@ -32,8 +32,8 @@ export default async function StandDataPage() {
       signedInAs={administrator.email}
     >
       <p className="admin-note">
-        Farm Friend brings a question here when it cannot safely understand a listing. Record what
-        you decide; this does not change the listing.
+        Farm Friend brings a question here when it needs help reading a listing. Leave a note with
+        your decision; it will not change what&apos;s on the map.
       </p>
 
       <StandDataQueue

@@ -48,7 +48,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
   async function resolve(flagId: string) {
     const note = (notes[flagId] ?? "").trim();
     if (note === "") {
-      setError("Write down what you decided before closing this question.");
+      setError("Add a quick note about what you decided before closing this question.");
       return;
     }
     setPending(flagId);
@@ -75,7 +75,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
           row.flagId === flagId ? { ...row, resolutionNote: note } : row,
         ),
       );
-      setSuccess("Decision recorded. The map has not changed.");
+      setSuccess("Thanks — your decision is recorded. The map has not changed.");
     } catch {
       setError("That change did not go through. Reload and try again.");
     } finally {

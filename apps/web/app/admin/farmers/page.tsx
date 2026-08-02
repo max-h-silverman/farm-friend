@@ -53,16 +53,15 @@ export default async function FarmersPage() {
       signedInAs={administrator.email}
     >
       <p className="admin-note">
-        See who has contacted Farm Friend and who can update a farm. Phone numbers are partly
-        hidden.
+        See who has been in touch with Farm Friend and who can update a farm. Phone numbers are
+        partly hidden.
       </p>
 
       <section className="admin-priority" aria-labelledby="farmer-access-heading">
         <h2 id="farmer-access-heading" className="admin-section-title">Farmer access</h2>
         <p className="admin-note">
-          Give access only after confirming the person runs the farm. Having a phone does not
-          prove that. A farm also needs <Link href="/admin">approval</Link> before it appears on
-          the map.
+          If you know they run the farm, you can give them access here. The farm will still need
+          <Link href="/admin"> approval</Link> before it appears on the map.
         </p>
         <FarmerQueue
           requests={requests.map((request) => ({
@@ -86,7 +85,7 @@ export default async function FarmersPage() {
       </section>
 
       <section aria-labelledby="people-list-heading">
-        <h2 id="people-list-heading" className="admin-section-title">People who contacted us</h2>
+        <h2 id="people-list-heading" className="admin-section-title">Everyone who&apos;s been in touch</h2>
         <p className="admin-note">Filter by whether they can currently update a farm.</p>
         <UserList users={users} />
       </section>

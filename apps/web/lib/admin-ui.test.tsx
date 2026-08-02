@@ -168,8 +168,9 @@ describe("administrator language", () => {
     );
 
     expect(screen.getByText("Shown on map")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Farmer requests" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "People with farmer access" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Farmers waiting to join" })).toBeTruthy();
+    expect(screen.getByText(/no requests right now/i)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Current farmer access" })).toBeTruthy();
     expect(screen.queryByText("Waiting on you")).toBeNull();
   });
 });
@@ -540,7 +541,7 @@ describe("administrator queue interactions", () => {
     );
     await user.click(screen.getByRole("button", { name: "Record decision" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      /decision recorded.*map has not changed/i,
+      /your decision is recorded.*map has not changed/i,
     );
     expect(screen.getByText(/resolved: confirmed 9am opening/i)).toBeTruthy();
   });

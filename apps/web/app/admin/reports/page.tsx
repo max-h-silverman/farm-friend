@@ -32,8 +32,8 @@ export default async function ReportsPage() {
       signedInAs={administrator.email}
     >
       <p className="admin-note">
-        Customers can privately report an item that looks sold out. These reports do not change
-        the map. Review them, then contact the farmer if a stand needs an update.
+        Customers can let us know when an item may be sold out. Take a look, then contact the
+        farmer if a stand needs an update. These reports never change the map.
       </p>
 
       <ReportQueue
