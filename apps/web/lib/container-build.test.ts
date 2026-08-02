@@ -91,6 +91,29 @@ describe("the image builds the whole workspace, not just the app", () => {
     const stages = dockerfile.match(/^\s*FROM\s+/gm) ?? [];
     expect(stages.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("installs native-module build prerequisites only before the isolated npm install", () => {
+    // Argon2 is a native module. Its Linux install can compile from source when a matching
+    // prebuilt binary is unavailable, which requires Python, make, and a C++ compiler. The
+    // dependency stage needs those tools before `npm ci`; the runtime stage must not ship them.
+    const dependencyStage = dockerfile.match(
+      /^FROM\s+[^\n]+\s+AS\s+deps\s*$([\s\S]*?)(?=^FROM\s+)/m,
+    )?.[1] ?? "";
+    const runtimeStage = dockerfile.match(
+      /^FROM\s+[^\n]+\s+AS\s+runtime\s*$([\s\S]*)/m,
+    )?.[1] ?? "";
+    const nativeToolInstall = dependencyStage.match(
+      /RUN\s+apt-get\s+update[\s\S]*?apt-get\s+install[\s\S]*?(?=\n\s*RUN|\n\s*COPY|$)/,
+    )?.[0] ?? "";
+
+    expect(nativeToolInstall).toContain("python3");
+    expect(nativeToolInstall).toContain("make");
+    expect(nativeToolInstall).toContain("g++");
+    expect(dependencyStage.indexOf(nativeToolInstall)).toBeLessThan(
+      dependencyStage.indexOf("RUN npm ci"),
+    );
+    expect(runtimeStage).not.toContain("apt-get install");
+  });
 });
 
 describe("the build context excludes what must never enter an image", () => {

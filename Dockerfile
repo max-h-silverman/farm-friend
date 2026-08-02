@@ -28,6 +28,13 @@ COPY packages/core/package.json ./packages/core/
 COPY packages/db/package.json ./packages/db/
 COPY packages/sms/package.json ./packages/sms/
 
+# Argon2 ships native code. A matching prebuilt binary is not guaranteed for the exact
+# Node/Linux combination Cloud Build resolves, so its install must be able to compile from
+# source. These tools exist only in this dependency stage; none reaches the runtime image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN npm ci
 
 # ---------------------------------------------------------------------------
