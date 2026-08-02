@@ -32,7 +32,6 @@ import { handleStockOutReport, handleStockOutRequest } from "./public-stockout";
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
 const farmerHash = "7".repeat(64);
-const adminHash = "8".repeat(64);
 // Anchored to the real clock, not a calendar date: `outbox_work` enforces
 // `body_expires_at > created_at` against a `now()` default, so a literal date silently
 // expires. See the header note in packages/db/src/workflow.integration.test.ts.
@@ -187,7 +186,7 @@ describe("public web surface boundary (integration)", () => {
 
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash)
-      values ('+12065550901', ${farmerHash}), ('+12065550902', ${adminHash})
+      values ('+12065550901', ${farmerHash})
       returning id, phone_hash
     `;
     const contactByHash = new Map(
@@ -196,8 +195,8 @@ describe("public web surface boundary (integration)", () => {
     ids.contact = contactByHash.get(farmerHash)!;
 
     const admins = await client()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('public-surface-admin@viga.example', ${contactByHash.get(adminHash)!}, ${T0}) returning id
+      insert into administrators (email, authorized_at)
+      values ('public-surface-admin@viga.example', ${T0}) returning id
     `;
 
     const farm = await client()`

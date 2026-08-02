@@ -49,7 +49,7 @@
           "name": "magic_nonce_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         }
       },
       "indexes": {
@@ -127,12 +127,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "contact_id": {
-          "name": "contact_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "authorized_at": {
           "name": "authorized_at",
           "type": "timestamp with time zone",
@@ -147,22 +141,6 @@
         }
       },
       "indexes": {
-        "administrators_one_active_per_contact": {
-          "name": "administrators_one_active_per_contact",
-          "columns": [
-            {
-              "expression": "contact_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"administrators\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "administrators_one_active_per_email": {
           "name": "administrators_one_active_per_email",
           "columns": [
@@ -180,21 +158,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "administrators_contact_id_contacts_id_fk": {
-          "name": "administrators_contact_id_contacts_id_fk",
-          "tableFrom": "administrators",
-          "tableTo": "contacts",
-          "columnsFrom": [
-            "contact_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     },
@@ -863,13 +827,13 @@
           "name": "owner_farm_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "sales_location_id": {
           "name": "sales_location_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "issued_at": {
           "name": "issued_at",
@@ -910,19 +874,6 @@
         }
       },
       "foreignKeys": {
-        "farmer_links_authorization_fk": {
-          "name": "farmer_links_authorization_fk",
-          "tableFrom": "farmer_links",
-          "tableTo": "farmer_authorizations",
-          "columnsFrom": [
-            "authorization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
         "farmer_links_targeted_authorization_owner_fk": {
           "name": "farmer_links_targeted_authorization_owner_fk",
           "tableFrom": "farmer_links",

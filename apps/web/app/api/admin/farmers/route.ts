@@ -1,6 +1,5 @@
 import {
   authorizeFarmer,
-  findOnboardingRequestContact,
   issueFarmerLink,
   listFarmerAuthorizations,
   listOpenFarmerOnboardingRequests,
@@ -58,6 +57,8 @@ export async function GET(req: Request): Promise<Response> {
       // Whether a live link EXISTS — never the link. The queue must not become a place to
       // read a farmer's standing credential off a screen.
       hasLiveLink: authorization.hasLiveLink,
+      stands: authorization.stands,
+      liveLinkStand: authorization.liveLinkStand,
     })),
   });
 }
@@ -83,8 +84,8 @@ export async function POST(req: Request): Promise<Response> {
     action?: unknown;
     farmId?: unknown;
     requestId?: unknown;
-    contactHash?: unknown;
     authorizationId?: unknown;
+    salesLocationId?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -107,34 +108,14 @@ export async function POST(req: Request): Promise<Response> {
 
   if (action === "authorize") {
     const farmId = typeof body.farmId === "string" ? body.farmId : null;
-    // A caller may name the farmer either by the REQUEST they are answering — which is what
-    // the operator screen does — or by contact hash, for a farmer VIGA is setting up who
-    // never texted.
-    //
-    // **The request form exists so the browser never has to hold a phone hash.** The queue
-    // shows the operator a masked number and an opaque request id; the hash is resolved
-    // server-side from that id. Sending the hash to the browser so it could send it back
-    // would put the one lookup key for a person's phone into a page, a history entry, and a
-    // referrer, which Golden Rule #5 exists to prevent.
     const requestId = typeof body.requestId === "string" ? body.requestId : null;
-    const suppliedHash =
-      typeof body.contactHash === "string" ? body.contactHash : null;
-    if (farmId === null || (requestId === null && suppliedHash === null)) {
+    if (farmId === null || requestId === null) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
-    }
-
-    let contactHash = suppliedHash;
-    if (requestId !== null) {
-      const resolved = await findOnboardingRequestContact(db, requestId);
-      if (resolved === null) {
-        return Response.json({ status: "unknown_request" }, { status: 404 });
-      }
-      contactHash = resolved;
     }
 
     const result = await authorizeFarmer(db, {
       farmId,
-      contactHash: contactHash as string,
+      requestId,
       administratorId: caller.administratorId,
       occurredAt,
     });
@@ -156,7 +137,16 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ status: result.status }, { status: statusFor(result.status) });
   }
 
-  const issued = await issueFarmerLink(db, { authorizationId, occurredAt });
+  const salesLocationId =
+    typeof body.salesLocationId === "string" ? body.salesLocationId : null;
+  if (salesLocationId === null) {
+    return Response.json({ error: "invalid_request" }, { status: 400 });
+  }
+  const issued = await issueFarmerLink(db, {
+    authorizationId,
+    salesLocationId,
+    occurredAt,
+  });
   if (issued.status !== "issued") {
     return Response.json(
       { status: issued.status },
@@ -184,7 +174,7 @@ function statusFor(status: string): number {
     case "issued":
       return 200;
     case "unknown_farm":
-    case "unknown_contact":
+    case "unknown_request":
       return 404;
     case "not_an_administrator":
       return 403;

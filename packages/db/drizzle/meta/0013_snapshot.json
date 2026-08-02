@@ -863,13 +863,13 @@
           "name": "owner_farm_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "sales_location_id": {
           "name": "sales_location_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "issued_at": {
           "name": "issued_at",
@@ -910,19 +910,6 @@
         }
       },
       "foreignKeys": {
-        "farmer_links_authorization_fk": {
-          "name": "farmer_links_authorization_fk",
-          "tableFrom": "farmer_links",
-          "tableTo": "farmer_authorizations",
-          "columnsFrom": [
-            "authorization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
         "farmer_links_targeted_authorization_owner_fk": {
           "name": "farmer_links_targeted_authorization_owner_fk",
           "tableFrom": "farmer_links",

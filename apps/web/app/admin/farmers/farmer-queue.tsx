@@ -27,7 +27,9 @@ export interface AuthorizationRow {
   senderMask: string;
   authorizedAt: string;
   revokedAt: string | null;
+  stands: Array<{ salesLocationId: string; name: string }>;
   hasLiveLink: boolean;
+  liveLinkStand: { salesLocationId: string; name: string } | null;
 }
 
 export interface FarmOption {
@@ -55,6 +57,7 @@ export function FarmerQueue({
   const [pendingRequests, setPendingRequests] = useState(requests);
   const [rows, setRows] = useState(authorizations);
   const [farmChoice, setFarmChoice] = useState<Record<string, string>>({});
+  const [standChoice, setStandChoice] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -130,6 +133,7 @@ export function FarmerQueue({
               // Revoking a farmer's access revokes their links too, in the same
               // transaction. Showing "link live" here afterwards would be a lie.
               hasLiveLink: false,
+              liveLinkStand: null,
             }
           : row,
       ),
@@ -138,18 +142,29 @@ export function FarmerQueue({
     setSuccess("Farmer access revoked. Their private link is no longer active.");
   }
 
-  async function issueLink(authorizationId: string) {
+  async function issueLink(row: AuthorizationRow) {
+    const salesLocationId =
+      standChoice[row.authorizationId] ??
+      row.liveLinkStand?.salesLocationId ??
+      (row.stands.length === 1 ? row.stands[0]?.salesLocationId : undefined);
+    if (salesLocationId === undefined) {
+      setError("Choose the exact stand this private link can update.");
+      return;
+    }
     const { ok, payload } = await post(
-      { action: "issue_link", authorizationId },
-      authorizationId,
+      { action: "issue_link", authorizationId: row.authorizationId, salesLocationId },
+      row.authorizationId,
     );
     if (!ok || typeof payload.link !== "string") return;
-    setFreshLink({ id: authorizationId, link: payload.link });
+    setFreshLink({ id: row.authorizationId, link: payload.link });
+    const selectedStand = row.stands.find(
+      (stand) => stand.salesLocationId === salesLocationId,
+    ) ?? null;
     setRows((current) =>
-      current.map((row) =>
-        row.authorizationId === authorizationId
-          ? { ...row, hasLiveLink: true }
-          : row,
+      current.map((currentRow) =>
+        currentRow.authorizationId === row.authorizationId
+          ? { ...currentRow, hasLiveLink: true, liveLinkStand: selectedStand }
+          : currentRow,
       ),
     );
     setSuccess("Private link created. Copy it now; it will not be shown again.");
@@ -249,8 +264,8 @@ export function FarmerQueue({
                   <p className="admin-note">
                     {revoked
                       ? "This farmer can no longer publish, and their link is dead."
-                      : row.hasLiveLink
-                        ? "Has a working private link."
+                      : row.hasLiveLink && row.liveLinkStand !== null
+                        ? `Has a working private link for ${row.liveLinkStand.name}.`
                         : "No private link yet — they can text LINK for one."}
                   </p>
                   {freshLink?.id === row.authorizationId && (
@@ -267,10 +282,35 @@ export function FarmerQueue({
                 </div>
                 {!revoked && (
                   <div>
+                    <label>
+                      <span className="admin-control-label">Stand for private link</span>
+                      <select
+                        value={
+                          standChoice[row.authorizationId] ??
+                          row.liveLinkStand?.salesLocationId ??
+                          (row.stands.length === 1
+                            ? row.stands[0]?.salesLocationId ?? ""
+                            : "")
+                        }
+                        onChange={(event) =>
+                          setStandChoice((current) => ({
+                            ...current,
+                            [row.authorizationId]: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Choose a stand…</option>
+                        {row.stands.map((stand) => (
+                          <option key={stand.salesLocationId} value={stand.salesLocationId}>
+                            {stand.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <button
                       type="button"
                       disabled={busy === row.authorizationId}
-                      onClick={() => void issueLink(row.authorizationId)}
+                      onClick={() => void issueLink(row)}
                     >
                       {row.hasLiveLink ? "Replace link" : "Create link"}
                     </button>

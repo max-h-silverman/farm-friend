@@ -286,62 +286,29 @@ describe("farm approval and admin sessions (integration)", () => {
     expect(await attemptPublication(at(9))).toBe("published");
   });
 
-  describe("session-backed role lookup", () => {
-    it("resolves a live session to its administrator's server-side roles", async () => {
+  describe("session-backed administrator identity", () => {
+    it("resolves a live session directly to its administrator", async () => {
       const token = issueSessionToken();
       const issuedAt = at(10);
       await createAdminSession(handle(), {
         tokenHash: hashSessionToken(token),
         administratorId: ids.administrator as string,
         issuedAt,
+        magicNonceHash: "1".repeat(64),
       });
 
-      const principal = await resolveAdminSession(handle(), {
+      const administrator = await resolveAdminSession(handle(), {
         tokenHash: hashSessionToken(token),
         now: issuedAt,
       });
-      expect(principal).not.toBeNull();
-      expect(principal?.personId).toBe("approver@viga.example");
-      expect(principal?.roles).toEqual(["admin"]);
-    });
-
-    it("NEVER grants farmer capability to an administrator (Golden Rule #1)", async () => {
-      // The farmer owns published state. An operator role must not silently confer the
-      // ability to act as a farm's owner — so the role lookup must be incapable of
-      // returning anything but "admin", not merely uninclined to.
-      //
-      // GL-035: `Role` no longer HAS a "farmer" value, so the strongest available runtime
-      // statement is exact equality — the roles are `["admin"]` and nothing else. Asserting
-      // absence of a specific extra value would be weaker anyway: it passes for any other
-      // widening. Exact equality fails for every one.
-      const token = issueSessionToken();
-      await createAdminSession(handle(), {
-        tokenHash: hashSessionToken(token),
-        administratorId: ids.administrator as string,
-        issuedAt: at(10),
+      expect(administrator).toEqual({
+        administratorId: ids.administrator,
+        email: "approver@viga.example",
       });
-
-      const principal = await resolveAdminSession(handle(), {
-        tokenHash: hashSessionToken(token),
-        now: at(10),
-      });
-      expect(principal?.roles).toEqual(["admin"]);
-
-      // Even when the same person is ALSO an authorized farmer on a farm: the session is an
-      // administrator session, and its roles come from the administrator record alone.
-      await sql()`
-        update administrators set contact_id = ${ids.farmerContact as string}
-        where id = ${ids.administrator as string}
-      `;
-      const alsoFarmer = await resolveAdminSession(handle(), {
-        tokenHash: hashSessionToken(token),
-        now: at(10),
-      });
-      expect(alsoFarmer?.roles).toEqual(["admin"]);
-      await sql()`
-        update administrators set contact_id = null
-        where id = ${ids.administrator as string}
-      `;
+      expect(Object.keys(administrator ?? {}).sort()).toEqual([
+        "administratorId",
+        "email",
+      ]);
     });
 
     it("refuses an unknown, expired, or revoked session", async () => {
@@ -361,6 +328,7 @@ describe("farm approval and admin sessions (integration)", () => {
         tokenHash: hashSessionToken(expiring),
         administratorId: ids.administrator as string,
         issuedAt,
+        magicNonceHash: "3".repeat(64),
       });
       const expiresAt = new Date(issuedAt.getTime() + ADMIN_SESSION_TTL_MS);
       expect(
@@ -382,6 +350,7 @@ describe("farm approval and admin sessions (integration)", () => {
         tokenHash: hashSessionToken(revoked),
         administratorId: ids.administrator as string,
         issuedAt,
+        magicNonceHash: "2".repeat(64),
       });
       await revokeAdminSession(handle(), {
         tokenHash: hashSessionToken(revoked),
@@ -407,6 +376,7 @@ describe("farm approval and admin sessions (integration)", () => {
         tokenHash: hashSessionToken(token),
         administratorId: admin[0]?.id as string,
         issuedAt: at(12),
+        magicNonceHash: "4".repeat(64),
       });
       expect(
         await resolveAdminSession(handle(), {
@@ -479,11 +449,14 @@ describe("farm approval and admin sessions (integration)", () => {
       expect(result.status).toBe("created");
 
       // And it is a real session, not a bare row.
-      const principal = await resolveAdminSession(handle(), {
+      const administrator = await resolveAdminSession(handle(), {
         tokenHash: hashSessionToken(token),
         now: at(20),
       });
-      expect(principal?.roles).toEqual(["admin"]);
+      expect(administrator).toEqual({
+        administratorId: ids.administrator,
+        email: "approver@viga.example",
+      });
     });
 
     it("refuses the SECOND use of one link, creating no session", async () => {
@@ -635,28 +608,22 @@ describe("farm approval and admin sessions (integration)", () => {
       expect(rows[0]?.n).toBe(0);
     });
 
-    it("leaves link-less sessions unaffected by each other", async () => {
-      // Bootstrap and test paths mint sessions with no link behind them. Many such sessions
-      // must coexist: NULLs are distinct in a unique index, and if that ever stopped being
-      // true the second direct session in a process would fail.
-      const before = await sql()`
+    it("rejects an administrator session with NULL magic-link provenance", async () => {
+      await expect(
+        sql()`
+          insert into admin_sessions (
+            token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash
+          ) values (
+            ${hashSessionToken(issueSessionToken())}, ${ids.administrator as string},
+            ${at(24).toISOString()}, ${at(25).toISOString()}, null
+          )
+        `,
+      ).rejects.toMatchObject({ code: "23502" });
+
+      const rows = await sql()`
         select count(*)::int as n from admin_sessions where magic_nonce_hash is null
       `;
-      for (let i = 0; i < 3; i += 1) {
-        expect(
-          (
-            await createAdminSession(handle(), {
-              tokenHash: hashSessionToken(issueSessionToken()),
-              administratorId: ids.administrator as string,
-              issuedAt: at(24),
-            })
-          ).status,
-        ).toBe("created");
-      }
-      const after = await sql()`
-        select count(*)::int as n from admin_sessions where magic_nonce_hash is null
-      `;
-      expect(after[0]?.n).toBe((before[0]?.n as number) + 3);
+      expect(rows[0]?.n).toBe(0);
     });
   });
 });

@@ -10,8 +10,8 @@ import { publicReadContext } from "../../../../lib/public-context";
 // perform. Publication refuses with `not_approved` unless a live `farm_approvals` row
 // exists, and until this route the only way to create one was hand-written SQL.
 //
-// Both handlers resolve the principal server-side through the shared `requireAdministrator`
-// guard (lib/admin-guard.ts), which every admin route uses. The role is never read from the
+// Both handlers resolve the administrator server-side through the shared `requireAdministrator`
+// guard (lib/admin-guard.ts), which every admin route uses. Identity is never read from the
 // request; see lib/auth.ts.
 //
 // Note what this route does NOT do: it never touches inventory, ranking, or any published

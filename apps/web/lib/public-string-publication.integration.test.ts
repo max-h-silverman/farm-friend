@@ -11,6 +11,7 @@ import {
   authorizeFarmer,
   createDb,
   issueFarmerLink,
+  openFarmerOnboardingRequest,
   openOrReviseProposal,
   type Db,
   type ProposalEntryInput,
@@ -127,9 +128,13 @@ describe("public-string safety at the shared publication boundary (integration)"
       )
       returning id
     `;
+    const opened = await openFarmerOnboardingRequest(database(), {
+      contactHash: senderHash,
+      occurredAt: at(0),
+    });
     const authorized = await authorizeFarmer(database(), {
       farmId,
-      contactHash: senderHash,
+      requestId: opened.status === "opened" ? opened.requestId : "",
       administratorId,
       occurredAt: at(1),
     });
@@ -139,6 +144,7 @@ describe("public-string safety at the shared publication boundary (integration)"
     await approveFarm(database(), { farmId, administratorId, occurredAt: at(2) });
     const link = await issueFarmerLink(database(), {
       authorizationId,
+      salesLocationId: location[0]?.id as string,
       occurredAt: at(3),
     });
     expect(link.status).toBe("issued");

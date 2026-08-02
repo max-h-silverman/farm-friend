@@ -94,10 +94,12 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
       returning id, phone_hash
     `;
     const farmerContactId = contacts.find((row) => row.phone_hash === farmerHash)?.id as string;
-    const adminContactId = contacts.find((row) => row.phone_hash === secondFarmerHash)?.id as string;
+    const secondFarmerContactId = contacts.find(
+      (row) => row.phone_hash === secondFarmerHash,
+    )?.id as string;
     const administrators = await client()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('b026-admin@viga.example', ${adminContactId}, ${T0}) returning id
+      insert into administrators (email, authorized_at)
+      values ('b026-admin@viga.example', ${T0}) returning id
     `;
     const farms = await client()`
       insert into farms (name) values ('B-026 Farm') returning id
@@ -105,7 +107,7 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
     await client()`
       insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
       values (${farms[0]?.id as string}, ${farmerContactId}, ${T0}, ${T0}),
-             (${farms[0]?.id as string}, ${adminContactId}, ${T0}, ${T0})
+             (${farms[0]?.id as string}, ${secondFarmerContactId}, ${T0}, ${T0})
     `;
     await client()`
       insert into farm_approvals (farm_id, administrator_id, approved_at)

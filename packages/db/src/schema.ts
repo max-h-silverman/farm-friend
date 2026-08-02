@@ -271,24 +271,11 @@ export const administrators = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     // Administrator identity is EMAIL, because that is what the login path proves.
-    // `contact_id` used to be the only identifier while magic-link auth identified people
-    // by email, and nothing connected the two — so no session could ever find its
-    // administrator. The identity column and the login path must agree (F-025a).
     email: text("email").notNull(),
-    // The phone side stays available for the SMS surfaces, but is not the identity and is
-    // not required: an operator who never texts is still an operator.
-    contactId: uuid("contact_id").references(() => contacts.id, {
-      onDelete: "restrict",
-    }),
     authorizedAt: timestamp("authorized_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => ({
-    oneActiveAuthorization: uniqueIndex(
-      "administrators_one_active_per_contact",
-    )
-      .on(table.contactId)
-      .where(sql`${table.revokedAt} is null`),
     // The login lookup is by email, so at most one live administrator may hold an address.
     // Revoked rows stay for the audit trail and are excluded here.
     oneActivePerEmail: uniqueIndex("administrators_one_active_per_email")
@@ -320,12 +307,8 @@ export const adminSessions = pgTable(
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    // GL-004. The SHA-256 of the magic link this session was minted from — never the nonce
-    // itself. The unique index below is what makes a link one-use: a link being spent and a
-    // session existing are the same event, so the session row IS the consume record and the
-    // two cannot drift apart. NULL for a session that came from no link (bootstrap, tests);
-    // NULLs are distinct in a unique index, so any number coexist.
-    magicNonceHash: text("magic_nonce_hash"),
+    // GL-004. Every session consumes one exact magic link; the hash is required.
+    magicNonceHash: text("magic_nonce_hash").notNull(),
   },
   (table) => ({
     tokenHashUnique: unique("admin_sessions_token_hash_unique").on(
@@ -341,7 +324,7 @@ export const adminSessions = pgTable(
     ).on(table.magicNonceHash),
     magicNonceHashShape: check(
       "admin_sessions_magic_nonce_hash_shape",
-      sql`${table.magicNonceHash} is null or ${table.magicNonceHash} ~ '^[0-9a-f]{64}$'`,
+      sql`${table.magicNonceHash} ~ '^[0-9a-f]{64}$'`,
     ),
     // 32 random bytes hex-encoded. A short value here would mean the token was stored
     // rather than hashed, or truncated to something enumerable.
@@ -521,10 +504,9 @@ export const farmerOnboardingRequests = pgTable(
  * authority. Resolution reads both rows and re-checks `farmer_authorizations.revoked_at` on
  * every request.
  *
- * F-051 adds an exact location+owner pair for newly issued links. The owner id is deliberately
+ * Every link carries an exact location+owner pair. The owner id is deliberately
  * duplicated only to make both composite foreign keys enforce that the chosen authorization
  * and chosen location belong to the same farm; it is never read as independent authority.
- * Legacy links keep both target columns null and retain their one-location resolution rule.
  * There is still no cached "active" flag or signed claim that could survive revocation.
  *
  * Contrast the admin magic link, which is single-use and 15 minutes: that is an
@@ -542,9 +524,8 @@ export const farmerLinks = pgTable(
      */
     tokenHash: text("token_hash").notNull(),
     authorizationId: uuid("authorization_id").notNull(),
-    /** Exact target for links issued after F-051. Legacy links remain nullable. */
-    ownerFarmId: uuid("owner_farm_id"),
-    salesLocationId: uuid("sales_location_id"),
+    ownerFarmId: uuid("owner_farm_id").notNull(),
+    salesLocationId: uuid("sales_location_id").notNull(),
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
     /**
      * A link may be revoked individually without withdrawing the farmer's authority — the
@@ -557,11 +538,6 @@ export const farmerLinks = pgTable(
       .defaultNow(),
   },
   (table) => ({
-    authorizationReference: foreignKey({
-      name: "farmer_links_authorization_fk",
-      columns: [table.authorizationId],
-      foreignColumns: [farmerAuthorizations.id],
-    }).onDelete("restrict"),
     targetedAuthorizationReference: foreignKey({
       name: "farmer_links_targeted_authorization_owner_fk",
       columns: [table.authorizationId, table.ownerFarmId],
@@ -582,13 +558,6 @@ export const farmerLinks = pgTable(
     validRevocation: check(
       "farmer_links_valid_revocation",
       sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.issuedAt}`,
-    ),
-    coherentTarget: check(
-      "farmer_links_target_coherent",
-      sql`
-        (${table.ownerFarmId} is null and ${table.salesLocationId} is null)
-        or (${table.ownerFarmId} is not null and ${table.salesLocationId} is not null)
-      `,
     ),
     // Re-issuing REPLACES rather than accumulates: a farmer who asks for a new link because
     // the old one was on a lost phone must not leave the old one working.

@@ -104,7 +104,7 @@ DATABASE_URL=… npx tsx packages/db/scripts/bootstrap-administrator.ts you@exam
 
 The command is idempotent. It creates the first durable, auditable authority row; afterwards,
 administrators are managed in the database. The row—not possession of a signed link—confers
-authority. See [ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md) §the administrator role.
+authority. See [ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md) §administrator authority.
 
 ### Bootstrap, then sign in
 

@@ -728,15 +728,9 @@ describe("inbound routing end to end (integration)", () => {
       `;
       const farmId = farm[0]?.id as string;
 
-      const adminContact = await client()`
-        insert into contacts (phone_e164, phone_hash)
-        values ('+12065550833', ${"9".repeat(64)})
-        on conflict (phone_hash) do update set phone_hash = excluded.phone_hash
-        returning id
-      `;
       const admin = await client()`
-        insert into administrators (email, contact_id, authorized_at)
-        values ('routing-admin@viga.example', ${adminContact[0]?.id as string}, ${at(-60)})
+        insert into administrators (email, authorized_at)
+        values (${`routing-admin-${randomUUID()}@viga.example`}, ${at(-60)})
         returning id
       `;
 

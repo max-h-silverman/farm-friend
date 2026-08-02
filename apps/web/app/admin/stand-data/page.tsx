@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
-import { hasRole } from "@farm-friend/core";
 import { listStandDataFlags } from "@farm-friend/db";
-import { resolvePrincipal } from "../../../lib/auth";
+import { resolveAdministrator } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { StandDataQueue } from "./stand-data-queue";
 import { AdminShell, SignedOutAdmin } from "../admin-shell";
@@ -13,13 +12,13 @@ export const dynamic = "force-dynamic";
 
 export default async function StandDataPage() {
   const cookie = headers().get("cookie") ?? "";
-  const principal = await resolvePrincipal(
+  const administrator = await resolveAdministrator(
     new Request("https://farm-friend.internal/admin/stand-data", {
       headers: cookie === "" ? {} : { cookie },
     }),
   );
 
-  if (principal === null || !hasRole(principal, "admin")) {
+  if (administrator === null) {
     return <SignedOutAdmin />;
   }
 
@@ -30,7 +29,7 @@ export default async function StandDataPage() {
     <AdminShell
       currentPath="/admin/stand-data"
       title="Stand data questions"
-      signedInAs={principal.personId}
+      signedInAs={administrator.email}
     >
       <p className="admin-note">
         When VIGA&apos;s stand data contradicts itself — two different opening times, a season

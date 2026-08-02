@@ -1,8 +1,6 @@
 import {
   ADMIN_SESSION_TTL_MS,
   isSessionLive,
-  type Principal,
-  type Role,
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import type { Sql } from "./sql";
@@ -25,18 +23,6 @@ function driver(db: Db): Sql {
   return db.sql;
 }
 
-/**
- * The roles an administrator record confers. This is a CONSTANT, not a query, and that is
- * the enforcement of Golden Rule #1: the farmer owns published state, so no operator role
- * may ever confer the ability to act as a farm's owner. There is one administrator level at
- * launch, so there is nothing to look up — and a list that cannot vary cannot be widened by
- * a bad row, a join, or a future column.
- *
- * `Role` admits exactly this one value (GL-035), so this constant and the type say the same
- * thing in one place rather than two.
- */
-const ADMINISTRATOR_ROLES: readonly Role[] = ["admin"];
-
 export interface CreateAdminSessionInput {
   /** The HASH of the session token. The raw token never reaches this layer. */
   tokenHash: string;
@@ -44,14 +30,8 @@ export interface CreateAdminSessionInput {
   issuedAt: Date;
   /** Defaults to the core session TTL. */
   expiresAt?: Date;
-  /**
-   * The HASH of the magic link this session is being minted from, if there was one
-   * (GL-004). Supplying it CONSUMES that link: the insert carries a unique index, so a
-   * second session for the same link is refused by the database rather than by a rule
-   * anyone has to remember. Absent for a session that came from no link — bootstrap and
-   * test paths — which stay unconstrained because NULLs are distinct in a unique index.
-   */
-  magicNonceHash?: string;
+  /** The HASH of the exact magic link this session consumes (GL-004). */
+  magicNonceHash: string;
 }
 
 export type CreateAdminSessionResult =
@@ -106,7 +86,7 @@ export async function createAdminSession(
         magic_nonce_hash)
       values (${input.tokenHash}, ${input.administratorId},
         ${input.issuedAt.toISOString()}, ${expiresAt.toISOString()},
-        ${input.magicNonceHash ?? null})
+        ${input.magicNonceHash})
       on conflict (magic_nonce_hash) do nothing
       returning id
     `;
@@ -120,9 +100,9 @@ export async function createAdminSession(
 }
 
 /**
- * Resolve a session token hash into a principal, or null.
+ * Resolve a session token hash into an administrator, or null.
  *
- * This is the server-side role lookup every protected route depends on. It returns null for
+ * This is the server-side identity lookup every protected route depends on. It returns null for
  * every failure — unknown, expired, revoked, or belonging to a revoked administrator —
  * because a route has no use for the distinction and an error message that named it would
  * tell an attacker which tokens exist.
@@ -132,12 +112,18 @@ export async function createAdminSession(
  * happens to expire. That is the whole reason a session is a database record and not a
  * signed claim.
  */
+export interface ResolvedAdministrator {
+  administratorId: string;
+  email: string;
+}
+
 export async function resolveAdminSession(
   db: Db,
   input: { tokenHash: string; now: Date },
-): Promise<Principal | null> {
+): Promise<ResolvedAdministrator | null> {
   const rows = await driver(db)`
-    select session.expires_at, session.revoked_at, administrator.email
+    select session.expires_at, session.revoked_at,
+      administrator.id as administrator_id, administrator.email
     from admin_sessions as session
     join administrators as administrator
       on administrator.id = session.administrator_id
@@ -158,8 +144,8 @@ export async function resolveAdminSession(
   if (!live) return null;
 
   return {
-    personId: row.email as string,
-    roles: [...ADMINISTRATOR_ROLES],
+    administratorId: row.administrator_id as string,
+    email: row.email as string,
   };
 }
 

@@ -58,9 +58,9 @@ was verified by reading the selected `South Stand` row, and the revocation error
 the link row, not only the screen. All controls were large, states readable, and no other contact
 identity or phone appeared.
 
-The populated 0000–0011 → 0012/0013 migration preserved owner, participant, authorization, and
-standing-link rows, created no target context or menu options, retained legacy links with both
-target columns null, and rejected both half-NULL link shapes. Genuine contention was observed on
+The populated 0000–0011 → 0012/0013 migration preserved owner, participant, and authorization
+rows and created no target context or menu options. B-031's final pre-launch schema requires every
+standing link to name one exact owner+location pair and contains no nullable-target path. Genuine contention was observed on
 a separate connection before a concurrent revocation won and target resolution refused. Drizzle
 generation is a no-op after the hand-written CHECKs. `evals:live` was not run: target resolution,
 rendered stand naming, and settings are code-owned and change no model seam projection, schema, or
@@ -553,7 +553,7 @@ fixtures supply what production never creates.
   lets a farmer catch.
   **~35 sabotages; SIX survived and exposed real gaps in the tests**, all now closed — the
   resolver's authorization check (revoking via the writer also kills links, so the link clause did
-  all the work), the one-stand-per-link guard (no fixture had a two-stand farm), a `contactHash`
+  all the work), exact stand binding (no fixture had a two-stand farm), an internal contact-hash
   leak into the pending-request projection (that array was empty in the fixture), the cross-farmer
   confirmation (asserting "refused" and "still open" was satisfiable by the exact attack it
   forbids), the two independent cross-farmer defenses being indistinguishable, and the token shape

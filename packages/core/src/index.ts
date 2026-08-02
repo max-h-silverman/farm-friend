@@ -23,7 +23,6 @@ export * from "./public/public-string";
 export * from "./auth/farmer-link";
 export * from "./auth/magic-link";
 export * from "./auth/mail";
-export * from "./auth/roles";
 export * from "./auth/session";
 export * from "./auth/sign-in-email";
 export * from "./seed/availability";

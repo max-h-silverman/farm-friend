@@ -90,6 +90,19 @@ describe("farmer authorization and standing links (integration)", () => {
     return hash;
   }
 
+  /** Create or recover the opaque open request VIGA must answer. */
+  async function onboardingRequest(contactHash: string): Promise<string> {
+    await openFarmerOnboardingRequest(database(), {
+      contactHash,
+      occurredAt: at(0),
+    });
+    const rows = await sql()`
+      select id from farmer_onboarding_requests
+      where contact_hash = ${contactHash} and settled_at is null
+    `;
+    return rows[0]?.id as string;
+  }
+
   /** A farm with one sales location. Returns both ids. */
   async function farmWithStand(
     name: string,
@@ -148,7 +161,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const result = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -187,7 +200,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -215,7 +228,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const result = await authorizeFarmer(database(), {
         farmId: randomUUID(),
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -239,7 +252,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -277,7 +290,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -306,7 +319,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const result = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId: revoked[0]?.id as string,
         occurredAt: at(2),
       });
@@ -318,25 +331,25 @@ describe("farmer authorization and standing links (integration)", () => {
       expect(rows).toHaveLength(0);
     });
 
-    it("refuses an unknown farm and an unknown contact, writing nothing", async () => {
+    it("refuses an unknown farm and an unknown request, writing nothing", async () => {
       const contactHash = await contact("a3");
       const { farmId } = await farmWithStand(`Unknown Farm ${randomUUID()}`);
 
       const unknownFarm = await authorizeFarmer(database(), {
         farmId: randomUUID(),
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
       expect(unknownFarm.status).toBe("unknown_farm");
 
-      const unknownContact = await authorizeFarmer(database(), {
+      const unknownRequest = await authorizeFarmer(database(), {
         farmId,
-        contactHash: "f".repeat(64),
+        requestId: randomUUID(),
         administratorId,
         occurredAt: at(1),
       });
-      expect(unknownContact.status).toBe("unknown_contact");
+      expect(unknownRequest.status).toBe("unknown_request");
 
       const rows = await sql()`
         select id from farmer_authorizations where farm_id = ${farmId}
@@ -350,7 +363,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const first = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -358,7 +371,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const second = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(2),
       });
@@ -383,7 +396,7 @@ describe("farmer authorization and standing links (integration)", () => {
         (
           await authorizeFarmer(database(), {
             farmId,
-            contactHash: one,
+            requestId: await onboardingRequest(one),
             administratorId,
             occurredAt: at(1),
           })
@@ -393,7 +406,7 @@ describe("farmer authorization and standing links (integration)", () => {
         (
           await authorizeFarmer(database(), {
             farmId,
-            contactHash: two,
+            requestId: await onboardingRequest(two),
             administratorId,
             occurredAt: at(1),
           })
@@ -414,7 +427,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const { farmId } = await farmWithStand(`Revoke Farm ${randomUUID()}`);
       const created = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -450,7 +463,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const { farmId } = await farmWithStand(`Twice Revoke ${randomUUID()}`);
       const created = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -493,7 +506,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const { farmId } = await farmWithStand(`Reauthorize ${randomUUID()}`);
       const first = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -506,7 +519,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const again = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(3),
       });
@@ -594,7 +607,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(2),
       });
@@ -626,6 +639,41 @@ describe("farmer authorization and standing links (integration)", () => {
   });
 
   describe("the standing link", () => {
+    it("rejects every NULL exact-target shape in real Postgres", async () => {
+      const contactHash = await contact("d0");
+      const { farmId, salesLocationId } = await farmWithStand(
+        `Required Target ${randomUUID()}`,
+      );
+      const authorized = await authorizeFarmer(database(), {
+        farmId,
+        requestId: await onboardingRequest(contactHash),
+        administratorId,
+        occurredAt: at(1),
+      });
+      const authorizationId =
+        authorized.status === "authorized" ? authorized.authorizationId : "";
+
+      for (const target of [
+        { ownerFarmId: null, salesLocationId: null },
+        { ownerFarmId: farmId, salesLocationId: null },
+        { ownerFarmId: null, salesLocationId },
+      ]) {
+        await expect(
+          sql()`
+            insert into farmer_links (
+              token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+            ) values (
+              ${randomUUID().replaceAll("-", "").repeat(2)}, ${authorizationId},
+              ${target.ownerFarmId}, ${target.salesLocationId}, ${at(2).toISOString()}
+            )
+          `,
+        ).rejects.toMatchObject({ code: "23502" });
+      }
+
+      expect(await sql()`select id from farmer_links where authorization_id = ${authorizationId}`)
+        .toHaveLength(0);
+    });
+
     it("resolves to exactly one authorization and its one sales location", async () => {
       const contactHash = await contact("d1");
       const { farmId, salesLocationId } = await farmWithStand(
@@ -633,7 +681,7 @@ describe("farmer authorization and standing links (integration)", () => {
       );
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -642,6 +690,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const issued = await issueFarmerLink(database(), {
         authorizationId,
+        salesLocationId,
         occurredAt: at(2),
       });
       expect(issued.status).toBe("issued");
@@ -659,16 +708,17 @@ describe("farmer authorization and standing links (integration)", () => {
 
     it("stores only the HASH — the raw token is nowhere in the database", async () => {
       const contactHash = await contact("d2");
-      const { farmId } = await farmWithStand(`Hash Farm ${randomUUID()}`);
+      const { farmId, salesLocationId } = await farmWithStand(`Hash Farm ${randomUUID()}`);
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
       const issued = await issueFarmerLink(database(), {
         authorizationId:
           authorized.status === "authorized" ? authorized.authorizationId : "",
+        salesLocationId,
         occurredAt: at(2),
       });
       const token = issued.status === "issued" ? issued.token : "";
@@ -692,10 +742,10 @@ describe("farmer authorization and standing links (integration)", () => {
       // The whole safety net. max chose a link that never expires, so this is the only thing
       // standing between a leaked link and a farmer's listing.
       const contactHash = await contact("d3");
-      const { farmId } = await farmWithStand(`Revoke Link ${randomUUID()}`);
+      const { farmId, salesLocationId } = await farmWithStand(`Revoke Link ${randomUUID()}`);
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -703,6 +753,7 @@ describe("farmer authorization and standing links (integration)", () => {
         authorized.status === "authorized" ? authorized.authorizationId : "";
       const issued = await issueFarmerLink(database(), {
         authorizationId,
+        salesLocationId,
         occurredAt: at(2),
       });
       const tokenHash = hashFarmerLinkToken(
@@ -734,10 +785,10 @@ describe("farmer authorization and standing links (integration)", () => {
       // that withdraws it without remembering to sweep the links must still lock the farmer
       // out on the next request.
       const contactHash = await contact("d6");
-      const { farmId } = await farmWithStand(`Auth Only ${randomUUID()}`);
+      const { farmId, salesLocationId } = await farmWithStand(`Auth Only ${randomUUID()}`);
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -745,6 +796,7 @@ describe("farmer authorization and standing links (integration)", () => {
         authorized.status === "authorized" ? authorized.authorizationId : "";
       const issued = await issueFarmerLink(database(), {
         authorizationId,
+        salesLocationId,
         occurredAt: at(2),
       });
       const tokenHash = hashFarmerLinkToken(
@@ -769,10 +821,10 @@ describe("farmer authorization and standing links (integration)", () => {
 
     it("dies when the LINK alone is revoked, leaving the authorization intact", async () => {
       const contactHash = await contact("d4");
-      const { farmId } = await farmWithStand(`Link Only ${randomUUID()}`);
+      const { farmId, salesLocationId } = await farmWithStand(`Link Only ${randomUUID()}`);
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -780,6 +832,7 @@ describe("farmer authorization and standing links (integration)", () => {
         authorized.status === "authorized" ? authorized.authorizationId : "";
       const first = await issueFarmerLink(database(), {
         authorizationId,
+        salesLocationId,
         occurredAt: at(2),
       });
       const firstHash = hashFarmerLinkToken(
@@ -790,6 +843,7 @@ describe("farmer authorization and standing links (integration)", () => {
       // one working.
       const second = await issueFarmerLink(database(), {
         authorizationId,
+        salesLocationId,
         occurredAt: at(3),
       });
       const secondHash = hashFarmerLinkToken(
@@ -810,10 +864,10 @@ describe("farmer authorization and standing links (integration)", () => {
 
     it("refuses to issue a link for a revoked or unknown authorization", async () => {
       const contactHash = await contact("d5");
-      const { farmId } = await farmWithStand(`No Link ${randomUUID()}`);
+      const { farmId, salesLocationId } = await farmWithStand(`No Link ${randomUUID()}`);
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -826,13 +880,18 @@ describe("farmer authorization and standing links (integration)", () => {
       });
 
       expect(
-        (await issueFarmerLink(database(), { authorizationId, occurredAt: at(3) }))
+        (await issueFarmerLink(database(), {
+          authorizationId,
+          salesLocationId,
+          occurredAt: at(3),
+        }))
           .status,
       ).toBe("not_authorized");
       expect(
         (
           await issueFarmerLink(database(), {
             authorizationId: randomUUID(),
+            salesLocationId,
             occurredAt: at(3),
           })
         ).status,
@@ -844,17 +903,12 @@ describe("farmer authorization and standing links (integration)", () => {
       expect(rows).toHaveLength(0);
     });
 
-    it("resolves NOTHING when the farm has several stands, rather than guessing one", async () => {
-      // Sabotage found this untested. Deleting the location-count guard left every
-      // assertion green, because no fixture had a farm with two stands — so "the link names
-      // ONE stand" was a claim the suite could not see.
-      //
-      // Which stand a listing lands on decides whose shelf a customer drives to. Code asks
-      // rather than picking, exactly as the SMS farmer branch already does for the same
-      // reason.
+    it("resolves only the exact selected stand on a multi-stand farm", async () => {
       const contactHash = await contact("d7");
-      const { farmId } = await farmWithStand(`Two Stands ${randomUUID()}`);
-      await sql()`
+      const { farmId, salesLocationId: firstStandId } = await farmWithStand(
+        `Two Stands ${randomUUID()}`,
+      );
+      const second = await sql()`
         insert into sales_locations (
           owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
@@ -863,17 +917,20 @@ describe("farmer authorization and standing links (integration)", () => {
           ${farmId}, 'farm_stand', ${`Second Stand ${randomUUID()}`}, 'America/Los_Angeles', '2 Vashon Hwy',
           47.41, -122.41, false, false
         )
+        returning id
       `;
+      const secondStandId = second[0]?.id as string;
 
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
       const issued = await issueFarmerLink(database(), {
         authorizationId:
           authorized.status === "authorized" ? authorized.authorizationId : "",
+        salesLocationId: secondStandId,
         occurredAt: at(2),
       });
 
@@ -882,7 +939,8 @@ describe("farmer authorization and standing links (integration)", () => {
           issued.status === "issued" ? issued.token : "",
         ),
       });
-      expect(resolved).toBeNull();
+      expect(resolved?.salesLocationId).toBe(secondStandId);
+      expect(resolved?.salesLocationId).not.toBe(firstStandId);
     });
 
     it("resolves nothing for a fabricated token", async () => {
@@ -907,7 +965,7 @@ describe("farmer authorization and standing links (integration)", () => {
       );
       await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -945,7 +1003,7 @@ describe("farmer authorization and standing links (integration)", () => {
       );
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -998,7 +1056,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const { farmId } = await farmWithStand(`Queue Farm ${randomUUID()}`);
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -1026,7 +1084,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const { farmId } = await farmWithStand(`Revoked Queue ${randomUUID()}`);
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -1046,10 +1104,10 @@ describe("farmer authorization and standing links (integration)", () => {
 
     it("reports whether a live link exists, without exposing it", async () => {
       const contactHash = await contact("f3");
-      const { farmId } = await farmWithStand(`Link Queue ${randomUUID()}`);
+      const { farmId, salesLocationId } = await farmWithStand(`Link Queue ${randomUUID()}`);
       const authorized = await authorizeFarmer(database(), {
         farmId,
-        contactHash,
+        requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
       });
@@ -1063,6 +1121,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const issued = await issueFarmerLink(database(), {
         authorizationId,
+        salesLocationId,
         occurredAt: at(2),
       });
       const token = issued.status === "issued" ? issued.token : "";

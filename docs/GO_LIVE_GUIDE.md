@@ -527,7 +527,7 @@ until `packages/core/src/sms/auto-responses.ts` matches, which is the intended o
 
 ### GL-035 — Remove or reconnect dead parallel mechanisms
 
-**Completed:** 2026-07-28 — role vocabulary narrowed to the one live administrator role; dead SMS
+**Completed:** 2026-07-28 — administrator identity narrowed to one direct authority; dead SMS
 delivery types removed and the provenance test re-anchored to the live last-mile type; proposal
 activation now has one shared writer. Segment estimation remains for GL-021.
 

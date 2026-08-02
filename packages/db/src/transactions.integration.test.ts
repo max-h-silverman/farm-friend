@@ -37,7 +37,6 @@ describe("authoritative SMS transaction schema (integration)", () => {
   let testDatabaseName: string | undefined;
 
   const ids: Record<string, string> = {};
-  const adminHash = "d".repeat(64);
   const farmerHash = "e".repeat(64);
   const customerHash = "f".repeat(64);
   // Anchored to the real clock, not a calendar date: `outbox_work` enforces
@@ -63,7 +62,6 @@ describe("authoritative SMS transaction schema (integration)", () => {
     const contacts = await client`
       insert into contacts (phone_e164, phone_hash)
       values
-        ('+12065550201', ${adminHash}),
         ('+12065550202', ${farmerHash}),
         ('+12065550203', ${customerHash})
       returning id, phone_hash
@@ -73,8 +71,8 @@ describe("authoritative SMS transaction schema (integration)", () => {
     }
 
     const administrators = await client`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('transactions-admin@viga.example', ${ids[adminHash] as string}, ${t0})
+      insert into administrators (email, authorized_at)
+      values ('transactions-admin@viga.example', ${t0})
       returning id
     `;
     ids.administrator = administrators[0]?.id as string;

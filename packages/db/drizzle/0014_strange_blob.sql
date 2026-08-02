@@ -104,3 +104,12 @@ DO $$ BEGIN
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
+-- B-031: pre-launch final administrator identity. Every session names its consumed magic link,
+-- and administrators are identified only by email.
+ALTER TABLE "admin_sessions" ALTER COLUMN "magic_nonce_hash" SET NOT NULL;--> statement-breakpoint
+ALTER TABLE "admin_sessions" DROP CONSTRAINT "admin_sessions_magic_nonce_hash_shape";--> statement-breakpoint
+ALTER TABLE "admin_sessions" ADD CONSTRAINT "admin_sessions_magic_nonce_hash_shape"
+  CHECK ("magic_nonce_hash" ~ '^[0-9a-f]{64}$');--> statement-breakpoint
+DROP INDEX "administrators_one_active_per_contact";--> statement-breakpoint
+ALTER TABLE "administrators" DROP CONSTRAINT "administrators_contact_id_contacts_id_fk";--> statement-breakpoint
+ALTER TABLE "administrators" DROP COLUMN "contact_id";--> statement-breakpoint

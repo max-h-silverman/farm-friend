@@ -95,10 +95,9 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       returning id, phone_hash
     `;
     const farmerContact = contacts.find((row) => row.phone_hash === farmerHash)?.id as string;
-    const adminContact = contacts.find((row) => row.phone_hash === adminHash)?.id as string;
     const administrators = await client()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('closure-admin@viga.example', ${adminContact}, ${T0}) returning id
+      insert into administrators (email, authorized_at)
+      values ('closure-admin@viga.example', ${T0}) returning id
     `;
     const farms = await client()`insert into farms (name) values ('Closure Farm') returning id`;
     ids.farm = farms[0]?.id as string;

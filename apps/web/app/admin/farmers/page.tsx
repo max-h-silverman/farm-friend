@@ -1,12 +1,11 @@
 import { headers } from "next/headers";
 import Link from "next/link";
-import { hasRole } from "@farm-friend/core";
 import {
   listFarmerAuthorizations,
   listFarmsForApproval,
   listOpenFarmerOnboardingRequests,
 } from "@farm-friend/db";
-import { resolvePrincipal } from "../../../lib/auth";
+import { resolveAdministrator } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { FarmerQueue } from "./farmer-queue";
 import { AdminShell, SignedOutAdmin } from "../admin-shell";
@@ -27,13 +26,13 @@ export const dynamic = "force-dynamic";
 
 export default async function FarmersPage() {
   const cookie = headers().get("cookie") ?? "";
-  const principal = await resolvePrincipal(
+  const administrator = await resolveAdministrator(
     new Request("https://farm-friend.internal/admin/farmers", {
       headers: cookie === "" ? {} : { cookie },
     }),
   );
 
-  if (principal === null || !hasRole(principal, "admin")) {
+  if (administrator === null) {
     return <SignedOutAdmin />;
   }
 
@@ -48,7 +47,7 @@ export default async function FarmersPage() {
     <AdminShell
       currentPath="/admin/farmers"
       title="Farmer access"
-      signedInAs={principal.personId}
+      signedInAs={administrator.email}
     >
       <p className="admin-note">
         Authorizing a farmer lets them publish what their stand has — by text, or through
@@ -78,6 +77,8 @@ export default async function FarmersPage() {
           authorizedAt: authorization.authorizedAt.toISOString(),
           revokedAt: authorization.revokedAt?.toISOString() ?? null,
           hasLiveLink: authorization.hasLiveLink,
+          stands: authorization.stands,
+          liveLinkStand: authorization.liveLinkStand,
         }))}
         farms={farms.map((farm) => ({ farmId: farm.farmId, name: farm.name }))}
       />

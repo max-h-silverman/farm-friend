@@ -241,8 +241,8 @@ describe("authoritative SMS transactions (integration)", () => {
     for (const row of contacts) ids[row.phone_hash as string] = row.id as string;
 
     const admins = await client()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('workflow-admin@viga.example', ${ids[customerHash] as string}, ${T0}) returning id
+      insert into administrators (email, authorized_at)
+      values ('workflow-admin@viga.example', ${T0}) returning id
     `;
     ids.administrator = admins[0]?.id as string;
 

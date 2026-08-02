@@ -37,7 +37,6 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 }
 
 const senderHash = "7".repeat(64);
-const adminHash = "8".repeat(64);
 
 // The fixture timeline is ANCHORED TO THE REAL CLOCK, not to a calendar date (B-003).
 //
@@ -125,14 +124,14 @@ describe("raw-context retention purge (integration)", () => {
 
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash)
-      values ('+12065550701', ${senderHash}), ('+12065550702', ${adminHash})
+      values ('+12065550701', ${senderHash})
       returning id, phone_hash
     `;
     for (const row of contacts) ids[row.phone_hash as string] = row.id as string;
 
     const admins = await client()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('retention-admin@viga.example', ${id(adminHash)}, ${T0}) returning id
+      insert into administrators (email, authorized_at)
+      values ('retention-admin@viga.example', ${T0}) returning id
     `;
     ids.administrator = admins[0]?.id as string;
   });

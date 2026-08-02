@@ -65,15 +65,21 @@ describe("administrator identity and sessions (integration)", () => {
     }
   });
 
-  it("identifies an administrator by email, with no phone contact required", async () => {
-    // The core of the fix: an operator who has never texted Farm Friend is still an operator.
+  it("identifies an administrator by email and has no phone-contact column", async () => {
     const rows = await db()`
       insert into administrators (email, authorized_at)
       values ('operator@viga.example', ${t0})
-      returning id, email, contact_id
+      returning id, email
     `;
-    expect(rows[0]?.contact_id).toBeNull();
     expect(rows[0]?.email).toBe("operator@viga.example");
+
+    const contactColumns = await db()`
+      select column_name from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'administrators'
+        and column_name = 'contact_id'
+    `;
+    expect(contactColumns).toHaveLength(0);
   });
 
   it("requires an email on every administrator", async () => {
@@ -139,23 +145,27 @@ describe("administrator identity and sessions (integration)", () => {
     const administratorId = admin[0]?.id as string;
 
     await db()`
-      insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-      values (${hash("a")}, ${administratorId}, ${t0}, ${t1})
+      insert into admin_sessions
+        (token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash)
+      values (${hash("a")}, ${administratorId}, ${t0}, ${t1}, ${hash("f")})
     `;
 
     // A truncated or plaintext value is refused: the shape check is what makes "we store the
     // hash" a database guarantee rather than a comment.
     await expect(
       db()`
-        insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-        values ('short', ${administratorId}, ${t0}, ${t1})
+        insert into admin_sessions
+          (token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash)
+        values ('short', ${administratorId}, ${t0}, ${t1}, ${hash("a1")})
       `,
     ).rejects.toThrow(/admin_sessions_token_hash_shape/);
 
     await expect(
       db()`
-        insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-        values (${"NOTHEX".repeat(11).slice(0, 64)}, ${administratorId}, ${t0}, ${t1})
+        insert into admin_sessions
+          (token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash)
+        values (${"NOTHEX".repeat(11).slice(0, 64)}, ${administratorId}, ${t0}, ${t1},
+          ${hash("a2")})
       `,
     ).rejects.toThrow(/admin_sessions_token_hash_shape/);
   });
@@ -167,13 +177,15 @@ describe("administrator identity and sessions (integration)", () => {
     `;
     const administratorId = admin[0]?.id as string;
     await db()`
-      insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-      values (${hash("b")}, ${administratorId}, ${t0}, ${t1})
+      insert into admin_sessions
+        (token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash)
+      values (${hash("b")}, ${administratorId}, ${t0}, ${t1}, ${hash("a3")})
     `;
     await expect(
       db()`
-        insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-        values (${hash("b")}, ${administratorId}, ${t0}, ${t1})
+        insert into admin_sessions
+          (token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash)
+        values (${hash("b")}, ${administratorId}, ${t0}, ${t1}, ${hash("a4")})
       `,
     ).rejects.toThrow(/admin_sessions_token_hash_unique/);
   });
@@ -188,26 +200,29 @@ describe("administrator identity and sessions (integration)", () => {
     // A session that expires when it was issued, or before, is not a session.
     await expect(
       db()`
-        insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-        values (${hash("c")}, ${administratorId}, ${t1}, ${t1})
+        insert into admin_sessions
+          (token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash)
+        values (${hash("c")}, ${administratorId}, ${t1}, ${t1}, ${hash("a5")})
       `,
     ).rejects.toThrow(/admin_sessions_bounded_lifetime/);
 
     await expect(
       db()`
-        insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-        values (${hash("d")}, ${administratorId}, ${t2}, ${t1})
+        insert into admin_sessions
+          (token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash)
+        values (${hash("d")}, ${administratorId}, ${t2}, ${t1}, ${hash("a6")})
       `,
     ).rejects.toThrow(/admin_sessions_bounded_lifetime/);
   });
 
   it("refuses a session belonging to no administrator", async () => {
-    // A dangling session is a credential with no authority behind it; the role lookup would
+    // A dangling session is a credential with no authority behind it; identity resolution would
     // have nothing to check against.
     await expect(
       db()`
-        insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-        values (${hash("e")}, ${randomUUID()}, ${t0}, ${t1})
+        insert into admin_sessions
+          (token_hash, administrator_id, issued_at, expires_at, magic_nonce_hash)
+        values (${hash("e")}, ${randomUUID()}, ${t0}, ${t1}, ${hash("a7")})
       `,
     ).rejects.toThrow(/admin_sessions_administrator/);
   });
@@ -299,27 +314,19 @@ describe("administrator identity and sessions (integration)", () => {
       ).rejects.toThrow(/admin_sessions_magic_nonce_hash_shape/);
     });
 
-    it("still permits sessions that came from no link at all", async () => {
-      // The bootstrap and test paths mint sessions directly. A NULL nonce must stay legal,
-      // and — because Postgres treats NULLs as distinct in a unique index — many of them
-      // must coexist without colliding with each other.
+    it("rejects a session with no exact magic-link provenance", async () => {
       const admin = await db()`
         insert into administrators (email, authorized_at)
         values ('no-link@viga.example', ${t0}) returning id
       `;
       const administratorId = admin[0]?.id as string;
 
-      for (const seed of ["5", "6", "7"]) {
-        await db()`
+      await expect(
+        db()`
           insert into admin_sessions (token_hash, administrator_id, issued_at, expires_at)
-          values (${hash(seed)}, ${administratorId}, ${t0}, ${t1})
-        `;
-      }
-      const rows = await db()`
-        select count(*)::int as n from admin_sessions
-        where administrator_id = ${administratorId} and magic_nonce_hash is null
-      `;
-      expect(rows[0]?.n).toBe(3);
+          values (${hash("5")}, ${administratorId}, ${t0}, ${t1})
+        `,
+      ).rejects.toMatchObject({ code: "23502" });
     });
   });
 });

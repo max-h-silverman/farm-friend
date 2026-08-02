@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 // Durable admin sessions (F-025a). A session is a DATABASE record, not a signed claim.
 //
 // The magic link proves *who you are*, once. The session is what makes that durable and
-// REVOCABLE: roles are looked up server-side against the session's administrator on every
+// REVOCABLE: administrator identity is looked up server-side on every
 // request, so revoking an administrator takes effect immediately rather than when a
 // self-contained token happens to expire.
 //

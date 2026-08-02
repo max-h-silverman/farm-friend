@@ -276,11 +276,17 @@ describe("clean launch database foundation (integration)", () => {
 
   it("separates administrator authority, farmer authority, and VIGA approval", async () => {
     const adminRows = await db()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('schema-admin@viga.example', ${storedId(adminHash)}, ${now})
+      insert into administrators (email, authorized_at)
+      values ('schema-admin@viga.example', ${now})
       returning id
     `;
     ids.administrator = adminRows[0]?.id as string;
+
+    expect(await db()`
+      select column_name from information_schema.columns
+      where table_schema = 'public' and table_name = 'administrators'
+        and column_name = 'contact_id'
+    `).toHaveLength(0);
 
     const farmRows = await db()`
       insert into farms (name, map_projection, public_latitude, public_longitude)

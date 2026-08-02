@@ -45,20 +45,19 @@ render an honest "updated X ago" without a second provenance axis.
   reads it as authority. It is the one record on this list writable from an unauthenticated inbound
   SMS, which is why it holds only "this phone asked, at this time". One open request per phone;
   settled requests stay as history and record which administrator answered them.
-- **farmer standing links** (F-040) — a durable key letting a farmer reach *their own* listing form
+- **farmer standing links** (F-040, hardened by B-031) — a durable key letting a farmer reach *their own* listing form
   in a browser, with no password and no session. Only the **hash** of the token is stored, as with
   a session token. A link is a **pointer to an authorization, never authority itself**: resolution
   re-reads both the link's and the authorization's revocation columns on every request, so there is
   no cached "active" flag and no signed claim that could keep saying "valid" after the authority
-  behind it was withdrawn. New links bind one exact owner+location pair; the duplicated owner id
+  behind it was withdrawn. Every link binds one exact owner+location pair; the duplicated owner id
   exists only so composite foreign keys can prove that both the authorization and location belong
   to the same farm. The link does not expire, so
   **revocation is the entire safety net** — which is why nothing about it may be cached. One live
   link per authorization: re-issuing replaces rather than accumulates.
 - **farmer SMS target context** (F-051) — one selected authorization+owner+location tuple per
   sender, plus at most one 12-hour numbered menu whose options bind exact tuples. Selection is
-  convenience, never authority: every use revalidates live authorization and location. Populated
-  pre-F-051 links keep both target columns null and retain their one-location resolution rule.
+  convenience, never authority: every use revalidates live authorization and location.
 - **inventory-prompt preferences** (F-052) — at most one explicit farmer-selected cadence and
   designated authorization per stand: every 2 days, weekly, every 2 weeks, or paused. No historical
   behavior or migration creates a preference. Version, next due time, and last due slot let code
@@ -67,10 +66,10 @@ render an honest "updated X ago" without a second provenance axis.
   not a side effect of a farmer finishing a form. Approval and revocation both record **which
   administrator acted and when**, and revocation updates the row rather than deleting it: published
   revisions reference the approval they were made under.
-- **administrators and their sessions** — an administrator is identified by **email**, the identity
-  the login path proves; the phone contact is optional and is not the identity. A session is a
-  durable row holding only the **hash** of its token, so a database read cannot recover a live
-  credential, and roles are re-looked-up per request so revocation is immediate. Sessions carry no
+- **administrators and their sessions** — an administrator is identified only by **email**, the
+  identity the login path proves. A session is a durable row holding only the **hash** of its token,
+  so a database read cannot recover a live credential, and administrator identity is re-read per
+  request so revocation is immediate. Sessions carry no
   personal data beyond the administrator link.
 - **structured public listing facts** — including payment methods and VIGA Farm Bucks acceptance or
   eligibility as **read-only facts**, plus farmer-selected web/social links and an optional photo

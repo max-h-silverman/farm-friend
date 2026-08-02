@@ -1,25 +1,24 @@
 # Farm Friend — Admin Operations
 
-The VIGA operator guide: the administrator role, the admin surfaces, and operator runbooks. Admin
+The VIGA operator guide: administrator authority, admin surfaces, and operator runbooks. Admin
 is a **first-class requirement** — non-technical VIGA staff run oversight through a guided web
 admin.
 
-> This is the **VIGA operator guide** — the administrator model and the surfaces that serve it. It
+> This is the **VIGA operator guide** — administrator identity and the surfaces that serve it. It
 > carries no build status: what is actually built and open lives in
 > [CURRENT_STATE.md](CURRENT_STATE.md).
 
-## The administrator role
+## Administrator authority
 
-**There is one administrator level at launch.** There are no separate staff, moderator, or
-multi-tier roles — the earlier multi-level role model is removed.
+**There is one administrator authority at launch.** There are no separate staff or moderator
+levels.
 
 - **administrator** — VIGA. Approves participating farms, resolves flags, reviews stock-out
   reports, and handles exceptions the system cannot safely handle. Max is escalation.
-- **farmer** — owns their farm's listings and inventory. This is an *authority over their own
-  records*, not an admin role.
+- **farmer** — owns their farm's listings and inventory through a separate farm authorization.
 
 Every admin route must enforce a **server-side authorization check** against durable records. Never
-trust a client-supplied role or id.
+trust a client-supplied identity or id.
 
 **How identity works (F-025a).** An administrator is identified by **email**, because that is what
 the login path proves. Sign-in is a magic link: the signed, expiring token is verified, and then the
@@ -29,8 +28,8 @@ receives the same refusal as a bad token.
 
 Success mints a **durable session**: a database row whose token the browser holds as an opaque
 `HttpOnly; Secure; SameSite=Lax` cookie. Only the token's **hash** is stored, so a database read
-cannot recover a live credential. Roles are looked up **per request** against that session's
-administrator, which is why revoking an administrator or a session takes effect on their **next
+cannot recover a live credential. The administrator row is looked up **per request** from the
+session, which is why revoking an administrator or a session takes effect on their **next
 request** rather than whenever a self-contained token would have expired. Sessions expire in 12
 hours; signing out revokes the record server-side, not just the cookie.
 
@@ -50,10 +49,10 @@ cannot tell you which, and whoever runs Farm Friend can.
 > sent today*. Until it is, ask whoever runs Farm Friend to mint one for you directly. Everything
 > else on this path — the form, the throttle, the token, the expiry — is live.
 
-**An administrator is never a farmer.** The role lookup returns the administrator role only, and it
-is a constant rather than a query — an operator role cannot confer the ability to act as a farm's
-owner (Golden Rule #1). VIGA approves *whether* a farm may publish; the farmer alone owns *what*
-it publishes.
+**An administrator is never a farmer.** A live administrator session resolves directly to its
+administrator row. Farmer authority is separate and always requires a live farm authorization
+(Golden Rule #1). VIGA approves *whether* a farm may publish; the farmer alone owns *what* it
+publishes.
 
 **Routine inventory maintenance is not a VIGA responsibility.** If operators find themselves doing
 daily data entry, the product has failed its north star.
@@ -72,7 +71,7 @@ daily data entry, the product has failed its north star.
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
 
-**Every one of these routes enforces the role server-side** through one shared guard
+**Every one of these routes resolves the administrator server-side** through one shared guard
 (`apps/web/lib/admin-guard.ts`), and the acting administrator always comes from the **session**,
 never the request body. The integration suite asserts the refusal per route and per method, so a
 new handler that forgets its guard fails there rather than in production.

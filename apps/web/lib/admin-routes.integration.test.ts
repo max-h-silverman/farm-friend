@@ -5,6 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  hashFarmerLinkToken,
   hashSessionToken,
   issueMagicToken,
   issueSessionToken,
@@ -14,7 +15,7 @@ import { ADMIN_SESSION_COOKIE } from "./admin-auth";
 
 // F-025a — the admin HTTP surface, against a real database.
 //
-// The acceptance criterion this file owns: EVERY admin route enforces the role server-side,
+// The acceptance criterion this file owns: EVERY admin route resolves administrator authority server-side,
 // and an unauthenticated or under-privileged caller is refused. That is asserted per route
 // and per method, so adding a route without a guard shows up here rather than in production.
 
@@ -79,6 +80,7 @@ describe("admin routes (integration)", () => {
       tokenHash: hashSessionToken(token),
       administratorId,
       issuedAt: new Date(),
+      magicNonceHash: randomUUID().replaceAll("-", "").repeat(2),
     });
     await db.close();
     return token;
@@ -922,9 +924,19 @@ describe("admin routes (integration)", () => {
       return { contactHash, farmId: farms[0]?.id as string };
     }
 
+    async function openRequestFor(contactHash: string): Promise<string> {
+      const rows = await sql()`
+        insert into farmer_onboarding_requests (contact_hash, requested_at)
+        values (${contactHash}, ${at(1).toISOString()})
+        returning id
+      `;
+      return rows[0]?.id as string;
+    }
+
     it("authorizes a farmer, recording the SESSION's administrator not the body's", async () => {
       const token = await sessionFor(ids.administrator as string);
       const { contactHash, farmId } = await farmerAndFarm();
+      const requestId = await openRequestFor(contactHash);
       const impostor = await sql()`
         insert into administrators (email, authorized_at)
         values (${`farmer-impostor-${randomUUID()}@viga.example`}, ${at(0).toISOString()})
@@ -939,7 +951,7 @@ describe("admin routes (integration)", () => {
           body: JSON.stringify({
             action: "authorize",
             farmId,
-            contactHash,
+            requestId,
             administratorId: impostor[0]?.id,
           }),
         }),
@@ -965,11 +977,12 @@ describe("admin routes (integration)", () => {
       // request, so the requests array was empty and had nothing to leak.
       const token = await sessionFor(ids.administrator as string);
       const { contactHash, farmId } = await farmerAndFarm();
+      const requestId = await openRequestFor(contactHash);
       await farmersRoute.POST(
         request("https://ff.example/api/admin/farmers", {
           method: "POST",
           token,
-          body: JSON.stringify({ action: "authorize", farmId, contactHash }),
+          body: JSON.stringify({ action: "authorize", farmId, requestId }),
         }),
       );
 
@@ -1003,11 +1016,12 @@ describe("admin routes (integration)", () => {
     it("returns a fresh link ONCE and never again from the queue", async () => {
       const token = await sessionFor(ids.administrator as string);
       const { contactHash, farmId } = await farmerAndFarm();
+      const requestId = await openRequestFor(contactHash);
       const authorized = await farmersRoute.POST(
         request("https://ff.example/api/admin/farmers", {
           method: "POST",
           token,
-          body: JSON.stringify({ action: "authorize", farmId, contactHash }),
+          body: JSON.stringify({ action: "authorize", farmId, requestId }),
         }),
       );
       expect(authorized.status).toBe(200);
@@ -1019,11 +1033,37 @@ describe("admin routes (integration)", () => {
       `;
       const authorizationId = rows[0]?.id as string;
 
-      const issued = await farmersRoute.POST(
+      const locations = await sql()`
+        insert into sales_locations (
+          owner_farm_id, kind, name, timezone, public_address,
+          public_latitude, public_longitude, farm_bucks_accepted, farm_bucks_eligible
+        ) values
+          (${farmId}, 'farm_stand', 'North Stand', 'America/Los_Angeles', '1 North Rd',
+            47.4, -122.4, false, false),
+          (${farmId}, 'farm_stand', 'South Stand', 'America/Los_Angeles', '2 South Rd',
+            47.41, -122.41, false, false)
+        returning id, name
+      `;
+      const southStandId = locations.find((row) => row.name === "South Stand")?.id as string;
+
+      const untargeted = await farmersRoute.POST(
         request("https://ff.example/api/admin/farmers", {
           method: "POST",
           token,
           body: JSON.stringify({ action: "issue_link", authorizationId }),
+        }),
+      );
+      expect(untargeted.status).toBe(400);
+
+      const issued = await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            action: "issue_link",
+            authorizationId,
+            salesLocationId: southStandId,
+          }),
         }),
       );
       expect(issued.status).toBe(200);
@@ -1035,6 +1075,12 @@ describe("admin routes (integration)", () => {
       const issuedToken = /\/stand\/([0-9a-f]{64})$/.exec(payload.link ?? "")?.[1];
       expect(issuedToken).toBeDefined();
 
+      const links = await sql()`
+        select owner_farm_id, sales_location_id
+        from farmer_links where token_hash = ${hashFarmerLinkToken(issuedToken as string)}
+      `;
+      expect(links).toEqual([{ owner_farm_id: farmId, sales_location_id: southStandId }]);
+
       // The queue reports that a link EXISTS and never what it is. An operator who navigates
       // away must issue a new one — correct for a credential with no password behind it.
       const listed = await farmersRoute.GET(
@@ -1042,17 +1088,37 @@ describe("admin routes (integration)", () => {
       );
       const listedBody = await listed.text();
       expect(listedBody).not.toContain(issuedToken as string);
-      expect(listedBody).toContain('"hasLiveLink":true');
+      const listedPayload = JSON.parse(listedBody) as {
+        authorizations: Array<{
+          authorizationId: string;
+          stands: Array<{ salesLocationId: string; name: string }>;
+          hasLiveLink: boolean;
+          liveLinkStand: { salesLocationId: string; name: string } | null;
+        }>;
+      };
+      const listedAuthorization = listedPayload.authorizations.find(
+        (row) => row.authorizationId === authorizationId,
+      );
+      expect(listedAuthorization).toEqual(
+        expect.objectContaining({
+          hasLiveLink: true,
+          liveLinkStand: { salesLocationId: southStandId, name: "South Stand" },
+          stands: expect.arrayContaining([
+            { salesLocationId: southStandId, name: "South Stand" },
+          ]),
+        }),
+      );
     });
 
     it("revokes a farmer's access through the route", async () => {
       const token = await sessionFor(ids.administrator as string);
       const { contactHash, farmId } = await farmerAndFarm();
+      const requestId = await openRequestFor(contactHash);
       await farmersRoute.POST(
         request("https://ff.example/api/admin/farmers", {
           method: "POST",
           token,
-          body: JSON.stringify({ action: "authorize", farmId, contactHash }),
+          body: JSON.stringify({ action: "authorize", farmId, requestId }),
         }),
       );
       const rows = await sql()`
@@ -1107,6 +1173,24 @@ describe("admin routes (integration)", () => {
       const after = await sql()`
         select count(*)::int as n from farmer_authorizations
       `;
+      expect(after[0]?.n).toBe(before[0]?.n);
+    });
+
+    it("refuses a raw contact hash as an enrollment input", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const { contactHash, farmId } = await farmerAndFarm();
+      const before = await sql()`select count(*)::int as n from farmer_authorizations`;
+
+      const response = await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ action: "authorize", farmId, contactHash }),
+        }),
+      );
+      expect(response.status).toBe(400);
+
+      const after = await sql()`select count(*)::int as n from farmer_authorizations`;
       expect(after[0]?.n).toBe(before[0]?.n);
     });
   });

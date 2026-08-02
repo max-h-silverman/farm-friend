@@ -127,7 +127,12 @@ describe("administrator queue interactions", () => {
             senderMask: "(•••) •••-0702",
             authorizedAt: "2026-08-01T10:00:00Z",
             revokedAt: null,
+            stands: [
+              { salesLocationId: "stand-1", name: "North Stand" },
+              { salesLocationId: "stand-2", name: "South Stand" },
+            ],
             hasLiveLink: false,
+            liveLinkStand: null,
           },
         ]}
         farms={[{ farmId: "farm-1", name: "Example Farm" }]}
@@ -139,7 +144,23 @@ describe("administrator queue interactions", () => {
     await user.click(screen.getByRole("button", { name: "Authorize" }));
     expect(await screen.findByRole("status")).toHaveTextContent(/authorized/i);
 
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Stand for private link" }),
+      "stand-2",
+    );
     await user.click(screen.getByRole("button", { name: "Create link" }));
+    expect(fetcher).toHaveBeenNthCalledWith(
+      2,
+      "/api/admin/farmers",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          action: "issue_link",
+          authorizationId: "authorization-1",
+          salesLocationId: "stand-2",
+        }),
+      }),
+    );
     const copy = await screen.findByRole("button", { name: "Copy private link" });
     await user.click(copy);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(

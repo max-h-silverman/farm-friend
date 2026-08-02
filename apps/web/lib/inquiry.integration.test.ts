@@ -61,7 +61,6 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   const ids = {} as {
     farmerContact: string;
     otherFarmerContact: string;
-    adminContact: string;
     alphaFarm: string;
     betaFarm: string;
     alphaLocation: string;
@@ -168,8 +167,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
 
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash)
-      values ('+12065550901', ${farmerHash}), ('+12065550902', ${"7".repeat(64)}),
-             ('+12065550903', ${otherFarmerHash})
+      values ('+12065550901', ${farmerHash}), ('+12065550903', ${otherFarmerHash})
       returning id, phone_hash
     `;
     const contactByHash = new Map(
@@ -177,11 +175,10 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     );
     ids.farmerContact = contactByHash.get(farmerHash)!;
     ids.otherFarmerContact = contactByHash.get(otherFarmerHash)!;
-    ids.adminContact = contactByHash.get("7".repeat(64))!;
 
     const admins = await client()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('inquiry-admin@viga.example', ${ids.adminContact}, ${T0}) returning id
+      insert into administrators (email, authorized_at)
+      values ('inquiry-admin@viga.example', ${T0}) returning id
     `;
 
     // Two farms, so a report at one can be proved never to reach the other.

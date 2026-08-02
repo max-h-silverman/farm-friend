@@ -16,6 +16,7 @@ import {
   authorizeFarmer,
   createDb,
   issueFarmerLink,
+  openFarmerOnboardingRequest,
   revokeFarmerAuthorization,
   type Db,
   type Sql,
@@ -132,9 +133,13 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       returning id
     `;
 
+    const opened = await openFarmerOnboardingRequest(database(), {
+      contactHash,
+      occurredAt: at(0),
+    });
     const authorized = await authorizeFarmer(database(), {
       farmId,
-      contactHash,
+      requestId: opened.status === "opened" ? opened.requestId : "",
       administratorId,
       occurredAt: at(1),
     });
@@ -144,6 +149,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
 
     const issued = await issueFarmerLink(database(), {
       authorizationId,
+      salesLocationId: locations[0]?.id as string,
       occurredAt: at(2),
     });
 

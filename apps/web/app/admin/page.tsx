@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
-import { hasRole } from "@farm-friend/core";
 import { listFarmsForApproval } from "@farm-friend/db";
-import { resolvePrincipal } from "../../lib/auth";
+import { resolveAdministrator } from "../../lib/auth";
 import { publicReadContext } from "../../lib/public-context";
 import { ApprovalQueue } from "./approval-queue";
 import { AdminShell, SignedOutAdmin } from "./admin-shell";
@@ -21,16 +20,16 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
   // Next's server components do not hand a Request to a page, so the incoming cookie header
-  // is rebuilt into one for the same `resolvePrincipal` every API route uses. One code path
-  // resolves a principal, not two that could drift apart.
+  // is rebuilt into one for the same `resolveAdministrator` every API route uses. One code path
+  // resolves administrator identity, not two that could drift apart.
   const cookie = headers().get("cookie") ?? "";
-  const principal = await resolvePrincipal(
+  const administrator = await resolveAdministrator(
     new Request("https://farm-friend.internal/admin", {
       headers: cookie === "" ? {} : { cookie },
     }),
   );
 
-  if (principal === null || !hasRole(principal, "admin")) {
+  if (administrator === null) {
     return <SignedOutAdmin />;
   }
 
@@ -38,7 +37,7 @@ export default async function AdminPage() {
   const farms = await listFarmsForApproval(db);
 
   return (
-    <AdminShell currentPath="/admin" title="Farm approval" signedInAs={principal.personId}>
+    <AdminShell currentPath="/admin" title="Farm approval" signedInAs={administrator.email}>
       <p className="admin-note">
         Only approved farms publish publicly. Approval is <strong>your act</strong>, recorded
         separately from a farmer completing onboarding — verify the farm is real, is a VIGA

@@ -80,7 +80,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
     }
     const issued = await issueFarmerLink(database(), {
       authorizationId: authorizations[0]?.id as string,
-      salesLocationId: locationIds[0],
+      salesLocationId: locationIds[0] as string,
       occurredAt: T0,
     });
     if (issued.status !== "issued") throw new Error("fixture link was not issued");

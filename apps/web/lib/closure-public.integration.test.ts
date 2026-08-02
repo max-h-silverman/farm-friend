@@ -25,7 +25,6 @@ import { listPublicStands, serializePublicStand } from "./public-listing";
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
 const farmerHash = "a1".repeat(32);
-const adminHash = "b2".repeat(32);
 const customerHash = "c3".repeat(32);
 const T0 = new Date(Date.now() - 24 * 60 * 60 * 1000);
 const at = (minutes: number) => new Date(T0.getTime() + minutes * 60_000);
@@ -104,13 +103,13 @@ describe("one closure projection across public discovery and customer SMS (integ
     `;
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash) values
-        ('+12065550601', ${farmerHash}), ('+12065550602', ${adminHash}),
-        ('+12065550603', ${customerHash}) returning id, phone_hash
+        ('+12065550601', ${farmerHash}), ('+12065550603', ${customerHash})
+        returning id, phone_hash
     `;
     const contact = (hash: string) => contacts.find((row) => row.phone_hash === hash)?.id as string;
     const admins = await client()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('closure-reader@viga.example', ${contact(adminHash)}, ${T0}) returning id
+      insert into administrators (email, authorized_at)
+      values ('closure-reader@viga.example', ${T0}) returning id
     `;
     const farms = await client()`insert into farms (name) values ('Reader Farm') returning id`;
     const farmId = farms[0]?.id as string;

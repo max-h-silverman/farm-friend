@@ -64,7 +64,7 @@ describe("interpreted inventory → pending proposal (integration)", () => {
   // index read `string | undefined`, which cannot be bound as a SQL parameter.
   const ids = {} as {
     farmerContact: string;
-    adminContact: string;
+    unrelatedContactCanary: string;
     farm: string;
     location: string;
   };
@@ -121,12 +121,12 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     `;
     ids.farmerContact = contacts.find((r) => r.phone_hash === farmerHash)
       ?.id as string;
-    ids.adminContact = contacts.find((r) => r.phone_hash !== farmerHash)
+    ids.unrelatedContactCanary = contacts.find((r) => r.phone_hash !== farmerHash)
       ?.id as string;
 
     const admins = await client()`
-      insert into administrators (email, contact_id, authorized_at)
-      values ('interpretation-admin@viga.example', ${ids.adminContact}, ${T0}) returning id
+      insert into administrators (email, authorized_at)
+      values ('interpretation-admin@viga.example', ${T0}) returning id
     `;
     const farms = await client()`
       insert into farms (name) values ('Interpreted Farm') returning id
@@ -592,7 +592,7 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     expect(context).not.toContain("+1206555");
     expect(context).not.toContain(farmerHash);
     expect(context).not.toContain(ids.farmerContact as string);
-    expect(context).not.toContain(ids.adminContact as string);
+    expect(context).not.toContain(ids.unrelatedContactCanary as string);
     expect(context).not.toContain(ids.farm as string);
     // Only the seam's five permitted fields crossed.
     expect(Object.keys(provider.seen[0]!.fields as object).sort()).toEqual([

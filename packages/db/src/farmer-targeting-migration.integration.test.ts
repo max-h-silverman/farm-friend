@@ -18,7 +18,7 @@ import type { Sql } from "./sql";
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
 
-describe("F-051 forward migration from populated pre-targeting schema (integration)", () => {
+describe("B-031 final targeting migration from populated pre-change schema (integration)", () => {
   let admin: Sql | undefined;
   let sql: Sql | undefined;
   let databaseName = "";
@@ -71,8 +71,12 @@ describe("F-051 forward migration from populated pre-targeting schema (integrati
     return sql;
   }
 
-  it("preserves owners, participants, authorizations, and standing links without inventing targets", async () => {
+  it("preserves populated authority data and permits only exact new links", async () => {
     const now = new Date(Date.now() - 60_000);
+    await client()`
+      insert into administrators (email, authorized_at)
+      values ('populated-admin@viga.example', ${now})
+    `;
     const farms = await client()`insert into farms (name) values ('Populated Farm') returning id`;
     const farmId = farms[0]?.id as string;
     const contacts = await client()`
@@ -102,11 +106,6 @@ describe("F-051 forward migration from populated pre-targeting schema (integrati
       ) values (${farmId}, ${locationId}, 'Existing Seller', ${authorizationId}, ${now})
       returning id
     `;
-    const links = await client()`
-      insert into farmer_links (token_hash, authorization_id, issued_at)
-      values (${"d".repeat(64)}, ${authorizationId}, ${now}) returning id
-    `;
-
     // Apply through the existing raw connection's database with a separate Drizzle client;
     // constructing the URL from test state is clearer and avoids mutating raw serializers.
     const base = process.env.DATABASE_URL!;
@@ -133,20 +132,52 @@ describe("F-051 forward migration from populated pre-targeting schema (integrati
     expect(await client()`select id from sales_location_participants`).toEqual([
       { id: participants[0]?.id as string },
     ]);
-    expect(await client()`
-      select id, owner_farm_id, sales_location_id from farmer_links
-    `).toEqual([
-      { id: links[0]?.id as string, owner_farm_id: null, sales_location_id: null },
-    ]);
-    await expect(client()`
-      update farmer_links set owner_farm_id = ${farmId} where id = ${links[0]?.id as string}
-    `).rejects.toThrow(/farmer_links_target_coherent/);
-    await expect(client()`
-      update farmer_links set sales_location_id = ${locationId}
-      where id = ${links[0]?.id as string}
-    `).rejects.toThrow(/farmer_links_target_coherent/);
+    expect(await client()`select id from farmer_links`).toHaveLength(0);
+
+    const links = await client()`
+      insert into farmer_links (
+        token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+      ) values (
+        ${"d".repeat(64)}, ${authorizationId}, ${farmId}, ${locationId}, ${now}
+      ) returning id, owner_farm_id, sales_location_id
+    `;
+    expect(links).toEqual([{
+      id: links[0]?.id as string,
+      owner_farm_id: farmId,
+      sales_location_id: locationId,
+    }]);
+
+    for (const target of [
+      { ownerFarmId: null, salesLocationId: null },
+      { ownerFarmId: farmId, salesLocationId: null },
+      { ownerFarmId: null, salesLocationId: locationId },
+    ]) {
+      await expect(client()`
+        insert into farmer_links (
+          token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+        ) values (
+          ${randomUUID().replaceAll("-", "").repeat(2)}, ${authorizationId},
+          ${target.ownerFarmId}, ${target.salesLocationId}, ${now}
+        )
+      `).rejects.toMatchObject({ code: "23502" });
+    }
     expect(await client()`select * from farmer_target_contexts`).toHaveLength(0);
     expect(await client()`select * from farmer_target_menu_options`).toHaveLength(0);
+    expect(await client()`
+      select column_name from information_schema.columns
+      where table_schema = 'public' and table_name = 'administrators'
+        and column_name = 'contact_id'
+    `).toHaveLength(0);
+    expect(await client()`
+      select is_nullable from information_schema.columns
+      where table_schema = 'public' and table_name = 'admin_sessions'
+        and column_name = 'magic_nonce_hash'
+    `).toEqual([{ is_nullable: "NO" }]);
+    expect(await client()`
+      select indexname from pg_indexes
+      where schemaname = 'public'
+        and indexname = 'administrators_one_active_per_contact'
+    `).toHaveLength(0);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
     ).toEqual([{ count: 15 }]);

@@ -35,8 +35,8 @@ function driver(db: Db): Sql {
 
 export interface AuthorizeFarmerInput {
   farmId: string;
-  /** The farmer's phone hash. The raw number never reaches this layer. */
-  contactHash: string;
+  /** The opaque open request VIGA is answering. */
+  requestId: string;
   administratorId: string;
   occurredAt: Date;
 }
@@ -46,7 +46,7 @@ export type AuthorizeFarmerResult =
   | { status: "already_authorized" }
   | { status: "not_an_administrator" }
   | { status: "unknown_farm" }
-  | { status: "unknown_contact" };
+  | { status: "unknown_request" };
 
 /**
  * Authorize a farmer to publish for a farm, recording which administrator acted.
@@ -60,9 +60,9 @@ export type AuthorizeFarmerResult =
  * deciding the person behind it runs the farm. There is no separate verification step to
  * record, and inventing an earlier timestamp would claim a check nobody performed.
  *
- * If the farmer had an open onboarding request, it is SETTLED in the same transaction. The
- * queue would otherwise keep showing an ask that has already been answered, and an operator
- * would work it twice.
+ * The exact onboarding request VIGA answered is SETTLED in the same transaction. The queue
+ * would otherwise keep showing an ask that has already been answered, and an operator would
+ * work it twice.
  */
 export async function authorizeFarmer(
   db: Db,
@@ -83,11 +83,17 @@ export async function authorizeFarmer(
     const farm = await tx`select id from farms where id = ${input.farmId}`;
     if (farm.length === 0) return { status: "unknown_farm" as const };
 
-    const contact = await tx`
-      select id from contacts where phone_hash = ${input.contactHash}
+    const requests = await tx`
+      select request.contact_hash, contact.id as contact_id
+      from farmer_onboarding_requests as request
+      join contacts as contact on contact.phone_hash = request.contact_hash
+      where request.id = ${input.requestId} and request.settled_at is null
+      for update of request, contact
     `;
-    const contactId = contact[0]?.id as string | undefined;
-    if (contactId === undefined) return { status: "unknown_contact" as const };
+    const request = requests[0];
+    if (request === undefined) return { status: "unknown_request" as const };
+    const contactId = request.contact_id as string;
+    const contactHash = request.contact_hash as string;
 
     // Locked so two concurrent authorizations cannot both see "none" and race the partial
     // unique index into an error instead of an honest answer.
@@ -118,7 +124,7 @@ export async function authorizeFarmer(
       set settled_at = ${input.occurredAt.toISOString()},
           settled_by_administrator_id = ${input.administratorId},
           authorization_id = ${authorizationId}
-      where contact_hash = ${input.contactHash} and settled_at is null
+      where id = ${input.requestId} and settled_at is null
     `;
 
     await tx`
@@ -141,7 +147,7 @@ export async function authorizeFarmer(
     // bypass the design forbids.
     await queueOutbox(tx, {
       logicalKey: `farmer-authorized-${authorizationId}`,
-      recipientHash: input.contactHash,
+      recipientHash: contactHash,
       messageCategory: "inventory_prompt",
       body: FARMER_AUTHORIZED_NOTIFICATION,
       now: input.occurredAt,
@@ -278,37 +284,28 @@ export async function issueFarmerLink(
   db: Db,
   input: {
     authorizationId: string;
+    salesLocationId: string;
     occurredAt: Date;
-    /** Bind this credential to one exact stand. Omitted only for legacy one-stand callers. */
-    salesLocationId?: string;
   },
 ): Promise<IssueFarmerLinkResult> {
   return driver(db).begin(async (tx) => {
-    let ownerFarmId: string | null = null;
-    if (input.salesLocationId !== undefined) {
-      // Publication lock order: location before authorization. Link issuance names no sender
-      // state or proposal, so these are the first two shared resources it can touch.
-      const locations = await tx`
-        select id, owner_farm_id from sales_locations
-        where id = ${input.salesLocationId}
-        for update
-      `;
-      ownerFarmId = locations[0]?.owner_farm_id as string | undefined ?? null;
-      if (ownerFarmId === null) return { status: "not_authorized" as const };
-    }
-    const authorization = input.salesLocationId === undefined
-      ? await tx`
-          select id, farm_id from farmer_authorizations
-          where id = ${input.authorizationId} and revoked_at is null
-          for update
-        `
-      : await tx`
-          select id, farm_id from farmer_authorizations
-          where id = ${input.authorizationId}
-            and farm_id = ${ownerFarmId}
-            and revoked_at is null
-          for update
-        `;
+    // Publication lock order: location before authorization. Link issuance names no sender
+    // state or proposal, so these are the first two shared resources it can touch.
+    const locations = await tx`
+      select id, owner_farm_id from sales_locations
+      where id = ${input.salesLocationId}
+      for update
+    `;
+    const ownerFarmId = locations[0]?.owner_farm_id as string | undefined;
+    if (ownerFarmId === undefined) return { status: "not_authorized" as const };
+
+    const authorization = await tx`
+      select id, farm_id from farmer_authorizations
+      where id = ${input.authorizationId}
+        and farm_id = ${ownerFarmId}
+        and revoked_at is null
+      for update
+    `;
     if (authorization.length === 0) {
       return { status: "not_authorized" as const };
     }
@@ -326,7 +323,7 @@ export async function issueFarmerLink(
       )
       values (
         ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${ownerFarmId},
-        ${input.salesLocationId ?? null},
+        ${input.salesLocationId},
         ${input.occurredAt.toISOString()}
       )
     `;
@@ -338,7 +335,7 @@ export async function issueFarmerLink(
 /**
  * Who a standing link speaks for — the ONE stand it may propose a listing on.
  *
- * This is the farmer-side `resolvePrincipal`, and it carries the same load-bearing property:
+ * This resolves the credential directly, and it carries the same load-bearing property:
  * **the lookup is per-request, so revocation is immediate.** Nothing about the answer is
  * cached, signed, or carried in the link, so there is no state that could keep saying "valid"
  * after the authority behind it was withdrawn. Both `revoked_at` columns are checked here,
@@ -350,9 +347,8 @@ export async function issueFarmerLink(
  * customer data, and no way to widen it from the request: the token selects a row, and the row
  * selects the farm.
  *
- * A farm with several sales locations resolves to none, rather than guessing. Which stand a
- * listing lands on decides whose shelf a customer drives to, so code asks rather than picking
- * — the same rule the SMS farmer branch already follows.
+ * The link itself names the one exact stand. Which stand a listing lands on decides whose shelf
+ * a customer drives to, so resolution never guesses from the farm's other locations.
  */
 export interface ResolvedFarmerLink {
   authorizationId: string;
@@ -371,27 +367,22 @@ export async function resolveFarmerLink(
       auth.id as authorization_id,
       auth.farm_id,
       contact.phone_hash,
-      location.id as sales_location_id,
-      count(location.id) over () as location_count
+      location.id as sales_location_id
     from farmer_links as link
     join farmer_authorizations as auth
       on auth.id = link.authorization_id
     join contacts as contact on contact.id = auth.contact_id
     join sales_locations as location
-      on location.owner_farm_id = auth.farm_id
-      and (link.sales_location_id is null or location.id = link.sales_location_id)
+      on location.id = link.sales_location_id
+      and location.owner_farm_id = link.owner_farm_id
+      and link.owner_farm_id = auth.farm_id
     where link.token_hash = ${input.tokenHash}
       and link.revoked_at is null
       and auth.revoked_at is null
-    order by location.id asc
   `;
 
   const row = rows[0];
   if (row === undefined) return null;
-  // Several stands on one farm: ask rather than guess. Returning the first would silently
-  // publish to a stand the farmer did not mean.
-  if (Number(row.location_count) !== 1) return null;
-
   return {
     authorizationId: row.authorization_id as string,
     farmId: row.farm_id as string,
@@ -497,8 +488,10 @@ export interface FarmerAuthorizationRow {
   senderMask: string;
   authorizedAt: Date;
   revokedAt: Date | null;
+  stands: Array<{ salesLocationId: string; name: string }>;
   /** Whether a live standing link exists. Never the link itself. */
   hasLiveLink: boolean;
+  liveLinkStand: { salesLocationId: string; name: string } | null;
 }
 
 /**
@@ -527,10 +520,27 @@ export async function listFarmerAuthorizations(
       right(contact.phone_e164, 4) as sender_last_four,
       auth.authorized_at,
       auth.revoked_at,
-      exists (
-        select 1 from farmer_links as link
-        where link.authorization_id = auth.id and link.revoked_at is null
-      ) as has_live_link
+      coalesce((
+        select jsonb_agg(
+          jsonb_build_object('salesLocationId', location.id, 'name', location.name)
+          order by location.name, location.id
+        )
+        from sales_locations as location
+        where location.owner_farm_id = auth.farm_id
+      ), '[]'::jsonb) as stands,
+      (
+        select jsonb_build_object(
+          'salesLocationId', location.id, 'name', location.name
+        )
+        from farmer_links as link
+        join sales_locations as location
+          on location.id = link.sales_location_id
+          and location.owner_farm_id = link.owner_farm_id
+        where link.authorization_id = auth.id
+          and link.owner_farm_id = auth.farm_id
+          and link.revoked_at is null
+        limit 1
+      ) as live_link_stand
     from farmer_authorizations as auth
     join farms as farm on farm.id = auth.farm_id
     join contacts as contact on contact.id = auth.contact_id
@@ -545,31 +555,13 @@ export async function listFarmerAuthorizations(
     authorizedAt: new Date(row.authorized_at as string),
     revokedAt:
       row.revoked_at === null ? null : new Date(row.revoked_at as string),
-    hasLiveLink: row.has_live_link === true,
+    stands: row.stands as Array<{ salesLocationId: string; name: string }>,
+    hasLiveLink: row.live_link_stand !== null,
+    liveLinkStand: row.live_link_stand as {
+      salesLocationId: string;
+      name: string;
+    } | null,
   }));
-}
-
-/**
- * The phone hash behind an OPEN onboarding request, or null.
- *
- * Exists so the operator screen never has to hold a phone hash. The queue shows a masked
- * number and an opaque request id; this resolves that id server-side at the moment VIGA
- * authorizes. Sending the hash to the browser so it could send it back would put the one
- * lookup key for a person's phone into a page, a history entry, and a referrer — which is
- * exactly what Golden Rule #5 exists to prevent.
- *
- * Scoped to OPEN requests: a settled one has already been answered, and re-authorizing from
- * it would let a stale screen act on a decision someone else already made.
- */
-export async function findOnboardingRequestContact(
-  db: Db,
-  requestId: string,
-): Promise<string | null> {
-  const rows = await driver(db)`
-    select contact_hash from farmer_onboarding_requests
-    where id = ${requestId} and settled_at is null
-  `;
-  return (rows[0]?.contact_hash as string | undefined) ?? null;
 }
 
 export interface FarmerOnboardingRequestRow {

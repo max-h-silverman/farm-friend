@@ -1,11 +1,4 @@
-import {
-  AuthorizationError,
-  requireRole,
-  type Principal,
-} from "@farm-friend/core";
-import { findAdministratorByEmail } from "@farm-friend/db";
-import { resolvePrincipal } from "./auth";
-import { publicReadContext } from "./public-context";
+import { resolveAdministrator } from "./auth";
 
 // The one guard every admin route calls (F-025a, extracted for F-030).
 //
@@ -19,10 +12,8 @@ import { publicReadContext } from "./public-context";
 // request body. The refusal is a `Response` rather than a thrown error so that a route cannot
 // accidentally continue past a failed check: there is nothing to catch and ignore.
 //
-// Note the layering. This is the SECOND of three checks, and deliberately not the load-bearing
-// one: `resolvePrincipal` proves a live session, this proves a live administrator row, and the
-// write's own transaction re-reads that row under lock. Only the third can see a revocation
-// that commits mid-request, which is why it exists in `packages/db` rather than here.
+// Session resolution joins the live administrator row directly. Consequential writes still
+// re-read that same row under lock so a revocation that commits mid-request wins.
 
 export interface AdminCaller {
   administratorId: string;
@@ -34,19 +25,7 @@ export interface AdminCaller {
 export async function requireAdministrator(
   req: Request,
 ): Promise<AdminCaller | Response> {
-  let principal: Principal | null;
-  try {
-    principal = await resolvePrincipal(req);
-    requireRole(principal, "admin");
-  } catch (error) {
-    if (error instanceof AuthorizationError) {
-      return Response.json({ error: "forbidden" }, { status: 403 });
-    }
-    throw error;
-  }
-
-  const { db } = publicReadContext();
-  const administrator = await findAdministratorByEmail(db, principal.personId);
+  const administrator = await resolveAdministrator(req);
   if (administrator === null) {
     return Response.json({ error: "forbidden" }, { status: 403 });
   }

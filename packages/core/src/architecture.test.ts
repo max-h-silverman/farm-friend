@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 interface PackageManifest {
@@ -106,6 +106,66 @@ describe("workspace architecture", () => {
 
       expect(unexpected, manifest.name).toEqual([]);
     }
+  });
+});
+
+describe("direct administrator identity (B-031)", () => {
+  it("has no generic role facade and resolves the administrator directly", () => {
+    const rolesModule = new URL("packages/core/src/auth/roles.ts", repositoryRoot);
+    const coreIndex = readFileSync(
+      new URL("packages/core/src/index.ts", repositoryRoot),
+      "utf8",
+    );
+    const databaseAuth = readFileSync(
+      new URL("packages/db/src/admin.ts", repositoryRoot),
+      "utf8",
+    );
+    const webAuth = readFileSync(
+      new URL("apps/web/lib/auth.ts", repositoryRoot),
+      "utf8",
+    );
+    const webGuard = readFileSync(
+      new URL("apps/web/lib/admin-guard.ts", repositoryRoot),
+      "utf8",
+    );
+
+    expect(existsSync(rolesModule)).toBe(false);
+    expect(coreIndex).not.toContain("./auth/roles");
+    expect(databaseAuth).toMatch(
+      /return\s*\{\s*administratorId:\s*row\.administrator_id as string,\s*email:\s*row\.email as string,?\s*\}/,
+    );
+    expect(webAuth).toMatch(/export async function resolveAdministrator\s*\(/);
+    expect(webGuard).toMatch(/await resolveAdministrator\(req\)/);
+  });
+
+  it("keeps enrollment request-bound and every standing link exact-targeted", () => {
+    const databaseFarmer = readFileSync(
+      new URL("packages/db/src/farmer.ts", repositoryRoot),
+      "utf8",
+    );
+    const adminFarmerRoute = readFileSync(
+      new URL("apps/web/app/api/admin/farmers/route.ts", repositoryRoot),
+      "utf8",
+    );
+
+    const authorizationInput = /export interface AuthorizeFarmerInput\s*\{([^}]*)\}/.exec(
+      databaseFarmer,
+    )?.[1];
+    expect(authorizationInput).toBeDefined();
+    expect(authorizationInput).toMatch(/\brequestId:\s*string/);
+    expect(authorizationInput).not.toMatch(/\bcontactHash\b/);
+
+    const routeInput = /let body:\s*\{([^}]*)\}/.exec(adminFarmerRoute)?.[1];
+    expect(routeInput).toBeDefined();
+    expect(routeInput).toMatch(/\brequestId\?:\s*unknown/);
+    expect(routeInput).not.toMatch(/\bcontactHash\b/);
+
+    expect(databaseFarmer).toMatch(
+      /export async function issueFarmerLink\([\s\S]*?input:\s*\{[\s\S]*?salesLocationId:\s*string;[\s\S]*?\}/,
+    );
+    expect(databaseFarmer).toMatch(
+      /export async function resolveFarmerLink\([\s\S]*?join sales_locations as location\s+on location\.id = link\.sales_location_id/,
+    );
   });
 });
 
@@ -328,7 +388,7 @@ describe("no multi-occupancy concept anywhere in application source (F-027)", ()
     // Guard against a vacuous pass: if `sourceFiles` ever returned nothing, or stopped reaching
     // the auth module, the assertion below would be trivially true and the tripwire dead.
     expect(scannedSources.length).toBeGreaterThan(50);
-    expect(scannedSources).toContain("packages/core/src/auth/roles.ts");
+    expect(scannedSources).toContain("packages/core/src/auth/session.ts");
     expect(scannedSources).toContain("packages/core/src/architecture.test.ts");
   });
 

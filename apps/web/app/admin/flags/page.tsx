@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
-import { hasRole } from "@farm-friend/core";
 import { listFlagsForReview } from "@farm-friend/db";
-import { resolvePrincipal } from "../../../lib/auth";
+import { resolveAdministrator } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { FlagQueue } from "./flag-queue";
 import { AdminShell, SignedOutAdmin } from "../admin-shell";
@@ -16,13 +15,13 @@ export const dynamic = "force-dynamic";
 
 export default async function FlagsPage() {
   const cookie = headers().get("cookie") ?? "";
-  const principal = await resolvePrincipal(
+  const administrator = await resolveAdministrator(
     new Request("https://farm-friend.internal/admin/flags", {
       headers: cookie === "" ? {} : { cookie },
     }),
   );
 
-  if (principal === null || !hasRole(principal, "admin")) {
+  if (administrator === null) {
     return <SignedOutAdmin />;
   }
 
@@ -30,7 +29,7 @@ export default async function FlagsPage() {
   const flags = await listFlagsForReview(db, { status: "all" });
 
   return (
-    <AdminShell currentPath="/admin/flags" title="Flag review" signedInAs={principal.personId}>
+    <AdminShell currentPath="/admin/flags" title="Flag review" signedInAs={administrator.email}>
       <p className="admin-note">
         Someone texted <strong>FLAG</strong>. Read the thread, take whatever action is needed
         outside the system, then record what you did. Phone numbers are shown masked.
