@@ -197,7 +197,7 @@ export default async function AdminPage() {
 
   return (
     <AdminShell currentPath="/admin">
-      <section className="admin-priority" aria-labelledby="approve-farms-heading">
+      <section className="admin-priority admin-priority--farm-approval" aria-labelledby="approve-farms-heading">
         <h2 id="approve-farms-heading" className="admin-section-title">Approve farms</h2>
         <p className="admin-note">
           Approve a farm when it&apos;s ready to join Farm Friend.

@@ -743,6 +743,10 @@ body {
   border-radius: 0 12px 12px 0;
 }
 
+.admin-priority--farm-approval {
+  border-left-color: var(--admin-yellow);
+}
+
 .admin-priority .admin-section-title {
   margin-top: 0;
 }
