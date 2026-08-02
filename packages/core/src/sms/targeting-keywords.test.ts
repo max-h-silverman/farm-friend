@@ -90,3 +90,12 @@ describe("deterministic stand targeting keywords (F-051)", () => {
     );
   });
 });
+
+describe("deterministic scheduled SAME wiring (F-052)", () => {
+  it("anchors the live handler call to database and clock only", () => {
+    const workers = executableSource(workersSource);
+    expect(workers).toMatch(
+      /handleScheduledSame\(\s*\{\s*db:\s*deps\.db,\s*clock:\s*deps\.clock\s*\},\s*input,?\s*\)/,
+    );
+  });
+});

@@ -337,6 +337,7 @@ export interface FarmerSettingsTarget {
   salesLocationId: string;
   locationName: string;
   selected: boolean;
+  cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
 }
 
 /** List only the locations editable through one live authorization for its own sender. */
@@ -349,12 +350,15 @@ export async function listFarmerSettingsTargets(
       location.id as sales_location_id,
       location.name as location_name,
       context.selected_authorization_id = auth.id
-        and context.selected_sales_location_id = location.id as selected
+        and context.selected_sales_location_id = location.id as selected,
+      preference.cadence
     from farmer_authorizations as auth
     join contacts as contact on contact.id = auth.contact_id
     join sales_locations as location on location.owner_farm_id = auth.farm_id
     left join farmer_target_contexts as context
       on context.sender_hash = contact.phone_hash
+    left join inventory_prompt_preferences as preference
+      on preference.sales_location_id = location.id
     where auth.id = ${input.authorizationId}
       and contact.phone_hash = ${input.senderHash}
       and auth.revoked_at is null
@@ -364,6 +368,7 @@ export async function listFarmerSettingsTargets(
     salesLocationId: row.sales_location_id as string,
     locationName: row.location_name as string,
     selected: row.selected === true,
+    cadence: (row.cadence as FarmerSettingsTarget["cadence"]) ?? null,
   }));
 }
 
@@ -378,7 +383,7 @@ export async function selectFarmerTargetForAuthorization(
   },
 ): Promise<{ status: "selected"; target: FarmerTarget } | { status: "not_authorized" }> {
   return db.sql.begin(async (tx) => {
-    if (!(await lockSenderState(tx, input.senderHash, input.occurredAt))) {
+    if (!(await lockKnownSenderState(tx, input.senderHash, input.occurredAt))) {
       return { status: "not_authorized" as const };
     }
     await tx`

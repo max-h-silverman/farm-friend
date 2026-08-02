@@ -1,7 +1,8 @@
-import type { Clock } from "@farm-friend/core";
+import type { Clock, PromptCadence } from "@farm-friend/core";
 import {
   listFarmerSettingsTargets,
   selectFarmerTargetForAuthorization,
+  setInventoryPromptPreference,
   type Db,
 } from "@farm-friend/db";
 import { resolveStandFromToken } from "./farmer-stand";
@@ -13,6 +14,7 @@ export type FarmerSettingsResult =
         salesLocationId: string;
         locationName: string;
         selected: boolean;
+        cadence: PromptCadence | null;
       }[];
     }
   | { status: "not_authorized" };
@@ -64,7 +66,7 @@ export async function handleFarmerSettingsPost(
   deps: { db: Db; clock: Clock },
   request: Request,
 ): Promise<Response> {
-  let body: { token?: unknown; salesLocationId?: unknown };
+  let body: { token?: unknown; salesLocationId?: unknown; cadence?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -73,9 +75,29 @@ export async function handleFarmerSettingsPost(
   if (
     typeof body.token !== "string" ||
     typeof body.salesLocationId !== "string" ||
-    !UUID_RE.test(body.salesLocationId)
+    !UUID_RE.test(body.salesLocationId) ||
+    (body.cadence !== undefined && ![
+      "every_2_days", "weekly", "every_2_weeks", "paused",
+    ].includes(body.cadence as string))
   ) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
+  }
+
+  if (body.cadence !== undefined) {
+    const stand = await resolveStandFromToken(deps.db, body.token);
+    if (stand === null) {
+      return Response.json({ error: "not_authorized" }, { status: 403 });
+    }
+    const result = await setInventoryPromptPreference(deps.db, {
+      senderHash: stand.senderHash,
+      authorizationId: stand.authorizationId,
+      salesLocationId: body.salesLocationId,
+      cadence: body.cadence as PromptCadence,
+      clock: deps.clock,
+    });
+    return result.status === "saved"
+      ? Response.json(result)
+      : Response.json({ error: "not_authorized" }, { status: 403 });
   }
 
   const result = await saveFarmerDefaultStand(deps, {

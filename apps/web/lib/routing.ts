@@ -139,6 +139,12 @@ export interface RouteDeps {
     occurredAt: Date;
     providerEventId: string;
   }): Promise<{ replies: RoutedReply[]; status: string }>;
+  /** Confirm only the exact active typed scheduled snapshot. No model dependency belongs here. */
+  scheduledSame(input: {
+    senderHash: string;
+    occurredAt: Date;
+    providerEventId: string;
+  }): Promise<{ replies: RoutedReply[]; status: string }>;
 }
 
 export interface RouteInput {
@@ -239,6 +245,18 @@ export async function routeInboundMessage(
 
   if (command.kind === "commitment") {
     return routeCommitment(deps, input, command.token);
+  }
+
+  if (command.kind === "scheduled_same") {
+    const confirmed = await deps.scheduledSame({
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+      providerEventId: input.providerEventId,
+    });
+    return {
+      outcome: { kind: "confirmation", status: confirmed.status },
+      replies: confirmed.replies,
+    };
   }
 
   // F-040 — the farmer product keywords, still upstream of any model call. Neither grants

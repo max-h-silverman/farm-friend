@@ -18,6 +18,7 @@ import { handleFreeText } from "./free-text";
 import { handleNextPage } from "./paging";
 import { handleFarmerTarget, handleStandSelection } from "./farmer-targeting";
 import { routeInboundMessage, type RoutedReply } from "./routing";
+import { handleScheduledSame } from "./scheduled-same";
 
 // Bounded workers (docs/ARCHITECTURE.md §outbound dispatch and recovery).
 //
@@ -166,6 +167,8 @@ export async function runInboundPass(
               { db: deps.db, publicBaseUrl: deps.publicBaseUrl },
               input,
             ),
+          scheduledSame: (input) =>
+            handleScheduledSame({ db: deps.db, clock: deps.clock }, input),
         },
         {
           senderHash: claimed.senderHash,

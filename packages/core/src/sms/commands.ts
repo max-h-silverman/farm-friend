@@ -31,6 +31,7 @@ export type FarmerKeyword = "SIGNUP" | "LINK" | "STAND" | "SETTINGS";
 export type ParsedCommand =
   | { kind: "compliance"; keyword: ComplianceKeyword; global: boolean }
   | { kind: "commitment"; token: CommitmentToken; contextBound: true }
+  | { kind: "scheduled_same"; contextBound: true }
   | { kind: "farmer"; keyword: FarmerKeyword }
   /**
    * `MORE` — the next page of a customer's result list (F-046).
@@ -150,6 +151,11 @@ export function parseCommand(body: string): ParsedCommand {
   const commitment = COMMITMENT_WORDS[normalized];
   if (commitment) {
     return { kind: "commitment", token: commitment, contextBound: true };
+  }
+  // F-052. Exact scheduled-snapshot confirmation, after STOP and ordinary commitments.
+  // The database subject decides whether it has meaning; this parser supplies no context.
+  if (normalized === "SAME") {
+    return { kind: "scheduled_same", contextBound: true };
   }
   // LAST among the keyword branches, deliberately. A farmer product keyword must never be
   // able to shadow a compliance keyword or a commitment token: if `SIGNUP` were checked

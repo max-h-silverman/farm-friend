@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FixedClock } from "@farm-friend/core";
+import { FixedClock, renderClarificationRequest } from "@farm-friend/core";
 import {
   authorizeDispatch,
   createDb,
@@ -13,6 +13,7 @@ import {
   type Db,
 } from "@farm-friend/db";
 import { runScheduledPromptPass } from "./scheduled-prompts";
+import { handleScheduledSame } from "./scheduled-same";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required; a skipped integration run is not green");
@@ -24,7 +25,11 @@ describe("scheduled inventory prompt pass (integration)", () => {
   let admin: ReturnType<typeof postgres> | undefined;
   let db: Db | undefined;
   let databaseName = "";
-  const ids: Record<string, string> = {};
+  let testDatabaseUrl = "";
+  const ids = {
+    administrator: "", farm: "", location: "", authorization: "",
+    approval: "", revision: "", preference: "",
+  };
   const senderHash = "7".repeat(64);
 
   beforeAll(async () => {
@@ -33,6 +38,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
     await admin.unsafe(`create database "${databaseName}"`);
     const url = new URL(databaseUrl);
     url.pathname = `/${databaseName}`;
+    testDatabaseUrl = url.toString();
     const migrationClient = postgres(url.toString(), { max: 1 });
     await migrate(drizzle(migrationClient), {
       migrationsFolder: resolve(process.cwd(), "packages/db/drizzle"),
@@ -52,6 +58,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
       insert into administrators (email, contact_id, authorized_at)
       values ('prompt-admin@viga.example', ${adminContactId}, ${BASE}) returning id
     `;
+    ids.administrator = administrators[0]?.id as string;
     const farms = await handle().sql`insert into farms (name) values ('Prompt Farm') returning id`;
     ids.farm = farms[0]?.id as string;
     const locations = await handle().sql`
@@ -90,7 +97,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
         yes_token, no_token, has_inventory, has_closure,
         base_revision_id, base_is_first_publication, state, closed_at
       ) values (
-        ${senderHash}, ${ids.location}, ${{ entries: [] }}, '1', 1,
+        ${senderHash}, ${ids.location}, ${handle().sql.json({ entries: [] })}, '1', 1,
         'YES-BASE', 'NO-BASE', true, false, null, true, 'invalidated', ${BASE}
       ) returning id
     `;
@@ -137,6 +144,247 @@ describe("scheduled inventory prompt pass (integration)", () => {
   function handle(): Db {
     if (!db) throw new Error("database unavailable");
     return db;
+  }
+
+  let fixtureNumber = 0;
+  async function createQueuedFixture(options?: { upcomingClosure?: boolean }) {
+    fixtureNumber += 1;
+    const suffix = fixtureNumber.toString().padStart(2, "0");
+    const fixtureSender = fixtureNumber.toString(16).padStart(64, "0");
+    const alternateSender = (fixtureNumber + 100).toString(16).padStart(64, "0");
+    const contacts = await handle().sql`
+      insert into contacts (phone_e164, phone_hash, created_at) values
+        (${`+12065551${suffix}`}, ${fixtureSender}, ${BASE}),
+        (${`+12065552${suffix}`}, ${alternateSender}, ${BASE})
+      returning id, phone_hash
+    `;
+    const contactId = contacts.find((row) => row.phone_hash === fixtureSender)?.id as string;
+    const alternateContactId = contacts.find((row) => row.phone_hash === alternateSender)?.id as string;
+    const farm = await handle().sql`
+      insert into farms (name) values (${`Dispatch Farm ${suffix}`}) returning id
+    `;
+    const farmId = farm[0]?.id as string;
+    const location = await handle().sql`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, public_address, public_latitude,
+        public_longitude, farm_bucks_accepted, farm_bucks_eligible
+      ) values (
+        ${farmId}, 'farm_stand', ${`Dispatch Stand ${suffix}`}, 'America/Los_Angeles',
+        ${`${suffix} Dispatch Way`}, 47.45, -122.46, false, true
+      ) returning id
+    `;
+    const salesLocationId = location[0]?.id as string;
+    const authorizations = await handle().sql`
+      insert into farmer_authorizations (
+        farm_id, contact_id, phone_verified_at, authorized_at
+      ) values
+        (${farmId}, ${contactId}, ${BASE}, ${BASE}),
+        (${farmId}, ${alternateContactId}, ${BASE}, ${BASE})
+      returning id, contact_id
+    `;
+    const authorizationId = authorizations.find((row) => row.contact_id === contactId)?.id as string;
+    const alternateAuthorizationId = authorizations.find(
+      (row) => row.contact_id === alternateContactId,
+    )?.id as string;
+    const approval = await handle().sql`
+      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      values (${farmId}, ${ids.administrator}, ${BASE}) returning id
+    `;
+    const approvalId = approval[0]?.id as string;
+    await handle().sql`
+      insert into sms_consents (
+        recipient_hash, state, capture_source, captured_at, capture_evidence_ref, updated_at
+      ) values (
+        ${fixtureSender}, 'active', 'farmer_onboarding', ${BASE}, ${`fixture-${suffix}`}, ${BASE}
+      )
+    `;
+    const baselineProposal = await handle().sql`
+      insert into inventory_publication_proposals (
+        sender_hash, sales_location_id, payload, schema_version, proposal_version,
+        yes_token, no_token, has_inventory, has_closure,
+        base_revision_id, base_is_first_publication, state, closed_at
+      ) values (
+        ${fixtureSender}, ${salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
+        ${`YES-${suffix}`}, ${`NO-${suffix}`}, true, false, null, true, 'invalidated', ${BASE}
+      ) returning id
+    `;
+    const revision = await handle().sql`
+      insert into inventory_revisions (
+        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_approval_id, published_at
+      ) values (
+        ${farmId}, ${salesLocationId}, ${baselineProposal[0]?.id as string},
+        ${authorizationId}, ${approvalId}, ${BASE}
+      ) returning id
+    `;
+    const inventoryRevisionId = revision[0]?.id as string;
+    await handle().sql`
+      insert into inventory_entries (
+        inventory_revision_id, sales_location_id, item_name, quantity, unit,
+        price_text, approximation, sort_order
+      ) values (
+        ${inventoryRevisionId}, ${salesLocationId}, 'Carrots', 3, 'bunches',
+        '$5', 'some', 0
+      )
+    `;
+
+    let closureRevisionId: string | null = null;
+    if (options?.upcomingClosure) {
+      const closureProposal = await handle().sql`
+        insert into inventory_publication_proposals (
+          sender_hash, sales_location_id, payload, schema_version, proposal_version,
+          yes_token, no_token, has_inventory, has_closure,
+          base_revision_id, base_is_first_publication,
+          closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
+        ) values (
+          ${fixtureSender}, ${salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
+          ${`YES-C-${suffix}`}, ${`NO-C-${suffix}`}, false, true,
+          null, null, null, true, 'invalidated', ${BASE}
+        ) returning id
+      `;
+      const closure = await handle().sql`
+        insert into closure_revisions (
+          owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+          owner_approval_id, result, closure_kind, starts_on, closed_through, published_at
+        ) values (
+          ${farmId}, ${salesLocationId}, ${closureProposal[0]?.id as string},
+          ${authorizationId}, ${approvalId}, 'close', 'temporary', '2026-03-15',
+          '2026-03-16', ${BASE}
+        ) returning id
+      `;
+      closureRevisionId = closure[0]?.id as string;
+    }
+
+    const preference = await setInventoryPromptPreference(handle(), {
+      senderHash: fixtureSender,
+      authorizationId,
+      salesLocationId,
+      cadence: "weekly",
+      clock: new FixedClock(BASE),
+    });
+    if (preference.status !== "saved") throw new Error("fixture preference failed");
+    await handle().sql`
+      update inventory_prompt_preferences set next_due_at = ${DUE}
+      where id = ${preference.preferenceId}
+    `;
+    const pass = await runScheduledPromptPass({ db: handle(), clock: new FixedClock(DUE) });
+    const subject = await handle().sql`
+      select proposal_id, outbox_work_id from scheduled_inventory_prompt_subjects
+      where preference_id = ${preference.preferenceId}
+    `;
+    const fixtureState = subject.length === 0
+      ? await handle().sql`
+          select preference.next_due_at, preference.last_due_slot_at,
+                 proposal.id as open_proposal_id, closure.starts_on
+          from inventory_prompt_preferences as preference
+          left join inventory_publication_proposals as proposal
+            on proposal.sales_location_id = preference.sales_location_id and proposal.state = 'open'
+          left join closure_revisions as closure
+            on closure.sales_location_id = preference.sales_location_id and closure.is_current
+          where preference.id = ${preference.preferenceId}
+        `
+      : [];
+    expect(
+      subject,
+      `the isolated preference must queue its own typed subject: ${JSON.stringify({ pass, fixtureState })}`,
+    ).toHaveLength(1);
+    return {
+      senderHash: fixtureSender,
+      farmId,
+      salesLocationId,
+      authorizationId,
+      alternateAuthorizationId,
+      approvalId,
+      preferenceId: preference.preferenceId,
+      inventoryRevisionId,
+      closureRevisionId,
+      proposalId: subject[0]?.proposal_id as string,
+      outboxWorkId: subject[0]?.outbox_work_id as string,
+    };
+  }
+
+  async function acceptFixture(fixture: Awaited<ReturnType<typeof createQueuedFixture>>) {
+    const claim = await authorizeDispatch(handle(), { outboxWorkId: fixture.outboxWorkId, now: DUE });
+    expect(claim.status).toBe("authorized");
+    if (claim.status !== "authorized") throw new Error("scheduled fixture was not authorized");
+    await recordDispatchResult(handle(), {
+      dispatchAttemptId: claim.dispatchAttemptId,
+      outcome: "accepted",
+      providerMessageId: `provider-${fixture.proposalId}`,
+      now: new Date(DUE.getTime() + 1_000),
+    });
+  }
+
+  async function sameSideEffectCounts(
+    fixture: Awaited<ReturnType<typeof createQueuedFixture>>,
+  ) {
+    const revisions = await handle().sql`
+      select count(*)::integer as count from inventory_revisions
+      where sales_location_id = ${fixture.salesLocationId}
+    `;
+    const receipts = await handle().sql`
+      select count(*)::integer as count from outbox_work
+      where recipient_hash = ${fixture.senderHash}
+        and logical_key like 'inventory-published-%'
+    `;
+    return { revisions: revisions[0]?.count as number, receipts: receipts[0]?.count as number };
+  }
+
+  async function replaceInventoryBase(
+    fixture: Awaited<ReturnType<typeof createQueuedFixture>>,
+    changedAt: Date,
+  ) {
+    await handle().sql`
+      update inventory_revisions set is_current = false, superseded_at = ${changedAt}
+      where id = ${fixture.inventoryRevisionId}
+    `;
+    const proposal = await handle().sql`
+      insert into inventory_publication_proposals (
+        sender_hash, sales_location_id, payload, schema_version, proposal_version,
+        yes_token, no_token, has_inventory, has_closure,
+        base_revision_id, base_is_first_publication, state, closed_at
+      ) values (
+        ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
+        ${`YES-FRESH-${fixture.proposalId}`}, ${`NO-FRESH-${fixture.proposalId}`},
+        true, false, ${fixture.inventoryRevisionId}, false, 'invalidated', ${changedAt}
+      ) returning id
+    `;
+    await handle().sql`
+      insert into inventory_revisions (
+        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_approval_id, published_at
+      ) values (
+        ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
+        ${fixture.authorizationId}, ${fixture.approvalId}, ${changedAt}
+      )
+    `;
+  }
+
+  async function addReopenClosure(
+    fixture: Awaited<ReturnType<typeof createQueuedFixture>>,
+    changedAt: Date,
+  ) {
+    const proposal = await handle().sql`
+      insert into inventory_publication_proposals (
+        sender_hash, sales_location_id, payload, schema_version, proposal_version,
+        yes_token, no_token, has_inventory, has_closure,
+        base_revision_id, base_is_first_publication,
+        closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
+      ) values (
+        ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
+        ${`YES-CLOSE-${fixture.proposalId}`}, ${`NO-CLOSE-${fixture.proposalId}`},
+        false, true, null, null, null, true, 'invalidated', ${changedAt}
+      ) returning id
+    `;
+    await handle().sql`
+      insert into closure_revisions (
+        owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+        owner_approval_id, result, published_at
+      ) values (
+        ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
+        ${fixture.authorizationId}, ${fixture.approvalId}, 'reopen', ${changedAt}
+      )
+    `;
   }
 
   it("creates one exact full-snapshot prompt and advances the preference once", async () => {
@@ -225,16 +473,37 @@ describe("scheduled inventory prompt pass (integration)", () => {
     })]);
   });
 
-  it("leaves an accepted scheduled outbox inert after its stored proposal version goes stale", async () => {
-    const old = await handle().sql`
-      select proposal_id from scheduled_inventory_prompt_subjects
-      where preference_id = ${ids.preference} order by due_slot_at asc limit 1
+  it("SAME publishes an identical new revision and queues the ordinary named receipt", async () => {
+    const result = await handleScheduledSame(
+      { db: handle(), clock: new FixedClock(new Date(DUE.getTime() + 2_000)) },
+      {
+        senderHash,
+        occurredAt: new Date(DUE.getTime() + 2_000),
+        providerEventId: "inbound-same-1",
+      },
+    );
+    expect(result).toEqual({ replies: [], status: "published" });
+    const revisions = await handle().sql`
+      select revision.id, revision.published_at,
+             array_agg(entry.item_name order by entry.sort_order) as items
+      from inventory_revisions as revision
+      join inventory_entries as entry on entry.inventory_revision_id = revision.id
+      where revision.sales_location_id = ${ids.location} and revision.is_current
+      group by revision.id, revision.published_at
     `;
-    await handle().sql`
-      update inventory_publication_proposals
-      set state = 'invalidated', closed_at = ${new Date(DUE.getTime() + 2_000)}
-      where id = ${old[0]?.proposal_id as string}
-    `;
+    expect(revisions).toEqual([{
+      id: expect.not.stringMatching(ids.revision!),
+      published_at: new Date(DUE.getTime() + 2_000),
+      items: ["Eggs", "Kale"],
+    }]);
+    expect(await handle().sql`
+      select body from outbox_work
+      where logical_key like 'inventory-published-%'
+      order by created_at desc limit 1
+    `).toEqual([{ body: "Prompt Stand: your listing is updated. Thank you!" }]);
+  });
+
+  it("suppresses a scheduled outbox before provider I/O when its stored proposal version goes stale", async () => {
     const preference = await handle().sql`
       select next_due_at from inventory_prompt_preferences where id = ${ids.preference}
     `;
@@ -253,22 +522,374 @@ describe("scheduled inventory prompt pass (integration)", () => {
     `;
     const outboxWorkId = subject[0]?.outbox_work_id as string;
     const claim = await authorizeDispatch(handle(), { outboxWorkId, now: nextDue });
-    expect(claim.status).toBe("authorized");
-    if (claim.status !== "authorized") return;
-    await recordDispatchResult(handle(), {
-      dispatchAttemptId: claim.dispatchAttemptId,
-      outcome: "accepted",
-      providerMessageId: "provider-scheduled-stale",
-      now: new Date(nextDue.getTime() + 1_000),
-    });
+    expect(claim.status).toBe("suppressed");
     expect(await handle().sql`
-      select activation_outbox_id, activated_version, activated_at, expires_at
+      select state, activation_outbox_id, activated_version, activated_at, expires_at
       from inventory_publication_proposals where id = ${subject[0]?.proposal_id as string}
     `).toEqual([{
+      state: "invalidated",
       activation_outbox_id: null,
       activated_version: null,
       activated_at: null,
       expires_at: null,
     }]);
+    expect(await handle().sql`
+      select state, dispatch_authorized_at from outbox_work where id = ${outboxWorkId}
+    `).toEqual([{ state: "suppressed", dispatch_authorized_at: null }]);
+  });
+
+  it.each([
+    "STOP consent",
+    "missing consent",
+    "revoked authorization",
+    "revoked approval",
+    "preference version",
+    "paused cadence",
+    "designated recipient",
+    "due slot",
+    "inventory base",
+    "closure base",
+    "active closure",
+    "newer farmer activity",
+  ])("suppresses before provider I/O after %s changes", async (reason) => {
+    const fixture = await createQueuedFixture({ upcomingClosure: reason === "active closure" });
+    const changedAt = new Date(DUE.getTime() + 1_000);
+    if (reason === "STOP consent") {
+      await handle().sql`
+        update sms_consents set state = 'stopped', updated_at = ${changedAt}
+        where recipient_hash = ${fixture.senderHash}
+      `;
+    } else if (reason === "missing consent") {
+      await handle().sql`delete from sms_consents where recipient_hash = ${fixture.senderHash}`;
+    } else if (reason === "revoked authorization") {
+      await handle().sql`
+        update farmer_authorizations set revoked_at = ${changedAt}
+        where id = ${fixture.authorizationId}
+      `;
+    } else if (reason === "revoked approval") {
+      await handle().sql`
+        update farm_approvals set revoked_at = ${changedAt} where id = ${fixture.approvalId}
+      `;
+    } else if (reason === "preference version") {
+      await handle().sql`
+        update inventory_prompt_preferences set version = version + 1
+        where id = ${fixture.preferenceId}
+      `;
+    } else if (reason === "paused cadence") {
+      await handle().sql`
+        update inventory_prompt_preferences set cadence = 'paused', next_due_at = null
+        where id = ${fixture.preferenceId}
+      `;
+    } else if (reason === "designated recipient") {
+      await handle().sql`
+        update inventory_prompt_preferences
+        set designated_authorization_id = ${fixture.alternateAuthorizationId}
+        where id = ${fixture.preferenceId}
+      `;
+    } else if (reason === "due slot") {
+      await handle().sql`
+        update inventory_prompt_preferences set last_due_slot_at = ${changedAt}
+        where id = ${fixture.preferenceId}
+      `;
+    } else if (reason === "inventory base") {
+      await handle().sql`
+        update inventory_revisions set is_current = false, superseded_at = ${changedAt}
+        where id = ${fixture.inventoryRevisionId}
+      `;
+      const proposal = await handle().sql`
+        insert into inventory_publication_proposals (
+          sender_hash, sales_location_id, payload, schema_version, proposal_version,
+          yes_token, no_token, has_inventory, has_closure,
+          base_revision_id, base_is_first_publication, state, closed_at
+        ) values (
+          ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
+          ${`YES-FRESH-${fixture.proposalId}`}, ${`NO-FRESH-${fixture.proposalId}`},
+          true, false, ${fixture.inventoryRevisionId}, false, 'invalidated', ${changedAt}
+        ) returning id
+      `;
+      await handle().sql`
+        insert into inventory_revisions (
+          farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+          farm_approval_id, published_at
+        ) values (
+          ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
+          ${fixture.authorizationId}, ${fixture.approvalId}, ${changedAt}
+        )
+      `;
+    } else if (reason === "closure base") {
+      const proposal = await handle().sql`
+        insert into inventory_publication_proposals (
+          sender_hash, sales_location_id, payload, schema_version, proposal_version,
+          yes_token, no_token, has_inventory, has_closure,
+          base_revision_id, base_is_first_publication,
+          closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
+        ) values (
+          ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, '1', 1,
+          ${`YES-CLOSE-${fixture.proposalId}`}, ${`NO-CLOSE-${fixture.proposalId}`},
+          false, true, null, null, null, true, 'invalidated', ${changedAt}
+        ) returning id
+      `;
+      await handle().sql`
+        insert into closure_revisions (
+          owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+          owner_approval_id, result, published_at
+        ) values (
+          ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
+          ${fixture.authorizationId}, ${fixture.approvalId}, 'reopen', ${changedAt}
+        )
+      `;
+    } else if (reason === "newer farmer activity") {
+      await handle().sql`
+        update sender_states set conversation_occurred_at = ${changedAt},
+          conversation_provider_event_id = 'newer-farmer-activity'
+        where sender_hash = ${fixture.senderHash}
+      `;
+    }
+
+    const dispatchAt = reason === "active closure"
+      ? new Date("2026-03-15T17:00:00.000Z")
+      : changedAt;
+    expect(await authorizeDispatch(handle(), {
+      outboxWorkId: fixture.outboxWorkId,
+      now: dispatchAt,
+    })).toEqual({ status: "suppressed" });
+    expect(await handle().sql`
+      select state, dispatch_authorized_at from outbox_work where id = ${fixture.outboxWorkId}
+    `).toEqual([{ state: "suppressed", dispatch_authorized_at: null }]);
+    expect(await handle().sql`
+      select state, activation_outbox_id from inventory_publication_proposals
+      where id = ${fixture.proposalId}
+    `).toEqual([{ state: "invalidated", activation_outbox_id: null }]);
+    expect(await handle().sql`
+      select count(*)::integer as count from outbox_dispatch_attempts
+      where outbox_work_id = ${fixture.outboxWorkId}
+    `).toEqual([{ count: 0 }]);
+  });
+
+  it("refuses SAME when the same stored closure becomes active after dispatch", async () => {
+    const fixture = await createQueuedFixture({ upcomingClosure: true });
+    const claim = await authorizeDispatch(handle(), {
+      outboxWorkId: fixture.outboxWorkId,
+      now: DUE,
+    });
+    expect(claim.status).toBe("authorized");
+    if (claim.status !== "authorized") return;
+    await recordDispatchResult(handle(), {
+      dispatchAttemptId: claim.dispatchAttemptId,
+      outcome: "accepted",
+      providerMessageId: `provider-closure-crossing-${fixture.proposalId}`,
+      now: new Date(DUE.getTime() + 1_000),
+    });
+
+    const sameAt = new Date("2026-03-15T17:00:00.000Z");
+    const result = await handleScheduledSame(
+      { db: handle(), clock: new FixedClock(sameAt) },
+      {
+        senderHash: fixture.senderHash,
+        occurredAt: sameAt,
+        providerEventId: `same-closure-crossing-${fixture.proposalId}`,
+      },
+    );
+    expect(result.status).toBe("base_conflict");
+    expect(result.replies).toHaveLength(1);
+    expect(await handle().sql`
+      select state, consumption_provider_event_id
+      from inventory_publication_proposals where id = ${fixture.proposalId}
+    `).toEqual([{ state: "invalidated", consumption_provider_event_id: null }]);
+    expect(await handle().sql`
+      select count(*)::integer as count from inventory_revisions
+      where sales_location_id = ${fixture.salesLocationId}
+    `).toEqual([{ count: 1 }]);
+  });
+
+  it.each([
+    ["expired window", "expired", "expired"],
+    ["inventory base", "base_conflict", "invalidated"],
+    ["closure base", "base_conflict", "invalidated"],
+    ["preference version", "base_conflict", "invalidated"],
+    ["paused cadence", "base_conflict", "invalidated"],
+    ["STOP consent", "not_authorized", "invalidated"],
+  ] as const)(
+    "rejects SAME without a publication or receipt after %s changes",
+    async (reason, expectedStatus, expectedState) => {
+      const fixture = await createQueuedFixture();
+      await acceptFixture(fixture);
+      const changedAt = new Date(DUE.getTime() + 2_000);
+      if (reason === "inventory base") {
+        await replaceInventoryBase(fixture, changedAt);
+      } else if (reason === "closure base") {
+        await addReopenClosure(fixture, changedAt);
+      } else if (reason === "preference version") {
+        await handle().sql`
+          update inventory_prompt_preferences set version = version + 1
+          where id = ${fixture.preferenceId}
+        `;
+      } else if (reason === "paused cadence") {
+        await handle().sql`
+          update inventory_prompt_preferences set cadence = 'paused', next_due_at = null
+          where id = ${fixture.preferenceId}
+        `;
+      } else if (reason === "STOP consent") {
+        await handle().sql`
+          update sms_consents set state = 'stopped', updated_at = ${changedAt}
+          where recipient_hash = ${fixture.senderHash}
+        `;
+      }
+      const occurredAt = reason === "expired window"
+        ? ((await handle().sql`
+            select expires_at from inventory_publication_proposals where id = ${fixture.proposalId}
+          `)[0]?.expires_at as Date)
+        : new Date(DUE.getTime() + 3_000);
+      const before = await sameSideEffectCounts(fixture);
+      const result = await handleScheduledSame(
+        { db: handle(), clock: new FixedClock(occurredAt) },
+        {
+          senderHash: fixture.senderHash,
+          occurredAt,
+          providerEventId: `same-rejected-${reason}-${fixture.proposalId}`,
+        },
+      );
+      expect(result.status).toBe(expectedStatus);
+      expect(result.replies.map((reply) => reply.body)).toEqual([renderClarificationRequest()]);
+      expect(await sameSideEffectCounts(fixture)).toEqual(before);
+      expect(await handle().sql`
+        select state, consumption_provider_event_id
+        from inventory_publication_proposals where id = ${fixture.proposalId}
+      `).toEqual([{ state: expectedState, consumption_provider_event_id: null }]);
+    },
+  );
+
+  it.each(["unaccepted scheduled outbox", "different accepted outbox"])(
+    "rejects SAME against an %s",
+    async (kind) => {
+      const fixture = await createQueuedFixture();
+      if (kind === "different accepted outbox") {
+        const other = await handle().sql`
+          insert into outbox_work (
+            logical_key, recipient_hash, message_category, body,
+            body_expires_at, available_at, created_at
+          ) values (
+            ${`other-outbox-${fixture.proposalId}`}, ${fixture.senderHash},
+            'inquiry_reply', 'Other message', ${new Date("2027-01-01T00:00:00.000Z")},
+            ${DUE}, ${DUE}
+          ) returning id
+        `;
+        const claim = await authorizeDispatch(handle(), {
+          outboxWorkId: other[0]?.id as string,
+          now: DUE,
+        });
+        expect(claim.status).toBe("authorized");
+        if (claim.status !== "authorized") return;
+        await recordDispatchResult(handle(), {
+          dispatchAttemptId: claim.dispatchAttemptId,
+          outcome: "accepted",
+          providerMessageId: `provider-other-${fixture.proposalId}`,
+          now: new Date(DUE.getTime() + 1_000),
+        });
+      }
+      const before = await sameSideEffectCounts(fixture);
+      const sameAt = new Date(DUE.getTime() + 2_000);
+      const result = await handleScheduledSame(
+        { db: handle(), clock: new FixedClock(sameAt) },
+        {
+          senderHash: fixture.senderHash,
+          occurredAt: sameAt,
+          providerEventId: `same-not-activated-${kind}-${fixture.proposalId}`,
+        },
+      );
+      expect(result.status).toBe("not_activated");
+      expect(result.replies.map((reply) => reply.body)).toEqual([renderClarificationRequest()]);
+      expect(await sameSideEffectCounts(fixture)).toEqual(before);
+      expect(await handle().sql`
+        select state, activation_outbox_id from inventory_publication_proposals
+        where id = ${fixture.proposalId}
+      `).toEqual([{ state: "open", activation_outbox_id: null }]);
+    },
+  );
+
+  it("makes a replayed SAME harmless after one exact publication and receipt", async () => {
+    const fixture = await createQueuedFixture();
+    await acceptFixture(fixture);
+    const firstAt = new Date(DUE.getTime() + 2_000);
+    expect(await handleScheduledSame(
+      { db: handle(), clock: new FixedClock(firstAt) },
+      {
+        senderHash: fixture.senderHash,
+        occurredAt: firstAt,
+        providerEventId: `same-first-${fixture.proposalId}`,
+      },
+    )).toEqual({ replies: [], status: "published" });
+    const afterFirst = await sameSideEffectCounts(fixture);
+    expect(afterFirst).toEqual({ revisions: 2, receipts: 1 });
+
+    const replayAt = new Date(DUE.getTime() + 3_000);
+    expect(await handleScheduledSame(
+      { db: handle(), clock: new FixedClock(replayAt) },
+      {
+        senderHash: fixture.senderHash,
+        occurredAt: replayAt,
+        providerEventId: `same-replay-${fixture.proposalId}`,
+      },
+    )).toEqual({ replies: [], status: "no_active_prompt" });
+    expect(await sameSideEffectCounts(fixture)).toEqual(afterFirst);
+  });
+
+  it("rechecks revocation after genuinely queuing behind the authorization row lock", async () => {
+    const fixture = await createQueuedFixture();
+    const blocker = postgres(testDatabaseUrl, { max: 1 });
+    let release = () => {};
+    let markLocked = () => {};
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const locked = new Promise<void>((resolve) => {
+      markLocked = resolve;
+    });
+    const revokedAt = new Date(DUE.getTime() + 1_000);
+    const holding = blocker.begin(async (tx) => {
+      await tx`
+        select id from farmer_authorizations where id = ${fixture.authorizationId} for update
+      `;
+      markLocked();
+      await releasePromise;
+      await tx`
+        update farmer_authorizations set revoked_at = ${revokedAt}
+        where id = ${fixture.authorizationId}
+      `;
+    });
+
+    let queued = 0;
+    try {
+      await locked;
+      const claiming = authorizeDispatch(handle(), {
+        outboxWorkId: fixture.outboxWorkId,
+        now: revokedAt,
+      });
+      for (let attempt = 0; attempt < 100 && queued < 1; attempt += 1) {
+        const rows = await handle().sql`
+          select count(*)::integer as count from pg_stat_activity
+          where datname = current_database()
+            and wait_event_type = 'Lock'
+            and query like '%select auth.id, auth.farm_id, auth.revoked_at%'
+        `;
+        queued = rows[0]?.count as number;
+        if (queued < 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      release();
+      await holding;
+      expect(await claiming).toEqual({ status: "suppressed" });
+      expect(queued, "dispatch must queue behind the held authorization row").toBe(1);
+      expect(await handle().sql`
+        select work.state as outbox_state, proposal.state as proposal_state
+        from outbox_work as work
+        join scheduled_inventory_prompt_subjects as subject on subject.outbox_work_id = work.id
+        join inventory_publication_proposals as proposal on proposal.id = subject.proposal_id
+        where work.id = ${fixture.outboxWorkId}
+      `).toEqual([{ outbox_state: "suppressed", proposal_state: "invalidated" }]);
+    } finally {
+      release();
+      await Promise.allSettled([holding]);
+      await blocker.end({ timeout: 5 });
+    }
   });
 });

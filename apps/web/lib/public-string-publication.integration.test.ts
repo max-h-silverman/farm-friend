@@ -225,6 +225,9 @@ describe("public-string safety at the shared publication boundary (integration)"
     const forbiddenStandSelection: RouteDeps["selectStand"] = async () => {
       throw new Error("stand selection reached for deterministic YES");
     };
+    const forbiddenScheduledSame: RouteDeps["scheduledSame"] = async () => {
+      throw new Error("scheduled SAME handler reached for deterministic YES");
+    };
     return routeInboundMessage(
       {
         db: database(),
@@ -234,6 +237,7 @@ describe("public-string safety at the shared publication boundary (integration)"
         nextPage: forbiddenNextPage,
         farmerTarget: forbiddenFarmerTarget,
         selectStand: forbiddenStandSelection,
+        scheduledSame: forbiddenScheduledSame,
       },
       {
         senderHash: input.senderHash,

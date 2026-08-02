@@ -10,6 +10,7 @@ import {
 } from "@farm-friend/core";
 import { lockKnownSenderState, type Db } from "@farm-friend/db";
 import { scheduledPromptFitsSms } from "@farm-friend/sms";
+import type { JSONValue } from "postgres";
 
 const BODY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -209,7 +210,7 @@ async function schedulePreference(
         yes_token, no_token, has_inventory, has_closure,
         base_revision_id, base_is_first_publication, created_at, updated_at
       ) values (
-        ${candidate.sender_hash}, ${salesLocationId}, ${tx.json({ entries })},
+        ${candidate.sender_hash}, ${salesLocationId}, ${tx.json({ entries } as unknown as JSONValue)},
         '2', 1, 'YES', 'NO', true, false, ${revisionId}, ${revisionId === null},
         ${now}, ${now}
       ) returning id
@@ -270,7 +271,13 @@ function closureInstruction(row: Record<string, unknown>): ClosureInstruction {
   return {
     result: "close",
     closureKind: row.closure_kind as "temporary" | "seasonal",
-    startsOn: row.starts_on as string,
-    ...(row.closed_through === null ? {} : { closedThrough: row.closed_through as string }),
+    startsOn: storedLocalDate(row.starts_on),
+    ...(row.closed_through === null ? {} : { closedThrough: storedLocalDate(row.closed_through) }),
   };
+}
+
+function storedLocalDate(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  throw new Error("closure date missing from a close revision");
 }

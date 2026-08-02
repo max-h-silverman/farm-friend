@@ -68,9 +68,12 @@ describe("F-051 farmer default stand settings (integration)", () => {
     for (const name of names) {
       const rows = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
-        ) values (${farmId}, 'farm_stand', ${name}, '1 Stand Way', 47.44, -122.46, false, false)
+        ) values (
+          ${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles',
+          '1 Stand Way', 47.44, -122.46, false, false
+        )
         returning id
       `;
       locationIds.push(rows[0]?.id as string);
@@ -98,8 +101,8 @@ describe("F-051 farmer default stand settings (integration)", () => {
     expect(settings).toEqual({
       status: "active",
       locations: [
-        { salesLocationId: own.locationIds[0], locationName: "North Stand", selected: false },
-        { salesLocationId: own.locationIds[1], locationName: "South Stand", selected: false },
+        { salesLocationId: own.locationIds[0], locationName: "North Stand", selected: false, cadence: null },
+        { salesLocationId: own.locationIds[1], locationName: "South Stand", selected: false, cadence: null },
       ],
     });
     const serialized = JSON.stringify(settings);
@@ -193,5 +196,39 @@ describe("F-051 farmer default stand settings (integration)", () => {
       salesLocationId: own.locationIds[1],
       locationName: "South Stand",
     });
+  });
+
+  it("saves one explicit cadence for the chosen stand without changing STOP consent", async () => {
+    const senderHash = "1".repeat(64);
+    const own = await farmer(senderHash, ["Cadence Stand"]);
+    await client()`
+      insert into sms_consents (
+        recipient_hash, state, capture_source, captured_at, capture_evidence_ref, updated_at
+      ) values (${senderHash}, 'stopped', 'start', ${T0}, 'cadence-stopped', ${T0})
+    `;
+    const response = await handleFarmerSettingsPost(
+      { db: database(), clock: new FixedClock(T0) },
+      new Request("https://farmfriend.example/api/farmer/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: own.token,
+          salesLocationId: own.locationIds[0]!,
+          cadence: "weekly",
+        }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await client()`
+      select designated_authorization_id, cadence, version, next_due_at
+      from inventory_prompt_preferences where sales_location_id = ${own.locationIds[0]!}
+    `).toEqual([expect.objectContaining({
+      designated_authorization_id: own.authorizationId,
+      cadence: "weekly",
+      version: 1,
+      next_due_at: expect.any(Date),
+    })]);
+    expect(await client()`select state from sms_consents where recipient_hash = ${senderHash}`)
+      .toEqual([{ state: "stopped" }]);
   });
 });

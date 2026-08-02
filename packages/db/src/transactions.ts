@@ -10,6 +10,7 @@ import type {
 import {
   confirmationEligibility,
   isProactiveSendPermitted,
+  projectClosure,
   validatePublicStrings,
 } from "@farm-friend/core";
 import type { Db } from "./index";
@@ -826,7 +827,7 @@ export async function openOrReviseProposal(
 export interface ConfirmPublicationInput {
   proposalId: string;
   senderHash: string;
-  token: "yes" | "no";
+  token: "yes" | "no" | "same";
   occurredAt: Date;
   providerEventId: string;
   clock: Clock;
@@ -888,6 +889,20 @@ export async function confirmInventoryPublication(
     `;
     const locationName = location[0]?.name as string;
 
+    const scheduledSubjects = await tx`
+      select * from scheduled_inventory_prompt_subjects
+      where proposal_id = ${input.proposalId}
+    `;
+    const scheduledSubject = scheduledSubjects[0] as Record<string, unknown> | undefined;
+    const scheduledPreference = scheduledSubject === undefined
+      ? []
+      : await tx`
+          select id, version, cadence, designated_authorization_id, last_due_slot_at
+          from inventory_prompt_preferences
+          where id = ${scheduledSubject.preference_id as string}
+          for update
+        `;
+
     const rows = await tx`
       select * from inventory_publication_proposals
       where id = ${input.proposalId} and sender_hash = ${input.senderHash}
@@ -896,6 +911,13 @@ export async function confirmInventoryPublication(
     if (rows.length === 0) return { status: "no_open_proposal" };
     const proposal = rows[0] as Record<string, unknown>;
     if (proposal.state !== "open") return { status: "already_consumed" };
+    if (
+      (input.token === "same" &&
+        (scheduledSubject === undefined || scheduledSubject.offers_same !== true)) ||
+      (input.token !== "same" && scheduledSubject !== undefined)
+    ) {
+      return { status: "no_open_proposal" };
+    }
 
     const currentRevision = await tx`
       select id from inventory_revisions
@@ -903,11 +925,59 @@ export async function confirmInventoryPublication(
     `;
     const currentRevisionId = (currentRevision[0]?.id as string | undefined) ?? null;
     const currentClosure = await tx`
-      select id from closure_revisions
+      select id, result, closure_kind, starts_on, closed_through from closure_revisions
       where sales_location_id = ${salesLocationId} and is_current
     `;
     const currentClosureRevisionId =
       (currentClosure[0]?.id as string | undefined) ?? null;
+
+    if (scheduledSubject !== undefined) {
+      const preference = scheduledPreference[0] as Record<string, unknown> | undefined;
+      const closureRow = currentClosure[0] as Record<string, unknown> | undefined;
+      const closure: ClosureInstruction | undefined = closureRow === undefined
+        ? undefined
+        : closureRow.result === "reopen"
+          ? { result: "reopen" }
+          : {
+              result: "close",
+              closureKind: closureRow.closure_kind as "temporary" | "seasonal",
+              startsOn: storedLocalDate(closureRow.starts_on),
+              ...(closureRow.closed_through === null
+                ? {}
+                : { closedThrough: storedLocalDate(closureRow.closed_through) }),
+            };
+      const scheduledValid =
+        scheduledSubject.proposal_version === proposal.proposal_version &&
+        preference !== undefined &&
+        preference.version === scheduledSubject.preference_version &&
+        preference.cadence !== "paused" &&
+        preference.designated_authorization_id === scheduledSubject.authorization_id &&
+        (preference.last_due_slot_at as Date | null)?.getTime() ===
+          (scheduledSubject.due_slot_at as Date).getTime() &&
+        currentRevisionId === scheduledSubject.inventory_base_revision_id &&
+        currentClosureRevisionId ===
+          ((scheduledSubject.closure_base_revision_id as string | null) ?? null) &&
+        projectClosure(closure, input.occurredAt).state !== "active";
+      if (!scheduledValid) {
+        await tx`
+          update inventory_publication_proposals
+          set state = 'invalidated', closed_at = ${input.occurredAt}, updated_at = ${input.occurredAt}
+          where id = ${input.proposalId}
+        `;
+        return { status: "base_conflict" };
+      }
+      const consent = await tx`
+        select state from sms_consents where recipient_hash = ${input.senderHash}
+      `;
+      if (consent[0]?.state !== "active") {
+        await tx`
+          update inventory_publication_proposals
+          set state = 'invalidated', closed_at = ${input.occurredAt}, updated_at = ${input.occurredAt}
+          where id = ${input.proposalId} and state = 'open'
+        `;
+        return { status: "not_authorized" };
+      }
+    }
 
     const eligibility = confirmationEligibility(
       {
@@ -988,6 +1058,8 @@ export async function confirmInventoryPublication(
       where farmer.farm_id = ${farmId}
         and contacts.phone_hash = ${input.senderHash}
         and farmer.revoked_at is null
+        and (${scheduledSubject?.authorization_id as string | undefined ?? null}::uuid is null
+          or farmer.id = ${scheduledSubject?.authorization_id as string | undefined ?? null})
       for update of farmer
     `;
     if (authorization.length === 0) return { status: "not_authorized" };
@@ -1168,6 +1240,143 @@ export type DispatchAuthorization =
   | { status: "suppressed" }
   | { status: "unavailable" };
 
+type ScheduledDispatchBasis =
+  | { kind: "ordinary" }
+  | { kind: "scheduled"; valid: boolean; proposalId: string };
+
+/** Lock and revalidate a typed scheduled subject before the outbox row is claimed. */
+async function lockScheduledDispatchBasis(
+  tx: Tx,
+  outboxWorkId: string,
+  now: Date,
+): Promise<ScheduledDispatchBasis> {
+  const discovered = await tx`
+    select subject.proposal_id, work.recipient_hash
+    from scheduled_inventory_prompt_subjects as subject
+    join outbox_work as work on work.id = subject.outbox_work_id
+    where subject.outbox_work_id = ${outboxWorkId}
+  `;
+  if (discovered.length === 0) return { kind: "ordinary" };
+
+  const proposalId = discovered[0]?.proposal_id as string;
+  const senderHash = discovered[0]?.recipient_hash as string;
+  const sender = await tx`
+    select conversation_occurred_at from sender_states
+    where sender_hash = ${senderHash}
+    for update
+  `;
+
+  const preflight = await tx`
+    select sales_location_id from scheduled_inventory_prompt_subjects
+    where outbox_work_id = ${outboxWorkId}
+  `;
+  if (preflight.length === 0) return { kind: "scheduled", valid: false, proposalId };
+  const salesLocationId = preflight[0]?.sales_location_id as string;
+  const location = await tx`
+    select owner_farm_id from sales_locations
+    where id = ${salesLocationId}
+    for update
+  `;
+  const preference = await tx`
+    select preference.id, preference.version, preference.cadence,
+           preference.designated_authorization_id, preference.last_due_slot_at
+    from inventory_prompt_preferences as preference
+    join scheduled_inventory_prompt_subjects as subject
+      on subject.preference_id = preference.id
+    where subject.outbox_work_id = ${outboxWorkId}
+    for update of preference
+  `;
+  const proposal = await tx`
+    select id, proposal_version, state, base_revision_id
+    from inventory_publication_proposals
+    where id = ${proposalId}
+    for update
+  `;
+  const authorization = await tx`
+    select auth.id, auth.farm_id, auth.revoked_at
+    from farmer_authorizations as auth
+    join scheduled_inventory_prompt_subjects as subject
+      on subject.authorization_id = auth.id
+    where subject.outbox_work_id = ${outboxWorkId}
+    for update of auth
+  `;
+  const approval = location.length === 0
+    ? []
+    : await tx`
+        select id from farm_approvals
+        where farm_id = ${location[0]?.owner_farm_id as string}
+          and revoked_at is null
+        for update
+      `;
+  const subjectRows = await tx`
+    select * from scheduled_inventory_prompt_subjects
+    where outbox_work_id = ${outboxWorkId}
+    for update
+  `;
+  const subject = subjectRows[0] as Record<string, unknown> | undefined;
+  if (
+    sender.length === 0 || location.length === 0 || preference.length === 0 ||
+    proposal.length === 0 || authorization.length === 0 || approval.length === 0 ||
+    subject === undefined
+  ) {
+    return { kind: "scheduled", valid: false, proposalId };
+  }
+
+  const currentInventory = await tx`
+    select id from inventory_revisions
+    where sales_location_id = ${salesLocationId} and is_current
+  `;
+  const currentClosure = await tx`
+    select id, result, closure_kind, starts_on, closed_through
+    from closure_revisions
+    where sales_location_id = ${salesLocationId} and is_current
+  `;
+  const closureRow = currentClosure[0] as Record<string, unknown> | undefined;
+  const closure: ClosureInstruction | undefined = closureRow === undefined
+    ? undefined
+    : closureRow.result === "reopen"
+      ? { result: "reopen" }
+      : {
+          result: "close",
+          closureKind: closureRow.closure_kind as "temporary" | "seasonal",
+          startsOn: storedLocalDate(closureRow.starts_on),
+          ...(closureRow.closed_through === null
+            ? {}
+            : { closedThrough: storedLocalDate(closureRow.closed_through) }),
+        };
+  const preferenceRow = preference[0] as Record<string, unknown>;
+  const proposalRow = proposal[0] as Record<string, unknown>;
+  const authorizationRow = authorization[0] as Record<string, unknown>;
+  const conversationOccurredAt = sender[0]?.conversation_occurred_at as Date | null;
+  const currentInventoryId = (currentInventory[0]?.id as string | undefined) ?? null;
+  const currentClosureId = (closureRow?.id as string | undefined) ?? null;
+
+  const valid =
+    proposalRow.state === "open" &&
+    proposalRow.proposal_version === subject.proposal_version &&
+    preferenceRow.version === subject.preference_version &&
+    preferenceRow.cadence !== "paused" &&
+    preferenceRow.designated_authorization_id === subject.authorization_id &&
+    (preferenceRow.last_due_slot_at as Date | null)?.getTime() ===
+      (subject.due_slot_at as Date).getTime() &&
+    authorizationRow.farm_id === subject.owner_farm_id &&
+    authorizationRow.revoked_at === null &&
+    location[0]?.owner_farm_id === subject.owner_farm_id &&
+    currentInventoryId === ((subject.inventory_base_revision_id as string | null) ?? null) &&
+    currentClosureId === ((subject.closure_base_revision_id as string | null) ?? null) &&
+    projectClosure(closure, now).state !== "active" &&
+    (conversationOccurredAt === null ||
+      conversationOccurredAt.getTime() <= (subject.created_at as Date).getTime());
+
+  return { kind: "scheduled", valid, proposalId };
+}
+
+function storedLocalDate(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  throw new Error("closure date missing from a close revision");
+}
+
 /**
  * Atomically claim one queued outbox row for dispatch. This commit is STOP's honest
  * linearization point: STOP committed first suppresses still-queued non-required work,
@@ -1178,6 +1387,10 @@ export async function authorizeDispatch(
   input: { outboxWorkId: string; now: Date },
 ): Promise<DispatchAuthorization> {
   return driver(db).begin(async (tx) => {
+    // Typed-subject discovery is intentionally unlocked. Scheduled work then takes the
+    // shared sender -> location -> preference -> proposal -> authorization -> approval
+    // order before the outbox row, avoiding an outbox-first inversion with revocation.
+    const scheduled = await lockScheduledDispatchBasis(tx, input.outboxWorkId, input.now);
     const rows = await tx`
       select id, recipient_hash, state, message_category from outbox_work
       where id = ${input.outboxWorkId}
@@ -1186,6 +1399,20 @@ export async function authorizeDispatch(
     if (rows.length === 0) return { status: "unavailable" };
     const work = rows[0] as Record<string, unknown>;
     if (work.state !== "queued") return { status: "unavailable" };
+
+    if (scheduled.kind === "scheduled" && !scheduled.valid) {
+      await tx`
+        update inventory_publication_proposals
+        set state = 'invalidated', closed_at = ${input.now}, updated_at = ${input.now}
+        where id = ${scheduled.proposalId} and state = 'open'
+      `;
+      await tx`
+        update outbox_work
+        set state = 'suppressed', completed_at = ${input.now}
+        where id = ${input.outboxWorkId}
+      `;
+      return { status: "suppressed" };
+    }
 
     // F-016 — the one launch program decides this, and the decision itself is the pure
     // predicate in core. Note it asks for ACTIVE consent, not merely "not stopped":
@@ -1206,6 +1433,13 @@ export async function authorizeDispatch(
     const category = work.message_category as LaunchMessageCategory;
 
     if (!isProactiveSendPermitted({ consent: record, category })) {
+      if (scheduled.kind === "scheduled") {
+        await tx`
+          update inventory_publication_proposals
+          set state = 'invalidated', closed_at = ${input.now}, updated_at = ${input.now}
+          where id = ${scheduled.proposalId} and state = 'open'
+        `;
+      }
       await tx`
         update outbox_work
         set state = 'suppressed', completed_at = ${input.now}

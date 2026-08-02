@@ -9,6 +9,7 @@ import {
   runOutboundPass,
   runRetentionPass,
 } from "../../../../lib/workers";
+import { runScheduledPromptPass } from "../../../../lib/scheduled-prompts";
 
 // The scheduled worker trigger (F-023, docs/RUNBOOK.md §"Scheduled work").
 //
@@ -61,6 +62,11 @@ async function runScheduledWork(): Promise<Response> {
     publicBaseUrl: context.config.publicBaseUrl,
   });
 
+  const prompts = await runScheduledPromptPass({
+    db: context.db,
+    clock: context.clock,
+  });
+
   const outbound = await runOutboundPass({
     context,
     clock: context.clock,
@@ -89,7 +95,7 @@ async function runScheduledWork(): Promise<Response> {
   });
 
   return Response.json(
-    { inbound, outbound, delivery, retention },
+    { inbound, prompts, outbound, delivery, retention },
     { status: 200 },
   );
 }

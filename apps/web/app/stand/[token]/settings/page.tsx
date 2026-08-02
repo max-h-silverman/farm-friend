@@ -30,7 +30,7 @@ export default async function FarmerSettingsPage({
       <header>
         <h1>Stand settings</h1>
         <p className="farmer-form-note">
-          Choose which stand Farm Friend should use when you text an inventory update.
+          Choose your default SMS stand and when Farm Friend should ask for a fresh listing.
         </p>
       </header>
 

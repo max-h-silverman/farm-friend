@@ -17,7 +17,8 @@ describe("scheduled inventory prompt preferences (integration)", () => {
   let admin: ReturnType<typeof postgres> | undefined;
   let db: Db | undefined;
   let databaseName = "";
-  const ids: Record<string, string> = {};
+  let testDatabaseUrl = "";
+  const ids = { contact: "", farm: "", location: "", authorization: "" };
   const senderHash = "f".repeat(64);
 
   beforeAll(async () => {
@@ -26,6 +27,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await admin.unsafe(`create database "${databaseName}"`);
     const url = new URL(databaseUrl);
     url.pathname = `/${databaseName}`;
+    testDatabaseUrl = url.toString();
     const migrationClient = postgres(url.toString(), { max: 1 });
     await migrate(drizzle(migrationClient), {
       migrationsFolder: resolve(process.cwd(), "packages/db/drizzle"),
@@ -115,7 +117,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
         yes_token, no_token, has_inventory, has_closure,
         base_revision_id, base_is_first_publication
       ) values (
-        ${senderHash}, ${ids.location}, ${{ items: [] }}, '1', 1,
+        ${senderHash}, ${ids.location}, ${handle().sql.json({ items: [] })}, '1', 1,
         'YES-OLD', 'NO-OLD', true, false, null, true
       ) returning id
     `;
@@ -203,7 +205,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
         yes_token, no_token, has_inventory, has_closure,
         base_revision_id, base_is_first_publication
       ) values (
-        ${senderHash}, ${ids.location}, ${{ items: [] }}, '1', 1,
+        ${senderHash}, ${ids.location}, ${handle().sql.json({ items: [] })}, '1', 1,
         'YES-NULL', 'NO-NULL', true, false, null, true
       ) returning id
     `;
@@ -267,5 +269,115 @@ describe("scheduled inventory prompt preferences (integration)", () => {
         true, ${NOW}
       )
     `).rejects.toThrow(/scheduled_prompt_subjects_visible_snapshot_for_same/);
+  });
+
+  it("uses the preference-slot unique index to arbitrate a genuinely contended insert", async () => {
+    const preference = await setInventoryPromptPreference(handle(), {
+      senderHash,
+      authorizationId: ids.authorization!,
+      salesLocationId: ids.location!,
+      cadence: "weekly",
+      clock: new FixedClock(NOW),
+    });
+    if (preference.status !== "saved") throw new Error("contention preference setup failed");
+    const dueSlot = new Date("2027-03-07T18:00:00.000Z");
+    const proposals = [] as string[];
+    const outboxes = [] as string[];
+    for (const label of ["winner", "claimant"]) {
+      const proposal = await handle().sql`
+        insert into inventory_publication_proposals (
+          sender_hash, sales_location_id, payload, schema_version, proposal_version,
+          yes_token, no_token, has_inventory, has_closure,
+          base_revision_id, base_is_first_publication, state, closed_at
+        ) values (
+          ${senderHash}, ${ids.location}, ${handle().sql.json({ entries: [] })}, '1', 1,
+          ${`YES-${label}-${randomUUID()}`}, ${`NO-${label}-${randomUUID()}`},
+          true, false, null, true, 'invalidated', ${NOW}
+        ) returning id
+      `;
+      const outbox = await handle().sql`
+        insert into outbox_work (
+          logical_key, recipient_hash, message_category, body, body_expires_at, available_at
+        ) values (
+          ${`slot-contention-${label}-${randomUUID()}`}, ${senderHash}, 'inventory_prompt',
+          ${label}, ${new Date("2028-01-01T00:00:00.000Z")}, ${NOW}
+        ) returning id
+      `;
+      proposals.push(proposal[0]?.id as string);
+      outboxes.push(outbox[0]?.id as string);
+    }
+
+    const winner = postgres(testDatabaseUrl, { max: 1 });
+    const claimant = postgres(testDatabaseUrl, { max: 1 });
+    let releaseWinner = () => {};
+    let markInserted = () => {};
+    const releasePromise = new Promise<void>((resolve) => {
+      releaseWinner = resolve;
+    });
+    const inserted = new Promise<void>((resolve) => {
+      markInserted = resolve;
+    });
+    const winningTransaction = winner.begin(async (tx) => {
+      await tx`
+        insert into scheduled_inventory_prompt_subjects (
+          proposal_id, proposal_version, preference_id, preference_version,
+          authorization_id, owner_farm_id, sales_location_id,
+          closure_base_is_first_instruction, due_slot_at, outbox_work_id,
+          offers_same, created_at
+        ) values (
+          ${proposals[0]!}, 1, ${preference.preferenceId}, ${preference.version},
+          ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+          ${dueSlot}, ${outboxes[0]!}, false, ${NOW}
+        )
+      `;
+      markInserted();
+      await releasePromise;
+    });
+    let queued = 0;
+    try {
+      await inserted;
+      const losingOutcome = (async () => claimant`
+          insert into scheduled_inventory_prompt_subjects (
+            proposal_id, proposal_version, preference_id, preference_version,
+            authorization_id, owner_farm_id, sales_location_id,
+            closure_base_is_first_instruction, due_slot_at, outbox_work_id,
+            offers_same, created_at
+          ) values (
+            ${proposals[1]!}, 1, ${preference.preferenceId}, ${preference.version},
+            ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+            ${dueSlot}, ${outboxes[1]!}, false, ${NOW}
+          )
+        `)().then(
+          () => ({ status: "fulfilled" as const, code: null }),
+          (error: unknown) => ({
+            status: "rejected" as const,
+            code: (error as { code?: unknown }).code,
+          }),
+        );
+
+      for (let attempt = 0; attempt < 100 && queued < 1; attempt += 1) {
+        const rows = await handle().sql`
+          select count(*)::integer as count from pg_stat_activity
+          where datname = current_database()
+            and wait_event_type = 'Lock'
+            and query like '%insert into scheduled_inventory_prompt_subjects%'
+        `;
+        queued = rows[0]?.count as number;
+        if (queued < 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      releaseWinner();
+      await winningTransaction;
+      expect(await losingOutcome).toEqual({ status: "rejected", code: "23505" });
+      expect(queued, "claimant must queue behind the uncommitted preference-slot index entry").toBe(1);
+      expect(await handle().sql`
+        select proposal_id from scheduled_inventory_prompt_subjects
+        where preference_id = ${preference.preferenceId} and due_slot_at = ${dueSlot}
+      `).toEqual([{ proposal_id: proposals[0] }]);
+    } finally {
+      releaseWinner();
+      await Promise.allSettled([winningTransaction]);
+      await winner.end({ timeout: 5 });
+      await claimant.end({ timeout: 5 });
+    }
   });
 });

@@ -110,6 +110,28 @@ describe("deterministic command parsing (Golden Rule #2)", () => {
   });
 });
 
+describe("the SAME scheduled-confirmation keyword (F-052)", () => {
+  it("is exact, context-bound, and always bypasses the model", () => {
+    for (const body of ["SAME", "same", "  Same  ", "SAME."]) {
+      expect(parseCommand(body)).toEqual({ kind: "scheduled_same", contextBound: true });
+      expect(bypassesModel(body)).toBe(true);
+    }
+  });
+
+  it("leaves near-miss text for ordinary interpretation", () => {
+    for (const body of ["Same eggs?", "same as yesterday please", "mostly same"]) {
+      expect(parseCommand(body)).toEqual({ kind: "none" });
+      expect(bypassesModel(body)).toBe(false);
+    }
+  });
+
+  it("cannot shadow STOP or ordinary YES/NO commitment tokens", () => {
+    expect(parseCommand("STOP")).toEqual({ kind: "compliance", keyword: "STOP", global: true });
+    expect(parseCommand("YES").kind).toBe("commitment");
+    expect(parseCommand("NO").kind).toBe("commitment");
+  });
+});
+
 // The registered keyword lists are a live external artifact: they were submitted to the
 // carrier and are promised on VIGA's public pages. These tests read that file so the two
 // cannot drift apart silently in EITHER direction — a keyword registered but unparsed is a

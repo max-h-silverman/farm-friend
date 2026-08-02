@@ -98,6 +98,12 @@ function forbiddenStandSelection(): RouteDeps["selectStand"] {
   };
 }
 
+function forbiddenScheduledSame(): RouteDeps["scheduledSame"] {
+  return async () => {
+    throw new Error("SAME HANDLER REACHED on a non-SAME path");
+  };
+}
+
 function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   const { db } = recordingDb();
   return {
@@ -110,9 +116,23 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     nextPage: forbiddenNextPage(),
     farmerTarget: forbiddenFarmerTarget(),
     selectStand: forbiddenStandSelection(),
+    scheduledSame: forbiddenScheduledSame(),
     ...overrides,
   };
 }
+
+describe("SAME routing (F-052)", () => {
+  it("calls only the deterministic scheduled handler for exact SAME", async () => {
+    const scheduledSame = vi.fn(async () => ({ status: "published", replies: [] }));
+    const result = await routeInboundMessage(deps({ scheduledSame }), event("SAME"));
+    expect(result.outcome).toEqual({ kind: "confirmation", status: "published" });
+    expect(scheduledSame).toHaveBeenCalledWith({
+      senderHash: "a".repeat(64),
+      occurredAt: T0,
+      providerEventId: "evt-1",
+    });
+  });
+});
 
 function event(body: string | null, providerEventId = "evt-1") {
   return {

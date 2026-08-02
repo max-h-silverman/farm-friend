@@ -19,7 +19,7 @@ describe("scheduled inventory prompt cadence", () => {
         cadence,
         timeZone: TZ,
         laterOf: new Date("2026-03-07T18:00:00.000Z"),
-      }).toISOString(),
+      })?.toISOString(),
     ).toBe(expected);
   });
 
@@ -29,7 +29,7 @@ describe("scheduled inventory prompt cadence", () => {
         cadence: "every_2_days",
         timeZone: TZ,
         laterOf: new Date("2026-10-31T17:00:00.000Z"),
-      }).toISOString(),
+      })?.toISOString(),
     ).toBe("2026-11-02T18:00:00.000Z");
   });
 
