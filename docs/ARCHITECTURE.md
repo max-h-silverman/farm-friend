@@ -120,6 +120,9 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   The same page has a structured one-name-per-line participant save. That save is its own
   confirmation and audit event: it is routed through db + clock before full model composition,
   re-resolves the link, and cannot grant access or attach names to profiles.
+  `/stand/<token>/settings` reuses that same standing credential and revocation lifecycle. It
+  exposes only the authorization's editable locations and stores one default SMS target; it has
+  no second login, consent control, prompt cadence, or pause state.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
@@ -228,8 +231,9 @@ order:
    global**, commits **exactly once**, and **expires**. A token
    must match deterministically and be the **entire message**; anything else is free text for the
    steps below.
-4. **Farmer product keywords** (F-040) — `SIGNUP` asks VIGA to set the farmer up, `LINK` asks for
-   their private web-form link. Like `FLAG` these are **Farm Friend product keywords, never
+4. **Farmer product keywords** (F-040/F-051) — `SIGNUP` asks VIGA to set the farmer up, `LINK` asks
+   for their private web-form link, `STAND` issues an exact numbered target menu, and `SETTINGS`
+   opens the settings view through the existing standing link. Like `FLAG` these are **Farm Friend product keywords, never
    carrier-mandated ones**, and must never be registered as such. They are parsed **last among the
    keyword branches** so one can never shadow a compliance keyword or a commitment token — if a
    synonym ever collided with `STOP`, an opt-out would stop working. Neither grants anything:
@@ -243,9 +247,17 @@ order:
    question. It is deliberately **independent of `YES`/`NO`**: a farmer with an open inventory
    confirmation can page and keep the confirmation, because the words do not overlap and blocking
    one for the other would solve a collision that does not exist.
-6. **Active conversation state** routes the message to its in-flight flow.
-7. **Authority and consent gates** determine what the sender may do.
-8. **Only then** may a model seam run.
+6. **A positive whole-message number** selects only from the sender's live 12-hour `STAND` menu.
+   The stored option binds an exact authorization+location pair; without that context it is a
+   code-rendered refusal, never free text.
+7. **Active conversation state** routes the message to its in-flight flow.
+8. **Authority and consent gates** determine what the sender may do.
+9. **Only then** may a model seam run.
+
+Farmer free text resolves the sender's durable exact target in code before interpretation. One
+live target is selected automatically; several with no selection issue the same numbered menu.
+Every use revalidates the authorization and location under the shared sender → location →
+authorization lock order. The model receives no target list and cannot select or change a target.
 
 A confirmation token is accepted only for the sender's one open farmer-update proposal, after the
 current prompt has been accepted by Telnyx, and only when the token's provider occurrence time

@@ -48,10 +48,16 @@ render an honest "updated X ago" without a second provenance axis.
   in a browser, with no password and no session. Only the **hash** of the token is stored, as with
   a session token. A link is a **pointer to an authorization, never authority itself**: resolution
   re-reads both the link's and the authorization's revocation columns on every request, so there is
-  deliberately no denormalized farm id, no cached "active" flag, and no signed claim that could
-  keep saying "valid" after the authority behind it was withdrawn. The link does not expire, so
+  no cached "active" flag and no signed claim that could keep saying "valid" after the authority
+  behind it was withdrawn. New links bind one exact owner+location pair; the duplicated owner id
+  exists only so composite foreign keys can prove that both the authorization and location belong
+  to the same farm. The link does not expire, so
   **revocation is the entire safety net** — which is why nothing about it may be cached. One live
   link per authorization: re-issuing replaces rather than accumulates.
+- **farmer SMS target context** (F-051) — one selected authorization+owner+location tuple per
+  sender, plus at most one 12-hour numbered menu whose options bind exact tuples. Selection is
+  convenience, never authority: every use revalidates live authorization and location. Populated
+  pre-F-051 links keep both target columns null and retain their one-location resolution rule.
 - **VIGA approval** — recorded **separately** from onboarding completion; approval is VIGA's act,
   not a side effect of a farmer finishing a form. Approval and revocation both record **which
   administrator acted and when**, and revocation updates the row rather than deleting it: published
@@ -178,6 +184,11 @@ These are **database-level** requirements, not application conventions:
   impatient farmer texting five times from producing five queue entries, and it is the **arbiter**
   rather than a read — concurrent inserts would both observe "none open", and `for update` cannot
   lock a row that does not exist yet, so the writer uses `on conflict do nothing returning`.
+- **One coherent farmer target context per sender** (F-051) — selected target columns are all null
+  or all populated; menu issue/expiry/purpose are all null or all populated with expiry after
+  issue; every option number is positive and unique within the sender's exact menu. Targeted
+  standing-link owner/location columns are both null or both populated, with composite foreign
+  keys binding both the authorization and location to that owner.
 - **A farmer's standing link resolves through its authorization, every request** (F-040) — the link
   carries no claim and no cached state, so there is nothing that could still resolve after the
   authority behind it was revoked. This is a *shape* requirement rather than a constraint the

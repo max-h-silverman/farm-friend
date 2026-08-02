@@ -6,12 +6,36 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**Verified 2026-08-01** (`f-050-participant-names`, based on local `main` at `ebeb2f1`):
-`npm test` **839/839** (81 files); `npm run test:integration` **503/503** (31 files) against
+**Verified 2026-08-01** (`f-051-multi-stand-settings`, based on local `main` at `53c47e0`):
+`npm test` **852/852** (84 files); `npm run test:integration` **525/525** (35 files) against
 real Postgres using isolated empty databases; typecheck, lint, and the production web build exit 0.
 The build retains two known warnings:
 `outputFileTracingRoot` is not recognized by this Next.js version, and its ESLint plugin is not
 detected.
+
+**F-051 deterministic multi-stand targeting is complete on this branch and is not deployed.**
+`STAND`, `SETTINGS`, and a live menu number are parsed in code after compliance and commitment
+tokens and before any model call. One live target auto-selects; several bind numbered options to
+exact authorization+location pairs for 12 hours. Free-text updates revalidate the durable target
+under sender → location → authorization locks before interpretation, and every preview, publish
+receipt, and decline receipt names the exact stand. The model receives no target options.
+
+`SETTINGS` reuses F-040's standing token and revocation lifecycle at
+`/stand/<token>/settings`. The page lists only that authorization's editable locations and edits
+only the sender's default SMS stand; it has no F-052 cadence/pause or consent controls. Browser
+verification used a production build with synthetic data at 390×844 and 1440×1000, covering
+active multi-stand, saved success, revocation after page load, and inactive-link states. The save
+was verified by reading the selected `South Stand` row, and the revocation error was verified by
+the link row, not only the screen. All controls were large, states readable, and no other contact
+identity or phone appeared.
+
+The populated 0000–0011 → 0012/0013 migration preserved owner, participant, authorization, and
+standing-link rows, created no target context or menu options, retained legacy links with both
+target columns null, and rejected both half-NULL link shapes. Genuine contention was observed on
+a separate connection before a concurrent revocation won and target resolution refused. Drizzle
+generation is a no-op after the hand-written CHECKs. `evals:live` was not run: target resolution,
+rendered stand naming, and settings are code-owned and change no model seam projection, schema, or
+output contract.
 
 **F-050 owner-confirmed participant names are complete on this branch and are not deployed.**
 `sales_locations.owner_farm_id` now names ownership explicitly. The append-only

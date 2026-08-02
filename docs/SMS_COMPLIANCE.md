@@ -44,6 +44,8 @@ commit or decline.
 |---|---|
 | `SIGNUP` / `SIGN UP` | Ask VIGA to set this farmer up. **Grants nothing** — it opens one queue entry a coordinator acts on, and the reply deliberately does not read as a yes. Repeats are answered identically and produce one entry. |
 | `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets the signup acknowledgement and no link. |
+| `STAND` | Issue a 12-hour numbered menu of the sender's currently editable locations. Each number binds one exact authorization+location pair; the model sees neither menu nor choice. |
+| `SETTINGS` | Send the existing private standing link directly to its settings view. It uses the same token and revocation lifecycle as `LINK`, never a second login. |
 
 ### Customer paging keyword (F-046 — never carrier-registered)
 
@@ -63,6 +65,10 @@ must **never** be registered as compliance keywords or transcribed into `TELNYX_
 They are parsed **after** compliance keywords and commitment tokens, so a farmer keyword can never
 shadow one. That ordering is the guarantee: if a synonym ever collided with `STOP`, an opt-out
 would stop working.
+
+A positive whole-message number is also deterministic and context-bound. It selects only from the
+sender's current unexpired `STAND` menu; without one it receives a code-rendered no-active-choice
+reply. Target selection never changes consent. `STOP` and `START` remain the only consent controls.
 
 The `LINK` reply is a **proactive** category, not a reply category — handing over a durable
 credential is Farm Friend speaking first, so it passes the same consent gate as any other proactive
