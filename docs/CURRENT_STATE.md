@@ -5,11 +5,13 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Commit `a7e1417` is live on Cloud Run as one image across web
-revision `farm-friend-web-00015-g76` and worker revision `farm-friend-worker-00016-gt2`, both at
-digest `sha256:9dbf6e6d97e7a3e765bcf856a798eaeb9577054b58f8c0ab401b79b28ed633d9`.
-Production Postgres is `neondb` with all 15 migrations applied (`0000`–`0014`, through journal
-timestamp `1786300000000`). Production now includes:
+Farm Friend is **pre-go-live**. Local commit `ab30a81` is live on Cloud Run as one image across web
+revision `farm-friend-web-00016-khb` and worker revision `farm-friend-worker-00017-spq`, both at
+digest `sha256:eec86a430e1ebe84cd35d4339af1c4f878e58e9995615dd47f39326d4d867940`.
+The runtime application is the pushed F-056 source; `ab30a81` adds only the isolated Argon2 image
+build correction and its test, and has not yet been pushed. Production Postgres is `neondb` with all
+16 migrations applied (`0000`–`0015`, through journal timestamp `1786400000000`). Production now
+includes:
 
 - F-049: owner-confirmed stand closure and reopening;
 - F-050: owner-confirmed **Also selling here** names;
@@ -20,12 +22,15 @@ timestamp `1786300000000`). Production now includes:
 - B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
   removed; active documentation reconciled to the final architecture.
 
-The F-056 code through `f041669` is merged into and pushed on `origin/main`, but is **not deployed**.
-The reviewed bootstrap plan created only the empty `farm-friend-admin-password-hash` Secret Manager
-container and recorded the four surviving secret-container address moves in Terraform state. The
-new container has zero versions. Web and worker remain on revisions `farm-friend-web-00015-g76` and
-`farm-friend-worker-00016-gt2` at the live digest above; both still mount `MAGIC_LINK_SECRET`, neither
-mounts `ADMIN_PASSWORD_HASH`, and production therefore still uses its pre-F-056 email authentication.
+F-056 is deployed but remains **in review** pending the remaining live browser proof. Max
+successfully signed in with the fixed production account; a direct database check found exactly one
+active 12-hour session with a 64-character token hash, the fixed administrator id, and no retained
+login-failure row. The web service mounts the single enabled version of
+`farm-friend-admin-password-hash`; the worker cannot read or mount it.
+Neither service mounts `MAGIC_LINK_SECRET`, and the old magic-link secret container and its runtime
+IAM grant are deleted. `/admin/login` serves the fixed `board@vigavashon.org` password form, the old
+request-link and callback routes return 404, and an unauthenticated `/admin` request renders only the
+sign-in surface.
 
 Every standing link names one exact authorized stand, sales-location ownership is `owner_farm_id`,
 and proposal rows contain only the fields the current confirmation flow reads. There is no rolling
@@ -45,6 +50,12 @@ against a fresh local Postgres cluster, typecheck, lint, 44 scripted eval cases,
 web build. Its route manifest contains `/api/auth/login` and `/api/auth/logout` and no deleted
 magic-link request or callback route.
 
+The post-migration image-build correction at `ab30a81` passes 843 unit tests, 551 integration tests
+against a fresh local Postgres cluster, typecheck, lint, 44 scripted eval cases, and the production
+web build. Its container test went RED before the fix and again when Python was deliberately removed.
+Cloud Build `2d93ba22-63f6-4c05-8c1b-cbe43ddea30a` then built and published the exact archived commit;
+tag `ab30a81` and `latest` both resolve to the live immutable digest above.
+
 The F-056 bootstrap plan used the deployed immutable image digest and exactly the four runbook
 exclusions. `bootstrap-secret-plan-assertions.py` and direct JSON inspection proved four no-op
 survivor address moves plus one password-container create, with no service, IAM, secret-version,
@@ -53,6 +64,18 @@ exact saved plan produced the same summary. Direct cloud and state checks then p
 container exists with zero versions, every existing secret container and version retained its
 pre-apply identity and metadata, both service revisions and mounts were unchanged, and state holds
 the four survivors at protected addresses alongside the new container and retained old secret.
+
+Max provisioned password-secret version 1 through the non-echoing command. Before migration, the
+direct production target had one fixed administrator, no alternate identity, no sessions, and 15
+migrations. Migration `0015` advanced the exact journal timestamp/hash, added the empty durable
+login-failure table and fixed-identity constraint, removed the magic nonce column/index/constraint,
+and preserved all recorded approval/review/audit-related row counts. There were no sessions to
+revoke. The full saved cutover plan passed 35/35 assertions and direct JSON inspection, then applied
+exactly one IAM create, two service updates, the old IAM delete, and the old secret delete. Post-apply
+checks prove both revisions are newer than every secret version, both services run the same digest,
+only web mounts the password secret, no service mounts the old secret, state contains only the five
+protected application containers and matching runtime-read grants, health is green, and the served
+vCard remains byte-correct.
 
 Sabotage made every load-bearing B-033 guard fail for its claimed effect, then the restored focused
 suite passed 10/10: all five removed queue GET exports, the surviving flag-thread browser call,
@@ -104,10 +127,10 @@ admin-GET route checks. The Cloud Tasks queue is `RUNNING`; the Cloud Scheduler 
 
 - **F-029:** complete the remaining live carrier/JOIN launch verification. Its migration and deploy
   legs are complete.
-- **F-056:** next, Max privately provisions the web-only password verifier using the non-echoing
-  runbook command. That provisioning, migration `0015`, the full cutover plan, old-secret deletion,
-  deployment, and live browser proof of password login, logout/session revocation, and every
-  administrator surface all remain pending and require their separate approvals.
+- **F-056:** push the local image-build correction and this active-state update when Max approves.
+  Max must still prove every protected administrator page, logout and copied-cookie refusal,
+  throttle behavior, expiry/revocation, mobile/desktop layout, keyboard/focus, and recovery copy in
+  a live browser before the item can leave `in review`.
 - **B-024:** permanently encode the farmer's no-public-address instruction in seed behavior before
   any reseed. Production is currently hidden as an approved interim correction.
 - **B-008:** the deployed web build still lacks a truthful lint gate.
