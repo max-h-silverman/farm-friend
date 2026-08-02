@@ -52,12 +52,16 @@ stopped sender remains suppressed. The focused integration run uses an isolated 
 no production rows were read or written. The three deploy-assertion test suites also pass. No
 model-facing seam changed, so no model evaluation is owed.
 
-The locally verified, **not deployed** administrator-dashboard refinement has four top-level
-workflows: Stands, Users, Flags, and Notifications. Stands use expandable metadata cards; Users
-lists SMS contacts with farmer/non-farmer filters and masked phone suffixes. It passes 850 unit
-tests, 535 real-Postgres integration tests across 39 files, typecheck, lint, and the production web
-build. A local browser proof uses an isolated Postgres database only; it does not read or write
-production data. No model-facing seam changed, so no model evaluation is owed.
+The locally verified, **not deployed** administrator interface refinement has four top-level
+workflows: **Stands**, **People**, **Needs attention**, and **Stock reports**. Its compact
+navigation includes sign-out; priority actions use a small yellow accent; desktop content can use a
+wider readable column. Stand cards use native disclosure, and expanded details are grouped by
+availability, visit and listing, hours and season, and other details. It passes 858 unit tests and
+556 real-Postgres integration tests across 40 files, plus typecheck, lint, and the production web
+build. The integration run used an isolated disposable local Postgres server only; it did not read
+or write production data. No model-facing seam changed, so no model evaluation is owed. The final
+browser walkthrough of this refinement is still owed; the separate F-055 farmer/mobile journey
+remains in review.
 
 The deployed commit passes 847 unit tests, 553 integration tests across 40 files against an
 isolated real Postgres server, 44 scripted eval cases, typecheck, lint, and the production web

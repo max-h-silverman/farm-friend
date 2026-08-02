@@ -13,21 +13,25 @@ mid-session defeats its own purpose.
 
 ## 2026-08-02 (latest) — one pre-go-live architecture shipped, with the dead alternatives removed
 
-### Administrator dashboard refinement — merge candidate, not deployed
+### Administrator interface polish — merge candidate, not deployed
 
-The administrator navigation is now four workflow-level views: **Stands**, **Users**, **Flags**,
-and **Notifications**. Stands are expandable cards: the collapsed state gives the operational
-summary (name, status, currently open or not, and approval); expansion exposes the remaining
-available stand metadata. Users is one masked-contact reader with explicit all, farmer, and
-non-farmer views. Flags keeps the existing exception queues; Notifications is the stock-out and
-other report queue.
+The signed-in administrator view now leads with four plain-language workflows: **Stands**,
+**People**, **Needs attention**, and **Stock reports**. The old header is gone; navigation and
+sign-out share one row, desktop content has a wider readable column, and the small color system uses
+the VIGA palette without overwhelming the operational work. Farm approval and farmer-access actions
+carry the yellow priority accent.
 
-The first real-Postgres run exposed a query error hidden by the unit doubles: `authorization` was
-used as a SQL alias. The reader now uses a non-reserved alias, and the real suite exercises the
-result. Final local proof is 850 unit tests, 535 integration tests across 39 real-Postgres files,
-typecheck, lint, and the production web build. The local browser exercise uses an isolated
-database and contains only demo records. No production data was read or changed, and no deployment
-occurred.
+Stand cards now disclose with the browser's native control, so mouse, touch, keyboard, and no-script
+use all follow the same reliable behavior. Their expanded view makes the timely information easiest
+to find, then groups visit/listing, hours/season, and remaining facts into distinct sections. Copy
+throughout the admin surface was shortened and softened without changing authority or safety
+meaning.
+
+Final local verification: 858 unit tests; 556 integration tests across 40 files against an isolated
+disposable Postgres server; typecheck; lint; and the production web build. The build retains its
+pre-existing Next configuration warnings about `outputFileTracingRoot` and the missing Next ESLint
+plugin. No production system or data was touched. A final browser walkthrough of the refined view is
+still owed; F-055 remains in review for its broader farmer and mobile proof.
 
 Farm Friend's farmer-behavior tranche and final pre-go-live architecture are now in production at
 `a7e1417`. The deployment carries F-049 closure/reopening, F-050 participant names, F-051 exact
