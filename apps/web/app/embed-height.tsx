@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-// F-043 — making the embed fit VIGA's page.
+// F-043 — making Farm Friend embeds fit VIGA's pages.
 //
 // THE PROBLEM THIS SOLVES. An iframe has a FIXED height that the embedding page chooses; the
 // embedded document cannot resize its own frame. So VIGA's page today either guesses too
@@ -11,9 +11,9 @@ import { useEffect } from "react";
 // (a slab of dead space under the content). Neither is fixable from inside the frame alone.
 //
 // The fix is a HANDSHAKE: this posts the document's real height to the parent whenever it
-// changes, and VIGA's page sets the iframe to that height. One `postMessage` listener on
-// their side, pasted once into a Squarespace code block, and the embed reads as part of the
-// page rather than a window onto another one.
+// changes, and VIGA's page sets the iframe to that height. The reporter lives in the shared
+// layout so the public map and every administrator route use one handshake rather than two
+// implementations that could drift.
 //
 // WHAT THIS DELIBERATELY DOES NOT DO:
 //
@@ -41,10 +41,11 @@ export function EmbedHeightReporter() {
     if (window.parent === window) return;
 
     const post = () => {
-      // `scrollHeight` on the documentElement, not `body`: body height collapses when the
-      // page uses grid/flex layout, which this one does, and the frame would be sized to a
-      // fraction of the content.
-      const height = Math.ceil(document.documentElement.scrollHeight);
+      // Measure the body's content box rather than `documentElement.scrollHeight`. The latter
+      // can never be shorter than the iframe's CURRENT viewport, so a frame can grow but cannot
+      // shrink after a queue closes. Every route has one in-flow page root with its own bottom
+      // padding, making the body's box the actual content height in both map and admin layouts.
+      const height = Math.ceil(document.body.getBoundingClientRect().height);
       window.parent.postMessage(
         { type: EMBED_HEIGHT_MESSAGE, height },
         "*",
@@ -57,7 +58,7 @@ export function EmbedHeightReporter() {
     // viewport rotates. A ResizeObserver catches all three without polling — a timer here
     // would either lag the layout visibly or burn battery on a phone held outdoors.
     const observer = new ResizeObserver(post);
-    observer.observe(document.documentElement);
+    observer.observe(document.body);
     window.addEventListener("resize", post);
 
     return () => {

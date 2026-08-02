@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { EmbedHeightReporter } from "./embed-height";
 import "./globals.css";
 
 export const metadata = {
@@ -16,7 +17,10 @@ export const viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <EmbedHeightReporter />
+        {children}
+      </body>
     </html>
   );
 }

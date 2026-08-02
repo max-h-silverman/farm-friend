@@ -157,10 +157,29 @@ Paste this into a Squarespace **code block** on the administrator page:
 
 ```html
 <iframe
+  id="farm-friend-admin"
   src="https://farm-friend-web-p5mfxfp5za-uw.a.run.app/admin"
   title="VIGA Farm Friend administration"
-  style="width:100%;height:1100px;border:0;display:block"
+  style="width:100%;border:0;display:block"
+  height="1100"
 ></iframe>
+
+<script>
+  (function () {
+    var frame = document.getElementById("farm-friend-admin");
+    var appOrigin = "https://farm-friend-web-p5mfxfp5za-uw.a.run.app";
+
+    window.addEventListener("message", function (event) {
+      if (event.origin !== appOrigin) return;
+      if (event.source !== frame.contentWindow) return;
+      if (!event.data || event.data.type !== "farm-friend:height") return;
+
+      var height = Number(event.data.height);
+      if (!Number.isFinite(height) || height < 300 || height > 10000) return;
+      frame.style.height = Math.ceil(height) + "px";
+    });
+  })();
+</script>
 
 <p>
   <a
@@ -176,7 +195,8 @@ Administrator pages permit framing only from `https://vigavashon.org`,
 `https://www.vigavashon.org`, or the app itself. Every authenticated write also requires the
 browser request to originate from the admin app, independently of the cookie. A direct-window
 session and a Squarespace-embedded session occupy separate browser partitions and can require
-separate sign-ins.
+separate sign-ins. The shared height reporter resizes the frame after sign-in, navigation, and queue
+changes so Squarespace owns the only scrollbar; `height="1100"` is the no-script fallback.
 
 ## Embedding the map on VIGA's website (F-043)
 
@@ -193,13 +213,20 @@ sent away to. Paste this into a Squarespace **code block** where the Google My M
   loading="lazy"
 ></iframe>
 <script>
-  // The map tells this page how tall it really is; this resizes the frame to match.
-  // Without it the map gets its own inner scrollbar and reads as a bolted-on widget.
-  window.addEventListener("message", function (event) {
-    if (!event.data || event.data.type !== "farm-friend:height") return;
+  (function () {
     var frame = document.getElementById("farm-friend-map");
-    if (frame) frame.style.height = event.data.height + "px";
-  });
+    var appOrigin = "https://farm-friend-web-p5mfxfp5za-uw.a.run.app";
+
+    window.addEventListener("message", function (event) {
+      if (event.origin !== appOrigin) return;
+      if (event.source !== frame.contentWindow) return;
+      if (!event.data || event.data.type !== "farm-friend:height") return;
+
+      var height = Number(event.data.height);
+      if (!Number.isFinite(height) || height < 300 || height > 10000) return;
+      frame.style.height = Math.ceil(height) + "px";
+    });
+  })();
 </script>
 ```
 

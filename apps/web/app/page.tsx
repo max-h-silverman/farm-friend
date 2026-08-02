@@ -1,6 +1,5 @@
 import { publicReadContext } from "../lib/public-context";
 import { listPublicStands, serializePublicStand } from "../lib/public-listing";
-import { EmbedHeightReporter } from "./embed-height";
 import { StandMap } from "./stand-map";
 
 // The public stand map (F-017) — the ungated, embeddable surface islanders actually see.
@@ -26,14 +25,5 @@ export default async function HomePage() {
   // produced it. One statement of the wire format, both readers.
   const payload = stands.map(serializePublicStand);
 
-  // F-043 — the embed-fit handshake. Renders nothing and does nothing outside an iframe; when
-  // embedded, it posts this document's height to VIGA's page so the frame can size to the
-  // content instead of scrolling inside a guessed box. See `embed-height.tsx` for why an
-  // iframe cannot do this on its own.
-  return (
-    <>
-      <EmbedHeightReporter />
-      <StandMap stands={payload} />
-    </>
-  );
+  return <StandMap stands={payload} />;
 }
