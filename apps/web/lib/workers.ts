@@ -16,6 +16,7 @@ import { redactOutbound } from "@farm-friend/sms";
 import type { AppContext } from "./composition";
 import { handleFreeText } from "./free-text";
 import { handleNextPage } from "./paging";
+import { handleFarmerTarget, handleStandSelection } from "./farmer-targeting";
 import { routeInboundMessage, type RoutedReply } from "./routing";
 
 // Bounded workers (docs/ARCHITECTURE.md §outbound dispatch and recovery).
@@ -153,6 +154,18 @@ export async function runInboundPass(
           // end to end, so `MORE` cannot reach a seam even by mistake.
           nextPage: (input) =>
             handleNextPage({ db: deps.db, clock: deps.clock }, input),
+          // F-051. These handlers receive database + configured origin only. In particular,
+          // neither interpreter nor inquiry model crosses this deterministic seam.
+          farmerTarget: (input) =>
+            handleFarmerTarget(
+              { db: deps.db, publicBaseUrl: deps.publicBaseUrl },
+              input,
+            ),
+          selectStand: (input) =>
+            handleStandSelection(
+              { db: deps.db, publicBaseUrl: deps.publicBaseUrl },
+              input,
+            ),
         },
         {
           senderHash: claimed.senderHash,

@@ -86,6 +86,18 @@ function forbiddenNextPage(): RouteDeps["nextPage"] {
   };
 }
 
+function forbiddenFarmerTarget(): RouteDeps["farmerTarget"] {
+  return async () => {
+    throw new Error("TARGET HANDLER REACHED on a non-targeting path");
+  };
+}
+
+function forbiddenStandSelection(): RouteDeps["selectStand"] {
+  return async () => {
+    throw new Error("STAND SELECTION REACHED on a non-selection path");
+  };
+}
+
 function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   const { db } = recordingDb();
   return {
@@ -96,6 +108,8 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     publicBaseUrl: "https://farmfriend.example",
     freeText: forbiddenFreeText(),
     nextPage: forbiddenNextPage(),
+    farmerTarget: forbiddenFarmerTarget(),
+    selectStand: forbiddenStandSelection(),
     ...overrides,
   };
 }
@@ -438,10 +452,19 @@ describe("deterministic routing order (Golden Rule #2)", () => {
     });
 
     it("refuses LINK for a sender who is not an authorized farmer, minting nothing", async () => {
-      // The authorization is the gate. `recordingDb` returns no rows, so the sender has no
-      // live authorization — a stranger texting LINK gets no credential.
       const { db, queries } = recordingDb();
-      const result = await routeInboundMessage(deps({ db }), event("LINK"));
+      const farmerTarget = vi.fn(async () => ({
+        status: "not_authorized",
+        replies: [{
+          body: "We passed your request to a coordinator.",
+          category: "required_reply" as const,
+          logicalKey: "link-refused",
+        }],
+      }));
+      const result = await routeInboundMessage(
+        deps({ db, farmerTarget }),
+        event("LINK"),
+      );
 
       expect(result.outcome).toEqual({
         kind: "farmer",
@@ -453,26 +476,29 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       expect(result.replies[0]?.body).not.toMatch(/https?:\/\//);
     });
 
-    it("builds a LINK against the CONFIGURED origin, never a request header", async () => {
-      // A `Host:` an attacker controls would otherwise let this text a farmer a link
-      // pointing at the attacker's origin — a credential-harvesting primitive against the
-      // one credential with no password behind it.
-      const { db } = recordingDb([{ id: "11111111-2222-3333-4444-555555555555" }]);
+    it("delegates LINK to the deterministic target handler", async () => {
+      const farmerTarget = vi.fn(async () => ({ status: "menu", replies: [] }));
       const result = await routeInboundMessage(
-        deps({ db, publicBaseUrl: "https://configured.example" }),
+        deps({ farmerTarget }),
         event("LINK"),
       );
 
       expect(result.outcome).toMatchObject({ kind: "farmer", keyword: "LINK" });
-      expect(result.replies[0]?.body).toContain("https://configured.example/stand/");
-      expect(result.replies[0]?.body).not.toContain("farmfriend.example");
+      expect(farmerTarget).toHaveBeenCalledWith(expect.objectContaining({ keyword: "LINK" }));
     });
 
     it("sends a LINK as a PROACTIVE category, so consent still gates it", async () => {
       // Handing over a durable credential is Farm Friend speaking first. A `required_reply`
       // here would deliver a standing key to someone with no consent basis.
-      const { db } = recordingDb([{ id: "11111111-2222-3333-4444-555555555555" }]);
-      const result = await routeInboundMessage(deps({ db }), event("LINK"));
+      const farmerTarget = vi.fn(async () => ({
+        status: "issued",
+        replies: [{
+          body: "private link",
+          category: "inventory_prompt" as const,
+          logicalKey: "link-issued",
+        }],
+      }));
+      const result = await routeInboundMessage(deps({ farmerTarget }), event("LINK"));
 
       expect(result.replies[0]?.category).toBe("inventory_prompt");
     });
@@ -483,8 +509,9 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       // about afterwards.
       for (const word of ["SIGNUP", "LINK", "sign up", "link"]) {
         const { db } = recordingDb();
+        const farmerTarget = vi.fn(async () => ({ status: "menu", replies: [] }));
         await expect(
-          routeInboundMessage(deps({ db }), event(word)),
+          routeInboundMessage(deps({ db, farmerTarget }), event(word)),
         ).resolves.toMatchObject({ outcome: { kind: "farmer" } });
       }
     });
@@ -640,6 +667,76 @@ describe("deterministic routing order (Golden Rule #2)", () => {
         failureCode: "stale_conversation_event",
       });
       expect(result.replies).toEqual([]);
+    });
+  });
+
+  describe("stand targeting commands (F-051)", () => {
+    it("routes STAND and SETTINGS to code before any model call", async () => {
+      for (const keyword of ["STAND", "SETTINGS"] as const) {
+        const farmerTarget = vi.fn(async () => ({
+          status: "menu",
+          replies: [{
+            body: "Choose a stand",
+            category: "inquiry_reply" as const,
+            logicalKey: `target-${keyword}`,
+          }],
+        }));
+        const result = await routeInboundMessage(
+          deps({ farmerTarget }),
+          event(keyword),
+        );
+
+        expect(farmerTarget).toHaveBeenCalledWith({
+          senderHash: "a".repeat(64),
+          keyword,
+          occurredAt: T0,
+          providerEventId: "evt-1",
+        });
+        expect(result.outcome).toEqual({ kind: "farmer", keyword, status: "menu" });
+      }
+    });
+
+    it("routes a standalone menu number to code, never inquiry or inventory models", async () => {
+      const selectStand = vi.fn(async () => ({
+        status: "selected",
+        replies: [{
+          body: "Using Harbor Stand.",
+          category: "inquiry_reply" as const,
+          logicalKey: "stand-selected",
+        }],
+      }));
+      const result = await routeInboundMessage(deps({ selectStand }), event("2"));
+
+      expect(selectStand).toHaveBeenCalledWith({
+        senderHash: "a".repeat(64),
+        optionNumber: 2,
+        occurredAt: T0,
+        providerEventId: "evt-1",
+      });
+      expect(result.outcome).toEqual({ kind: "stand_selection", status: "selected" });
+      expect(result.replies[0]?.body).toContain("Harbor Stand");
+    });
+
+    it("keeps STOP and confirmation ahead of targeting handlers", async () => {
+      for (const body of ["STOP", "YES", "NO"]) {
+        const { db } = recordingDb([]);
+        await expect(routeInboundMessage(deps({ db }), event(body))).resolves.toBeDefined();
+      }
+    });
+
+    it("keeps targeting after commitment and before paging/free text", async () => {
+      const farmerTarget = vi.fn(async () => ({ status: "selected", replies: [] }));
+      const nextPage = vi.fn(async () => ({ body: "page", status: "paged" as const }));
+      const freeText = vi.fn(async () => ({ replies: [], handled: "none" as const }));
+
+      await routeInboundMessage(
+        deps({ farmerTarget, nextPage, freeText }),
+        event("STAND"),
+      );
+
+      expect(farmerTarget).toHaveBeenCalledOnce();
+      expect(nextPage).not.toHaveBeenCalled();
+      expect(freeText).not.toHaveBeenCalled();
     });
   });
 });

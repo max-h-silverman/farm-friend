@@ -406,6 +406,7 @@ export function renderProposedSnapshot(proposed: ProposedSnapshot): string {
 
 /** Render every section this single confirmation will publish. */
 export function renderProposedFarmerUpdate(input: {
+  locationName: string;
   inventory?: ProposedSnapshot;
   closure?: ClosureInstruction;
   at: Date;
@@ -421,7 +422,7 @@ export function renderProposedFarmerUpdate(input: {
   }
   if (input.inventory !== undefined) sections.push(renderProposedSnapshot(input.inventory));
   if (sections.length === 0) throw new Error("a farmer update needs at least one section");
-  return sections.join("\n\n");
+  return [`For ${input.locationName}:`, ...sections].join("\n\n");
 }
 
 /** The activation and binding facts a confirmation token is checked against. */

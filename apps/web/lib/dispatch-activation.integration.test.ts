@@ -409,7 +409,7 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
     `;
     expect(receipt).toHaveLength(1);
     expect(receipt[0]).toMatchObject({
-      body: "Your listing is updated. Thank you!",
+      body: "B-026 Stand: your listing is updated. Thank you!",
       message_category: "inquiry_reply",
     });
   });

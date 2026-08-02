@@ -866,10 +866,11 @@ export async function confirmInventoryPublication(
     if (target.length === 0) return { status: "no_open_proposal" };
     const salesLocationId = target[0]?.sales_location_id as string;
     const location = await tx`
-      select owner_farm_id from sales_locations
+      select owner_farm_id, name from sales_locations
       where id = ${salesLocationId}
       for update
     `;
+    const locationName = location[0]?.name as string;
 
     const rows = await tx`
       select * from inventory_publication_proposals
@@ -955,7 +956,7 @@ export async function confirmInventoryPublication(
         logicalKey: `proposal-declined-${input.proposalId}-${proposal.proposal_version as number}`,
         recipientHash: input.senderHash,
         messageCategory: "inquiry_reply",
-        body: "No problem — your listing is unchanged.",
+        body: `${locationName}: no problem — your listing is unchanged.`,
         now: input.occurredAt,
       });
       return { status: "declined" };
@@ -1089,10 +1090,10 @@ export async function confirmInventoryPublication(
       messageCategory: "inquiry_reply",
       body:
         proposal.has_inventory === true && proposal.has_closure === true
-          ? "Your stand status and listing are updated. Thank you!"
+          ? `${locationName}: your stand status and listing are updated. Thank you!`
           : proposal.has_closure === true
-            ? "Your stand status is updated. Thank you!"
-            : "Your listing is updated. Thank you!",
+            ? `${locationName}: your stand status is updated. Thank you!`
+            : `${locationName}: your listing is updated. Thank you!`,
       now: input.occurredAt,
     });
 

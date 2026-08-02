@@ -4,9 +4,10 @@ import {
   type InventoryInterpreter,
 } from "@farm-friend/core";
 import type { InquiryModel } from "@farm-friend/ai";
-import type { Db } from "@farm-friend/db";
+import { resolveFarmerTarget, type Db } from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
 import { applyInterpretedInventory } from "./interpretation";
+import { renderFarmerTargetMenu } from "./farmer-targeting";
 import type { RoutedReply } from "./routing";
 
 // The free-text branch of inbound routing (F-023) — the ONE path a model may run on.
@@ -36,34 +37,6 @@ export interface FreeTextResult {
 }
 
 /**
- * The sales location this sender may publish for, or null when they are not an authorized
- * farmer. Mirrors the resolution in `stockout.ts`, in the opposite direction: there, a
- * location resolves its farmer; here, a farmer resolves their location.
- *
- * A sender authorized for several locations is deliberately NOT guessed at — see below.
- */
-async function resolveFarmerLocation(
-  db: Db,
-  senderHash: string,
-): Promise<{ salesLocationId: string; locationCount: number } | null> {
-  const rows = await db.sql`
-    select l.id
-    from farmer_authorizations a
-    join contacts c on c.id = a.contact_id
-    join sales_locations l on l.owner_farm_id = a.farm_id
-    where c.phone_hash = ${senderHash}
-      and a.revoked_at is null
-      and a.phone_verified_at is not null
-    order by l.id asc
-  `;
-  if (rows.length === 0) return null;
-  return {
-    salesLocationId: rows[0]?.id as string,
-    locationCount: rows.length,
-  };
-}
-
-/**
  * Handle a message that is not a deterministic command.
  *
  * The farmer branch opens or revises the sender's ONE pending proposal and returns the
@@ -87,24 +60,28 @@ export async function handleFreeText(
     return { replies: [], handled: "none" };
   }
 
-  const farmer = await resolveFarmerLocation(deps.db, input.senderHash);
+  // The exact authorization+location pair is code-owned durable context. Resolution
+  // revalidates both rows on every message; the model receives neither the menu nor any
+  // choice of target. One live target auto-selects, several without a selection issue the
+  // same 12-hour numbered menu as STAND.
+  const farmer = await resolveFarmerTarget(deps.db, {
+    senderHash: input.senderHash,
+    occurredAt: input.occurredAt,
+    purpose: "update",
+  });
 
-  if (farmer !== null) {
-    if (farmer.locationCount > 1) {
-      // Which stand did they mean? Code asks rather than guessing, and no model is given
-      // the chance to pick a location — that identifier decides whose listing changes.
-      return {
-        replies: [
-          {
-            body: renderClarificationRequest(),
-            category: "inquiry_reply",
-            logicalKey: `farmer-ambiguous-location-${input.providerEventId}`,
-          },
-        ],
-        handled: "none",
-      };
-    }
+  if (farmer.status === "menu") {
+    return {
+      replies: [{
+        body: renderFarmerTargetMenu(farmer.options),
+        category: "inquiry_reply",
+        logicalKey: `farmer-target-menu-${input.providerEventId}`,
+      }],
+      handled: "none",
+    };
+  }
 
+  if (farmer.status === "selected") {
     const outcome = await applyInterpretedInventory(
       {
         db: deps.db,
@@ -113,7 +90,7 @@ export async function handleFreeText(
       },
       {
         senderHash: input.senderHash,
-        salesLocationId: farmer.salesLocationId,
+        salesLocationId: farmer.target.salesLocationId,
         taskText: input.taskText,
       },
     );

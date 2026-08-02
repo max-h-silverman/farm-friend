@@ -276,14 +276,39 @@ export type IssueFarmerLinkResult =
  */
 export async function issueFarmerLink(
   db: Db,
-  input: { authorizationId: string; occurredAt: Date },
+  input: {
+    authorizationId: string;
+    occurredAt: Date;
+    /** Bind this credential to one exact stand. Omitted only for legacy one-stand callers. */
+    salesLocationId?: string;
+  },
 ): Promise<IssueFarmerLinkResult> {
   return driver(db).begin(async (tx) => {
-    const authorization = await tx`
-      select id from farmer_authorizations
-      where id = ${input.authorizationId} and revoked_at is null
-      for update
-    `;
+    let ownerFarmId: string | null = null;
+    if (input.salesLocationId !== undefined) {
+      // Publication lock order: location before authorization. Link issuance names no sender
+      // state or proposal, so these are the first two shared resources it can touch.
+      const locations = await tx`
+        select id, owner_farm_id from sales_locations
+        where id = ${input.salesLocationId}
+        for update
+      `;
+      ownerFarmId = locations[0]?.owner_farm_id as string | undefined ?? null;
+      if (ownerFarmId === null) return { status: "not_authorized" as const };
+    }
+    const authorization = input.salesLocationId === undefined
+      ? await tx`
+          select id, farm_id from farmer_authorizations
+          where id = ${input.authorizationId} and revoked_at is null
+          for update
+        `
+      : await tx`
+          select id, farm_id from farmer_authorizations
+          where id = ${input.authorizationId}
+            and farm_id = ${ownerFarmId}
+            and revoked_at is null
+          for update
+        `;
     if (authorization.length === 0) {
       return { status: "not_authorized" as const };
     }
@@ -296,9 +321,12 @@ export async function issueFarmerLink(
 
     const token = issueFarmerLinkToken();
     await tx`
-      insert into farmer_links (token_hash, authorization_id, issued_at)
+      insert into farmer_links (
+        token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+      )
       values (
-        ${hashFarmerLinkToken(token)}, ${input.authorizationId},
+        ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${ownerFarmId},
+        ${input.salesLocationId ?? null},
         ${input.occurredAt.toISOString()}
       )
     `;
@@ -349,7 +377,9 @@ export async function resolveFarmerLink(
     join farmer_authorizations as auth
       on auth.id = link.authorization_id
     join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location on location.owner_farm_id = auth.farm_id
+    join sales_locations as location
+      on location.owner_farm_id = auth.farm_id
+      and (link.sales_location_id is null or location.id = link.sales_location_id)
     where link.token_hash = ${input.tokenHash}
       and link.revoked_at is null
       and auth.revoked_at is null

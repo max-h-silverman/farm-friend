@@ -14,9 +14,10 @@ export type ComplianceKeyword =
 export type CommitmentToken = "YES" | "NO";
 
 /**
- * The farmer-facing product keywords (F-040).
+ * The farmer-facing product keywords (F-040/F-051).
  *
- * `SIGNUP` asks VIGA to set the farmer up; `LINK` asks for the web form link. Like `FLAG`,
+ * `SIGNUP` asks VIGA to set the farmer up; `LINK` asks for the web form link; `STAND` and
+ * `SETTINGS` select a code-owned exact target or open its settings view. Like `FLAG`,
  * these are **Farm Friend product keywords, never carrier compliance keywords**, and they must
  * never be registered as such — `farmer-keywords.test.ts` asserts both directions.
  *

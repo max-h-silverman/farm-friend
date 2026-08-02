@@ -13,6 +13,17 @@ const registeredFieldValues = resolve(
   __dirname,
   "../../../../docs/TELNYX_10DLC_FIELD_VALUES.txt",
 );
+const workersSource = resolve(
+  __dirname,
+  "../../../../apps/web/lib/workers.ts",
+);
+
+function executableSource(path: string): string {
+  return readFileSync(path, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "")
+    .replace(/^import[\s\S]*?;$/gm, "");
+}
 
 describe("deterministic stand targeting keywords (F-051)", () => {
   it("parses STAND and SETTINGS as whole-message farmer commands that bypass the model", () => {
@@ -67,5 +78,15 @@ describe("deterministic stand targeting keywords (F-051)", () => {
       expect(registeredWords).not.toContain(keyword);
       expect(keywordBlock).not.toMatch(new RegExp(`\\b${keyword}\\b`));
     }
+  });
+
+  it("wires each targeting call site with database and configured origin but no model", () => {
+    const workers = executableSource(workersSource);
+    expect(workers).toMatch(
+      /handleFarmerTarget\(\s*\{\s*db:\s*deps\.db,\s*publicBaseUrl:\s*deps\.publicBaseUrl\s*\},\s*input,?\s*\)/,
+    );
+    expect(workers).toMatch(
+      /handleStandSelection\(\s*\{\s*db:\s*deps\.db,\s*publicBaseUrl:\s*deps\.publicBaseUrl\s*\},\s*input,?\s*\)/,
+    );
   });
 });

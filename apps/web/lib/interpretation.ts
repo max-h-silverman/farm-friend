@@ -70,6 +70,7 @@ function pendingClosure(payload: unknown): ClosureInstruction | undefined {
 }
 
 interface CompositionState {
+  locationName: string;
   inventoryBase: InventoryCompositionBase;
   closureBase: ClosureInstruction | null;
   pendingInventory?: ProposedSnapshot;
@@ -87,6 +88,12 @@ async function compositionState(
   senderHash: string,
   salesLocationId: string,
 ): Promise<CompositionState> {
+  const locations = await db.sql`
+    select name from sales_locations where id = ${salesLocationId}
+  `;
+  const locationName = locations[0]?.name as string | undefined;
+  if (locationName === undefined) throw new Error("sales location does not exist");
+
   const pending = await db.sql`
     select payload, has_inventory, has_closure,
       base_revision_id, base_is_first_publication,
@@ -171,6 +178,7 @@ async function compositionState(
     pendingRow?.has_closure === true ? pendingClosure(pendingRow.payload) : undefined;
 
   return {
+    locationName,
     inventoryBase: pendingInventory ?? publishedInventory,
     closureBase: composedClosure ?? currentClosure,
     ...(pendingInventory !== undefined ? { pendingInventory } : {}),
@@ -285,6 +293,7 @@ export async function applyInterpretedInventory(
     proposalId: opened.proposalId,
     proposalVersion: opened.proposalVersion,
     confirmationText: renderProposedFarmerUpdate({
+      locationName: state.locationName,
       ...(proposedInventory !== undefined ? { inventory: proposedInventory } : {}),
       ...(proposedClosure !== undefined ? { closure: proposedClosure } : {}),
       at: deps.clock.now(),

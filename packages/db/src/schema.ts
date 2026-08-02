@@ -511,10 +511,11 @@ export const farmerOnboardingRequests = pgTable(
  * authority. Resolution reads both rows and re-checks `farmer_authorizations.revoked_at` on
  * every request.
  *
- * There is deliberately **no** denormalized farm id, no cached "active" flag, and no signed
- * claim inside the link — nothing that could still say "valid" after the authority behind it
- * was withdrawn. Revoking the authorization kills every link to it, with no second thing to
- * remember.
+ * F-051 adds an exact location+owner pair for newly issued links. The owner id is deliberately
+ * duplicated only to make both composite foreign keys enforce that the chosen authorization
+ * and chosen location belong to the same farm; it is never read as independent authority.
+ * Legacy links keep both target columns null and retain their one-location resolution rule.
+ * There is still no cached "active" flag or signed claim that could survive revocation.
  *
  * Contrast the admin magic link, which is single-use and 15 minutes: that is an
  * authentication event whose consume record IS the session. This is a durable capability with
@@ -531,6 +532,9 @@ export const farmerLinks = pgTable(
      */
     tokenHash: text("token_hash").notNull(),
     authorizationId: uuid("authorization_id").notNull(),
+    /** Exact target for links issued after F-051. Legacy links remain nullable. */
+    ownerFarmId: uuid("owner_farm_id"),
+    salesLocationId: uuid("sales_location_id"),
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
     /**
      * A link may be revoked individually without withdrawing the farmer's authority — the
@@ -548,6 +552,16 @@ export const farmerLinks = pgTable(
       columns: [table.authorizationId],
       foreignColumns: [farmerAuthorizations.id],
     }).onDelete("restrict"),
+    targetedAuthorizationReference: foreignKey({
+      name: "farmer_links_targeted_authorization_owner_fk",
+      columns: [table.authorizationId, table.ownerFarmId],
+      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
+    }).onDelete("restrict"),
+    targetedLocationReference: foreignKey({
+      name: "farmer_links_targeted_location_owner_fk",
+      columns: [table.salesLocationId, table.ownerFarmId],
+      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    }).onDelete("restrict"),
     tokenHashUnique: unique("farmer_links_token_hash_unique").on(
       table.tokenHash,
     ),
@@ -558,6 +572,13 @@ export const farmerLinks = pgTable(
     validRevocation: check(
       "farmer_links_valid_revocation",
       sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.issuedAt}`,
+    ),
+    coherentTarget: check(
+      "farmer_links_target_coherent",
+      sql`
+        (${table.ownerFarmId} is null and ${table.salesLocationId} is null)
+        or (${table.ownerFarmId} is not null and ${table.salesLocationId} is not null)
+      `,
     ),
     // Re-issuing REPLACES rather than accumulates: a farmer who asks for a new link because
     // the old one was on a lost phone must not leave the old one working.

@@ -133,13 +133,22 @@ describe("F-051 forward migration from populated pre-targeting schema (integrati
     expect(await client()`select id from sales_location_participants`).toEqual([
       { id: participants[0]?.id as string },
     ]);
-    expect(await client()`select id from farmer_links`).toEqual([
-      { id: links[0]?.id as string },
+    expect(await client()`
+      select id, owner_farm_id, sales_location_id from farmer_links
+    `).toEqual([
+      { id: links[0]?.id as string, owner_farm_id: null, sales_location_id: null },
     ]);
+    await expect(client()`
+      update farmer_links set owner_farm_id = ${farmId} where id = ${links[0]?.id as string}
+    `).rejects.toThrow(/farmer_links_target_coherent/);
+    await expect(client()`
+      update farmer_links set sales_location_id = ${locationId}
+      where id = ${links[0]?.id as string}
+    `).rejects.toThrow(/farmer_links_target_coherent/);
     expect(await client()`select * from farmer_target_contexts`).toHaveLength(0);
     expect(await client()`select * from farmer_target_menu_options`).toHaveLength(0);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
-    ).toEqual([{ count: 13 }]);
+    ).toEqual([{ count: 14 }]);
   });
 });

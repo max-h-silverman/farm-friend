@@ -49,7 +49,7 @@ function targetFromRow(row: TargetRow): FarmerTarget {
   };
 }
 
-async function lockSender(
+async function lockSenderState(
   tx: Tx,
   senderHash: string,
   occurredAt: Date,
@@ -71,11 +71,28 @@ async function lockSender(
     where sender_hash = ${senderHash}
     for update
   `;
+  return true;
+}
+
+async function ensureTargetContext(
+  tx: Tx,
+  senderHash: string,
+  occurredAt: Date,
+): Promise<void> {
   await tx`
     insert into farmer_target_contexts (sender_hash, updated_at)
     values (${senderHash}, ${occurredAt})
     on conflict (sender_hash) do nothing
   `;
+}
+
+async function lockSender(
+  tx: Tx,
+  senderHash: string,
+  occurredAt: Date,
+): Promise<boolean> {
+  if (!(await lockSenderState(tx, senderHash, occurredAt))) return false;
+  await ensureTargetContext(tx, senderHash, occurredAt);
   return true;
 }
 
@@ -314,4 +331,88 @@ export async function selectFarmerTarget(
     await clearMenu(tx, input.senderHash, input.occurredAt);
     return { status: "selected", target, purpose };
   }) as Promise<SelectFarmerTargetResult>;
+}
+
+export interface FarmerSettingsTarget {
+  salesLocationId: string;
+  locationName: string;
+  selected: boolean;
+}
+
+/** List only the locations editable through one live authorization for its own sender. */
+export async function listFarmerSettingsTargets(
+  db: Db,
+  input: { senderHash: string; authorizationId: string },
+): Promise<FarmerSettingsTarget[]> {
+  const rows = await db.sql`
+    select
+      location.id as sales_location_id,
+      location.name as location_name,
+      context.selected_authorization_id = auth.id
+        and context.selected_sales_location_id = location.id as selected
+    from farmer_authorizations as auth
+    join contacts as contact on contact.id = auth.contact_id
+    join sales_locations as location on location.owner_farm_id = auth.farm_id
+    left join farmer_target_contexts as context
+      on context.sender_hash = contact.phone_hash
+    where auth.id = ${input.authorizationId}
+      and contact.phone_hash = ${input.senderHash}
+      and auth.revoked_at is null
+    order by lower(location.name), location.id
+  `;
+  return rows.map((row) => ({
+    salesLocationId: row.sales_location_id as string,
+    locationName: row.location_name as string,
+    selected: row.selected === true,
+  }));
+}
+
+/** Store the settings page's exact default target after revalidating its standing authority. */
+export async function selectFarmerTargetForAuthorization(
+  db: Db,
+  input: {
+    senderHash: string;
+    authorizationId: string;
+    salesLocationId: string;
+    occurredAt: Date;
+  },
+): Promise<{ status: "selected"; target: FarmerTarget } | { status: "not_authorized" }> {
+  return db.sql.begin(async (tx) => {
+    if (!(await lockSenderState(tx, input.senderHash, input.occurredAt))) {
+      return { status: "not_authorized" as const };
+    }
+    await tx`
+      select id from sales_locations
+      where id = ${input.salesLocationId}
+      for update
+    `;
+    await tx`
+      select id from farmer_authorizations
+      where id = ${input.authorizationId}
+      for update
+    `;
+    const rows = (await tx`
+      select
+        auth.id as authorization_id,
+        auth.farm_id as owner_farm_id,
+        location.id as sales_location_id,
+        location.name as location_name
+      from farmer_authorizations as auth
+      join contacts as contact on contact.id = auth.contact_id
+      join sales_locations as location on location.owner_farm_id = auth.farm_id
+      where auth.id = ${input.authorizationId}
+        and contact.phone_hash = ${input.senderHash}
+        and location.id = ${input.salesLocationId}
+        and auth.revoked_at is null
+    `) as unknown as TargetRow[];
+    if (rows.length === 0) return { status: "not_authorized" as const };
+
+    const target = targetFromRow(rows[0]!);
+    await ensureTargetContext(tx, input.senderHash, input.occurredAt);
+    await storeSelection(tx, input.senderHash, target, input.occurredAt);
+    await clearMenu(tx, input.senderHash, input.occurredAt);
+    return { status: "selected" as const, target };
+  }) as Promise<
+    { status: "selected"; target: FarmerTarget } | { status: "not_authorized" }
+  >;
 }

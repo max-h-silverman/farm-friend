@@ -49,6 +49,8 @@ const expectedTables = [
   // pointer to one.
   "farmer_links",
   "farmer_onboarding_requests",
+  "farmer_target_contexts",
+  "farmer_target_menu_options",
   "farms",
   "flags",
   "inventory_entries",

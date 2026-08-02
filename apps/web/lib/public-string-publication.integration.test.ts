@@ -219,6 +219,12 @@ describe("public-string safety at the shared publication boundary (integration)"
     const forbiddenNextPage: RouteDeps["nextPage"] = async () => {
       throw new Error("pager reached for deterministic YES");
     };
+    const forbiddenFarmerTarget: RouteDeps["farmerTarget"] = async () => {
+      throw new Error("farmer target handler reached for deterministic YES");
+    };
+    const forbiddenStandSelection: RouteDeps["selectStand"] = async () => {
+      throw new Error("stand selection reached for deterministic YES");
+    };
     return routeInboundMessage(
       {
         db: database(),
@@ -226,6 +232,8 @@ describe("public-string safety at the shared publication boundary (integration)"
         publicBaseUrl: "https://farmfriend.example",
         freeText: forbiddenFreeText,
         nextPage: forbiddenNextPage,
+        farmerTarget: forbiddenFarmerTarget,
+        selectStand: forbiddenStandSelection,
       },
       {
         senderHash: input.senderHash,

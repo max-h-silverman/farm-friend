@@ -496,7 +496,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
           from pg_stat_activity
           where datname = current_database()
             and wait_event_type = 'Lock'
-            and query like '%select owner_farm_id from sales_locations%'
+            and query like '%select owner_farm_id, name from sales_locations%'
         `;
         queued = rows[0]?.count as number;
         if (queued < 2) await new Promise((resolve) => setTimeout(resolve, 10));

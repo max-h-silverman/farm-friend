@@ -209,6 +209,9 @@ describe("interpreted inventory → pending proposal (integration)", () => {
 
     expect(result.outcome).toBe("proposed");
     if (result.outcome !== "proposed") return;
+    // F-051: a remembered target is convenience only. The farmer must see the exact
+    // stand code resolved for this write in the preview they are about to confirm.
+    expect(result.confirmationText).toContain("Interpreted Stand");
     // The confirmation renders the complete resulting snapshot.
     expect(result.confirmationText).toContain("Potatoes");
 
@@ -414,7 +417,9 @@ describe("interpreted inventory → pending proposal (integration)", () => {
       select body from outbox_work
       where logical_key like 'inventory-published-%'
     `;
-    expect(receipt).toEqual([{ body: "Your listing is updated. Thank you!" }]);
+    expect(receipt).toEqual([
+      { body: "Interpreted Stand: your listing is updated. Thank you!" },
+    ]);
   });
 
   it("preserves omitted published items when revising", async () => {
@@ -709,7 +714,11 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     // The confirmation is code-rendered from the typed snapshot — a fixed frame the model
     // does not author. The model's smuggled phone string rides inside a typed FIELD, and
     // the outbound guard is what refuses to send it.
-    expect(result.confirmationText.startsWith("Your stand will show:")).toBe(true);
+    expect(
+      result.confirmationText.startsWith(
+        "For Interpreted Stand:\n\nYour stand will show:",
+      ),
+    ).toBe(true);
     expect(containsRawPhone(result.confirmationText)).toBe(true);
 
     // Nothing published, so nothing reached the public map.

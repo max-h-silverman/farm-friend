@@ -1,8 +1,6 @@
 import {
   parseCommand,
   consentTransitionFor,
-  farmerLinkUrl,
-  renderFarmerLinkMessage,
   ALREADY_JOINED_RESPONSE,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   REGISTERED_HELP_AUTO_RESPONSE,
@@ -18,7 +16,6 @@ import {
 import {
   applyConsentTransition,
   confirmInventoryPublication,
-  issueFarmerLink,
   openFarmerOnboardingRequest,
   type Db,
 } from "@farm-friend/db";
@@ -35,9 +32,10 @@ import type { PagingStatus } from "./paging";
 //   1. compliance keywords   — STOP/START/JOIN/HELP/INFO, by CODE, before any model call
 //   2. FLAG                  — the human-handoff safety rail, also upstream of the model
 //   3. commitment YES/NO     — context- and version-bound to the sender's ONE open proposal
-//   4. farmer keywords       — SIGNUP/LINK, still upstream of the model
+//   4. farmer keywords       — SIGNUP/LINK/STAND/SETTINGS, upstream of the model
 //   5. MORE                  — the next page of the sender's pending result list (F-046)
-//   6. free text             — only here may a model seam run
+//   6. stand menu number     — exact server-bound authorization+location selection
+//   7. free text             — only here may a model seam run
 //
 // Steps 1-5 are `parseCommand` output, which takes the body and NOTHING else: no
 // conversation state exists for it to consult, so no state can reinterpret a STOP. The
@@ -71,6 +69,7 @@ export type RouteOutcome =
    * authorized farmer.
    */
   | { kind: "farmer"; keyword: FarmerKeyword; status: string }
+  | { kind: "stand_selection"; status: string }
   /**
    * A `MORE` (F-046). `paged` served the next page of the sender's pending list;
    * `no_pending_list` is the honest reply when there is nothing to page — never asked,
@@ -126,6 +125,20 @@ export interface RouteDeps {
     senderHash: string;
     occurredAt: Date;
   }): Promise<{ body: string; status: PagingStatus }>;
+  /** Handle LINK/STAND/SETTINGS with deterministic, code-owned target resolution. */
+  farmerTarget(input: {
+    senderHash: string;
+    keyword: "LINK" | "STAND" | "SETTINGS";
+    occurredAt: Date;
+    providerEventId: string;
+  }): Promise<{ replies: RoutedReply[]; status: string }>;
+  /** Consume one context-bound stand menu number. No model dependency belongs here. */
+  selectStand(input: {
+    senderHash: string;
+    optionNumber: number;
+    occurredAt: Date;
+    providerEventId: string;
+  }): Promise<{ replies: RoutedReply[]; status: string }>;
 }
 
 export interface RouteInput {
@@ -232,7 +245,19 @@ export async function routeInboundMessage(
   // anything: SIGNUP opens a queue entry VIGA acts on, and LINK is refused unless the sender
   // is ALREADY an authorized farmer.
   if (command.kind === "farmer") {
-    return routeFarmerKeyword(deps, input, command.keyword);
+    if (command.keyword !== "SIGNUP") {
+      const targeted = await deps.farmerTarget({
+        senderHash: input.senderHash,
+        keyword: command.keyword,
+        occurredAt: input.occurredAt,
+        providerEventId: input.providerEventId,
+      });
+      return {
+        outcome: { kind: "farmer", keyword: command.keyword, status: targeted.status },
+        replies: targeted.replies,
+      };
+    }
+    return routeSignup(deps, input);
   }
 
   // F-046 — MORE. Ordered AFTER the compliance keywords and the commitment tokens, which is
@@ -259,6 +284,19 @@ export async function routeInboundMessage(
           logicalKey: `paging-${input.providerEventId}`,
         },
       ],
+    };
+  }
+
+  if (command.kind === "stand_selection") {
+    const selected = await deps.selectStand({
+      senderHash: input.senderHash,
+      optionNumber: command.optionNumber,
+      occurredAt: input.occurredAt,
+      providerEventId: input.providerEventId,
+    });
+    return {
+      outcome: { kind: "stand_selection", status: selected.status },
+      replies: selected.replies,
     };
   }
 
@@ -392,98 +430,27 @@ async function routeCompliance(
  * durable credential, so it rides on the same consent gate as every other proactive message
  * rather than on the inbound message that asked for it.
  */
-async function routeFarmerKeyword(
+async function routeSignup(
   deps: RouteDeps,
   input: RouteInput,
-  keyword: FarmerKeyword,
 ): Promise<RouteResult> {
-  if (keyword === "SIGNUP") {
-    const opened = await openFarmerOnboardingRequest(deps.db, {
-      contactHash: input.senderHash,
-      occurredAt: input.occurredAt,
-    });
-
-    // The same acknowledgement either way. A farmer who texts twice because nothing visibly
-    // happened is told the same true thing, and the reply never reveals queue state.
-    return {
-      outcome: { kind: "farmer", keyword, status: opened.status },
-      replies: [
-        {
-          body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-          // Answering the sender's own message, so it rides on that message.
-          category: "required_reply",
-          logicalKey: `signup-ack-${input.providerEventId}`,
-        },
-      ],
-    };
-  }
-
-  // LINK. The authorization is the gate: this resolves the sender's OWN live authorization
-  // and refuses if there is none. Nothing here can create one.
-  const authorization = await findLiveFarmerAuthorization(deps.db, input.senderHash);
-  if (authorization === null) {
-    // Not an authorized farmer. Answered with the signup path rather than silence, because
-    // a farmer who texts LINK before being set up is asking the right question at the wrong
-    // time — and a customer who texts it learns nothing about who is authorized.
-    return {
-      outcome: { kind: "farmer", keyword, status: "not_authorized" },
-      replies: [
-        {
-          body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-          category: "required_reply",
-          logicalKey: `link-refused-${input.providerEventId}`,
-        },
-      ],
-    };
-  }
-
-  const issued = await issueFarmerLink(deps.db, {
-    authorizationId: authorization.authorizationId,
+  const opened = await openFarmerOnboardingRequest(deps.db, {
+    contactHash: input.senderHash,
     occurredAt: input.occurredAt,
   });
-  if (issued.status !== "issued") {
-    // The authorization was revoked between the read and the write. Nothing was minted.
-    return {
-      outcome: { kind: "farmer", keyword, status: issued.status },
-      replies: [],
-    };
-  }
 
+  // The same acknowledgement either way. A farmer who texts twice because nothing visibly
+  // happened is told the same true thing, and the reply never reveals queue state.
   return {
-    outcome: { kind: "farmer", keyword, status: "issued" },
+    outcome: { kind: "farmer", keyword: "SIGNUP", status: opened.status },
     replies: [
       {
-        body: renderFarmerLinkMessage(
-          farmerLinkUrl(deps.publicBaseUrl, issued.token),
-        ),
-        // Proactive: this hands over a durable credential, so it rides on the standing
-        // consent gate rather than on the inbound message that asked for it.
-        category: "inventory_prompt",
-        // Bound to the LINK row, so a replayed inbound event reuses the outbox row rather
-        // than texting a second credential.
-        logicalKey: `farmer-link-${input.providerEventId}`,
+        body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+        category: "required_reply",
+        logicalKey: `signup-ack-${input.providerEventId}`,
       },
     ],
   };
-}
-
-/** The sender's own live authorization, or null. Code's decision, never a model's. */
-async function findLiveFarmerAuthorization(
-  db: Db,
-  senderHash: string,
-): Promise<{ authorizationId: string } | null> {
-  const rows = await db.sql`
-    select auth.id
-    from farmer_authorizations as auth
-    join contacts as contact on contact.id = auth.contact_id
-    where contact.phone_hash = ${senderHash} and auth.revoked_at is null
-    order by auth.authorized_at asc
-  `;
-  // A sender authorized for several farms is not guessed at: which farm a link opens decides
-  // whose listing a holder can change. `resolveFarmerLink` refuses a multi-stand farm for the
-  // same reason, one layer down.
-  if (rows.length !== 1) return null;
-  return { authorizationId: rows[0]?.id as string };
 }
 
 async function routeCommitment(

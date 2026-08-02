@@ -10,6 +10,8 @@ import {
   resolveFarmerTarget,
   selectFarmerTarget,
 } from "./farmer-targeting";
+import { hashFarmerLinkToken } from "@farm-friend/core";
+import { issueFarmerLink, resolveFarmerLink } from "./farmer";
 
 const T0 = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -318,6 +320,63 @@ describe("F-051 durable farmer target context (integration)", () => {
     ]);
   });
 
+  it("queues behind an in-flight revocation and cannot retain the revoked target", async () => {
+    const senderHash = "a".repeat(64);
+    const contactId = await contact(senderHash);
+    const only = await target(contactId, "Revoked Farm", "Revoked Stand");
+    await resolveFarmerTarget(database(), {
+      senderHash,
+      occurredAt: T0,
+      purpose: "update",
+    });
+
+    const blocker = postgres(databaseUrl, { max: 1 });
+    let releaseRevocation = () => {};
+    let markRevoking = () => {};
+    const released = new Promise<void>((resolve) => { releaseRevocation = resolve; });
+    const revoking = new Promise<void>((resolve) => { markRevoking = resolve; });
+    const revocation = blocker.begin(async (tx) => {
+      await tx`
+        update farmer_authorizations set revoked_at = ${new Date(T0.getTime() + 1_000)}
+        where id = ${only.authorizationId}
+      `;
+      markRevoking();
+      await released;
+    });
+    await revoking;
+
+    const resolving = resolveFarmerTarget(database(), {
+      senderHash,
+      occurredAt: new Date(T0.getTime() + 2_000),
+      purpose: "update",
+    });
+    let queued = 0;
+    try {
+      for (let attempt = 0; attempt < 100 && queued < 1; attempt += 1) {
+        const rows = await client()`
+          select count(*)::integer as count
+          from pg_stat_activity
+          where datname = current_database()
+            and wait_event_type = 'Lock'
+            and query like '%farmer_authorizations%for update%'
+        `;
+        queued = rows[0]?.count as number;
+        if (queued < 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    } finally {
+      releaseRevocation();
+    }
+
+    await revocation;
+    await blocker.end({ timeout: 5 });
+    expect(queued, "target resolution must wait on the authorization row").toBe(1);
+    await expect(resolving).resolves.toEqual({ status: "not_authorized" });
+    expect(await client()`
+      select selected_sales_location_id from farmer_target_contexts
+      where sender_hash = ${senderHash}
+    `).toEqual([{ selected_sales_location_id: null }]);
+  });
+
   it("a removed location cascades its stale context and the next use selects a current target", async () => {
     const contactId = await contact();
     const first = await target(contactId, "A Farm", "A Stand");
@@ -380,6 +439,49 @@ describe("F-051 durable farmer target context (integration)", () => {
         capture_evidence_ref: null,
       },
     ]);
+  });
+
+  it("binds a standing link to the selected exact stand even when its farm has several", async () => {
+    const contactId = await contact();
+    const first = await target(contactId, "Many Stands Farm", "North Stand");
+    const locations = await client()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        farm_bucks_accepted, farm_bucks_eligible
+      ) values (
+        ${first.farmId}, 'farm_stand', 'South Stand', '2 Target Way', 47.45, -122.47,
+        false, false
+      ) returning id
+    `;
+    const southId = locations[0]?.id as string;
+
+    const issued = await issueFarmerLink(database(), {
+      authorizationId: first.authorizationId,
+      salesLocationId: southId,
+      occurredAt: T0,
+    });
+    expect(issued.status).toBe("issued");
+    const token = issued.status === "issued" ? issued.token : "";
+    await expect(resolveFarmerLink(database(), {
+      tokenHash: hashFarmerLinkToken(token),
+    })).resolves.toMatchObject({
+      authorizationId: first.authorizationId,
+      salesLocationId: southId,
+    });
+  });
+
+  it("refuses to mint a targeted link for a stand outside the authorization's farm", async () => {
+    const contactId = await contact();
+    const own = await target(contactId, "Own Farm", "Own Stand");
+    const otherContact = await contact("e".repeat(64));
+    const other = await target(otherContact, "Other Farm", "Other Stand");
+
+    await expect(issueFarmerLink(database(), {
+      authorizationId: own.authorizationId,
+      salesLocationId: other.locationId,
+      occurredAt: T0,
+    })).resolves.toEqual({ status: "not_authorized" });
+    expect(await client()`select id from farmer_links`).toHaveLength(0);
   });
 
   it("rejects decisive NULL and half-populated context shapes in real Postgres", async () => {

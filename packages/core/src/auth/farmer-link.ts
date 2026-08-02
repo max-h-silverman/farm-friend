@@ -46,3 +46,8 @@ export function hashFarmerLinkToken(token: string): string {
 export function farmerLinkUrl(baseUrl: string, token: string): string {
   return `${baseUrl.replace(/\/+$/, "")}/stand/${encodeURIComponent(token)}`;
 }
+
+/** The same standing credential, opened directly on its settings view. */
+export function farmerSettingsUrl(baseUrl: string, token: string): string {
+  return `${farmerLinkUrl(baseUrl, token)}/settings`;
+}

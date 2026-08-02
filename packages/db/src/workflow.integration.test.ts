@@ -770,7 +770,7 @@ describe("authoritative SMS transactions (integration)", () => {
       `;
       expect(receipts.map((row) => row.body)).toEqual(
         winner === "confirmation"
-          ? ["Your listing is updated. Thank you!"]
+          ? ["Workflow Stand: your listing is updated. Thank you!"]
           : [],
       );
 
@@ -1050,7 +1050,7 @@ describe("authoritative SMS transactions (integration)", () => {
         where logical_key like 'inventory-published-%'
       `;
       expect(receipts.map((row) => row.body)).toEqual([
-        "Your listing is updated. Thank you!",
+        "Workflow Stand: your listing is updated. Thank you!",
       ]);
     });
 
@@ -1100,6 +1100,13 @@ describe("authoritative SMS transactions (integration)", () => {
         select state from inventory_publication_proposals where id = ${proposal.proposalId}
       `;
       expect(state[0]?.state).toBe("declined");
+      const receipts = await client()`
+        select body from outbox_work
+        where logical_key like 'proposal-declined-%'
+      `;
+      expect(receipts).toEqual([
+        { body: "Workflow Stand: no problem — your listing is unchanged." },
+      ]);
     });
 
     it("invalidates a proposal whose base revision is no longer current", async () => {
