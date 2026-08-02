@@ -807,7 +807,8 @@ body {
   border-radius: 0 12px 12px 0;
 }
 
-.admin-priority--farm-approval {
+.admin-priority--farm-approval,
+.admin-priority--farmer-access {
   border-left-color: var(--admin-yellow);
 }
 

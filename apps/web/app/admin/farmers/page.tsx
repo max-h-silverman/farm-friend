@@ -53,7 +53,7 @@ export default async function FarmersPage() {
         partly hidden.
       </p>
 
-      <section className="admin-priority" aria-labelledby="farmer-access-heading">
+      <section className="admin-priority admin-priority--farmer-access" aria-labelledby="farmer-access-heading">
         <h2 id="farmer-access-heading" className="admin-section-title">Farmer access</h2>
         <p className="admin-note">
           If you know they run the farm, you can give them access here. The farm will still need
