@@ -64,6 +64,8 @@ export default async function FarmersPage() {
             requestId: request.requestId,
             senderMask: request.senderMask,
             requestedAt: request.requestedAt.toISOString(),
+            farmId: request.farmId,
+            farmName: request.farmName,
           }))}
           authorizations={authorizations.map((authorization) => ({
             authorizationId: authorization.authorizationId,

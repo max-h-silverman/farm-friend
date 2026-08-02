@@ -35,6 +35,20 @@ describe("farmer keywords (F-040)", () => {
     expect(parseCommand("LINK")).toEqual({ kind: "farmer", keyword: "LINK" });
   });
 
+  it("carries a one-use invite token through the onboarding SIGNUP", () => {
+    expect(parseCommand(`SIGNUP ${"a".repeat(64)}`)).toEqual({
+      kind: "farmer",
+      keyword: "SIGNUP",
+      invitationToken: "a".repeat(64),
+    });
+  });
+
+  it("does not treat arbitrary text after SIGNUP as an invite", () => {
+    expect(parseCommand("SIGNUP please help")).toEqual({
+      kind: "none",
+    });
+  });
+
   it("bypasses the model, like every other deterministic keyword", () => {
     // A farmer asking to be set up must not depend on a model being available, correct, or
     // affordable. This is Golden Rule #2's reason, applied to the two words that decide

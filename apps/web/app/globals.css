@@ -941,6 +941,141 @@ body {
   margin-top: 0.75rem;
 }
 
+.admin-invite {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 1.5rem;
+  padding: 0.9rem 1rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.admin-invite h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.admin-invite-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-invite-form fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.admin-choice {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.admin-choice input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0;
+  accent-color: var(--green);
+}
+
+.admin-invite-form > button,
+.admin-invite .admin-primary-link {
+  min-height: 48px;
+  padding: 0 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  color: var(--card);
+  background: var(--green);
+  border: 1px solid var(--green);
+  border-radius: 10px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.admin-invite-form > button:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.farmer-onboarding {
+  width: min(100% - 2.3rem, 40rem);
+  margin: 0 auto;
+  padding: 2.5rem 0 3rem;
+}
+
+.farmer-eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--green);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.farmer-onboarding h1 {
+  margin: 0 0 0.8rem;
+  font-size: clamp(1.8rem, 7vw, 2.6rem);
+  line-height: 1.15;
+}
+
+.farmer-onboarding-card {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding: 1.1rem;
+  background: var(--green-soft);
+  border: 1px solid var(--green);
+  border-radius: var(--radius);
+}
+
+.farmer-onboarding-card h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.farmer-primary-link {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.1rem;
+  color: var(--card);
+  background: var(--green);
+  border-radius: 10px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.farmer-onboarding-instruction,
+.farmer-onboarding-note {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.farmer-onboarding-steps {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1.5rem 0;
+  padding-left: 1.4rem;
+}
+
+.farmer-onboarding-note {
+  font-size: 0.9rem;
+}
+
 .admin-farm button:disabled {
   opacity: 0.65;
   cursor: default;

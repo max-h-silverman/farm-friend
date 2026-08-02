@@ -1,9 +1,10 @@
 import {
   authorizeFarmer,
+  createFarmerInvitation,
   issueFarmerLink,
   revokeFarmerAuthorization,
 } from "@farm-friend/db";
-import { farmerLinkUrl } from "@farm-friend/core";
+import { farmerInviteUrl, farmerLinkUrl } from "@farm-friend/core";
 import { requireAdministrator } from "../../../../lib/admin-guard";
 import { resolvePublicBaseUrl } from "../../../../lib/composition";
 import { publicReadContext } from "../../../../lib/public-context";
@@ -27,7 +28,8 @@ import { publicReadContext } from "../../../../lib/public-context";
 export const dynamic = "force-dynamic";
 
 /**
- * Authorize a farmer, revoke one, or issue a fresh standing link.
+ * Create an onboarding invitation, authorize a farmer, revoke one, or issue a fresh standing
+ * link.
  *
  * The acting administrator comes from the SESSION, never the request body: a caller naming
  * someone else must not be able to act as them, and the audit trail records who really did
@@ -49,6 +51,7 @@ export async function POST(req: Request): Promise<Response> {
     requestId?: unknown;
     authorizationId?: unknown;
     salesLocationId?: unknown;
+    channel?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -57,6 +60,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const action =
+    body.action === "create_invite" ||
     body.action === "authorize" ||
     body.action === "revoke" ||
     body.action === "issue_link"
@@ -68,6 +72,29 @@ export async function POST(req: Request): Promise<Response> {
 
   const { db, clock } = publicReadContext();
   const occurredAt = clock.now();
+
+  if (action === "create_invite") {
+    const farmId = typeof body.farmId === "string" ? body.farmId : null;
+    const channel = body.channel === "sms" || body.channel === "email" ? body.channel : null;
+    if (farmId === null || channel === null) {
+      return Response.json({ error: "invalid_request" }, { status: 400 });
+    }
+    const result = await createFarmerInvitation(db, {
+      farmId,
+      channel,
+      administratorId: caller.administratorId,
+      occurredAt,
+    });
+    if (result.status !== "created") {
+      return Response.json({ status: result.status }, { status: statusFor(result.status) });
+    }
+    return Response.json({
+      status: "created",
+      farmName: result.farmName,
+      channel: result.channel,
+      link: farmerInviteUrl(resolvePublicBaseUrl(process.env), result.token),
+    });
+  }
 
   if (action === "authorize") {
     const farmId = typeof body.farmId === "string" ? body.farmId : null;
@@ -135,12 +162,15 @@ function statusFor(status: string): number {
     case "authorized":
     case "revoked":
     case "issued":
+    case "created":
       return 200;
     case "unknown_farm":
     case "unknown_request":
       return 404;
     case "not_an_administrator":
       return 403;
+    case "farm_mismatch":
+      return 409;
     // `already_authorized` / `not_authorized`: the caller's decision was NOT recorded, and
     // answering 200 would be a lie about an audit record.
     default:

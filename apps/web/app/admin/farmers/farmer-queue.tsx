@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import { AdminRecoveryError } from "../admin-shell";
+import {
+  buildInviteDeliveryUrl,
+  inviteMessage,
+  normalizeInvitePhone,
+  type FarmerInviteChannel,
+} from "../../../lib/farmer-invite";
 
 // The farmer access queue's interactive half (F-040). It renders what the server already
 // decided the viewer may see and posts decisions back to `/api/admin/farmers`, which
@@ -18,6 +24,8 @@ export interface PendingRequestRow {
   /** The last four digits, already masked by the server. Never the number. */
   senderMask: string;
   requestedAt: string;
+  farmId?: string | null;
+  farmName?: string | null;
 }
 
 export interface AuthorizationRow {
@@ -57,6 +65,16 @@ export function FarmerQueue({
   const [pendingRequests, setPendingRequests] = useState(requests);
   const [rows, setRows] = useState(authorizations);
   const [farmChoice, setFarmChoice] = useState<Record<string, string>>({});
+  const [inviteFarmId, setInviteFarmId] = useState("");
+  const [inviteChannel, setInviteChannel] = useState<FarmerInviteChannel>("sms");
+  const [inviteDestination, setInviteDestination] = useState("");
+  const [invite, setInvite] = useState<{
+    link: string;
+    deliveryUrl: string;
+    channel: FarmerInviteChannel;
+    message: string;
+    farmName: string;
+  } | null>(null);
   const [standChoice, setStandChoice] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +97,7 @@ export function FarmerQueue({
     setError(null);
     setSessionExpired(false);
     setSuccess(null);
+    setInvite(null);
     try {
       const response = await fetch("/api/admin/farmers", {
         method: "POST",
@@ -119,6 +138,62 @@ export function FarmerQueue({
       current.filter((request) => request.requestId !== requestId),
     );
     setSuccess("Farmer access given. Reload to see their access record.");
+  }
+
+  async function createInvite() {
+    if (inviteFarmId === "") {
+      setError("Choose which farm this invitation is for.");
+      return;
+    }
+    const destination =
+      inviteChannel === "sms"
+        ? normalizeInvitePhone(inviteDestination)
+        : inviteDestination.trim();
+    if (
+      destination === null ||
+      destination === "" ||
+      (inviteChannel === "email" && !/^\S+@\S+\.\S+$/.test(destination))
+    ) {
+      setError(
+        inviteChannel === "sms"
+          ? "Enter a valid US or Canada phone number."
+          : "Enter a valid email address.",
+      );
+      return;
+    }
+
+    const { ok, payload } = await post(
+      { action: "create_invite", farmId: inviteFarmId, channel: inviteChannel },
+      "create_invite",
+    );
+    if (!ok) return;
+    if (
+      typeof payload.link !== "string" ||
+      typeof payload.farmName !== "string" ||
+      (payload.channel !== "sms" && payload.channel !== "email")
+    ) {
+      setError("The invitation was created without a usable link. Reload and try again.");
+      return;
+    }
+    const message = inviteMessage({ farmName: payload.farmName, link: payload.link });
+    setInvite({
+      link: payload.link,
+      deliveryUrl: buildInviteDeliveryUrl(payload.channel, destination, message),
+      channel: payload.channel,
+      message,
+      farmName: payload.farmName,
+    });
+    setSuccess("Invitation ready. Open the message or email, then send it to the farmer.");
+  }
+
+  async function copyInviteLink() {
+    if (invite === null) return;
+    try {
+      await navigator.clipboard.writeText(invite.link);
+      setSuccess("Onboarding link copied.");
+    } catch {
+      setError("Copy failed. Select the onboarding link and copy it before leaving this page.");
+    }
   }
 
   async function revoke(authorizationId: string) {
@@ -196,6 +271,85 @@ export function FarmerQueue({
         </p>
       )}
 
+      <section className="admin-invite" aria-labelledby="invite-farm-heading">
+        <h3 id="invite-farm-heading">Invite a farm to join</h3>
+        <p className="admin-note">
+          Choose a farm and send its private onboarding link by text or email. The farmer still
+          has to verify their phone and VIGA still decides whether to give access.
+        </p>
+        <div className="admin-invite-form">
+          <label>
+            <span className="admin-control-label">Farm</span>
+            <select value={inviteFarmId} onChange={(event) => setInviteFarmId(event.target.value)}>
+              <option value="">Choose a farm…</option>
+              {farms.map((farm) => (
+                <option key={farm.farmId} value={farm.farmId}>
+                  {farm.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <fieldset>
+            <legend className="admin-control-label">Send by</legend>
+            <label className="admin-choice">
+              <input
+                type="radio"
+                name="invite-channel"
+                value="sms"
+                checked={inviteChannel === "sms"}
+                onChange={() => setInviteChannel("sms")}
+              />
+              Text message
+            </label>
+            <label className="admin-choice">
+              <input
+                type="radio"
+                name="invite-channel"
+                value="email"
+                checked={inviteChannel === "email"}
+                onChange={() => setInviteChannel("email")}
+              />
+              Email
+            </label>
+          </fieldset>
+          <label>
+            <span className="admin-control-label">
+              {inviteChannel === "sms" ? "Phone number" : "Email address"}
+            </span>
+            <input
+              type={inviteChannel === "sms" ? "tel" : "email"}
+              inputMode={inviteChannel === "sms" ? "tel" : "email"}
+              autoComplete={inviteChannel === "sms" ? "tel" : "email"}
+              value={inviteDestination}
+              onChange={(event) => setInviteDestination(event.target.value)}
+              placeholder={inviteChannel === "sms" ? "(206) 555-0123" : "farmer@example.com"}
+            />
+          </label>
+          <button type="button" disabled={busy === "create_invite"} onClick={() => void createInvite()}>
+            {busy === "create_invite" ? "Preparing…" : "Create invitation"}
+          </button>
+        </div>
+        {invite !== null && (
+          <div className="admin-link-reveal" role="group" aria-label="Farmer invitation">
+            <p className="admin-note">
+              <strong>{invite.farmName}</strong> invitation ready. Open it to hand off to your
+              {invite.channel === "sms" ? " text app" : " email app"}.
+            </p>
+            <a className="admin-primary-link" href={invite.deliveryUrl}>
+              Open {invite.channel === "sms" ? "text message" : "email"}
+            </a>
+            <input aria-label="Onboarding link" readOnly value={invite.link} />
+            <button type="button" onClick={() => void copyInviteLink()}>
+              Copy onboarding link
+            </button>
+            <details>
+              <summary>Show message text</summary>
+              <p className="admin-note">{invite.message}</p>
+            </details>
+          </div>
+        )}
+      </section>
+
       <h2>Farmers waiting to join</h2>
       {pendingRequests.length === 0 ? (
         <p className="admin-note">
@@ -213,9 +367,14 @@ export function FarmerQueue({
               </div>
               <div>
                 <label>
-                  <span className="admin-control-label">Which farm do they run?</span>
+                  <span className="admin-control-label">
+                    {request.farmName === null || request.farmName === undefined
+                      ? "Which farm do they run?"
+                      : "Invited farm"}
+                  </span>
                   <select
-                    value={farmChoice[request.requestId] ?? ""}
+                    value={farmChoice[request.requestId] ?? request.farmId ?? ""}
+                    disabled={request.farmId !== null && request.farmId !== undefined}
                     onChange={(event) =>
                       setFarmChoice((current) => ({
                         ...current,

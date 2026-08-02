@@ -21,6 +21,7 @@ export * from "./public/island-projection";
 export * from "./public/vcard";
 export * from "./public/public-string";
 export * from "./auth/farmer-link";
+export * from "./auth/farmer-invite";
 export * from "./auth/session";
 export * from "./seed/availability";
 export * from "./seed/form-responses";

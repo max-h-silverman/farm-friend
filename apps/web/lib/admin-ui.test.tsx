@@ -314,6 +314,44 @@ describe("administrator queue interactions", () => {
     );
   });
 
+  it("prepares a farm-specific text invitation without requiring prior SMS enrollment", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      response(200, {
+        status: "created",
+        channel: "sms",
+        farmName: "Example Farm",
+        link: "https://ff.example/farmer/onboarding/invite-token",
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <FarmerQueue
+        requests={[]}
+        authorizations={[]}
+        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+      />,
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Farm" }), "farm-1");
+    await user.type(screen.getByRole("textbox", { name: "Phone number" }), "(206) 555-0123");
+    await user.click(screen.getByRole("button", { name: "Create invitation" }));
+
+    expect(await screen.findByRole("link", { name: "Open text message" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("sms:+12065550123?body="),
+    );
+    expect(screen.getByDisplayValue("https://ff.example/farmer/onboarding/invite-token")).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/admin/farmers",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ action: "create_invite", farmId: "farm-1", channel: "sms" }),
+      }),
+    );
+  });
+
   it("loads a retained thread honestly and marks the flagged message accessibly", async () => {
     const user = userEvent.setup();
     let finish!: (value: Response) => void;

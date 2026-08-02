@@ -295,7 +295,7 @@ export async function routeInboundMessage(
         replies: targeted.replies,
       };
     }
-    return routeSignup(deps, input);
+    return routeSignup(deps, input, command.invitationToken);
   }
 
   // F-046 — MORE. Ordered AFTER the compliance keywords and the commitment tokens, which is
@@ -471,10 +471,12 @@ async function routeCompliance(
 async function routeSignup(
   deps: RouteDeps,
   input: RouteInput,
+  invitationToken?: string,
 ): Promise<RouteResult> {
   const opened = await openFarmerOnboardingRequest(deps.db, {
     contactHash: input.senderHash,
     occurredAt: input.occurredAt,
+    ...(invitationToken !== undefined ? { invitationToken } : {}),
   });
 
   // The same acknowledgement either way. A farmer who texts twice because nothing visibly
