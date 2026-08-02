@@ -55,7 +55,7 @@ daily data entry, the product has failed its north star.
 | Flag review + thread viewer | `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
 | Stand-data questions | `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
-| Farmer access | `/admin/farmers` | Invite a farm, authorize a farmer to publish for a farm, see every farmer's access live and withdrawn, revoke it, and issue a replacement private link |
+| Farmer access | `/admin/farmers` | Invite a farmer, authorize them to publish for a farm, see every farmer's access live and withdrawn, revoke it, and issue a replacement private link |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
 
@@ -80,9 +80,9 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   before you authorize them** — a phone number only proves someone has that phone, and nothing
   automates this decision. On authorizing, Farm Friend texts them that they are set up and how to
   post their first listing. The farm still needs approving (below) before anything publishes.
-- **Invite a new farm:** in the **Farmer access** section, optionally choose an existing farm,
+- **Invite a farmer:** in the **Farmer access** section, optionally choose an existing farm,
   choose text or email, and enter the recipient's address. Leave the farm set to **New farm —
-  choose later** when the farm is not in Farm Friend yet. Farm Friend creates a one-use onboarding
+  assign later** when the farm is not in Farm Friend yet. Farm Friend creates a one-use onboarding
   link and opens the administrator's own text or email app with the message ready. Send it from
   there. The link expires after seven days; the farmer sends the prepared `SIGNUP <invite>` message
   to verify their phone. This works whether or not that phone already joined Farm Friend by SMS.

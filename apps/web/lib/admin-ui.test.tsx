@@ -182,9 +182,12 @@ describe("administrator language", () => {
     );
 
     expect(screen.getByText("Shown on map")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Farmers waiting to join" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Invite a farmer to join" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Waiting for your decision" })).toBeTruthy();
     expect(screen.getByText(/no requests right now/i)).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Current farmer access" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "People with farmer access" })).toBeTruthy();
+    expect(screen.getByText("Contact")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Farm" })).toBeTruthy();
     expect(screen.queryByText("Waiting on you")).toBeNull();
   });
 });
@@ -291,7 +294,7 @@ describe("administrator queue interactions", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/farmer access given/i);
 
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Which stand can this link update?" }),
+      screen.getByRole("combobox", { name: "Stand this link can update" }),
       "stand-2",
     );
     await user.click(screen.getByRole("button", { name: "Create link" }));
@@ -336,12 +339,13 @@ describe("administrator queue interactions", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Farm" }), "farm-1");
     await user.type(screen.getByRole("textbox", { name: "Phone number" }), "(206) 555-0123");
-    await user.click(screen.getByRole("button", { name: "Create invitation" }));
+    await user.click(screen.getByRole("button", { name: "Prepare invite" }));
 
     expect(await screen.findByRole("link", { name: "Open text message" })).toHaveAttribute(
       "href",
       expect.stringContaining("sms:+12065550123?body="),
     );
+    await user.click(screen.getByText("Review invite details"));
     expect(screen.getByDisplayValue("https://ff.example/farmer/onboarding/invite-token")).toBeTruthy();
     expect(fetcher).toHaveBeenCalledWith(
       "/api/admin/farmers",
@@ -374,12 +378,13 @@ describe("administrator queue interactions", () => {
 
     await user.click(screen.getByRole("radio", { name: "Email" }));
     await user.type(screen.getByRole("textbox", { name: "Email address" }), "farmer@example.com");
-    await user.click(screen.getByRole("button", { name: "Create invitation" }));
+    await user.click(screen.getByRole("button", { name: "Prepare invite" }));
 
     expect(await screen.findByRole("link", { name: "Open email" })).toHaveAttribute(
       "href",
       expect.stringContaining("mailto:farmer@example.com?"),
     );
+    await user.click(screen.getByText("Review invite details"));
     expect(screen.getByDisplayValue("https://ff.example/farmer/onboarding/new-farm-token")).toBeTruthy();
     expect(fetcher).toHaveBeenCalledWith(
       "/api/admin/farmers",

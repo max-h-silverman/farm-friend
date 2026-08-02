@@ -48,16 +48,18 @@ export default async function FarmersPage() {
 
   return (
     <AdminShell currentPath="/admin/farmers">
-      <p className="admin-note">
-        See who has been in touch with Farm Friend and who can update a farm. Phone numbers are
-        partly hidden.
-      </p>
+      <header className="admin-page-intro">
+        <p className="admin-eyebrow">VIGA operations</p>
+        <h1>People</h1>
+        <p className="admin-lede">
+          Invite farmers, review requests, and manage who can update a farm.
+        </p>
+      </header>
 
       <section className="admin-priority admin-priority--farmer-access" aria-labelledby="farmer-access-heading">
         <h2 id="farmer-access-heading" className="admin-section-title">Farmer access</h2>
         <p className="admin-note">
-          If you know they run the farm, you can give them access here. The farm will still need
-          <Link href="/admin"> approval</Link> before it appears on the map.
+          Give access only when you know they run the farm. Farm approval is separate — <Link href="/admin">approve the farm</Link> before it appears on the map.
         </p>
         <FarmerQueue
           requests={requests.map((request) => ({
@@ -82,9 +84,15 @@ export default async function FarmersPage() {
         />
       </section>
 
-      <section aria-labelledby="people-list-heading">
-        <h2 id="people-list-heading" className="admin-section-title">Everyone who&apos;s been in touch</h2>
-        <p className="admin-note">Filter by whether they can currently update a farm.</p>
+      <section className="admin-directory-section" aria-labelledby="people-list-heading">
+        <div className="admin-section-heading">
+          <div>
+            <h2 id="people-list-heading" className="admin-section-title">People directory</h2>
+            <p className="admin-note">
+              Everyone who has been in touch with Farm Friend. Phone numbers are partly hidden.
+            </p>
+          </div>
+        </div>
         <UserList users={users} />
       </section>
     </AdminShell>
