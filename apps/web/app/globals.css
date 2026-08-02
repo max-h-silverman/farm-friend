@@ -646,8 +646,17 @@ body {
   background: transparent;
   border: 0;
   font: inherit;
+  list-style: none;
   text-align: left;
   cursor: pointer;
+}
+
+.admin-stand-summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-stand-summary:hover {
+  background: var(--admin-cream);
 }
 
 .admin-stand-name {
@@ -692,6 +701,18 @@ body {
   font-size: 0.88rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.admin-stand-hide {
+  display: none;
+}
+
+.admin-stand details[open] .admin-stand-show {
+  display: none;
+}
+
+.admin-stand details[open] .admin-stand-hide {
+  display: inline;
 }
 
 .admin-stand-details {

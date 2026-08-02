@@ -132,13 +132,15 @@ describe("the stand list", () => {
     expect(screen.getByText("Public")).toBeTruthy();
     expect(screen.getByText("Open now")).toBeTruthy();
     expect(screen.getByText("Approved")).toBeTruthy();
-    expect(screen.queryByText("123 Farm Lane")).toBeNull();
+    const details = screen.getByText("North Stand").closest("details");
+    expect(details).toBeTruthy();
+    expect(details).not.toHaveAttribute("open");
 
-    await user.click(screen.getByRole("button", { name: "Show details for North Stand" }));
+    await user.click(screen.getByText("Show details"));
 
+    expect(details).toHaveAttribute("open");
     expect(screen.getByText("123 Farm Lane")).toBeTruthy();
     expect(screen.getByText("Eggs, flowers")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Hide details for North Stand" })).toBeTruthy();
   });
 });
 
