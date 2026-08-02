@@ -1,5 +1,6 @@
 export * from "./redaction";
 export * from "./segments";
+export * from "./scheduled-prompt-segments";
 export * from "./telnyx";
 export * from "./delivery";
 export * from "./provider-error";

@@ -604,11 +604,10 @@ export interface OpenProposalResult {
  * is the one the row holds at write time — a read-then-write could record a version that a
  * concurrent revision had already superseded.
  *
- * The guards make this safe to call after ANY accepted dispatch: it matches only an `open`
- * proposal belonging to the outbox row's own recipient, only where that row is an
- * `inventory_confirmation`, and only where its logical key names the proposal's CURRENT
- * version. A non-confirmation message or an accepted prompt for an older version matches
- * nothing and is a no-op.
+ * The guards make this safe to call after ANY accepted dispatch. Ordinary confirmation
+ * prompts keep their versioned key contract. Scheduled prompts instead join their typed
+ * durable subject: exact proposal/version, preference/version, and outbox identity are data,
+ * never reconstructed from a message category or logical-key string.
  */
 async function activateAcceptedPromptInTransaction(
   tx: Tx,
@@ -630,6 +629,23 @@ async function activateAcceptedPromptInTransaction(
       and work.logical_key = concat(
         'proposal-prompt-', proposal.id::text, '-', proposal.proposal_version::text
       )
+  `;
+  await tx`
+    update inventory_publication_proposals as proposal
+    set activation_outbox_id = ${outboxWorkId},
+        activated_version = subject.proposal_version,
+        activated_at = ${acceptedAt},
+        expires_at = ${new Date(acceptedAt.getTime() + CONFIRMATION_WINDOW_MS)},
+        updated_at = ${acceptedAt}
+    from scheduled_inventory_prompt_subjects as subject,
+         outbox_work as work
+    where subject.outbox_work_id = ${outboxWorkId}
+      and work.id = subject.outbox_work_id
+      and proposal.id = subject.proposal_id
+      and proposal.sender_hash = work.recipient_hash
+      and proposal.state = 'open'
+      and proposal.proposal_version = subject.proposal_version
+      and subject.offers_same
   `;
 }
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   nextPromptDueSlot,
+  renderScheduledInventoryPrompt,
+  renderScheduledInventoryUpdateRequest,
   type PromptCadence,
 } from "./prompt-schedule";
 
@@ -39,5 +41,29 @@ describe("scheduled inventory prompt cadence", () => {
         laterOf: new Date("2026-03-07T18:00:00.000Z"),
       }),
     ).toBeNull();
+  });
+
+  it("names the stand and shows every exact current item before offering SAME", () => {
+    const body = renderScheduledInventoryPrompt({
+      locationName: "North Stand",
+      entries: [
+        { entryId: "one", itemName: "Eggs", quantity: 6, unit: "dozen" },
+        { entryId: "two", itemName: "Kale", approximation: "limited", priceText: "$4" },
+      ],
+    });
+    expect(body).toContain("For North Stand:");
+    expect(body).toContain("- Eggs (6 dozen)");
+    expect(body).toContain("- Kale (limited, $4)");
+    expect(body).toContain("Reply SAME");
+    expect(body).not.toContain("one");
+  });
+
+  it("asks for an ordinary update without exposing a caller-controlled SAME switch", () => {
+    const body = renderScheduledInventoryUpdateRequest({
+      locationName: "Empty Stand",
+    });
+    expect(body).toContain("Empty Stand");
+    expect(body).toContain("text what is available now");
+    expect(body).not.toContain("SAME");
   });
 });

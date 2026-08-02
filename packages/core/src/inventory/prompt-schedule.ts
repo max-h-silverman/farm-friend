@@ -84,3 +84,27 @@ export function nextPromptDueSlot(input: {
   const dueDate = addCalendarDays(localDate(input.laterOf, input.timeZone), CADENCE_DAYS[input.cadence]);
   return localTenAmToInstant(dueDate, input.timeZone);
 }
+
+/** Code-render the exact visible snapshot; SAME is absent unless the caller proved it fits. */
+export function renderScheduledInventoryPrompt(input: {
+  locationName: string;
+  entries: SnapshotEntry[];
+}): string {
+  return [
+    `For ${input.locationName}:`,
+    renderProposedSnapshot({
+      entries: input.entries,
+      baseRevisionId: null,
+      isFirstPublication: false,
+    }),
+    "Reply SAME if this complete listing is still right, or text what changed.",
+  ].join("\n\n");
+}
+
+/** Code-rendered fallback when no published base exists or the full prompt exceeds its ceiling. */
+export function renderScheduledInventoryUpdateRequest(input: {
+  locationName: string;
+}): string {
+  return `${input.locationName}: no complete current listing can be shown here. Please text what is available now.`;
+}
+import { renderProposedSnapshot, type SnapshotEntry } from "./proposal";

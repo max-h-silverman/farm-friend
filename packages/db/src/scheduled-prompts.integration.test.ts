@@ -191,6 +191,11 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       update inventory_prompt_preferences set version = 0 where id = ${preferenceId}
     `).rejects.toThrow(/inventory_prompt_preferences_positive_version/);
+    await expect(handle().sql`
+      update inventory_prompt_preferences
+      set cadence = 'weekly', last_due_slot_at = ${NOW}, next_due_at = ${NOW}
+      where id = ${preferenceId}
+    `).rejects.toThrow(/inventory_prompt_preferences_due_slots_ordered/);
 
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
@@ -210,6 +215,32 @@ describe("scheduled inventory prompt preferences (integration)", () => {
         ${new Date("2027-01-01T00:00:00.000Z")}, ${NOW}
       ) returning id
     `;
+    await expect(handle().sql`
+      insert into scheduled_inventory_prompt_subjects (
+        proposal_id, proposal_version, preference_id, preference_version,
+        authorization_id, owner_farm_id, sales_location_id,
+        closure_base_is_first_instruction, due_slot_at, outbox_work_id,
+        offers_same, created_at
+      ) values (
+        ${proposal[0]?.id as string}, 0, ${preferenceId}, 1,
+        ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+        ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
+        false, ${NOW}
+      )
+    `).rejects.toThrow(/scheduled_prompt_subjects_positive_versions/);
+    await expect(handle().sql`
+      insert into scheduled_inventory_prompt_subjects (
+        proposal_id, proposal_version, preference_id, preference_version,
+        authorization_id, owner_farm_id, sales_location_id,
+        closure_base_is_first_instruction, due_slot_at, outbox_work_id,
+        offers_same, created_at
+      ) values (
+        ${proposal[0]?.id as string}, 1, ${preferenceId}, 0,
+        ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+        ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
+        false, ${NOW}
+      )
+    `).rejects.toThrow(/scheduled_prompt_subjects_positive_versions/);
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
