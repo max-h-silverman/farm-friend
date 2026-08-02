@@ -56,7 +56,8 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   authorization; never automatically retry a possibly accepted ambiguous result. For a scheduled
   prompt, also recheck designated authority, approval, preference version/due slot, inventory and
   closure bases, active closure, and newer farmer activity under the shared lock order. Prove
-  duplicate due-slot contention with each claimant queued behind a separately held row lock.
+  duplicate due-slot contention by queuing a claimant behind the winner's uncommitted unique-index
+  entry.
 - **The public map or feed:** it reads the **same published records** as SMS — web and SMS answers
   must agree. Render recency honestly. **Look at it in a browser before calling it done, at phone
   width and in both colour schemes** — F-043 shipped five defects past 719 green tests and a
