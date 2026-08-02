@@ -790,6 +790,7 @@ body {
  * whole design rests on the farmer actually reading it before saying yes. */
 
 .farmer-form {
+  width: 100%;
   max-width: 34rem;
   margin: 0 auto;
   padding: 1.5rem 1.1rem 3rem;
@@ -909,7 +910,13 @@ body {
   font-size: 1.2rem;
 }
 
+.farmer-settings-content {
+  width: 100%;
+  min-width: 0;
+}
+
 .farmer-settings-options {
+  min-width: 0;
   margin: 1rem 0;
   padding: 0;
   display: grid;
@@ -940,6 +947,78 @@ body {
   height: 1.25rem;
   margin: 0;
   accent-color: var(--green);
+}
+
+.farmer-settings-reminders {
+  min-width: 0;
+  display: grid;
+  gap: 0.85rem;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.farmer-settings-schedule {
+  min-width: 0;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.farmer-settings-schedule h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.farmer-settings-schedule label {
+  font-size: 0.92rem;
+}
+
+.farmer-settings-schedule select {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 0.75rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.farmer-settings-schedule button {
+  width: 100%;
+  color: var(--card);
+  background: var(--green);
+  border-color: var(--green);
+}
+
+@media (min-width: 42rem) {
+  .farmer-settings-schedule {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+
+  .farmer-settings-schedule h3 {
+    grid-column: 1 / -1;
+  }
+
+  .farmer-settings-schedule label {
+    grid-column: 1;
+  }
+
+  .farmer-settings-schedule select {
+    grid-column: 1;
+  }
+
+  .farmer-settings-schedule button {
+    grid-column: 2;
+    grid-row: 2 / 4;
+    width: auto;
+    min-width: 9rem;
+  }
 }
 
 .farmer-settings-back {

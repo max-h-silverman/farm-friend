@@ -32,12 +32,13 @@ import type { PagingStatus } from "./paging";
 //   1. compliance keywords   — STOP/START/JOIN/HELP/INFO, by CODE, before any model call
 //   2. FLAG                  — the human-handoff safety rail, also upstream of the model
 //   3. commitment YES/NO     — context- and version-bound to the sender's ONE open proposal
-//   4. farmer keywords       — SIGNUP/LINK/STAND/SETTINGS, upstream of the model
-//   5. MORE                  — the next page of the sender's pending result list (F-046)
-//   6. stand menu number     — exact server-bound authorization+location selection
-//   7. free text             — only here may a model seam run
+//   4. SAME                  — only the exact active scheduled full-snapshot subject
+//   5. farmer keywords       — SIGNUP/LINK/STAND/SETTINGS, upstream of the model
+//   6. MORE                  — the next page of the sender's pending result list (F-046)
+//   7. stand menu number     — exact server-bound authorization+location selection
+//   8. free text             — only here may a model seam run
 //
-// Steps 1-5 are `parseCommand` output, which takes the body and NOTHING else: no
+// Steps 1-6 are `parseCommand` output, which takes the body and NOTHING else: no
 // conversation state exists for it to consult, so no state can reinterpret a STOP. The
 // model seams are reached through `freeText`, a callback this module invokes only after
 // `parseCommand` returns `kind: "none"` — so "no model call on the compliance path" is a

@@ -1310,6 +1310,7 @@ async function lockScheduledDispatchBasis(
     join scheduled_inventory_prompt_subjects as subject
       on subject.authorization_id = auth.id
     where subject.outbox_work_id = ${outboxWorkId}
+      and auth.revoked_at is null
     for update of auth
   `;
   const approval = location.length === 0
@@ -1372,7 +1373,6 @@ async function lockScheduledDispatchBasis(
     (preferenceRow.last_due_slot_at as Date | null)?.getTime() ===
       (subject.due_slot_at as Date).getTime() &&
     authorizationRow.farm_id === subject.owner_farm_id &&
-    authorizationRow.revoked_at === null &&
     location[0]?.owner_farm_id === subject.owner_farm_id &&
     currentInventoryId === ((subject.inventory_base_revision_id as string | null) ?? null) &&
     currentClosureId === ((subject.closure_base_revision_id as string | null) ?? null) &&

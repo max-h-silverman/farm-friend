@@ -93,7 +93,7 @@ export function SettingsForm({
   }
 
   return (
-    <section aria-labelledby="default-stand-heading">
+    <section className="farmer-settings-content" aria-labelledby="default-stand-heading">
       <h2 id="default-stand-heading" className="farmer-settings-heading">
         Default SMS stand
       </h2>

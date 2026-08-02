@@ -12,6 +12,7 @@ export default defineConfig({
       // apps/web holds the composition root and the public surface helpers; their pure
       // logic (no DB/SMS/LLM) is unit-tested beside them.
       "apps/*/lib/**/*.test.{ts,tsx}",
+      "apps/*/app/**/*.test.{ts,tsx}",
     ],
     exclude: ["**/*.integration.test.ts", "**/node_modules/**"],
     environment: "node",

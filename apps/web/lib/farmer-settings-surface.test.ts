@@ -27,10 +27,13 @@ describe("F-051 farmer settings surface wiring", () => {
     expect(form).not.toMatch(/\/api\/farmer\/settings\?/);
   });
 
-  it("offers only the default SMS stand setting, not F-052 cadence or consent controls", () => {
+  it("offers explicit per-stand cadence controls without presenting consent as schedule state", () => {
     const form = source("apps/web/app/stand/[token]/settings/settings-form.tsx");
     expect(form).toMatch(/type=["']radio["']/);
     expect(form).toMatch(/Save default stand/);
-    expect(form).not.toMatch(/cadence|pause prompts|sms consent|opt out/i);
+    expect(form).toMatch(/JSON\.stringify\(\s*\{\s*token,\s*salesLocationId:\s*location\.salesLocationId,\s*cadence\s*\}\s*\)/);
+    expect(form).toMatch(/Every 2 days[\s\S]*Weekly[\s\S]*Every 2 weeks[\s\S]*Paused/);
+    expect(form).toMatch(/Pausing\s+reminders\s+does\s+not\s+change\s+your\s+SMS\s+consent/);
+    expect(form).not.toMatch(/opt out|stop texts|change consent/i);
   });
 });
