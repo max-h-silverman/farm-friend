@@ -28,15 +28,12 @@ export default async function StandDataPage() {
   return (
     <AdminShell
       currentPath="/admin/stand-data"
-      title="Stand data questions"
+      title="Listing questions"
       signedInAs={administrator.email}
     >
       <p className="admin-note">
-        When VIGA&apos;s stand data contradicts itself — two different opening times, a season
-        nobody can pin down, a note saying the stand closed — the loader records the question
-        here instead of guessing. Resolving one records <strong>your decision</strong> for the
-        record; it does not edit the listing. If the listing itself needs correcting, that
-        happens through the farmer or a listing edit, not here.
+        Farm Friend brings a question here when it cannot safely understand a listing. Record what
+        you decide; this does not change the listing.
       </p>
 
       <StandDataQueue

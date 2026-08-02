@@ -731,6 +731,24 @@ body {
   font-size: 1.2rem;
 }
 
+/* Put decisions that can unblock someone above reference material. The light rule keeps the
+   distinction visible without turning a small coordinator tool into a dashboard. */
+.admin-priority {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem 1rem;
+  background: var(--green-soft);
+  border-left: 4px solid var(--green);
+  border-radius: 0 12px 12px 0;
+}
+
+.admin-priority .admin-section-title {
+  margin-top: 0;
+}
+
+.admin-priority .admin-farms {
+  margin-top: 1rem;
+}
+
 .admin-users {
   margin-top: 1.25rem;
 }

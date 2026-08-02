@@ -29,7 +29,7 @@ function response(status: number, payload: Record<string, unknown> = {}): Respon
 }
 
 describe("the shared administrator shell", () => {
-  it("keeps the dashboard focused on four top-level work areas", () => {
+  it("uses four plain-language top-level work areas", () => {
     render(
       <AdminShell
         currentPath="/admin"
@@ -41,18 +41,21 @@ describe("the shared administrator shell", () => {
     );
 
     expect(
-      screen.getAllByRole("link", { name: /^(stands|users|flags|notifications)$/i }),
+      screen.getAllByRole(
+        "link",
+        { name: /^(stands|people|needs attention|stock reports)$/i },
+      ),
     ).toHaveLength(4);
     expect(screen.getByRole("link", { name: "Stands" })).toHaveAttribute("href", "/admin");
-    expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "People" })).toHaveAttribute(
       "href",
       "/admin/farmers",
     );
-    expect(screen.getByRole("link", { name: "Flags" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Needs attention" })).toHaveAttribute(
       "href",
       "/admin/flags",
     );
-    expect(screen.getByRole("link", { name: "Notifications" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Stock reports" })).toHaveAttribute(
       "href",
       "/admin/reports",
     );
@@ -77,7 +80,7 @@ describe("the shared administrator shell", () => {
       </AdminShell>,
     );
 
-    expect(screen.getByRole("link", { name: "Flags" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Needs attention" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -139,6 +142,38 @@ describe("the stand list", () => {
   });
 });
 
+describe("administrator language", () => {
+  it("uses map language and action-first labels in the stand and farmer queues", () => {
+    render(
+      <>
+        <StandList
+          stands={[
+            {
+              standId: "stand-language",
+              name: "North Stand",
+              farmName: "Example Farm",
+              status: "Shown on map",
+              openState: "Open now",
+              approved: true,
+              metadata: [["Visit in person", "Yes"]],
+            },
+          ]}
+        />
+        <FarmerQueue
+          requests={[]}
+          authorizations={[]}
+          farms={[]}
+        />
+      </>,
+    );
+
+    expect(screen.getByText("Shown on map")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Farmer requests" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "People with farmer access" })).toBeTruthy();
+    expect(screen.queryByText("Waiting on you")).toBeNull();
+  });
+});
+
 describe("the user list", () => {
   it("filters the directory by current farmer status", async () => {
     const user = userEvent.setup();
@@ -154,11 +189,11 @@ describe("the user list", () => {
     expect(screen.getByText("(•••) •••-0701")).toBeTruthy();
     expect(screen.getByText("(•••) •••-0702")).toBeTruthy();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "User type" }), "farmer");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Show" }), "farmer");
     expect(screen.getByText("(•••) •••-0701")).toBeTruthy();
     expect(screen.queryByText("(•••) •••-0702")).toBeNull();
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "User type" }), "not_farmer");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Show" }), "not_farmer");
     expect(screen.queryByText("(•••) •••-0701")).toBeNull();
     expect(screen.getByText("(•••) •••-0702")).toBeTruthy();
   });
@@ -187,10 +222,10 @@ describe("administrator queue interactions", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "Approve" }));
+    await user.click(screen.getByRole("button", { name: "Approve farm" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Example Farm is approved");
 
-    await user.click(screen.getByRole("button", { name: "Revoke approval" }));
+    await user.click(screen.getByRole("button", { name: "Remove approval" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/session expired/i);
     expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute(
       "href",
@@ -236,12 +271,12 @@ describe("administrator queue interactions", () => {
     );
 
     expect(document.body.textContent).not.toContain("+1206");
-    await user.selectOptions(screen.getByRole("combobox", { name: /farm for/i }), "farm-1");
-    await user.click(screen.getByRole("button", { name: "Authorize" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(/authorized/i);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Which farm do they run?" }), "farm-1");
+    await user.click(screen.getByRole("button", { name: "Give access" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/farmer access given/i);
 
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Stand for private link" }),
+      screen.getByRole("combobox", { name: "Which stand can this link update?" }),
       "stand-2",
     );
     await user.click(screen.getByRole("button", { name: "Create link" }));
@@ -317,7 +352,7 @@ describe("administrator queue interactions", () => {
     expect(await screen.findByLabelText("Flagged message")).toHaveTextContent(
       "Please review this",
     );
-    expect(screen.getByText(/closing this flag releases expired messages/i)).toBeTruthy();
+    expect(screen.getByText(/older messages can be deleted on their normal schedule/i)).toBeTruthy();
   });
 
   it("keeps review and resolution actions explicitly separate from public listings", () => {
@@ -352,7 +387,7 @@ describe("administrator queue interactions", () => {
       </>,
     );
 
-    expect(screen.getAllByText(/does not edit the public listing/i)).toHaveLength(2);
+    expect(screen.getAllByText(/does not change the map/i)).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /edit listing/i })).toBeNull();
     expect(screen.getByRole("textbox", { name: "Resolution note for Road stand" })).toBeTruthy();
   });
@@ -426,7 +461,7 @@ describe("administrator queue interactions", () => {
       screen.getByRole("textbox", { name: "Resolution note for Road stand" }),
       "Confirmed with VIGA",
     );
-    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    await user.click(screen.getByRole("button", { name: "Record decision" }));
     expect(await screen.findByRole("link", { name: "Sign in again" })).toHaveAttribute(
       "href",
       "/admin/login",
@@ -457,7 +492,7 @@ describe("administrator queue interactions", () => {
     );
     await user.click(screen.getByRole("button", { name: "Resolve" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      /expired thread messages are now eligible for deletion/i,
+      /older messages can now be deleted on their normal schedule/i,
     );
     expect(screen.getByText(/resolved — called the sender/i)).toBeTruthy();
     unmountFlag();
@@ -479,7 +514,7 @@ describe("administrator queue interactions", () => {
     );
     await user.click(screen.getByRole("button", { name: "Mark reviewed" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      /report marked reviewed.*public listing is unchanged/i,
+      /report marked reviewed.*map has not changed/i,
     );
     expect(screen.getByText("Reviewed")).toBeTruthy();
     unmountReport();
@@ -503,9 +538,9 @@ describe("administrator queue interactions", () => {
       screen.getByRole("textbox", { name: "Resolution note for Road stand" }),
       "Confirmed 9am opening",
     );
-    await user.click(screen.getByRole("button", { name: "Resolve" }));
+    await user.click(screen.getByRole("button", { name: "Record decision" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      /decision recorded.*public listing is unchanged/i,
+      /decision recorded.*map has not changed/i,
     );
     expect(screen.getByText(/resolved: confirmed 9am opening/i)).toBeTruthy();
   });

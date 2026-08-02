@@ -48,7 +48,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
   async function resolve(flagId: string) {
     const note = (notes[flagId] ?? "").trim();
     if (note === "") {
-      setError("Write what you decided before resolving — the note is the record.");
+      setError("Write down what you decided before closing this question.");
       return;
     }
     setPending(flagId);
@@ -75,7 +75,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
           row.flagId === flagId ? { ...row, resolutionNote: note } : row,
         ),
       );
-      setSuccess("Decision recorded. The public listing is unchanged.");
+      setSuccess("Decision recorded. The map has not changed.");
     } catch {
       setError("That change did not go through. Reload and try again.");
     } finally {
@@ -86,8 +86,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
   if (rows.length === 0) {
     return (
       <p className="admin-note">
-        No open questions. The loader raises one when a stand&apos;s source data needs a
-        human decision.
+        No listing questions right now.
       </p>
     );
   }
@@ -95,7 +94,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
   return (
     <>
       <p className="admin-boundary-note">
-        Resolving a data question records the decision; it does not edit the public listing.
+        Recording a decision does not change the map.
       </p>
       {error !== null && (
         <p className="admin-error" role="alert">
@@ -146,7 +145,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
                   disabled={pending === row.flagId}
                   onClick={() => resolve(row.flagId)}
                 >
-                  {pending === row.flagId ? "Saving…" : "Resolve"}
+                  {pending === row.flagId ? "Saving…" : "Record decision"}
                 </button>
               </div>
             )}

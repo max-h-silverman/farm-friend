@@ -65,8 +65,8 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
       );
       setSuccess(
         action === "review"
-          ? "Report marked reviewed. The public listing is unchanged."
-          : "Report dismissed. The public listing is unchanged.",
+          ? "Report marked reviewed. The map has not changed."
+          : "Report dismissed. The map has not changed.",
       );
     } catch {
       setError("That change did not go through. Reload and try again.");
@@ -78,7 +78,7 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
   if (rows.length === 0) {
     return (
       <p className="admin-note">
-        No stock-out reports yet. Customers file these privately from a stand&apos;s QR code.
+        No stock reports yet.
       </p>
     );
   }
@@ -86,7 +86,7 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
   return (
     <>
       <p className="admin-boundary-note">
-        Reviewing or dismissing a report does not edit the public listing.
+        Reviewing a report does not change the map.
       </p>
       {error !== null && (
         <p className="admin-error" role="alert">

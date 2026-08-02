@@ -6,9 +6,9 @@ import { useState } from "react";
 
 const ADMIN_ROUTES = [
   { href: "/admin", label: "Stands" },
-  { href: "/admin/farmers", label: "Users" },
-  { href: "/admin/flags", label: "Flags" },
-  { href: "/admin/reports", label: "Notifications" },
+  { href: "/admin/farmers", label: "People" },
+  { href: "/admin/flags", label: "Needs attention" },
+  { href: "/admin/reports", label: "Stock reports" },
 ] as const;
 
 export function SignedOutAdmin() {

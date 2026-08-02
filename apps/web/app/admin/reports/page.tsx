@@ -28,14 +28,12 @@ export default async function ReportsPage() {
   return (
     <AdminShell
       currentPath="/admin/reports"
-      title="Notifications"
+      title="Stock reports"
       signedInAs={administrator.email}
     >
       <p className="admin-note">
-        Customers report privately when something looks sold out. These are{" "}
-        <strong>signals, not corrections</strong> — marking one reviewed records that you
-        looked, and changes nothing a customer sees. Only the farmer&apos;s own confirmed
-        update changes a listing. If reports pile up for one stand, chase the farmer.
+        Customers can privately report an item that looks sold out. These reports do not change
+        the map. Review them, then contact the farmer if a stand needs an update.
       </p>
 
       <ReportQueue

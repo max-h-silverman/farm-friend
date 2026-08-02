@@ -147,28 +147,28 @@ function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdministratio
       standId: row.standId,
       name: row.name,
       farmName: row.farmName,
-      status: row.isPublic ? "Public" : "Not public",
+      status: row.isPublic ? "Shown on map" : "Hidden from map",
       openState: OPEN_STATE_LABEL[openState],
       approved: row.approved,
       metadata: [
         ["Farm", row.farmName],
-        ["Status", row.isPublic ? "Public" : "Not public"],
-        ["Farm approval", row.approved ? "Approved" : "Not approved"],
-        ["Stand type", row.kind],
-        ["Visitability", row.visitability === "visitable" ? "Has a stand to visit" : "Contact only"],
-        ["Offering type", row.offeringType],
+        ["Map listing", row.isPublic ? "Shown on map" : "Hidden from map"],
+        ["Farm approved", row.approved ? "Yes" : "No"],
+        ["Type", row.kind === "farm_stand" ? "Farm stand" : "Farmers market"],
+        ["Visit in person", row.visitability === "visitable" ? "Yes" : "No — contact the farm"],
+        ["What it offers", row.offeringType === "produce" ? "Farm goods" : row.offeringType === "services" ? "Services" : "Order ahead"],
         ["Address", row.publicAddress ?? "No public address"],
         ["Coordinates", row.publicLatitude === null || row.publicLongitude === null ? "Not applicable" : `${row.publicLatitude}, ${row.publicLongitude}`],
-        ["Farmer's hours note", row.hoursText ?? "Not stated"],
+        ["Farmer's note about hours", row.hoursText ?? "Not stated"],
         ["Season", formatSeason(row)],
         ["Hours", formatHours(row)],
         ["Open days", row.openDays?.map((day) => DAYS[day]).join(", ") ?? "Not stated"],
-        ["Stocking cadence", row.stockingCadence?.replaceAll("_", " ") ?? "Not stated"],
-        ["Stocking days", row.stockingDays?.map((day) => DAYS[day]).join(", ") ?? "Not stated"],
+        ["How often restocked", row.stockingCadence?.replaceAll("_", " ") ?? "Not stated"],
+        ["Restocking days", row.stockingDays?.map((day) => DAYS[day]).join(", ") ?? "Not stated"],
         ["Farm Bucks", row.farmBucksAccepted ? "Accepted" : row.farmBucksEligible ? "Eligible, not accepted" : "Not eligible"],
         ["Usually sells", row.usualOfferings.join(", ") || "Not stated"],
-        ["Also selling here", row.participantNames.join(", ") || "None"],
-        ["Current inventory", inventory],
+        ["Other sellers here", row.participantNames.join(", ") || "None"],
+        ["Current items", inventory],
         ["Last confirmed", row.publishedAt?.toLocaleString() ?? "Never"],
         ["Current closure", closure?.state === "active" ? "Closed by farmer" : closure?.state === "upcoming" ? "Upcoming closure" : "None"],
         ["Time zone", row.timezone],
@@ -197,29 +197,30 @@ export default async function AdminPage() {
 
   return (
     <AdminShell currentPath="/admin" title="Stands" signedInAs={administrator.email}>
-      <p className="admin-note">
-        Scan each stand&apos;s public status, current open state, and farm approval. Open a card
-        for the full record; an unknown opening status means the farmer has not stated enough
-        to judge it, not that the stand is closed.
-      </p>
+      <section className="admin-priority" aria-labelledby="approve-farms-heading">
+        <h2 id="approve-farms-heading" className="admin-section-title">Approve farms</h2>
+        <p className="admin-note">
+          A farm must be approved before its stands can appear on Farm Friend.
+        </p>
+        <ApprovalQueue
+          farms={farms.map((farm) => ({
+            farmId: farm.farmId,
+            name: farm.name,
+            approved: farm.approved,
+            approvedAt: farm.approvedAt?.toISOString() ?? null,
+            approvedByEmail: farm.approvedByEmail,
+          }))}
+        />
+      </section>
 
-      <StandList stands={asStandCards(stands)} />
-
-      <h2 className="admin-section-title">Farm approvals</h2>
-      <p className="admin-note">
-        Only approved farms publish publicly. Approval is <strong>your act</strong>, recorded
-        separately from farmer onboarding.
-      </p>
-
-      <ApprovalQueue
-        farms={farms.map((farm) => ({
-          farmId: farm.farmId,
-          name: farm.name,
-          approved: farm.approved,
-          approvedAt: farm.approvedAt?.toISOString() ?? null,
-          approvedByEmail: farm.approvedByEmail,
-        }))}
-      />
+      <section aria-labelledby="all-stands-heading">
+        <h2 id="all-stands-heading" className="admin-section-title">All stands</h2>
+        <p className="admin-note">
+          Check what people can see. Open a stand for its full listing. “Open status not stated”
+          means there is not enough schedule information to tell whether it is open.
+        </p>
+        <StandList stands={asStandCards(stands)} />
+      </section>
     </AdminShell>
   );
 }
