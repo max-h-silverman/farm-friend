@@ -28,7 +28,7 @@ export default async function ReportsPage() {
   return (
     <AdminShell
       currentPath="/admin/reports"
-      title="Stock-out reports"
+      title="Notifications"
       signedInAs={administrator.email}
     >
       <p className="admin-note">

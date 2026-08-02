@@ -1,6 +1,7 @@
 import {
   ADMIN_SESSION_TTL_MS,
   isSessionLive,
+  maskPhoneSuffix,
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
@@ -380,6 +381,212 @@ export async function listFarmsForApproval(db: Db): Promise<AdminFarmRow[]> {
     approvedAt:
       row.approved_at === null ? null : new Date(row.approved_at as string),
     approvedByEmail: (row.email as string | null) ?? null,
+  }));
+}
+
+/**
+ * The administrator's stand index. This deliberately carries stand and farm facts only:
+ * it never joins contacts or farmer authorization records, so the dashboard cannot turn
+ * into a profile of everyone who has texted Farm Friend.
+ */
+export interface AdminStandRow {
+  standId: string;
+  name: string;
+  farmName: string;
+  kind: string;
+  timezone: string;
+  visitability: "visitable" | "contact_only";
+  offeringType: string;
+  publicAddress: string | null;
+  publicLatitude: number | null;
+  publicLongitude: number | null;
+  hoursText: string | null;
+  seasonKind: string | null;
+  seasonStartMonth: number | null;
+  seasonStartDay: number | null;
+  seasonEndMonth: number | null;
+  seasonEndDay: number | null;
+  seasonNames: string[] | null;
+  openHoursKind: string | null;
+  openFromMinutes: number | null;
+  openUntilMinutes: number | null;
+  openDays: number[] | null;
+  stockingCadence: string | null;
+  stockingDays: number[] | null;
+  isPublic: boolean;
+  farmBucksAccepted: boolean;
+  farmBucksEligible: boolean;
+  approved: boolean;
+  approvedAt: Date | null;
+  publishedAt: Date | null;
+  closureResult: "close" | "reopen" | null;
+  closureKind: "temporary" | "seasonal" | null;
+  closureStartsOn: string | null;
+  closureClosedThrough: string | null;
+  usualOfferings: string[];
+  participantNames: string[];
+  currentItems: Array<{
+    itemName: string;
+    quantity: number | null;
+    unit: string | null;
+    priceText: string | null;
+    approximation: string | null;
+  }>;
+}
+
+/** Every stand and the operator-relevant facts that describe its current state. */
+export async function listStandsForAdministration(db: Db): Promise<AdminStandRow[]> {
+  const rows = await driver(db)`
+    select
+      location.id as stand_id,
+      location.name as stand_name,
+      farm.name as farm_name,
+      location.kind,
+      location.timezone,
+      location.visitability,
+      location.offering_type,
+      location.public_address,
+      location.public_latitude,
+      location.public_longitude,
+      location.hours_text,
+      location.season_kind,
+      location.season_start_month,
+      location.season_start_day,
+      location.season_end_month,
+      location.season_end_day,
+      location.season_names,
+      location.open_hours_kind,
+      location.open_from_minutes,
+      location.open_until_minutes,
+      location.open_days,
+      location.stocking_cadence,
+      location.stocking_days,
+      location.is_public,
+      location.farm_bucks_accepted,
+      location.farm_bucks_eligible,
+      approval.approved_at,
+      inventory.published_at,
+      closure.result as closure_result,
+      closure.closure_kind as closure_kind,
+      closure.starts_on::text as closure_starts_on,
+      closure.closed_through::text as closure_closed_through,
+      coalesce(
+        (select array_agg(offering.item order by offering.sort_order, offering.item)
+         from sales_location_offerings offering
+         where offering.sales_location_id = location.id),
+        array[]::text[]
+      ) as usual_offerings,
+      coalesce(
+        (select array_agg(participant.display_name order by lower(participant.display_name),
+          participant.display_name, participant.id)
+         from sales_location_participants participant
+         where participant.sales_location_id = location.id and participant.retired_at is null),
+        array[]::text[]
+      ) as participant_names,
+      coalesce(
+        (select jsonb_agg(jsonb_build_object(
+          'itemName', entry.item_name,
+          'quantity', entry.quantity,
+          'unit', entry.unit,
+          'priceText', entry.price_text,
+          'approximation', entry.approximation
+        ) order by entry.sort_order, entry.id)
+         from inventory_entries entry
+         where entry.inventory_revision_id = inventory.id),
+        '[]'::jsonb
+      ) as current_items
+    from sales_locations location
+    join farms farm on farm.id = location.owner_farm_id
+    left join farm_approvals approval
+      on approval.farm_id = farm.id and approval.revoked_at is null
+    left join inventory_revisions inventory
+      on inventory.sales_location_id = location.id and inventory.is_current
+    left join closure_revisions closure
+      on closure.sales_location_id = location.id and closure.is_current
+    order by location.name, location.id
+  `;
+
+  return rows.map((row) => ({
+    standId: row.stand_id as string,
+    name: row.stand_name as string,
+    farmName: row.farm_name as string,
+    kind: row.kind as string,
+    timezone: row.timezone as string,
+    visitability: row.visitability as AdminStandRow["visitability"],
+    offeringType: row.offering_type as string,
+    publicAddress: (row.public_address as string | null) ?? null,
+    publicLatitude: row.public_latitude === null ? null : Number(row.public_latitude),
+    publicLongitude: row.public_longitude === null ? null : Number(row.public_longitude),
+    hoursText: (row.hours_text as string | null) ?? null,
+    seasonKind: (row.season_kind as string | null) ?? null,
+    seasonStartMonth:
+      row.season_start_month === null ? null : Number(row.season_start_month),
+    seasonStartDay: row.season_start_day === null ? null : Number(row.season_start_day),
+    seasonEndMonth: row.season_end_month === null ? null : Number(row.season_end_month),
+    seasonEndDay: row.season_end_day === null ? null : Number(row.season_end_day),
+    seasonNames: (row.season_names as string[] | null) ?? null,
+    openHoursKind: (row.open_hours_kind as string | null) ?? null,
+    openFromMinutes:
+      row.open_from_minutes === null ? null : Number(row.open_from_minutes),
+    openUntilMinutes:
+      row.open_until_minutes === null ? null : Number(row.open_until_minutes),
+    openDays: (row.open_days as number[] | null) ?? null,
+    stockingCadence: (row.stocking_cadence as string | null) ?? null,
+    stockingDays: (row.stocking_days as number[] | null) ?? null,
+    isPublic: row.is_public as boolean,
+    farmBucksAccepted: row.farm_bucks_accepted as boolean,
+    farmBucksEligible: row.farm_bucks_eligible as boolean,
+    approved: row.approved_at !== null,
+    approvedAt: row.approved_at === null ? null : new Date(row.approved_at as string),
+    publishedAt: row.published_at === null ? null : new Date(row.published_at as string),
+    closureResult: (row.closure_result as AdminStandRow["closureResult"]) ?? null,
+    closureKind: (row.closure_kind as AdminStandRow["closureKind"]) ?? null,
+    closureStartsOn: (row.closure_starts_on as string | null) ?? null,
+    closureClosedThrough: (row.closure_closed_through as string | null) ?? null,
+    usualOfferings: (row.usual_offerings as string[] | null) ?? [],
+    participantNames: (row.participant_names as string[] | null) ?? [],
+    currentItems: (row.current_items as AdminStandRow["currentItems"]) ?? [],
+  }));
+}
+
+export interface AdminUserRow {
+  userId: string;
+  senderMask: string;
+  isFarmer: boolean;
+  farms: string[];
+}
+
+/**
+ * The smallest useful user directory: every SMS contact, its current farmer status, and the
+ * farms it may publish for. Full numbers, contact hashes, message text, and timestamps are
+ * intentionally absent, so this remains a filterable access view rather than a profile.
+ */
+export async function listUsersForAdministration(db: Db): Promise<AdminUserRow[]> {
+  const rows = await driver(db)`
+    select
+      contact.id as contact_id,
+      right(contact.phone_e164, 4) as sender_last_four,
+      exists (
+        select 1 from farmer_authorizations farmer_authorization
+        where farmer_authorization.contact_id = contact.id
+          and farmer_authorization.revoked_at is null
+      ) as is_farmer,
+      coalesce(
+        (select array_agg(farm.name order by farm.name, farm.id)
+         from farmer_authorizations farmer_authorization
+         join farms farm on farm.id = farmer_authorization.farm_id
+         where farmer_authorization.contact_id = contact.id
+           and farmer_authorization.revoked_at is null),
+        array[]::text[]
+      ) as farms
+    from contacts contact
+    order by contact.id
+  `;
+  return rows.map((row) => ({
+    userId: row.contact_id as string,
+    senderMask: maskPhoneSuffix((row.sender_last_four as string | null) ?? null),
+    isFarmer: row.is_farmer as boolean,
+    farms: (row.farms as string[] | null) ?? [],
   }));
 }
 

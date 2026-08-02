@@ -620,6 +620,165 @@ body {
   gap: 0.7rem;
 }
 
+.admin-stands {
+  list-style: none;
+  margin: 1.4rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.admin-stand {
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.admin-stand-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+  min-height: 74px;
+  gap: 0.45rem 0.9rem;
+  padding: 0.9rem 1rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-stand-name {
+  min-width: 0;
+}
+
+.admin-stand-name strong,
+.admin-stand-name span {
+  display: block;
+}
+
+.admin-stand-name strong {
+  font-size: 1.05rem;
+}
+
+.admin-stand-name span {
+  margin-top: 0.1rem;
+  color: var(--ink-faint);
+  font-size: 0.9rem;
+}
+
+.admin-stand-states {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.admin-stand-states span {
+  padding: 0.2rem 0.45rem;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.admin-stand-toggle {
+  align-self: start;
+  color: var(--green);
+  font-size: 0.88rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-stand-details {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0 1rem 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.admin-stand-details div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.55fr) minmax(0, 1fr);
+  gap: 0.8rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.admin-stand-details div:last-child {
+  border-bottom: 0;
+}
+
+.admin-stand-details dt {
+  color: var(--ink-faint);
+  font-weight: 600;
+}
+
+.admin-stand-details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-section-title {
+  margin: 2rem 0 0.35rem;
+  font-size: 1.2rem;
+}
+
+.admin-users {
+  margin-top: 1.25rem;
+}
+
+.admin-user-filter {
+  display: block;
+  max-width: 16rem;
+}
+
+.admin-user-filter select {
+  min-height: 48px;
+  width: 100%;
+  padding: 0 0.75rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.admin-user-list {
+  display: grid;
+  gap: 0;
+  margin: 0.8rem 0 0;
+  padding: 0;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.admin-user-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  padding: 0.8rem 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-user-list li:last-child {
+  border-bottom: 0;
+}
+
+.admin-user-list li span:last-child {
+  color: var(--ink-soft);
+}
+
 .admin-farm {
   display: flex;
   flex-wrap: wrap;
@@ -1060,6 +1219,11 @@ body {
   .admin-farm button,
   .admin-flag-actions button {
     flex: 1 1 10rem;
+  }
+
+  .admin-stand-details div {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
   }
 }
 

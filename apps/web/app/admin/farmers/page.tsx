@@ -4,11 +4,13 @@ import {
   listFarmerAuthorizations,
   listFarmsForApproval,
   listOpenFarmerOnboardingRequests,
+  listUsersForAdministration,
 } from "@farm-friend/db";
 import { resolveAdministrator } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { FarmerQueue } from "./farmer-queue";
 import { AdminShell, SignedOutAdmin } from "../admin-shell";
+import { UserList } from "../user-list";
 
 // The farmer authorization surface (F-040). Same server-side authorization shape as every
 // other admin page: an unauthenticated caller is never handed queue data, because it is
@@ -37,18 +39,27 @@ export default async function FarmersPage() {
   }
 
   const { db } = publicReadContext();
-  const [requests, authorizations, farms] = await Promise.all([
+  const [requests, authorizations, farms, users] = await Promise.all([
     listOpenFarmerOnboardingRequests(db),
     listFarmerAuthorizations(db),
     listFarmsForApproval(db),
+    listUsersForAdministration(db),
   ]);
 
   return (
     <AdminShell
       currentPath="/admin/farmers"
-      title="Farmer access"
+      title="Users"
       signedInAs={administrator.email}
     >
+      <p className="admin-note">
+        User records show only a masked phone number, current farmer status, and farm access.
+        Filter by whether a person can currently publish as a farmer.
+      </p>
+
+      <UserList users={users} />
+
+      <h2 className="admin-section-title">Farmer access</h2>
       <p className="admin-note">
         Authorizing a farmer lets them publish what their stand has — by text, or through
         their own private link. <strong>Check first that the person really runs the farm.</strong>{" "}

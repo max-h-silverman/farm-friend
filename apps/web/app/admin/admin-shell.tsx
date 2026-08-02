@@ -5,11 +5,10 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 const ADMIN_ROUTES = [
-  { href: "/admin", label: "Farm approval" },
-  { href: "/admin/farmers", label: "Farmer access" },
-  { href: "/admin/flags", label: "Flag review" },
-  { href: "/admin/reports", label: "Stock-out reports" },
-  { href: "/admin/stand-data", label: "Stand data" },
+  { href: "/admin", label: "Stands" },
+  { href: "/admin/farmers", label: "Users" },
+  { href: "/admin/flags", label: "Flags" },
+  { href: "/admin/reports", label: "Notifications" },
 ] as const;
 
 export function SignedOutAdmin() {
@@ -44,7 +43,7 @@ export function AdminShell({
   fetcher = fetch,
   onSignedOut,
 }: {
-  currentPath: (typeof ADMIN_ROUTES)[number]["href"];
+  currentPath: (typeof ADMIN_ROUTES)[number]["href"] | "/admin/stand-data";
   title: string;
   signedInAs: string;
   children: ReactNode;

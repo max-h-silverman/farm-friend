@@ -40,6 +40,13 @@ or nullable compatibility state.
 
 ## Verification
 
+The locally verified, **not deployed** administrator-dashboard refinement has four top-level
+workflows: Stands, Users, Flags, and Notifications. Stands use expandable metadata cards; Users
+lists SMS contacts with farmer/non-farmer filters and masked phone suffixes. It passes 850 unit
+tests, 535 real-Postgres integration tests across 39 files, typecheck, lint, and the production web
+build. A local browser proof uses an isolated Postgres database only; it does not read or write
+production data. No model-facing seam changed, so no model evaluation is owed.
+
 The deployed commit passes 847 unit tests, 553 integration tests across 40 files against an
 isolated real Postgres server, 44 scripted eval cases, typecheck, lint, and the production web
 build. The saved deploy plan passed 35/35 assertions; the completed-cutover guard passes its 2

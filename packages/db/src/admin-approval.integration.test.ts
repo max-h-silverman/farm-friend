@@ -19,6 +19,8 @@ import {
   revokeAdminSession,
   revokeFarmApproval,
   createDb,
+  listStandsForAdministration,
+  listUsersForAdministration,
   type Db,
 } from "./index";
 
@@ -125,6 +127,11 @@ describe("farm approval and admin sessions (integration)", () => {
     ids.farmerContact = contacts[0]?.id as string;
 
     await sql()`
+      insert into contacts (phone_e164, phone_hash)
+      values ('+12065550303', ${"f".repeat(64)})
+    `;
+
+    await sql()`
       insert into sms_consents (recipient_hash, state, capture_source, captured_at,
         capture_evidence_ref, updated_at)
       values (${farmerHash}, 'active', 'farmer_onboarding', ${t0.toISOString()},
@@ -175,6 +182,38 @@ describe("farm approval and admin sessions (integration)", () => {
     expect(approvals, "no fixture may pre-insert an approval").toHaveLength(0);
 
     expect(await attemptPublication(at(1))).toBe("not_approved");
+  });
+
+  it("lists stand metadata and masks a filterable farmer directory", async () => {
+    const [stand] = await listStandsForAdministration(handle());
+    expect(stand).toMatchObject({
+      standId: ids.location,
+      name: "Unapproved Stand",
+      farmName: "Unapproved Farm",
+      approved: false,
+      isPublic: true,
+      publicAddress: "9 Stand Way",
+      currentItems: [],
+    });
+
+    const users = await listUsersForAdministration(handle());
+    expect(users).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          userId: ids.farmerContact,
+          senderMask: "(•••) •••-0302",
+          isFarmer: true,
+          farms: ["Unapproved Farm"],
+        }),
+        expect.objectContaining({
+          senderMask: "(•••) •••-0303",
+          isFarmer: false,
+          farms: [],
+        }),
+      ]),
+    );
+    expect(JSON.stringify(users)).not.toContain("+12065550302");
+    expect(JSON.stringify(users)).not.toContain(farmerHash);
   });
 
   it("publishes once an administrator approves, and records who acted and when", async () => {

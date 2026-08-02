@@ -13,6 +13,22 @@ mid-session defeats its own purpose.
 
 ## 2026-08-02 (latest) — one pre-go-live architecture shipped, with the dead alternatives removed
 
+### Administrator dashboard refinement — merge candidate, not deployed
+
+The administrator navigation is now four workflow-level views: **Stands**, **Users**, **Flags**,
+and **Notifications**. Stands are expandable cards: the collapsed state gives the operational
+summary (name, status, currently open or not, and approval); expansion exposes the remaining
+available stand metadata. Users is one masked-contact reader with explicit all, farmer, and
+non-farmer views. Flags keeps the existing exception queues; Notifications is the stock-out and
+other report queue.
+
+The first real-Postgres run exposed a query error hidden by the unit doubles: `authorization` was
+used as a SQL alias. The reader now uses a non-reserved alias, and the real suite exercises the
+result. Final local proof is 850 unit tests, 535 integration tests across 39 real-Postgres files,
+typecheck, lint, and the production web build. The local browser exercise uses an isolated
+database and contains only demo records. No production data was read or changed, and no deployment
+occurred.
+
 Farm Friend's farmer-behavior tranche and final pre-go-live architecture are now in production at
 `a7e1417`. The deployment carries F-049 closure/reopening, F-050 participant names, F-051 exact
 multi-stand targeting and `STAND`/`SETTINGS`, F-052 scheduled prompts and `SAME`, and F-055's
