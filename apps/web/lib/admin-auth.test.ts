@@ -69,8 +69,11 @@ describe("admin session cookie", () => {
     expect(cookie).toMatch(/HttpOnly/i);
     // Secure: never sent over plaintext.
     expect(cookie).toMatch(/Secure/i);
-    // SameSite=Lax at minimum: a cross-site POST must not carry approval authority.
-    expect(cookie).toMatch(/SameSite=(Lax|Strict)/i);
+    // The admin is embedded from the Cloud Run origin inside VIGA's Squarespace site.
+    // `None` permits that cross-site iframe; `Partitioned` confines the credential to
+    // that one top-level site rather than making it a general third-party cookie.
+    expect(cookie).toMatch(/SameSite=None/i);
+    expect(cookie).toMatch(/Partitioned/i);
     // Scoped to the whole app, and bounded — a session cookie that outlives its database
     // record is a confusing dead credential in the browser.
     expect(cookie).toMatch(/Path=\//);
@@ -82,6 +85,8 @@ describe("admin session cookie", () => {
     const cookie = clearSessionCookie();
     expect(cookie).toMatch(/Max-Age=0/);
     expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/SameSite=None/i);
+    expect(cookie).toMatch(/Partitioned/i);
     expect(cookie).toContain(`${ADMIN_SESSION_COOKIE}=;`);
   });
 

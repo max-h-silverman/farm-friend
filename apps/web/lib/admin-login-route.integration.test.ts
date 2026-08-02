@@ -109,7 +109,9 @@ describe("administrator password route (integration)", () => {
     expect(response.status).toBe(200);
     expect(body).toBe('{"authenticated":true}');
     expect(token).toMatch(/^[0-9a-f]{64}$/);
-    expect(cookie).toContain("HttpOnly; Secure; SameSite=Lax; Max-Age=43200");
+    expect(cookie).toContain(
+      "HttpOnly; Secure; SameSite=None; Partitioned; Max-Age=43200",
+    );
     expect(body).not.toContain(token as string);
     expect(body).not.toContain(verifier);
 

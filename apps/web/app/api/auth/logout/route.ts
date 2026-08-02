@@ -5,6 +5,7 @@ import {
   clearSessionCookie,
   sessionTokenFromRequest,
 } from "../../../../lib/admin-auth";
+import { isTrustedAdminMutationSource } from "../../../../lib/admin-guard";
 
 // Ending a session (F-025a). Two things must happen, and only one of them is the browser's:
 // the durable record is revoked server-side, and the cookie is cleared. Clearing the cookie
@@ -16,6 +17,9 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request): Promise<Response> {
+  if (!isTrustedAdminMutationSource(req)) {
+    return Response.json({ error: "forbidden" }, { status: 403 });
+  }
   const token = sessionTokenFromRequest(req);
   if (token !== null) {
     const { db, clock } = publicReadContext();

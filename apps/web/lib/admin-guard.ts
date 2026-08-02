@@ -21,10 +21,30 @@ export interface AdminCaller {
   email: string;
 }
 
+/**
+ * A partitioned cookie can travel in VIGA's cross-site iframe, so SameSite no longer rejects
+ * forged writes for us. Browser admin writes originate in the embedded app itself: their
+ * `Origin` must exactly match the API URL's origin. VIGA is the frame owner, not the request
+ * origin, and is deliberately not accepted here.
+ */
+export function isTrustedAdminMutationSource(req: Request): boolean {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return true;
+  const origin = req.headers.get("origin");
+  if (origin === null) return false;
+  try {
+    return origin === new URL(req.url).origin;
+  } catch {
+    return false;
+  }
+}
+
 /** Resolve the caller to a live administrator, or the Response that refuses them. */
 export async function requireAdministrator(
   req: Request,
 ): Promise<AdminCaller | Response> {
+  if (!isTrustedAdminMutationSource(req)) {
+    return Response.json({ error: "forbidden" }, { status: 403 });
+  }
   const administrator = await resolveAdministrator(req);
   if (administrator === null) {
     return Response.json({ error: "forbidden" }, { status: 403 });

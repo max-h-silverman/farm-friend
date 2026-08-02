@@ -25,11 +25,13 @@ refuses every other administrator identity. Sign-in verifies the configured pass
 that fixed authority row; neither the password nor its verifier is stored in Postgres.
 
 Success mints a **durable session**: a database row whose token the browser holds as an opaque
-`HttpOnly; Secure; SameSite=Lax` cookie. Only the token's **hash** is stored, so a database read
-cannot recover a live credential. The administrator row is looked up **per request** from the
-session, which is why revoking an administrator or a session takes effect on their **next
-request** rather than whenever a self-contained token would have expired. Sessions expire in 12
-hours; signing out revokes the record server-side, not just the cookie.
+`HttpOnly; Secure; SameSite=None; Partitioned` cookie. Partitioning lets the credential work inside
+VIGA's Squarespace iframe while confining it to that top-level site; a different embedding site gets
+a different empty cookie partition. Only the token's **hash** is stored, so a database read cannot
+recover a live credential. The administrator row is looked up **per request** from the session,
+which is why revoking an administrator or a session takes effect on their **next request** rather
+than whenever a self-contained token would have expired. Sessions expire in 12 hours; signing out
+revokes the record server-side, not just the cookie.
 
 **How you actually sign in.** Go to `/admin/login`, keep the fixed email shown there, enter the
 administrator password, and choose **Sign in**. The page works without JavaScript. Every refusal has
@@ -148,6 +150,33 @@ column. `maskPhoneSuffix` **refuses** anything longer than four digits rather th
 a caller that accidentally passes a whole number fails closed instead of leaking. The approval queue
 and the stock-out queue carry no phone material at all — asserted by tests that grep the whole
 serialized response for an E.164 and for any 64-hex run.
+
+## Embedding the admin on VIGA's website
+
+Paste this into a Squarespace **code block** on the administrator page:
+
+```html
+<iframe
+  src="https://farm-friend-web-p5mfxfp5za-uw.a.run.app/admin"
+  title="VIGA Farm Friend administration"
+  style="width:100%;height:1100px;border:0;display:block"
+></iframe>
+
+<p>
+  <a
+    href="https://farm-friend-web-p5mfxfp5za-uw.a.run.app/admin"
+    target="_blank"
+    rel="noopener noreferrer"
+  >Open admin in a separate window</a>
+</p>
+```
+
+The deployed admin must send the matching partitioned session cookie before iframe sign-in works.
+Administrator pages permit framing only from `https://vigavashon.org`,
+`https://www.vigavashon.org`, or the app itself. Every authenticated write also requires the
+browser request to originate from the admin app, independently of the cookie. A direct-window
+session and a Squarespace-embedded session occupy separate browser partitions and can require
+separate sign-ins.
 
 ## Embedding the map on VIGA's website (F-043)
 

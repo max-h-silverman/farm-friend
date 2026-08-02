@@ -61,6 +61,9 @@ describe("admin routes (integration)", () => {
     new Request(url, {
       ...init,
       headers: {
+        ...(init?.method === undefined || ["GET", "HEAD", "OPTIONS"].includes(init.method)
+          ? {}
+          : { origin: new URL(url).origin }),
         ...(init?.headers ?? {}),
         ...(init?.token === undefined
           ? {}
@@ -225,6 +228,24 @@ describe("admin routes (integration)", () => {
       // is not a matter of forging a signature — there is nothing to forge.
       const token = issueSessionToken();
       expect(await probeAdministrator(token)).toBe(403);
+    });
+
+    it("refuses a cross-site write even when the browser carries a live session", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const before = await sql()`select count(*)::int as n from farm_approvals`;
+
+      const response = await farmsRoute.POST(
+        request("https://ff.example/api/admin/farms", {
+          method: "POST",
+          token,
+          headers: { origin: "https://attacker.example" },
+          body: JSON.stringify({ farmId: ids.farm, action: "approve" }),
+        }),
+      );
+
+      expect(response.status).toBe(403);
+      const after = await sql()`select count(*)::int as n from farm_approvals`;
+      expect(after[0]?.n).toBe(before[0]?.n);
     });
 
     it("refuses a revoked session", async () => {
@@ -853,6 +874,20 @@ describe("admin routes (integration)", () => {
       // The copied token is dead server-side — clearing the cookie alone would have left a
       // working credential behind for anyone who had it.
       expect(await probeAdministrator(token)).toBe(403);
+    });
+
+    it("does not revoke a session from a cross-site request", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const response = await logoutRoute.POST(
+        request("https://ff.example/api/auth/logout", {
+          method: "POST",
+          token,
+          headers: { origin: "https://attacker.example" },
+        }),
+      );
+
+      expect(response.status).toBe(403);
+      expect(await probeAdministrator(token)).toBe(404);
     });
   });
 });

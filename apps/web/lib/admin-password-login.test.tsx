@@ -83,7 +83,7 @@ describe("fixed-account administrator password login", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ authenticated: true });
     expect(response.headers.get("set-cookie")).toMatch(
-      /^ff_admin_session=[a-f0-9]{64}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=43200$/,
+      /^ff_admin_session=[a-f0-9]{64}; Path=\/; HttpOnly; Secure; SameSite=None; Partitioned; Max-Age=43200$/,
     );
     expect(calls.sessions).toEqual([
       {

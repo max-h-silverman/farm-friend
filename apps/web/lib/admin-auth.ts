@@ -41,8 +41,11 @@ export function serializeSessionCookie(token: string, ttlMs: number): string {
     "HttpOnly",
     // Never sent over plaintext.
     "Secure",
-    // A cross-site request must not carry approval authority.
-    "SameSite=Lax",
+    // The admin is intentionally embedded cross-site on VIGA's Squarespace page. `None`
+    // permits the iframe to carry the session; `Partitioned` keys it to VIGA's top-level
+    // site, so the credential is not available when another site embeds this origin.
+    "SameSite=None",
+    "Partitioned",
     `Max-Age=${maxAgeSeconds}`,
   ].join("; ");
 }
@@ -54,7 +57,8 @@ export function clearSessionCookie(): string {
     "Path=/",
     "HttpOnly",
     "Secure",
-    "SameSite=Lax",
+    "SameSite=None",
+    "Partitioned",
     "Max-Age=0",
   ].join("; ");
 }

@@ -31,6 +31,22 @@ const nextConfig = {
     "@farm-friend/db",
     "@farm-friend/sms",
   ],
+  // Administrator pages may be framed by VIGA's Squarespace site and nowhere else. This
+  // contains clickjacking even though the session cookie must work inside that one iframe.
+  async headers() {
+    return [
+      {
+        source: "/admin/:path*",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value:
+              "frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;
