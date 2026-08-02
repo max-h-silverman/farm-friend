@@ -6,9 +6,13 @@
 >
 > This is the **only** place build status lives. The architecture docs carry none.
 
-**F-052 scheduled inventory prompts are implemented locally on `f-052-scheduled-prompts` and are
-not deployed.** The full repository gate set for the final branch commit is still pending; the
-focused F-052 suites, typecheck, and lint are green as of `5e4591e`.
+**Verified 2026-08-01** (`f-052-scheduled-prompts` at `698fdd1`): `npm test` **871/871**
+(88 files); `npm run test:integration` **566/566** (38 files) against real Postgres using isolated
+empty databases; typecheck, lint, the production web build, and Drizzle no-op generation pass. The
+build retains two known warnings: `outputFileTracingRoot` is not recognized by this Next.js version,
+and its ESLint plugin is not detected.
+
+**F-052 scheduled inventory prompts are implemented locally and are not deployed.**
 
 The existing one-minute worker route now runs one bounded scheduled-prompt pass between inbound
 routing and outbound dispatch. Explicit per-stand cadences are every 2 days, weekly, every 2 weeks,
