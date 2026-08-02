@@ -66,6 +66,7 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `CLOUD_TASKS_*` | Five variables, all or none. Omit all for local scheduled-pass-only operation |
 | `ADMIN_PASSWORD_HASH` | Required Argon2id verifier on the `web` role only; never log or pass as a command argument |
 | `PUBLIC_BASE_URL` | Required absolute origin. HTTPS except localhost; never derived from request headers |
+| `PUBLIC_MAP_URL` | Required canonical map page. HTTPS except localhost; returned unchanged for the deterministic `MAP` SMS command |
 | `SMS_PROVIDER` | Required `simulator` or `telnyx`; no default |
 | `TELNYX_API_KEY`, `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY` | All required with Telnyx; the public key verifies webhook signatures |
 | `LLM_PROVIDER` | Required `stub` or `deepinfra`; no default or environment exception |

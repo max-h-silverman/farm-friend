@@ -103,6 +103,16 @@ variable "telnyx_from_number" {
   }
 }
 
+variable "public_map_url" {
+  description = "Canonical public page hosting Farm Friend's live map. MAP returns this exact URL; an absent value must fail the deployment plan rather than sending an old link."
+  type        = string
+
+  validation {
+    condition     = can(regex("^https://[^[:space:]]+$", var.public_map_url))
+    error_message = "public_map_url must be an absolute HTTPS URL without whitespace."
+  }
+}
+
 variable "rotation_applied_at" {
   description = <<-EOT
     A rotation marker, e.g. `2026-07-29T17-35`. Bumped whenever a secret VERSION is added.

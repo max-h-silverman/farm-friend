@@ -132,6 +132,37 @@ describe("the SAME scheduled-confirmation keyword (F-052)", () => {
   });
 });
 
+describe("the MAP keyword (F-057)", () => {
+  it("is an exact deterministic command that bypasses the model", () => {
+    for (const body of ["MAP", "map", "  Map  ", "MAP."]) {
+      expect(parseCommand(body)).toEqual({ kind: "map" });
+      expect(bypassesModel(body)).toBe(true);
+    }
+  });
+
+  it("leaves sentences mentioning a map for ordinary interpretation", () => {
+    for (const body of ["can you map the closest stand?", "map of farm stands", "MAP please"]) {
+      expect(parseCommand(body)).toEqual({ kind: "none" });
+      expect(bypassesModel(body)).toBe(false);
+    }
+  });
+
+  it("cannot shadow compliance or commitment commands", () => {
+    expect(parseCommand("STOP")).toEqual({ kind: "compliance", keyword: "STOP", global: true });
+    expect(parseCommand("START").kind).toBe("compliance");
+    expect(parseCommand("YES").kind).toBe("commitment");
+  });
+
+  it("is not a carrier-registered keyword", () => {
+    const registered = [
+      ...REGISTERED_OPT_OUT_KEYWORDS,
+      ...REGISTERED_OPT_IN_KEYWORDS,
+      ...REGISTERED_HELP_KEYWORDS,
+    ] as readonly string[];
+    expect(registered).not.toContain("MAP");
+  });
+});
+
 // The registered keyword lists are a live external artifact: they were submitted to the
 // carrier and are promised on VIGA's public pages. These tests read that file so the two
 // cannot drift apart silently in EITHER direction — a keyword registered but unparsed is a

@@ -77,6 +77,7 @@ export async function POST(req: Request): Promise<Response> {
               inquiry: context.inquiry,
               clock: context.clock,
               publicBaseUrl: context.config.publicBaseUrl,
+              publicMapUrl: context.config.publicMapUrl,
             },
             senderHashes,
           ),

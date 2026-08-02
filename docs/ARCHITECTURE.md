@@ -230,18 +230,21 @@ order:
    unsubscribes **globally**, regardless of conversation state, and can never be reinterpreted.
    `START` establishes or restores the one launch-program consent state from any state; `JOIN`
    establishes it only for a sender with no record, and otherwise replies naming `START`.
-2. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). FLAG is a
+2. **`MAP`** returns only the configured canonical public-map URL. It is stateless, model-free,
+   and remains available for a delayed carrier event; its inquiry reply is still suppressed at
+   dispatch if STOP has taken effect.
+3. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). FLAG is a
    **Farm Friend product safety feature**, not a carrier-mandated keyword.
-3. **Live farmer-update confirmation** — a context-bound `YES` or `NO` that applies to the sender's
+4. **Live farmer-update confirmation** — a context-bound `YES` or `NO` that applies to the sender's
    one open proposal, carrying inventory, owner-only closure/reopening, or both. It is **never
    global**, commits **exactly once**, and **expires**. A token
    must match deterministically and be the **entire message**; anything else is free text for the
    steps below.
-4. **Scheduled snapshot confirmation** (F-052) — exact whole-message `SAME` may publish an
+5. **Scheduled snapshot confirmation** (F-052) — exact whole-message `SAME` may publish an
    identical inventory revision only for the sender's active, provider-accepted scheduled prompt
    whose complete snapshot was shown. With no such prompt it changes nothing; text such as
    "same eggs?" continues below as free text. It never confirms closure or profile data.
-5. **Farmer product keywords** (F-040/F-051) — `SIGNUP` asks VIGA to set the farmer up, `LINK` asks
+6. **Farmer product keywords** (F-040/F-051) — `SIGNUP` asks VIGA to set the farmer up, `LINK` asks
    for their private web-form link, `STAND` issues an exact numbered target menu, and `SETTINGS`
    opens the settings view through the existing standing link. Like `FLAG` these are **Farm Friend product keywords, never
    carrier-mandated ones**, and must never be registered as such. They are parsed **last among the
@@ -249,7 +252,7 @@ order:
    synonym ever collided with `STOP`, an opt-out would stop working. Neither grants anything:
    `SIGNUP` writes a record with no grant column, and `LINK` is refused unless the sender already
    holds a live authorization.
-6. **`MORE`** (F-046) returns the next page of the sender's pending result list. Also a **Farm
+7. **`MORE`** (F-046) returns the next page of the sender's pending result list. Also a **Farm
    Friend product keyword, never a carrier-mandated one**, and parsed **alongside the farmer
    keywords at the end** for the same reason: paging must never shadow an opt-out or a commitment
    token. It is **context-bound like a confirmation token, never global** — it means nothing
@@ -257,12 +260,12 @@ order:
    question. It is deliberately **independent of `YES`/`NO`**: a farmer with an open inventory
    confirmation can page and keep the confirmation, because the words do not overlap and blocking
    one for the other would solve a collision that does not exist.
-7. **A positive whole-message number** selects only from the sender's live 12-hour `STAND` menu.
+8. **A positive whole-message number** selects only from the sender's live 12-hour `STAND` menu.
    The stored option binds an exact authorization+location pair; without that context it is a
    code-rendered refusal, never free text.
-8. **Active conversation state** routes the message to its in-flight flow.
-9. **Authority and consent gates** determine what the sender may do.
-10. **Only then** may a model seam run.
+9. **Active conversation state** routes the message to its in-flight flow.
+10. **Authority and consent gates** determine what the sender may do.
+11. **Only then** may a model seam run.
 
 Farmer free text resolves the sender's durable exact target in code before interpretation. One
 live target is selected automatically; several with no selection issue the same numbered menu.

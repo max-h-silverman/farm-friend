@@ -105,6 +105,7 @@ describe("inbound reply latency (integration)", () => {
     // Required by the composition root since F-032. Nothing on the SMS path uses them; they
     // are set so `appContext()` resolves at all.
     process.env.PUBLIC_BASE_URL = "https://ff.example";
+    process.env.PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map";
     // GL-019: no default provider. These suites drive deterministic paths and assert no
     // model is reached, so the stub is the right choice — it now has to be stated.
     process.env.LLM_PROVIDER = "stub";
@@ -355,6 +356,7 @@ describe("inbound reply latency (integration)", () => {
       clock: new SystemClock(),
       // F-040: configured origin for a farmer standing link. Never a request header.
       publicBaseUrl: "https://farmfriend.example",
+      publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
     });
     await runOutboundPass({
       context: asContext(outboundContext()),
@@ -468,6 +470,7 @@ describe("inbound reply latency (integration)", () => {
         clock: new SystemClock(),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
+        publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
       };
 
       // Fired together: kicks (sender-scoped) and cron passes (unscoped sweeps), REPEATED
@@ -536,6 +539,7 @@ describe("inbound reply latency (integration)", () => {
         clock: new SystemClock(),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
+        publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
       };
       const kick = () =>
         kickSenderPasses(

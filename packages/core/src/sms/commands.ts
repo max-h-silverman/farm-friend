@@ -30,6 +30,8 @@ export type FarmerKeyword = "SIGNUP" | "LINK" | "STAND" | "SETTINGS";
 
 export type ParsedCommand =
   | { kind: "compliance"; keyword: ComplianceKeyword; global: boolean }
+  /** The live public-map link (F-057), a stateless product command. */
+  | { kind: "map" }
   | { kind: "commitment"; token: CommitmentToken; contextBound: true }
   | { kind: "scheduled_same"; contextBound: true }
   | { kind: "farmer"; keyword: FarmerKeyword }
@@ -147,6 +149,11 @@ export function parseCommand(body: string): ParsedCommand {
   const compliance = COMPLIANCE_WORDS[normalized];
   if (compliance) {
     return { kind: "compliance", keyword: compliance, global: false };
+  }
+  // F-057. MAP is a fixed product command, not a carrier compliance keyword. It is
+  // deliberately after every compliance command and before any model-reachable branch.
+  if (normalized === "MAP") {
+    return { kind: "map" };
   }
   const commitment = COMMITMENT_WORDS[normalized];
   if (commitment) {

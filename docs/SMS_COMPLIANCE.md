@@ -47,6 +47,17 @@ commit or decline.
 | `STAND` | Issue a 12-hour numbered menu of the sender's currently editable locations. Each number binds one exact authorization+location pair; the model sees neither menu nor choice. |
 | `SETTINGS` | Send the existing private standing link directly to its settings view. It uses the same token and revocation lifecycle as `LINK`, never a second login. |
 
+### Customer map keyword (F-057 — never carrier-registered)
+
+| Keyword | Behavior |
+|---|---|
+| `MAP` | Return only the configured canonical Farm Friend public-map URL. It is stateless, model-free, and does not alter an open confirmation or result list. |
+
+`MAP` is parsed after compliance keywords and before all stateful commands. It therefore cannot
+shadow STOP/START/JOIN/HELP, while a delayed MAP can still receive the current configured link.
+Its direct reply is an `inquiry_reply`, so the existing STOP dispatch guard suppresses it for a
+stopped sender.
+
 ### Customer paging keyword (F-046 — never carrier-registered)
 
 | Keyword | Behavior |

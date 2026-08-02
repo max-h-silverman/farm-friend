@@ -76,6 +76,8 @@ export interface AppConfig {
    * credential URL on the attacker's origin.
    */
   publicBaseUrl: string;
+  /** The canonical customer-facing map URL, returned by the deterministic MAP command. */
+  publicMapUrl: string;
   sms: SmsConfig;
   model: ModelConfig;
 }
@@ -222,6 +224,33 @@ export function resolvePublicBaseUrl(env: EnvVars): string {
   return raw.replace(/\/+$/, "");
 }
 
+/**
+ * Resolve the customer-facing public map URL. It is deliberately a separate configured
+ * value: VIGA may host the map page on its own site rather than Farm Friend's Cloud Run
+ * origin, and a guessed or stale link is worse than no reply.
+ */
+export function resolvePublicMapUrl(env: EnvVars): string {
+  const raw = required(env, "PUBLIC_MAP_URL").trim();
+
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new ConfigurationError(
+      "PUBLIC_MAP_URL must be an absolute URL, e.g. https://www.vigavashon.org/farm-stand-map",
+    );
+  }
+
+  const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocal)) {
+    throw new ConfigurationError(
+      "PUBLIC_MAP_URL must use https (http is permitted only for localhost)",
+    );
+  }
+
+  return raw;
+}
+
 /** Resolve and validate runtime configuration, or throw before anything starts. */
 export function resolveConfig(env: EnvVars = process.env): AppConfig {
   const sms = resolveSmsConfig(env);
@@ -240,6 +269,7 @@ export function resolveConfig(env: EnvVars = process.env): AppConfig {
     // The phone hash is the only lookup/log key, so its salt is mandatory.
     phoneSalt: required(env, "PHONE_HASH_SALT"),
     publicBaseUrl: resolvePublicBaseUrl(env),
+    publicMapUrl: resolvePublicMapUrl(env),
     sms: sms.config,
     model,
   };
