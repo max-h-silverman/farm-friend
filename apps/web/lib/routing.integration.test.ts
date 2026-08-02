@@ -76,6 +76,7 @@ describe("inbound routing end to end (integration)", () => {
   let keys: KeyPair;
   let webhookPOST: (req: Request) => Promise<Response>;
   let kickPOST: (req: Request) => Promise<Response>;
+  const queuedKicks = new Set<Promise<void>>();
 
   const customerPhone = "+12065550811";
   const customerHash = hashPhone(customerPhone, phoneSalt);
@@ -161,18 +162,22 @@ describe("inbound routing end to end (integration)", () => {
         ) as { senderHash: string; providerEventId: string };
 
         // Asynchronous, as Cloud Tasks is: delivering inline would make the webhook's own
-        // response wait on the passes and invert the property these suites prove.
-        setTimeout(() => {
-          void kickPOST(
+        // response wait on the passes and invert the property these suites prove. The fixture
+        // still retains the task promise so a later reset cannot race its outbound pass.
+        const kick = new Promise<void>((resolve) => setTimeout(resolve, 0))
+          .then(() => kickPOST(
             new Request("https://worker.test/api/internal/kick", {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify(payload),
             }),
-          ).catch(() => {
+          ))
+          .then(() => undefined)
+          .catch(() => {
             // Retried by the queue in production; the scheduled pass is the net here.
           });
-        }, 0);
+        queuedKicks.add(kick);
+        void kick.finally(() => queuedKicks.delete(kick));
 
         return Response.json({ name: "projects/p/locations/l/queues/q/tasks/t" });
       }
@@ -314,7 +319,10 @@ describe("inbound routing end to end (integration)", () => {
         select state from provider_inbox_events where event_type = 'message_received'
       `;
       states = rows.map((row) => row.state as string);
-      if (states.length > 0 && states.every((state) => state === "processed")) return;
+      if (states.length > 0 && states.every((state) => state === "processed")) {
+        await settleKick();
+        return;
+      }
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     throw new Error(
@@ -361,6 +369,10 @@ describe("inbound routing end to end (integration)", () => {
    * failure the assertions below should report, not one to hide behind a hang.
    */
   async function settleKick(): Promise<void> {
+    // A terminal inbox row proves only that the inbound half finished. The task still runs
+    // outbound dispatch and can be reading consent while the next fixture reset seeks an
+    // exclusive table lock.
+    await Promise.all([...queuedKicks]);
     const deadline = Date.now() + 5_000;
     while (Date.now() < deadline) {
       const rows = await client()`

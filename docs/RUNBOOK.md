@@ -105,9 +105,19 @@ the configured password proves access to that one account. There is no add-admin
 
 ### Provision, bootstrap, then sign in
 
-1. With explicit approval limited to creating the new empty container, run a targeted apply for
-   `google_secret_manager_secret.protected["admin-password-hash"]`. Confirm it creates only that
-   container: no Cloud Run revision, no magic-link-secret deletion, and no survivor replacement.
+1. First make and inspect a targeted plan with the current immutable image digest; do not apply it
+   yet. Its assertion refuses any service, IAM, old-secret, or survivor action:
+
+   ```bash
+   cd infra
+   tofu plan -target='google_secret_manager_secret.protected["admin-password-hash"]' \
+     -var="image_digest=$DIGEST" -out=/tmp/f056-password-secret.tfplan
+   tofu show -json /tmp/f056-password-secret.tfplan | python3 target-secret-plan-assertions.py
+   ```
+
+   Only after explicit approval limited to that reviewed plan, apply
+   `/tmp/f056-password-secret.tfplan`. It creates only the empty password container: no Cloud Run
+   revision, no magic-link-secret deletion, and no survivor replacement.
 2. From a private terminal, run `npm run admin:provision-password --workspace @farm-friend/web`.
    It reads the password twice without echo, hashes it locally, and streams only the verifier to
    Secret Manager over stdin.
