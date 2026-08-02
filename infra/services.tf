@@ -66,16 +66,16 @@ locals {
   # credentials and must never be built against an attacker-controlled origin.
 
   shared_secret_env = {
-    DATABASE_URL      = google_secret_manager_secret.app["database-url"].secret_id
-    PHONE_HASH_SALT   = google_secret_manager_secret.app["phone-hash-salt"].secret_id
-    TELNYX_API_KEY    = google_secret_manager_secret.app["telnyx-api-key"].secret_id
-    DEEPINFRA_API_KEY = google_secret_manager_secret.app["deepinfra-api-key"].secret_id
+    DATABASE_URL      = google_secret_manager_secret.protected["database-url"].secret_id
+    PHONE_HASH_SALT   = google_secret_manager_secret.protected["phone-hash-salt"].secret_id
+    TELNYX_API_KEY    = google_secret_manager_secret.protected["telnyx-api-key"].secret_id
+    DEEPINFRA_API_KEY = google_secret_manager_secret.protected["deepinfra-api-key"].secret_id
   }
 
   # Password verification is a public-service concern. The worker neither mounts nor can
   # accidentally read this value from its process environment.
   web_secret_env = merge(local.shared_secret_env, {
-    ADMIN_PASSWORD_HASH = google_secret_manager_secret.app["admin-password-hash"].secret_id
+    ADMIN_PASSWORD_HASH = google_secret_manager_secret.protected["admin-password-hash"].secret_id
   })
 }
 

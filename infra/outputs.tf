@@ -47,5 +47,5 @@ output "secrets_needing_values" {
     `printf %s` rather than `echo` — a trailing newline in a salt or an API key looks correct
     in every listing and fails at runtime.
   EOT
-  value       = [for s in google_secret_manager_secret.app : s.secret_id]
+  value       = [for s in google_secret_manager_secret.protected : s.secret_id]
 }

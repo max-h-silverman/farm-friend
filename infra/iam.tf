@@ -33,7 +33,7 @@ resource "google_service_account" "invoker" {
 # application every one of them, which is the difference between "reads its own configuration"
 # and "reads every credential in the project".
 resource "google_secret_manager_secret_iam_member" "runtime_reads" {
-  for_each = google_secret_manager_secret.app
+  for_each = google_secret_manager_secret.protected
 
   secret_id = each.value.id
   role      = "roles/secretmanager.secretAccessor"

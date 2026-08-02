@@ -105,12 +105,18 @@ the configured password proves access to that one account. There is no add-admin
 
 ### Provision, bootstrap, then sign in
 
-1. Apply infrastructure with the empty `farm-friend-admin-password-hash` secret container.
+1. With explicit approval limited to creating the new empty container, run a targeted apply for
+   `google_secret_manager_secret.protected["admin-password-hash"]`. Confirm it creates only that
+   container: no Cloud Run revision, no magic-link-secret deletion, and no survivor replacement.
 2. From a private terminal, run `npm run admin:provision-password --workspace @farm-friend/web`.
    It reads the password twice without echo, hashes it locally, and streams only the verifier to
    Secret Manager over stdin.
-3. Run the bootstrap script above against the intended database.
-4. Deploy a web revision that mounts `ADMIN_PASSWORD_HASH`; the worker must not mount it.
+3. With separate approval, run the production migration and bootstrap script above against the
+   fingerprinted intended database.
+4. Build the reviewed new image, then review a full plan. It must mount `ADMIN_PASSWORD_HASH` on
+   web only, remove `MAGIC_LINK_SECRET` from both services, preserve the four survivor containers
+   by address move, and destroy only the retired magic-link container. Obtain explicit approval for
+   that secret destruction and the deploy before applying.
 5. Open `/admin/login`, leave the fixed email unchanged, enter the password, and verify `/admin`.
 
 Properties to preserve:
@@ -600,10 +606,17 @@ for deployed proof. Each can pass while production still uses the old secret.
 **Order matters.** A migration adding columns the new code writes must land *before* that code
 deploys, or every affected write fails in the gap. 0004 (B-010) was exactly this case.
 
-For the password cutover: create the new empty secret container first; provision its first version
-from a private terminal; apply migration 0015 (which revokes every pre-cutover session); deploy and
-prove the new login; then, only with separate approval, remove the retired secret from Terraform
-state and delete its Secret Manager container. Never let a plan destroy a secret implicitly.
+For the password cutover, do not let a full apply mount Secret Manager `latest` from an empty new
+container. First obtain explicit approval for a **targeted apply** that creates only
+`farm-friend-admin-password-hash`; confirm no Cloud Run service changed and the old magic secret
+still exists. Provision its first verifier through the private-terminal command. Then, with
+separate explicit approval, fingerprint and migrate the production database (0015 revokes every
+pre-cutover session). Finally build the reviewed password-only image and review the full plan:
+it must destroy only the retired magic-link secret, retain all four survivors by address move, mount
+`ADMIN_PASSWORD_HASH` only on web, and remove `MAGIC_LINK_SECRET` from both services. Approval for
+that cloud-secret deletion and deployment is separate from the targeted-container and migration
+approvals. Never redeploy the old image without `MAGIC_LINK_SECRET`; never apply a plan that
+destroys another secret or creates a replacement for a survivor.
 
 ```bash
 # 1. Migration FIRST. Use the DIRECT (non-pooled) Neon string for DDL.

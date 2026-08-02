@@ -6,7 +6,7 @@
 // that, served with the right media type, opens the native add-contact sheet on both iOS and
 // Android. No app, no library, no third party.
 //
-// WHY IT IS A PURE FUNCTION IN CORE, like `renderSignInEmail` and `proximity.ts`:
+// WHY IT IS A PURE FUNCTION IN CORE, like `proximity.ts`:
 //
 //   - **No model, no database, no clock.** The card is a function of one string. There is no
 //     parameter through which a request, a row, or model prose could reach it, so "the

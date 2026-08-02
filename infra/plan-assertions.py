@@ -57,6 +57,16 @@ def by_type(plan: dict, type_: str) -> dict[str, dict]:
     return out
 
 
+def changed_addresses(plan: dict, type_: str) -> dict[str, list[str]]:
+    """Non-no-op actions keyed by their full Terraform address."""
+    return {
+        change["address"]: change["change"]["actions"]
+        for change in plan.get("resource_changes", [])
+        if change.get("type") == type_
+        and change.get("change", {}).get("actions") != ["no-op"]
+    }
+
+
 def main() -> int:
     plan = json.load(sys.stdin)
 
@@ -132,6 +142,23 @@ def main() -> int:
           "farm-friend-admin-password-hash" in secret_ids)
     check("the magic-link secret container is absent",
           "farm-friend-magic-link-secret" not in secret_ids)
+
+    # This is deliberately about changes rather than planned values. A plan can have the
+    # correct final five containers while silently retaining the retired one in state, or it
+    # can create the replacement while deleting a survivor. The address move preserves the
+    # four existing protected instances; only the new verifier is created and only the old
+    # magic-link container is deleted, which requires the separate production approval.
+    initial_secret_changes = {
+        'google_secret_manager_secret.protected["admin-password-hash"]': ["create"],
+        'google_secret_manager_secret.app["magic-link-secret"]': ["delete"],
+    }
+    post_provision_secret_changes = {
+        'google_secret_manager_secret.app["magic-link-secret"]': ["delete"],
+    }
+    secret_changes = changed_addresses(plan, "google_secret_manager_secret")
+    check("the secret cutover changes only the new verifier and retired magic container",
+          secret_changes in (initial_secret_changes, post_provision_secret_changes),
+          f"changes={secret_changes}")
 
     # THE assertion that keeps credentials out of state. Terraform creates containers; values
     # are added out of band with `gcloud secrets versions add`. A value here would be written

@@ -31,7 +31,33 @@ locals {
   }
 }
 
-resource "google_secret_manager_secret" "app" {
+// The prior collection was protected by `prevent_destroy`. F-056 must retire exactly one
+// member (the magic-link secret) while preserving that protection for every desired secret.
+// Terraform evaluates lifecycle rules from the configuration at a resource address, so
+// removing one `for_each` key from that protected address makes its required destruction
+// impossible. Move the four existing survivors to a new protected address; the unmoved magic
+// key is then an explicit deletion in the plan, subject to the production approval gate.
+moved {
+  from = google_secret_manager_secret.app["database-url"]
+  to   = google_secret_manager_secret.protected["database-url"]
+}
+
+moved {
+  from = google_secret_manager_secret.app["phone-hash-salt"]
+  to   = google_secret_manager_secret.protected["phone-hash-salt"]
+}
+
+moved {
+  from = google_secret_manager_secret.app["telnyx-api-key"]
+  to   = google_secret_manager_secret.protected["telnyx-api-key"]
+}
+
+moved {
+  from = google_secret_manager_secret.app["deepinfra-api-key"]
+  to   = google_secret_manager_secret.protected["deepinfra-api-key"]
+}
+
+resource "google_secret_manager_secret" "protected" {
   for_each = local.app_secrets
 
   secret_id = "farm-friend-${each.key}"
