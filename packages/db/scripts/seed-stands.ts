@@ -25,6 +25,7 @@ import {
   joinStandSources,
   matchStandName,
   parseFormResponses,
+  parseFarmBucksPolicy,
   parseOpenHours,
   parseSeason,
   parseStandCsv,
@@ -172,10 +173,36 @@ function toSeedInput(stand: JoinedStand): {
 
   const mapDescription =
     stand.map === undefined ? "" : stripContactDetails(stand.map.description);
+  const publicDescription =
+    mapDescription ||
+    [
+      stand.form?.contactNames,
+      stand.form?.accessNote,
+      stand.form?.website !== undefined ? `Website: ${stand.form.website}` : undefined,
+      stand.form?.socialMedia,
+      stand.form?.openSeasonText !== undefined ? `Open: ${stand.form.openSeasonText}` : undefined,
+      stand.form?.openHoursText,
+      stand.form?.stockingText !== undefined ? `Stocking Days: ${stand.form.stockingText}` : undefined,
+      stand.form?.generalInformation,
+      stand.form?.extraNotes,
+    ]
+      .filter((line): line is string => line !== undefined && line.trim() !== "")
+      .join("\n");
 
   const parsedSeason = parseSeason(seasonText || mapDescription);
   const parsedHours = parseOpenHours(hoursText || mapDescription);
   const parsedStocking = parseStocking(stockingText || mapDescription);
+  const farmBucksPolicy = parseFarmBucksPolicy(
+    [
+      stand.name,
+      stand.form?.name,
+      mapDescription,
+      stand.form?.generalInformation,
+      stand.form?.extraNotes,
+    ]
+      .filter((text): text is string => text !== undefined && text.trim() !== "")
+      .join("\n"),
+  );
 
   let season = toSeededSeason(parsedSeason);
   if (season === null) {
@@ -208,6 +235,7 @@ function toSeedInput(stand: JoinedStand): {
 
   const base = {
     name: stand.name,
+    ...(publicDescription !== "" ? { description: publicDescription } : {}),
     kind: /farmers\s*market/i.test(stand.name)
       ? ("farmers_market" as const)
       : ("farm_stand" as const),
@@ -223,6 +251,12 @@ function toSeedInput(stand: JoinedStand): {
             ...(parsedStocking.days ? { days: parsedStocking.days } : {}),
           },
     flags,
+    ...(farmBucksPolicy !== undefined
+      ? {
+          farmBucksAccepted: farmBucksPolicy.accepted,
+          farmBucksEligible: farmBucksPolicy.eligible,
+        }
+      : {}),
   };
 
   if (

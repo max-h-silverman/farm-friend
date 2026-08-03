@@ -63,6 +63,8 @@ export interface PublicStand {
   visitability: "visitable" | "contact_only";
   /** What the farm provides (F-038) — produce, services, or goods by order. */
   offeringType: "produce" | "services" | "by_order";
+  /** Sanitized public source text; direct contact details never enter this field. */
+  description?: string;
   /** Present only once VIGA has confirmed the stand's Farm Bucks eligibility. */
   farmBucksAccepted?: boolean;
   /**
@@ -256,6 +258,7 @@ export async function listPublicStands(
       l.open_until_minutes as open_until_minutes,
       l.open_days as open_days,
       f.name as farm_name,
+      f.description as farm_description,
       r.published_at as published_at,
       c.result as closure_result,
       c.closure_kind as closure_kind,
@@ -338,6 +341,9 @@ export async function listPublicStands(
         locationKind: row.location_kind as "farm_stand" | "farmers_market",
         visitability: row.visitability as "visitable" | "contact_only",
         offeringType: row.offering_type as "produce" | "services" | "by_order",
+        ...(row.farm_description !== null && row.farm_description !== undefined
+          ? { description: row.farm_description as string }
+          : {}),
         // Older imported rows are `false/false`: that means no eligibility review, not a
         // customer-facing claim that the stand refuses VIGA Bucks. Only an eligible row has
         // a reviewed acceptance answer to publish.
@@ -428,6 +434,7 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     locationKind: stand.locationKind,
     visitability: stand.visitability,
     offeringType: stand.offeringType,
+    ...(stand.description !== undefined ? { description: stand.description } : {}),
     ...(stand.farmBucksAccepted !== undefined
       ? { farmBucksAccepted: stand.farmBucksAccepted }
       : {}),

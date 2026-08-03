@@ -84,8 +84,9 @@ render an honest "updated X ago" without a second provenance axis.
   email, password, or verifier enters the table. The existing bounded retention pass deletes
   expired rows.
 - **structured public listing facts** — including payment methods and VIGA Farm Bucks acceptance or
-  eligibility as **read-only facts**, plus farmer-selected web/social links and an optional photo
-  or short biography.
+  eligibility as **read-only facts**, plus a sanitized source-listing description, farmer-selected
+  web/social links, and an optional photo or short biography. Direct farmer email addresses and
+  phone numbers never enter the public description.
 - **structured availability** (F-035) — season, days of week, time of day, and restocking cadence as
   **queryable columns rather than prose**, so "what is open right now" is a filter and not a text
   scan. Kinds that are not clock times (`dawn_to_dusk`, `daylight_hours`) and cadences that are not

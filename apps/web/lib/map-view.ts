@@ -45,6 +45,11 @@ export interface PublicStandPayload {
   /** What the farm provides (F-038) — produce, services, or goods by order. */
   offeringType: "produce" | "services" | "by_order";
   /**
+   * Sanitized public text from VIGA's source listing. Direct email addresses and phone numbers
+   * are removed before this reaches the database; farmer-selected web and social links remain.
+   */
+  description?: string;
+  /**
    * A VIGA-maintained payment fact. It is optional until the public reader has a verified
    * value for a stand; an absent value MUST NOT be rendered as either acceptance or refusal.
    */
@@ -101,7 +106,8 @@ export type MapMarkerKind =
   | "seasonal"
   | "year-round"
   | "flower-only"
-  | "farmers-market";
+  | "farmers-market"
+  | "contact-only";
 
 /**
  * Map marker language from facts already present in the public payload. The icon is a visual
@@ -110,6 +116,7 @@ export type MapMarkerKind =
  * whose reviewed payment fact says it does not accept VIGA Bucks.
  */
 export function mapMarkerKind(stand: PublicStandPayload): MapMarkerKind {
+  if (stand.visitability === "contact_only") return "contact-only";
   if (stand.locationKind === "farmers_market") return "farmers-market";
 
   const usualOfferings = stand.usuallySells ?? [];
@@ -416,6 +423,13 @@ export function numberStands<Stand extends { id: string; farmName: string }>(
     ...stand,
     standNumber: numbers.get(stand.id)!,
   }));
+}
+
+/** Return a displayed stand set in the poster's numbered directory order. */
+export function sortStandsByNumber<Stand extends { standNumber: number }>(
+  stands: readonly Stand[],
+): Stand[] {
+  return [...stands].sort((a, b) => a.standNumber - b.standNumber);
 }
 
 /**

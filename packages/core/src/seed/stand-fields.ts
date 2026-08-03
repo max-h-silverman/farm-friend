@@ -88,3 +88,36 @@ export function extractStandFields(description: string): StandFields {
 export function beginsLabelledField(line: string): boolean {
   return NEXT_LABEL.test(line);
 }
+
+export interface FarmBucksPolicy {
+  accepted: boolean;
+  eligible: true;
+}
+
+const VIGA_BUCKS = /\bVIGA\s*(?:Farm\s*)?Bucks?\b|\bFarm\s+Bucks?\b/i;
+const ACCEPTS_VIGA_BUCKS = /\baccept(?:s|ed|ing)?\b[^\n]{0,80}/i;
+const REFUSES_VIGA_BUCKS =
+  /\b(?:does\s+not|do\s+not|cannot|can't|will\s+not|won't)\s+accept\b[^\n]{0,80}|\bnot\s+accepted\b[^\n]{0,80}/i;
+
+/**
+ * Read a VIGA Bucks policy from farmer/source prose without treating missing policy as refusal.
+ *
+ * A listing can contain multiple dated notes. If those notes contradict one another, returning
+ * `undefined` keeps the map from presenting either one as current fact until an operator reviews
+ * it.
+ */
+export function parseFarmBucksPolicy(text: string): FarmBucksPolicy | undefined {
+  const clauses = text.split(/\r?\n|;/);
+  const refused = clauses.some(
+    (clause) => VIGA_BUCKS.test(clause) && REFUSES_VIGA_BUCKS.test(clause),
+  );
+  const accepted = clauses.some(
+    (line) =>
+      VIGA_BUCKS.test(line) &&
+      ACCEPTS_VIGA_BUCKS.test(line) &&
+      !REFUSES_VIGA_BUCKS.test(line),
+  );
+
+  if (accepted === refused) return undefined;
+  return { accepted: !refused, eligible: true };
+}

@@ -26,6 +26,12 @@ What the loader may write and what it may not is structural, not a convention:
 
 - It seeds farms, public sales locations, listing facts, and the offering tags a stand *usually*
   carries.
+- It keeps a sanitized copy of the source listing text for the public detail view, including
+  hours, stocking notes, updates, and farmer-selected web/social links. Direct email addresses and
+  phone numbers are removed; the one-time backfill command only fills a null description or an
+  unreviewed Farm Bucks fact.
+- `reviewed-payment-facts.json` records the three source-form Farm Bucks refusals that are not
+  present in the map-export prose; it is consumed only by that one-time backfill.
 - It seeds **no inventory** — an inventory revision requires a farmer authorization and a farm
   approval the loader cannot produce, so it cannot fabricate a confirmation no farmer made.
 - It seeds **no phone numbers**; those arrive through onboarding with captured consent.

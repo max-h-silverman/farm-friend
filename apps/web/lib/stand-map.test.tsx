@@ -125,6 +125,130 @@ describe("farm-map poster treatment", () => {
     expect(card.querySelector(".stand-content")!.parentElement).toBe(card);
   });
 
+  it("shows the public source description and links when a stand is expanded", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "details-stand",
+      farmName: "Peak Moon Nursery",
+      locationName: "Peak Moon Nursery",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "300’ north of 28815 Vashon Hwy SW",
+      latitude: 47.44,
+      longitude: -122.46,
+      description:
+        "Facebook: www.facebook.com/people/Peak-Moon-Nursery\n" +
+        "Instagram: instagram.com/peak_moon_nursery\n" +
+        "Stocking Days: Every few days as stock runs low\n" +
+        "At Peak Moon, we share diversity in our crops.",
+      availability: {},
+      alsoSellingHere: [],
+      items: [],
+    };
+
+    render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "1. Peak Moon Nursery, Peak Moon Nursery" }));
+
+    const card = document.querySelector(".stands .stand") as HTMLElement;
+    expect(within(card).getByText("Additional information")).toBeTruthy();
+    expect(within(card).getByText(/Stocking Days: Every few days/)).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "www.facebook.com/people/Peak-Moon-Nursery" })).toHaveAttribute(
+      "href",
+      "https://www.facebook.com/people/Peak-Moon-Nursery",
+    );
+    expect(within(card).getByRole("link", { name: "instagram.com/peak_moon_nursery" })).toHaveAttribute(
+      "href",
+      "https://instagram.com/peak_moon_nursery",
+    );
+  });
+
+  it("explains every marker category, including the no-farm-stand category", () => {
+    render(<StandMap stands={[]} />);
+
+    const legend = screen.getByRole("list", { name: "Map marker key" });
+    expect(within(legend).getByText("Seasonal farm stand")).toBeTruthy();
+    expect(within(legend).getByText("Year-round farm stand")).toBeTruthy();
+    expect(within(legend).getByText("Flower-only stand; does not accept VIGA Bucks")).toBeTruthy();
+    expect(within(legend).getByText("Farm listed with no farm stand to visit")).toBeTruthy();
+    expect(within(legend).getByText("VIGA Farmers Market")).toBeTruthy();
+  });
+
+  it("renders the flower marker as a flower glyph rather than a regular pin", () => {
+    const stand: PublicStandPayload = {
+      id: "flower-stand",
+      farmName: "Flower Farm",
+      locationName: "Flower Farm Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "1 Flower Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      farmBucksAccepted: false,
+      availability: {},
+      usuallySells: ["fresh flowers", "lavender"],
+      alsoSellingHere: [],
+      items: [],
+    };
+
+    render(<StandMap stands={[stand]} />);
+
+    const marker = screen.getByRole("button", { name: "1. Flower Farm Stand, Flower Farm" });
+    expect(marker).toHaveClass("pin-flower-only");
+    expect(marker.querySelector(".pin-flower-glyph")).toBeTruthy();
+    expect(marker.querySelector(".pin-shape")).toBeNull();
+  });
+
+  it("lists stands in ascending poster-number order by default", () => {
+    const stands: PublicStandPayload[] = [
+      {
+        id: "cedar",
+        farmName: "Cedar Farm",
+        locationName: "Cedar Stand",
+        visitability: "visitable",
+        offeringType: "produce",
+        address: "3 Cedar Way",
+        latitude: 47.44,
+        longitude: -122.46,
+        availability: {},
+        alsoSellingHere: [],
+        items: [],
+      },
+      {
+        id: "apple",
+        farmName: "Apple Farm",
+        locationName: "Apple Stand",
+        visitability: "visitable",
+        offeringType: "produce",
+        address: "1 Apple Way",
+        latitude: 47.45,
+        longitude: -122.46,
+        availability: {},
+        alsoSellingHere: [],
+        items: [],
+      },
+      {
+        id: "birch",
+        farmName: "Birch Farm",
+        locationName: "Birch Stand",
+        visitability: "visitable",
+        offeringType: "produce",
+        address: "2 Birch Way",
+        latitude: 47.46,
+        longitude: -122.46,
+        availability: {},
+        alsoSellingHere: [],
+        items: [],
+      },
+    ];
+
+    const { container } = render(<StandMap stands={stands} />);
+    expect([...container.querySelectorAll(".stands h2")].map((heading) => heading.textContent)).toEqual([
+      "Apple Stand",
+      "Birch Stand",
+      "Cedar Stand",
+    ]);
+  });
+
   it("places the indicator legend above the stand listings", () => {
     const stand: PublicStandPayload = {
       id: "legend-position-stand",

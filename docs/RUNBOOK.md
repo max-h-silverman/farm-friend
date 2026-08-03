@@ -181,6 +181,21 @@ npm run db:seed -- --form "<form.csv>" --map "<map.csv>"             # apply
 The batch is transactional, idempotent by stand name, and skip-only: re-running never overwrites a
 farmer's later correction. It refuses invalid coordinates rather than coercing them.
 
+If the database was seeded before public source descriptions and Farm Bucks facts were wired, use
+the guarded null-only backfill against the reviewed public listing artifact:
+
+```bash
+node --env-file=.env --import tsx packages/db/scripts/backfill-public-listing-details.ts \
+  maps/offerings-proposals.json \
+  --payment-facts maps/reviewed-payment-facts.json      # dry-run
+node --env-file=.env --import tsx packages/db/scripts/backfill-public-listing-details.ts \
+  maps/offerings-proposals.json \
+  --payment-facts maps/reviewed-payment-facts.json --apply # fill null/unreviewed fields only
+```
+
+The backfill matches by the same normalized stand key, strips direct contact details, reports
+unmatched source entries, and never overwrites a description or reviewed payment fact.
+
 Corpus-specific operating facts:
 
 - The form export owns current details; the map export owns coordinates and map-only farms. Their

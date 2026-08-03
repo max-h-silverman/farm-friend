@@ -4,6 +4,7 @@ import {
   buildMapView,
   mapMarkerKind,
   numberStands,
+  sortStandsByNumber,
   standListingLines,
   type PublicStandPayload,
   type StandListingLine,
@@ -336,6 +337,9 @@ describe("map marker language", () => {
     expect(
       mapMarkerKind(stand({ locationKind: "farmers_market" })),
     ).toBe("farmers-market");
+    expect(
+      mapMarkerKind(stand({ visitability: "contact_only" })),
+    ).toBe("contact-only");
   });
 
   it("does not call a mixed flower-and-produce listing flower-only", () => {
@@ -1040,6 +1044,20 @@ describe("numberStands (F-043 — the poster's numbered pins)", () => {
     for (const id of ["north", "south", "other"]) {
       expect(numberOf(second, id), id).toBe(numberOf(first, id));
     }
+  });
+
+  it("orders a directory by the stable poster number", () => {
+    const numbered = numberStands([
+      { id: "c", farmName: "Cedar Farm" },
+      { id: "a", farmName: "Apple Farm" },
+      { id: "b", farmName: "Birch Farm" },
+    ]);
+
+    expect(sortStandsByNumber([numbered[0]!, numbered[2]!, numbered[1]!]).map((s) => s.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
   });
 
   it("numbers a contact-only farm too, though it gets no pin", () => {

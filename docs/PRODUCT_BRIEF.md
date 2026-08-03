@@ -200,8 +200,9 @@ data is *seeded*, not migrated under a provenance model.
 Reference legend from the VIGA map data: blue = stands open seasonally; green = stands open
 year-round; red flower = flower-only stands that cannot accept VIGA Bucks; red = farm with no farm
 stand; purple = VIGA Farmers Market. Farm Friend's public map reuses that visual index from
-structured location, season, and approved-offering facts. **The VIGA Farmers Market is a distinct
-destination type**, not merely another farm-stand color.
+structured location, season, payment, and approved-offering facts, and exposes sanitized source
+listing text with farmer-selected web/social links and details such as hours and stocking cadence.
+**The VIGA Farmers Market is a distinct destination type**, not merely another farm-stand color.
 
 ## Observable success
 

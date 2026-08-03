@@ -58,6 +58,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       visitability: "visitable",
       offeringType: "produce",
       kind: "farm_stand",
+      description: "Open: March to December\nStocking Days: Daily",
       hoursText: "Open: March to December",
       season: { kind: "date_range", startMonth: 3, startDay: 1, endMonth: 12, endDay: 31 },
       openHours: { kind: "dawn_to_dusk" },
@@ -85,13 +86,14 @@ describe("seeding VIGA's stands (B-002)", () => {
     expect(result.seeded).toBe(2);
 
     const rows = await client`
-      select f.name as farm_name, l.name as location_name, l.public_address,
+      select f.name as farm_name, f.description, l.name as location_name, l.public_address,
              l.public_latitude, l.public_longitude, l.is_public
       from sales_locations l join farms f on f.id = l.owner_farm_id
       order by l.name
     `;
     expect(rows).toHaveLength(2);
     expect(rows[0]!.farm_name).toBe("Alpha Farm");
+    expect(rows[0]!.description).toBe("Open: March to December\nStocking Days: Daily");
     expect(rows[0]!.is_public).toBe(true);
     expect(Number(rows[0]!.public_longitude)).toBeCloseTo(-122.45, 6);
   });

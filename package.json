@@ -24,6 +24,7 @@
     "db:migrate:local": "node --env-file=apps/web/.env.local --import tsx packages/db/scripts/migrate.ts",
     "test:integration:local": "node --env-file=apps/web/.env.local --import tsx node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts",
     "db:seed": "tsx packages/db/scripts/seed-stands.ts",
+    "db:backfill-public-listing-details": "tsx packages/db/scripts/backfill-public-listing-details.ts",
     "db:seed-offerings": "tsx packages/db/scripts/seed-offerings.ts",
     "offerings:propose": "node --env-file=.env --import tsx packages/ai/scripts/propose-offerings.ts",
     "evals": "node --import tsx evals/run.ts",

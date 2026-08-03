@@ -50,6 +50,8 @@ export interface SeedStandFlag {
 
 export interface SeedStandInput {
   name: string;
+  /** Sanitized public source description; direct contact details must be removed before seeding. */
+  description?: string;
   /**
    * Address and coordinates are present together or absent together — the shape
    * `sales_locations_coherent_visitability` enforces (F-038).
@@ -349,7 +351,7 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
       }
 
       const farmRows = await tx`
-        insert into farms (name) values (${stand.name}) returning id
+        insert into farms (name, description) values (${stand.name}, ${stand.description ?? null}) returning id
       `;
       const farmId = farmRows[0]!.id as string;
 
