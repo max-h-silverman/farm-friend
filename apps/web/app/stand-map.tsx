@@ -210,7 +210,7 @@ function splitWebsite(description: string | undefined): {
     const match = line.match(/^\s*Website:\s*((?:https?:\/\/|www\.)\S+)\s*$/i);
     if (match === null) return true;
     const visible = match[1]!.replace(/[.,;:!?)]*$/, "");
-    website = visible.startsWith("www.") ? `https://${visible}` : visible;
+    website = /^www\./i.test(visible) ? `https://${visible}` : visible;
     return false;
   });
   const remainingDescription = remaining.join("\n").trim();

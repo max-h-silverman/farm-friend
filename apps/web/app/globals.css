@@ -3419,6 +3419,7 @@ button.admin-action-danger,
 }
 
 .stand-summary-address {
+  flex: 0 0 100%;
   min-width: 0;
   margin: 0;
   color: var(--ink-soft);
@@ -3429,11 +3430,11 @@ button.admin-action-danger,
 
 .stand-summary-website {
   display: inline-flex;
-  min-height: 2rem;
   align-items: center;
   color: var(--brick);
   font-size: 0.9rem;
   font-weight: 700;
+  line-height: 1.35;
   text-decoration: underline;
 }
 
