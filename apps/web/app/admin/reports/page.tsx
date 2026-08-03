@@ -23,15 +23,14 @@ export default async function ReportsPage() {
   }
 
   const { db } = publicReadContext();
-  const reports = await listStockOutReports(db, { status: "all" });
+  const reports = await listStockOutReports(db, { status: "open" });
 
   return (
     <AdminShell currentPath="/admin/reports">
-      <p className="admin-note">
-        Customers can let us know when an item may be sold out. Take a look, then contact the
-        farmer if a stand needs an update. These reports never change the map.
-      </p>
-
+      <header className="admin-page-intro">
+        <h1>Stock reports</h1>
+        <p className="admin-note">Review reports without changing a farmer’s listing.</p>
+      </header>
       <ReportQueue
         reports={reports.map((report) => ({
           reportId: report.reportId,

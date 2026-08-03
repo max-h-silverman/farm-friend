@@ -117,13 +117,13 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   carrier prompt to be accepted, so the window is opened against a queued confirmation message the
   farmer also receives. A leaked link can at worst propose a wrong listing on ONE stand;
   `apps/web/lib/farmer-stand.integration.test.ts` asserts and sabotages each bound.
-  The same page has a structured one-name-per-line participant save. That save is its own
-  confirmation and audit event: it is routed through db + clock before full model composition,
-  re-resolves the link, and cannot grant access or attach names to profiles.
   `/stand/<token>/settings` reuses that same standing credential and revocation lifecycle. It
   exposes only the authorization's editable locations, stores one default SMS target, and lets the
-  farmer explicitly choose or pause one inventory-reminder cadence per stand. It has no second
-  login and no consent control; pausing reminders never changes launch-program consent.
+  farmer explicitly choose or pause one inventory-reminder cadence per stand. It also owns the
+  structured one-name-per-line participant save for the currently selected stand. That save is its
+  own confirmation and audit event: it is routed through db + clock before full model composition,
+  re-resolves the link, and cannot grant access or attach names to profiles. The settings page has
+  no second login and no consent control; pausing reminders never changes launch-program consent.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.

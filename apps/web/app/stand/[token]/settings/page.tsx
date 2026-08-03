@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { listActiveSalesLocationParticipants } from "@farm-friend/db";
 import { publicReadContext } from "../../../../lib/public-context";
 import { loadFarmerSettings } from "../../../../lib/farmer-settings";
 import { SettingsForm } from "./settings-form";
@@ -25,6 +26,15 @@ export default async function FarmerSettingsPage({
     );
   }
 
+  const participantNamesByLocation = Object.fromEntries(
+    await Promise.all(
+      settings.locations.map(async (location) => [
+        location.salesLocationId,
+        await listActiveSalesLocationParticipants(db, location.salesLocationId),
+      ] as const),
+    ),
+  );
+
   return (
     <main className="farmer-form">
       <header>
@@ -34,7 +44,11 @@ export default async function FarmerSettingsPage({
         </p>
       </header>
 
-      <SettingsForm token={params.token} locations={settings.locations} />
+      <SettingsForm
+        token={params.token}
+        locations={settings.locations}
+        participantNamesByLocation={participantNamesByLocation}
+      />
 
       <Link className="farmer-settings-back" href={`/stand/${params.token}`}>
         Back to stand update

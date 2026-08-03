@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  CUSTOMER_SMS_WELCOME,
   FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   renderFarmerLinkMessage,
@@ -21,6 +22,16 @@ const registeredFieldValues = resolve(
 );
 
 describe("farmer onboarding copy", () => {
+  it("gives a newly joined customer a usable introduction without exposing farmer controls", () => {
+    expect(CUSTOMER_SMS_WELCOME.toLowerCase()).toContain("ask what is available");
+    for (const keyword of ["MAP", "HELP", "STOP"]) {
+      expect(CUSTOMER_SMS_WELCOME).toContain(keyword);
+    }
+    for (const farmerOnly of ["SIGNUP", "LINK", "STAND", "SETTINGS", "SAME", "YES", "NO"]) {
+      expect(CUSTOMER_SMS_WELCOME).not.toContain(farmerOnly);
+    }
+  });
+
   it("acknowledges a request without promising authorization", () => {
     // A request grants nothing — VIGA always approves — so the acknowledgement must not read
     // as a yes. A farmer told "you're set up" who then cannot publish has been lied to by
@@ -35,7 +46,7 @@ describe("farmer onboarding copy", () => {
     expect(body).toContain("STOP");
   });
 
-  it("tells an authorized farmer they can start, and how", () => {
+  it("tells an authorized farmer they can update by text or open their private web form", () => {
     // The reason this message exists: a farmer approved on Tuesday otherwise has no idea
     // until they guess.
     const body = FARMER_AUTHORIZED_NOTIFICATION;
@@ -43,6 +54,7 @@ describe("farmer onboarding copy", () => {
     expect(body).toContain("STOP");
     // It must actually tell them what to do next — an announcement with no instruction
     // leaves the farmer exactly where they were.
+    expect(body).toContain("LINK");
     expect(body.length).toBeGreaterThan(40);
   });
 

@@ -12,10 +12,46 @@ const locations: Parameters<typeof SettingsForm>[0]["locations"] = [
 ];
 
 afterEach(() => {
+  document.body.innerHTML = "";
   vi.unstubAllGlobals();
 });
 
 describe("farmer reminder settings", () => {
+  it("keeps seller names with stand setup rather than the daily-update form", () => {
+    render(
+      <SettingsForm
+        token="private-token"
+        locations={locations}
+        participantNamesByLocation={{ "stand-a": ["Neighbor Farm"] }}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Also selling here" })).toBeVisible();
+    expect(screen.getByLabelText("Seller names")).toHaveValue("Neighbor Farm");
+  });
+
+  it("loads the newly selected stand's seller names after its default changes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ locationName: "Harbor Stand" })),
+    );
+    const user = userEvent.setup();
+    render(
+      <SettingsForm
+        token="private-token"
+        locations={locations}
+        participantNamesByLocation={{
+          "stand-a": ["Neighbor Farm"],
+          "stand-b": ["Harbor Apiary"],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Harbor Stand" }));
+    await user.click(screen.getByRole("button", { name: "Save default stand" }));
+
+    expect(await screen.findByLabelText("Seller names")).toHaveValue("Harbor Apiary");
+  });
+
   it("shows unscheduled and paused stands as explicit per-stand states", () => {
     render(<SettingsForm token="private-token" locations={locations} />);
     expect(screen.getAllByLabelText("Reminder schedule")).toHaveLength(2);

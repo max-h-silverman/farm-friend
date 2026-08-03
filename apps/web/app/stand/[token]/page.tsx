@@ -1,5 +1,5 @@
 import { resolveStandFromToken } from "../../../lib/farmer-stand";
-import { listActiveSalesLocationParticipants } from "@farm-friend/db";
+import Link from "next/link";
 import { publicReadContext } from "../../../lib/public-context";
 import { StandForm } from "./stand-form";
 
@@ -45,11 +45,6 @@ export default async function StandPage({
   const locations = await db.sql`
     select name from sales_locations where id = ${stand.salesLocationId}
   `;
-  const participantNames = await listActiveSalesLocationParticipants(
-    db,
-    stand.salesLocationId,
-  );
-
   return (
     <main className="farmer-form">
       <header>
@@ -60,11 +55,15 @@ export default async function StandPage({
       </header>
 
       <p className="farmer-form-note">
-        Type what you have today, the way you would say it. We&apos;ll show you exactly what
-        your stand will say, and <strong>nothing changes until you confirm it</strong>.
+        Update what changed today in your own words. We&apos;ll show you exactly what people will
+        see, and <strong>nothing changes until you confirm it</strong>.
       </p>
 
-      <StandForm token={params.token} initialParticipantNames={participantNames} />
+      <StandForm token={params.token} />
+
+      <Link className="farmer-settings-back" href={`/stand/${params.token}/settings`}>
+        Stand settings: reminders, default stand, and other sellers
+      </Link>
 
       <p id="new-link-help" className="farmer-form-note">
         This link is private — anyone with it can update this stand. If it stops working, text

@@ -895,6 +895,49 @@ describe("applyStandFilters (F-043)", () => {
     });
   });
 
+  describe("payment and stand-type filters", () => {
+    it("keeps only stands explicitly reviewed as accepting VIGA Bucks", () => {
+      const all = [
+        stand("accepts", { farmBucksAccepted: true }),
+        stand("declines", { farmBucksAccepted: false }),
+        stand("unknown"),
+      ];
+
+      expect(ask(all, { acceptsFarmBucks: true }).map((s) => s.id)).toEqual([
+        "accepts",
+      ]);
+    });
+
+    it("identifies flower-only stands from their published usual offerings", () => {
+      const all = [
+        stand("flowers", { usuallySells: ["fresh flowers", "lavender"] }),
+        stand("mixed", { usuallySells: ["flowers", "vegetables"] }),
+        stand("unknown"),
+      ];
+
+      expect(ask(all, { flowersOnly: true }).map((s) => s.id)).toEqual([
+        "flowers",
+      ]);
+    });
+
+    it("composes VIGA Bucks and flower-only filters", () => {
+      const all = [
+        stand("eligible", {
+          farmBucksAccepted: true,
+          usuallySells: ["cut flowers", "wreaths"],
+        }),
+        stand("no-bucks", {
+          farmBucksAccepted: false,
+          usuallySells: ["cut flowers"],
+        }),
+      ];
+
+      expect(
+        ask(all, { acceptsFarmBucks: true, flowersOnly: true }).map((s) => s.id),
+      ).toEqual(["eligible"]);
+    });
+  });
+
   describe("season", () => {
     it("keeps stands whose season covers the chosen one", () => {
       const all = [

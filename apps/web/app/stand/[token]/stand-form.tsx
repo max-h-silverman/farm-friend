@@ -21,27 +21,12 @@ type Stage =
   | { step: "published" }
   | { step: "declined" };
 
-export function StandForm({
-  token,
-  initialParticipantNames = [],
-}: {
-  token: string;
-  initialParticipantNames?: string[];
-}) {
+export function StandForm({ token }: { token: string }) {
   const [text, setText] = useState("");
   const [stage, setStage] = useState<Stage>({ step: "typing" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkInactive, setLinkInactive] = useState(false);
-  const [participantText, setParticipantText] = useState(
-    initialParticipantNames.join("\n"),
-  );
-  const [participantBusy, setParticipantBusy] = useState(false);
-  const [participantError, setParticipantError] = useState<string | null>(null);
-  const [participantSaved, setParticipantSaved] = useState<"populated" | "empty" | null>(
-    null,
-  );
-  const [participantLinkInactive, setParticipantLinkInactive] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -121,64 +106,12 @@ export function StandForm({
     if (accept) setText("");
   }
 
-  async function saveParticipants() {
-    const participantNames = participantText
-      .split(/\r?\n/)
-      .map((name) => name.trim())
-      .filter((name) => name !== "");
-    setParticipantBusy(true);
-    setParticipantError(null);
-    setParticipantSaved(null);
-    setParticipantLinkInactive(false);
-    try {
-      const response = await fetch("/api/farmer/stand", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          token,
-          action: "save_participants",
-          participantNames,
-        }),
-      });
-      const payload = (await response.json().catch(() => ({}))) as Record<
-        string,
-        unknown
-      >;
-      if (!response.ok) {
-        if (response.status === 403) setParticipantLinkInactive(true);
-        setParticipantError(
-          response.status === 403
-            ? "This link is no longer active. Seller names are unchanged."
-            : typeof payload.message === "string"
-              ? payload.message
-              : "That did not go through. Seller names are unchanged — try again.",
-        );
-        return;
-      }
-      const activeDisplayNames = Array.isArray(payload.activeDisplayNames)
-        ? payload.activeDisplayNames.filter(
-            (name): name is string => typeof name === "string",
-          )
-        : participantNames;
-      setParticipantText(activeDisplayNames.join("\n"));
-      setParticipantSaved(activeDisplayNames.length === 0 ? "empty" : "populated");
-    } catch {
-      setParticipantError(
-        "That did not go through. Seller names are unchanged — try again.",
-      );
-    } finally {
-      setParticipantBusy(false);
-    }
-  }
-
   return (
     <>
       {error !== null && (
         <p className="farmer-form-error" role="alert">
           {error}{" "}
-          {linkInactive && (
-            <Link href="#new-link-help">How to get a new link</Link>
-          )}
+          {linkInactive && <Link href="#new-link-help">How to get a new link</Link>}
         </p>
       )}
 
@@ -189,7 +122,7 @@ export function StandForm({
         <>
           {stage.step === "published" && (
             <p className="farmer-form-published" role="status">
-              Your stand is updated. Thank you!
+              Your stand is updated. Customers can now see this listing.
             </p>
           )}
           {stage.step === "declined" && (
@@ -203,7 +136,7 @@ export function StandForm({
             </p>
           )}
 
-          <label htmlFor="farmer-form-text">What does your stand have today?</label>
+          <label htmlFor="farmer-form-text">What changed at your stand today?</label>
           <textarea
             ref={textRef}
             id="farmer-form-text"
@@ -239,44 +172,6 @@ export function StandForm({
         </section>
       )}
 
-      <section className="farmer-participants" aria-labelledby="farmer-participants-heading">
-        <h2 id="farmer-participants-heading">Also selling here</h2>
-        <p id="farmer-participants-help" className="farmer-form-note">
-          One farm or business name per line. Only names you add appear here. This does not
-          give anyone access to update the stand.
-        </p>
-        {participantError !== null && (
-          <p className="farmer-form-error" role="alert">
-            {participantError}{" "}
-            {participantLinkInactive && (
-              <Link href="#new-link-help">How to get a new link</Link>
-            )}
-          </p>
-        )}
-        {participantSaved !== null && (
-          <p className="farmer-form-published" role="status">
-            {participantSaved === "empty"
-              ? "Seller names saved. No other sellers are shown."
-              : "Seller names saved. The public stand now shows this list."}
-          </p>
-        )}
-        <label htmlFor="farmer-participant-names">Also selling here</label>
-        <textarea
-          id="farmer-participant-names"
-          aria-describedby="farmer-participants-help"
-          value={participantText}
-          rows={4}
-          onChange={(event) => setParticipantText(event.target.value)}
-        />
-        <button
-          className="farmer-participants-save"
-          type="button"
-          disabled={participantBusy}
-          onClick={() => void saveParticipants()}
-        >
-          {participantBusy ? "Saving…" : "Save seller names"}
-        </button>
-      </section>
     </>
   );
 }

@@ -60,7 +60,9 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   entry.
 - **The public map or feed:** it reads the **same published records** as SMS — web and SMS answers
   must agree. Render recency honestly. **Look at it in a browser before calling it done, at phone
-  width and in both colour schemes** — F-043 shipped five defects past 719 green tests and a
+  width and with the operating system in both light and dark appearance**. Farm Friend deliberately
+  declares a light-only document, so both checks must retain the same readable light palette —
+  F-043 shipped five defects past 719 green tests and a
   rendered-bytes inspection, because bytes prove markup and geometry and prove nothing about CSS:
   a dark-mode block that predated the work left the new artwork glowing on a black page, and the
   map rendered taller than the phone screen it is designed for. Also **compare any drawing to the

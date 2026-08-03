@@ -32,8 +32,8 @@ export default async function FarmerOnboardingPage({
       : buildSignupSmsUrl(fromNumber, params.token);
   const farmHeading =
     invitation.farmName === null
-      ? "Start farmer onboarding"
-      : `Start onboarding for ${invitation.farmName}`;
+      ? "Verify your phone for Farm Friend"
+      : `Verify your phone for ${invitation.farmName}`;
   const invitationDescription =
     invitation.farmName === null
       ? "VIGA invited you to start onboarding a new farm on Farm Friend."
@@ -44,16 +44,16 @@ export default async function FarmerOnboardingPage({
       <p className="farmer-eyebrow">VIGA Farm Friend</p>
       <h1>{farmHeading}</h1>
       <p>
-        {invitationDescription} The first step is proving that you control
-        the phone number Farm Friend will use for updates. This invitation arrived by {invitation.channel === "sms" ? "text" : "email"}.
+        {invitationDescription} Use the phone Farm Friend should use for stand updates. This
+        invitation arrived by {invitation.channel === "sms" ? "text" : "email"}.
       </p>
 
       <section className="farmer-onboarding-card" aria-labelledby="verify-phone-heading">
-        <h2 id="verify-phone-heading">Verify your phone</h2>
+        <p className="farmer-eyebrow">Step 1 of 3: verify your phone</p>
+        <h2 id="verify-phone-heading">Send one prepared text</h2>
         <p>
-          It does not matter whether you already joined Farm Friend by SMS. Send the message
-          below from the phone you want to use, and VIGA will see that this farm invitation is
-          yours.
+          Send this from the phone you want to use. It proves you control the number; it does
+          not approve your farm or publish anything.
         </p>
         {signupUrl === null ? (
           <p className="farmer-onboarding-instruction">
@@ -66,7 +66,7 @@ export default async function FarmerOnboardingPage({
           </a>
         )}
         <p className="farmer-onboarding-instruction">
-          The prepared message includes this invitation, so your request is connected to
+          The prepared message includes this invitation, so VIGA can connect your request to
           {invitation.farmName === null ? (
             <strong> new-farm onboarding</strong>
           ) : (
@@ -76,14 +76,13 @@ export default async function FarmerOnboardingPage({
       </section>
 
       <ol className="farmer-onboarding-steps">
-        <li>Send the prepared text from your phone.</li>
-        <li>VIGA reviews the request and gives farmer access when approved.</li>
-        <li>Farm Friend sends your private link for updating your stand.</li>
+        <li>After you send it, you are done for now.</li>
+        <li>VIGA reviews the request and decides whether to authorize your farm.</li>
+        <li>When your farm is ready, Farm Friend texts how to update your stand by SMS or web.</li>
       </ol>
 
       <p className="farmer-onboarding-note">
-        This invitation expires after seven days and can be used once. It does not publish the
-        farm or give access by itself.
+        Nothing is public yet. This invitation expires after seven days and can be used once.
       </p>
     </main>
   );

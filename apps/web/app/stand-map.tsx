@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { PROXIMITY_BASIS_LABEL } from "@farm-friend/core/proximity";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CONTACT_CARD_PATH } from "@farm-friend/core/vcard";
 import {
   ISLAND_VIEWBOX,
@@ -15,6 +14,7 @@ import {
   sortStandsByNumber,
   standListingLines,
   type FilteredStand,
+  type MapViewStand,
   type PublicStandPayload,
   type StandFilters,
 } from "../lib/map-view";
@@ -59,6 +59,55 @@ const OPEN_STATE_LABEL: Record<FilteredStand["openState"], string | null> = {
   // against, so "shown" never silently becomes "shown as open".
   unknown: "Hours not listed",
 };
+
+type ToggleFilterKey =
+  | "openNow"
+  | "confirmedRecently"
+  | "visitable"
+  | "acceptsFarmBucks"
+  | "flowersOnly";
+
+const FILTER_GROUPS: ReadonlyArray<{
+  title: string;
+  filters: ReadonlyArray<{ key: ToggleFilterKey; label: string }>;
+}> = [
+  {
+    title: "Availability",
+    filters: [
+      { key: "openNow", label: "Open now" },
+      { key: "confirmedRecently", label: "Confirmed recently" },
+    ],
+  },
+  {
+    title: "Stand details",
+    filters: [
+      { key: "visitable", label: "Has a stand to visit" },
+      { key: "acceptsFarmBucks", label: "Accepts VIGA Bucks" },
+      { key: "flowersOnly", label: "Flowers only" },
+    ],
+  },
+];
+
+function FilterOption({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={active ? "filter-option filter-option-active" : "filter-option"}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
 
 function ParticipantNames({ names }: { names: readonly string[] }) {
   if (names.length === 0) return null;
@@ -109,7 +158,13 @@ function posterIndicators(stand: PublicStandPayload): PosterIndicator[] {
 
 const DESCRIPTION_LINK = /(?:https?:\/\/|www\.|(?:[a-z0-9-]+\.)+(?:com|org|farm)\b)[^\s]*/gi;
 
-function PublicDescription({ description }: { description?: string }) {
+function PublicDescription({
+  description,
+  label = "Additional information",
+}: {
+  description?: string;
+  label?: string;
+}) {
   if (description === undefined || description.trim() === "") return null;
 
   const parts: React.ReactNode[] = [];
@@ -137,32 +192,66 @@ function PublicDescription({ description }: { description?: string }) {
 
   return (
     <div className="stand-description">
-      <p className="listing-label">Additional information</p>
+      <p className="listing-label">{label}</p>
       <p className="description-text">{parts}</p>
     </div>
   );
 }
 
+function splitWebsite(description: string | undefined): {
+  description: string | undefined;
+  website: string | undefined;
+} {
+  if (description === undefined) return { description: undefined, website: undefined };
+
+  let website: string | undefined;
+  const remaining = description.split("\n").filter((line) => {
+    if (website !== undefined) return true;
+    const match = line.match(/^\s*Website:\s*((?:https?:\/\/|www\.)\S+)\s*$/i);
+    if (match === null) return true;
+    const visible = match[1]!.replace(/[.,;:!?)]*$/, "");
+    website = visible.startsWith("www.") ? `https://${visible}` : visible;
+    return false;
+  });
+  const remainingDescription = remaining.join("\n").trim();
+  return {
+    description: remainingDescription === "" ? undefined : remainingDescription,
+    website,
+  };
+}
+
 function MarkerLegend() {
+  const [open, setOpen] = useState(true);
   const entries = [
-    ["seasonal", "Seasonal farm stand"],
-    ["year-round", "Year-round farm stand"],
-    ["flower-only", "Flower-only stand; does not accept VIGA Bucks"],
-    ["contact-only", "Farm listed with no farm stand to visit"],
+    ["year-round", "Year-round"],
+    ["seasonal", "Seasonal"],
+    ["flower-only", "Flowers-only"],
+    ["contact-only", "Farm, no stand"],
     ["farmers-market", "VIGA Farmers Market"],
   ] as const;
 
+  useEffect(() => {
+    setOpen(window.matchMedia("(min-width: 56rem)").matches);
+  }, []);
+
   return (
-    <ul className="marker-legend" aria-label="Map marker key">
-      {entries.map(([kind, label]) => (
-        <li key={kind} className="marker-legend-item">
-          <span className={`marker-legend-symbol marker-legend-${kind}`} aria-hidden="true">
-            {kind === "flower-only" ? "✿" : kind === "contact-only" ? "●" : ""}
-          </span>
-          <span>{label}</span>
-        </li>
-      ))}
-    </ul>
+    <details
+      className="marker-key"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>Map key</summary>
+      <ul className="marker-legend" aria-label="Map marker key">
+        {entries.map(([kind, label]) => (
+          <li key={kind} className="marker-legend-item">
+            <span className={`marker-legend-symbol marker-legend-${kind}`} aria-hidden="true">
+              {kind === "flower-only" ? "✿" : kind === "contact-only" ? "●" : ""}
+            </span>
+            <span>{label}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -192,10 +281,177 @@ function PosterIndicators({
   );
 }
 
+function StandListings({ stand }: { stand: FilteredStand }) {
+  return (
+    <section className="detail-inventory" aria-label="Availability and inventory">
+      {standListingLines(stand).map((line) => (
+        <div className={`listing listing-${line.kind}`} key={line.kind}>
+          {line.items === undefined ? (
+            <p className="listing-note">{line.label}</p>
+          ) : (
+            <>
+              <p className="listing-label">{line.label}</p>
+              <ul className={line.kind === "confirmed" ? "items" : "items items-usual"}>
+                {line.kind === "confirmed"
+                  ? stand.items.map((item, index) => (
+                      <li key={`${stand.id}-${index}`}>
+                        <span className="item-name">{item.itemName}</span>
+                        {item.quantity !== undefined || item.approximation !== undefined ? (
+                          <span className="item-detail">
+                            {item.quantity !== undefined
+                              ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
+                              : item.approximation}
+                          </span>
+                        ) : null}
+                        {item.priceText !== undefined ? (
+                          <span className="item-price">{item.priceText}</span>
+                        ) : null}
+                      </li>
+                    ))
+                  : line.items.map((item) => (
+                      <li key={item}>
+                        <span className="item-name">{item}</span>
+                      </li>
+                    ))}
+              </ul>
+            </>
+          )}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** One hierarchy for both the expanded directory row and the phone map sheet. */
+function StandSummaryMeta({ stand }: { stand: FilteredStand & MapViewStand }) {
+  const { website } = splitWebsite(stand.description);
+
+  return (
+    <div className="stand-summary-meta">
+      <p className="stand-summary-address">
+        {stand.address ?? "No farm stand to visit"}
+      </p>
+      {website !== undefined ? (
+        <a
+          className="stand-summary-website"
+          href={website}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          Website
+        </a>
+      ) : null}
+      {stand.stale === true ? (
+        <span className="stand-summary-freshness">Needs confirmation</span>
+      ) : null}
+    </div>
+  );
+}
+
+function StandDetailBody({
+  stand,
+  showDestination = true,
+}: {
+  stand: FilteredStand & MapViewStand;
+  showDestination?: boolean;
+}) {
+  const isMarket = stand.locationKind === "farmers_market";
+  const { description, website } = splitWebsite(stand.description);
+  const stateLabel =
+    stand.closure?.state === "active"
+      ? stand.closure.label
+      : OPEN_STATE_LABEL[stand.openState];
+
+  return (
+    <div className="stand-detail-body">
+      {showDestination ? (
+        <section
+          className="detail-visit"
+          aria-label={isMarket ? "Visit the market" : "Plan your visit"}
+        >
+          <h3>{isMarket ? "Visit the market" : "Plan your visit"}</h3>
+          {stand.address !== undefined ? (
+            <p className="address">{stand.address}</p>
+          ) : (
+            <p className="address address-contact-only">
+              <strong>No stand to visit</strong> — order by contacting this farm.
+            </p>
+          )}
+          {website !== undefined ? (
+            <a
+              className="stand-website"
+              href={website}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Website
+            </a>
+          ) : null}
+          {stand.routingLink !== null ? (
+            <a
+              className="directions"
+              href={stand.routingLink}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {isMarket ? "Directions to market" : "Get directions"}
+            </a>
+          ) : null}
+        </section>
+      ) : stand.routingLink !== null ? (
+        <div className="detail-actions">
+          <a
+            className="directions"
+            href={stand.routingLink}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            {isMarket ? "Directions to market" : "Get directions"}
+          </a>
+        </div>
+      ) : null}
+
+      <div className="detail-status" aria-label="Stand status">
+        {stand.closure?.state === "upcoming" ? (
+          <p className="open-state open-state-upcoming">{stand.closure.label}</p>
+        ) : null}
+        {stateLabel !== null ? (
+          <p className={`open-state open-state-${stand.openState}`}>{stateLabel}</p>
+        ) : null}
+        {stand.farmBucksAccepted === true ? (
+          <p className="payment-status">Accepts VIGA Bucks</p>
+        ) : null}
+      </div>
+
+      {isMarket ? (
+        <PublicDescription
+          description={description}
+          label="Market schedule and information"
+        />
+      ) : (
+        <>
+          <StandListings stand={stand} />
+          <ParticipantNames names={stand.alsoSellingHere} />
+        </>
+      )}
+
+      {!isMarket && stand.stale === true ? (
+        <p className="recency recency-stale">
+          <strong>May be out of date — </strong>
+          {stand.updated}
+        </p>
+      ) : null}
+
+      {!isMarket ? <PublicDescription description={description} /> : null}
+    </div>
+  );
+}
+
 export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
   const { state, request, clear } = useTransientOrigin();
   const origin = state.status === "ready" ? state.origin : null;
   const [filters, setFilters] = useState<StandFilters>({});
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const cardRefs = useRef(new Map<string, HTMLLIElement>());
   const mapRef = useRef<HTMLElement | null>(null);
@@ -227,12 +483,26 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
     [view.sortedByDistance, visible],
   );
 
+  const advancedFilterCount =
+    (filters.openNow === true ? 1 : 0) +
+    (filters.confirmedRecently === true ? 1 : 0) +
+    (filters.visitable === true ? 1 : 0) +
+    (filters.acceptsFarmBucks === true ? 1 : 0) +
+    (filters.flowersOnly === true ? 1 : 0) +
+    (filters.season !== undefined && filters.season !== "" ? 1 : 0);
   const anyFilterActive =
-    filters.openNow === true ||
-    filters.confirmedRecently === true ||
-    filters.visitable === true ||
-    (filters.sells !== undefined && filters.sells.trim() !== "") ||
-    (filters.season !== undefined && filters.season !== "");
+    advancedFilterCount > 0 ||
+    (filters.sells !== undefined && filters.sells.trim() !== "");
+
+  const advancedFiltersVisible = showAdvancedFilters;
+
+  const locationLabel =
+    state.status === "ready"
+      ? "Nearest first"
+      : state.status === "locating"
+        ? "Finding you…"
+        : "Near me";
+
 
   /**
    * Selecting from either surface writes the SAME state — one selection, two renderers.
@@ -272,11 +542,10 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       return;
     }
 
-    // PHONE — the sheet occupies the lower ~40% of the screen, so bring the MAP up into the
-    // part that stays visible. Without this, tapping a pin near the bottom of the island hid
-    // the very pin that was tapped behind the sheet, which is the disorientation this whole
-    // change exists to remove. Measured in a browser: the sheet's top edge sat at 60% of the
-    // viewport with 0px of island showing beneath it.
+    // PHONE — bring the unchanged map to the top before the sheet overlays its lower portion.
+    // The map must not resize when selection changes: shrinking it moves every marker under
+    // the customer's finger and destroys the spatial context they just used to choose a pin.
+    // Anchoring the same map instead keeps its scale stable and leaves its upper portion visible.
     //
     // `instant`, not smooth: this is a correction that should feel like the sheet arriving,
     // not a second animation competing with it.
@@ -288,14 +557,19 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       ? undefined
       : visible.find((stand) => stand.id === selectedId);
 
-  const toggle = (key: "openNow" | "confirmedRecently" | "visitable") => () =>
+  const toggle = (key: ToggleFilterKey) => () =>
     setFilters((current) => ({ ...current, [key]: current[key] !== true }));
+
+  const clearAllFilters = () => {
+    setFilters({});
+  };
 
   return (
     <main className={selectedStand !== undefined ? "page sheet-open" : "page"}>
-      <header className="farm-map-masthead">
-        <img src={farmMapLogo.src} alt="VIGA Farm Map" />
-      </header>
+      <div className="map-intro">
+        <header className="farm-map-masthead">
+          <img src={farmMapLogo.src} alt="VIGA Farm Map" />
+        </header>
       {/*
       F-043 — NO TITLE AND NO EYEBROW (max, 2026-07-30). This page is embedded in VIGA's own
       Squarespace page, which already carries the association's name and its own heading; a
@@ -307,131 +581,161 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       dropping it leaves the recency wording looking like hedging rather than the point. Kept
       as a caption above the filters rather than a lede under a title.
       */}
-      <p className="map-note">
-        Note: This interactive map may contain recent inventory updates, but neither
-        VIGA nor individual farmers can guarantee product availability.
-      </p>
+        <p className="map-note">
+          Note: This map may contain recent inventory updates, but neither VIGA nor individual
+          farms can guarantee product availability.
+        </p>
+      </div>
 
       {/*
       F-043 — the filters. All client-side over data already served: no request, no
       model call, instant on a phone outdoors.
       */}
-      <section className="filters" aria-label="Filter farm stands">
-      <div className="filter-row">
-        <button
-          type="button"
-          className={filters.openNow === true ? "chip chip-on" : "chip"}
-          aria-pressed={filters.openNow === true}
-          onClick={toggle("openNow")}
-        >
-          Open now
-        </button>
-        <button
-          type="button"
-          className={
-            filters.confirmedRecently === true ? "chip chip-on" : "chip"
-          }
-          aria-pressed={filters.confirmedRecently === true}
-          onClick={toggle("confirmedRecently")}
-        >
-          Confirmed recently
-        </button>
-        <button
-          type="button"
-          className={filters.visitable === true ? "chip chip-on" : "chip"}
-          aria-pressed={filters.visitable === true}
-          onClick={toggle("visitable")}
-        >
-          Has a stand to visit
-        </button>
-      </div>
+      <section className="filters" aria-labelledby="stand-finder-title">
+        <header className="filter-header">
+          <h2 id="stand-finder-title">Find a stand</h2>
+          <p className="filter-results" aria-live="polite">
+            {visible.length === view.stands.length
+              ? `${visible.length} ${visible.length === 1 ? "stand" : "stands"} shown`
+              : `${visible.length} of ${view.stands.length} stands shown`}
+          </p>
+        </header>
 
-      <div className="filter-row">
-        <label className="field">
-          <span className="field-label">What they sell</span>
-          <input
-            type="search"
-            className="field-input"
-            placeholder="eggs, flowers, lamb…"
-            value={filters.sells ?? ""}
-            onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                sells: event.target.value,
-              }))
-            }
-          />
-        </label>
+        <div className="filter-command-bar">
+          <label className="field field-search">
+            <span className="sr-only">What they sell</span>
+            <span className="field-control">
+              <svg className="field-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" />
+                <path d="m16 16 4 4" />
+              </svg>
+              <input
+                type="search"
+                className="field-input"
+                placeholder="Search eggs, flowers, lamb…"
+                value={filters.sells ?? ""}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    sells: event.target.value,
+                  }))
+                }
+              />
+            </span>
+          </label>
 
-        {/*
-          Season answers a DIFFERENT question from Open now — "what is here later in the
-          year" — and is meaningful mainly when Open now is off, since out-of-season
-          stands are already excluded by that filter. Disabled rather than hidden when
-          Open now is on, so the control does not vanish and reappear under the reader's
-          thumb.
-        */}
-        <label className="field">
-          <span className="field-label">In season</span>
-          <select
-            className="field-input"
-            value={filters.season ?? ""}
-            disabled={filters.openNow === true}
-            onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                season: event.target.value,
-              }))
-            }
-          >
-            <option value="">Any time of year</option>
-            <option value="spring">Spring</option>
-            <option value="summer">Summer</option>
-            <option value="fall">Fall</option>
-            <option value="winter">Winter</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="filter-row filter-row-meta">
-        {state.status !== "ready" ? (
-          <>
+          <div className="filter-actions">
             <button
               type="button"
-              className="chip"
-              onClick={request}
+              className={state.status === "ready" ? "location-button location-button-on" : "location-button"}
+              onClick={state.status === "ready" ? clear : request}
               disabled={state.status === "locating"}
+              aria-label={
+                state.status === "ready"
+                  ? "Nearest first — stop nearby sorting"
+                  : locationLabel
+              }
             >
-              {state.status === "locating" ? "Finding you…" : "Sort by distance"}
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z" />
+                <circle cx="12" cy="10" r="2" />
+              </svg>
+              <span>{locationLabel}</span>
+              {state.status === "ready" ? (
+                <svg className="location-clear-icon" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m7 7 10 10M17 7 7 17" />
+                </svg>
+              ) : null}
             </button>
-            <span className="locate-note">
-              {state.status === "unavailable"
-                ? state.reason
-                : "Optional. Your location stays on your device and is never sent to us."}
-            </span>
-          </>
-        ) : (
-          <>
-            <button type="button" className="chip chip-on" onClick={clear}>
-              Sorted by distance — stop
+
+            <button
+              type="button"
+              className={advancedFiltersVisible ? "filter-drawer-button filter-drawer-button-open" : "filter-drawer-button"}
+              aria-expanded={advancedFiltersVisible}
+              aria-controls="filter-panel"
+              aria-label={
+                advancedFilterCount > 0
+                  ? `Filters, ${advancedFilterCount} active`
+                  : "Filters"
+              }
+              onClick={() => setShowAdvancedFilters((current) => !current)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" />
+              </svg>
+              <span>Filters</span>
+              {advancedFilterCount > 0 ? (
+                <span className="filter-drawer-count" aria-hidden="true">
+                  {advancedFilterCount}
+                </span>
+              ) : null}
             </button>
-            <span className="locate-note">{PROXIMITY_BASIS_LABEL}</span>
-          </>
-        )}
-        {anyFilterActive ? (
-          <button
-            type="button"
-            className="chip chip-clear"
-            onClick={() => setFilters({})}
-          >
-            Clear filters
-          </button>
+          </div>
+        </div>
+
+        {advancedFiltersVisible ? (
+          <div className="filter-panel" id="filter-panel" role="group" aria-label="Filter stands">
+            {FILTER_GROUPS.map((group) => (
+              <fieldset className="filter-panel-group" key={group.title}>
+                <legend>{group.title}</legend>
+                <div className="filter-panel-options">
+                  {group.filters.map((filter) => (
+                    <FilterOption
+                      key={filter.key}
+                      active={filters[filter.key] === true}
+                      label={filter.label}
+                      onClick={toggle(filter.key)}
+                    />
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+
+            {/*
+              Season answers a DIFFERENT question from Open now — "what is here later in the
+              year" — and is meaningful mainly when Open now is off, since out-of-season
+              stands are already excluded by that filter. Disabled rather than hidden when
+              Open now is on, so the control does not vanish and reappear under the reader's
+              thumb.
+            */}
+            <fieldset className="filter-panel-group filter-panel-season">
+              <legend>Season</legend>
+              <label className="field field-season">
+                <span className="sr-only">Season</span>
+                <select
+                  className="field-input season-select"
+                  value={filters.season ?? ""}
+                  disabled={filters.openNow === true}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      season: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Any season</option>
+                  <option value="spring">Spring</option>
+                  <option value="summer">Summer</option>
+                  <option value="fall">Fall</option>
+                  <option value="winter">Winter</option>
+                </select>
+              </label>
+              {anyFilterActive ? (
+                <button
+                  type="button"
+                  className="filter-clear"
+                  onClick={clearAllFilters}
+                >
+                  Clear all
+                </button>
+              ) : null}
+            </fieldset>
+          </div>
         ) : null}
-      </div>
       </section>
 
       <div className="layout">
         <div className="map-column">
-          <MarkerLegend />
           {/*
           F-043 — the island, drawn rather than tiled. No mapping provider, no per-view
           billing, no runtime seam; `maps/README.md` records that there deliberately is none.
@@ -439,6 +743,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           coastline, so a pin cannot drift away from the shore it belongs to.
           */}
           <figure className="island" ref={mapRef}>
+          <MarkerLegend />
           <svg
             viewBox={`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`}
             className="island-svg"
@@ -565,9 +870,9 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           {view.staleCount > 0 ? (
             <p className="stale-summary" role="note">
               {view.staleCount === 1
-                ? "One listing below has not been confirmed recently."
-                : `${view.staleCount} listings below have not been confirmed recently.`}{" "}
-              They are still shown, marked, because old information beats none.
+                ? "1 listing needs a recent confirmation."
+                : `${view.staleCount} listings need a recent confirmation.`}{" "}
+              They remain visible and are labeled below.
             </p>
           ) : null}
 
@@ -631,149 +936,31 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                     <span className="stand-number" aria-hidden="true">
                       {stand.standNumber})
                     </span>
-                    <h2>
-                      <button
-                        type="button"
-                        className="stand-summary-toggle"
-                        aria-expanded={stand.id === selectedId}
-                        onClick={() => select(stand.id, "list")}
-                      >
-                        {stand.locationName}
-                      </button>
-                    </h2>
+                    <div className="stand-heading-copy">
+                      <h2>
+                        <button
+                          type="button"
+                          className="stand-summary-toggle"
+                          aria-expanded={stand.id === selectedId}
+                          onClick={() => select(stand.id, "list")}
+                        >
+                          {stand.locationName}
+                        </button>
+                      </h2>
+                      {stand.locationKind !== "farmers_market" &&
+                      stand.locationName !== stand.farmName ? (
+                        <p className="farm">{stand.farmName}</p>
+                      ) : null}
+                      <StandSummaryMeta stand={stand} />
+                    </div>
                     {stand.distanceLabel !== undefined ? (
                       <span className="distance">{stand.distanceLabel}</span>
                     ) : null}
                     </div>
-                    <p className="farm">{stand.farmName}</p>
                     <div className="stand-details">
-                  <ParticipantNames names={stand.alsoSellingHere} />
-
-                  {stand.closure?.state === "upcoming" ? (
-                    <p className="open-state open-state-upcoming">{stand.closure.label}</p>
-                  ) : null}
-
-                  {/*
-                    F-043 — the open-state badge, and the honesty rule it carries.
-
-                    A stand shown under "Open now" that we could NOT judge says "Hours not
-                    listed" here. That is what makes showing it honest rather than a silent
-                    claim that it is open: the filter keeps it because absence of data is not
-                    evidence of being shut, and this line says which one it is.
-
-                    NEVER COLOUR ALONE. The badge is words; the class only styles them. The
-                    existing three-signal staleness rule holds for the same reason.
-                  */}
-                  {OPEN_STATE_LABEL[stand.openState] !== null ? (
-                    <p className={`open-state open-state-${stand.openState}`}>
-                      {stand.closure?.state === "active"
-                        ? stand.closure.label
-                        : OPEN_STATE_LABEL[stand.openState]}
-                    </p>
-                  ) : null}
-
-                  {/*
-                    F-042 — WHICH LINES a stand gets is decided by `standListingLines`, not
-                    here. This block prints them and chooses nothing.
-
-                    That split is the whole design. The copy max approved rests on one rule — a
-                    "Usually sells" line NEVER carries a timestamp, because a date beside it
-                    reads as a confirmation nobody made — and a rule that load-bearing cannot
-                    live in a conditional chain inside JSX that no test renders. It lives in a
-                    pure function with a sabotage-verified test on exactly that property.
-
-                    So: no `stand.updated`, no `stand.items.length`, and no `visitability`
-                    checks below. Reintroducing one would put the decision back in two places,
-                    and the copy would be one careless edit from claiming a confirmation.
-                  */}
-                  {standListingLines(stand).map((line) => (
-                    <div className={`listing listing-${line.kind}`} key={line.kind}>
-                      {line.items === undefined ? (
-                        <p className="listing-note">{line.label}</p>
-                      ) : (
-                        <>
-                          <p className="listing-label">{line.label}</p>
-                          {line.kind === "confirmed" ? (
-                            // The confirmed line keeps the per-item detail a farmer actually
-                            // published — quantity, unit, price. A tag has none of that by
-                            // nature: it is a word off a form, so `usual` below renders names
-                            // only. Attaching a quantity to a tag would be the same class of
-                            // invention as attaching a date to one.
-                            <ul className="items">
-                              {stand.items.map((item, index) => (
-                                <li key={`${stand.id}-${index}`}>
-                                  <span className="item-name">{item.itemName}</span>
-                                  {item.quantity !== undefined ||
-                                  item.approximation !== undefined ? (
-                                    <span className="item-detail">
-                                      {item.quantity !== undefined
-                                        ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
-                                        : item.approximation}
-                                    </span>
-                                  ) : null}
-                                  {item.priceText !== undefined ? (
-                                    <span className="item-price">{item.priceText}</span>
-                                  ) : null}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <ul className="items items-usual">
-                              {line.items.map((item) => (
-                                <li key={item}>
-                                  <span className="item-name">{item}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  ))}
-
-                  {/*
-                    F-042 — the STALENESS WARNING, and only that.
-
-                    The date itself moved into the "Confirmed X ago:" heading above, so printing
-                    `stand.updated` here as well would state the same confirmation twice. What
-                    has no other home is the warning: a listing old enough to be doubted must
-                    say so prominently, which is why a stale stand stays on the map at all
-                    instead of disappearing. Keyed on `stale`, never on `updated` — an
-                    unconfirmed stand has nothing to be stale about, and `stale` is absent
-                    rather than false there precisely so this cannot render for it (B-013).
-                  */}
-                  {stand.stale === true ? (
-                    <p className="recency recency-stale">
-                      <strong>May be out of date — </strong>
-                      {stand.updated}
-                    </p>
-                  ) : null}
-
-                  {/*
-                    F-038 — a farm you contact rather than visit says so, in place of an
-                    address. Rendering `stand.address` unconditionally printed an EMPTY line
-                    here, which reads as a stand whose address nobody bothered to fill in. Open
-                    Gate Lamb has no stand at all; saying that plainly is the honest version,
-                    and it is the whole reason these farms are listed rather than hidden.
-                  */}
-                  {stand.address !== undefined ? (
-                    <p className="address">{stand.address}</p>
-                  ) : (
-                    <p className="address address-contact-only">
-                      <strong>No stand to visit</strong> — order by contacting this farm.
-                    </p>
-                  )}
-                  {stand.routingLink !== null ? (
-                    <a
-                      className="directions"
-                      href={stand.routingLink}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                    >
-                      Directions
-                    </a>
-                  ) : null}
-                  <PublicDescription description={stand.description} />
+                      {stand.id === selectedId ? (
+                        <StandDetailBody stand={stand} showDestination={false} />
+                      ) : null}
                     </div>
                   </div>
                 </li>
@@ -820,9 +1007,11 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                   {selectedStand.locationName}
                 </span>
               </h2>
-              <p className="sheet-farm">{selectedStand.farmName}</p>
+              {selectedStand.locationKind !== "farmers_market" &&
+              selectedStand.locationName !== selectedStand.farmName ? (
+                <p className="sheet-farm">{selectedStand.farmName}</p>
+              ) : null}
               <PosterIndicators stand={selectedStand} />
-              <ParticipantNames names={selectedStand.alsoSellingHere} />
             </div>
             <button
               type="button"
@@ -834,70 +1023,11 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
             </button>
           </div>
 
-          {/* Same honesty rule as the card: a stand we could not judge says so. */}
-          {selectedStand.closure?.state === "upcoming" ? (
-            <p className="open-state open-state-upcoming">
-              {selectedStand.closure.label}
-            </p>
-          ) : null}
-          {OPEN_STATE_LABEL[selectedStand.openState] !== null ? (
-            <p className={`open-state open-state-${selectedStand.openState}`}>
-              {selectedStand.closure?.state === "active"
-                ? selectedStand.closure.label
-                : OPEN_STATE_LABEL[selectedStand.openState]}
-            </p>
-          ) : null}
-
-          {/* Decided by the SAME pure function the card uses — never re-derived here. */}
-          {standListingLines(selectedStand).map((line) => (
-            <div className={`listing listing-${line.kind}`} key={line.kind}>
-              {line.items === undefined ? (
-                <p className="listing-note">{line.label}</p>
-              ) : (
-                <>
-                  <p className="listing-label">{line.label}</p>
-                  <ul className="items items-usual">
-                    {line.items.map((item) => (
-                      <li key={item}>
-                        <span className="item-name">{item}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          ))}
-
-          {selectedStand.stale === true ? (
-            <p className="recency recency-stale">
-              <strong>May be out of date — </strong>
-              {selectedStand.updated}
-            </p>
-          ) : null}
-
-          {selectedStand.address !== undefined ? (
-            <p className="address">{selectedStand.address}</p>
-          ) : (
-            <p className="address address-contact-only">
-              <strong>No stand to visit</strong> — order by contacting this farm.
-            </p>
-          )}
-
-          {selectedStand.routingLink !== null ? (
-            <a
-              className="directions"
-              href={selectedStand.routingLink}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              Directions
-            </a>
-          ) : null}
-          <PublicDescription description={selectedStand.description} />
+          <StandDetailBody stand={selectedStand} />
         </div>
       ) : null}
 
-      <footer className="foot">
+      <footer className="foot contact-card-footer">
         {/*
           F-039 — the one-tap way to save the number instead of copying it off a sign.
 
@@ -913,6 +1043,17 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
         */}
         <p className="contact-card-cta">
           <a className="contact-card-link" href={CONTACT_CARD_PATH} download>
+            <svg
+              className="contact-card-icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <rect x="2.5" y="4" width="19" height="16" rx="2.5" />
+              <circle cx="8" cy="9.5" r="2.25" />
+              <path d="M4.75 16c.45-2.1 1.55-3.15 3.25-3.15S10.8 13.9 11.25 16" />
+              <path d="M14.5 9h3.5M14.5 13h3.5" />
+            </svg>
             Save Farm Friend Contact
           </a>
           <span className="contact-card-note">

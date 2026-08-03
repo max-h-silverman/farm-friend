@@ -587,7 +587,7 @@ describe("inbound routing end to end (integration)", () => {
   });
 
   describe("duplicates, ordering, and serialization at the ROUTE level", () => {
-    it("a retried webhook delivery produces exactly one consequence", async () => {
+    it("a retried webhook delivery produces exactly one copy of each consequence", async () => {
       // Telnyx retries on any non-2xx or timeout; the same event ID must be a no-op.
       const providerEventId = `evt-${randomUUID()}`;
       const first = await deliverInbound({
@@ -611,12 +611,17 @@ describe("inbound routing end to end (integration)", () => {
       `;
       expect(events[0]?.count).toBe(1);
 
-      // One opt-in reply, not two: the outbox logical key deduplicates.
+      // The one accepted JOIN intentionally creates a carrier receipt and a product welcome.
+      // A retry must create neither a second receipt nor a second welcome.
       const work = await client()`
-        select count(*)::integer as count from outbox_work
+        select logical_key, message_category from outbox_work
         where recipient_hash = ${customerHash}
+        order by logical_key
       `;
-      expect(work[0]?.count).toBe(1);
+      expect(work).toEqual([
+        { logical_key: `consent-${providerEventId}`, message_category: "required_reply" },
+        { logical_key: `customer-welcome-${providerEventId}`, message_category: "inquiry_reply" },
+      ]);
     });
 
     it("a stale event fails closed and mutates nothing", async () => {
@@ -751,7 +756,8 @@ describe("inbound routing end to end (integration)", () => {
     });
 
     it("concurrent passes over one sender claim the event exactly once", async () => {
-      await deliverInboundOnly({ fromPhone: customerPhone, text: "JOIN" });
+      const providerEventId = `evt-${randomUUID()}`;
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "JOIN", providerEventId });
 
       // Two passes racing: the per-sender row lock must let only one claim the event.
       const [a, b] = await Promise.all([
@@ -779,10 +785,14 @@ describe("inbound routing end to end (integration)", () => {
 
       expect(a.processed + b.processed).toBe(1);
       const work = await client()`
-        select count(*)::integer as count from outbox_work
+        select logical_key, message_category from outbox_work
         where recipient_hash = ${customerHash}
+        order by logical_key
       `;
-      expect(work[0]?.count).toBe(1);
+      expect(work).toEqual([
+        { logical_key: `consent-${providerEventId}`, message_category: "required_reply" },
+        { logical_key: `customer-welcome-${providerEventId}`, message_category: "inquiry_reply" },
+      ]);
     });
   });
 

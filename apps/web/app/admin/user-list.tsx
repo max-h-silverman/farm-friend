@@ -18,10 +18,6 @@ export function UserList({ users }: { users: AdminUserRow[] }) {
   return (
     <section className="admin-users" aria-label="People directory">
       <div className="admin-directory-toolbar">
-        <div>
-          <p className="admin-kicker">Browse</p>
-          <p className="admin-note">Filter by the access they have today.</p>
-        </div>
         <label className="admin-user-filter">
           <span className="admin-control-label">Show</span>
           <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
@@ -42,17 +38,12 @@ export function UserList({ users }: { users: AdminUserRow[] }) {
             <li key={user.userId}>
               <div className="admin-person-identity">
                 <strong>{user.senderMask}</strong>
-                <span>Masked contact</span>
               </div>
               <div className="admin-person-access">
                 <span className={`admin-access-pill${user.isFarmer ? " admin-access-pill--active" : ""}`}>
                   {user.isFarmer ? "Farmer access" : "No access yet"}
                 </span>
-                <span>
-                  {user.isFarmer
-                    ? `Can update: ${user.farms.join(", ")}`
-                    : "Invite them above to get started."}
-                </span>
+                {user.isFarmer ? <span>Can update: {user.farms.join(", ")}</span> : null}
               </div>
             </li>
           ))}

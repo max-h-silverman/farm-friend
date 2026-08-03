@@ -23,15 +23,14 @@ export default async function StandDataPage() {
   }
 
   const { db } = publicReadContext();
-  const flags = await listStandDataFlags(db, { status: "all" });
+  const flags = await listStandDataFlags(db, { status: "open" });
 
   return (
     <AdminShell currentPath="/admin/stand-data">
-      <p className="admin-note">
-        Farm Friend brings a question here when it needs help reading a listing. Leave a note with
-        your decision; it will not change what&apos;s on the map.
-      </p>
-
+      <header className="admin-page-intro">
+        <h1>Listing questions</h1>
+        <p className="admin-note">Record what VIGA decided. This does not change the map.</p>
+      </header>
       <StandDataQueue
         flags={flags.map((flag) => ({
           flagId: flag.flagId,

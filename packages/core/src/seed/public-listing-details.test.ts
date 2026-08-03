@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { publicListingDetails } from "./public-listing-details";
 
 describe("public listing source details", () => {
@@ -36,5 +38,17 @@ describe("public listing source details", () => {
       farmBucksAccepted: false,
       farmBucksEligible: true,
     });
+  });
+
+  it("keeps the farmers market's reviewed May-through-September schedule in source data", () => {
+    const source = JSON.parse(
+      readFileSync(resolve(process.cwd(), "maps/offerings-proposals.json"), "utf8"),
+    ) as { standName: string; sourceText: string }[];
+    const market = source.find((entry) => entry.standName === "Vashon Island Farmers Market");
+
+    expect(market).toBeDefined();
+    expect(market!.sourceText).toContain("Saturdays 10am - 2pm");
+    expect(market!.sourceText).toContain("Early May - September 30");
+    expect(market!.sourceText).not.toMatch(/October/);
   });
 });

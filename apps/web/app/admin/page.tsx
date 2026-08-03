@@ -1,5 +1,13 @@
 import { headers } from "next/headers";
-import { listFarmsForApproval, listStandsForAdministration } from "@farm-friend/db";
+import Link from "next/link";
+import {
+  listFarmsForApproval,
+  listFlagsForReview,
+  listOpenFarmerOnboardingRequests,
+  listStandsForAdministration,
+  listStandDataFlags,
+  listStockOutReports,
+} from "@farm-friend/db";
 import {
   openNow,
   projectClosure,
@@ -19,9 +27,8 @@ import { StandList, type AdminStandCard } from "./stand-list";
 // administrator session sees the signed-out page and no farm data, because the data is never
 // fetched for them in the first place.
 //
-// Deliberately not a general admin console. Three screens, each one decision: may this farm
-// publish (here), what happened with this flag (/admin/flags), did anyone look at this report
-// (/admin/reports).
+// The desk is an operator's starting point, not a metrics dashboard. It names only work that
+// needs a VIGA decision, then leaves reference records one disclosure away.
 
 export const dynamic = "force-dynamic";
 
@@ -141,13 +148,13 @@ function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdministratio
       : undefined;
     const openState = openNow({ availability, closure, at: now, utcOffsetMinutes: offset, ...(row.publicLatitude !== null ? { latitude: row.publicLatitude } : {}), ...(row.publicLongitude !== null ? { longitude: row.publicLongitude } : {}) }).state;
     const inventory = row.currentItems.length === 0
-      ? row.publishedAt === null ? "No farmer confirmation yet" : "Confirmed empty"
+      ? row.publishedAt === null ? "No availability update yet" : "Confirmed empty"
       : row.currentItems.map((item) => [item.itemName, item.quantity, item.unit, item.priceText].filter((part) => part !== null).join(" ")).join(", ");
     return {
       standId: row.standId,
       name: row.name,
       farmName: row.farmName,
-      status: row.isPublic ? "Shown on map" : "Hidden from map",
+      status: row.isPublic ? "Visible to customers" : "Not visible to customers",
       farmBucksStatus: row.farmBucksAccepted
         ? "accepts"
         : row.farmBucksEligible
@@ -216,15 +223,51 @@ export default async function AdminPage() {
   }
 
   const { db } = publicReadContext();
-  const [farms, stands] = await Promise.all([listFarmsForApproval(db), listStandsForAdministration(db)]);
+  const [farms, stands, farmerRequests, flags, listingQuestions, stockReports] = await Promise.all([
+    listFarmsForApproval(db),
+    listStandsForAdministration(db),
+    listOpenFarmerOnboardingRequests(db),
+    listFlagsForReview(db, { status: "open" }),
+    listStandDataFlags(db, { status: "open" }),
+    listStockOutReports(db, { status: "open" }),
+  ]);
+  const work = [
+    { label: "Farm approvals", count: farms.filter((farm) => !farm.approved).length, href: "#farm-approvals", description: "Confirm farms before their stands can appear to customers." },
+    { label: "Farmer access requests", count: farmerRequests.length, href: "/admin/farmers", description: "Give verified farm operators access to update their stands." },
+    { label: "Customer reports", count: flags.length + listingQuestions.length, href: "/admin/flags", description: "Review customer FLAG messages and listing questions." },
+    { label: "Stock reports", count: stockReports.length, href: "/admin/reports", description: "Review reports without changing a farmer’s listing." },
+  ];
+  const totalWork = work.reduce((total, item) => total + item.count, 0);
 
   return (
     <AdminShell currentPath="/admin">
-      <section className="admin-priority admin-priority--farm-approval" aria-labelledby="approve-farms-heading">
-        <h2 id="approve-farms-heading" className="admin-section-title">Approve farms</h2>
-        <p className="admin-note">
-          Approve a farm when it&apos;s ready to join Farm Friend.
-        </p>
+      <header className="admin-page-intro">
+        <h1>Volunteer desk</h1>
+      </header>
+      <section className="admin-work" aria-labelledby="needs-attention-heading">
+        <h2 id="needs-attention-heading" className="admin-section-title">Needs attention</h2>
+        {totalWork === 0 ? (
+          <p className="admin-empty-state">Nothing needs a decision right now.</p>
+        ) : (
+          <ul className="admin-work-list">
+            {work.filter((item) => item.count > 0).map((item) => (
+              <li key={item.label}>
+                <Link href={item.href}>
+                  <span>
+                    <strong>{item.label}</strong>
+                    <span>{item.description}</span>
+                  </span>
+                  <span className="admin-count" aria-label={`${item.count} ${item.label.toLowerCase()}`}>{item.count}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section id="farm-approvals" className="admin-priority admin-priority--farm-approval" aria-labelledby="approve-farms-heading">
+        <h2 id="approve-farms-heading" className="admin-section-title">Farm approvals</h2>
+        <p className="admin-note">Approving lets eligible stands appear to customers. It does not publish or edit a listing.</p>
         <ApprovalQueue
           farms={farms.map((farm) => ({
             farmId: farm.farmId,
@@ -236,13 +279,12 @@ export default async function AdminPage() {
         />
       </section>
 
-      <section aria-labelledby="all-stands-heading">
-        <h2 id="all-stands-heading" className="admin-section-title">All stands</h2>
-        <p className="admin-note">
-          A quick view of what people see. Open any stand for the full listing. “Open status not
-          stated” simply means we do not have enough hours to tell.
-        </p>
-        <StandList stands={asStandCards(stands)} />
+      <section className="admin-records" aria-labelledby="stand-records-heading">
+        <details className="admin-secondary-disclosure">
+          <summary id="stand-records-heading">Stand records ({stands.length})</summary>
+          <p className="admin-note">Check what customers can currently see.</p>
+          <StandList stands={asStandCards(stands)} />
+        </details>
       </section>
     </AdminShell>
   );

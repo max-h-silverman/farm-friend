@@ -88,6 +88,7 @@ export function FarmerQueue({
   const [freshLink, setFreshLink] = useState<{ id: string; link: string } | null>(
     null,
   );
+  const [replacingLink, setReplacingLink] = useState<string | null>(null);
 
   async function post(
     body: Record<string, unknown>,
@@ -236,6 +237,7 @@ export function FarmerQueue({
     );
     if (!ok || typeof payload.link !== "string") return;
     setFreshLink({ id: row.authorizationId, link: payload.link });
+    setReplacingLink(null);
     const selectedStand = row.stands.find(
       (stand) => stand.salesLocationId === salesLocationId,
     ) ?? null;
@@ -278,14 +280,8 @@ export function FarmerQueue({
       <section className="admin-invite-card" aria-labelledby="invite-farmer-heading">
         <div className="admin-invite-card-header">
           <div>
-            <p className="admin-kicker">Start here</p>
             <h3 id="invite-farmer-heading">Invite a farmer to join</h3>
-            <p className="admin-note">
-              Send a private onboarding link. It works whether or not they have already joined by
-              SMS.
-            </p>
           </div>
-          <span className="admin-invite-badge">SMS or email</span>
         </div>
         <form
           className="admin-invite-form"
@@ -296,10 +292,8 @@ export function FarmerQueue({
         >
           <fieldset className="admin-invite-step admin-invite-step--contact">
             <legend>
-              <span className="admin-step-number" aria-hidden="true">1</span>
               <span>Contact</span>
             </legend>
-            <p className="admin-field-help">Where should we send the invite?</p>
             <div className="admin-channel-options">
               <label className="admin-channel-option">
                 <input
@@ -312,7 +306,6 @@ export function FarmerQueue({
                 />
                 <span className="admin-channel-option-copy">
                   <strong>Text message</strong>
-                  <small>Send to a phone</small>
                 </span>
               </label>
               <label className="admin-channel-option">
@@ -326,14 +319,12 @@ export function FarmerQueue({
                 />
                 <span className="admin-channel-option-copy">
                   <strong>Email</strong>
-                  <small>Send to an inbox</small>
                 </span>
               </label>
             </div>
             <label className="admin-field">
               <span className="admin-control-label">
                 {inviteChannel === "sms" ? "Phone number" : "Email address"}
-                <span className="admin-required" aria-hidden="true">Required</span>
               </span>
               <input
                 type={inviteChannel === "sms" ? "tel" : "email"}
@@ -348,18 +339,12 @@ export function FarmerQueue({
 
           <fieldset className="admin-invite-step admin-invite-step--farm">
             <legend>
-              <span className="admin-step-number" aria-hidden="true">2</span>
               <span>Farm</span>
               <span className="admin-optional">Optional</span>
             </legend>
-            <p id="invite-farm-help" className="admin-field-help">
-              Choose an existing farm, or leave this blank for a new farm. You can assign it after
-              onboarding starts.
-            </p>
             <label className="admin-field">
-              <span className="admin-control-label">Farm</span>
+              <span className="sr-only">Farm</span>
               <select
-                aria-describedby="invite-farm-help"
                 value={inviteFarmId}
                 onChange={(event) => setInviteFarmId(event.target.value)}
               >
@@ -382,13 +367,11 @@ export function FarmerQueue({
             >
               {busy === "create_invite" ? "Preparing invite…" : "Prepare invite"}
             </button>
-            <p className="admin-action-note">You&apos;ll send the message from your own app.</p>
           </div>
         </form>
         {invite !== null && (
           <div className="admin-invite-result" role="status" aria-labelledby="invite-ready-heading">
             <div className="admin-invite-result-heading">
-              <span className="admin-status-pill">Ready to send</span>
               <h4 id="invite-ready-heading">Your invite is ready</h4>
               <p className="admin-note">
                 {invite.farmName === null
@@ -421,24 +404,19 @@ export function FarmerQueue({
       <section className="admin-queue-group" aria-labelledby="waiting-heading">
         <div className="admin-group-heading">
           <div>
-            <p className="admin-kicker">Needs a decision</p>
             <h3 id="waiting-heading">Waiting for your decision</h3>
-            <p className="admin-note">People who have asked to join, including new-farm invites.</p>
           </div>
           <span className="admin-count" aria-label={`${pendingRequests.length} waiting`}>
             {pendingRequests.length}
           </span>
         </div>
         {pendingRequests.length === 0 ? (
-          <p className="admin-empty-state">
-            No requests right now. Farmers can text <strong>SIGNUP</strong> to get started.
-          </p>
+          <p className="admin-empty-state">No requests.</p>
         ) : (
           <ul className="admin-farms">
             {pendingRequests.map((request) => (
               <li key={request.requestId} className="admin-farm admin-request-card">
                 <div className="admin-card-person">
-                  <p className="admin-kicker">Phone ending</p>
                   <h4>{request.senderMask}</h4>
                   <p className="admin-note">Asked {formatDate(request.requestedAt)}</p>
                 </div>
@@ -487,9 +465,7 @@ export function FarmerQueue({
       <section className="admin-queue-group" aria-labelledby="current-access-heading">
         <div className="admin-group-heading">
           <div>
-            <p className="admin-kicker">Already approved</p>
             <h3 id="current-access-heading">People with farmer access</h3>
-            <p className="admin-note">Manage their private links or remove access.</p>
           </div>
           <span className="admin-count" aria-label={`${rows.length} people with farmer access`}>
             {rows.length}
@@ -504,7 +480,6 @@ export function FarmerQueue({
               return (
                 <li key={row.authorizationId} className="admin-farm admin-access-card">
                   <div className="admin-card-person">
-                    <p className="admin-kicker">Farm</p>
                     <h4>{row.farmName}</h4>
                     <p className={revoked ? "admin-unapproved" : "admin-approved"}>
                       {row.senderMask} ·{" "}
@@ -512,13 +487,13 @@ export function FarmerQueue({
                         ? `Revoked ${formatDate(row.revokedAt as string)}`
                         : `Authorized ${formatDate(row.authorizedAt)}`}
                     </p>
-                    <p className="admin-note">
-                      {revoked
-                        ? "Access was removed, so their private link no longer works."
-                        : row.hasLiveLink && row.liveLinkStand !== null
-                          ? `Private link works for ${row.liveLinkStand.name}.`
-                          : "No private link yet. They can text LINK whenever they need one."}
-                    </p>
+                    {!revoked ? (
+                      <p className="admin-note">
+                        {row.hasLiveLink && row.liveLinkStand !== null
+                          ? `Private link: ${row.liveLinkStand.name}`
+                          : "No private link"}
+                      </p>
+                    ) : null}
                     {freshLink?.id === row.authorizationId && (
                       <div className="admin-link-reveal" role="group" aria-label="New private link">
                         <p className="admin-note">
@@ -533,7 +508,6 @@ export function FarmerQueue({
                   </div>
                   {!revoked && (
                     <div className="admin-access-actions">
-                      <p className="admin-kicker">Private link</p>
                       <label className="admin-field">
                         <span className="admin-control-label">Stand this link can update</span>
                         <select
@@ -564,7 +538,7 @@ export function FarmerQueue({
                           className="admin-action-primary"
                           type="button"
                           disabled={busy === row.authorizationId}
-                          onClick={() => void issueLink(row)}
+                          onClick={() => row.hasLiveLink ? setReplacingLink(row.authorizationId) : void issueLink(row)}
                         >
                           {row.hasLiveLink ? "Replace link" : "Create link"}
                         </button>
@@ -577,6 +551,27 @@ export function FarmerQueue({
                           {busy === row.authorizationId ? "Saving…" : "Remove access"}
                         </button>
                       </div>
+                      {replacingLink === row.authorizationId && (
+                        <div className="admin-inline-confirm" role="group" aria-label={`Replace private link for ${row.farmName}`}>
+                          <p>Create a new private link? The old link will stop working.</p>
+                          <button
+                            className="admin-action-primary"
+                            type="button"
+                            disabled={busy === row.authorizationId}
+                            onClick={() => void issueLink(row)}
+                          >
+                            {busy === row.authorizationId ? "Saving…" : "Create new private link"}
+                          </button>
+                          <button
+                            className="admin-action-secondary"
+                            type="button"
+                            disabled={busy === row.authorizationId}
+                            onClick={() => setReplacingLink(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </li>

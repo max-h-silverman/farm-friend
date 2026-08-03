@@ -168,6 +168,12 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   launch consent. Inventory reminders use the same consent; choosing or pausing a cadence does not
   establish, restore, or revoke it.
 
+  A successful first-time `JOIN` or restoring `START` queues two distinct, deduplicated replies:
+  the carrier-registered consent receipt as `required_reply`, then a product welcome explaining
+  customer inquiry, `MAP`, `HELP`, and `STOP` as an ordinary `inquiry_reply`. A retry may create
+  neither a second receipt nor a second welcome. An already-enrolled `JOIN` receives only the
+  existing code-rendered instruction to use `START`.
+
   **Why the two opt-in keywords differ (B-011).** The carrier keeps its own opt-out list and
   enforces it independently of ours: while a number is on it, Telnyx refuses every send with
   `409 / 40300`, regardless of the messaging profile's auto-response settings. **`START` clears that

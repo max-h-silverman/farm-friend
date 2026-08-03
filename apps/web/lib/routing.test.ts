@@ -223,6 +223,8 @@ describe("deterministic routing order (Golden Rule #2)", () => {
         true,
       );
       expect(result.replies[0]?.body).toMatch(/agreed to receive/i);
+      expect(result.replies[1]?.body).toMatch(/ask what is available/i);
+      expect(result.replies[1]?.category).toBe("inquiry_reply");
     }
   });
 
@@ -307,6 +309,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
 
       expect(result.outcome).toMatchObject({ kind: "consent", applied: true });
       expect(result.replies[0]?.body).toMatch(/agreed to receive/i);
+      expect(result.replies[1]?.body).toMatch(/ask what is available/i);
       expect(queries.some((q) => q.includes("consent_transition_watermarks"))).toBe(true);
     });
 
