@@ -13,11 +13,13 @@ mid-session defeats its own purpose.
 
 ## 2026-08-02 — complete interactive map listing details, marker mapping, and order deployed
 
-F-058 (`71cc48f`, PR #72) completes the public map tranche. The map now carries sanitized source
+F-058 (`71cc48f`, PR #72; final marker correction `640f0ac`, PR #73) completes the public map
+tranche. The map now carries sanitized source
 listing prose, hours, stocking notes, updates, and public web/social links into the detail view;
 direct email addresses and phone numbers are removed. The default directory is ascending by stable
 stand number, while explicit distance sorting remains unchanged. The legend and marker rendering now
-use visitability, destination type, season, approved usual offerings, and reviewed Farm Bucks facts.
+use visitability, destination type, season, approved usual offerings, flower-product terms, and
+reviewed Farm Bucks facts.
 The requested sticky-map behavior was explicitly withdrawn and was not changed. Contact-only farms
 remain list entries without pins because they have no customer-visitable coordinate.
 
@@ -29,10 +31,10 @@ is intentionally unpublished and is the one database row outside the 34-stand pu
 
 Verification: 93 unit-test files / 894 tests, 41 real-Postgres integration-test files / 564 tests,
 typecheck, lint, production web build, and 44/44 scripted eval cases. Cloud Build
-`619b58f4-a6de-42b2-b8d4-f51b80f3266e` produced digest
-`sha256:7babc9efb9848b176bfd7043727ac1020b7ee4a63cd07795abeb29e2db682f69`. OpenTofu passed 37/37
+`b3904d28-05ba-4276-9c7a-22281962e513` produced digest
+`sha256:8e66a05b6734531d980f5193102ba3a4c9e845b221184dc96fdab9fcdf16066d`. OpenTofu passed 37/37
 assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
-`farm-friend-web-00021-ft8` and `farm-friend-worker-00022-jfx`; deployment, secret-freshness,
+`farm-friend-web-00022-sk9` and `farm-friend-worker-00023-zhh`; deployment, secret-freshness,
 served-card, and public-API checks passed. No migration was owed: production already held all 17.
 
 ## 2026-08-02 — farmer SMS handling and final map polish deployed
