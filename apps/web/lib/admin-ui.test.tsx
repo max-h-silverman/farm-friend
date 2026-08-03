@@ -117,6 +117,7 @@ describe("the stand list", () => {
             status: "Public",
             openState: "Open now",
             approved: true,
+            farmBucksStatus: "not_eligible",
             sections: [
               {
                 title: "Availability",
@@ -153,6 +154,10 @@ describe("the stand list", () => {
     expect(screen.getByRole("heading", { name: "Visit" })).toBeTruthy();
     expect(screen.getByText("123 Farm Lane")).toBeTruthy();
     expect(screen.getByText("Eggs, flowers")).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Accepts VIGA Bucks" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 });
 
@@ -169,6 +174,7 @@ describe("administrator language", () => {
               status: "Shown on map",
               openState: "Open now",
               approved: true,
+              farmBucksStatus: "not_eligible",
               sections: [{ title: "Visit", items: [["Visit in person", "Yes"]] }],
             },
           ]}

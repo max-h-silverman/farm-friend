@@ -18,6 +18,8 @@ import {
 } from "../lib/map-view";
 import { IslandArtwork } from "./island-artwork";
 import { useTransientOrigin } from "./use-transient-origin";
+import farmMapLogo from "../../../assets/viga-farm-map.png";
+import vigaWheelbarrow from "../../../assets/viga_wheelbarrow.png";
 
 // The public stand map (F-017, F-042, F-043).
 //
@@ -67,6 +69,62 @@ function ParticipantNames({ names }: { names: readonly string[] }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+type PosterIndicator = {
+  kind: "no-viga-bucks" | "year-round" | "late-november";
+  label: string;
+};
+
+/**
+ * The static poster used three small dots as a directory key. Keep their meaning in one
+ * data-derived function: a dot is never inferred from a farm name or from today's opening
+ * state. "Late November" deliberately needs an explicit date range ending Nov 20–30; a
+ * vague named season such as "fall" cannot honestly make that promise.
+ */
+function posterIndicators(stand: PublicStandPayload): PosterIndicator[] {
+  const indicators: PosterIndicator[] = [];
+  if (stand.farmBucksAccepted === false) {
+    indicators.push({ kind: "no-viga-bucks", label: "Does not accept VIGA Bucks" });
+  }
+
+  const season = stand.availability.season;
+  if (season?.kind === "year_round") {
+    indicators.push({ kind: "year-round", label: "Open year-round" });
+  } else if (
+    season?.kind === "date_range" &&
+    season.endMonth === 11 &&
+    season.endDay >= 20
+  ) {
+    indicators.push({ kind: "late-november", label: "Open until late November" });
+  }
+  return indicators;
+}
+
+function PosterIndicators({
+  stand,
+  compact = false,
+}: {
+  stand: PublicStandPayload;
+  compact?: boolean;
+}) {
+  const indicators = posterIndicators(stand);
+  if (indicators.length === 0) return null;
+
+  return (
+    <ul className="poster-indicators" aria-label="Stand details">
+      {indicators.map((indicator) => (
+        <li
+          key={indicator.kind}
+          className={`poster-indicator poster-indicator-${indicator.kind}`}
+          aria-label={compact ? indicator.label : undefined}
+        >
+          <span className="poster-dot" aria-hidden="true" />
+          {compact ? null : indicator.label}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -125,9 +183,19 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
    *   movement is bringing the MAP into the part of the screen the sheet does not cover.
    *
    * Deliberately NOT "hide every other listing" — that would leave the map as the only way
-   * back to the full set, and a customer who then changed a filter would see nothing happen.
-   */
-  function select(id: string): void {
+  * back to the full set, and a customer who then changed a filter would see nothing happen.
+  */
+  function select(id: string, source: "map" | "list" = "map"): void {
+    if (selectedId === id) {
+      setSelectedId(null);
+      return;
+    }
+
+    if (source === "list") {
+      setSelectedId(id);
+      return;
+    }
+
     setSelectedId(id);
 
     const isWide = window.matchMedia("(min-width: 56rem)").matches;
@@ -157,6 +225,9 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
 
   return (
     <main className={selectedStand !== undefined ? "page sheet-open" : "page"}>
+      <header className="farm-map-masthead">
+        <img src={farmMapLogo.src} alt="VIGA Farm Map" />
+      </header>
       {/*
       F-043 — NO TITLE AND NO EYEBROW (max, 2026-07-30). This page is embedded in VIGA's own
       Squarespace page, which already carries the association's name and its own heading; a
@@ -169,8 +240,9 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       as a caption above the filters rather than a lede under a title.
       */}
       <p className="map-note">
-        Most stands are unattended and honor-system, so we show{" "}
-        <strong>when each was last confirmed</strong> rather than promising what is there.
+        Note: Neither the VIGA nor individual farmers can
+        guarantee product availability. Products listed are
+         a general indication of what items can often be found.
       </p>
 
       {/*
@@ -344,11 +416,11 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                     tabIndex={0}
                     aria-label={`${stand.standNumber}. ${stand.locationName}, ${stand.farmName}`}
                     aria-pressed={isSelected}
-                    onClick={() => select(stand.id)}
+                    onClick={() => select(stand.id, "map")}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        select(stand.id);
+                        select(stand.id, "map");
                       }
                     }}
                   />
@@ -372,6 +444,11 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
               );
             })}
           </svg>
+          <img
+            className="island-viga-logo"
+            src={vigaWheelbarrow.src}
+            alt="Vashon Island Growers Association"
+          />
           <figcaption className="island-caption">
             {visible.length === view.stands.length
               ? `${view.stands.length} farm stands`
@@ -389,6 +466,21 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
               They are still shown, marked, because old information beats none.
             </p>
           ) : null}
+
+          <div className="farm-map-key" aria-label="Farm map key">
+            <span className="poster-indicator poster-indicator-no-viga-bucks">
+              <span className="poster-dot" aria-hidden="true" />
+              Does not accept VIGA Bucks
+            </span>
+            <span className="poster-indicator poster-indicator-year-round">
+              <span className="poster-dot" aria-hidden="true" />
+              Open year-round
+            </span>
+            <span className="poster-indicator poster-indicator-late-november">
+              <span className="poster-dot" aria-hidden="true" />
+              Open until late November
+            </span>
+          </div>
 
           {/*
             F-043 — an empty filter result SAYS SO rather than rendering blank, and says which
@@ -416,9 +508,16 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                   ]
                     .filter(Boolean)
                     .join(" ")}
-                  onClick={() => select(stand.id)}
+                  onClick={(event) => {
+                    if (event.target instanceof Element && event.target.closest("a, button")) {
+                      return;
+                    }
+                    select(stand.id, "list");
+                  }}
                 >
-                  <div className="stand-head">
+                  <PosterIndicators stand={stand} compact />
+                  <div className="stand-content">
+                    <div className="stand-head">
                     {/*
                     The number matching this stand's pin (F-043). Marked decorative because
                     the heading beside it already names the stand — a screen reader gains
@@ -426,14 +525,24 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                     pin. It is `aria-hidden` for the same reason the pin's is.
                     */}
                     <span className="stand-number" aria-hidden="true">
-                      {stand.standNumber}
+                      {stand.standNumber})
                     </span>
-                    <h2>{stand.locationName}</h2>
+                    <h2>
+                      <button
+                        type="button"
+                        className="stand-summary-toggle"
+                        aria-expanded={stand.id === selectedId}
+                        onClick={() => select(stand.id, "list")}
+                      >
+                        {stand.locationName}
+                      </button>
+                    </h2>
                     {stand.distanceLabel !== undefined ? (
                       <span className="distance">{stand.distanceLabel}</span>
                     ) : null}
-                  </div>
-                  <p className="farm">{stand.farmName}</p>
+                    </div>
+                    <p className="farm">{stand.farmName}</p>
+                    <div className="stand-details">
                   <ParticipantNames names={stand.alsoSellingHere} />
 
                   {stand.closure?.state === "upcoming" ? (
@@ -560,6 +669,8 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                       Directions
                     </a>
                   ) : null}
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -605,6 +716,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                 </span>
               </h2>
               <p className="sheet-farm">{selectedStand.farmName}</p>
+              <PosterIndicators stand={selectedStand} />
               <ParticipantNames names={selectedStand.alsoSellingHere} />
             </div>
             <button
@@ -680,12 +792,6 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       ) : null}
 
       <footer className="foot">
-        <p>
-          Farmers keep these listings current by text message. Spotted an empty bin? Use the
-          QR code at the stand to tell the farmer privately — it never changes the listing on
-          its own.
-        </p>
-
         {/*
           F-039 — the one-tap way to save the number instead of copying it off a sign.
 
@@ -701,11 +807,11 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
         */}
         <p className="contact-card-cta">
           <a className="contact-card-link" href={CONTACT_CARD_PATH} download>
-            Save the Farm Friend number
+            Save Farm Friend Contact
           </a>
           <span className="contact-card-note">
-            Adds the texting number to your phone&apos;s contacts. This only saves a contact —
-            it does not sign you up for messages, and we are not told that you saved it.
+            Adds the VIGA Farm Friend number to your phone&apos;s contacts. This does not sign
+             you up for messages.
           </span>
         </p>
       </footer>

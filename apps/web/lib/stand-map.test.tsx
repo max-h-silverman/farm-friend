@@ -58,5 +58,115 @@ describe("public participant names", () => {
     expect(within(sheet).getByText("Also selling here")).toBeTruthy();
     expect(within(sheet).getByText("Guest Growers").closest("a")).toBeNull();
     expect(within(sheet).getByText("Island Apiary").closest("a")).toBeNull();
+
+    await user.click(
+      screen.getByRole("button", { name: "1. Shared Stand, Host Farm" }),
+    );
+    expect(screen.queryByRole("dialog", { name: "Shared Stand details" })).toBeNull();
+  });
+});
+
+describe("farm-map poster treatment", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  it("carries the VIGA Farm Map mark and explains the poster-status dots in words", () => {
+    const stand: PublicStandPayload = {
+      id: "year-round-stand",
+      farmName: "Evergreen Farm",
+      locationName: "Evergreen Farm Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "1 Orchard Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      farmBucksAccepted: false,
+      availability: {
+        season: { kind: "year_round" },
+      },
+      alsoSellingHere: [],
+      items: [],
+    };
+
+    render(<StandMap stands={[stand]} />);
+
+    expect(screen.getByAltText("VIGA Farm Map")).toBeTruthy();
+    expect(screen.getByAltText("Vashon Island Growers Association")).toBeTruthy();
+    expect(screen.getAllByText("Does not accept VIGA Bucks")).toHaveLength(1);
+    expect(screen.getAllByText("Open year-round")).toHaveLength(1);
+
+    const card = screen.getByRole("heading", { name: "Evergreen Farm Stand" }).closest("li")!;
+    expect(within(card).queryByText("Does not accept VIGA Bucks")).toBeNull();
+    expect(within(card).queryByText("Open year-round")).toBeNull();
+    expect(card.querySelectorAll(".poster-dot")).toHaveLength(2);
+    expect(within(card).getByText("1)", { exact: true })).toBeTruthy();
+    expect(
+      card.querySelector(".poster-indicators")!.compareDocumentPosition(
+        card.querySelector("h2")!,
+      ),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(card.querySelector(".poster-indicators")!.parentElement).toBe(card);
+    expect(card.querySelector(".stand-content")!.parentElement).toBe(card);
+  });
+
+  it("places the indicator legend above the stand listings", () => {
+    const stand: PublicStandPayload = {
+      id: "legend-position-stand",
+      farmName: "Evergreen Farm",
+      locationName: "Evergreen Farm Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "1 Orchard Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      availability: {},
+      alsoSellingHere: [],
+      items: [],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    const legend = screen.getByLabelText("Farm map key");
+    const listColumn = container.querySelector(".list-column");
+    const stands = container.querySelector(".stands");
+
+    expect(legend.parentElement).toBe(listColumn);
+    expect(legend.compareDocumentPosition(stands!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("keeps the directory compact until its own entry is selected", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "compact-stand",
+      farmName: "Compact Farm",
+      locationName: "Compact Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "1 Orchard Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      availability: {},
+      alsoSellingHere: [],
+      items: [{ itemName: "Carrots" }],
+    };
+
+    render(<StandMap stands={[stand]} />);
+
+    const toggle = screen.getByRole("button", { name: "Compact Stand" });
+    const card = toggle.closest("li")!;
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(card);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
   });
 });

@@ -185,7 +185,9 @@ export function FarmerQueue({
       message,
       farmName: payload.farmName,
     });
-    setSuccess("Invite ready. Send it from your text or email app.");
+    // The ready panel is the success state. Keeping a second banner above the form makes
+    // the operator scan two places for the same result.
+    setSuccess(null);
   }
 
   async function copyInviteLink() {
@@ -285,7 +287,13 @@ export function FarmerQueue({
           </div>
           <span className="admin-invite-badge">SMS or email</span>
         </div>
-        <div className="admin-invite-form">
+        <form
+          className="admin-invite-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createInvite();
+          }}
+        >
           <fieldset className="admin-invite-step admin-invite-step--contact">
             <legend>
               <span className="admin-step-number" aria-hidden="true">1</span>
@@ -368,17 +376,17 @@ export function FarmerQueue({
           <div className="admin-invite-actions">
             <button
               className="admin-action-primary"
-              type="button"
+              type="submit"
+              aria-busy={busy === "create_invite"}
               disabled={busy === "create_invite"}
-              onClick={() => void createInvite()}
             >
               {busy === "create_invite" ? "Preparing invite…" : "Prepare invite"}
             </button>
             <p className="admin-action-note">You&apos;ll send the message from your own app.</p>
           </div>
-        </div>
+        </form>
         {invite !== null && (
-          <div className="admin-invite-result" role="group" aria-labelledby="invite-ready-heading">
+          <div className="admin-invite-result" role="status" aria-labelledby="invite-ready-heading">
             <div className="admin-invite-result-heading">
               <span className="admin-status-pill">Ready to send</span>
               <h4 id="invite-ready-heading">Your invite is ready</h4>

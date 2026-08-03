@@ -24,6 +24,36 @@ function driver(db: Db): Sql {
   return db.sql;
 }
 
+export type FarmBucksStatus = "accepts" | "does_not_accept" | "not_eligible";
+
+/**
+ * Record VIGA's reviewed payment status for one stand. The existing pair of columns carries
+ * all three honest states: eligible + accepted, eligible + not accepted, or not eligible.
+ */
+export async function saveFarmBucksStatus(
+  db: Db,
+  input: { standId: string; administratorId: string; status: FarmBucksStatus; occurredAt: Date },
+): Promise<{ status: "saved" | "unknown_stand" | "not_an_administrator" }> {
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators where id = ${input.administratorId} and revoked_at is null for update
+    `;
+    if (administrator.length === 0) return { status: "not_an_administrator" as const };
+
+    const stand = await tx`select id from sales_locations where id = ${input.standId} for update`;
+    if (stand.length === 0) return { status: "unknown_stand" as const };
+
+    const eligible = input.status !== "not_eligible";
+    const accepted = input.status === "accepts";
+    await tx`
+      update sales_locations
+      set farm_bucks_eligible = ${eligible}, farm_bucks_accepted = ${accepted}, updated_at = ${input.occurredAt.toISOString()}
+      where id = ${input.standId}
+    `;
+    return { status: "saved" as const };
+  });
+}
+
 export interface CreateAdminSessionInput {
   /** The HASH of the session token. The raw token never reaches this layer. */
   tokenHash: string;
