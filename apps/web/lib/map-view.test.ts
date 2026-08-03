@@ -335,6 +335,14 @@ describe("map marker language", () => {
       ),
     ).toBe("flower-only");
     expect(
+      mapMarkerKind(
+        stand({
+          farmBucksAccepted: false,
+          usuallySells: ["lavender", "wreaths", "essential oil"],
+        }),
+      ),
+    ).toBe("flower-only");
+    expect(
       mapMarkerKind(stand({ locationKind: "farmers_market" })),
     ).toBe("farmers-market");
     expect(

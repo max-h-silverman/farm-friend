@@ -112,8 +112,8 @@ export type MapMarkerKind =
 /**
  * Map marker language from facts already present in the public payload. The icon is a visual
  * index, not a second source of truth: market type and year-round season are structured facts;
- * flower-only is reserved for a listing whose approved usual offerings are all flower terms and
- * whose reviewed payment fact says it does not accept VIGA Bucks.
+ * flower-only is reserved for a listing whose approved usual offerings are all flower or
+ * flower-product terms and whose reviewed payment fact says it does not accept VIGA Bucks.
  */
 export function mapMarkerKind(stand: PublicStandPayload): MapMarkerKind {
   if (stand.visitability === "contact_only") return "contact-only";
@@ -123,7 +123,9 @@ export function mapMarkerKind(stand: PublicStandPayload): MapMarkerKind {
   if (
     stand.farmBucksAccepted === false &&
     usualOfferings.length > 0 &&
-    usualOfferings.every((item) => /\bflower(?:s|ing)?\b|\blavender\b/i.test(item))
+    usualOfferings.every((item) =>
+      /\b(?:flower(?:s|ing)?|lavender|wreaths?|essential oils?)\b/i.test(item),
+    )
   ) {
     return "flower-only";
   }
