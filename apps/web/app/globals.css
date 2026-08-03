@@ -3419,7 +3419,6 @@ button.admin-action-danger,
 }
 
 .stand-summary-address {
-  flex: 0 0 100%;
   min-width: 0;
   margin: 0;
   color: var(--ink-soft);
@@ -3804,9 +3803,18 @@ button.admin-action-danger,
   }
 
   .stand-summary-address {
-    flex: 1 1 9rem;
+    min-width: 0;
+    margin: 0;
     font-size: 0.875rem;
     line-height: 1.2;
+  }
+
+  .stand-summary-location {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
   }
 
   .stand-summary-website,

@@ -326,26 +326,30 @@ function StandListings({ stand }: { stand: FilteredStand }) {
 function StandSummaryMeta({ stand }: { stand: FilteredStand & MapViewStand }) {
   const { website } = splitWebsite(stand.description);
 
-  return (
-    <div className="stand-summary-meta">
-      <p className="stand-summary-address">
-        {stand.address ?? "No farm stand to visit"}
-      </p>
-      {website !== undefined ? (
-        <a
-          className="stand-summary-website"
-          href={website}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          Website
-        </a>
-      ) : null}
-      {stand.stale === true ? (
-        <span className="stand-summary-freshness">Needs confirmation</span>
-      ) : null}
-    </div>
-  );
+ return (
+   <div className="stand-summary-meta">
+     <div className="stand-summary-location">
+       <p className="stand-summary-address">
+         {stand.address ?? "No farm stand to visit"}
+       </p>
+
+       {website !== undefined ? (
+         <a
+           className="stand-summary-website"
+           href={website}
+           target="_blank"
+           rel="noreferrer noopener"
+         >
+           Website
+         </a>
+       ) : null}
+     </div>
+
+     {stand.stale === true ? (
+       <span className="stand-summary-freshness">Needs confirmation</span>
+     ) : null}
+   </div>
+ );
 }
 
 function StandDetailBody({
