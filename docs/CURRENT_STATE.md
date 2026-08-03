@@ -115,6 +115,7 @@ Cloud Tasks queue is `RUNNING`; the Cloud Scheduler job is `ENABLED`.
   stand per standing credential, inventory proposal/confirmation, participant editing, and reminder
   settings. Revocation is re-read on every request.
 - **Farmer SMS:** deterministic compliance and commitment routing precedes every model call;
+  authorized farmer free text is classified as update/question/unclear before stand targeting;
   `STAND`, `SETTINGS`, `SAME`, and `MORE` are context-bound and model-free.
 - **Customer SMS:** model interpretation → code retrieval → model identifier selection → code
   validation and rendering. Model output cannot author factual reply text or durable state.

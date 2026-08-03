@@ -95,21 +95,23 @@ One narrow task interface, with:
   acquire context outside that projection.
 
 The approved launch projections are listed below. A projection is **built only when its seam has
-a real consumer** — the zen-desk rule. Five are built; message classification remains unbuilt and
-unprojected because it has no caller, and there is deliberately no generic assembler standing in
-for it in the meantime.
+a real consumer** — the zen-desk rule. Six are built, including the authorized-farmer message
+classifier that decides whether free text is an inventory update or a farm-stand question.
 
 | Seam | Permitted model input |
 |---|---|
+| farmer-message intent | the authorized farmer's current message, and nothing else |
 | inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), the current or pending canonical closure instruction for the farmer's own location, the exact current Vashon calendar date, and deterministic closure timing evidence derived by code before the call |
 | stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
 | inquiry interpretation | the current customer SMS request |
 | grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
 | offering extraction | one stand's public "generally offers" description, alone |
 
-A **message-classification** seam has been repeatedly considered and is deliberately absent: it has
-no defined consumer and no safe consequence, so it would be a projection nothing acts on. It gets a
-projection when a launch workflow needs one, not before.
+The farmer-message intent seam has one narrow consumer: after code confirms live farmer authority,
+it returns only `inventory_update`, `farm_stand_question`, or `unclear`. Code routes a question into
+the existing grounded inquiry flow, routes an update through exact stand targeting and inventory
+confirmation, and renders the unclear prompt itself. The seam receives no target, authorization,
+or inventory facts.
 
 **Offering extraction is the one seam that does not run on a message.** It reads
 VIGA's published stand prose at ingest time and proposes the item tags a stand *usually* carries;
@@ -186,6 +188,10 @@ clarify or flag:
   one mixed result. Code validates the shape and authority and renders every public status; the
   model cannot publish or author a public closure note. Reused wherever a farmer describes stock or
   stand status naturally.
+- **farmer-message intent** — authorized farmer free text → one of three route signals:
+  `inventory_update`, `farm_stand_question`, or `unclear`. Code owns authority, exact stand
+  resolution, inquiry grounding, confirmation, and the clarification text. A classifier error or
+  invalid output becomes `unclear`; it never becomes an inventory write.
 - **stock-out item parsing** — on the web/QR reporting surface, free text → which item (a listed
   entry or normalized text for an unlisted one). The surface supplies the sales-location identifier
   in code; it is never a model output. A free-text SMS may receive a link to the reporting surface
@@ -204,7 +210,6 @@ signals carrying no other field** — validation refuses any — and code render
 previously carried a model-authored `question` string that was delivered to the customer verbatim;
 that was the only path by which model prose reached a customer in the inquiry flow, and F-018
 removed the field rather than scanning what passed through it.
-- **message classification** — last-resort intent classification, only after deterministic routing.
 
 Recipe requests have no model composition seam — and never had one. Recognizing that a request
 asks for a recipe, cooking or preservation instructions, or food-safety guidance is **meaning**, so
@@ -233,8 +238,10 @@ still performs final normalization and segment estimation.
 
 ## Retrieval and ranking (after interpretation, before grounded fact selection)
 
-Deterministic SMS routing runs before every model call. The first inquiry call interprets the
-current request. Code validates that interpretation and then runs a **general** retrieval layer:
+Deterministic SMS routing runs before every model call. For an authorized farmer's free text, code
+checks live authority, the farmer-message intent seam classifies the route, and only an update then
+resolves an exact stand target. A question enters the same grounded inquiry flow as a customer. The
+first inquiry call interprets the current request. Code validates that interpretation and then runs a **general** retrieval layer:
 *given items, optional farm scope, and a proposed ranking interpretation → candidate locations with
 recency.* Intersection, coverage, and freshest-N are **expressible interpretations**, not an
 enumerated architecture constant. Only retrieved rows reach the grounded-selection call. The model

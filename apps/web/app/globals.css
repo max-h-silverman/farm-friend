@@ -2707,7 +2707,8 @@ button.admin-action-danger:disabled {
 
 .stand-head {
   gap: 0.35rem;
-  align-items: baseline;
+  /* Keep the number anchored to the first line when a long stand name wraps. */
+  align-items: flex-start;
 }
 
 .stand > .poster-indicators {

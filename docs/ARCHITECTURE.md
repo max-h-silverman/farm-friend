@@ -265,12 +265,18 @@ order:
    code-rendered refusal, never free text.
 9. **Active conversation state** routes the message to its in-flight flow.
 10. **Authority and consent gates** determine what the sender may do.
-11. **Only then** may a model seam run.
+11. For authorized farmer free text, the **farmer-message intent seam** returns only
+    `inventory_update`, `farm_stand_question`, or `unclear`. It runs before stand targeting so a
+    general question does not create a target menu.
+12. `inventory_update` continues through exact stand targeting and the existing proposal flow;
+    `farm_stand_question` uses grounded inquiry; `unclear` gets a code-rendered clarification.
+    No classification outcome publishes inventory.
 
-Farmer free text resolves the sender's durable exact target in code before interpretation. One
-live target is selected automatically; several with no selection issue the same numbered menu.
+Farmer update text resolves the sender's durable exact target in code after intent classification.
+One live target is selected automatically; several with no selection issue the same numbered menu.
 Every use revalidates the authorization and location under the shared sender → location →
-authorization lock order. The model receives no target list and cannot select or change a target.
+authorization lock order. Neither the classifier nor the inventory interpreter receives a target
+list or can select or change a target.
 
 A confirmation token is accepted only for the sender's one open farmer-update proposal, after the
 current prompt has been accepted by Telnyx, and only when the token's provider occurrence time
