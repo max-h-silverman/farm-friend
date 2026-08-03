@@ -111,8 +111,9 @@ body {
 
 .map-note {
   margin: 0 0 0.9rem;
-  color: var(--ink-soft);
-  font-size: 0.92rem;
+  color: #FF5409;
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 .map-note strong {
@@ -2089,10 +2090,12 @@ button.admin-action-danger:disabled {
 
   .map-column {
     order: 2;
-    /* Pinned: the island stays put while the list scrolls past it, so a customer never
-     * loses the geography they are reading the list against. */
+    /* Keep the map in the viewport while the two-column directory scrolls beside it. */
     position: sticky;
     top: 1.25rem;
+    align-self: start;
+    height: fit-content;
+    max-height: calc(100vh - 2.5rem);
   }
 
   .list-column {
@@ -2363,56 +2366,81 @@ button.admin-action-danger:disabled {
  * and a ring as well as fill, so it survives both colourblindness and bright sun. */
 
 /*
- * Pins follow the poster: a small filled circle with a thin light ring, sitting on PALE land.
- * The poster reserves its reds for links and its greens for pin fills — brick is a text
- * colour there, not a map colour, so a map full of brick dots was a misreading of the brand.
- *
- * The ring is the land colour, not white, so a pin reads as sitting ON the island rather than
- * punched through it — and it keeps clustered pins separable, which matters around Vashon town
- * where several farms sit within a few hundred metres.
+ * Marker language follows the existing VIGA Google Map: seasonal stands are blue, year-round
+ * stands are green, flower-only listings use a red flower, and the farmers market is purple.
+ * The selected halo and glyph outline are deliberately independent of fill colour, so the
+ * selected marker remains obvious in bright sun and for colour-blind customers.
  */
-.pin-dot {
-  fill: var(--pin);
-  stroke: var(--sage);
-  stroke-width: 3;
+.pin {
   cursor: pointer;
-  transition: r 120ms ease;
-}
-
-/* Keyboard focus only.
- *
- * `:focus-visible` rather than `:focus`, and the distinction was found by CLICKING a pin: a
- * mouse or touch click on an SVG element takes focus, and the browser then drew its default
- * blue rectangle around the circle — a square box on a round pin, in a colour from no palette
- * here. `:focus-visible` fires for keyboard navigation and not for pointer input, so a
- * keyboard user still gets a visible ring and a tapping customer just gets the selection
- * styling below. Both are ringed; only one is ringed by the browser. */
-.pin-dot:focus {
   outline: none;
 }
 
-.pin-dot:focus-visible {
+.pin:focus-visible {
   outline: 3px solid var(--olive);
-  outline-offset: 2px;
+  outline-offset: 4px;
 }
 
-.pin-unknown .pin-dot,
-.pin-by_appointment .pin-dot {
-  /* Hollow, because we do not know. Reads as "there is something here, unconfirmed" rather
-   * than as a solid claim — and it is a SHAPE difference, not a colour one, so it survives
-   * colourblindness and bright sun. The card still carries the words. */
+.pin-shape,
+.pin-market-shape {
+  stroke: var(--sage);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.pin-seasonal .pin-shape {
+  fill: #2379d8;
+}
+
+.pin-year-round .pin-shape {
+  fill: #65a936;
+}
+
+.pin-market-shape {
+  fill: #7d43d8;
+}
+
+.pin-flower-glyph {
+  stroke: var(--sage);
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.pin-flower-petal {
+  fill: #b02d3b;
+}
+
+.pin-flower-center {
+  fill: #f6c344;
+}
+
+.pin-unknown .pin-shape,
+.pin-by_appointment .pin-shape,
+.pin-unknown .pin-market-shape,
+.pin-by_appointment .pin-market-shape,
+.pin-unknown .pin-flower-petal,
+.pin-by_appointment .pin-flower-petal {
   fill: var(--sage);
-  stroke: var(--pin);
-  stroke-width: 4;
 }
 
-.pin-stale .pin-dot {
+.pin-stale .pin-shape,
+.pin-stale .pin-market-shape,
+.pin-stale .pin-flower-petal {
   fill: var(--amber-line);
 }
 
-.pin-selected .pin-dot {
+.pin-selection-halo {
+  fill: color-mix(in srgb, var(--olive) 18%, transparent);
   stroke: var(--olive);
-  stroke-width: 4;
+  stroke-width: 7;
+  vector-effect: non-scaling-stroke;
+}
+
+.pin-selected .pin-shape,
+.pin-selected .pin-market-shape,
+.pin-selected .pin-flower-glyph {
+  stroke: var(--ink);
+  stroke-width: 5;
 }
 
 /*
@@ -2461,6 +2489,10 @@ button.admin-action-danger:disabled {
  * theme question, it is a "what is this specific pin filled with" question. */
 .pin-stale .pin-number {
   fill: #2a1e06;
+}
+
+.pin-flower-only .pin-number {
+  fill: #3d2200;
 }
 
 .pin-selected .pin-number {

@@ -1097,6 +1097,9 @@ describe("scheduled inventory prompt pass (integration)", () => {
       {
         db: handle(),
         clock: new FixedClock(new Date(DUE.getTime() + 2_000)),
+        farmerIntent: {
+          async classify() { return { kind: "inventory_update" as const }; },
+        },
         interpreter: {
           async interpret(request) {
             interpreterCalls += 1;

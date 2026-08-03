@@ -78,6 +78,14 @@ describe("farm-map poster treatment", () => {
     });
   });
 
+  it("explains the interactive map's inventory recency and availability limits", () => {
+    render(<StandMap stands={[]} />);
+
+    expect(screen.getByText(
+      "Note: This interactive map may contain recent inventory updates, but neither VIGA nor individual farmers can guarantee product availability.",
+    )).toHaveClass("map-note");
+  });
+
   it("carries the VIGA Farm Map mark and explains the poster-status dots in words", () => {
     const stand: PublicStandPayload = {
       id: "year-round-stand",
@@ -139,6 +147,47 @@ describe("farm-map poster treatment", () => {
 
     expect(legend.parentElement).toBe(listColumn);
     expect(legend.compareDocumentPosition(stands!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("uses the VIGA marker language and highlights the selected icon", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "market-stand",
+      farmName: "Vashon Farmers Market",
+      locationName: "Vashon Farmers Market",
+      locationKind: "farmers_market",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "1 Market Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      availability: {},
+      alsoSellingHere: [],
+      items: [],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    const marker = screen.getByRole("button", {
+      name: "1. Vashon Farmers Market, Vashon Farmers Market",
+    });
+
+    expect(marker).toHaveClass("pin-farmers-market");
+    expect(marker.querySelector(".pin-market-shape")).toBeTruthy();
+    expect(marker).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(marker);
+
+    expect(marker).toHaveAttribute("aria-pressed", "true");
+    expect(marker.querySelector(".pin-selection-halo")).toBeTruthy();
+    expect(container.querySelector(".pin-label-layer text")).toHaveTextContent(
+      "Vashon Farmers Market",
+    );
+
+    const pinLayer = container.querySelector(".pin-layer")!;
+    const labelLayer = container.querySelector(".pin-label-layer")!;
+    expect(pinLayer.compareDocumentPosition(labelLayer)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });

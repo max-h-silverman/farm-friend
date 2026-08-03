@@ -5,17 +5,20 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Pushed commit `77bcf36` is live on Cloud Run as one image across web
-revision `farm-friend-web-00018-44h` and worker revision `farm-friend-worker-00019-gwq`, both at
-digest `sha256:a0110733234905983c1df0ef854a15d9cea899912615c4074d7483e6f6770c2e`.
-Production Postgres is `neondb` with all 16 migrations applied (`0000`–`0015`, through journal
-timestamp `1786400000000`). Production now includes:
+Farm Friend is **pre-go-live**. Merged commit `2a6eba1` is live on Cloud Run as one image across web
+revision `farm-friend-web-00019-lg9` and worker revision `farm-friend-worker-00020-ndb`, both at
+digest `sha256:a3d63ff627e6e7e74b7a05f04dcd30c97b827ce235515fbefaaea55eed7d1491`.
+Production Postgres is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal
+timestamp `1786500000000`). Production now includes:
 
 - F-049: owner-confirmed stand closure and reopening;
 - F-050: owner-confirmed **Also selling here** names;
 - F-051: deterministic `STAND` / `SETTINGS` and exact multi-stand targeting;
 - F-052: scheduled inventory prompts and context-bound `SAME`;
 - F-055: completed and visually exercised administrator and farmer web workflows;
+- farmer invitations, unbound-farm onboarding, and administrator Farm Bucks status editing;
+- the VIGA-poster public map treatment: legend above listings, dot-only card indicators in their own
+  column, left-aligned card text, and two-way card/marker collapse;
 - VIGA-only Squarespace admin embedding through a partitioned session cookie, a framing allowlist,
   and independent same-origin checks on authenticated writes;
 - one shared iframe-height handshake across map, admin, and farmer pages; it measures actual content
@@ -34,11 +37,10 @@ IAM grant are deleted. `/admin/login` serves the fixed `board@vigavashon.org` pa
 request-link and callback routes return 404, and an unauthenticated `/admin` request renders only the
 sign-in surface.
 
-F-057 is merged on `main` as `c480b01` but is **not deployed**. It makes standalone `MAP` a
-deterministic SMS command, returning only the configured `PUBLIC_MAP_URL` before model-assisted
-handling. STOP/START and consent safeguards retain their existing precedence. The deploy plan now
-refuses an absent non-HTTPS map URL or a web/worker mismatch; the container build and Cloud Run apply
-await explicit approval because Cloud Build can incur charges.
+F-057 is deployed as part of `2a6eba1`. Standalone `MAP` is a deterministic SMS command, returning
+only the configured `PUBLIC_MAP_URL` before model-assisted handling. STOP/START and consent
+safeguards retain their existing precedence. The deploy plan refuses an absent non-HTTPS map URL or
+a web/worker mismatch.
 
 Every standing link names one exact authorized stand, sales-location ownership is `owner_farm_id`,
 and proposal rows contain only the fields the current confirmation flow reads. There is no rolling
@@ -46,31 +48,13 @@ or nullable compatibility state.
 
 ## Verification
 
-F-057 passes 857 unit tests, typecheck, lint, and the production web build. Its two focused
-real-Postgres MAP cases prove that the configured URL is queued without a model call and that a
-stopped sender remains suppressed. The focused integration run uses an isolated disposable database;
-no production rows were read or written. The three deploy-assertion test suites also pass. No
-model-facing seam changed, so no model evaluation is owed.
-
-The administrator interface refinement is merged on `main` as `c91dd54` but **not deployed**. It
-has four top-level workflows: **Stands**, **People**, **Needs attention**, and **Stock reports**.
-Its compact navigation includes sign-out; priority actions use a small yellow accent; desktop
-content can use a wider readable column. Stand cards use native disclosure. Its expanded details
-are grouped by availability, visit and listing, hours and season, and other details. It passes 858 unit tests and
-556 real-Postgres integration tests across 40 files, plus typecheck, lint, and the production web
-build. The integration run used an isolated disposable local Postgres server only; it did not read
-or write production data. No model-facing seam changed, so no model evaluation is owed. The final
-browser walkthrough of this refinement is still owed; the separate F-055 farmer/mobile journey
-remains in review.
-
-The deployed commit passes 847 unit tests, 553 integration tests across 40 files against an
-isolated real Postgres server, 44 scripted eval cases, typecheck, lint, and the production web
-build. The saved deploy plan passed 35/35 assertions; the completed-cutover guard passes its 2
-focused tests, and the post-deploy assertion failure cases pass 10/10. The integration run creates
-empty databases and also exercises the populated B-031/B-032
-forward-migration proofs: authority, participant, location, proposal, and revision rows survive;
-exact-target and required-section NULL cases fail with Postgres `23502`; removed columns and
-defaults remain absent; and all 15 migrations are durable. Drizzle generation is a true no-op.
+The current release passes 91 unit-test files / 874 tests, 41 real-Postgres integration-test files /
+561 tests against disposable databases, typecheck, lint, and the production web build. The focused
+map interaction suite passes 4/4. The release introduced no model-facing seam, so no model
+evaluation is owed. Cloud Build `bc444893-2f59-4a9a-aaaa-31d30b2a5c16` published the exact merged
+commit; the OpenTofu plan passed 37/37 assertions and applied 0 adds, 2 service updates, and 0
+destroys. Post-deploy secret-freshness assertions and served vCard byte assertions pass. The
+canonical public map route returns 200 from the live web revision.
 
 The pushed F-056 commit `f041669` passes 842 unit tests, 551 integration tests across 40 files
 against a fresh local Postgres cluster, typecheck, lint, 44 scripted eval cases, and the production

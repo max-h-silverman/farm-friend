@@ -5,7 +5,11 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
-import { createInquiryModel, createInventoryInterpreter } from "@farm-friend/ai";
+import {
+  createFarmerMessageIntentModel,
+  createInquiryModel,
+  createInventoryInterpreter,
+} from "@farm-friend/ai";
 import { FixedClock, hashPhone } from "@farm-friend/core";
 import { authorizeDispatch, createDb, type Db, type Sql } from "@farm-friend/db";
 import { runInboundPass } from "./workers";
@@ -284,6 +288,7 @@ describe("inbound routing end to end (integration)", () => {
     const provider = new ForbiddenProvider();
     await runInboundPass({
       db: database(),
+      farmerIntent: createFarmerMessageIntentModel(provider),
       interpreter: createInventoryInterpreter(provider),
       inquiry: createInquiryModel(provider),
       clock: new FixedClock(at(1)),
@@ -752,6 +757,7 @@ describe("inbound routing end to end (integration)", () => {
       const [a, b] = await Promise.all([
         runInboundPass({
           db: database(),
+          farmerIntent: createFarmerMessageIntentModel(new ForbiddenProvider()),
           interpreter: createInventoryInterpreter(new ForbiddenProvider()),
           inquiry: createInquiryModel(new ForbiddenProvider()),
           clock: new FixedClock(at(1)),
@@ -761,6 +767,7 @@ describe("inbound routing end to end (integration)", () => {
         }),
         runInboundPass({
           db: database(),
+          farmerIntent: createFarmerMessageIntentModel(new ForbiddenProvider()),
           interpreter: createInventoryInterpreter(new ForbiddenProvider()),
           inquiry: createInquiryModel(new ForbiddenProvider()),
           clock: new FixedClock(at(1)),
@@ -823,6 +830,7 @@ describe("inbound routing end to end (integration)", () => {
       await deliverInboundOnly({ fromPhone: farmerPhone, text: "kale and eggs today" });
 
       const provider = new ScriptedProvider({
+        "farmer-message-intent": JSON.stringify({ kind: "inventory_update" }),
         "inventory-extraction": JSON.stringify({
           kind: "edits",
           additions: [{ itemName: "kale" }, { itemName: "eggs" }],
@@ -833,6 +841,7 @@ describe("inbound routing end to end (integration)", () => {
 
       await runInboundPass({
         db: database(),
+        farmerIntent: createFarmerMessageIntentModel(provider),
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
@@ -867,6 +876,7 @@ describe("inbound routing end to end (integration)", () => {
       });
 
       const provider = new ScriptedProvider({
+        "farmer-message-intent": JSON.stringify({ kind: "inventory_update" }),
         "inventory-extraction": JSON.stringify({
           kind: "edits",
           additions: [{ itemName: "kale" }],
@@ -876,6 +886,7 @@ describe("inbound routing end to end (integration)", () => {
       });
       await runInboundPass({
         db: database(),
+        farmerIntent: createFarmerMessageIntentModel(provider),
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
@@ -969,6 +980,7 @@ describe("inbound routing end to end (integration)", () => {
         occurredAt: at(0),
       });
       const provider = new ScriptedProvider({
+        "farmer-message-intent": JSON.stringify({ kind: "inventory_update" }),
         "inventory-extraction": JSON.stringify({
           kind: "edits",
           additions: [{ itemName: "kale" }],
@@ -978,6 +990,7 @@ describe("inbound routing end to end (integration)", () => {
       });
       await runInboundPass({
         db: database(),
+        farmerIntent: createFarmerMessageIntentModel(provider),
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
@@ -1186,6 +1199,7 @@ describe("inbound routing end to end (integration)", () => {
 
       await runInboundPass({
         db: database(),
+        farmerIntent: createFarmerMessageIntentModel(provider),
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
@@ -1219,6 +1233,7 @@ describe("inbound routing end to end (integration)", () => {
       });
       await runInboundPass({
         db: database(),
+        farmerIntent: createFarmerMessageIntentModel(provider),
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),

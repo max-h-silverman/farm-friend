@@ -3,8 +3,8 @@ import {
   type Clock,
   type InventoryInterpreter,
 } from "@farm-friend/core";
-import type { InquiryModel } from "@farm-friend/ai";
-import { resolveFarmerTarget, type Db } from "@farm-friend/db";
+import type { FarmerMessageIntentModel, InquiryModel } from "@farm-friend/ai";
+import { hasLiveFarmerAuthorization, resolveFarmerTarget, type Db } from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
 import { applyInterpretedInventory } from "./interpretation";
 import { renderFarmerTargetMenu } from "./farmer-targeting";
@@ -15,8 +15,8 @@ import type { RoutedReply } from "./routing";
 // Deterministic parsing has already completed and found no keyword or token. What remains
 // is sender-dependent, and WHO the sender is decides which seam sees the message:
 //
-//   - a farmer authorized for a sales location → inventory interpretation → one proposal
-//   - anyone else                              → customer inquiry → grounded answer
+//   - an authorized farmer → finite intent classification → inventory proposal or inquiry
+//   - anyone else          → customer inquiry → grounded answer
 //
 // That resolution is CODE's, from `farmer_authorizations`, and never a model's: letting a
 // model decide "this looks like a farmer" would let a customer's text publish inventory,
@@ -26,9 +26,78 @@ import type { RoutedReply } from "./routing";
 
 export interface FreeTextDeps {
   db: Db;
+  farmerIntent: FarmerMessageIntentModel;
   interpreter: InventoryInterpreter;
   inquiry: InquiryModel;
   clock: Clock;
+}
+
+export const FARMER_INTENT_CLARIFICATION =
+  "Are you updating your inventory or asking what a farm stand has? Reply UPDATE or QUESTION.";
+
+async function handleCustomerInquiry(
+  deps: FreeTextDeps,
+  input: {
+    senderHash: string;
+    taskText: string;
+    providerEventId: string;
+    occurredAt: Date;
+  },
+): Promise<FreeTextResult> {
+  // Not an authorized farmer, or an authorized farmer who explicitly asked a question.
+  // Every factual word of the reply is rendered by code from retrieved rows; the model only
+  // interprets and orders identifiers.
+  const answer = await answerInquiry(
+    { db: deps.db, model: deps.inquiry, clock: deps.clock },
+    {
+      taskText: input.taskText,
+      // F-046: an answer too long for one message saves its remainder against this sender,
+      // and the expiry runs from the message's own time rather than the pass's.
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+    },
+  );
+
+  if (answer.outcome === "answered") {
+    return {
+      replies: [
+        {
+          body: answer.body,
+          // Permitted by the customer's own inbound message; it creates no durable consent
+          // and licenses no later proactive follow-up.
+          category: "inquiry_reply",
+          logicalKey: `inquiry-${input.providerEventId}`,
+        },
+      ],
+      handled: "customer",
+    };
+  }
+
+  if (answer.outcome === "clarification") {
+    return {
+      replies: [
+        {
+          body: answer.question,
+          category: "inquiry_reply",
+          logicalKey: `inquiry-clarify-${input.providerEventId}`,
+        },
+      ],
+      handled: "customer",
+    };
+  }
+
+  // Code REFUSED the model's output (a smuggled factual string, an invented identifier).
+  // The sender gets a code-rendered question; nothing model-authored is delivered.
+  return {
+    replies: [
+      {
+        body: renderClarificationRequest(),
+        category: "inquiry_reply",
+        logicalKey: `inquiry-rejected-${input.providerEventId}`,
+      },
+    ],
+    handled: "customer",
+  };
 }
 
 export interface FreeTextResult {
@@ -58,6 +127,33 @@ export async function handleFreeText(
   if (input.taskText.trim() === "") {
     // Nothing to interpret. Silence is the honest response to an empty body.
     return { replies: [], handled: "none" };
+  }
+
+  // Authority is code-owned and checked before the classifier. A customer must never be
+  // able to steer a model into the farmer path, and an authorized farmer's question must not
+  // create a stand-selection menu before we know it is an update.
+  const isFarmer = await hasLiveFarmerAuthorization(deps.db, {
+    senderHash: input.senderHash,
+    occurredAt: input.occurredAt,
+  });
+
+  if (!isFarmer) {
+    return handleCustomerInquiry(deps, input);
+  }
+
+  const intent = await deps.farmerIntent.classify({ taskText: input.taskText });
+  if (intent.kind === "farm_stand_question") {
+    return handleCustomerInquiry(deps, input);
+  }
+  if (intent.kind === "unclear") {
+    return {
+      replies: [{
+        body: FARMER_INTENT_CLARIFICATION,
+        category: "inquiry_reply",
+        logicalKey: `farmer-intent-clarify-${input.providerEventId}`,
+      }],
+      handled: "none",
+    };
   }
 
   // The exact authorization+location pair is code-owned durable context. Resolution
@@ -136,58 +232,7 @@ export async function handleFreeText(
       handled: "farmer",
     };
   }
-
-  // Not an authorized farmer → a customer question. Every factual word of the reply is
-  // rendered by code from retrieved rows; the model only interprets and orders identifiers.
-  const answer = await answerInquiry(
-    { db: deps.db, model: deps.inquiry, clock: deps.clock },
-    {
-      taskText: input.taskText,
-      // F-046: an answer too long for one message saves its remainder against this sender,
-      // and the expiry runs from the message's own time rather than the pass's.
-      senderHash: input.senderHash,
-      occurredAt: input.occurredAt,
-    },
-  );
-
-  if (answer.outcome === "answered") {
-    return {
-      replies: [
-        {
-          body: answer.body,
-          // Permitted by the customer's own inbound message; it creates no durable consent
-          // and licenses no later proactive follow-up.
-          category: "inquiry_reply",
-          logicalKey: `inquiry-${input.providerEventId}`,
-        },
-      ],
-      handled: "customer",
-    };
-  }
-
-  if (answer.outcome === "clarification") {
-    return {
-      replies: [
-        {
-          body: answer.question,
-          category: "inquiry_reply",
-          logicalKey: `inquiry-clarify-${input.providerEventId}`,
-        },
-      ],
-      handled: "customer",
-    };
-  }
-
-  // Code REFUSED the model's output (a smuggled factual string, an invented identifier).
-  // The customer gets a code-rendered question; nothing model-authored is delivered.
-  return {
-    replies: [
-      {
-        body: renderClarificationRequest(),
-        category: "inquiry_reply",
-        logicalKey: `inquiry-rejected-${input.providerEventId}`,
-      },
-    ],
-    handled: "customer",
-  };
+  // Authority can be revoked between the identity check and target resolution. Fail toward
+  // the read-only inquiry path; never interpret or persist an update without a live target.
+  return handleCustomerInquiry(deps, input);
 }

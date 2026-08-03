@@ -254,14 +254,20 @@ describe("public web surface boundary (integration)", () => {
       const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
       expect(stands[0]?.participantNames).toEqual(["Guest Growers"]);
       expect(stands[0]?.participantNames).not.toContain("Provo Farms");
+      expect(stands[0]?.locationKind).toBe("farm_stand");
       expect(stands[0]?.items).toEqual([{ itemName: "kale" }]);
       expect(Object.keys(stands[0]?.items[0] ?? {})).toEqual(["itemName"]);
 
       const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
       const body = (await response.json()) as {
-        stands: { alsoSellingHere?: string[]; items: Record<string, unknown>[] }[];
+        stands: {
+          alsoSellingHere?: string[];
+          locationKind?: string;
+          items: Record<string, unknown>[];
+        }[];
       };
       expect(body.stands[0]?.alsoSellingHere).toEqual(["Guest Growers"]);
+      expect(body.stands[0]?.locationKind).toBe("farm_stand");
       expect(body.stands[0]?.items).toEqual([{ itemName: "kale" }]);
     });
 

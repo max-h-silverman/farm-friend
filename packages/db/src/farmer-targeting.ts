@@ -148,6 +148,17 @@ async function lockLiveTargets(tx: Tx, senderHash: string): Promise<TargetRow[]>
   `) as unknown as TargetRow[];
 }
 
+/** Check live farmer authority without issuing or changing a stand-selection menu. */
+export async function hasLiveFarmerAuthorization(
+  db: Db,
+  input: { senderHash: string; occurredAt: Date },
+): Promise<boolean> {
+  return db.sql.begin(async (tx) => {
+    if (!(await lockKnownSenderState(tx, input.senderHash, input.occurredAt))) return false;
+    return (await lockLiveTargets(tx, input.senderHash)).length > 0;
+  });
+}
+
 async function clearMenu(tx: Tx, senderHash: string, occurredAt: Date): Promise<void> {
   await tx`delete from farmer_target_menu_options where sender_hash = ${senderHash}`;
   await tx`

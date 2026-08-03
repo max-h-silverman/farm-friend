@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyStandFilters,
   buildMapView,
+  mapMarkerKind,
   numberStands,
   standListingLines,
   type PublicStandPayload,
@@ -309,6 +310,50 @@ describe("buildMapView", () => {
       expect(view.stands[0]!.updated).toBeUndefined();
       expect(view.stands[0]!.stale).toBeUndefined();
     });
+  });
+});
+
+describe("map marker language", () => {
+  const stand = (overrides: Partial<PublicStandPayload> = {}): PublicStandPayload => ({
+    ...stands[0]!,
+    usuallySells: ["vegetables"],
+    ...overrides,
+  });
+
+  it("uses the existing map categories from structured facts", () => {
+    expect(mapMarkerKind(stand())).toBe("seasonal");
+    expect(
+      mapMarkerKind(stand({ availability: { season: { kind: "year_round" } } })),
+    ).toBe("year-round");
+    expect(
+      mapMarkerKind(
+        stand({
+          farmBucksAccepted: false,
+          usuallySells: ["fresh flowers", "lavender"],
+        }),
+      ),
+    ).toBe("flower-only");
+    expect(
+      mapMarkerKind(stand({ locationKind: "farmers_market" })),
+    ).toBe("farmers-market");
+  });
+
+  it("does not call a mixed flower-and-produce listing flower-only", () => {
+    expect(
+      mapMarkerKind(
+        stand({
+          farmBucksAccepted: false,
+          usuallySells: ["flowers", "vegetables"],
+        }),
+      ),
+    ).toBe("seasonal");
+    expect(
+      mapMarkerKind(
+        stand({
+          usuallySells: ["flowers"],
+        }),
+      ),
+    ).toBe("seasonal");
   });
 });
 

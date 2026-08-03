@@ -4,7 +4,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FixedClock, type InventoryInterpreter } from "@farm-friend/core";
-import type { InquiryModel } from "@farm-friend/ai";
+import type { FarmerMessageIntentModel, InquiryModel } from "@farm-friend/ai";
 import { resolveFarmerLink, type Db, type Sql } from "@farm-friend/db";
 import { handleFreeText } from "./free-text";
 import { handleFarmerTarget, handleStandSelection } from "./farmer-targeting";
@@ -56,6 +56,11 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       async interpret() { throw new Error("customer inquiry model reached for a farmer"); },
       async select() { throw new Error("customer selection model reached for a farmer"); },
     };
+  }
+
+  function farmerIntent(kind: "inventory_update" | "farm_stand_question" | "unclear"):
+    FarmerMessageIntentModel {
+    return { async classify() { return { kind }; } };
   }
 
   async function authorize(senderHash: string, names: string[]) {
@@ -158,6 +163,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret },
         inquiry: forbiddenInquiry(),
+        farmerIntent: farmerIntent("inventory_update"),
         clock: new FixedClock(T0),
       },
       {
@@ -174,6 +180,85 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(result.replies[0]?.body).toContain("2. South Stand");
     expect(interpret).not.toHaveBeenCalled();
     expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
+  });
+
+  it("routes a farmer's general stand question before requiring a stand target", async () => {
+    const senderHash = "q".repeat(64);
+    await authorize(senderHash, ["North Stand", "South Stand"]);
+    const classify = vi.fn(async () => ({ kind: "farm_stand_question" as const }));
+    const interpret = vi.fn(async () => ({
+      kind: "lookup" as const,
+      items: ["kale"],
+      ranking: "any" as const,
+      outOfScopeRequest: false,
+      originDependent: false,
+    }));
+    const select = vi.fn(async () => {
+      throw new Error("selection should not run when no listings exist");
+    });
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret, select },
+        farmerIntent: { classify },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "What does the north stand have today?",
+        occurredAt: T0,
+        providerEventId: "farmer-question-1",
+        inboxEventId: "33333333-3333-3333-3333-333333333333",
+      },
+    );
+
+    expect(classify).toHaveBeenCalledOnce();
+    expect(interpret).toHaveBeenCalledWith({
+      taskText: "What does the north stand have today?",
+    });
+    expect(result.handled).toBe("customer");
+    expect(result.replies[0]?.body).toMatch(/no stand has a current listing/i);
+    expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
+    expect(await client()`select menu_issued_at from farmer_target_contexts`).toHaveLength(0);
+  });
+
+  it("asks a code-owned update-or-question clarification before stand targeting", async () => {
+    const senderHash = "u".repeat(64);
+    await authorize(senderHash, ["North Stand", "South Stand"]);
+    const inventory = vi.fn(async () => ({
+      kind: "edits" as const,
+      additions: [],
+      changes: [],
+      removals: [],
+    }));
+    const inquiry = forbiddenInquiry();
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: inventory },
+        inquiry,
+        farmerIntent: farmerIntent("unclear"),
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "The stand is busy today.",
+        occurredAt: T0,
+        providerEventId: "farmer-unclear-1",
+        inboxEventId: "44444444-4444-4444-4444-444444444444",
+      },
+    );
+
+    expect(result.handled).toBe("none");
+    expect(result.replies[0]?.body).toBe(
+      "Are you updating your inventory or asking what a farm stand has? Reply UPDATE or QUESTION.",
+    );
+    expect(inventory).not.toHaveBeenCalled();
+    expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
+    expect(await client()`select menu_issued_at from farmer_target_contexts`).toHaveLength(0);
   });
 
   it("revalidates the durable selected pair and proposes only for that exact stand", async () => {
@@ -204,6 +289,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret },
         inquiry: forbiddenInquiry(),
+        farmerIntent: farmerIntent("inventory_update"),
         clock: new FixedClock(new Date(T0.getTime() + 2_000)),
       },
       {

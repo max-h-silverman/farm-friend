@@ -83,6 +83,7 @@ export class StubLLMProvider implements LLMProvider {
 }
 
 export * from "./deepinfra";
+export * from "./farmer-message-intent";
 export * from "./inventory-seam";
 export * from "./inquiry-seam";
 export * from "./live-eval-policy";

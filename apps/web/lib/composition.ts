@@ -1,12 +1,14 @@
 import {
   assertProviderApproved,
   createDeepInfraProvider,
+  createFarmerMessageIntentModel,
   createInquiryModel,
   createInventoryInterpreter,
   createStockOutModel,
   DEEPINFRA_ATTESTED_DATA_HANDLING,
   DEEPINFRA_THIRD_PARTY_ROUTED_MODEL_PREFIXES,
   StubLLMProvider,
+  type FarmerMessageIntentModel,
   type InquiryModel,
   type ProviderDataHandling,
   type StockOutModel,
@@ -284,8 +286,10 @@ export interface AppContext {
    * The inventory seam. It is constructed over the provider ONLY — deliberately no `db`,
    * repository, or record loader, so it cannot acquire context beyond the projection the
    * workflow hands it (docs/AI_ARCHITECTURE.md §"The model provider seam").
-   */
+  */
   interpreter: InventoryInterpreter;
+  /** Classifies an authorized farmer's free text before code resolves an update target. */
+  farmerIntent: FarmerMessageIntentModel;
   /** The customer inquiry seams. Constructed over the provider alone, like every seam. */
   inquiry: InquiryModel;
   /** The stock-out item parser, used only by the code-bound web/QR surface. */
@@ -488,6 +492,7 @@ export function createAppContext(env: EnvVars = process.env): AppContext {
       transport,
     }),
     interpreter: createInventoryInterpreter(provider),
+    farmerIntent: createFarmerMessageIntentModel(provider),
     inquiry: createInquiryModel(provider),
     stockOut: createStockOutModel(provider),
     close: () => db.close(),

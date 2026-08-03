@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   projectFactSelection,
+  projectFarmerMessageIntent,
   projectInquiryInterpretation,
   projectInventoryExtraction,
   projectOfferingExtraction,
@@ -9,6 +10,7 @@ import {
   SEAM_OUTPUT_SHAPES,
 } from "./projections";
 import { interpretationSchema } from "./inventory-seam";
+import { farmerMessageIntentSchema } from "./farmer-message-intent";
 import { intentSchema, selectionSchema, stockOutSchema } from "./inquiry-seam";
 import { offeringsSchema } from "./offering-seam";
 
@@ -25,6 +27,7 @@ import { offeringsSchema } from "./offering-seam";
 // enforcement: a model that ignores them meets the same validation barriers as ever.
 
 const SCHEMAS: Record<keyof typeof SEAM_OUTPUT_SHAPES, z.ZodTypeAny> = {
+  "farmer-message-intent": farmerMessageIntentSchema,
   "inventory-extraction": interpretationSchema,
   "inquiry-interpretation": intentSchema,
   "grounded-fact-selection": selectionSchema,
@@ -124,6 +127,7 @@ describe("seam output contracts (F-024)", () => {
 
   it("each projection hands its seam's shapes to the model, verbatim", () => {
     const contexts = [
+      projectFarmerMessageIntent({ taskText: "x" }),
       projectInventoryExtraction({
         taskText: "x",
         currentEntries: [],
@@ -134,7 +138,7 @@ describe("seam output contracts (F-024)", () => {
       projectStockOutParse({ taskText: "x", listedItems: [] }),
       projectOfferingExtraction({ sourceText: "x" }),
     ];
-    // All five seams, no projection missed.
+    // All six seams, no projection missed.
     expect(contexts.map((ctx) => ctx.seam).sort()).toEqual(
       Object.keys(SEAM_OUTPUT_SHAPES).sort(),
     );

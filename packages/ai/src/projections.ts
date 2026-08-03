@@ -22,10 +22,9 @@
 //
 // EACH SEAM GETS ITS OWN PROJECTION; THERE IS NO GENERIC ONE. `assembleContext(seam, fields)`
 // was deleted in F-015 precisely because it let any caller hand the model a record of its own
-// choosing. Five projections exist, for the seams that have real consumers: inventory
-// extraction (F-015), inquiry interpretation, grounded fact selection, stock-out item
-// parsing (F-013), and offering extraction (F-035). Message classification remains unbuilt and
-// unprojected — F-012's, and it has no caller.
+// choosing. Six projections exist, for the seams that have real consumers: farmer-message
+// intent, inventory extraction (F-015), inquiry interpretation, grounded fact selection,
+// stock-out item parsing (F-013), and offering extraction (F-035).
 //
 // When you build a new seam, ADD ITS OWN PROJECTION HERE — copying each permitted field
 // explicitly, as below — and add its bypass assertions to safety-boundary.type-test.ts. Do not
@@ -72,6 +71,11 @@ export type ModelSafeContext<T = unknown> = {
  * the same validation and rendering barriers as ever (Golden Rule #6).
  */
 export const SEAM_OUTPUT_SHAPES = {
+  "farmer-message-intent": [
+    '{"kind":"inventory_update"}',
+    '{"kind":"farm_stand_question"}',
+    '{"kind":"unclear"}',
+  ],
   "inventory-extraction": [
     '{"kind":"edits","additions":[{"itemName":"ITEM_NAME","quantity":12,"unit":"UNIT","priceText":"PRICE","approximation":"plentiful"}],"changes":[{"entryId":"ENTRY_ID","quantity":6}],"removals":[{"entryId":"ENTRY_ID"}],"closure":{"result":"close","closureKind":"temporary","startsOn":"START_DATE","closedThrough":"END_DATE"}}',
     '{"kind":"clear_all"}',
@@ -102,6 +106,12 @@ type SeamName = keyof typeof SEAM_OUTPUT_SHAPES;
  * ranking membership, ID membership, and field allow-lists are all re-validated in code.
  */
 const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
+  "farmer-message-intent":
+    "Classify the authorized farmer's message as inventory_update when they are reporting " +
+    "what a stand has, sold out of, or will have; farm_stand_question when they are asking " +
+    "what a stand has or when a stand is available; and unclear when the message does not " +
+    "clearly choose one. Return only the classification signal. Do not interpret the " +
+    "inventory, choose a stand, or write a reply.",
   "inventory-extraction":
     "EVERY independent fact in the farmer message MUST survive in one result. If the message " +
     "contains both inventory and closure facts, return kind edits with the inventory changes " +
@@ -323,6 +333,23 @@ export function projectInventoryExtraction(input: {
 export interface InquiryInterpretationFields {
   /** The current customer's own question, verbatim. */
   readonly taskText: string;
+}
+
+/** The complete permitted input for the authorized-farmer message-intent seam. */
+export interface FarmerMessageIntentFields {
+  /** The authorized farmer's own current message, verbatim. */
+  readonly taskText: string;
+}
+
+/** Project only the authorized farmer's current message for route classification. */
+export function projectFarmerMessageIntent(input: {
+  taskText: string;
+}): ModelSafeContext<FarmerMessageIntentFields> {
+  return {
+    seam: "farmer-message-intent",
+    fields: { taskText: input.taskText },
+    outputInstructions: outputInstructionsFor("farmer-message-intent"),
+  } as ModelSafeContext<FarmerMessageIntentFields>;
 }
 
 /**

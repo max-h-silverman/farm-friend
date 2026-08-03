@@ -45,6 +45,7 @@ export interface PublicStand {
   factId: string;
   farmName: string;
   locationName: string;
+  locationKind: "farm_stand" | "farmers_market";
   /**
    * Where to go — present only for a `visitable` location (F-038).
    *
@@ -233,6 +234,7 @@ export async function listPublicStands(
     select
       l.id as location_id,
       l.name as location_name,
+      l.kind as location_kind,
       l.public_address as public_address,
       l.public_latitude as public_latitude,
       l.public_longitude as public_longitude,
@@ -333,6 +335,7 @@ export async function listPublicStands(
         factId: locationId,
         farmName: row.farm_name as string,
         locationName: row.location_name as string,
+        locationKind: row.location_kind as "farm_stand" | "farmers_market",
         visitability: row.visitability as "visitable" | "contact_only",
         offeringType: row.offering_type as "produce" | "services" | "by_order",
         // Older imported rows are `false/false`: that means no eligibility review, not a
@@ -422,6 +425,7 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     id: stand.factId,
     farmName: stand.farmName,
     locationName: stand.locationName,
+    locationKind: stand.locationKind,
     visitability: stand.visitability,
     offeringType: stand.offeringType,
     ...(stand.farmBucksAccepted !== undefined

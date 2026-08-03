@@ -5,7 +5,11 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
-import { createInquiryModel, createInventoryInterpreter } from "@farm-friend/ai";
+import {
+  createFarmerMessageIntentModel,
+  createInquiryModel,
+  createInventoryInterpreter,
+} from "@farm-friend/ai";
 import { SystemClock, hashPhone } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { createLastMileSender } from "@farm-friend/sms";
@@ -351,6 +355,7 @@ describe("inbound reply latency (integration)", () => {
     const provider = new ForbiddenProvider();
     await runInboundPass({
       db: database(),
+      farmerIntent: createFarmerMessageIntentModel(provider),
       interpreter: createInventoryInterpreter(provider),
       inquiry: createInquiryModel(provider),
       clock: new SystemClock(),
@@ -465,6 +470,7 @@ describe("inbound reply latency (integration)", () => {
       const context = asContext(outboundContext());
       const deps = {
         db: database(),
+        farmerIntent: createFarmerMessageIntentModel(provider),
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new SystemClock(),
@@ -534,6 +540,7 @@ describe("inbound reply latency (integration)", () => {
       const context = asContext(outboundContext());
       const deps = {
         db: database(),
+        farmerIntent: createFarmerMessageIntentModel(provider),
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new SystemClock(),

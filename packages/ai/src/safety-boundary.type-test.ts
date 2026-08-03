@@ -10,6 +10,7 @@
 import * as ai from "./index";
 import {
   projectFactSelection,
+  projectFarmerMessageIntent,
   projectInquiryInterpretation,
   projectInventoryExtraction,
   projectOfferingExtraction,
@@ -87,6 +88,14 @@ void projectInquiryInterpretation({
   taskText: "who has kale?",
   // @ts-expect-error interpretation receives the question only, never retrieved facts
   facts: [{ factId: "f1" }],
+});
+
+// Farmer-message classification receives the farmer's current text only. It cannot be handed
+// a stand target or any authority state; code resolves those after the route signal.
+void projectFarmerMessageIntent({
+  taskText: "what does the stand have?",
+  // @ts-expect-error classification cannot receive target or authorization context
+  salesLocationId: "loc-1",
 });
 
 // BYPASS 7 — the grounded-selection seam cannot be handed the customer's raw text. Selection

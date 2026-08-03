@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   projectFactSelection,
+  projectFarmerMessageIntent,
   projectInquiryInterpretation,
   projectInventoryExtraction,
   projectStockOutParse,
@@ -150,6 +151,14 @@ describe("inventory-extraction projection — the only permitted model input for
       currentLocalDate: CURRENT_LOCAL_DATE,
     });
     expect(ctx.seam).toBe("inventory-extraction");
+  });
+});
+
+describe("farmer-message-intent projection — the message, and no other context", () => {
+  it("carries only the authorized farmer's current message", () => {
+    const ctx = projectFarmerMessageIntent({ taskText: "What does the stand have?" });
+    expect(ctx.seam).toBe("farmer-message-intent");
+    expect(ctx.fields).toEqual({ taskText: "What does the stand have?" });
   });
 });
 

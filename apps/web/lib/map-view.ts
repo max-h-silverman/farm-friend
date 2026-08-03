@@ -28,6 +28,8 @@ export interface PublicStandPayload {
   id: string;
   farmName: string;
   locationName: string;
+  /** The sales-location type used for the public map marker language. */
+  locationKind?: "farm_stand" | "farmers_market";
   /**
    * Where to go — present, all three together, only for a `visitable` location (F-038).
    *
@@ -93,6 +95,35 @@ export interface PublicStandPayload {
     priceText?: string;
     approximation?: "some" | "limited" | "plentiful";
   }[];
+}
+
+export type MapMarkerKind =
+  | "seasonal"
+  | "year-round"
+  | "flower-only"
+  | "farmers-market";
+
+/**
+ * Map marker language from facts already present in the public payload. The icon is a visual
+ * index, not a second source of truth: market type and year-round season are structured facts;
+ * flower-only is reserved for a listing whose approved usual offerings are all flower terms and
+ * whose reviewed payment fact says it does not accept VIGA Bucks.
+ */
+export function mapMarkerKind(stand: PublicStandPayload): MapMarkerKind {
+  if (stand.locationKind === "farmers_market") return "farmers-market";
+
+  const usualOfferings = stand.usuallySells ?? [];
+  if (
+    stand.farmBucksAccepted === false &&
+    usualOfferings.length > 0 &&
+    usualOfferings.every((item) => /\bflower(?:s|ing)?\b|\blavender\b/i.test(item))
+  ) {
+    return "flower-only";
+  }
+
+  return stand.availability.season?.kind === "year_round"
+    ? "year-round"
+    : "seasonal";
 }
 
 /**

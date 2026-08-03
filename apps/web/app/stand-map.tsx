@@ -10,6 +10,7 @@ import {
 import {
   applyStandFilters,
   buildMapView,
+  mapMarkerKind,
   numberStands,
   standListingLines,
   type FilteredStand,
@@ -240,9 +241,8 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       as a caption above the filters rather than a lede under a title.
       */}
       <p className="map-note">
-        Note: Neither the VIGA nor individual farmers can
-        guarantee product availability. Products listed are
-         a general indication of what items can often be found.
+        Note: This interactive map may contain recent inventory updates, but neither
+        VIGA nor individual farmers can guarantee product availability.
       </p>
 
       {/*
@@ -378,6 +378,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
             aria-label="Map of Vashon and Maury Islands showing farm stand locations"
           >
             <IslandArtwork />
+            <g className="pin-layer">
             {visible.map((stand) => {
               // F-038 — a contact-only farm has no coordinate and gets NO PIN. It stays in
               // the list beside the map, because "no stand to visit" is a fact about how to
@@ -390,40 +391,65 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                 longitude: stand.longitude,
               });
               const isSelected = stand.id === selectedId;
+              const markerKind = mapMarkerKind(stand);
               return (
                 <g
                   key={stand.id}
                   className={[
                     "pin",
+                    `pin-${markerKind}`,
                     `pin-${stand.openState}`,
                     stand.stale === true ? "pin-stale" : "",
                     isSelected ? "pin-selected" : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${stand.standNumber}. ${stand.locationName}, ${stand.farmName}`}
+                  aria-pressed={isSelected}
+                  onClick={() => select(stand.id, "map")}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      select(stand.id, "map");
+                    }
+                  }}
                 >
-                  <circle
-                    cx={x}
-                    cy={y}
-                    // Sized for a THUMB, not for the drawing. Measured at a true 390px
-                    // viewport: the map renders at ~0.35x, so r=14 came out under 5px on
-                    // glass — a 10px target for the map's primary action, against the ~44px
-                    // a finger actually needs. r=26 lands near 18px wide, and the pins stay
-                    // separable because the ring is the land colour.
-                    r={isSelected ? 34 : 26}
-                    className="pin-dot"
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`${stand.standNumber}. ${stand.locationName}, ${stand.farmName}`}
-                    aria-pressed={isSelected}
-                    onClick={() => select(stand.id, "map")}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        select(stand.id, "map");
+                  {isSelected ? (
+                    <circle
+                      cx={x}
+                      cy={y - 34}
+                      r={58}
+                      className="pin-selection-halo"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  {markerKind === "flower-only" ? (
+                    <g
+                      className="pin-flower-glyph"
+                      transform={`translate(${x} ${y - 34})`}
+                      aria-hidden="true"
+                    >
+                      <circle className="pin-flower-petal" cx="0" cy="-24" r="18" />
+                      <circle className="pin-flower-petal" cx="23" cy="-7" r="18" />
+                      <circle className="pin-flower-petal" cx="14" cy="20" r="18" />
+                      <circle className="pin-flower-petal" cx="-14" cy="20" r="18" />
+                      <circle className="pin-flower-petal" cx="-23" cy="-7" r="18" />
+                      <circle className="pin-flower-center" cx="0" cy="0" r="17" />
+                    </g>
+                  ) : (
+                    <path
+                      className={
+                        markerKind === "farmers-market"
+                          ? "pin-market-shape"
+                          : "pin-shape"
                       }
-                    }}
-                  />
+                      d="M 0 0 C -20 -24 -30 -34 -30 -48 A 30 30 0 1 1 30 -48 C 30 -34 20 -24 0 0 Z"
+                      transform={`translate(${x} ${y})`}
+                      aria-hidden="true"
+                    />
+                  )}
                   {/*
                   The poster's numbered pin. `pointer-events: none` in CSS — the number sits
                   ON the circle, and without it a tap landing on the digits would miss the
@@ -432,17 +458,28 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                   The number is decorative HERE because the circle's `aria-label` already
                   reads it; a screen reader meeting both would hear the number twice.
                   */}
-                  <text x={x} y={y} className="pin-number" aria-hidden="true">
+                  <text x={x} y={y - 34} className="pin-number" aria-hidden="true">
                     {stand.standNumber}
                   </text>
-                  {isSelected ? (
-                    <text x={x} y={y - 44} className="pin-label">
-                      {stand.locationName}
-                    </text>
-                  ) : null}
                 </g>
               );
             })}
+            </g>
+            <g className="pin-label-layer" aria-hidden="true">
+              {visible.map((stand) => {
+                if (stand.id !== selectedId) return null;
+                if (stand.latitude === undefined || stand.longitude === undefined) return null;
+                const { x, y } = projectToIsland({
+                  latitude: stand.latitude,
+                  longitude: stand.longitude,
+                });
+                return (
+                  <text key={stand.id} x={x} y={y - 88} className="pin-label">
+                    {stand.farmName}
+                  </text>
+                );
+              })}
+            </g>
           </svg>
           <img
             className="island-viga-logo"

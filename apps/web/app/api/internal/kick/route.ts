@@ -73,6 +73,7 @@ export async function POST(req: Request): Promise<Response> {
           runInboundPass(
             {
               db: context.db,
+              farmerIntent: context.farmerIntent,
               interpreter: context.interpreter,
               inquiry: context.inquiry,
               clock: context.clock,

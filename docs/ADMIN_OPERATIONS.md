@@ -55,6 +55,7 @@ daily data entry, the product has failed its north star.
 | Flag review + thread viewer | `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
 | Stand-data questions | `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
+| Stand listing facts | `/admin` (Stands) | Review and save a stand's Farm Bucks eligibility and acceptance status |
 | Farmer access | `/admin/farmers` | Invite a farmer, authorize them to publish for a farm, see every farmer's access live and withdrawn, revoke it, and issue a replacement private link |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
@@ -64,6 +65,10 @@ guarded mutation route; the acting administrator always comes from the **session
 request body. Queue GET APIs do not exist because the pages already have the data. The one GET with
 a browser consumer is `/api/admin/flags/<flag-id>/thread`, guarded by the same
 `apps/web/lib/admin-guard.ts` mechanism and projected at the query boundary.
+
+The Stands Farm Bucks switch is a guarded browser mutation. It accepts only the three reviewed
+states, derives the two stored booleans together, locks the stand row while saving, and records the
+administrator from the session rather than the request body.
 
 **Disposing a flag is what lets retention terminate.** F-026's purge exempts a message body whose
 thread carries an **open** flag, and the exemption fails safe. Resolving *or* dismissing a flag ends

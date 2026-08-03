@@ -11,6 +11,26 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-02 — parallel admin changes and the VIGA-poster map refinements merged and deployed
+
+The parallel session's uncommitted work was carried into `71bafa7` and merged to `main` in
+`2a6eba1`. It includes farmer invitations and unbound-farm onboarding, the guarded administrator
+Farm Bucks status write path, and the public map refinement requested against VIGA's poster: the
+legend sits above the stand list, cards show only their indicator dots in a dedicated column, card
+text stays left-aligned, and tapping the selected card or marker collapses it again. The map assets
+were included; generated `.idea/` metadata was ignored.
+
+Verification before release: 91 unit-test files / 874 tests, 41 real-Postgres integration-test files
+/ 561 tests against disposable databases, typecheck, lint, production web build, and the focused
+map suite's 4/4 tests passed. Production already had all 17 committed migrations, so no migration
+was applied. Cloud Build `bc444893-2f59-4a9a-aaaa-31d30b2a5c16` published digest
+`sha256:a3d63ff627e6e7e74b7a05f04dcd30c97b827ce235515fbefaaea55eed7d1491`. OpenTofu passed 37/37
+plan assertions and applied two service updates with no adds or destroys. Web revision
+`farm-friend-web-00019-lg9` and worker revision `farm-friend-worker-00020-ndb` are live on that
+digest; secret-freshness, served-card byte, production migration-journal, and canonical public-map
+route checks passed. The remaining live browser and physical-handset journeys stay open in
+`CURRENT_STATE.md`.
+
 ## 2026-08-02 (latest) — one pre-go-live architecture shipped, with the dead alternatives removed
 
 ### Administrator interface polish — merged, not deployed
