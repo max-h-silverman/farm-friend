@@ -14,6 +14,7 @@ import { StandList } from "../app/admin/stand-list";
 import { StandDataQueue } from "../app/admin/stand-data/stand-data-queue";
 import { UserList } from "../app/admin/user-list";
 import { StandForm } from "../app/stand/[token]/stand-form";
+import { SettingsForm } from "../app/stand/[token]/settings/settings-form";
 
 afterEach(() => {
   cleanup();
@@ -29,7 +30,7 @@ function response(status: number, payload: Record<string, unknown> = {}): Respon
 }
 
 describe("the shared administrator shell", () => {
-  it("uses four plain-language top-level work areas", () => {
+  it("uses job-based navigation that starts with the volunteer desk", () => {
     render(
       <AdminShell
         currentPath="/admin"
@@ -41,15 +42,15 @@ describe("the shared administrator shell", () => {
     expect(
       screen.getAllByRole(
         "link",
-        { name: /^(stands|people|needs attention|stock reports)$/i },
+        { name: /^(volunteer desk|farmers|customer reports|stock reports)$/i },
       ),
     ).toHaveLength(4);
-    expect(screen.getByRole("link", { name: "Stands" })).toHaveAttribute("href", "/admin");
-    expect(screen.getByRole("link", { name: "People" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Volunteer desk" })).toHaveAttribute("href", "/admin");
+    expect(screen.getByRole("link", { name: "Farmers" })).toHaveAttribute(
       "href",
       "/admin/farmers",
     );
-    expect(screen.getByRole("link", { name: "Needs attention" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Customer reports" })).toHaveAttribute(
       "href",
       "/admin/flags",
     );
@@ -57,7 +58,7 @@ describe("the shared administrator shell", () => {
       "href",
       "/admin/reports",
     );
-    expect(screen.queryByRole("link", { name: "Farm approval" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Stands" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Stand data" })).toBeNull();
     expect(screen.queryByRole("banner")).toBeNull();
     expect(screen.getByRole("navigation")).toContainElement(
@@ -80,11 +81,11 @@ describe("the shared administrator shell", () => {
       </AdminShell>,
     );
 
-    expect(screen.getByRole("link", { name: "Needs attention" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Customer reports" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-    expect(screen.queryByRole("heading", { name: "Flag review" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Volunteer desk" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Sign out" }));
 
@@ -95,11 +96,13 @@ describe("the shared administrator shell", () => {
   it("renders one generic signed-out recovery state with no membership clue", () => {
     render(<SignedOutAdmin />);
 
+    expect(screen.getByRole("heading", { name: "Sign in required" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Go to sign in" })).toHaveAttribute(
       "href",
       "/admin/login",
     );
-    expect(screen.getByText(/session may have expired/i)).toBeTruthy();
+    expect(screen.queryByText(/session may have expired/i)).toBeNull();
+    expect(screen.queryByText("VIGA operations")).toBeNull();
     expect(document.body.textContent).not.toMatch(/recognized|provisioned|authorized address/i);
   });
 });
@@ -147,17 +150,51 @@ describe("the stand list", () => {
     expect(details).toBeTruthy();
     expect(details).not.toHaveAttribute("open");
 
-    await user.click(screen.getByText("Show details"));
+    expect(screen.queryByText("Show details")).toBeNull();
+    expect(screen.queryByText("Hide details")).toBeNull();
+    await user.click(screen.getByText("North Stand"));
 
     expect(details).toHaveAttribute("open");
     expect(screen.getByRole("heading", { name: "Availability" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Visit" })).toBeTruthy();
     expect(screen.getByText("123 Farm Lane")).toBeTruthy();
     expect(screen.getByText("Eggs, flowers")).toBeTruthy();
-    expect(screen.getByRole("switch", { name: "Accepts VIGA Bucks" })).toHaveAttribute(
-      "aria-checked",
-      "false",
+    expect(screen.getByRole("combobox", { name: "Farm Bucks decision" })).toHaveValue(
+      "not_eligible",
     );
+  });
+
+  it("records a Farm Bucks decision when the volunteer selects it", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn(async () => response(200));
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <StandList
+        stands={[{
+          standId: "stand-farm-bucks",
+          name: "North Stand",
+          farmName: "Example Farm",
+          status: "Visible to customers",
+          openState: "Open now",
+          approved: true,
+          farmBucksStatus: "not_eligible",
+          sections: [{ title: "Other details", items: [["Farm Bucks", "Not reviewed"]] }],
+        }]}
+      />,
+    );
+
+    await user.click(screen.getByText("North Stand"));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Farm Bucks decision" }), "accepts");
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/admin/stands",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ standId: "stand-farm-bucks", farmBucksStatus: "accepts" }),
+      }),
+    );
+    expect(screen.getByText("Accepted")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save Farm Bucks decision" })).toBeNull();
   });
 });
 
@@ -190,11 +227,20 @@ describe("administrator language", () => {
     expect(screen.getByText("Shown on map")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Invite a farmer to join" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Waiting for your decision" })).toBeTruthy();
-    expect(screen.getByText(/no requests right now/i)).toBeTruthy();
+    expect(screen.getByText("No requests.")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "People with farmer access" })).toBeTruthy();
     expect(screen.getByText("Contact")).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Farm" })).toBeTruthy();
     expect(screen.queryByText("Waiting on you")).toBeNull();
+    expect(screen.queryByText("Start here")).toBeNull();
+    expect(screen.queryByText("SMS or email")).toBeNull();
+    expect(screen.queryByText("Where should we send the invite?")).toBeNull();
+    expect(screen.queryByText("Send to a phone")).toBeNull();
+    expect(screen.queryByText("Send to an inbox")).toBeNull();
+    expect(screen.queryByText("Needs a decision")).toBeNull();
+    expect(screen.queryByText("Already approved")).toBeNull();
+    expect(screen.queryByText("1")).toBeNull();
+    expect(screen.queryByText("2")).toBeNull();
   });
 });
 
@@ -212,6 +258,9 @@ describe("the user list", () => {
 
     expect(screen.getByText("(•••) •••-0701")).toBeTruthy();
     expect(screen.getByText("(•••) •••-0702")).toBeTruthy();
+    expect(screen.queryByText("Browse")).toBeNull();
+    expect(screen.queryByText("Filter by the access they have today.")).toBeNull();
+    expect(screen.queryAllByText("Masked contact")).toHaveLength(0);
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Show" }), "farmer");
     expect(screen.getByText("(•••) •••-0701")).toBeTruthy();
@@ -249,12 +298,42 @@ describe("administrator queue interactions", () => {
     await user.click(screen.getByRole("button", { name: "Approve farm" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Example Farm is approved");
 
+    await user.click(screen.getByText("Approved farms (1)"));
     await user.click(screen.getByRole("button", { name: "Remove approval" }));
+    expect(screen.getByText(/existing map listings will stay visible/i)).toBeTruthy();
+    await user.click(screen.getAllByRole("button", { name: "Remove approval" })[1]!);
     expect(await screen.findByRole("alert")).toHaveTextContent(/session expired/i);
     expect(screen.getByRole("link", { name: "Sign in again" })).toHaveAttribute(
       "href",
       "/admin/login",
     );
+  });
+
+  it("closes the removal confirmation after approval is removed", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn(async () => response(200)));
+
+    render(
+      <ApprovalQueue
+        farms={[
+          {
+            farmId: "farm-1",
+            name: "Example Farm",
+            approved: true,
+            approvedAt: "2026-08-01T10:00:00Z",
+            approvedByEmail: "admin@example.com",
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByText("Approved farms (1)"));
+    await user.click(screen.getByRole("button", { name: "Remove approval" }));
+    await user.click(screen.getAllByRole("button", { name: "Remove approval" })[1]!);
+    await user.click(screen.getByRole("button", { name: "Approve farm" }));
+    await user.click(screen.getByText("Approved farms (1)"));
+
+    expect(screen.queryByText(/existing map listings will stay visible/i)).toBeNull();
   });
 
   it("authorizes a masked farmer and shows a one-time link as a copyable control", async () => {
@@ -573,7 +652,6 @@ describe("administrator queue interactions", () => {
   it("announces the effects of flag, report, and stand-data decisions", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => response(200)));
-    vi.spyOn(window, "prompt").mockReturnValue("Called the sender");
 
     const { unmount: unmountFlag } = render(
       <FlagQueue
@@ -593,6 +671,12 @@ describe("administrator queue interactions", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Resolve" }));
+    expect(screen.getByRole("textbox", { name: "Decision note for (•••) •••-0701" })).toBeTruthy();
+    await user.type(
+      screen.getByRole("textbox", { name: "Decision note for (•••) •••-0701" }),
+      "Called the sender",
+    );
+    await user.click(screen.getByRole("button", { name: "Save decision" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
       /older messages can now be deleted on their normal schedule/i,
     );
@@ -649,6 +733,10 @@ describe("administrator queue interactions", () => {
 });
 
 describe("the farmer stand form", () => {
+  const settingsLocations = [
+    { salesLocationId: "stand-a", locationName: "Orchard Stand", selected: true, cadence: null },
+  ];
+
   it("saves the one-name-per-line seller list separately from inventory", async () => {
     const user = userEvent.setup();
     const fetcher = vi.fn().mockResolvedValue(
@@ -658,14 +746,12 @@ describe("the farmer stand form", () => {
       }),
     );
     vi.stubGlobal("fetch", fetcher);
-    render(
-      <StandForm token="private-token" initialParticipantNames={["Guest Growers"]} />,
-    );
+    render(<SettingsForm token="private-token" locations={settingsLocations} participantNamesByLocation={{ "stand-a": ["Guest Growers"] }} />);
 
-    const names = screen.getByRole("textbox", { name: "Also selling here" });
+    const names = screen.getByRole("textbox", { name: "Seller names" });
     expect(names).toHaveValue("Guest Growers");
     expect(screen.getByText(/one farm or business name per line/i)).toBeTruthy();
-    expect(screen.getByText(/does not give anyone access/i)).toBeTruthy();
+    expect(screen.getByText(/do not give anyone permission/i)).toBeTruthy();
     await user.type(names, "{enter}Island Apiary");
     await user.click(screen.getByRole("button", { name: "Save seller names" }));
 
@@ -691,13 +777,13 @@ describe("the farmer stand form", () => {
         response(200, { status: "saved", activeDisplayNames: [] }),
       ),
     );
-    render(<StandForm token="private-token" initialParticipantNames={[]} />);
+    render(<SettingsForm token="private-token" locations={settingsLocations} participantNamesByLocation={{ "stand-a": [] }} />);
 
-    const names = screen.getByRole("textbox", { name: "Also selling here" });
+    const names = screen.getByRole("textbox", { name: "Seller names" });
     expect(names).toHaveValue("");
     expect(names).not.toHaveAttribute("placeholder");
     await user.click(screen.getByRole("button", { name: "Save seller names" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(/no other sellers are shown/i);
+    expect(await screen.findByRole("status")).toHaveTextContent(/seller names saved/i);
     expect(names).not.toHaveAttribute("placeholder");
   });
 
@@ -708,11 +794,9 @@ describe("the farmer stand form", () => {
       .mockResolvedValueOnce(response(409, { message: "Please remove the phone number." }))
       .mockResolvedValueOnce(response(403));
     vi.stubGlobal("fetch", fetcher);
-    render(
-      <StandForm token="private-token" initialParticipantNames={["Guest Growers"]} />,
-    );
+    render(<SettingsForm token="private-token" locations={settingsLocations} participantNamesByLocation={{ "stand-a": ["Guest Growers"] }} />);
 
-    const names = screen.getByRole("textbox", { name: "Also selling here" });
+    const names = screen.getByRole("textbox", { name: "Seller names" });
     await user.type(names, "{enter}Call 206-555-0199");
     await user.click(screen.getByRole("button", { name: "Save seller names" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -752,7 +836,7 @@ describe("the farmer stand form", () => {
     vi.stubGlobal("fetch", fetcher);
 
     render(<StandForm token="private-token" />);
-    const input = screen.getByRole("textbox", { name: "What does your stand have today?" });
+    const input = screen.getByRole("textbox", { name: "What changed at your stand today?" });
     await user.type(input, "squash");
     await user.click(screen.getByRole("button", { name: "Preview update" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Which kind of squash?");
@@ -770,7 +854,7 @@ describe("the farmer stand form", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Nothing changed");
 
     const returnedInput = screen.getByRole("textbox", {
-      name: "What does your stand have today?",
+      name: "What changed at your stand today?",
     });
     await user.clear(returnedInput);
     await user.type(returnedInput, "kale $3 a bunch");
@@ -793,7 +877,7 @@ describe("the farmer stand form", () => {
     render(<StandForm token="private-token" />);
 
     await user.type(
-      screen.getByRole("textbox", { name: "What does your stand have today?" }),
+      screen.getByRole("textbox", { name: "What changed at your stand today?" }),
       "eggs",
     );
     await user.click(screen.getByRole("button", { name: "Preview update" }));
@@ -824,7 +908,7 @@ describe("the farmer stand form", () => {
     render(<StandForm token="private-token" />);
 
     const input = screen.getByRole("textbox", {
-      name: "What does your stand have today?",
+      name: "What changed at your stand today?",
     });
     await user.type(input, "kale $3 a bunch");
     await user.click(screen.getByRole("button", { name: "Preview update" }));
@@ -832,12 +916,12 @@ describe("the farmer stand form", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
 
     const nextInput = screen.getByRole("textbox", {
-      name: "What does your stand have today?",
+      name: "What changed at your stand today?",
     });
     await user.type(nextInput, "eggs");
     await user.click(screen.getByRole("button", { name: "Preview update" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save the proposal.");
-    expect(screen.queryByText("Your stand is updated. Thank you!")).toBeNull();
+    expect(screen.queryByText("Your stand is updated. Customers can now see this listing.")).toBeNull();
   });
 });

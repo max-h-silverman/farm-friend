@@ -2,6 +2,7 @@ import {
   parseCommand,
   consentTransitionFor,
   ALREADY_JOINED_RESPONSE,
+  CUSTOMER_SMS_WELCOME,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   REGISTERED_HELP_AUTO_RESPONSE,
   REGISTERED_OPT_IN_AUTO_RESPONSE,
@@ -429,6 +430,14 @@ async function routeCompliance(
   // with "reply START" would be a non-sequitur.
   const replyBody =
     applied.refusal === "already_enrolled" ? ALREADY_JOINED_RESPONSE : autoResponse;
+  const welcomeReply =
+    (keyword === "JOIN" || keyword === "START") && applied.applied
+      ? [{
+          body: CUSTOMER_SMS_WELCOME,
+          category: "inquiry_reply" as const,
+          logicalKey: `customer-welcome-${input.providerEventId}`,
+        }]
+      : [];
 
   return {
     outcome: {
@@ -446,8 +455,9 @@ async function routeCompliance(
             category: "required_reply",
             logicalKey: `consent-${input.providerEventId}`,
           },
+          ...welcomeReply,
         ]
-      : [],
+      : welcomeReply,
   };
 }
 

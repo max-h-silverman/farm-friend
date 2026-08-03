@@ -16,8 +16,6 @@ export default function LoginPage({
         <h1>Farm Friend admin</h1>
       </header>
 
-      <p className="admin-note">Sign in to manage Farm Friend for VIGA.</p>
-
       {searchParams?.failed === "1" && (
         <p className="admin-error" role="alert">
           Could not sign in. Check the password and try again. Repeated attempts may be
@@ -26,8 +24,6 @@ export default function LoginPage({
       )}
 
       <LoginForm />
-
-      <p className="admin-note">If sign-in keeps failing, wait before trying again.</p>
     </main>
   );
 }

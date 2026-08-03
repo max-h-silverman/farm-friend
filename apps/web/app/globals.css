@@ -99,6 +99,42 @@ body {
   padding: 1.5rem 1.15rem 3rem;
 }
 
+.map-loading {
+  min-height: min(72vh, 42rem);
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1rem;
+  padding: 2rem 1.15rem;
+  color: var(--olive);
+  text-align: center;
+}
+
+.map-loading > img {
+  display: block;
+  width: min(82vw, 28rem);
+  height: auto;
+}
+
+.map-loading p {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.map-loading-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid var(--line);
+  border-top-color: var(--olive);
+  border-radius: 50%;
+  animation: map-loading-spin 700ms linear infinite;
+}
+
+@keyframes map-loading-spin {
+  to { transform: rotate(1turn); }
+}
+
 /* ------------------------------------------------- F-043 — the map's caption
  *
  * The title, eyebrow and lede are GONE (max, 2026-07-30): this page is embedded in VIGA's own
@@ -112,7 +148,7 @@ body {
 .map-note {
   margin: 0 0 0.9rem;
   color: #FF5409;
-  font-size: 1rem;
+  font-size: 1.5rem;
   font-weight: 700;
 }
 
@@ -127,6 +163,10 @@ body {
   display: grid;
   gap: 0.7rem;
   margin: 0 0 1rem;
+}
+
+.map-intro {
+  display: block;
 }
 
 .farm-map-masthead > img {
@@ -546,6 +586,7 @@ body {
 .contact-card-link {
   display: inline-flex;
   align-items: center;
+  gap: 0.55rem;
   min-height: 44px;
   padding: 0 1rem;
   font-size: 0.92rem;
@@ -554,6 +595,17 @@ body {
   text-decoration: none;
   background: var(--green-soft);
   border-radius: 10px;
+}
+
+.contact-card-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* The consent disclaimer must be legible, not fine print — it is the sentence that keeps
@@ -596,15 +648,6 @@ body {
   letter-spacing: -0.02em;
 }
 
-.admin-eyebrow {
-  margin: 0 0 0.25rem;
-  color: var(--green);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .admin-nav-sign-out,
 .admin-primary-link {
   display: inline-flex;
@@ -632,7 +675,7 @@ body {
   max-width: 34rem;
 }
 
-.admin-signed-out p:not(.admin-eyebrow) {
+.admin-signed-out p {
   margin: 0.65rem 0 1.25rem;
   color: var(--ink-soft);
 }
@@ -652,12 +695,98 @@ body {
   letter-spacing: -0.025em;
 }
 
-.admin-lede {
-  max-width: 38rem;
+.admin-page-intro .admin-note {
   margin: 0.45rem 0 0;
+}
+
+.admin-work-list {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  padding-bottom: 2rem;
+  list-style: none;
+}
+
+.admin-work-list a {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  text-decoration: none;
+}
+
+.admin-work-list a:focus-visible,
+.admin-work-list a:hover {
+  background: var(--admin-cream);
+  border-color: var(--admin-leaf);
+}
+
+.admin-work-list a > span:first-child {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.admin-work-list a > span:first-child > span {
   color: var(--ink-soft);
-  font-size: 1.02rem;
-  line-height: 1.5;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.admin-records {
+  margin-top: 2rem;
+}
+
+.admin-secondary-disclosure {
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.admin-secondary-disclosure summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-weight: 700;
+  list-style: none;
+}
+
+.admin-secondary-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-secondary-disclosure summary::after {
+  content: "▸";
+  color: var(--ink-soft);
+  font-size: 1.1rem;
+  transition: transform 120ms ease;
+}
+
+.admin-secondary-disclosure[open] summary::after {
+  transform: rotate(90deg);
+}
+
+.admin-secondary-disclosure .admin-note {
+  margin: 0.45rem 0 0;
+}
+
+.admin-decision-panel {
+  display: grid;
+  width: min(100%, 22rem);
+  gap: 0.55rem;
+}
+
+.admin-priority > .admin-secondary-disclosure {
+  margin-top: 1rem;
 }
 
 .admin-note {
@@ -822,26 +951,6 @@ body {
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 600;
-}
-
-.admin-stand-toggle {
-  align-self: start;
-  color: var(--green);
-  font-size: 0.88rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.admin-stand-hide {
-  display: none;
-}
-
-.admin-stand details[open] .admin-stand-show {
-  display: none;
-}
-
-.admin-stand details[open] .admin-stand-hide {
-  display: inline;
 }
 
 .admin-stand-detail-groups {
@@ -1159,16 +1268,6 @@ body {
   margin-top: 0.75rem;
 }
 
-.admin-kicker {
-  margin: 0 0 0.3rem;
-  color: var(--green);
-  font-size: 0.72rem;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
 .admin-invite-card {
   display: grid;
   gap: 1.1rem;
@@ -1203,22 +1302,6 @@ body {
   margin: 0.4rem 0 0;
 }
 
-.admin-invite-badge,
-.admin-status-pill {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  min-height: 30px;
-  padding: 0 0.65rem;
-  color: var(--green);
-  background: var(--green-soft);
-  border: 1px solid var(--green);
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
 .admin-invite-form {
   display: grid;
   max-width: 48rem;
@@ -1250,37 +1333,10 @@ body {
   font-weight: 700;
 }
 
-.admin-step-number {
-  display: inline-flex;
-  width: 1.45rem;
-  height: 1.45rem;
-  align-items: center;
-  justify-content: center;
-  color: var(--card);
-  background: var(--green);
-  border-radius: 50%;
-  font-size: 0.78rem;
-  line-height: 1;
-}
-
-.admin-invite-step--farm .admin-step-number {
-  color: var(--green);
-  background: var(--green-soft);
-  border: 1px solid color-mix(in srgb, var(--green) 45%, transparent);
-}
-
 .admin-optional {
   color: var(--ink-faint);
   font-size: 0.78rem;
   font-weight: 500;
-}
-
-.admin-field-help,
-.admin-action-note {
-  margin: 0 0 0.75rem;
-  color: var(--ink-soft);
-  font-size: 0.88rem;
-  line-height: 1.45;
 }
 
 .admin-channel-options {
@@ -1357,13 +1413,6 @@ body {
   border-color: var(--green);
 }
 
-.admin-required {
-  float: right;
-  color: var(--ink-faint);
-  font-size: 0.76rem;
-  font-weight: 500;
-}
-
 .admin-invite-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1371,10 +1420,6 @@ body {
   gap: 0.6rem 0.85rem;
   padding-top: 1.1rem;
   border-top: 1px solid var(--line);
-}
-
-.admin-invite-actions .admin-action-note {
-  margin: 0;
 }
 
 button.admin-action-primary,
@@ -1436,11 +1481,6 @@ button.admin-action-danger:disabled {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 0.2rem 0.75rem;
-}
-
-.admin-invite-result-heading .admin-status-pill {
-  grid-row: 1 / span 2;
-  margin-top: 0.05rem;
 }
 
 .admin-invite-result-heading h4 {
@@ -1574,10 +1614,6 @@ button.admin-action-danger:disabled {
   display: grid;
   align-content: center;
   gap: 0.45rem;
-}
-
-.admin-access-actions .admin-kicker {
-  margin-bottom: 0.05rem;
 }
 
 .admin-access-actions .admin-control-label {
@@ -2032,10 +2068,6 @@ button.admin-action-danger:disabled {
     flex-direction: column;
   }
 
-  .admin-invite-badge {
-    align-self: flex-start;
-  }
-
   .admin-invite-actions .admin-action-primary,
   .admin-invite-result-actions > * {
     width: 100%;
@@ -2114,7 +2146,6 @@ button.admin-action-danger:disabled {
     top: 1.25rem;
     align-self: start;
     height: fit-content;
-    max-height: calc(100vh - 2.5rem);
   }
 
   .list-column {
@@ -2164,6 +2195,7 @@ button.admin-action-danger:disabled {
    */
   max-height: 58vh;
   object-fit: contain;
+  object-position: left top;
 }
 
 @media (min-width: 56rem) {
@@ -2262,7 +2294,7 @@ button.admin-action-danger:disabled {
   right: 1.35rem;
   bottom: 3.3rem;
   z-index: 1;
-  width: clamp(9.5rem, 32%, 15rem);
+  width: clamp(7.6rem, 25.6%, 12rem);
   height: auto;
   filter: drop-shadow(0 1px 0 rgb(255 255 255 / 70%));
 }
@@ -2359,24 +2391,162 @@ button.admin-action-danger:disabled {
 .admin-farm-bucks-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.2rem 0.9rem 0.6rem; }
 .admin-farm-bucks-head h3 { padding: 0.6rem 0 0.15rem; }
 .admin-farm-bucks-head p, .admin-farm-bucks-note { margin: 0; color: var(--ink-soft); font-size: 0.84rem; }
+.admin-farm-bucks-controls { display: grid; gap: 0.55rem; padding: 0 0.9rem 0.65rem; }
 .admin-farm-bucks-note { padding: 0 0.9rem 0.9rem; }
-
-.admin-toggle {
-  position: relative;
-  width: 3.1rem;
-  height: 1.8rem;
-  padding: 0.15rem;
-  flex: none;
-  border: 0;
-  border-radius: 999px;
-  background: #a7afab;
-  cursor: pointer;
+.admin-inline-confirm {
+  display: grid;
+  width: min(100%, 22rem);
+  gap: 0.55rem;
+  padding: 0.75rem;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line);
+  border-radius: 10px;
 }
-.admin-toggle > span { display: block; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 18%); transition: transform 160ms ease; }
-.admin-toggle[aria-checked="true"] { background: var(--green); }
-.admin-toggle[aria-checked="true"] > span { transform: translateX(1.3rem); }
-.admin-toggle:focus-visible { outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent); outline-offset: 3px; }
-.admin-toggle:disabled { opacity: 0.6; cursor: wait; }
+.admin-inline-confirm p { margin: 0; color: var(--ink); font-size: 0.86rem; line-height: 1.4; }
+
+/* Admin is an operator tool: compact rows, square controls and rules instead of panels. */
+.admin-page-intro {
+  margin: 0.9rem 0 1rem;
+}
+
+.admin-page-intro h1,
+.admin-header h1,
+.admin-signed-out h1 {
+  font-size: 1.55rem;
+}
+
+.admin-nav {
+  padding-bottom: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-nav a {
+  padding: 0 0.65rem;
+  border-radius: 0;
+}
+
+.admin-nav a[aria-current="page"] {
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+
+.admin-priority,
+.admin-priority--farm-approval {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.admin-section-title {
+  margin-top: 1.35rem;
+  border-bottom-width: 1px;
+}
+
+.admin-farms,
+.admin-stands {
+  gap: 0.45rem;
+  margin-top: 0.8rem;
+}
+
+.admin-farm,
+.admin-stand,
+.admin-user-list,
+.admin-invite-card,
+.admin-invite-result,
+.admin-empty-state,
+.admin-thread,
+.admin-stand-detail-section,
+.admin-stand-detail-section--prominent {
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+.admin-farm {
+  padding: 0.7rem 0.8rem;
+}
+
+.admin-stand-summary {
+  min-height: 4rem;
+  padding: 0.7rem 0.8rem;
+}
+
+.admin-stand-summary:hover {
+  background: var(--paper);
+}
+
+.admin-stand-states span {
+  padding: 0.15rem 0.35rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.admin-stand-detail-groups {
+  padding: 0 0.8rem 0.8rem;
+  background: var(--card);
+}
+
+.admin-invite-card {
+  gap: 0.75rem;
+  margin: 0.75rem 0 1.25rem;
+  padding: 1rem;
+}
+
+.admin-invite-card-header {
+  padding-bottom: 0.65rem;
+}
+
+.admin-channel-option {
+  min-height: 48px;
+  padding: 0.55rem 0.65rem;
+  border-radius: 4px;
+}
+
+.admin-channel-option:has(input:checked) {
+  background: transparent;
+}
+
+.admin-field > input,
+.admin-field > select,
+.admin-user-filter select,
+.admin-farm select,
+.admin-farm input,
+.admin-stand-edit-field select,
+.admin-nav-sign-out,
+.admin-primary-link,
+button.admin-action-primary,
+a.admin-action-primary,
+button.admin-action-secondary,
+button.admin-action-danger,
+.admin-farm button {
+  border-radius: 4px;
+}
+
+.admin-user-list li {
+  padding: 0.65rem 0.75rem;
+}
+
+.admin-count {
+  min-width: 0;
+  height: auto;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.admin-empty-state {
+  padding: 0.65rem 0.75rem;
+  background: transparent;
+}
+
+.admin-boundary-note,
+.admin-retention-warning,
+.admin-error,
+.admin-success {
+  border-radius: 0;
+}
 
 /* --------------------------------------------------------- F-043 — the pins
  *
@@ -2400,6 +2570,47 @@ button.admin-action-danger:disabled {
   outline-offset: 4px;
 }
 
+.marker-key > summary {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 3;
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 0.45rem 0.8rem;
+  color: var(--olive);
+  background: rgb(251 250 247 / 94%);
+  border: 1px solid var(--olive);
+  border-radius: 999px;
+  box-shadow: 0 3px 12px rgb(31 41 36 / 14%);
+  font-size: 0.9rem;
+  font-weight: 750;
+  list-style: none;
+  cursor: pointer;
+}
+
+.marker-key > summary::-webkit-details-marker {
+  display: none;
+}
+
+.marker-key > summary::before {
+  content: "?";
+  display: inline-grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: 0.4rem;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+
+.marker-key[open] > summary {
+  color: var(--card);
+  background: var(--olive);
+}
+
 .pin-shape,
 .pin-market-shape {
   stroke: var(--sage);
@@ -2408,33 +2619,46 @@ button.admin-action-danger:disabled {
 }
 
 .marker-legend {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 2;
   display: grid;
-  gap: 0.45rem;
+  gap: 0.26rem;
+  max-width: 14.4rem;
   margin: 0;
-  padding: 0.85rem 1rem;
+  padding: 0.6rem 0.72rem;
   list-style: none;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: rgb(251 250 247 / 92%);
+  border: 1px solid var(--sage-deep);
   border-radius: var(--radius);
+  box-shadow: 0 3px 12px rgb(31 41 36 / 12%);
 }
 
 .marker-legend-item {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.48rem;
+  min-width: 0;
   color: var(--ink);
-  font-size: 0.88rem;
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.marker-legend-item > :last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .marker-legend-symbol {
   display: inline-flex;
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.08rem;
+  height: 1.08rem;
   flex: none;
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 0.95rem;
+  font-size: 0.84rem;
   font-weight: 800;
   line-height: 1;
 }
@@ -2456,11 +2680,11 @@ button.admin-action-danger:disabled {
 .marker-legend-year-round { background: #65a936; }
 .marker-legend-flower-only {
   color: #b02d3b;
-  font-size: 1.45rem;
+  font-size: 1rem;
 }
 .marker-legend-contact-only {
   color: #d83225;
-  font-size: 1.25rem;
+  font-size: 1rem;
 }
 .marker-legend-farmers-market { background: #7d43d8; }
 
@@ -2574,88 +2798,305 @@ button.admin-action-danger:disabled {
 
 .filters {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.8rem;
+  margin: 1rem 0;
+  padding: 1.25rem;
+  background: var(--panel);
+  border-radius: 8px;
 }
 
-.filter-row {
+.filter-header {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: flex-end;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
-.filter-row-meta {
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.chip {
-  /* Generous tap target — this is used outdoors, one-handed. */
-  min-height: 2.75rem;
-  padding: 0.55rem 0.95rem;
-  font: inherit;
-  font-size: 0.92rem;
-  font-weight: 600;
+.filter-header h2 {
+  margin: 0;
   color: var(--olive);
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  border-radius: 999px;
-  cursor: pointer;
+  font-size: 1.05rem;
+  line-height: 1.2;
+  letter-spacing: 0;
 }
 
-.chip:hover:not(:disabled) {
-  border-color: var(--sage-deep);
+.filter-results {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.chip:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-
-.chip-on {
-  /* Active state is fill + border + weight, never colour alone. */
-  color: var(--cream);
-  background: var(--olive);
-  border-color: var(--olive);
-}
-
-.chip-clear {
-  color: var(--brick);
-  border-style: dashed;
-}
-
-.field {
+.filter-command-bar {
   display: grid;
-  gap: 0.25rem;
-  flex: 1 1 9rem;
+  gap: 0.65rem;
   min-width: 0;
 }
 
-.field-label {
-  font-size: 0.78rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
+.filter-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+.field,
+.field-control {
+  display: block;
+  min-width: 0;
+}
+
+.field-control {
+  position: relative;
+}
+
+.field-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.8rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: none;
+  stroke: var(--ink-faint);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .field-input {
+  width: 100%;
   min-height: 2.75rem;
-  padding: 0.5rem 0.7rem;
+  padding: 0.5rem 0.75rem;
   font: inherit;
+  font-size: 0.9rem;
   color: var(--ink);
-  background: var(--card);
-  border: 1.5px solid var(--line);
-  border-radius: 10px;
+  background: var(--paper);
+  border: 1px solid color-mix(in srgb, var(--sage-deep) 75%, var(--line));
+  border-radius: 6px;
+}
+
+.field-search .field-input {
+  padding-left: 2.4rem;
+}
+
+.field-input::placeholder {
+  color: var(--ink-faint);
 }
 
 .field-input:focus-visible {
-  outline: 2px solid var(--olive);
-  outline-offset: 1px;
+  outline: 2px solid color-mix(in srgb, var(--olive) 32%, transparent);
+  outline-offset: 2px;
+  border-color: var(--olive);
 }
 
 .field-input:disabled {
   opacity: 0.55;
+  background: var(--line);
+}
+
+.location-button,
+.filter-drawer-button {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.7rem;
+  color: var(--olive);
+  background: var(--card);
+  border: 1px solid var(--sage-deep);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.location-button svg,
+.filter-drawer-button svg {
+  flex: 0 0 auto;
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.location-button:hover:not(:disabled),
+.filter-drawer-button:hover {
+  background: var(--panel);
+  border-color: var(--olive);
+}
+
+.location-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.location-button-on {
+  background: var(--green-soft);
+  border-color: var(--green);
+}
+
+.location-button .location-clear-icon {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-left: 0.1rem;
+}
+
+.locate-note {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.filter-location-note {
+  margin-top: -0.05rem;
+}
+
+.filter-drawer-button {
+  position: relative;
+}
+
+.filter-drawer-button-open {
+  background: var(--panel);
+  border-color: var(--olive);
+}
+
+.filter-drawer-count {
+  display: inline-grid;
+  min-width: 1.2rem;
+  min-height: 1.2rem;
+  place-items: center;
+  padding: 0 0.25rem;
+  color: var(--card);
+  background: var(--brick);
+  border-radius: 50%;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.filter-clear {
+  min-height: 2.25rem;
+  padding: 0.25rem 0.4rem;
+  color: var(--brick);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.filter-panel-season .filter-clear {
+  justify-self: end;
+  margin-top: auto;
+}
+
+.filter-panel {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  gap: 0.15rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid color-mix(in srgb, var(--sage-deep) 48%, var(--line));
+}
+
+.filter-panel-group {
+  display: grid;
+  align-content: start;
+  gap: 0.4rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.85rem 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--sage-deep) 42%, var(--line));
+}
+
+.filter-panel-group:last-child {
+  border-bottom: 0;
+}
+
+.filter-panel-group legend {
+  width: 100%;
+  margin: 0 0 0.2rem;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 0.74rem;
+  font-weight: 750;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.filter-panel-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 0.3rem 0.75rem;
+}
+
+.filter-option {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem 0.7rem;
+  color: var(--olive);
+  background: var(--card);
+  border: 1px solid var(--sage-deep);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+}
+
+.filter-option:hover {
+  background: var(--paper);
+  border-color: var(--olive);
+}
+
+.filter-option-active,
+.filter-option-active:hover {
+  color: var(--card);
+  background: var(--olive);
+  border-color: var(--olive);
+}
+
+.field-season {
+  max-width: none;
+}
+
+.season-select {
+  min-height: 2.75rem;
+}
+
+.filters :is(button, input, select):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--olive) 32%, transparent);
+  outline-offset: 2px;
+}
+
+@media (min-width: 40rem) {
+  .filter-command-bar {
+    grid-template-columns: minmax(14rem, 1fr) auto;
+    align-items: center;
+  }
+
+  .filter-actions {
+    grid-template-columns: minmax(8.5rem, auto) minmax(7rem, auto);
+  }
 }
 
 /* --------------------------------------------- F-043 — selection and state */
@@ -2706,14 +3147,6 @@ button.admin-action-danger:disabled {
  *
  * Styled as a grouped bar rather than loose chips, so it reads as one control surface.
  */
-.filters {
-  margin: 1.25rem 0;
-  padding: 0.85rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-}
-
 /* -------------------------------------------------- F-043 — poster directory treatment
  *
  * The printed VIGA map is a directory on one quiet panel: colored dots sit beside black,
@@ -2727,7 +3160,7 @@ button.admin-action-danger:disabled {
 }
 
 .stands {
-  gap: 0.2rem 0.75rem;
+  gap: 0.55rem 0.75rem;
 }
 
 .stand {
@@ -2736,14 +3169,20 @@ button.admin-action-danger:disabled {
   column-gap: 0.5rem;
   align-items: start;
   padding: 0.75rem 0.35rem;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
+  background: rgb(255 255 255 / 38%);
+  border: 1px solid color-mix(in srgb, var(--sage-deep) 42%, transparent);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgb(63 74 56 / 5%);
 }
 
 .stand:hover {
-  background: color-mix(in srgb, var(--sage) 58%, transparent);
-  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 68%);
+  border-color: color-mix(in srgb, var(--olive) 52%, transparent);
+  box-shadow: 0 3px 8px rgb(63 74 56 / 9%);
+}
+
+.stand:focus-within {
+  border-color: var(--olive);
 }
 
 .stand-stale {
@@ -2830,7 +3269,7 @@ button.admin-action-danger:disabled {
 }
 
 .island {
-  background: var(--panel);
+  background: var(--cream);
 }
 
 /*
@@ -2946,16 +3385,488 @@ button.admin-action-danger:disabled {
   color: var(--ink);
 }
 
-/*
- * With a sheet open on a phone, the map shrinks so BOTH fit on one screen.
+/* The expanded directory row and phone sheet share this exact information hierarchy. */
+.stand-head {
+  display: grid;
+  grid-template-columns: 1.65rem minmax(0, 1fr) auto;
+  column-gap: 0.45rem;
+  align-items: start;
+}
+
+.stand-head .stand-number {
+  width: 1.65rem;
+  padding-top: 0.02rem;
+  text-align: right;
+  line-height: 1.5;
+}
+
+.stand-heading-copy {
+  min-width: 0;
+  text-align: left;
+}
+
+.stand-heading-copy .farm {
+  margin: 0.12rem 0 0;
+  text-align: left;
+}
+
+.stand-summary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.65rem;
+  margin-top: 0.25rem;
+}
+
+.stand-summary-address {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.stand-summary-website {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  color: var(--brick);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.stand-summary-freshness {
+  color: var(--amber);
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
+.stand-details {
+  margin: 0.9rem 0 0 2.1rem;
+}
+
+.stand-detail-body {
+  display: grid;
+  gap: 0.9rem;
+  text-align: left;
+}
+
+.detail-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.detail-status:empty {
+  display: none;
+}
+
+.detail-status .open-state,
+.payment-status {
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.payment-status {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.detail-inventory {
+  padding: 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+}
+
+.detail-inventory .listing:last-child,
+.detail-inventory .items:last-child,
+.detail-inventory .listing-note:last-child {
+  margin-bottom: 0;
+}
+
+.detail-visit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem 0.9rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.detail-visit h3 {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.detail-visit .address {
+  grid-column: 1;
+  grid-row: 2;
+  margin: 0;
+  font-size: 0.94rem;
+}
+
+.stand-website {
+  grid-column: 1 / -1;
+  color: var(--brick);
+  font-weight: 650;
+  text-decoration: underline;
+}
+
+.detail-visit .directions {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 44px;
+  padding: 0 0.9rem;
+  color: #fff;
+  background: var(--olive);
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.stand-description {
+  margin-top: 0;
+}
+
+.sheet .stand-detail-body {
+  margin-top: 0.9rem;
+}
+
+.sheet .detail-inventory {
+  background: var(--panel);
+}
+
+.sheet .stand-number {
+  width: 1.65rem;
+  text-align: right;
+}
+
+.contact-card-cta {
+  align-items: center;
+  text-align: center;
+}
+
+.contact-card-link {
+  min-height: 48px;
+  padding: 0 1.25rem;
+  color: #fff;
+  background: var(--olive);
+  box-shadow: 0 2px 6px rgb(31 41 36 / 16%);
+}
+
+.contact-card-note {
+  max-width: 31rem;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+@media (min-width: 56rem) {
+  .contact-card-footer {
+    display: none;
+  }
+}
+
+@media (max-width: 30rem) {
+  .detail-visit {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-visit h3 {
+    grid-column: 1;
+  }
+
+  .detail-visit .directions {
+    grid-column: 1;
+    grid-row: auto;
+    width: fit-content;
+  }
+
+  .detail-visit .address,
+  .stand-website {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-loading-spinner {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------ desktop directory density
  *
- * Measured in a browser: the sheet's top edge sits at ~60% of the viewport, and at the top of
- * the page the island extended past that — so tapping a pin hid the pin that was tapped. The
- * map now takes the space above the sheet instead of being covered by it, which is what makes
- * "the map stays visible" true rather than merely intended.
+ * The desktop list borrows the printed VIGA directory's information hierarchy: one pale
+ * panel, two readable columns, bold numbered names, addresses beneath, and status dots in a
+ * narrow gutter. The map remains the spatial index, but the directory gets more room because
+ * it carries the information a customer must read. Expanded details span both columns.
  */
-@media (max-width: 55.99rem) {
-  .sheet-open .island-svg {
-    max-height: 34vh;
+@media (min-width: 56rem) {
+  .page {
+    max-width: 75rem;
+    margin: 0 auto;
+    padding: 0.75rem 1rem;
+  }
+
+  .map-intro {
+    display: block;
+    margin-bottom: 0.75rem;
+  }
+
+  .farm-map-masthead {
+    width: min(42vw, 34rem);
+    margin: 0 0 0.35rem;
+  }
+
+  .farm-map-masthead > img {
+    width: 100%;
+  }
+
+  .map-note {
+    max-width: 68rem;
+    margin: 0;
+    font-size: 1.125rem;
+    padding-top: .5rem;
+    line-height: 1.35;
+  }
+
+  .filters {
+    gap: 0.65rem;
+    margin: 0 0 0.6rem;
+    padding: 1.1rem 1.25rem;
+  }
+
+  .filter-command-bar {
+    grid-template-columns: minmax(16rem, 1fr) auto;
+    gap: 0.65rem;
+  }
+
+  .filter-panel {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0 1.25rem;
+  }
+
+  .filter-panel-group {
+    padding: 0.75rem 0;
+    border-bottom: 0;
+  }
+
+  .layout {
+    grid-template-columns: minmax(0, 4fr) minmax(0, 3fr);
+    gap: 1rem;
+  }
+
+  .map-column {
+    top: 0.75rem;
+  }
+
+  .island-svg {
+    max-height: calc(100vh - 13.5rem);
+  }
+
+  .marker-legend {
+    top: 0.55rem;
+    right: 0.55rem;
+    gap: 0.35rem;
+    max-width: min(16rem, calc(100% - 1.1rem));
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.65rem;
+  }
+
+  .marker-key > summary {
+    display: none;
+  }
+
+  .marker-legend-item {
+    gap: 0.5rem;
+    font-size: 0.88rem;
+    line-height: 1.25;
+  }
+
+  .marker-legend-symbol {
+    width: 1.15rem;
+    height: 1.15rem;
+    font-size: 0.9rem;
+  }
+
+  .marker-legend-flower-only,
+  .marker-legend-contact-only {
+    font-size: 1.25rem;
+  }
+
+  .list-column {
+    padding: 1rem;
+    border-radius: 1.5rem;
+  }
+
+  .list-column > .farm-map-key {
+    gap: 0.25rem 0.75rem;
+    margin-bottom: 0.4rem;
+  }
+
+  .farm-map-key .poster-indicator {
+    gap: 0.25rem;
+    font-size: 0.8rem;
+  }
+
+  .farm-map-key .poster-dot {
+    width: 0.58rem;
+    height: 0.58rem;
+  }
+
+  .stale-summary {
+    margin-bottom: 0.4rem;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.82rem;
+    line-height: 1.25;
+  }
+
+  .stands {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.3rem 1rem;
+  }
+
+  .stand {
+    min-height: 4.75rem;
+    grid-template-columns: minmax(0, 0.65rem) minmax(0, 1fr);
+    column-gap: 0.4rem;
+    padding: 0.5rem 0.45rem;
+    background: transparent;
+    border-color: transparent;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .stand:hover {
+    background: rgb(255 255 255 / 42%);
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .stand-stale {
+    border-left-color: var(--amber-line);
+  }
+
+  .stand > .poster-indicators {
+    gap: 0.14rem;
+    margin-top: 0.18rem;
+  }
+
+  .stand .poster-dot {
+    width: 0.58rem;
+    height: 0.58rem;
+  }
+
+  .stand-head {
+    grid-template-columns: 1.55rem minmax(0, 1fr) auto;
+    column-gap: 0.3rem;
+  }
+
+  .stand-head .stand-number {
+    width: 1.55rem;
+    font-size: 0.9rem;
+    line-height: 1.3;
+  }
+
+  .stand-head h2 {
+    font-size: 1rem;
+    line-height: 1.18;
+    letter-spacing: -0.01em;
+  }
+
+  .stand-heading-copy .farm {
+    margin-top: 0.08rem;
+    font-size: 0.875rem;
+    line-height: 1.2;
+  }
+
+  .stand:not(.stand-selected) .stand-heading-copy .farm {
+    display: none;
+  }
+
+  .stand-summary-meta {
+    gap: 0.05rem 0.55rem;
+    margin-top: 0.18rem;
+  }
+
+  .stand-summary-address {
+    flex: 1 1 9rem;
+    font-size: 0.875rem;
+    line-height: 1.2;
+  }
+
+  .stand-summary-website,
+  .stand-summary-freshness {
+    min-height: 1.45rem;
+    font-size: 0.82rem;
+    line-height: 1.15;
+  }
+
+  .distance {
+    font-size: 0.82rem;
+  }
+
+  .stand-selected {
+    grid-column: 1 / -1;
+    min-height: auto;
+    padding: 0.75rem;
+    background: var(--sage);
+    border-radius: 0.9rem;
+    box-shadow: 0 0 0 2px var(--olive);
+  }
+
+  .stand-selected .stand-details {
+    margin-top: 0.65rem;
+  }
+
+  .stand-selected .stand-detail-body {
+    grid-template-columns: minmax(13rem, 0.7fr) minmax(0, 1.3fr);
+    gap: 0.65rem 1rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid var(--sage-deep);
+  }
+
+  .stand-selected .detail-actions,
+  .stand-selected .detail-status,
+  .stand-selected .stand-participants,
+  .stand-selected .recency {
+    grid-column: 1;
+  }
+
+  .stand-selected .detail-inventory {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    margin: 0;
+  }
+
+  .stand-selected .stand-description {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 87rem) and (max-height: 62rem) {
+  .filters {
+    gap: 0.25rem 0.65rem;
+    margin-bottom: 0.4rem;
+    padding: 0.4rem 0.6rem;
+  }
+
+  .stand-head h2,
+  .stand-head .stand-number,
+  .stand-summary-address {
+    line-height: 1.1;
   }
 }

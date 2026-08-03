@@ -50,6 +50,8 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
   const [threads, setThreads] = useState<Record<string, ThreadMessage[]>>({});
   const [threadLoading, setThreadLoading] = useState<string | null>(null);
   const [threadErrors, setThreadErrors] = useState<Record<string, string>>({});
+  const [decision, setDecision] = useState<{ flagId: string; action: "resolve" | "dismiss" } | null>(null);
+  const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({});
 
   async function viewThread(flagId: string) {
     if (openThread === flagId) {
@@ -91,14 +93,11 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
   }
 
   async function decide(flagId: string, action: "resolve" | "dismiss") {
-    // The reason is required by the route: an audit record that does not say why is not much
-    // of an audit record. Asking here keeps the operator's own words in the trail.
-    const dispositionCode = window.prompt(
-      action === "resolve"
-        ? "What did you do about this flag? (recorded in the audit trail)"
-        : "Why is this being dismissed? (recorded in the audit trail)",
-    );
-    if (dispositionCode === null || dispositionCode.trim() === "") return;
+    const dispositionCode = (decisionNotes[flagId] ?? "").trim();
+    if (dispositionCode === "") {
+      setError("Add a short note about what you decided before saving.");
+      return;
+    }
 
     setPending(flagId);
     setError(null);
@@ -134,6 +133,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
       setSuccess(
       `${action === "resolve" ? "Flag resolved" : "Flag dismissed"}. Older messages can now be deleted on their normal schedule.`,
       );
+      setDecision(null);
     } catch {
       setError("That change did not go through. Reload and try again.");
     } finally {
@@ -232,20 +232,33 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
               </button>
               {row.status === "open" && (
                 <>
-                  <button
-                    type="button"
-                    disabled={pending === row.flagId}
-                    onClick={() => decide(row.flagId, "resolve")}
-                  >
-                    {pending === row.flagId ? "Saving…" : "Resolve"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={pending === row.flagId}
-                    onClick={() => decide(row.flagId, "dismiss")}
-                  >
-                    Dismiss
-                  </button>
+                  {decision?.flagId === row.flagId ? (
+                    <div className="admin-decision-panel" role="group" aria-label="Record your decision">
+                      <label className="admin-field">
+                        <span className="admin-control-label">
+                          {decision.action === "resolve" ? "What did you do?" : "Why is this not an issue?"}
+                        </span>
+                        <input
+                          aria-label={`Decision note for ${row.senderMask}`}
+                          autoFocus
+                          type="text"
+                          value={decisionNotes[row.flagId] ?? ""}
+                          onChange={(event) => setDecisionNotes((current) => ({ ...current, [row.flagId]: event.target.value }))}
+                        />
+                      </label>
+                      <div className="admin-button-row">
+                        <button type="button" disabled={pending === row.flagId} onClick={() => void decide(row.flagId, decision.action)}>
+                          {pending === row.flagId ? "Saving…" : "Save decision"}
+                        </button>
+                        <button type="button" disabled={pending === row.flagId} onClick={() => setDecision(null)}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => setDecision({ flagId: row.flagId, action: "resolve" })}>Resolve</button>
+                      <button type="button" onClick={() => setDecision({ flagId: row.flagId, action: "dismiss" })}>Dismiss</button>
+                    </>
+                  )}
                 </>
               )}
             </div>

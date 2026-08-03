@@ -119,20 +119,24 @@ export function mapMarkerKind(stand: PublicStandPayload): MapMarkerKind {
   if (stand.visitability === "contact_only") return "contact-only";
   if (stand.locationKind === "farmers_market") return "farmers-market";
 
-  const usualOfferings = stand.usuallySells ?? [];
-  if (
-    stand.farmBucksAccepted === false &&
-    usualOfferings.length > 0 &&
-    usualOfferings.every((item) =>
-      /\b(?:flower(?:s|ing)?|lavender|wreaths?|essential oils?)\b/i.test(item),
-    )
-  ) {
+  if (stand.farmBucksAccepted === false && isFlowerOnlyStand(stand)) {
     return "flower-only";
   }
 
   return stand.availability.season?.kind === "year_round"
     ? "year-round"
     : "seasonal";
+}
+
+/** Whether every published usual offering is a flower or flower-derived product. */
+export function isFlowerOnlyStand(stand: PublicStandPayload): boolean {
+  const usualOfferings = stand.usuallySells ?? [];
+  return (
+    usualOfferings.length > 0 &&
+    usualOfferings.every((item) =>
+      /\b(?:flower(?:s|ing)?|lavender|wreaths?|essential oils?)\b/i.test(item),
+    )
+  );
 }
 
 /**
@@ -437,7 +441,7 @@ export function sortStandsByNumber<Stand extends { standNumber: number }>(
 /**
  * What a customer has asked the map to narrow down to (F-043).
  *
- * Four filters plus season, all client-side over data already served. No new model call and
+ * All filters are client-side over data already served. No new model call and
  * no new request — the public surface stays model-free, and a customer standing outdoors on a
  * phone gets an instant answer rather than a round trip.
  */
@@ -450,6 +454,10 @@ export interface StandFilters {
   sells?: string;
   /** Has somewhere to go (F-038) — excludes by-order farms with no stand. */
   visitable?: boolean;
+  /** Explicitly reviewed as accepting VIGA Bucks; an unstated payment fact does not pass. */
+  acceptsFarmBucks?: boolean;
+  /** Every published usual offering is a flower or flower-derived product. */
+  flowersOnly?: boolean;
   /**
    * What is around later in the year.
    *
@@ -595,6 +603,14 @@ export function applyStandFilters<Stand extends PublicStandPayload>(
       }
 
       if (filters.visitable === true && stand.visitability !== "visitable") {
+        return false;
+      }
+
+      if (filters.acceptsFarmBucks === true && stand.farmBucksAccepted !== true) {
+        return false;
+      }
+
+      if (filters.flowersOnly === true && !isFlowerOnlyStand(stand)) {
         return false;
       }
 

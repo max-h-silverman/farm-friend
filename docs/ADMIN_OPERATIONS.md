@@ -51,11 +51,11 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Farm approval | `/admin` | Verify a farm and **approve it for publication** — recorded separately from the farmer completing onboarding |
+| Volunteer desk | `/admin` | See work needing a decision, verify and approve farms, and inspect stand records |
 | Flag review + thread viewer | `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
 | Stand-data questions | `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
-| Stand listing facts | `/admin` (Stands) | Review and save a stand's Farm Bucks eligibility and acceptance status |
+| Stand listing facts | `/admin` (Stand records) | Review and save a stand's Farm Bucks eligibility and acceptance status |
 | Farmer access | `/admin/farmers` | Invite a farmer, authorize them to publish for a farm, see every farmer's access live and withdrawn, revoke it, and issue a replacement private link |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
@@ -66,7 +66,7 @@ request body. Queue GET APIs do not exist because the pages already have the dat
 a browser consumer is `/api/admin/flags/<flag-id>/thread`, guarded by the same
 `apps/web/lib/admin-guard.ts` mechanism and projected at the query boundary.
 
-The Stands Farm Bucks switch is a guarded browser mutation. It accepts only the three reviewed
+The Stand records Farm Bucks selector is a guarded browser mutation. It accepts only the three
 states, derives the two stored booleans together, locks the stand row while saving, and records the
 administrator from the session rather than the request body.
 

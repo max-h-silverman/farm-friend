@@ -1,171 +1,71 @@
 # Farm Friend — Current State & Open Items
 
 > **Live snapshot, overwritten by `/session-wrap` — not a changelog.** Record only verified facts.
-> The architecture docs own enduring contracts; historical reasoning lives in the session records.
+> Architecture docs own enduring contracts; dated reasoning and deployment proof live in the
+> session log.
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Merged commits `71cc48f` (PR #72), `640f0ac` (PR #73), and
-`87ea51c` (PR #74) are live on Cloud Run as one image across web revision
+Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
 `farm-friend-web-00023-frt` and worker revision `farm-friend-worker-00024-mzv`, both at digest
-`sha256:0e98f195d7947735b426254118d769e9ffa9dc49c35c4801920f34ff9ddbb698`.
-Production Postgres is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal
-timestamp `1786500000000`). Production now includes:
+`sha256:0e98f195d7947735b426254118d769e9ffa9dc49c35c4801920f34ff9ddbb698`. Production Postgres
+is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal timestamp
+`1786500000000`).
 
-- F-049: owner-confirmed stand closure and reopening;
-- F-050: owner-confirmed **Also selling here** names;
-- F-051: deterministic `STAND` / `SETTINGS` and exact multi-stand targeting;
-- F-052: scheduled inventory prompts and context-bound `SAME`;
-- F-055: completed and visually exercised administrator and farmer web workflows;
-- farmer invitations, unbound-farm onboarding, and administrator Farm Bucks status editing;
-- the VIGA-poster public map treatment: legend above listings, dot-only card indicators in their own
-  column, left-aligned card text, top-aligned wrapped names, two-way card/marker collapse, and
-  VIGA-style colored/flower map markers with a selected-marker halo and label layer;
-- authorized farmer inbound SMS classification into inventory update, farm-stand question, or
-  unclear before exact stand targeting;
-- VIGA-only Squarespace admin embedding through a partitioned session cookie, a framing allowlist,
-  and independent same-origin checks on authenticated writes;
-- one shared iframe-height handshake across map, admin, and farmer pages; it measures actual content
-  so a VIGA embed grows and shrinks without an inner scrollbar;
-- B-031/B-032: one final pre-launch identity and data architecture, with no compatibility paths;
-- B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
-  removed; active documentation reconciled to the final architecture.
-- F-058: sanitized source listing details, ascending stand-number ordering, a visible marker legend,
-  structured marker categories, and a null-only production backfill for descriptions and reviewed
-  Farm Bucks facts. Contact-only farms remain in the list and intentionally have no map pin.
+Branch `map-desktop-density` is the next release candidate. It includes:
 
-F-056 is deployed but remains **in review** pending the remaining live browser proof. Max
-successfully signed in with the fixed production account; a direct database check found exactly one
-active 12-hour session with a 64-character token hash, the fixed administrator id, and no retained
-login-failure row. The web service mounts the single enabled version of
-`farm-friend-admin-password-hash`; the worker cannot read or mount it.
-Neither service mounts `MAGIC_LINK_SECRET`, and the old magic-link secret container and its runtime
-IAM grant are deleted. `/admin/login` serves the fixed `board@vigavashon.org` password form, the old
-request-link and callback routes return 404, and an unauthenticated `/admin` request renders only the
-sign-in surface.
+- a rebuilt, compact public-map finder with button filters, grouped spacing, Farm Bucks and
+  flower-only filtering, a Season-column clear action, and no selected-filter chips;
+- a denser shared map/list hierarchy, compact phone map key and detail sheet, market-specific
+  presentation, a visible loading state, and the reviewed May-through-September market schedule;
+- a work-first volunteer desk and quieter administrator/farmer surfaces with inline confirmation
+  for destructive actions;
+- seller-name editing moved from the daily availability form into stand settings, bound to the
+  selected stand;
+- a separate customer welcome after a successful first-time `JOIN` or restoring `START`, plus
+  clearer farmer authorization and invitation copy.
 
-F-057 is deployed as part of `2a6eba1`. Standalone `MAP` is a deterministic SMS command, returning
-only the configured `PUBLIC_MAP_URL` before model-assisted handling. STOP/START and consent
-safeguards retain their existing precedence. The deploy plan refuses an absent non-HTTPS map URL or
-a web/worker mismatch.
-
-Every standing link names one exact authorized stand, sales-location ownership is `owner_farm_id`,
-and proposal rows contain only the fields the current confirmation flow reads. There is no rolling
-or nullable compatibility state.
+No schema migration is included. The market schedule source edit needs a guarded production content
+update because the original public-description backfill is intentionally null-only.
 
 ## Verification
 
-The current release passes 94 unit-test files / 896 tests, 41 real-Postgres integration-test files /
-564 tests against disposable databases, typecheck, lint, the production web build, and 44/44
-scripted eval cases. Cloud Build `0d4f9963-535f-4ecd-81f5-7c35900390f6` published the exact
-immutable image; the OpenTofu plan passed 37/37 assertions and applied 0 adds, 2 service updates,
-and 0 destroys. Post-deploy secret-freshness and served vCard byte assertions pass: 153 bytes,
-6 CRLF, and 0 bare LF. The public stands endpoint returns 34 published stands, including the
-sanitized Peak Moon description and reviewed payment fact. Production backfill verification proves
-34 descriptions and 24 payment facts were applied, 0 source entries were unmatched, the rerun is
-idempotent, and public descriptions contain 0 direct emails or phone numbers. Production already
-had all 17 committed migrations, so this release applied no database migration.
-
-The pushed F-056 commit `f041669` passes 842 unit tests, 551 integration tests across 40 files
-against a fresh local Postgres cluster, typecheck, lint, 44 scripted eval cases, and the production
-web build. Its route manifest contains `/api/auth/login` and `/api/auth/logout` and no deleted
-magic-link request or callback route.
-
-The post-migration image-build correction at `ab30a81` passes 843 unit tests, 551 integration tests
-against a fresh local Postgres cluster, typecheck, lint, 44 scripted eval cases, and the production
-web build. Its container test went RED before the fix and again when Python was deliberately removed.
-Cloud Build `2d93ba22-63f6-4c05-8c1b-cbe43ddea30a` then built and published the exact archived commit;
-tag `ab30a81` and `latest` both resolve to the live immutable digest above.
-
-The F-056 bootstrap plan used the deployed immutable image digest and exactly the four runbook
-exclusions. `bootstrap-secret-plan-assertions.py` and direct JSON inspection proved four no-op
-survivor address moves plus one password-container create, with no service, IAM, secret-version,
-old-secret, replacement, update, or deletion action: `1 add, 0 change, 0 destroy`. Applying that
-exact saved plan produced the same summary. Direct cloud and state checks then proved the new
-container exists with zero versions, every existing secret container and version retained its
-pre-apply identity and metadata, both service revisions and mounts were unchanged, and state holds
-the four survivors at protected addresses alongside the new container and retained old secret.
-
-Max provisioned password-secret version 1 through the non-echoing command. Before migration, the
-direct production target had one fixed administrator, no alternate identity, no sessions, and 15
-migrations. Migration `0015` advanced the exact journal timestamp/hash, added the empty durable
-login-failure table and fixed-identity constraint, removed the magic nonce column/index/constraint,
-and preserved all recorded approval/review/audit-related row counts. There were no sessions to
-revoke. The full saved cutover plan passed 35/35 assertions and direct JSON inspection, then applied
-exactly one IAM create, two service updates, the old IAM delete, and the old secret delete. Post-apply
-checks prove both revisions are newer than every secret version, both services run the same digest,
-only web mounts the password secret, no service mounts the old secret, state contains only the five
-protected application containers and matching runtime-read grants, health is green, and the served
-vCard remains byte-correct.
-
-Sabotage made every load-bearing B-033 guard fail for its claimed effect, then the restored focused
-suite passed 10/10: all five removed queue GET exports, the surviving flag-thread browser call,
-provider label, schema-name argument, required output instructions, the deleted rehash utility, and
-the executable old/new-salt scan. The surviving thread route is exercised through a live admin
-session and returns only one retained flagged thread, with a masked sender and no contact-row phone
-or hash field in the response.
-
-B-033 changes no model projection, output schema, output contract, or actual provider message. The
-five representative provider message arrays are byte-identical to the pre-B-033 base (SHA-256
-`80d9dbc6da7ec487f70acd1c2842775b81372a170c3f047c78f3025eacf3b1b5`). Therefore no paid
-`evals:live` run is owed for B-033. Scripted evals remain required.
-
-Production release verification passed revision/secret freshness for both services, exact shared
-image digest and 100% traffic, live health and public reads, protected-admin refusal, internal
-worker ingress, and the served vCard's exact bytes. `/admin/login` serves HTTP 200 with
-`frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org`; its served shared-layout
-bundle contains the content measurement, `ResizeObserver`, and `farm-friend:height` message. The
-Cloud Tasks queue is `RUNNING`; the Cloud Scheduler job is `ENABLED`.
+- Release candidate: 98 unit-test files / 923 tests, typecheck, lint, production web build, and
+  44/44 scripted eval cases pass.
+- Real-Postgres integration: 40 of 41 files / 562 of 564 tests passed on the first complete run.
+  The two failures were stale JOIN deduplication assertions that expected one outbound row rather
+  than the new exact pair; both now assert one carrier receipt and one welcome by logical key. A
+  complete rerun is still owed before merge.
+- Public map was exercised in a real browser at 390x844 and 1440x1000: no horizontal overflow,
+  filters are binary buttons, selected-filter chips are absent, and Clear all sits inside Season.
+  The document is intentionally light-only; no alternate dark palette exists.
+- Production build warnings remain unchanged: Next does not recognize `outputFileTracingRoot`, and
+  the Next ESLint plugin is not installed. B-008 owns the lint configuration gap.
 
 ## What is live
 
 - **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
-  names, transient browser proximity, destination links, and a code-bound stock-out form.
-- **Farmer onboarding and web:** deterministic `SIGNUP` / `LINK`, VIGA authorization, one exact
-  stand per standing credential, inventory proposal/confirmation, participant editing, and reminder
-  settings. Revocation is re-read on every request.
-- **Farmer SMS:** deterministic compliance and commitment routing precedes every model call;
-  authorized farmer free text is classified as update/question/unclear before stand targeting;
-  `STAND`, `SETTINGS`, `SAME`, and `MORE` are context-bound and model-free.
-- **Customer SMS:** model interpretation → code retrieval → model identifier selection → code
-  validation and rendering. Model output cannot author factual reply text or durable state.
-- **Administration:** server-rendered queues for farm approval, farmer access, flags, stock-out
-  reports, and stand-data questions. Browser actions use guarded POST routes. The flag-thread GET is
-  the only admin queue read API because it has a live browser consumer; phones are masked at query.
+  names, transient browser proximity, destination links, and code-bound stock-out reporting.
+- **Farmer workflows:** deterministic `SIGNUP`, `LINK`, `STAND`, `SETTINGS`, and `SAME`; one exact
+  stand per credential; SMS/web proposal and confirmation; closures, participants, and reminders.
+- **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
+  code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
+  deterministic and run before any model.
+- **Administration:** fixed-account password sign-in and server-rendered farm approval, farmer
+  access, flag, stock-report, and stand-data workflows. Phones are masked at the query boundary.
 - **Scheduled work:** Cloud Tasks handles immediate sender work; one Cloud Scheduler route runs
-  recovery, scheduled prompts, outbound delivery, carrier callbacks, and retention.
-
-## Live invariants
-
-- `STOP` is global and deterministic; confirmation and farmer/customer keywords never shadow it.
-- The model proposes; code commits. Publication rechecks farmer authority and VIGA approval under
-  the shared sender → location → authorization → proposal → approval lock order.
-- Phones are normalized at ingress, keyed and logged only by hash, never sent to a model, and masked
-  in administrator readers. Raw E.164 exists in exactly one database column for outbound delivery.
-- **`PHONE_HASH_SALT` never rotates.** No script, package command, environment exception, or
-  operational recovery path exists. A suspected compromise requires a new explicitly approved
-  data-migration design.
-- The public read graph cannot reach a model. Consequential and cross-actor text is code-rendered.
-- Drizzle generation omits hand-written CHECK constraints; migration metadata tests require every
-  declared CHECK to exist in executable SQL. Every nullable constraint needs its decisive NULL case.
+  recovery, prompts, delivery, callbacks, and retention.
 
 ## Open before go-live
 
-- **F-029:** complete the remaining live carrier/JOIN launch verification. Its migration and deploy
-  legs are complete.
-- **F-056:** Max must still prove every protected administrator page, logout and copied-cookie
-  refusal, throttle behavior, expiry/revocation, mobile/desktop layout, keyboard/focus, and recovery
-  copy in a live browser before the item can leave `in review`.
-- **B-024:** permanently encode the farmer's no-public-address instruction in seed behavior before
-  any reseed. Production is currently hidden as an approved interim correction.
-- **B-008:** the deployed web build still lacks a truthful lint gate.
-- **B-034 (planned, high):** `npm audit --omit=dev` reports three high-severity production
-  dependency advisory groups: direct `drizzle-orm`, direct Next.js, and transitive PostCSS. Upgrade
-  to supported lines and assess application reachability. No exploit was observed, and not every
-  advisory is known to be reachable in Farm Friend.
-- **F-044:** verify the public map and administrator embeds on VIGA's actual Squarespace pages,
-  including sign-in and an authenticated write inside the admin iframe.
-- Physical-handset checks remain owed for the vCard and paged SMS threading/segments.
-- Exercise the complete farmer onboarding/status update, administrator view, farmer settings,
-  customer inquiry, and farmer update flows against production and verify database effects rather
-  than screen messages.
+- **F-029:** finish live carrier/JOIN launch verification.
+- **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
+  keyboard/focus, and recovery-copy browser proof.
+- **B-024:** encode the no-public-address source instruction before any reseed. Production remains
+  hidden under the approved interim correction.
+- **B-008:** replace the incomplete deployed-build lint gate.
+- **B-034:** upgrade affected production dependencies and assess advisory reachability.
+- **F-044:** verify public-map and authenticated-admin embeds on VIGA's actual Squarespace pages.
+- Physical-handset vCard and paged-SMS checks remain owed.
+- Exercise the full farmer onboarding/update, administrator, settings, customer inquiry, and farmer
+  SMS journeys against production and verify database effects rather than screen messages.

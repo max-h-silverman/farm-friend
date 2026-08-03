@@ -19,8 +19,8 @@
  * a farmer who tries once and fails does not try again.
  */
 export const FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT =
-  "VIGA Farm Friend: Thanks - we passed your request to a VIGA coordinator, who will " +
-  "set up your farm. Reply STOP to opt out, HELP for help.";
+  "VIGA Farm Friend: Thanks - VIGA has your request. They will review it and text you " +
+  "when your farm is ready to update. Reply STOP to opt out, HELP for help.";
 
 /**
  * Sent when VIGA authorizes a farmer. max's decision, and the reason is plain: a farmer
@@ -35,8 +35,21 @@ export const FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT =
  * is a decision made by VIGA, not a message the farmer asked for.
  */
 export const FARMER_AUTHORIZED_NOTIFICATION =
-  "VIGA Farm Friend: You're all set - text us what your stand has today and we'll " +
-  "confirm before it goes live. Reply STOP to opt out.";
+  "VIGA Farm Friend: Your farm is ready. Text today's availability, or text LINK for " +
+  "your private web form. Preview it before it goes live. " +
+  "Reply STOP to opt out.";
+
+/**
+ * Sent after a first-time JOIN or a START that successfully restores messaging.
+ *
+ * The carrier-required opt-in receipt is deliberately separate in `auto-responses.ts`; it
+ * cannot carry product guidance without a carrier-console change. This ordinary reply makes
+ * the next useful action plain without creating a customer account, asking for private
+ * details, or promising future alerts.
+ */
+export const CUSTOMER_SMS_WELCOME =
+  "Welcome to VIGA Farm Friend. Ask what is available, like eggs or kale. Text MAP for the " +
+  "map, HELP for help, or STOP to opt out.";
 
 /**
  * The message carrying a farmer's standing link.

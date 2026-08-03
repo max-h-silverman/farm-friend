@@ -5,21 +5,16 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 const ADMIN_ROUTES = [
-  { href: "/admin", label: "Stands" },
-  { href: "/admin/farmers", label: "People" },
-  { href: "/admin/flags", label: "Needs attention" },
+  { href: "/admin", label: "Volunteer desk" },
+  { href: "/admin/farmers", label: "Farmers" },
+  { href: "/admin/flags", label: "Customer reports" },
   { href: "/admin/reports", label: "Stock reports" },
 ] as const;
 
 export function SignedOutAdmin() {
   return (
     <main className="admin admin-signed-out">
-      <p className="admin-eyebrow">VIGA operations</p>
       <h1>Sign in required</h1>
-      <p>
-        You are signed out, or your session may have expired. No operator information is
-        shown until you sign in again.
-      </p>
       <Link className="admin-primary-link" href="/admin/login">
         Go to sign in
       </Link>

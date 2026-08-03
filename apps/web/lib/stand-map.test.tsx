@@ -44,12 +44,15 @@ describe("public participant names", () => {
     render(<StandMap stands={[stand]} />);
 
     const card = screen.getByRole("heading", { name: "Shared Stand" }).closest("li")!;
+    expect(within(card).queryByText("Also selling here")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Shared Stand" }));
     expect(within(card).getByText("Also selling here")).toBeTruthy();
     expect(within(card).getByText("Guest Growers").closest("a")).toBeNull();
     expect(within(card).getByText("Island Apiary").closest("a")).toBeNull();
     expect(within(card).getByText("Kale").closest(".items")).not.toContainElement(
       within(card).getByText("Guest Growers"),
     );
+    await user.click(screen.getByRole("button", { name: "Shared Stand" }));
 
     await user.click(
       screen.getByRole("button", { name: "1. Shared Stand, Host Farm" }),
@@ -82,8 +85,16 @@ describe("farm-map poster treatment", () => {
     render(<StandMap stands={[]} />);
 
     expect(screen.getByText(
-      "Note: This interactive map may contain recent inventory updates, but neither VIGA nor individual farmers can guarantee product availability.",
+      "Note: This map may contain recent inventory updates, but neither VIGA nor individual farms can guarantee product availability.",
     )).toHaveClass("map-note");
+  });
+
+  it("shows the save-contact action with a decorative add-contact icon", () => {
+    render(<StandMap stands={[]} />);
+
+    const link = screen.getByRole("link", { name: "Save Farm Friend Contact" });
+    expect(link.querySelector(".contact-card-icon")).toHaveAttribute("aria-hidden", "true");
+    expect(link.closest("footer")).toHaveClass("contact-card-footer");
   });
 
   it("carries the VIGA Farm Map mark and explains the poster-status dots in words", () => {
@@ -162,14 +173,21 @@ describe("farm-map poster treatment", () => {
     );
   });
 
-  it("explains every marker category, including the no-farm-stand category", () => {
-    render(<StandMap stands={[]} />);
+  it("keeps the full marker key available behind a compact phone disclosure", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={[]} />);
 
+    const disclosure = screen.getByText("Map key").closest("details")!;
+    expect(disclosure).not.toHaveAttribute("open");
+    await user.click(screen.getByText("Map key"));
+    expect(disclosure).toHaveAttribute("open");
     const legend = screen.getByRole("list", { name: "Map marker key" });
-    expect(within(legend).getByText("Seasonal farm stand")).toBeTruthy();
-    expect(within(legend).getByText("Year-round farm stand")).toBeTruthy();
-    expect(within(legend).getByText("Flower-only stand; does not accept VIGA Bucks")).toBeTruthy();
-    expect(within(legend).getByText("Farm listed with no farm stand to visit")).toBeTruthy();
+    const island = container.querySelector("figure.island");
+    expect(legend.closest("figure")).toBe(island);
+    expect(within(legend).getByText("Seasonal")).toBeTruthy();
+    expect(within(legend).getByText("Year-round")).toBeTruthy();
+    expect(within(legend).getByText("Flowers-only")).toBeTruthy();
+    expect(within(legend).getByText("Farm, no stand")).toBeTruthy();
     expect(within(legend).getByText("VIGA Farmers Market")).toBeTruthy();
   });
 
@@ -287,7 +305,14 @@ describe("farm-map poster treatment", () => {
       address: "1 Market Way",
       latitude: 47.44,
       longitude: -122.46,
-      availability: {},
+      description:
+        "Saturdays, 10am–2pm\nEarly May through the end of September\n" +
+        "Website: https://www.vigavashon.org/market",
+      availability: {
+        season: { kind: "date_range", startMonth: 5, startDay: 1, endMonth: 9, endDay: 30 },
+        hours: { kind: "clock_range", fromMinutes: 600, untilMinutes: 840 },
+        days: [6],
+      },
       alsoSellingHere: [],
       items: [],
     };
@@ -304,6 +329,10 @@ describe("farm-map poster treatment", () => {
     await user.click(marker);
 
     expect(marker).toHaveAttribute("aria-pressed", "true");
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      block: "start",
+      behavior: "instant",
+    });
     expect(marker.querySelector(".pin-selection-halo")).toBeTruthy();
     expect(container.querySelector(".pin-label-layer text")).toHaveTextContent(
       "Vashon Farmers Market",
@@ -313,6 +342,22 @@ describe("farm-map poster treatment", () => {
     const labelLayer = container.querySelector(".pin-label-layer")!;
     expect(pinLayer.compareDocumentPosition(labelLayer)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    const card = container.querySelector(".stands .stand") as HTMLElement;
+    expect(within(card).getByText("Market schedule and information")).toBeTruthy();
+    expect(within(card).getByText(/Early May through the end of September/)).toBeTruthy();
+    expect(within(card).getByRole("link", { name: "Website" })).toHaveAttribute(
+      "href",
+      "https://www.vigavashon.org/market",
+    );
+    expect(within(card).getByRole("link", { name: "Directions to market" })).toBeTruthy();
+    expect(within(card).queryByText(/No listing yet|this stand hasn’t been updated/)).toBeNull();
+    expect(within(card).queryByText("Plan your visit")).toBeNull();
+    expect(card.querySelector(".detail-inventory")).toBeNull();
+    expect(card.querySelector(".farm")).toBeNull();
+    expect(card.querySelector(".stand-detail-body")?.firstElementChild).toHaveClass(
+      "detail-actions",
     );
   });
 
@@ -341,5 +386,216 @@ describe("farm-map poster treatment", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     await user.click(card);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("shows destination basics in every directory record and defers the rest until selection", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "scannable-stand",
+      farmName: "Scannable Farm",
+      locationName: "Scannable Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "34 Orchard Road",
+      latitude: 47.44,
+      longitude: -122.46,
+      description: "Website: https://scannable.example\nOpen every Saturday.",
+      updated: "updated 1 hour ago",
+      confirmedElapsed: "1 hour ago",
+      stale: false,
+      availability: {},
+      alsoSellingHere: [],
+      items: [{ itemName: "Carrots" }],
+    };
+
+    render(<StandMap stands={[stand]} />);
+
+    const record = screen.getByRole("heading", { name: "Scannable Stand" }).closest("li")!;
+    expect(within(record).getByText("34 Orchard Road")).toHaveClass("stand-summary-address");
+    expect(within(record).getByRole("link", { name: "Website" })).toHaveAttribute(
+      "href",
+      "https://scannable.example",
+    );
+    expect(within(record).queryByText("Carrots")).toBeNull();
+    expect(within(record).queryByText("Open every Saturday.")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Scannable Stand" }));
+
+    expect(within(record).getByText("Carrots")).toBeTruthy();
+    expect(within(record).getByText("Open every Saturday.")).toBeTruthy();
+    expect(within(record).getAllByText("34 Orchard Road")).toHaveLength(1);
+    expect(within(record).getAllByRole("link", { name: "Website" })).toHaveLength(1);
+  });
+
+  it("offers VIGA Bucks and flower-only filters and applies them together", async () => {
+    const user = userEvent.setup();
+    const stands: PublicStandPayload[] = [
+      {
+        id: "eligible",
+        farmName: "Bouquet Farm",
+        locationName: "Bouquet Stand",
+        visitability: "visitable",
+        offeringType: "produce",
+        address: "1 Flower Way",
+        latitude: 47.44,
+        longitude: -122.46,
+        farmBucksAccepted: true,
+        availability: {},
+        usuallySells: ["cut flowers"],
+        alsoSellingHere: [],
+        items: [],
+      },
+      {
+        id: "produce",
+        farmName: "Produce Farm",
+        locationName: "Produce Stand",
+        visitability: "visitable",
+        offeringType: "produce",
+        address: "2 Produce Way",
+        latitude: 47.45,
+        longitude: -122.46,
+        farmBucksAccepted: true,
+        availability: {},
+        usuallySells: ["vegetables"],
+        alsoSellingHere: [],
+        items: [],
+      },
+    ];
+
+    render(<StandMap stands={stands} />);
+    await user.click(screen.getByRole("button", { name: "Filters" }));
+
+    const filterPanel = screen.getByRole("group", { name: "Filter stands" });
+    const bucks = within(filterPanel).getByRole("button", { name: "Accepts VIGA Bucks" });
+    const flowers = within(filterPanel).getByRole("button", { name: "Flowers only" });
+
+    await user.click(bucks);
+    await user.click(flowers);
+
+    expect(bucks).toHaveAttribute("aria-pressed", "true");
+    expect(flowers).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("heading", { name: "Bouquet Stand" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Produce Stand" })).toBeNull();
+  });
+
+  it("keeps the finder compact while exposing active filter state", async () => {
+    const user = userEvent.setup();
+    const stands: PublicStandPayload[] = [
+      {
+        id: "open",
+        farmName: "Open Farm",
+        locationName: "Open Stand",
+        visitability: "visitable",
+        offeringType: "produce",
+        address: "1 Open Way",
+        latitude: 47.44,
+        longitude: -122.46,
+        farmBucksAccepted: true,
+        availability: {},
+        usuallySells: ["flowers"],
+        alsoSellingHere: [],
+        items: [],
+      },
+      {
+        id: "produce",
+        farmName: "Produce Farm",
+        locationName: "Produce Stand",
+        visitability: "visitable",
+        offeringType: "produce",
+        address: "2 Produce Way",
+        latitude: 47.45,
+        longitude: -122.46,
+        farmBucksAccepted: false,
+        availability: {},
+        usuallySells: ["vegetables"],
+        alsoSellingHere: [],
+        items: [],
+      },
+    ];
+
+    render(<StandMap stands={stands} />);
+
+    const finder = screen.getByRole("region", { name: "Find a stand" });
+    expect(within(finder).getByRole("heading", { name: "Find a stand" })).toBeTruthy();
+    expect(within(finder).getByRole("searchbox", { name: "What they sell" })).toBeTruthy();
+    expect(within(finder).getByRole("button", { name: "Near me" })).toBeTruthy();
+    expect(within(finder).getByRole("button", { name: "Filters" })).toBeTruthy();
+    expect(within(finder).queryByLabelText("Active filters")).toBeNull();
+    expect(within(finder).queryByRole("button", { name: "Open now" })).toBeNull();
+    expect(within(finder).queryByRole("button", { name: "Confirmed recently" })).toBeNull();
+    expect(within(finder).queryByRole("combobox", { name: "Season" })).toBeNull();
+    expect(within(finder).getByText("2 stands shown")).toHaveAttribute("aria-live", "polite");
+
+    await user.click(within(finder).getByRole("button", { name: "Filters" }));
+
+    const panel = within(finder).getByRole("group", { name: "Filter stands" });
+    const availability = within(panel).getByRole("group", { name: "Availability" });
+    expect(within(availability).getByRole("button", { name: "Open now" })).toBeTruthy();
+    expect(within(availability).getByRole("button", { name: "Confirmed recently" })).toBeTruthy();
+    const details = within(panel).getByRole("group", { name: "Stand details" });
+    expect(within(details).getByRole("button", { name: "Has a stand to visit" })).toBeTruthy();
+    expect(within(details).getByRole("button", { name: "Accepts VIGA Bucks" })).toBeTruthy();
+    expect(within(details).getByRole("button", { name: "Flowers only" })).toBeTruthy();
+    expect(within(panel).queryByText("Listing trust")).toBeNull();
+    expect(within(panel).getByRole("combobox", { name: "Season" })).toBeTruthy();
+
+    await user.click(within(panel).getByRole("button", { name: "Flowers only" }));
+
+    expect(within(finder).getByText("1 of 2 stands shown")).toBeTruthy();
+    expect(finder.querySelector(".active-filter-token")).toBeNull();
+    expect(within(finder).getByRole("button", { name: "Filters, 1 active" })).toBeTruthy();
+    const clearAll = within(finder).getByRole("button", { name: "Clear all" });
+    expect(clearAll.closest(".filter-panel-season")).toBeTruthy();
+    await user.click(clearAll);
+    expect(within(finder).getByText("2 stands shown")).toBeTruthy();
+    expect(within(finder).getByRole("group", { name: "Filter stands" })).toBeTruthy();
+    expect(within(finder).queryByLabelText("Active filters")).toBeNull();
+  });
+
+  it("uses the same structured detail hierarchy in the expanded row and map sheet", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "hierarchy",
+      farmName: "Hierarchy Farm",
+      locationName: "Hierarchy Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "9 Orchard Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      updated: "updated 1 hour ago",
+      confirmedElapsed: "1 hour ago",
+      stale: false,
+      farmBucksAccepted: true,
+      availability: {},
+      usuallySells: ["flowers"],
+      alsoSellingHere: [],
+      items: [{ itemName: "Tulips", quantity: 6, unit: "bunches", priceText: "$12" }],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Hierarchy Stand" }));
+
+    const rowDetails = container.querySelector(".stands .stand-detail-body")!;
+    expect(rowDetails.querySelector(".detail-inventory")).toHaveTextContent(
+      "Confirmed 1 hour ago",
+    );
+    expect(rowDetails.querySelector(".detail-inventory")).toHaveTextContent("6 bunches");
+    expect(rowDetails.querySelector(".detail-inventory")).toHaveTextContent("$12");
+    expect(within(container.querySelector(".stands .stand") as HTMLElement).getByText(
+      "9 Orchard Way",
+    )).toHaveClass("stand-summary-address");
+
+    await user.click(screen.getByRole("button", { name: "Hierarchy Stand" }));
+    await user.click(
+      screen.getByRole("button", { name: "1. Hierarchy Stand, Hierarchy Farm" }),
+    );
+    const sheet = screen.getByRole("dialog", { name: "Hierarchy Stand details" });
+    expect(sheet.querySelector(".stand-detail-body .detail-inventory")).toHaveTextContent(
+      "6 bunches",
+    );
+    expect(sheet.querySelector(".stand-detail-body .detail-visit")).toHaveTextContent(
+      "9 Orchard Way",
+    );
   });
 });

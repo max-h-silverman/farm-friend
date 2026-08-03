@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CUSTOMER_SMS_WELCOME,
   FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   renderFarmerLinkMessage,
@@ -23,6 +24,7 @@ describe("onboarding message segments", () => {
     for (const body of [
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       FARMER_AUTHORIZED_NOTIFICATION,
+      CUSTOMER_SMS_WELCOME,
     ]) {
       const estimate = estimateSmsSegments(body);
       expect(estimate.encoding, body).toBe("GSM-7");

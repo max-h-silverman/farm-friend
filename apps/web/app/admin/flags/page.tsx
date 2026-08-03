@@ -28,17 +28,17 @@ export default async function FlagsPage() {
 
   const { db } = publicReadContext();
   const [flags, standDataFlags] = await Promise.all([
-    listFlagsForReview(db, { status: "all" }),
-    listStandDataFlags(db, { status: "all" }),
+    listFlagsForReview(db, { status: "open" }),
+    listStandDataFlags(db, { status: "open" }),
   ]);
 
   return (
     <AdminShell currentPath="/admin/flags">
-      <p className="admin-note">
-        Someone has asked for help through <strong>FLAG</strong>. Read the conversation, help as
-        needed, then leave a note about what happened. Phone numbers are partly hidden.
-      </p>
-
+      <header className="admin-page-intro">
+        <h1>Customer reports</h1>
+        <p className="admin-note">Review concerns without changing a farmer’s listing.</p>
+      </header>
+      <h2 className="admin-section-title">Messages needing review</h2>
       <FlagQueue
         flags={flags.map((flag) => ({
           flagId: flag.flagId,
@@ -54,10 +54,6 @@ export default async function FlagsPage() {
       />
 
       <h2 className="admin-section-title">Listing questions</h2>
-      <p className="admin-note">
-        These are places where Farm Friend needs a little help reading a listing. Leave a note
-        with your decision; it will not change what&apos;s on the map.
-      </p>
       <StandDataQueue
         flags={standDataFlags.map((flag) => ({
           flagId: flag.flagId,

@@ -35,6 +35,9 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
   const [error, setError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const waiting = rows.filter((row) => !row.approved);
+  const approved = rows.filter((row) => row.approved);
 
   async function decide(farmId: string, action: "approve" | "revoke") {
     setPending(farmId);
@@ -74,6 +77,7 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
           ? `${farmName} is approved. Its stands can appear on Farm Friend.`
           : `${farmName}'s approval was removed. Existing map listings stay as they are.`,
       );
+      setRemoving(null);
     } catch {
       setError("That change did not go through. Reload and try again.");
     } finally {
@@ -100,8 +104,11 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
           {success}
         </p>
       )}
+      {waiting.length === 0 ? (
+        <p className="admin-empty-state">No farms are waiting for approval.</p>
+      ) : (
       <ul className="admin-farms">
-        {rows.map((row) => (
+        {waiting.map((row) => (
           <li key={row.farmId} className="admin-farm">
             <div>
               <h2>{row.name}</h2>
@@ -123,6 +130,38 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
           </li>
         ))}
       </ul>
+      )}
+      {approved.length > 0 && (
+        <details className="admin-secondary-disclosure">
+          <summary>Approved farms ({approved.length})</summary>
+          <ul className="admin-farms">
+            {approved.map((row) => (
+              <li key={row.farmId} className="admin-farm">
+                <div>
+                  <h2>{row.name}</h2>
+                  <p className="admin-approved">{formatApproved(row)}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={pending === row.farmId}
+                  onClick={() => setRemoving(row.farmId)}
+                >
+                  Remove approval
+                </button>
+                {removing === row.farmId && (
+                  <div className="admin-inline-confirm" role="group" aria-label={`Remove approval for ${row.name}`}>
+                    <p>Existing map listings will stay visible. Remove approval anyway?</p>
+                    <button type="button" disabled={pending === row.farmId} onClick={() => void decide(row.farmId, "revoke")}>
+                      {pending === row.farmId ? "Saving…" : "Remove approval"}
+                    </button>
+                    <button type="button" disabled={pending === row.farmId} onClick={() => setRemoving(null)}>Cancel</button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </>
   );
 }

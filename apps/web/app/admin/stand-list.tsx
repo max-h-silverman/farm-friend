@@ -19,6 +19,17 @@ export interface AdminStandDetailSection {
   items: Array<readonly [label: string, value: string, emphasis?: "primary"]>;
 }
 
+function farmBucksDetail(status: AdminStandCard["farmBucksStatus"]): string {
+  switch (status) {
+    case "accepts":
+      return "Accepted";
+    case "does_not_accept":
+      return "Does not accept";
+    default:
+      return "Not reviewed";
+  }
+}
+
 /**
  * Native disclosure keeps every card usable before JavaScript loads. It also gives a mouse
  * user one clear target — the card summary — instead of making a small text link look separate
@@ -66,14 +77,15 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
                 <span>{stand.openState}</span>
                 <span>{stand.approved ? "Approved" : "Not approved"}</span>
               </span>
-              <span className="admin-stand-toggle">
-                <span className="admin-stand-show">Show details</span>
-                <span className="admin-stand-hide">Hide details</span>
-              </span>
             </summary>
             <div className="admin-stand-detail-groups">
               {stand.sections.map((section, index) => {
                 const headingId = `stand-${stand.standId}-section-${index}`;
+                const items = section.items.map((item) =>
+                  item[0] === "Farm Bucks"
+                    ? [item[0], farmBucksDetail(stand.farmBucksStatus), item[2]] as AdminStandDetailSection["items"][number]
+                    : item,
+                );
                 return (
                   <section
                     key={section.title}
@@ -82,7 +94,7 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
                   >
                     <h3 id={headingId}>{section.title}</h3>
                     <dl>
-                      {section.items.map(([label, value, emphasis]) => (
+                      {items.map(([label, value, emphasis]) => (
                         <div key={label} className={emphasis === "primary" ? "admin-stand-detail-item--primary" : undefined}>
                           <dt>{label}</dt>
                           <dd>{value}</dd>
@@ -96,21 +108,26 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
                 <div className="admin-farm-bucks-head">
                   <div>
                     <h3 id={`stand-${stand.standId}-farm-bucks`}>Farm Bucks</h3>
-                    <p>{stand.farmBucksStatus === "not_eligible" ? "Not reviewed yet" : stand.farmBucksStatus === "accepts" ? "Accepting VIGA Bucks" : "Does not accept VIGA Bucks"}</p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-label="Accepts VIGA Bucks"
-                    aria-checked={stand.farmBucksStatus === "accepts"}
-                    className="admin-toggle"
-                    disabled={saving === stand.standId}
-                    onClick={() => void saveFarmBucks(stand.standId, stand.farmBucksStatus === "accepts" ? "does_not_accept" : "accepts")}
-                  >
-                    <span aria-hidden="true" />
-                  </button>
                 </div>
-                <p className="admin-farm-bucks-note">Turn on only after VIGA confirms this stand accepts Farm Bucks.</p>
+                <div className="admin-farm-bucks-controls">
+                  <label className="admin-field">
+                    <select
+                      aria-label="Farm Bucks decision"
+                      disabled={saving === stand.standId}
+                      value={stand.farmBucksStatus}
+                      onChange={(event) => void saveFarmBucks(
+                        stand.standId,
+                        event.target.value as AdminStandCard["farmBucksStatus"],
+                      )}
+                    >
+                      <option value="not_eligible">Not reviewed</option>
+                      <option value="accepts">Accepts Farm Bucks</option>
+                      <option value="does_not_accept">Does not accept Farm Bucks</option>
+                    </select>
+                  </label>
+                </div>
+                <p className="admin-farm-bucks-note">Record this only after VIGA confirms the stand’s Farm Bucks policy.</p>
               </section>
             </div>
           </details>
