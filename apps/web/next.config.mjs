@@ -8,6 +8,10 @@ const workspaceRoot = join(appDir, "..", "..");
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // `next dev` rewrites its server graph while it serves requests. Keep that graph away from
+  // `.next`, which production build checks and `next start` use, so a local build cannot leave
+  // a running dev server pointing at a missing vendor chunk.
+  distDir: process.env.NODE_ENV === "development" ? ".next-dev" : ".next",
   // Cloud Run runs this app as a container, so the build must emit a server that carries
   // its own dependencies. Without `standalone`, `next build` leaves a tree that needs the
   // whole monorepo and a hoisted `node_modules` to start — which an image does not have.

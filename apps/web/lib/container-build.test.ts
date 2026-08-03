@@ -40,6 +40,14 @@ describe("next is configured to produce a self-contained server", () => {
     expect(nextConfig).toMatch(/outputFileTracingRoot/);
   });
 
+  it("keeps the development build directory separate from production output", () => {
+    // `next dev` rewrites its output while it serves requests. Sharing `.next` with a
+    // production build lets one process leave the other with a page that references a
+    // missing vendor chunk. Local development gets its own directory so the two modes cannot
+    // corrupt each other's server graph.
+    expect(nextConfig).toMatch(/distDir:\s*process\.env\.NODE_ENV\s*===\s*["']development["']/);
+  });
+
   it("keeps every workspace package in transpilePackages", () => {
     // These two settings are coupled and the coupling is invisible.
     //

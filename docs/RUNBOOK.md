@@ -32,6 +32,10 @@ npm run test:integration:local # real Postgres constraints and workflows, using 
 npm run evals               # deterministic stub; critical fixtures must be 100%
 ```
 
+`next dev` writes to `apps/web/.next-dev`; `next build` and `next start` use `apps/web/.next`.
+After updating this setting, stop any existing dev server once and start it again so it picks up
+the separate development directory.
+
 The web app loads `apps/web/.env.local`, while the root migration command reads the shell's
 `DATABASE_URL`. Keep those targets distinct: use `db:migrate:local` for the local app, and use
 `db:migrate` only after explicitly setting the intended target. The integration suite creates its
