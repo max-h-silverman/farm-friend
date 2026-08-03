@@ -5,10 +5,10 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Merged commits `71cc48f` (PR #72) and `640f0ac` (PR #73) are live
-on Cloud Run as one image across web revision `farm-friend-web-00022-sk9` and worker revision
-`farm-friend-worker-00023-zhh`, both at digest
-`sha256:8e66a05b6734531d980f5193102ba3a4c9e845b221184dc96fdab9fcdf16066d`.
+Farm Friend is **pre-go-live**. Merged commits `71cc48f` (PR #72), `640f0ac` (PR #73), and
+`87ea51c` (PR #74) are live on Cloud Run as one image across web revision
+`farm-friend-web-00023-frt` and worker revision `farm-friend-worker-00024-mzv`, both at digest
+`sha256:0e98f195d7947735b426254118d769e9ffa9dc49c35c4801920f34ff9ddbb698`.
 Production Postgres is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal
 timestamp `1786500000000`). Production now includes:
 
@@ -55,9 +55,9 @@ or nullable compatibility state.
 
 ## Verification
 
-The current release passes 93 unit-test files / 894 tests, 41 real-Postgres integration-test files /
+The current release passes 94 unit-test files / 896 tests, 41 real-Postgres integration-test files /
 564 tests against disposable databases, typecheck, lint, the production web build, and 44/44
-scripted eval cases. Cloud Build `b3904d28-05ba-4276-9c7a-22281962e513` published the exact
+scripted eval cases. Cloud Build `0d4f9963-535f-4ecd-81f5-7c35900390f6` published the exact
 immutable image; the OpenTofu plan passed 37/37 assertions and applied 0 adds, 2 service updates,
 and 0 destroys. Post-deploy secret-freshness and served vCard byte assertions pass: 153 bytes,
 6 CRLF, and 0 bare LF. The public stands endpoint returns 34 published stands, including the

@@ -11,6 +11,21 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-02 — map marker colors corrected and deployed
+
+The map’s open-state CSS was overriding the category colors: unknown, by-appointment, and stale
+classes could turn a category marker gray or amber. Flower glyph strokes were also gray. PR #74
+(`87ea51c`) makes the category fill authoritative: seasonal stays blue, year-round stays green,
+farmers market stays purple, and flower petals and outlines stay red. Written open-state and stale
+warnings remain in the card/list, and CSS regression tests cover the cascade boundary.
+
+Verification: 94 unit-test files / 896 tests, typecheck, lint, and production web build. Cloud Build
+`0d4f9963-535f-4ecd-81f5-7c35900390f6` produced digest
+`sha256:0e98f195d7947735b426254118d769e9ffa9dc49c35c4801920f34ff9ddbb698`. OpenTofu passed 37/37
+assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
+`farm-friend-web-00023-frt` and `farm-friend-worker-00024-mzv`; deployment and served-card checks
+passed. No database migration or data backfill was needed.
+
 ## 2026-08-02 — complete interactive map listing details, marker mapping, and order deployed
 
 F-058 (`71cc48f`, PR #72; final marker correction `640f0ac`, PR #73) completes the public map
