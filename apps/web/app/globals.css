@@ -120,6 +120,74 @@ body {
   font-weight: 600;
 }
 
+/* Poster-derived map identity. The raster is the VIGA-provided masthead artwork; it keeps
+   the printed map's friendly hand-drawn mark without replacing the interactive controls. */
+.farm-map-masthead {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0 0 1rem;
+}
+
+.farm-map-masthead > img {
+  display: block;
+  width: min(100%, 34rem);
+  height: auto;
+}
+
+.farm-map-key,
+.poster-indicators {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.8rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list-column > .farm-map-key {
+  margin-bottom: 0.75rem;
+}
+
+.poster-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.poster-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  flex: none;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.poster-indicator-no-viga-bucks { color: #ec641d; }
+.poster-indicator-year-round { color: #9d160e; }
+.poster-indicator-late-november { color: #e9ae1b; }
+
+.stand .poster-indicators {
+  margin-top: 0.5rem;
+}
+
+/* The list is a directory first. Full inventory, address and routing details appear only for
+   the stand the customer chose, whether from its row or its pin. */
+.stand-details {
+  display: none;
+}
+
+.stand-selected .stand-details {
+  display: block;
+}
+
+.stand:not(.stand-selected) .farm {
+  margin-bottom: 0;
+}
+
 /* ------------------------------------------- F-043 — the stand's poster number
  *
  * The list-side half of the numbered pin: the same digit, so a customer who finds a pin can
@@ -253,6 +321,28 @@ body {
   margin-right: auto;
   font-size: 1.18rem;
   letter-spacing: -0.01em;
+}
+
+.stand-summary-toggle {
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.stand-summary-toggle:hover {
+  color: var(--green);
+}
+
+.stand-summary-toggle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 
 .distance {
@@ -531,6 +621,25 @@ body {
   margin-top: 1.25rem;
 }
 
+.admin-page-intro {
+  margin: 1.35rem 0 1.5rem;
+}
+
+.admin-page-intro h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 7vw, 2.35rem);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.admin-lede {
+  max-width: 38rem;
+  margin: 0.45rem 0 0;
+  color: var(--ink-soft);
+  font-size: 1.02rem;
+  line-height: 1.5;
+}
+
 .admin-note {
   color: var(--ink-soft);
   font-size: 0.94rem;
@@ -797,6 +906,22 @@ body {
   font-size: 1.2rem;
 }
 
+.admin-section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-section-heading .admin-section-title {
+  margin-top: 0;
+}
+
+.admin-directory-section {
+  margin-top: 2.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--line);
+}
+
 /* Put decisions that can unblock someone above reference material. The light rule keeps the
    distinction visible without turning a small coordinator tool into a dashboard. */
 .admin-priority {
@@ -816,6 +941,31 @@ body {
   margin-top: 0;
 }
 
+.admin-priority--farmer-access {
+  margin-top: 0.75rem;
+  padding: 0;
+  background: transparent;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.admin-priority--farmer-access > .admin-section-title {
+  margin-bottom: 0.25rem;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: clamp(1.35rem, 4vw, 1.7rem);
+}
+
+.admin-priority--farmer-access > .admin-note {
+  max-width: 58rem;
+  margin: 0;
+}
+
+.admin-priority--farmer-access .admin-queue-group + .admin-queue-group {
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line);
+}
+
 .admin-priority .admin-farms {
   margin-top: 1rem;
 }
@@ -824,9 +974,20 @@ body {
   margin-top: 1.25rem;
 }
 
+.admin-directory-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-directory-toolbar .admin-note {
+  margin: 0;
+}
+
 .admin-user-filter {
   display: block;
-  max-width: 16rem;
+  width: min(100%, 16rem);
 }
 
 .admin-user-filter select {
@@ -864,8 +1025,45 @@ body {
   border-bottom: 0;
 }
 
-.admin-user-list li span:last-child {
+.admin-directory-count {
+  margin: 0.9rem 0 0.45rem;
+  color: var(--ink-faint);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.admin-person-identity,
+.admin-person-access {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.admin-person-identity strong {
+  font-size: 0.98rem;
+}
+
+.admin-person-identity span,
+.admin-person-access > span:last-child {
   color: var(--ink-soft);
+  font-size: 0.86rem;
+}
+
+.admin-access-pill {
+  justify-self: start;
+  padding: 0.15rem 0.5rem;
+  color: var(--ink-faint);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.admin-access-pill--active {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: var(--green);
 }
 
 .admin-farm {
@@ -939,6 +1137,502 @@ body {
   width: min(100%, 28rem);
   gap: 0.5rem;
   margin-top: 0.75rem;
+}
+
+.admin-kicker {
+  margin: 0 0 0.3rem;
+  color: var(--green);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.admin-invite-card {
+  display: grid;
+  gap: 1.1rem;
+  margin: 1.15rem 0 1.75rem;
+  padding: clamp(1.2rem, 3vw, 1.7rem);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.admin-priority--farmer-access .admin-invite-card {
+  max-width: 60rem;
+}
+
+.admin-invite-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-invite-card h3 {
+  margin: 0;
+  font-size: clamp(1.2rem, 5vw, 1.45rem);
+  line-height: 1.2;
+}
+
+.admin-invite-card-header .admin-note {
+  max-width: 42rem;
+  margin: 0.4rem 0 0;
+}
+
+.admin-invite-badge,
+.admin-status-pill {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 0.65rem;
+  color: var(--green);
+  background: var(--green-soft);
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-invite-form {
+  display: grid;
+  max-width: 48rem;
+  gap: 0;
+}
+
+.admin-invite-step {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.admin-invite-step--contact {
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-invite-step--farm {
+  padding-top: 1.15rem;
+}
+
+.admin-invite-step legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.admin-step-number {
+  display: inline-flex;
+  width: 1.45rem;
+  height: 1.45rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--card);
+  background: var(--green);
+  border-radius: 50%;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.admin-invite-step--farm .admin-step-number {
+  color: var(--green);
+  background: var(--green-soft);
+  border: 1px solid color-mix(in srgb, var(--green) 45%, transparent);
+}
+
+.admin-optional {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.admin-field-help,
+.admin-action-note {
+  margin: 0 0 0.75rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.admin-channel-options {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+}
+
+.admin-channel-option {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.75rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.admin-channel-option:focus-within {
+  outline: 3px solid color-mix(in srgb, var(--green) 28%, transparent);
+  outline-offset: 2px;
+}
+
+.admin-channel-option:has(input:checked) {
+  background: var(--green-soft);
+  border-color: var(--green);
+}
+
+.admin-channel-option input {
+  flex: none;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0;
+  accent-color: var(--green);
+}
+
+.admin-channel-option-copy {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.admin-channel-option-copy strong {
+  font-size: 0.95rem;
+}
+
+.admin-channel-option-copy small {
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+}
+
+.admin-field {
+  display: block;
+}
+
+.admin-field > input,
+.admin-field > select {
+  min-height: 48px;
+  width: 100%;
+  padding: 0 0.75rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.admin-field > input:focus,
+.admin-field > select:focus,
+.admin-user-filter select:focus {
+  outline: 3px solid color-mix(in srgb, var(--green) 28%, transparent);
+  outline-offset: 1px;
+  border-color: var(--green);
+}
+
+.admin-required {
+  float: right;
+  color: var(--ink-faint);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
+.admin-invite-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.85rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.admin-invite-actions .admin-action-note {
+  margin: 0;
+}
+
+button.admin-action-primary,
+a.admin-action-primary,
+button.admin-action-secondary,
+button.admin-action-danger {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.1rem;
+  font: inherit;
+  font-weight: 650;
+  text-align: center;
+  border-radius: 10px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+button.admin-action-primary,
+a.admin-action-primary {
+  color: var(--card);
+  background: var(--green);
+  border: 1px solid var(--green);
+}
+
+button.admin-action-secondary {
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+
+button.admin-action-danger {
+  color: var(--amber);
+  background: transparent;
+  border: 1px solid var(--amber-line);
+}
+
+button.admin-action-primary:disabled,
+button.admin-action-secondary:disabled,
+button.admin-action-danger:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.admin-invite-result {
+  display: grid;
+  max-width: 48rem;
+  gap: 0.8rem;
+  padding: 1rem;
+  background: var(--green-soft);
+  border: 1px solid color-mix(in srgb, var(--green) 60%, var(--line));
+  border-left: 4px solid var(--green);
+  border-radius: 12px;
+}
+
+.admin-invite-result-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.2rem 0.75rem;
+}
+
+.admin-invite-result-heading .admin-status-pill {
+  grid-row: 1 / span 2;
+  margin-top: 0.05rem;
+}
+
+.admin-invite-result-heading h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.admin-invite-result-heading .admin-note {
+  margin: 0.2rem 0 0;
+}
+
+.admin-invite-result-actions,
+.admin-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.admin-disclosure {
+  border-top: 1px solid color-mix(in srgb, var(--green) 35%, transparent);
+}
+
+.admin-disclosure summary {
+  min-height: 44px;
+  padding: 0.7rem 0 0.25rem;
+  color: var(--green);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.admin-disclosure summary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 28%, transparent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.admin-disclosure-content {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.45rem;
+}
+
+.admin-disclosure-content .admin-note {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-queue-group {
+  margin-top: 1.9rem;
+}
+
+.admin-group-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.admin-group-heading h3 {
+  margin: 0;
+  font-size: 1.12rem;
+  line-height: 1.25;
+}
+
+.admin-group-heading .admin-note {
+  margin: 0.2rem 0 0;
+}
+
+.admin-count {
+  display: inline-flex;
+  min-width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--ink);
+  background: var(--admin-cream);
+  border: 1px solid var(--admin-leaf);
+  border-radius: 999px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.admin-empty-state {
+  margin: 0.8rem 0 0;
+  padding: 0.9rem 1rem;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--card) 72%, var(--admin-cream));
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+}
+
+.admin-request-card,
+.admin-access-card {
+  align-items: stretch;
+}
+
+.admin-card-person,
+.admin-request-decision,
+.admin-access-actions {
+  min-width: 0;
+}
+
+.admin-card-person h4 {
+  margin: 0 0 0.15rem;
+  font-size: 1.05rem;
+}
+
+.admin-card-person p {
+  margin: 0;
+}
+
+.admin-request-decision,
+.admin-access-actions {
+  width: min(100%, 22rem);
+}
+
+.admin-request-decision {
+  display: grid;
+  align-content: center;
+  gap: 0.65rem;
+}
+
+.admin-request-farm strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.admin-access-actions {
+  display: grid;
+  align-content: center;
+  gap: 0.45rem;
+}
+
+.admin-access-actions .admin-kicker {
+  margin-bottom: 0.05rem;
+}
+
+.admin-access-actions .admin-control-label {
+  margin-bottom: 0.25rem;
+}
+
+.admin-button-row button {
+  flex: 1 1 9rem;
+}
+
+.farmer-onboarding {
+  width: min(100% - 2.3rem, 40rem);
+  margin: 0 auto;
+  padding: 2.5rem 0 3rem;
+}
+
+.farmer-eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--green);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.farmer-onboarding h1 {
+  margin: 0 0 0.8rem;
+  font-size: clamp(1.8rem, 7vw, 2.6rem);
+  line-height: 1.15;
+}
+
+.farmer-onboarding-card {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding: 1.1rem;
+  background: var(--green-soft);
+  border: 1px solid var(--green);
+  border-radius: var(--radius);
+}
+
+.farmer-onboarding-card h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.farmer-primary-link {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.1rem;
+  color: var(--card);
+  background: var(--green);
+  border-radius: 10px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+}
+
+.farmer-onboarding-instruction,
+.farmer-onboarding-note {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.farmer-onboarding-steps {
+  display: grid;
+  gap: 0.65rem;
+  margin: 1.5rem 0;
+  padding-left: 1.4rem;
+}
+
+.farmer-onboarding-note {
+  font-size: 0.9rem;
 }
 
 .admin-farm button:disabled {
@@ -1253,6 +1947,14 @@ body {
 }
 
 @media (min-width: 42rem) {
+  .admin-invite-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-channel-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .farmer-settings-schedule {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: end;
@@ -1302,6 +2004,21 @@ body {
   .admin-header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .admin-invite-card-header,
+  .admin-directory-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-invite-badge {
+    align-self: flex-start;
+  }
+
+  .admin-invite-actions .admin-action-primary,
+  .admin-invite-result-actions > * {
+    width: 100%;
   }
 
   .admin-farm,
@@ -1363,22 +2080,44 @@ body {
   }
 
   .layout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    /* Mirrors the printed map: a scan-friendly two-column directory on the left and the
+       geographical view held in place on the right. */
+    grid-template-columns: minmax(0, 1.1fr) minmax(22rem, 0.9fr);
     align-items: start;
     gap: 1.75rem;
   }
 
   .map-column {
+    order: 2;
     /* Pinned: the island stays put while the list scrolls past it, so a customer never
      * loses the geography they are reading the list against. */
     position: sticky;
     top: 1.25rem;
+  }
+
+  .list-column {
+    order: 1;
+  }
+
+  .stands {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  /* Expanded inventory and directions need one readable column, not two cramped ones. */
+  .stand-selected {
+    grid-column: 1 / -1;
+  }
+
+  .stand {
+    padding: 0.85rem;
   }
 }
 
 /* ------------------------------------------------------- F-043 — the island */
 
 .island {
+  position: relative;
   margin: 0;
   background: var(--cream);
   border: 1px solid var(--line);
@@ -1488,12 +2227,134 @@ body {
 }
 
 .island-caption {
+  position: relative;
   padding: 0.55rem 0.9rem 0.7rem;
   font-size: 0.85rem;
   color: var(--ink-soft);
   background: var(--card);
   border-top: 1px solid var(--line);
 }
+
+.island-viga-logo {
+  position: absolute;
+  right: 1.35rem;
+  bottom: 3.3rem;
+  z-index: 1;
+  width: clamp(9.5rem, 32%, 15rem);
+  height: auto;
+  filter: drop-shadow(0 1px 0 rgb(255 255 255 / 70%));
+}
+
+.admin-stand-edit-field {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.admin-stand-edit-field select {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.65rem;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 500;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* Stand workspace: compact scan rows, then quiet fact groups. These override the earlier
+   dashboard-table treatment so a stand feels like one focused workspace, not a report. */
+.admin-stands {
+  max-width: 70rem;
+  gap: 0.75rem;
+}
+
+.admin-stand {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgb(31 41 36 / 5%);
+}
+
+.admin-stand-summary {
+  min-height: 5.25rem;
+  padding: 1rem 1.15rem;
+  align-items: center;
+  background: var(--card);
+}
+
+.admin-stand-summary:hover { background: var(--green-soft); }
+
+.admin-stand-states span {
+  padding: 0.25rem 0.5rem;
+  background: var(--green-soft);
+  border: 0;
+  border-radius: 999px;
+}
+
+.admin-stand-detail-groups {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: 0.75rem;
+  padding: 0 1rem 1rem;
+  background: var(--paper);
+}
+
+.admin-stand-detail-section,
+.admin-stand-detail-section--prominent {
+  grid-column: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.admin-stand-detail-section h3 {
+  padding: 0.8rem 0.9rem 0.35rem;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  font-size: 0.94rem;
+}
+
+.admin-stand-detail-section dl > div {
+  display: block;
+  padding: 0.45rem 0.9rem;
+  border-bottom: 0;
+}
+
+.admin-stand-detail-section dt {
+  margin-bottom: 0.1rem;
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.admin-stand-detail-section dd { font-size: 0.95rem; }
+.admin-stand-detail-item--primary { padding: 0.45rem 0.9rem !important; background: none; }
+.admin-stand-detail-item--primary dd { font-size: 0.95rem; font-weight: 600; }
+
+.admin-farm-bucks { display: grid; align-content: start; }
+.admin-farm-bucks-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.2rem 0.9rem 0.6rem; }
+.admin-farm-bucks-head h3 { padding: 0.6rem 0 0.15rem; }
+.admin-farm-bucks-head p, .admin-farm-bucks-note { margin: 0; color: var(--ink-soft); font-size: 0.84rem; }
+.admin-farm-bucks-note { padding: 0 0.9rem 0.9rem; }
+
+.admin-toggle {
+  position: relative;
+  width: 3.1rem;
+  height: 1.8rem;
+  padding: 0.15rem;
+  flex: none;
+  border: 0;
+  border-radius: 999px;
+  background: #a7afab;
+  cursor: pointer;
+}
+.admin-toggle > span { display: block; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 18%); transition: transform 160ms ease; }
+.admin-toggle[aria-checked="true"] { background: var(--green); }
+.admin-toggle[aria-checked="true"] > span { transform: translateX(1.3rem); }
+.admin-toggle:focus-visible { outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent); outline-offset: 3px; }
+.admin-toggle:disabled { opacity: 0.6; cursor: wait; }
 
 /* --------------------------------------------------------- F-043 — the pins
  *
@@ -1774,6 +2635,120 @@ body {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+}
+
+/* -------------------------------------------------- F-043 — poster directory treatment
+ *
+ * The printed VIGA map is a directory on one quiet panel: colored dots sit beside black,
+ * numbered entries, and the entries do not read as separate white cards. Keep that visual
+ * language for the interactive directory while retaining a clear selected state and the
+ * existing written stale warning. */
+.list-column {
+  padding: clamp(1rem, 2.4vw, 1.5rem);
+  background: var(--panel);
+  border-radius: 1.5rem;
+}
+
+.stands {
+  gap: 0.2rem 0.75rem;
+}
+
+.stand {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9rem) minmax(0, 1fr);
+  column-gap: 0.5rem;
+  align-items: start;
+  padding: 0.75rem 0.35rem;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.stand:hover {
+  background: color-mix(in srgb, var(--sage) 58%, transparent);
+  border-radius: 0.75rem;
+}
+
+.stand-stale {
+  box-shadow: inset 4px 0 0 var(--amber-line);
+}
+
+.stand-head {
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+.stand > .poster-indicators {
+  grid-column: 1;
+  grid-row: 1;
+  flex: none;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+
+.stand-content {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.stand .poster-dot {
+  width: 0.78rem;
+  height: 0.78rem;
+}
+
+.stand-number {
+  min-width: auto;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 1.02rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.stand-head h2 {
+  font-size: 1.08rem;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+.stand-summary-toggle:hover {
+  color: var(--brick);
+}
+
+.farm {
+  margin: 0.1rem 0 0;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.stand-selected {
+  padding: 0.85rem 0.75rem;
+  background: var(--sage);
+  border-radius: 0.9rem;
+  box-shadow: 0 0 0 2px var(--olive);
+}
+
+.stand-selected.stand-stale {
+  box-shadow: 0 0 0 2px var(--olive), inset 4px 0 0 var(--amber-line);
+}
+
+.stand-selected:hover {
+  background: var(--sage);
+}
+
+.address {
+  color: var(--ink);
+}
+
+.directions {
+  padding: 0;
+  color: var(--brick);
+  background: transparent;
+  border-radius: 0;
+  text-decoration: underline;
 }
 
 .island {

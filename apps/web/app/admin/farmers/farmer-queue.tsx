@@ -2,6 +2,12 @@
 
 import { useState } from "react";
 import { AdminRecoveryError } from "../admin-shell";
+import {
+  buildInviteDeliveryUrl,
+  inviteMessage,
+  normalizeInvitePhone,
+  type FarmerInviteChannel,
+} from "../../../lib/farmer-invite";
 
 // The farmer access queue's interactive half (F-040). It renders what the server already
 // decided the viewer may see and posts decisions back to `/api/admin/farmers`, which
@@ -18,6 +24,8 @@ export interface PendingRequestRow {
   /** The last four digits, already masked by the server. Never the number. */
   senderMask: string;
   requestedAt: string;
+  farmId?: string | null;
+  farmName?: string | null;
 }
 
 export interface AuthorizationRow {
@@ -57,6 +65,16 @@ export function FarmerQueue({
   const [pendingRequests, setPendingRequests] = useState(requests);
   const [rows, setRows] = useState(authorizations);
   const [farmChoice, setFarmChoice] = useState<Record<string, string>>({});
+  const [inviteFarmId, setInviteFarmId] = useState("");
+  const [inviteChannel, setInviteChannel] = useState<FarmerInviteChannel>("sms");
+  const [inviteDestination, setInviteDestination] = useState("");
+  const [invite, setInvite] = useState<{
+    link: string;
+    deliveryUrl: string;
+    channel: FarmerInviteChannel;
+    message: string;
+    farmName: string | null;
+  } | null>(null);
   const [standChoice, setStandChoice] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +97,7 @@ export function FarmerQueue({
     setError(null);
     setSessionExpired(false);
     setSuccess(null);
+    setInvite(null);
     try {
       const response = await fetch("/api/admin/farmers", {
         method: "POST",
@@ -106,7 +125,9 @@ export function FarmerQueue({
   }
 
   async function authorize(requestId: string) {
-    const farmId = farmChoice[requestId];
+    const farmId = farmChoice[requestId] ?? pendingRequests.find(
+      (request) => request.requestId === requestId,
+    )?.farmId ?? "";
     if (farmId === undefined || farmId === "") {
       setError("Choose which farm this person runs before authorizing them.");
       return;
@@ -119,6 +140,64 @@ export function FarmerQueue({
       current.filter((request) => request.requestId !== requestId),
     );
     setSuccess("Farmer access given. Reload to see their access record.");
+  }
+
+  async function createInvite() {
+    const destination =
+      inviteChannel === "sms"
+        ? normalizeInvitePhone(inviteDestination)
+        : inviteDestination.trim();
+    if (
+      destination === null ||
+      destination === "" ||
+      (inviteChannel === "email" && !/^\S+@\S+\.\S+$/.test(destination))
+    ) {
+      setError(
+        inviteChannel === "sms"
+          ? "Enter a valid US or Canada phone number."
+          : "Enter a valid email address.",
+      );
+      return;
+    }
+
+    const { ok, payload } = await post(
+      {
+        action: "create_invite",
+        ...(inviteFarmId === "" ? {} : { farmId: inviteFarmId }),
+        channel: inviteChannel,
+      },
+      "create_invite",
+    );
+    if (!ok) return;
+    if (
+      typeof payload.link !== "string" ||
+      (payload.farmName !== null && typeof payload.farmName !== "string") ||
+      (payload.channel !== "sms" && payload.channel !== "email")
+    ) {
+      setError("The invitation was created without a usable link. Reload and try again.");
+      return;
+    }
+    const message = inviteMessage({ farmName: payload.farmName, link: payload.link });
+    setInvite({
+      link: payload.link,
+      deliveryUrl: buildInviteDeliveryUrl(payload.channel, destination, message),
+      channel: payload.channel,
+      message,
+      farmName: payload.farmName,
+    });
+    // The ready panel is the success state. Keeping a second banner above the form makes
+    // the operator scan two places for the same result.
+    setSuccess(null);
+  }
+
+  async function copyInviteLink() {
+    if (invite === null) return;
+    try {
+      await navigator.clipboard.writeText(invite.link);
+      setSuccess("Onboarding link copied.");
+    } catch {
+      setError("Copy failed. Select the onboarding link and copy it before leaving this page.");
+    }
   }
 
   async function revoke(authorizationId: string) {
@@ -196,138 +275,316 @@ export function FarmerQueue({
         </p>
       )}
 
-      <h2>Farmers waiting to join</h2>
-      {pendingRequests.length === 0 ? (
-        <p className="admin-note">
-          No requests right now. Farmers can text <strong>SIGNUP</strong> to get started.
-        </p>
-      ) : (
-        <ul className="admin-farms">
-          {pendingRequests.map((request) => (
-            <li key={request.requestId} className="admin-farm">
-              <div>
-                <h3>{request.senderMask}</h3>
-                <p className="admin-note">
-                  Asked {formatDate(request.requestedAt)}
-                </p>
-              </div>
-              <div>
-                <label>
-                  <span className="admin-control-label">Which farm do they run?</span>
-                  <select
-                    value={farmChoice[request.requestId] ?? ""}
-                    onChange={(event) =>
-                      setFarmChoice((current) => ({
-                        ...current,
-                        [request.requestId]: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Choose a farm…</option>
-                    {farms.map((farm) => (
-                      <option key={farm.farmId} value={farm.farmId}>
-                        {farm.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  disabled={busy === request.requestId}
-                  onClick={() => void authorize(request.requestId)}
-                >
-                  {busy === request.requestId ? "Saving…" : "Give access"}
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+      <section className="admin-invite-card" aria-labelledby="invite-farmer-heading">
+        <div className="admin-invite-card-header">
+          <div>
+            <p className="admin-kicker">Start here</p>
+            <h3 id="invite-farmer-heading">Invite a farmer to join</h3>
+            <p className="admin-note">
+              Send a private onboarding link. It works whether or not they have already joined by
+              SMS.
+            </p>
+          </div>
+          <span className="admin-invite-badge">SMS or email</span>
+        </div>
+        <form
+          className="admin-invite-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createInvite();
+          }}
+        >
+          <fieldset className="admin-invite-step admin-invite-step--contact">
+            <legend>
+              <span className="admin-step-number" aria-hidden="true">1</span>
+              <span>Contact</span>
+            </legend>
+            <p className="admin-field-help">Where should we send the invite?</p>
+            <div className="admin-channel-options">
+              <label className="admin-channel-option">
+                <input
+                  aria-label="Text message"
+                  type="radio"
+                  name="invite-channel"
+                  value="sms"
+                  checked={inviteChannel === "sms"}
+                  onChange={() => setInviteChannel("sms")}
+                />
+                <span className="admin-channel-option-copy">
+                  <strong>Text message</strong>
+                  <small>Send to a phone</small>
+                </span>
+              </label>
+              <label className="admin-channel-option">
+                <input
+                  aria-label="Email"
+                  type="radio"
+                  name="invite-channel"
+                  value="email"
+                  checked={inviteChannel === "email"}
+                  onChange={() => setInviteChannel("email")}
+                />
+                <span className="admin-channel-option-copy">
+                  <strong>Email</strong>
+                  <small>Send to an inbox</small>
+                </span>
+              </label>
+            </div>
+            <label className="admin-field">
+              <span className="admin-control-label">
+                {inviteChannel === "sms" ? "Phone number" : "Email address"}
+                <span className="admin-required" aria-hidden="true">Required</span>
+              </span>
+              <input
+                type={inviteChannel === "sms" ? "tel" : "email"}
+                inputMode={inviteChannel === "sms" ? "tel" : "email"}
+                autoComplete={inviteChannel === "sms" ? "tel" : "email"}
+                value={inviteDestination}
+                onChange={(event) => setInviteDestination(event.target.value)}
+                placeholder={inviteChannel === "sms" ? "(206) 555-0123" : "farmer@example.com"}
+              />
+            </label>
+          </fieldset>
 
-      <h2>Current farmer access</h2>
-      {rows.length === 0 ? (
-        <p className="admin-note">No one has farmer access yet.</p>
-      ) : (
-        <ul className="admin-farms">
-          {rows.map((row) => {
-            const revoked = row.revokedAt !== null;
-            return (
-              <li key={row.authorizationId} className="admin-farm">
-                <div>
-                  <h3>{row.farmName}</h3>
-                  <p className={revoked ? "admin-unapproved" : "admin-approved"}>
-                    {row.senderMask} ·{" "}
-                    {revoked
-                      ? `Revoked ${formatDate(row.revokedAt as string)}`
-                      : `Authorized ${formatDate(row.authorizedAt)}`}
-                  </p>
-                  <p className="admin-note">
-                    {revoked
-                      ? "Access was removed, so their private link no longer works."
-                      : row.hasLiveLink && row.liveLinkStand !== null
-                        ? `Private link works for ${row.liveLinkStand.name}.`
-                        : "No private link yet. They can text LINK whenever they need one."}
-                  </p>
-                  {freshLink?.id === row.authorizationId && (
-                    <div className="admin-link-reveal" role="group" aria-label="New private link">
-                      <p className="admin-note">
-                        <strong>Copy this now — we only show it once.</strong>
-                      </p>
-                      <input aria-label="Private link" readOnly value={freshLink.link} />
-                      <button type="button" onClick={() => void copyFreshLink()}>
-                        Copy private link
-                      </button>
-                    </div>
-                  )}
+          <fieldset className="admin-invite-step admin-invite-step--farm">
+            <legend>
+              <span className="admin-step-number" aria-hidden="true">2</span>
+              <span>Farm</span>
+              <span className="admin-optional">Optional</span>
+            </legend>
+            <p id="invite-farm-help" className="admin-field-help">
+              Choose an existing farm, or leave this blank for a new farm. You can assign it after
+              onboarding starts.
+            </p>
+            <label className="admin-field">
+              <span className="admin-control-label">Farm</span>
+              <select
+                aria-describedby="invite-farm-help"
+                value={inviteFarmId}
+                onChange={(event) => setInviteFarmId(event.target.value)}
+              >
+                <option value="">New farm — assign later</option>
+                {farms.map((farm) => (
+                  <option key={farm.farmId} value={farm.farmId}>
+                    {farm.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+
+          <div className="admin-invite-actions">
+            <button
+              className="admin-action-primary"
+              type="submit"
+              aria-busy={busy === "create_invite"}
+              disabled={busy === "create_invite"}
+            >
+              {busy === "create_invite" ? "Preparing invite…" : "Prepare invite"}
+            </button>
+            <p className="admin-action-note">You&apos;ll send the message from your own app.</p>
+          </div>
+        </form>
+        {invite !== null && (
+          <div className="admin-invite-result" role="status" aria-labelledby="invite-ready-heading">
+            <div className="admin-invite-result-heading">
+              <span className="admin-status-pill">Ready to send</span>
+              <h4 id="invite-ready-heading">Your invite is ready</h4>
+              <p className="admin-note">
+                {invite.farmName === null
+                  ? "New farm — assign it later from the waiting list."
+                  : `For ${invite.farmName}.`}
+              </p>
+            </div>
+            <div className="admin-invite-result-actions">
+              <a className="admin-action-primary" href={invite.deliveryUrl}>
+                Open {invite.channel === "sms" ? "text message" : "email"}
+              </a>
+              <button className="admin-action-secondary" type="button" onClick={() => void copyInviteLink()}>
+                Copy link
+              </button>
+            </div>
+            <details className="admin-disclosure">
+              <summary>Review invite details</summary>
+              <div className="admin-disclosure-content">
+                <label className="admin-field">
+                  <span className="admin-control-label">Onboarding link</span>
+                  <input readOnly value={invite.link} />
+                </label>
+                <p className="admin-note">Message preview: {invite.message}</p>
+              </div>
+            </details>
+          </div>
+        )}
+      </section>
+
+      <section className="admin-queue-group" aria-labelledby="waiting-heading">
+        <div className="admin-group-heading">
+          <div>
+            <p className="admin-kicker">Needs a decision</p>
+            <h3 id="waiting-heading">Waiting for your decision</h3>
+            <p className="admin-note">People who have asked to join, including new-farm invites.</p>
+          </div>
+          <span className="admin-count" aria-label={`${pendingRequests.length} waiting`}>
+            {pendingRequests.length}
+          </span>
+        </div>
+        {pendingRequests.length === 0 ? (
+          <p className="admin-empty-state">
+            No requests right now. Farmers can text <strong>SIGNUP</strong> to get started.
+          </p>
+        ) : (
+          <ul className="admin-farms">
+            {pendingRequests.map((request) => (
+              <li key={request.requestId} className="admin-farm admin-request-card">
+                <div className="admin-card-person">
+                  <p className="admin-kicker">Phone ending</p>
+                  <h4>{request.senderMask}</h4>
+                  <p className="admin-note">Asked {formatDate(request.requestedAt)}</p>
                 </div>
-                {!revoked && (
-                  <div>
-                    <label>
-                      <span className="admin-control-label">Which stand can this link update?</span>
+                <div className="admin-request-decision">
+                  {request.farmName !== null && request.farmName !== undefined ? (
+                    <div className="admin-request-farm">
+                      <span className="admin-control-label">Invited to</span>
+                      <strong>{request.farmName}</strong>
+                    </div>
+                  ) : (
+                    <label className="admin-field">
+                      <span className="admin-control-label">Which farm do they run?</span>
                       <select
-                        value={
-                          standChoice[row.authorizationId] ??
-                          row.liveLinkStand?.salesLocationId ??
-                          (row.stands.length === 1
-                            ? row.stands[0]?.salesLocationId ?? ""
-                            : "")
-                        }
+                        value={farmChoice[request.requestId] ?? ""}
                         onChange={(event) =>
-                          setStandChoice((current) => ({
+                          setFarmChoice((current) => ({
                             ...current,
-                            [row.authorizationId]: event.target.value,
+                            [request.requestId]: event.target.value,
                           }))
                         }
                       >
-                        <option value="">Choose a stand…</option>
-                        {row.stands.map((stand) => (
-                          <option key={stand.salesLocationId} value={stand.salesLocationId}>
-                            {stand.name}
+                        <option value="">Choose a farm…</option>
+                        {farms.map((farm) => (
+                          <option key={farm.farmId} value={farm.farmId}>
+                            {farm.name}
                           </option>
                         ))}
                       </select>
                     </label>
-                    <button
-                      type="button"
-                      disabled={busy === row.authorizationId}
-                      onClick={() => void issueLink(row)}
-                    >
-                      {row.hasLiveLink ? "Replace link" : "Create link"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy === row.authorizationId}
-                      onClick={() => void revoke(row.authorizationId)}
-                    >
-                      {busy === row.authorizationId ? "Saving…" : "Remove access"}
-                    </button>
-                  </div>
-                )}
+                  )}
+                  <button
+                    className="admin-action-primary"
+                    type="button"
+                    disabled={busy === request.requestId}
+                    onClick={() => void authorize(request.requestId)}
+                  >
+                    {busy === request.requestId ? "Saving…" : "Give access"}
+                  </button>
+                </div>
               </li>
-            );
-          })}
-        </ul>
-      )}
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="admin-queue-group" aria-labelledby="current-access-heading">
+        <div className="admin-group-heading">
+          <div>
+            <p className="admin-kicker">Already approved</p>
+            <h3 id="current-access-heading">People with farmer access</h3>
+            <p className="admin-note">Manage their private links or remove access.</p>
+          </div>
+          <span className="admin-count" aria-label={`${rows.length} people with farmer access`}>
+            {rows.length}
+          </span>
+        </div>
+        {rows.length === 0 ? (
+          <p className="admin-empty-state">No one has farmer access yet.</p>
+        ) : (
+          <ul className="admin-farms">
+            {rows.map((row) => {
+              const revoked = row.revokedAt !== null;
+              return (
+                <li key={row.authorizationId} className="admin-farm admin-access-card">
+                  <div className="admin-card-person">
+                    <p className="admin-kicker">Farm</p>
+                    <h4>{row.farmName}</h4>
+                    <p className={revoked ? "admin-unapproved" : "admin-approved"}>
+                      {row.senderMask} ·{" "}
+                      {revoked
+                        ? `Revoked ${formatDate(row.revokedAt as string)}`
+                        : `Authorized ${formatDate(row.authorizedAt)}`}
+                    </p>
+                    <p className="admin-note">
+                      {revoked
+                        ? "Access was removed, so their private link no longer works."
+                        : row.hasLiveLink && row.liveLinkStand !== null
+                          ? `Private link works for ${row.liveLinkStand.name}.`
+                          : "No private link yet. They can text LINK whenever they need one."}
+                    </p>
+                    {freshLink?.id === row.authorizationId && (
+                      <div className="admin-link-reveal" role="group" aria-label="New private link">
+                        <p className="admin-note">
+                          <strong>Copy this now — we only show it once.</strong>
+                        </p>
+                        <input aria-label="Private link" readOnly value={freshLink.link} />
+                        <button className="admin-action-secondary" type="button" onClick={() => void copyFreshLink()}>
+                          Copy private link
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {!revoked && (
+                    <div className="admin-access-actions">
+                      <p className="admin-kicker">Private link</p>
+                      <label className="admin-field">
+                        <span className="admin-control-label">Stand this link can update</span>
+                        <select
+                          value={
+                            standChoice[row.authorizationId] ??
+                            row.liveLinkStand?.salesLocationId ??
+                            (row.stands.length === 1
+                              ? row.stands[0]?.salesLocationId ?? ""
+                              : "")
+                          }
+                          onChange={(event) =>
+                            setStandChoice((current) => ({
+                              ...current,
+                              [row.authorizationId]: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Choose a stand…</option>
+                          {row.stands.map((stand) => (
+                            <option key={stand.salesLocationId} value={stand.salesLocationId}>
+                              {stand.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="admin-button-row">
+                        <button
+                          className="admin-action-primary"
+                          type="button"
+                          disabled={busy === row.authorizationId}
+                          onClick={() => void issueLink(row)}
+                        >
+                          {row.hasLiveLink ? "Replace link" : "Create link"}
+                        </button>
+                        <button
+                          className="admin-action-danger"
+                          type="button"
+                          disabled={busy === row.authorizationId}
+                          onClick={() => void revoke(row.authorizationId)}
+                        >
+                          {busy === row.authorizationId ? "Saving…" : "Remove access"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </>
   );
 }

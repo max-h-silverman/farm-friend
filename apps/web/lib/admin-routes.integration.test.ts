@@ -679,6 +679,65 @@ describe("admin routes (integration)", () => {
       return rows[0]?.id as string;
     }
 
+    it("creates an onboarding link for the selected farm", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const response = await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            action: "create_invite",
+            farmId: ids.farm,
+            channel: "email",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as Record<string, unknown>;
+      expect(payload.status).toBe("created");
+      expect(payload.channel).toBe("email");
+      expect(payload.farmName).toBe("Route Farm");
+      expect(payload.link).toMatch(/^https:\/\/ff\.example\/farmer\/onboarding\/[0-9a-f]{64}$/);
+
+      const invitation = await sql()`
+        select farm_id, channel, redeemed_at from farmer_invitations
+        where farm_id = ${ids.farm as string}
+      `;
+      expect(invitation).toEqual([
+        { farm_id: ids.farm as string, channel: "email", redeemed_at: null },
+      ]);
+    });
+
+    it("creates an onboarding link without a farm for a new farm", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const response = await farmersRoute.POST(
+        request("https://ff.example/api/admin/farmers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            action: "create_invite",
+            channel: "sms",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as Record<string, unknown>;
+      expect(payload.status).toBe("created");
+      expect(payload.channel).toBe("sms");
+      expect(payload.farmName).toBeNull();
+      expect(payload.link).toMatch(/^https:\/\/ff\.example\/farmer\/onboarding\/[0-9a-f]{64}$/);
+
+      const invitation = await sql()`
+        select farm_id, channel, redeemed_at from farmer_invitations
+        where channel = 'sms' and farm_id is null
+      `;
+      expect(invitation).toEqual([
+        { farm_id: null, channel: "sms", redeemed_at: null },
+      ]);
+    });
+
     it("authorizes a farmer, recording the SESSION's administrator not the body's", async () => {
       const token = await sessionFor(ids.administrator as string);
       const { contactHash, farmId } = await farmerAndFarm();

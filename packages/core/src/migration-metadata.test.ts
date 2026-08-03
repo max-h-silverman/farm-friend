@@ -41,7 +41,7 @@ const migrationsDir = resolve(repoRoot, "packages/db/drizzle");
 const metaDir = resolve(migrationsDir, "meta");
 
 interface Journal {
-  entries: { idx: number; tag: string }[];
+  entries: { idx: number; tag: string; when: number }[];
 }
 
 function journal(): Journal {
@@ -62,6 +62,13 @@ function snapshotIndex(fileName: string): number {
 }
 
 describe("migration generator metadata (GL-006)", () => {
+  it("keeps migration timestamps strictly increasing", () => {
+    const entries = journal().entries;
+    for (let index = 1; index < entries.length; index += 1) {
+      expect(entries[index]?.when).toBeGreaterThan(entries[index - 1]?.when ?? 0);
+    }
+  });
+
   it("journals at least one migration and keeps its .sql file", () => {
     const entries = journal().entries;
     expect(entries.length).toBeGreaterThan(0);

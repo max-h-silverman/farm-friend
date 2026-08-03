@@ -1,7 +1,9 @@
 import {
   FARMER_AUTHORIZED_NOTIFICATION,
   hashFarmerLinkToken,
+  hashFarmerInviteToken,
   issueFarmerLinkToken,
+  issueFarmerInviteToken,
   maskPhoneSuffix,
 } from "@farm-friend/core";
 import type { Db } from "./index";
@@ -24,13 +26,112 @@ import { queueOutbox } from "./transactions";
 // ## What is deliberately NOT here
 //
 // **Nothing a farmer can reach writes authority.** `openFarmerOnboardingRequest` is the one
-// function on this page reachable from an unauthenticated inbound SMS, and it writes to a
-// table with no grant column. Every other write below demands an `administratorId` that was
-// resolved from a session and is re-read here under lock. VIGA always approves — a phone
-// proves possession of a phone, not ownership of a farm.
+// function on this page reachable from an unauthenticated inbound SMS, and it writes only a
+// request. A plain SIGNUP names no farm; an invited SIGNUP carries only an administrator-created
+// opaque invitation reference, which suggests the farm to VIGA but cannot grant it. Every other
+// write below demands an `administratorId` that was resolved from a session and is re-read here
+// under lock. VIGA always approves — a phone proves possession of a phone, not ownership of a
+// farm.
 
 function driver(db: Db): Sql {
   return db.sql;
+}
+
+const FARMER_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type FarmerInviteChannel = "sms" | "email";
+
+export type CreateFarmerInvitationResult =
+  | { status: "created"; token: string; farmName: string | null; channel: FarmerInviteChannel }
+  | { status: "not_an_administrator" }
+  | { status: "unknown_farm" };
+
+/** Create a one-use onboarding link for an administrator to share. */
+export async function createFarmerInvitation(
+  db: Db,
+  input: {
+    farmId?: string | null;
+    channel: FarmerInviteChannel;
+    administratorId: string;
+    occurredAt: Date;
+  },
+): Promise<CreateFarmerInvitationResult> {
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators
+      where id = ${input.administratorId} and revoked_at is null
+      for update
+    `;
+    if (administrator.length === 0) return { status: "not_an_administrator" as const };
+
+    const farmId = input.farmId ?? null;
+    const farms =
+      farmId === null
+        ? []
+        : await tx`select id, name from farms where id = ${farmId}`;
+    const farmName = (farms[0]?.name as string | undefined) ?? null;
+    if (farmId !== null && farmName === null) return { status: "unknown_farm" as const };
+
+    const token = issueFarmerInviteToken();
+    const inserted = await tx`
+      insert into farmer_invitations (
+        farm_id, token_hash, channel, created_by_administrator_id,
+        created_at, expires_at
+      ) values (
+        ${farmId}, ${hashFarmerInviteToken(token)}, ${input.channel},
+        ${input.administratorId}, ${input.occurredAt.toISOString()},
+        ${new Date(input.occurredAt.getTime() + FARMER_INVITE_TTL_MS).toISOString()}
+      )
+      returning id
+    `;
+    const invitationId = inserted[0]?.id as string;
+    await tx`
+      insert into audit_events (
+        action, actor_administrator_id, subject_type, subject_id, occurred_at
+      ) values (
+        'farmer_invitation_created', ${input.administratorId},
+        'farmer_invitation', ${invitationId}, ${input.occurredAt.toISOString()}
+      )
+    `;
+
+    return { status: "created" as const, token, farmName, channel: input.channel };
+  }) as Promise<CreateFarmerInvitationResult>;
+}
+
+export type FarmerInvitationLookup =
+  | {
+      status: "active";
+      invitationId: string;
+      farmId: string | null;
+      farmName: string | null;
+      channel: FarmerInviteChannel;
+    }
+  | { status: "invalid" };
+
+/** Resolve an invitation without exposing its token or any recipient identity. */
+export async function loadFarmerInvitation(
+  db: Db,
+  token: string,
+  now: Date,
+): Promise<FarmerInvitationLookup> {
+  if (!/^[0-9a-f]{64}$/.test(token)) return { status: "invalid" };
+  const rows = await driver(db)`
+    select invitation.id, invitation.farm_id, farm.name as farm_name, invitation.channel
+    from farmer_invitations as invitation
+    left join farms as farm on farm.id = invitation.farm_id
+    where invitation.token_hash = ${hashFarmerInviteToken(token)}
+      and invitation.redeemed_at is null
+      and invitation.expires_at > ${now.toISOString()}
+  `;
+  const row = rows[0];
+  if (row === undefined) return { status: "invalid" };
+  return {
+    status: "active",
+    invitationId: row.id as string,
+    farmId: (row.farm_id as string | null) ?? null,
+    farmName: (row.farm_name as string | null) ?? null,
+    channel: row.channel as FarmerInviteChannel,
+  };
 }
 
 export interface AuthorizeFarmerInput {
@@ -46,7 +147,8 @@ export type AuthorizeFarmerResult =
   | { status: "already_authorized" }
   | { status: "not_an_administrator" }
   | { status: "unknown_farm" }
-  | { status: "unknown_request" };
+  | { status: "unknown_request" }
+  | { status: "farm_mismatch" };
 
 /**
  * Authorize a farmer to publish for a farm, recording which administrator acted.
@@ -84,9 +186,11 @@ export async function authorizeFarmer(
     if (farm.length === 0) return { status: "unknown_farm" as const };
 
     const requests = await tx`
-      select request.contact_hash, contact.id as contact_id
+      select request.contact_hash, contact.id as contact_id,
+        invitation.farm_id as invitation_farm_id
       from farmer_onboarding_requests as request
       join contacts as contact on contact.phone_hash = request.contact_hash
+      left join farmer_invitations as invitation on invitation.id = request.invitation_id
       where request.id = ${input.requestId} and request.settled_at is null
       for update of request, contact
     `;
@@ -94,6 +198,10 @@ export async function authorizeFarmer(
     if (request === undefined) return { status: "unknown_request" as const };
     const contactId = request.contact_id as string;
     const contactHash = request.contact_hash as string;
+    const invitationFarmId = (request.invitation_farm_id as string | null | undefined) ?? null;
+    if (invitationFarmId !== null && invitationFarmId !== input.farmId) {
+      return { status: "farm_mismatch" as const };
+    }
 
     // Locked so two concurrent authorizations cannot both see "none" and race the partial
     // unique index into an error instead of an honest answer.
@@ -227,15 +335,17 @@ export async function revokeFarmerAuthorization(
 
 export type OpenOnboardingRequestResult =
   | { status: "opened"; requestId: string }
-  | { status: "already_open" };
+  | { status: "already_open" }
+  | { status: "invalid_invitation" };
 
 /**
  * Record that a farmer asked to be set up. **Grants nothing.**
  *
  * This is the one function in this module reachable from an unauthenticated inbound SMS, and
- * everything about it is shaped for that: it writes to a table with no grant column, stores
- * no message text, and names no farm — the farmer does not get to choose which farm they are
- * claiming, VIGA decides that when they act.
+ * everything about it is shaped for that: it writes to a table with no grant column, stores no
+ * message text, and a plain SIGNUP names no farm. An invited SIGNUP may carry an opaque
+ * administrator-created reference, so VIGA can see the farm the invitation named without the
+ * farmer getting to choose or authorize it.
  *
  * **The one-open-request rule is enforced by the unique index, not by a read.** A farmer who
  * texts the keyword five times because nothing visibly happened sends a burst, and two
@@ -246,8 +356,42 @@ export type OpenOnboardingRequestResult =
  */
 export async function openFarmerOnboardingRequest(
   db: Db,
-  input: { contactHash: string; occurredAt: Date },
+  input: { contactHash: string; occurredAt: Date; invitationToken?: string },
 ): Promise<OpenOnboardingRequestResult> {
+  const invitationToken = input.invitationToken;
+  if (invitationToken !== undefined) {
+    if (!/^[0-9a-f]{64}$/.test(invitationToken)) {
+      return { status: "invalid_invitation" };
+    }
+    return driver(db).begin(async (tx) => {
+      const invitations = await tx`
+        select id from farmer_invitations
+        where token_hash = ${hashFarmerInviteToken(invitationToken)}
+          and redeemed_at is null
+          and expires_at > ${input.occurredAt.toISOString()}
+        for update
+      `;
+      const invitationId = invitations[0]?.id as string | undefined;
+      if (invitationId === undefined) return { status: "invalid_invitation" as const };
+
+      const inserted = await tx`
+        insert into farmer_onboarding_requests (contact_hash, invitation_id, requested_at)
+        values (${input.contactHash}, ${invitationId}, ${input.occurredAt.toISOString()})
+        on conflict (contact_hash) where settled_at is null do nothing
+        returning id
+      `;
+      const requestId = inserted[0]?.id as string | undefined;
+      if (requestId === undefined) return { status: "already_open" as const };
+
+      await tx`
+        update farmer_invitations
+        set redeemed_at = ${input.occurredAt.toISOString()}
+        where id = ${invitationId} and redeemed_at is null
+      `;
+      return { status: "opened" as const, requestId };
+    }) as Promise<OpenOnboardingRequestResult>;
+  }
+
   const inserted = await driver(db)`
     insert into farmer_onboarding_requests (contact_hash, requested_at)
     values (${input.contactHash}, ${input.occurredAt.toISOString()})
@@ -568,6 +712,8 @@ export interface FarmerOnboardingRequestRow {
   requestId: string;
   senderMask: string;
   requestedAt: Date;
+  farmId: string | null;
+  farmName: string | null;
 }
 
 /**
@@ -586,9 +732,13 @@ export async function listOpenFarmerOnboardingRequests(
     select
       request.id,
       right(contact.phone_e164, 4) as sender_last_four,
-      request.requested_at
+      request.requested_at,
+      invitation.farm_id,
+      farm.name as farm_name
     from farmer_onboarding_requests as request
     join contacts as contact on contact.phone_hash = request.contact_hash
+    left join farmer_invitations as invitation on invitation.id = request.invitation_id
+    left join farms as farm on farm.id = invitation.farm_id
     where request.settled_at is null
     order by request.requested_at
   `;
@@ -597,5 +747,7 @@ export async function listOpenFarmerOnboardingRequests(
     requestId: row.id as string,
     senderMask: maskPhoneSuffix((row.sender_last_four as string | null) ?? null),
     requestedAt: new Date(row.requested_at as string),
+    farmId: (row.farm_id as string | null) ?? null,
+    farmName: (row.farm_name as string | null) ?? null,
   }));
 }

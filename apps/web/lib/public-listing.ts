@@ -62,6 +62,8 @@ export interface PublicStand {
   visitability: "visitable" | "contact_only";
   /** What the farm provides (F-038) — produce, services, or goods by order. */
   offeringType: "produce" | "services" | "by_order";
+  /** Present only once VIGA has confirmed the stand's Farm Bucks eligibility. */
+  farmBucksAccepted?: boolean;
   /**
    * When the farmer last confirmed this inventory.
    *
@@ -236,6 +238,8 @@ export async function listPublicStands(
       l.public_longitude as public_longitude,
       l.visitability as visitability,
       l.offering_type as offering_type,
+      l.farm_bucks_accepted as farm_bucks_accepted,
+      l.farm_bucks_eligible as farm_bucks_eligible,
       -- F-043 — F-035's availability columns, read for the first time. Selected on the
       -- location row (grain: one per location), so they neither multiply nor are multiplied
       -- by the inventory join below.
@@ -331,6 +335,12 @@ export async function listPublicStands(
         locationName: row.location_name as string,
         visitability: row.visitability as "visitable" | "contact_only",
         offeringType: row.offering_type as "produce" | "services" | "by_order",
+        // Older imported rows are `false/false`: that means no eligibility review, not a
+        // customer-facing claim that the stand refuses VIGA Bucks. Only an eligible row has
+        // a reviewed acceptance answer to publish.
+        ...(row.farm_bucks_eligible === true
+          ? { farmBucksAccepted: row.farm_bucks_accepted as boolean }
+          : {}),
         ...(isVisitable && address !== null && latitude !== null && longitude !== null
           ? {
               publicAddress: address,
@@ -414,6 +424,9 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     locationName: stand.locationName,
     visitability: stand.visitability,
     offeringType: stand.offeringType,
+    ...(stand.farmBucksAccepted !== undefined
+      ? { farmBucksAccepted: stand.farmBucksAccepted }
+      : {}),
     // F-038 — omitted TOGETHER for a contact-only farm, never serialized as null. A client
     // reading `address: null` would print an empty address line; `latitude: 0` would drop a
     // pin in the Atlantic. Absence is the only honest encoding of "there is nowhere to go".

@@ -148,6 +148,11 @@ function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdministratio
       name: row.name,
       farmName: row.farmName,
       status: row.isPublic ? "Shown on map" : "Hidden from map",
+      farmBucksStatus: row.farmBucksAccepted
+        ? "accepts"
+        : row.farmBucksEligible
+          ? "does_not_accept"
+          : "not_eligible",
       openState: OPEN_STATE_LABEL[openState],
       approved: row.approved,
       sections: [

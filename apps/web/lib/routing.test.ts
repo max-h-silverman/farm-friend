@@ -475,6 +475,18 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       ).toBe(true);
     });
 
+    it("routes the onboarding link's token with SIGNUP", async () => {
+      const { db, queries } = recordingDb([{ id: "invite-1" }]);
+      const invitationToken = "b".repeat(64);
+      const result = await routeInboundMessage(
+        deps({ db }),
+        event(`SIGNUP ${invitationToken}`),
+      );
+
+      expect(result.outcome).toMatchObject({ kind: "farmer", keyword: "SIGNUP" });
+      expect(queries.some((q) => q.includes("invitation_id"))).toBe(true);
+    });
+
     it("acknowledges a SIGNUP without claiming the farmer is set up", async () => {
       // A request grants nothing — VIGA always approves. Copy that read as a yes would
       // send a farmer to their stand expecting to publish.

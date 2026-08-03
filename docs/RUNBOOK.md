@@ -23,12 +23,24 @@ Build/deployment status lives only in [CURRENT_STATE.md](CURRENT_STATE.md).
 
 ```bash
 npm install                 # install all workspaces
+npm run db:migrate:local    # apply the schema to apps/web/.env.local
+npm run dev --workspace @farm-friend/web
 npm run typecheck           # all workspaces, including apps/web
 npm run lint                # lint across workspaces
 npm test                    # unit tests; no DB/SMS/LLM
-npm run test:integration    # real Postgres constraints and workflows
+npm run test:integration:local # real Postgres constraints and workflows, using apps/web/.env.local
 npm run evals               # deterministic stub; critical fixtures must be 100%
 ```
+
+`next dev` writes to `apps/web/.next-dev`; `next build` and `next start` use `apps/web/.next`.
+After updating this setting, stop any existing dev server once and start it again so it picks up
+the separate development directory.
+
+The web app loads `apps/web/.env.local`, while the root migration command reads the shell's
+`DATABASE_URL`. Keep those targets distinct: use `db:migrate:local` for the local app, and use
+`db:migrate` only after explicitly setting the intended target. The integration suite creates its
+own disposable databases from the configured Postgres connection; it does not use the app's
+working database for test rows.
 
 Typecheck enforces the static model-context and outbound-message provenance barrier; workflow tests
 and hostile evals cover runtime behavior. See [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) §safety

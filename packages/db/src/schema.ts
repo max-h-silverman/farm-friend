@@ -210,6 +210,7 @@ export const messageCategory = pgEnum("message_category", [
   "inventory_confirmation",
   "stock_out_alert",
 ]);
+export const farmerInviteChannel = pgEnum("farmer_invite_channel", ["sms", "email"]);
 export const outboxState = pgEnum("outbox_state", [
   "queued",
   "dispatching",
@@ -413,6 +414,39 @@ export const farms = pgTable(
   }),
 );
 
+/** An administrator-created, one-use path into farmer onboarding. */
+export const farmerInvitations = pgTable(
+  "farmer_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** NULL means the invitation starts onboarding a farm that is not in Farm Friend yet. */
+    farmId: uuid("farm_id").references(() => farms.id, { onDelete: "restrict" }),
+    tokenHash: text("token_hash").notNull(),
+    channel: farmerInviteChannel("channel").notNull(),
+    createdByAdministratorId: uuid("created_by_administrator_id")
+      .notNull()
+      .references(() => administrators.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+  },
+  (table) => ({
+    tokenHashUnique: unique("farmer_invitations_token_hash_unique").on(table.tokenHash),
+    tokenHashShape: check(
+      "farmer_invitations_token_hash_shape",
+      sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    expiryAfterCreation: check(
+      "farmer_invitations_expiry_after_creation",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    validRedemption: check(
+      "farmer_invitations_valid_redemption",
+      sql`${table.redeemedAt} is null or ${table.redeemedAt} >= ${table.createdAt}`,
+    ),
+  }),
+);
+
 export const farmerAuthorizations = pgTable(
   "farmer_authorizations",
   {
@@ -454,10 +488,11 @@ export const farmerAuthorizations = pgTable(
  * A farmer's texted ask to be set up, waiting for VIGA (F-040).
  *
  * **This grants nothing, and it is shaped so it cannot.** VIGA always approves, because a
- * phone number proves possession of a phone and not ownership of a farm — so the record a
- * farmer can create from the public SMS surface deliberately has no farm, no grant column,
- * and no path by which it becomes authority. `farmer_authorizations` is written by an
- * administrator-gated writer, and this table is only ever an input to that decision.
+ * phone number proves possession of a phone and not ownership of a farm. A plain SIGNUP from
+ * the public SMS surface deliberately has no farm and no grant column. An administrator-created
+ * invitation may add an opaque invitation reference, which lets the queue suggest the farm the
+ * administrator chose without making that suggestion authority. `farmer_authorizations` is
+ * written by an administrator-gated writer, and this table is only ever an input to that decision.
  *
  * It carries no message text. The writer is untrusted inbound SMS, and a stored body would
  * be untrusted text parked in an operator's queue for no benefit — `FLAG` already owns
@@ -470,6 +505,8 @@ export const farmerOnboardingRequests = pgTable(
     /** The hash, never a raw number (Golden Rule #5). The queue masks at the query. */
     contactHash: text("contact_hash").notNull(),
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    /** An optional administrator-created invitation; it suggests a farm but grants nothing. */
+    invitationId: uuid("invitation_id"),
     settledAt: timestamp("settled_at", { withTimezone: true }),
     settledByAdministratorId: uuid("settled_by_administrator_id"),
     /**
@@ -497,6 +534,11 @@ export const farmerOnboardingRequests = pgTable(
       columns: [table.authorizationId],
       foreignColumns: [farmerAuthorizations.id],
     }).onDelete("restrict"),
+    invitationReference: foreignKey({
+      name: "farmer_onboarding_requests_invitation_fk",
+      columns: [table.invitationId],
+      foreignColumns: [farmerInvitations.id],
+    }).onDelete("restrict"),
     // One OPEN request per phone: a farmer who texts the keyword five times because nothing
     // visibly happened must not produce five entries for one operator to work through.
     oneOpenPerContact: uniqueIndex(
@@ -504,6 +546,11 @@ export const farmerOnboardingRequests = pgTable(
     )
       .on(table.contactHash)
       .where(sql`${table.settledAt} is null`),
+    oneRequestPerInvitation: uniqueIndex(
+      "farmer_onboarding_requests_one_per_invitation",
+    )
+      .on(table.invitationId)
+      .where(sql`${table.invitationId} is not null`),
     coherentSettlement: check(
       "farmer_onboarding_requests_coherent_settlement",
       sql`

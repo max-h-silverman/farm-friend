@@ -1,6 +1,7 @@
 .DS_Store
 node_modules/
 .next/
+.next-dev/
 dist/
 *.tsbuildinfo
 coverage/
@@ -12,6 +13,7 @@ coverage/
 ios/
 android/
 .vercel
+.idea/
 
 # Agent worktrees — scratch checkouts, never part of the repository.
 .claude/worktrees/

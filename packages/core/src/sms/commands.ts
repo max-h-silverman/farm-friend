@@ -34,7 +34,7 @@ export type ParsedCommand =
   | { kind: "map" }
   | { kind: "commitment"; token: CommitmentToken; contextBound: true }
   | { kind: "scheduled_same"; contextBound: true }
-  | { kind: "farmer"; keyword: FarmerKeyword }
+  | { kind: "farmer"; keyword: FarmerKeyword; invitationToken?: string }
   /**
    * `MORE` — the next page of a customer's result list (F-046).
    *
@@ -171,6 +171,17 @@ export function parseCommand(body: string): ParsedCommand {
   const farmer = FARMER_WORDS[normalized];
   if (farmer) {
     return { kind: "farmer", keyword: farmer };
+  }
+  // An administrator-created onboarding link pre-fills this exact message. The token is
+  // accepted only in its opaque 32-byte hex form, so ordinary text after SIGNUP remains free
+  // text and cannot accidentally select an invitation.
+  const invitedSignup = /^SIGNUP ([0-9A-F]{64})$/.exec(normalized);
+  if (invitedSignup !== null) {
+    return {
+      kind: "farmer",
+      keyword: "SIGNUP",
+      invitationToken: invitedSignup[1]!.toLowerCase(),
+    };
   }
   // Also last, for the same reason as the farmer keywords: a paging word must never shadow a
   // compliance keyword or a commitment token. Reaching here means the message matched none of

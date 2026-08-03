@@ -117,6 +117,7 @@ describe("the stand list", () => {
             status: "Public",
             openState: "Open now",
             approved: true,
+            farmBucksStatus: "not_eligible",
             sections: [
               {
                 title: "Availability",
@@ -153,6 +154,10 @@ describe("the stand list", () => {
     expect(screen.getByRole("heading", { name: "Visit" })).toBeTruthy();
     expect(screen.getByText("123 Farm Lane")).toBeTruthy();
     expect(screen.getByText("Eggs, flowers")).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Accepts VIGA Bucks" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
 });
 
@@ -169,6 +174,7 @@ describe("administrator language", () => {
               status: "Shown on map",
               openState: "Open now",
               approved: true,
+              farmBucksStatus: "not_eligible",
               sections: [{ title: "Visit", items: [["Visit in person", "Yes"]] }],
             },
           ]}
@@ -182,9 +188,12 @@ describe("administrator language", () => {
     );
 
     expect(screen.getByText("Shown on map")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Farmers waiting to join" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Invite a farmer to join" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Waiting for your decision" })).toBeTruthy();
     expect(screen.getByText(/no requests right now/i)).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Current farmer access" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "People with farmer access" })).toBeTruthy();
+    expect(screen.getByText("Contact")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Farm" })).toBeTruthy();
     expect(screen.queryByText("Waiting on you")).toBeNull();
   });
 });
@@ -291,7 +300,7 @@ describe("administrator queue interactions", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/farmer access given/i);
 
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Which stand can this link update?" }),
+      screen.getByRole("combobox", { name: "Stand this link can update" }),
       "stand-2",
     );
     await user.click(screen.getByRole("button", { name: "Create link" }));
@@ -311,6 +320,84 @@ describe("administrator queue interactions", () => {
     await user.click(copy);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       "https://ff.example/stand/private",
+    );
+  });
+
+  it("prepares a farm-specific text invitation without requiring prior SMS enrollment", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      response(200, {
+        status: "created",
+        channel: "sms",
+        farmName: "Example Farm",
+        link: "https://ff.example/farmer/onboarding/invite-token",
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <FarmerQueue
+        requests={[]}
+        authorizations={[]}
+        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+      />,
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Farm" }), "farm-1");
+    await user.type(screen.getByRole("textbox", { name: "Phone number" }), "(206) 555-0123");
+    await user.click(screen.getByRole("button", { name: "Prepare invite" }));
+
+    expect(await screen.findByRole("link", { name: "Open text message" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("sms:+12065550123?body="),
+    );
+    await user.click(screen.getByText("Review invite details"));
+    expect(screen.getByDisplayValue("https://ff.example/farmer/onboarding/invite-token")).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/admin/farmers",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ action: "create_invite", farmId: "farm-1", channel: "sms" }),
+      }),
+    );
+  });
+
+  it("prepares a new-farm invitation without selecting a farm", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      response(200, {
+        status: "created",
+        channel: "email",
+        farmName: null,
+        link: "https://ff.example/farmer/onboarding/new-farm-token",
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <FarmerQueue
+        requests={[]}
+        authorizations={[]}
+        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+      />,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Email" }));
+    await user.type(screen.getByRole("textbox", { name: "Email address" }), "farmer@example.com");
+    await user.click(screen.getByRole("button", { name: "Prepare invite" }));
+
+    expect(await screen.findByRole("link", { name: "Open email" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("mailto:farmer@example.com?"),
+    );
+    await user.click(screen.getByText("Review invite details"));
+    expect(screen.getByDisplayValue("https://ff.example/farmer/onboarding/new-farm-token")).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/admin/farmers",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ action: "create_invite", channel: "email" }),
+      }),
     );
   });
 

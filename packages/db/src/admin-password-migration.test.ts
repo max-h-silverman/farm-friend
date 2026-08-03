@@ -49,7 +49,8 @@ describe("F-056 migration metadata", () => {
   it("records one ordered migration and a final schema with no nonce", () => {
     const latest = journal.entries.at(-1);
     const previous = journal.entries.at(-2);
-    expect(latest).toEqual({
+    const passwordMigration = journal.entries.find((entry) => entry.tag === "0015_overrated_gertrude_yorkes");
+    expect(passwordMigration).toEqual({
       idx: 15,
       when: 1_786_400_000_000,
       tag: "0015_overrated_gertrude_yorkes",
@@ -57,6 +58,7 @@ describe("F-056 migration metadata", () => {
       version: "7",
     });
     expect(latest!.when).toBeGreaterThan(previous!.when);
+    expect(latest!.idx).toBeGreaterThan(passwordMigration!.idx);
     expect(Object.keys(snapshot.tables["public.admin_sessions"]!.columns).sort()).toEqual(
       ["administrator_id", "expires_at", "id", "issued_at", "revoked_at", "token_hash"].sort(),
     );

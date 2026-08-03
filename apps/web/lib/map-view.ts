@@ -43,6 +43,11 @@ export interface PublicStandPayload {
   /** What the farm provides (F-038) — produce, services, or goods by order. */
   offeringType: "produce" | "services" | "by_order";
   /**
+   * A VIGA-maintained payment fact. It is optional until the public reader has a verified
+   * value for a stand; an absent value MUST NOT be rendered as either acceptance or refusal.
+   */
+  farmBucksAccepted?: boolean;
+  /**
    * Code-rendered on the server by the same helper the SMS answer uses.
    *
    * **Absent when no farmer has ever confirmed this stand** (B-013) — a seeded stand starts
