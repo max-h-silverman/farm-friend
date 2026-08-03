@@ -5,10 +5,10 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Merged commit `2a6eba1` plus the combined follow-up commits
-`81412d7` and `53ea6fb` are live on Cloud Run as one image across web revision
-`farm-friend-web-00020-rz7` and worker revision `farm-friend-worker-00021-spx`, both at digest
-`sha256:9b557833f5135912bf2a3d4d90e88aa0fcbc07abcbccc5f8630309a9539f717b`.
+Farm Friend is **pre-go-live**. Merged commit `71cc48f` (PR #72) is live on Cloud Run as one
+image across web revision `farm-friend-web-00021-ft8` and worker revision
+`farm-friend-worker-00022-jfx`, both at digest
+`sha256:7babc9efb9848b176bfd7043727ac1020b7ee4a63cd07795abeb29e2db682f69`.
 Production Postgres is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal
 timestamp `1786500000000`). Production now includes:
 
@@ -30,6 +30,9 @@ timestamp `1786500000000`). Production now includes:
 - B-031/B-032: one final pre-launch identity and data architecture, with no compatibility paths;
 - B-033: dead admin queue GET APIs, unused model-call fields, and the phone-salt recovery utility
   removed; active documentation reconciled to the final architecture.
+- F-058: sanitized source listing details, ascending stand-number ordering, a visible marker legend,
+  structured marker categories, and a null-only production backfill for descriptions and reviewed
+  Farm Bucks facts. Contact-only farms remain in the list and intentionally have no map pin.
 
 F-056 is deployed but remains **in review** pending the remaining live browser proof. Max
 successfully signed in with the fixed production account; a direct database check found exactly one
@@ -52,14 +55,16 @@ or nullable compatibility state.
 
 ## Verification
 
-The current release passes 92 unit-test files / 883 tests, 41 real-Postgres integration-test files /
-563 tests against disposable databases, typecheck, lint, and the production web build. The focused
-map suites pass 74/74 tests across the map view and interaction files. Cloud Build
-`479ac6d3-9d2a-4cf8-84b5-505171b06c9e` published the exact `53ea6fb` image; the OpenTofu plan passed
-37/37 assertions and applied 0 adds, 2 service updates, and 0 destroys. Post-deploy
-secret-freshness assertions and served vCard byte assertions pass: 153 bytes, 6 CRLF, and 0 bare LF.
-The canonical public map route returns HTTP 200 from the live web revision. Production already had
-all 17 committed migrations, so this release applied no database migration.
+The current release passes 93 unit-test files / 894 tests, 41 real-Postgres integration-test files /
+564 tests against disposable databases, typecheck, lint, the production web build, and 44/44
+scripted eval cases. Cloud Build `619b58f4-a6de-42b2-b8d4-f51b80f3266e` published the exact
+immutable image; the OpenTofu plan passed 37/37 assertions and applied 0 adds, 2 service updates,
+and 0 destroys. Post-deploy secret-freshness and served vCard byte assertions pass: 153 bytes,
+6 CRLF, and 0 bare LF. The public stands endpoint returns 34 published stands, including the
+sanitized Peak Moon description and reviewed payment fact. Production backfill verification proves
+34 descriptions and 24 payment facts were applied, 0 source entries were unmatched, the rerun is
+idempotent, and public descriptions contain 0 direct emails or phone numbers. Production already
+had all 17 committed migrations, so this release applied no database migration.
 
 The pushed F-056 commit `f041669` passes 842 unit tests, 551 integration tests across 40 files
 against a fresh local Postgres cluster, typecheck, lint, 44 scripted eval cases, and the production
