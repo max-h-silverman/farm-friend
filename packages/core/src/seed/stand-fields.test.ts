@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractStandFields } from "./stand-fields";
+import { extractStandFields, parseFarmBucksPolicy } from "./stand-fields";
 
 // B-002 — pulling the labelled facts out of a stand's description.
 //
@@ -79,5 +79,32 @@ describe("extracting labelled availability facts", () => {
     expect(fields.openText).toBeUndefined();
     expect(fields.stockingText).toBeUndefined();
     expect(fields.closureNote).toBeUndefined();
+  });
+});
+
+describe("extracting VIGA Bucks policy", () => {
+  it("recognizes acceptance stated in a listing", () => {
+    expect(parseFarmBucksPolicy("Accepts cash, Venmo, VIGA Farm Bucks")).toEqual({
+      accepted: true,
+      eligible: true,
+    });
+    expect(parseFarmBucksPolicy("Accepts all forms of payment, including farm bucks")).toEqual({
+      accepted: true,
+      eligible: true,
+    });
+  });
+
+  it("recognizes a stated refusal", () => {
+    expect(parseFarmBucksPolicy("Flower-only stand — cannot accept VIGA Bucks")).toEqual({
+      accepted: false,
+      eligible: true,
+    });
+  });
+
+  it("leaves missing or contradictory policy unknown", () => {
+    expect(parseFarmBucksPolicy("Cash and Venmo only")).toBeUndefined();
+    expect(
+      parseFarmBucksPolicy("Accepts VIGA Bucks; later note says does not accept VIGA Bucks"),
+    ).toBeUndefined();
   });
 });

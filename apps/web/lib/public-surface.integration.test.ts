@@ -493,6 +493,25 @@ describe("public web surface boundary (integration)", () => {
       expect(stands[0]!.items.map((i) => i.itemName)).toEqual(["kale"]);
     });
 
+    it("carries the sanitized public source description to the map and HTTP API", async () => {
+      await client()`
+        update farms
+        set description = ${"Facebook: www.facebook.com/example\nStocking Days: Daily"}
+        where id = ${ids.farm}
+      `;
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect(stands[0]!.description).toBe(
+        "Facebook: www.facebook.com/example\nStocking Days: Daily",
+      );
+
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as { stands: { description?: string }[] };
+      expect(body.stands[0]!.description).toBe(
+        "Facebook: www.facebook.com/example\nStocking Days: Daily",
+      );
+    });
+
     it("takes no model dependency at all", () => {
       // Structural, not behavioral: `listPublicStands` accepts db + clock and has no seam
       // to hand a model to. A future edit that adds one has to change this signature, and

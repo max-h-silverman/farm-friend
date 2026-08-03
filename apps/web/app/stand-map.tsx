@@ -12,6 +12,7 @@ import {
   buildMapView,
   mapMarkerKind,
   numberStands,
+  sortStandsByNumber,
   standListingLines,
   type FilteredStand,
   type PublicStandPayload,
@@ -74,7 +75,7 @@ function ParticipantNames({ names }: { names: readonly string[] }) {
 }
 
 type PosterIndicator = {
-  kind: "no-viga-bucks" | "year-round" | "late-november";
+  kind: "no-viga-bucks" | "year-round" | "late-november" | "contact-only";
   label: string;
 };
 
@@ -86,6 +87,9 @@ type PosterIndicator = {
  */
 function posterIndicators(stand: PublicStandPayload): PosterIndicator[] {
   const indicators: PosterIndicator[] = [];
+  if (stand.visitability === "contact_only") {
+    indicators.push({ kind: "contact-only", label: "No farm stand to visit" });
+  }
   if (stand.farmBucksAccepted === false) {
     indicators.push({ kind: "no-viga-bucks", label: "Does not accept VIGA Bucks" });
   }
@@ -101,6 +105,65 @@ function posterIndicators(stand: PublicStandPayload): PosterIndicator[] {
     indicators.push({ kind: "late-november", label: "Open until late November" });
   }
   return indicators;
+}
+
+const DESCRIPTION_LINK = /(?:https?:\/\/|www\.|(?:[a-z0-9-]+\.)+(?:com|org|farm)\b)[^\s]*/gi;
+
+function PublicDescription({ description }: { description?: string }) {
+  if (description === undefined || description.trim() === "") return null;
+
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const match of description.matchAll(DESCRIPTION_LINK)) {
+    const start = match.index ?? 0;
+    const raw = match[0];
+    if (start > cursor) parts.push(description.slice(cursor, start));
+
+    const trailing = raw.match(/[.,;:!?)]*$/)?.[0] ?? "";
+    const visible = trailing === "" ? raw : raw.slice(0, -trailing.length);
+    const href = visible.startsWith("www.") ? `https://${visible}` :
+      visible.startsWith("http://") || visible.startsWith("https://")
+        ? visible
+        : `https://${visible}`;
+    parts.push(
+      <a key={`${start}-${raw}`} href={href} target="_blank" rel="noreferrer noopener">
+        {visible}
+      </a>,
+    );
+    if (trailing !== "") parts.push(trailing);
+    cursor = start + raw.length;
+  }
+  if (cursor < description.length) parts.push(description.slice(cursor));
+
+  return (
+    <div className="stand-description">
+      <p className="listing-label">Additional information</p>
+      <p className="description-text">{parts}</p>
+    </div>
+  );
+}
+
+function MarkerLegend() {
+  const entries = [
+    ["seasonal", "Seasonal farm stand"],
+    ["year-round", "Year-round farm stand"],
+    ["flower-only", "Flower-only stand; does not accept VIGA Bucks"],
+    ["contact-only", "Farm listed with no farm stand to visit"],
+    ["farmers-market", "VIGA Farmers Market"],
+  ] as const;
+
+  return (
+    <ul className="marker-legend" aria-label="Map marker key">
+      {entries.map(([kind, label]) => (
+        <li key={kind} className="marker-legend-item">
+          <span className={`marker-legend-symbol marker-legend-${kind}`} aria-hidden="true">
+            {kind === "flower-only" ? "✿" : kind === "contact-only" ? "●" : ""}
+          </span>
+          <span>{label}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function PosterIndicators({
@@ -158,6 +221,10 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
   const visible = useMemo(
     () => applyStandFilters(numbered, filters, moment),
     [numbered, filters, moment],
+  );
+  const listVisible = useMemo(
+    () => (view.sortedByDistance ? visible : sortStandsByNumber(visible)),
+    [view.sortedByDistance, visible],
   );
 
   const anyFilterActive =
@@ -364,6 +431,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
 
       <div className="layout">
         <div className="map-column">
+          <MarkerLegend />
           {/*
           F-043 — the island, drawn rather than tiled. No mapping provider, no per-view
           billing, no runtime seam; `maps/README.md` records that there deliberately is none.
@@ -531,7 +599,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
             </p>
           ) : (
             <ul className="stands">
-              {visible.map((stand) => (
+              {listVisible.map((stand) => (
                 <li
                   key={stand.id}
                   ref={(node) => {
@@ -706,6 +774,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                       Directions
                     </a>
                   ) : null}
+                  <PublicDescription description={stand.description} />
                     </div>
                   </div>
                 </li>
@@ -825,6 +894,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
               Directions
             </a>
           ) : null}
+          <PublicDescription description={selectedStand.description} />
         </div>
       ) : null}
 

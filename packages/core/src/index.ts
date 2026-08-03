@@ -29,3 +29,4 @@ export * from "./seed/match-stands";
 export * from "./seed/offering-type";
 export * from "./seed/stand-csv";
 export * from "./seed/stand-fields";
+export * from "./seed/public-listing-details";
