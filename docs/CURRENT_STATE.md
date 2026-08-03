@@ -5,9 +5,10 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Merged commit `2a6eba1` is live on Cloud Run as one image across web
-revision `farm-friend-web-00019-lg9` and worker revision `farm-friend-worker-00020-ndb`, both at
-digest `sha256:a3d63ff627e6e7e74b7a05f04dcd30c97b827ce235515fbefaaea55eed7d1491`.
+Farm Friend is **pre-go-live**. Merged commit `2a6eba1` plus the combined follow-up commits
+`81412d7` and `53ea6fb` are live on Cloud Run as one image across web revision
+`farm-friend-web-00020-rz7` and worker revision `farm-friend-worker-00021-spx`, both at digest
+`sha256:9b557833f5135912bf2a3d4d90e88aa0fcbc07abcbccc5f8630309a9539f717b`.
 Production Postgres is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal
 timestamp `1786500000000`). Production now includes:
 
@@ -18,7 +19,10 @@ timestamp `1786500000000`). Production now includes:
 - F-055: completed and visually exercised administrator and farmer web workflows;
 - farmer invitations, unbound-farm onboarding, and administrator Farm Bucks status editing;
 - the VIGA-poster public map treatment: legend above listings, dot-only card indicators in their own
-  column, left-aligned card text, and two-way card/marker collapse;
+  column, left-aligned card text, top-aligned wrapped names, two-way card/marker collapse, and
+  VIGA-style colored/flower map markers with a selected-marker halo and label layer;
+- authorized farmer inbound SMS classification into inventory update, farm-stand question, or
+  unclear before exact stand targeting;
 - VIGA-only Squarespace admin embedding through a partitioned session cookie, a framing allowlist,
   and independent same-origin checks on authenticated writes;
 - one shared iframe-height handshake across map, admin, and farmer pages; it measures actual content
@@ -48,13 +52,14 @@ or nullable compatibility state.
 
 ## Verification
 
-The current release passes 91 unit-test files / 874 tests, 41 real-Postgres integration-test files /
-561 tests against disposable databases, typecheck, lint, and the production web build. The focused
-map interaction suite passes 4/4. The release introduced no model-facing seam, so no model
-evaluation is owed. Cloud Build `bc444893-2f59-4a9a-aaaa-31d30b2a5c16` published the exact merged
-commit; the OpenTofu plan passed 37/37 assertions and applied 0 adds, 2 service updates, and 0
-destroys. Post-deploy secret-freshness assertions and served vCard byte assertions pass. The
-canonical public map route returns 200 from the live web revision.
+The current release passes 92 unit-test files / 883 tests, 41 real-Postgres integration-test files /
+563 tests against disposable databases, typecheck, lint, and the production web build. The focused
+map suites pass 74/74 tests across the map view and interaction files. Cloud Build
+`479ac6d3-9d2a-4cf8-84b5-505171b06c9e` published the exact `53ea6fb` image; the OpenTofu plan passed
+37/37 assertions and applied 0 adds, 2 service updates, and 0 destroys. Post-deploy
+secret-freshness assertions and served vCard byte assertions pass: 153 bytes, 6 CRLF, and 0 bare LF.
+The canonical public map route returns HTTP 200 from the live web revision. Production already had
+all 17 committed migrations, so this release applied no database migration.
 
 The pushed F-056 commit `f041669` passes 842 unit tests, 551 integration tests across 40 files
 against a fresh local Postgres cluster, typecheck, lint, 44 scripted eval cases, and the production

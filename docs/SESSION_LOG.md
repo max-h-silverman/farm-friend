@@ -11,6 +11,24 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-02 — farmer SMS handling and final map polish deployed
+
+The remaining uncommitted work from the parallel session was included in `81412d7`, then the final
+map name-wrap alignment and farmer-SMS architecture documentation landed in `53ea6fb`. The release
+includes authorized farmer free-text classification before exact stand targeting, routing to
+inventory update, farm-stand question, or code-rendered clarification; VIGA-style colored and
+flower markers; selected-marker halos and final label layering; wide-screen sticky map behavior;
+and top-aligned stand numbers when a name wraps.
+
+Verification: 92 unit-test files / 883 tests, 41 real-Postgres integration-test files / 563 tests,
+typecheck, lint, production web build, and focused map tests 74/74. Cloud Build
+`479ac6d3-9d2a-4cf8-84b5-505171b06c9e` published digest
+`sha256:9b557833f5135912bf2a3d4d90e88aa0fcbc07abcbccc5f8630309a9539f717b`. OpenTofu passed 37/37
+plan assertions and applied 0 adds, 2 service updates, and 0 destroys. Production is live at web
+revision `farm-friend-web-00020-rz7` and worker revision `farm-friend-worker-00021-spx`; deployment
+assertions, served vCard checks, and the canonical map HTTP 200 check passed. No migration was owed:
+production already held all 17 committed migrations.
+
 ## 2026-08-02 — parallel admin changes and the VIGA-poster map refinements merged and deployed
 
 The parallel session's uncommitted work was carried into `71bafa7` and merged to `main` in
