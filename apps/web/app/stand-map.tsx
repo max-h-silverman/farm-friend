@@ -467,7 +467,6 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                     "pin",
                     `pin-${markerKind}`,
                     `pin-${stand.openState}`,
-                    stand.stale === true ? "pin-stale" : "",
                     isSelected ? "pin-selected" : "",
                   ]
                     .filter(Boolean)

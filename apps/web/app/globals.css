@@ -2477,7 +2477,7 @@ button.admin-action-danger:disabled {
 }
 
 .pin-flower-glyph {
-  stroke: var(--sage);
+  stroke: #b02d3b;
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
 }
@@ -2488,21 +2488,6 @@ button.admin-action-danger:disabled {
 
 .pin-flower-center {
   fill: #f6c344;
-}
-
-.pin-unknown .pin-shape,
-.pin-by_appointment .pin-shape,
-.pin-unknown .pin-market-shape,
-.pin-by_appointment .pin-market-shape,
-.pin-unknown .pin-flower-petal,
-.pin-by_appointment .pin-flower-petal {
-  fill: var(--sage);
-}
-
-.pin-stale .pin-shape,
-.pin-stale .pin-market-shape,
-.pin-stale .pin-flower-petal {
-  fill: var(--amber-line);
 }
 
 .pin-selection-halo {
@@ -2549,22 +2534,6 @@ button.admin-action-danger:disabled {
   text-anchor: middle;
   dominant-baseline: central;
   pointer-events: none;
-}
-
-/*
- * A HOLLOW pin is filled with the land colour, so the white/dark number that reads on a solid
- * pin disappears on it. These take the pin colour as ink instead — same rule as everywhere
- * else here: the ink is chosen against the surface it actually sits on, per theme.
- */
-.pin-unknown .pin-number,
-.pin-by_appointment .pin-number {
-  fill: var(--pin);
-}
-
-/* Stale pins are amber-filled in BOTH themes, so their number is dark in both — it is not a
- * theme question, it is a "what is this specific pin filled with" question. */
-.pin-stale .pin-number {
-  fill: #2a1e06;
 }
 
 .pin-flower-only .pin-number {
