@@ -119,12 +119,16 @@ describe("farm-map poster treatment", () => {
 
     expect(screen.getByAltText("VIGA Farm Map")).toBeTruthy();
     expect(screen.getByAltText("Vashon Island Growers Association")).toBeTruthy();
-    expect(screen.getAllByText("Does not accept VIGA Bucks")).toHaveLength(1);
-    expect(screen.getAllByText("Open year-round")).toHaveLength(1);
+    // Scoped to the DIRECTORY key. "Year-round" is also a map-legend entry, and an unscoped
+    // text query would pass on either one — including if this key disappeared entirely.
+    const directoryKey = screen.getByLabelText("Farm map key");
+    expect(within(directoryKey).getAllByText("Don't take VIGA Bucks")).toHaveLength(1);
+    expect(within(directoryKey).getAllByText("Year-round")).toHaveLength(1);
+    expect(within(directoryKey).getAllByText("Thru late November")).toHaveLength(1);
 
     const card = screen.getByRole("heading", { name: "Evergreen Farm Stand" }).closest("li")!;
-    expect(within(card).queryByText("Does not accept VIGA Bucks")).toBeNull();
-    expect(within(card).queryByText("Open year-round")).toBeNull();
+    expect(within(card).queryByText("Don't take VIGA Bucks")).toBeNull();
+    expect(within(card).queryByText("Year-round")).toBeNull();
     expect(card.querySelectorAll(".poster-dot")).toHaveLength(2);
     expect(within(card).getByText("1)", { exact: true })).toBeTruthy();
     expect(
@@ -533,7 +537,7 @@ describe("farm-map poster treatment", () => {
     expect(within(availability).getByRole("button", { name: "Open now" })).toBeTruthy();
     expect(within(availability).getByRole("button", { name: "Confirmed recently" })).toBeTruthy();
     const details = within(panel).getByRole("group", { name: "Stand details" });
-    expect(within(details).getByRole("button", { name: "Has a stand to visit" })).toBeTruthy();
+    expect(within(details).queryByRole("button", { name: "Has a stand to visit" })).toBeNull();
     expect(within(details).getByRole("button", { name: "Accepts VIGA Bucks" })).toBeTruthy();
     expect(within(details).getByRole("button", { name: "Flowers only" })).toBeTruthy();
     expect(within(panel).queryByText("Listing trust")).toBeNull();

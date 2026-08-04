@@ -877,25 +877,6 @@ describe("applyStandFilters (F-043)", () => {
     });
   });
 
-  describe("has a stand to visit", () => {
-    it("keeps visitable stands and drops contact-only farms", () => {
-      const all = [
-        stand("visit"),
-        stand("order", {
-          visitability: "contact_only",
-          offeringType: "by_order",
-          address: undefined,
-          latitude: undefined,
-          longitude: undefined,
-        }),
-      ];
-
-      const result = ask(all, { visitable: true });
-
-      expect(result.map((s) => s.id)).toEqual(["visit"]);
-    });
-  });
-
   describe("payment and stand-type filters", () => {
     it("keeps only stands explicitly reviewed as accepting VIGA Bucks", () => {
       const all = [
@@ -1157,5 +1138,28 @@ describe("hoistStand", () => {
     const original = [...stands];
     hoistStand(stands, "c");
     expect(stands).toEqual(original);
+  });
+
+  // SVG HAS NO Z-INDEX — paint order IS stacking order, so the only way to put the selected
+  // pin in front of the ones that overlap it is to render it last. Same move as the directory
+  // hoist, opposite end, which is why it is a parameter rather than a second function.
+  describe("to the end", () => {
+    it("moves the named stand to the end, keeping the rest in order", () => {
+      expect(hoistStand(stands, "a", "end").map((s) => s.id)).toEqual(["b", "c", "a"]);
+      expect(hoistStand(stands, "b", "end").map((s) => s.id)).toEqual(["a", "c", "b"]);
+    });
+
+    it("leaves a list whose last stand is already selected untouched", () => {
+      expect(hoistStand(stands, "c", "end").map((s) => s.id)).toEqual(["a", "b", "c"]);
+    });
+
+    it("never drops a stand for an absent or empty selection", () => {
+      expect(hoistStand(stands, null, "end").map((s) => s.id)).toEqual(["a", "b", "c"]);
+      expect(hoistStand(stands, "filtered-out", "end").map((s) => s.id)).toEqual([
+        "a",
+        "b",
+        "c",
+      ]);
+    });
   });
 });

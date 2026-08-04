@@ -65,7 +65,6 @@ const OPEN_STATE_LABEL: Record<FilteredStand["openState"], string | null> = {
 type ToggleFilterKey =
   | "openNow"
   | "confirmedRecently"
-  | "visitable"
   | "acceptsFarmBucks"
   | "flowersOnly";
 
@@ -83,7 +82,6 @@ const FILTER_GROUPS: ReadonlyArray<{
   {
     title: "Stand details",
     filters: [
-      { key: "visitable", label: "Has a stand to visit" },
       { key: "acceptsFarmBucks", label: "Accepts VIGA Bucks" },
       { key: "flowersOnly", label: "Flowers only" },
     ],
@@ -513,10 +511,18 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
     [ordered, selectedFrom, selectedId],
   );
 
+  // THE SELECTED PIN IS DRAWN LAST, so it and its halo sit in front of the pins around it.
+  // SVG has no `z-index`; the last element painted is the one on top. Without this the pin a
+  // customer just tapped can stay buried under its neighbours — worst in the dense clusters
+  // where the selection is exactly what they are trying to pick out.
+  const pinned = useMemo(
+    () => hoistStand(visible, selectedId, "end"),
+    [visible, selectedId],
+  );
+
   const advancedFilterCount =
     (filters.openNow === true ? 1 : 0) +
     (filters.confirmedRecently === true ? 1 : 0) +
-    (filters.visitable === true ? 1 : 0) +
     (filters.acceptsFarmBucks === true ? 1 : 0) +
     (filters.flowersOnly === true ? 1 : 0) +
     (filters.season !== undefined && filters.season !== "" ? 1 : 0);
@@ -856,7 +862,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           >
             <IslandArtwork />
             <g className="pin-layer">
-            {visible.map((stand) => {
+            {pinned.map((stand) => {
               // F-038 — a contact-only farm has no coordinate and gets NO PIN. It stays in
               // the list beside the map, because "no stand to visit" is a fact about how to
               // buy from them, not a reason to disappear.
@@ -994,15 +1000,15 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           <div className="farm-map-key" aria-label="Farm map key">
             <span className="poster-indicator poster-indicator-no-viga-bucks">
               <span className="poster-dot" aria-hidden="true" />
-              Does not accept VIGA Bucks
+              Don't take VIGA Bucks
             </span>
             <span className="poster-indicator poster-indicator-year-round">
               <span className="poster-dot" aria-hidden="true" />
-              Open year-round
+              Year-round
             </span>
             <span className="poster-indicator poster-indicator-late-november">
               <span className="poster-dot" aria-hidden="true" />
-              Open until late November
+              Thru late November
             </span>
           </div>
 

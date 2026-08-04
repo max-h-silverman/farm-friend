@@ -439,7 +439,13 @@ export function sortStandsByNumber<Stand extends { standNumber: number }>(
 }
 
 /**
- * Move one stand to the front of the displayed list, leaving the rest in order.
+ * Move one stand to one END of the displayed list, leaving the rest in order.
+ *
+ * TWO SURFACES WANT OPPOSITE ENDS, which is why the end is a parameter rather than a second
+ * function. The DIRECTORY wants the selection first, where it sits beside the map. The PIN
+ * LAYER wants it last, because SVG has no `z-index` — paint order is stacking order, so a
+ * selected pin drawn in its normal place hides under whichever pins happen to come after it,
+ * exactly in the clusters where overlap makes the selection hardest to find.
  *
  * WHY THE LIST REORDERS AT ALL. Tapping a map pin has to answer "what is this stand?", and the
  * answer is the expanded card. Scrolling the page to reach it dragged the map out of view —
@@ -458,13 +464,15 @@ export function sortStandsByNumber<Stand extends { standNumber: number }>(
 export function hoistStand<Stand extends { id: string }>(
   stands: readonly Stand[],
   id: string | null,
+  to: "front" | "end" = "front",
 ): Stand[] {
   if (id === null) return [...stands];
 
   const index = stands.findIndex((stand) => stand.id === id);
   if (index === -1) return [...stands];
 
-  return [stands[index]!, ...stands.slice(0, index), ...stands.slice(index + 1)];
+  const rest = [...stands.slice(0, index), ...stands.slice(index + 1)];
+  return to === "front" ? [stands[index]!, ...rest] : [...rest, stands[index]!];
 }
 
 /**
@@ -481,8 +489,6 @@ export interface StandFilters {
   confirmedRecently?: boolean;
   /** Free text matched against confirmed items and usual-offering tags. */
   sells?: string;
-  /** Has somewhere to go (F-038) — excludes by-order farms with no stand. */
-  visitable?: boolean;
   /** Explicitly reviewed as accepting VIGA Bucks; an unstated payment fact does not pass. */
   acceptsFarmBucks?: boolean;
   /** Every published usual offering is a flower or flower-derived product. */
@@ -628,10 +634,6 @@ export function applyStandFilters<Stand extends PublicStandPayload>(
       }
 
       if (filters.sells !== undefined && !sellsMatch(stand, filters.sells)) {
-        return false;
-      }
-
-      if (filters.visitable === true && stand.visitability !== "visitable") {
         return false;
       }
 

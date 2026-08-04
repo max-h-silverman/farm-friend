@@ -12,48 +12,38 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal timestamp
 `1786500000000`).
 
-Branch `map-slide-to-stand` is the next release candidate. On top of the `map-desktop-density`
-work below it adds:
+The wide-screen map/list coupling, the desktop density pass, and the indicator-color correction are
+all merged to `main`. The most recent tranche is a **public-map selection and key polish**:
 
-- **wide-screen map/list coupling.** A card tap slides the map panel down to the selected card
-  (`apps/web/lib/map-follow.ts`, top-aligned, clamped to both the column and the visible area). A
-  marker tap instead hoists the card to the top of the directory (`hoistStand`), demotes the list
-  preamble beneath it so the card sits level with the map, and scrolls the layout into view. The
-  map column's `position: sticky` was removed — it cannot engage inside a content-sized iframe and
-  cannot coexist with the transform;
-- the stand website moved out of every collapsed directory row into the expanded detail, and a
-  shorter collapsed card (`min-height` 4.75rem → 3.6rem, tighter row gap and padding);
-- **admin write origin is configured, not derived.** `isTrustedAdminMutationSource` now compares
-  `Origin` against `PUBLIC_BASE_URL` rather than `new URL(req.url).origin`. Behind Cloud Run's
-  proxy the latter reports `localhost:8080`, which refused every admin write in production while
-  passing a test that hand-built the URL. **The check fails closed**: if `PUBLIC_BASE_URL` is
-  unset or unparseable on the deployed service, every admin write is refused;
-- a local-only seeding script for long-list testing (`packages/db/scripts/seed-map-test-stands.ts`),
-  which refuses any non-loopback database and prefixes every row it creates.
+- **one selected state, said once.** A selected directory row paints the same fill as hover (the
+  `--row-hover` token), so it no longer shifts color under the pointer; its ring is 3px, matching
+  the selected pin's weight. Pin outlines are a uniform thin 2px and carry **no** selection state —
+  the halo is the only selection mark on the map;
+- **the selected pin is drawn last.** SVG has no `z-index`, so `hoistStand` took a
+  `"front" | "end"` parameter: the directory hoists the selection to the front, the pin layer to
+  the end. One mechanism, two ends — not two helpers;
+- **the directory key never wraps.** Type and gap both scale in `cqi` against `.list-column`, which
+  is now a container. Below roughly a 340px column the three labels cannot share a line at any
+  legible size, so the type stops at a readable floor and the row scrolls rather than clipping;
+- **the "Has a stand to visit" filter is gone end-to-end** — option, active count, `StandFilters`
+  field, predicate, and test.
 
-Branch `map-desktop-density` is the release candidate beneath it. It includes:
-
-- a rebuilt, compact public-map finder with button filters, grouped spacing, Farm Bucks and
-  flower-only filtering, a Season-column clear action, and no selected-filter chips;
-- a denser shared map/list hierarchy, compact phone map key and detail sheet, market-specific
-  presentation, a visible loading state, and the reviewed May-through-September market schedule;
-- a work-first volunteer desk and quieter administrator/farmer surfaces with inline confirmation
-  for destructive actions;
-- seller-name editing moved from the daily availability form into stand settings, bound to the
-  selected stand;
-- a separate customer welcome after a successful first-time `JOIN` or restoring `START`, plus
-  clearer farmer authorization and invitation copy.
+Two defects were fixed that no test could see: `.stand:focus-within` painted a dark border beside
+the amber selection ring on every click, and on wide screens `.stand:hover { box-shadow: none }`
+outranked `.stand-selected` and erased the ring whenever the pointer rested on the selected row.
 
 No schema migration is included. The market schedule source edit needs a guarded production content
 update because the original public-description backfill is intentionally null-only.
 
 ## Verification
 
-- Release candidate: 99 unit-test files / 954 tests, typecheck, and lint pass.
-- Real-Postgres integration: 41 of 41 files / 564 of 564 tests pass on a complete run — this
-  clears the rerun previously owed by `map-desktop-density`.
+- Current `main`: 99 unit-test files / 959 tests, typecheck, lint, and the production web build pass.
+- Real-Postgres integration: 41 of 41 files / 564 of 564 tests pass on a complete run. **Not rerun
+  in the 2026-08-04 pass** — that tranche touched only public-map client rendering, with no DB,
+  server, model-seam, SMS, or privacy surface in the diff, so no integration run or eval was owed.
 - `mapFollowOffset` and `hoistStand` are sabotage-verified: removing each clamp, reversing the
-  top alignment, and leaking the hoist onto card taps each fail a distinct named test.
+  top alignment, leaking the hoist onto card taps, and reverting the end-hoist branch each fail a
+  distinct named test.
 - The wide-screen map/list behavior was exercised in a real browser at 1500x900 and its geometry
   measured, because jsdom reports every element as zero-sized and cannot see any of it. Before the
   layout scroll, a marker tap at `scrollY` 880 left the map at top −580 and the card at −564 —
@@ -68,6 +58,11 @@ update because the original public-description backfill is intentionally null-on
 - Public map was exercised in a real browser at 390x844 and 1440x1000: no horizontal overflow,
   filters are binary buttons, selected-filter chips are absent, and Clear all sits inside Season.
   The document is intentionally light-only; no alternate dark palette exists.
+- The selection and key polish was verified at 1440x1000 and in 390px and 320px frames by reading
+  **computed styles**, not screenshots — jsdom sizes every element at zero and can see none of it.
+  Confirmed: the selected row's ring resolves to `rgb(233,174,27) 0 0 0 3px` while hovered, the
+  key holds one line with no clipping from a 360px column upward, and the page never overflows
+  horizontally. At a 320px column the key scrolls within itself by design.
 - Production build warnings remain unchanged: Next does not recognize `outputFileTracingRoot`, and
   the Next ESLint plugin is not installed. B-008 owns the lint configuration gap.
 
