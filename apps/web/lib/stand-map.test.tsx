@@ -360,7 +360,11 @@ describe("farm-map poster treatment", () => {
     expect(within(card).queryByText("Plan your visit")).toBeNull();
     expect(card.querySelector(".detail-inventory")).toBeNull();
     expect(card.querySelector(".farm")).toBeNull();
-    expect(card.querySelector(".stand-detail-body")?.firstElementChild).toHaveClass(
+    // The actions lead the detail body — inside `.detail-aside`, which groups them with the
+    // status badges so the pair is placed as one block rather than as separate grid rows.
+    const body = card.querySelector(".stand-detail-body");
+    expect(body?.firstElementChild).toHaveClass("detail-aside");
+    expect(body?.querySelector(".detail-aside")?.firstElementChild).toHaveClass(
       "detail-actions",
     );
   });
@@ -847,5 +851,77 @@ describe("wide-screen map follow", () => {
       block: "start",
       behavior: "instant",
     });
+  });
+});
+
+/**
+ * The expanded directory row's ACTION ROW (the design pass).
+ *
+ * The defect this locks out was visible on the deployed map: "Website" and "Get directions"
+ * rendered as the single word "WebsiteGet directions". `.detail-actions` was a bare `<div>`
+ * with no layout of its own, so two inline links sat with nothing between them — two distinct
+ * destinations reading as one. The row is now a flex row with a gap, and the two links are
+ * separated in the MARKUP as well, so the accessible names stay distinct even unstyled.
+ */
+describe("expanded stand actions", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  const stand: PublicStandPayload = {
+    id: "action-stand",
+    farmName: "Action Farm",
+    locationName: "Action Stand",
+    visitability: "visitable",
+    offeringType: "produce",
+    address: "23720 Example Rd SW",
+    latitude: 47.44,
+    longitude: -122.46,
+    availability: {},
+    alsoSellingHere: [],
+    items: [],
+    usuallySells: ["plant starts", "vegetables"],
+    farmBucksAccepted: true,
+    description: "Website: https://example.invalid/farm\nOpen: dawn to dusk.",
+  };
+
+  it("renders the website and directions as two separate action links", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={[stand]} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Action Stand" }),
+    );
+
+    const actions = container.querySelector(".detail-actions") as HTMLElement;
+    expect(actions).toBeTruthy();
+
+    const website = within(actions).getByRole("link", { name: "Website" });
+    const directions = within(actions).getByRole("link", { name: "Get directions" });
+
+    // THE REGRESSION ITSELF, asserted on STRUCTURE rather than on the row's concatenated text.
+    // The defect was two bare anchors as adjacent inline siblings, with nothing — no element
+    // boundary, no whitespace — between them. Note that a text assertion cannot express this
+    // fix: the separation is a flex gap, and `textContent` is identical with and without it.
+    // What actually changed is that each action is now its own list item.
+    expect(actions.tagName).toBe("UL");
+    for (const link of [directions, website]) {
+      expect(link.parentElement?.tagName).toBe("LI");
+      expect(link.parentElement?.parentElement).toBe(actions);
+    }
+    // Distinct items, so neither can collapse into the other's line box.
+    expect(directions.parentElement).not.toBe(website.parentElement);
+
+    // Directions leads: it is the act the card exists to enable, and the website is secondary.
+    expect(
+      directions.parentElement!.compareDocumentPosition(website.parentElement!),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 });
