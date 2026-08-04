@@ -2141,20 +2141,79 @@ button.admin-action-danger:disabled {
 
   .map-column {
     order: 2;
-    /* Keep the map in the viewport while the two-column directory scrolls beside it. */
-    position: sticky;
-    top: 1.25rem;
     align-self: start;
     height: fit-content;
+
+    /* THE MAP FOLLOWS THE SELECTED STAND, moved by a transform from `map-follow.ts`.
+     *
+     * This replaced `position: sticky`, which could not do the job for two reasons: sticky
+     * pins to the VIEWPORT, and the public map is embedded in an iframe sized to its own
+     * content (see `embed-height.tsx`), so inside the frame the viewport IS the whole document
+     * and sticky never engaged at all; and sticky holds one fixed offset where this has to
+     * track a particular card. The two also cannot coexist — each wants the element at a
+     * different place — so the transform is now the map column's only positioning mechanism.
+     *
+     * The transition is short on purpose. Selecting a second stand while the first move is
+     * still running should land promptly rather than leave the customer watching the map
+     * travel; the same reason the phone's scroll correction is instant rather than smooth. */
+    transition: transform 260ms ease-out;
+  }
+
+  /* A customer who asked for less motion gets the position without the travel. */
+  @media (prefers-reduced-motion: reduce) {
+    .map-column {
+      transition: none;
+    }
   }
 
   .list-column {
     order: 1;
   }
 
+  /* ------------------------------------------- the hoisted card, level with the map
+   *
+   * A pin tap moves its card to the top of the directory. But the directory is not the first
+   * thing in its column — a stale-listing summary and the marker key sit above it — so the
+   * hoisted card lands that far BELOW the map's top edge, and the two things the customer just
+   * asked to compare are out of line.
+   *
+   * The map is the first child of its own column and the two columns are grid siblings, so
+   * their tops share a y. Demoting the preamble below the list therefore puts the hoisted card
+   * exactly level with the map.
+   *
+   * WHY ORDER AND NOT A MEASURED OFFSET. The stale summary renders only when something is
+   * stale, so the distance is not a constant and reading it would mean measuring at runtime.
+   * Reordering needs no geometry at all — which is also what lets it work inside VIGA's iframe,
+   * where the frame is sized to its own content and there is no viewport to measure against.
+   *
+   * The preamble is MOVED, never hidden: the stale warning is a standing obligation of the
+   * product, and a customer tapping a pin must not make it disappear. */
+  .list-column-hoisted {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .list-column-hoisted > .stands {
+    order: -1;
+  }
+
+  /* The key's bottom margin separated it from the list when it sat above; below the list it
+     needs the space on top instead. */
+  .list-column-hoisted > .farm-map-key {
+    margin-top: 0.75rem;
+    margin-bottom: 0;
+  }
+
+  .list-column-hoisted > .stale-summary {
+    margin-bottom: 0;
+  }
+
   .stands {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem;
+    /* Rows sit closer than columns: the cards' own padding already separates them vertically,
+       so the full gap on both axes read as loose down the page. Card padding is unchanged —
+       that is what keeps these reading as the printed directory's entries. */
+    gap: 0.4rem 0.65rem;
   }
 
   /* Expanded inventory and directions need one readable column, not two cramped ones. */
@@ -3427,16 +3486,6 @@ button.admin-action-danger,
   overflow-wrap: anywhere;
 }
 
-.stand-summary-website {
-  display: inline-flex;
-  align-items: center;
-  color: var(--brick);
-  font-size: 0.9rem;
-  font-weight: 700;
-  line-height: 1.35;
-  text-decoration: underline;
-}
-
 .stand-summary-freshness {
   color: var(--amber);
   font-size: 0.82rem;
@@ -3740,10 +3789,13 @@ button.admin-action-danger,
   }
 
   .stand {
-    min-height: 4.75rem;
+    /* Was 4.75rem, reserving room for a stacked address AND website line. The website moved to
+       the expanded detail, so the floor now only has to hold the number, name, and address —
+       and a directory of 30 stands is meaningfully shorter for it. */
+    min-height: 3.6rem;
     grid-template-columns: minmax(0, 0.65rem) minmax(0, 1fr);
     column-gap: 0.4rem;
-    padding: 0.5rem 0.45rem;
+    padding: 0.35rem 0.45rem;
     background: transparent;
     border-color: transparent;
     border-radius: 0;
@@ -3809,15 +3861,6 @@ button.admin-action-danger,
     line-height: 1.2;
   }
 
-  .stand-summary-location {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.15rem;
-  }
-
-  .stand-summary-website,
   .stand-summary-freshness {
     min-height: 1.45rem;
     font-size: 0.82rem;

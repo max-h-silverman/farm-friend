@@ -439,6 +439,35 @@ export function sortStandsByNumber<Stand extends { standNumber: number }>(
 }
 
 /**
+ * Move one stand to the front of the displayed list, leaving the rest in order.
+ *
+ * WHY THE LIST REORDERS AT ALL. Tapping a map pin has to answer "what is this stand?", and the
+ * answer is the expanded card. Scrolling the page to reach it dragged the map out of view —
+ * inside VIGA's iframe there is no inner scroll container, so `scrollIntoView` escapes to the
+ * embedding page and moves the whole document. Bringing the card to the top of the directory
+ * puts it beside the map instead, and moves nothing else on the page.
+ *
+ * IT DOES NOT RENUMBER. The poster number belongs to the farm, not to the row's position
+ * (see `numberStands`), so a hoisted stand keeps its own number and simply appears first. A
+ * gap in the numbered run is the visible cost of this, and it closes the moment the selection
+ * is dismissed.
+ *
+ * An unknown or absent id returns the list untouched, so a stale selection cannot silently
+ * drop a stand from the directory.
+ */
+export function hoistStand<Stand extends { id: string }>(
+  stands: readonly Stand[],
+  id: string | null,
+): Stand[] {
+  if (id === null) return [...stands];
+
+  const index = stands.findIndex((stand) => stand.id === id);
+  if (index === -1) return [...stands];
+
+  return [stands[index]!, ...stands.slice(0, index), ...stands.slice(index + 1)];
+}
+
+/**
  * What a customer has asked the map to narrow down to (F-043).
  *
  * All filters are client-side over data already served. No new model call and

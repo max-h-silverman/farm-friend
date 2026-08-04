@@ -4,6 +4,7 @@ import {
   buildMapView,
   mapMarkerKind,
   numberStands,
+  hoistStand,
   sortStandsByNumber,
   standListingLines,
   type PublicStandPayload,
@@ -1127,5 +1128,34 @@ describe("numberStands (F-043 — the poster's numbered pins)", () => {
     ]);
 
     expect(view.map((stand) => stand.standNumber)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("hoistStand", () => {
+  const stands = [{ id: "a" }, { id: "b" }, { id: "c" }];
+
+  it("moves the named stand to the front, keeping the rest in order", () => {
+    expect(hoistStand(stands, "c").map((s) => s.id)).toEqual(["c", "a", "b"]);
+    expect(hoistStand(stands, "b").map((s) => s.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("leaves a list whose first stand is already selected untouched", () => {
+    expect(hoistStand(stands, "a").map((s) => s.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("returns the original order when nothing is selected", () => {
+    expect(hoistStand(stands, null).map((s) => s.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("never drops a stand when the selection is not in the list", () => {
+    // A selection can outlive a filter change that removes its stand. Silently dropping the
+    // whole list, or the selected row, would empty the directory for a stale id.
+    expect(hoistStand(stands, "filtered-out").map((s) => s.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("does not mutate the list it was given", () => {
+    const original = [...stands];
+    hoistStand(stands, "c");
+    expect(stands).toEqual(original);
   });
 });
