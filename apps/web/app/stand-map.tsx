@@ -10,6 +10,7 @@ import {
   applyStandFilters,
   buildMapView,
   mapMarkerKind,
+  hoistStand,
   numberStands,
   sortStandsByNumber,
   standListingLines,
@@ -19,6 +20,7 @@ import {
   type StandFilters,
 } from "../lib/map-view";
 import { IslandArtwork } from "./island-artwork";
+import { mapFollowOffset } from "../lib/map-follow";
 import { useTransientOrigin } from "./use-transient-origin";
 import farmMapLogo from "../../../assets/viga-farm-map.png";
 import vigaWheelbarrow from "../../../assets/viga_wheelbarrow.png";
@@ -63,7 +65,6 @@ const OPEN_STATE_LABEL: Record<FilteredStand["openState"], string | null> = {
 type ToggleFilterKey =
   | "openNow"
   | "confirmedRecently"
-  | "visitable"
   | "acceptsFarmBucks"
   | "flowersOnly";
 
@@ -81,7 +82,6 @@ const FILTER_GROUPS: ReadonlyArray<{
   {
     title: "Stand details",
     filters: [
-      { key: "visitable", label: "Has a stand to visit" },
       { key: "acceptsFarmBucks", label: "Accepts VIGA Bucks" },
       { key: "flowersOnly", label: "Flowers only" },
     ],
@@ -322,28 +322,19 @@ function StandListings({ stand }: { stand: FilteredStand }) {
   );
 }
 
-/** One hierarchy for both the expanded directory row and the phone map sheet. */
+/**
+ * One hierarchy for both the expanded directory row and the phone map sheet.
+ *
+ * The address and a staleness warning only. The website moved into `StandDetailBody`, where it
+ * appears once a stand is selected: here it added a line to every collapsed row of a directory
+ * meant to be scanned by eye.
+ */
 function StandSummaryMeta({ stand }: { stand: FilteredStand & MapViewStand }) {
-  const { website } = splitWebsite(stand.description);
-
  return (
    <div className="stand-summary-meta">
-     <div className="stand-summary-location">
-       <p className="stand-summary-address">
-         {stand.address ?? "No farm stand to visit"}
-       </p>
-
-       {website !== undefined ? (
-         <a
-           className="stand-summary-website"
-           href={website}
-           target="_blank"
-           rel="noreferrer noopener"
-         >
-           Website
-         </a>
-       ) : null}
-     </div>
+     <p className="stand-summary-address">
+       {stand.address ?? "No farm stand to visit"}
+     </p>
 
      {stand.stale === true ? (
        <span className="stand-summary-freshness">Needs confirmation</span>
@@ -402,16 +393,33 @@ function StandDetailBody({
             </a>
           ) : null}
         </section>
-      ) : stand.routingLink !== null ? (
+      ) : website !== undefined || stand.routingLink !== null ? (
+        // The expanded DIRECTORY ROW. It suppresses the "Plan your visit" section above,
+        // because the row already shows the address — so this is where its website and
+        // directions live. The website used to sit in the collapsed summary, which put it on
+        // every row of a directory meant to be scanned; it belongs with the other actions a
+        // customer wants only once they have chosen a stand.
         <div className="detail-actions">
-          <a
-            className="directions"
-            href={stand.routingLink}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            {isMarket ? "Directions to market" : "Get directions"}
-          </a>
+          {website !== undefined ? (
+            <a
+              className="stand-website"
+              href={website}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Website
+            </a>
+          ) : null}
+          {stand.routingLink !== null ? (
+            <a
+              className="directions"
+              href={stand.routingLink}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              {isMarket ? "Directions to market" : "Get directions"}
+            </a>
+          ) : null}
         </div>
       ) : null}
 
@@ -457,8 +465,15 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
   const [filters, setFilters] = useState<StandFilters>({});
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // WHICH SURFACE made the selection, because the two want opposite movement: a card tap moves
+  // the map to the card, a pin tap moves the card to the reader. Kept beside the selection
+  // rather than in a ref so the follow effect re-runs when it changes.
+  const [selectedFrom, setSelectedFrom] = useState<"map" | "list">("list");
   const cardRefs = useRef(new Map<string, HTMLLIElement>());
   const mapRef = useRef<HTMLElement | null>(null);
+  const mapColumnRef = useRef<HTMLDivElement | null>(null);
+  const listColumnRef = useRef<HTMLDivElement | null>(null);
+  const layoutRef = useRef<HTMLDivElement | null>(null);
 
   // The moment the filters are evaluated against, captured once per render rather than read
   // inside the predicate. `openNow` computes the real sun for the date, so the answer must
@@ -482,15 +497,32 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
     () => applyStandFilters(numbered, filters, moment),
     [numbered, filters, moment],
   );
-  const listVisible = useMemo(
+  const ordered = useMemo(
     () => (view.sortedByDistance ? visible : sortStandsByNumber(visible)),
     [view.sortedByDistance, visible],
+  );
+
+  // A PIN TAP BRINGS ITS CARD TO THE TOP, so the expanded detail sits beside the map that
+  // produced it rather than wherever the stand happened to fall in the directory. Only for
+  // selections made from the map: a card tap is answered by the map sliding to meet the card,
+  // and reordering the list under the customer's finger as well would move both at once.
+  const listVisible = useMemo(
+    () => (selectedFrom === "map" ? hoistStand(ordered, selectedId) : ordered),
+    [ordered, selectedFrom, selectedId],
+  );
+
+  // THE SELECTED PIN IS DRAWN LAST, so it and its halo sit in front of the pins around it.
+  // SVG has no `z-index`; the last element painted is the one on top. Without this the pin a
+  // customer just tapped can stay buried under its neighbours — worst in the dense clusters
+  // where the selection is exactly what they are trying to pick out.
+  const pinned = useMemo(
+    () => hoistStand(visible, selectedId, "end"),
+    [visible, selectedId],
   );
 
   const advancedFilterCount =
     (filters.openNow === true ? 1 : 0) +
     (filters.confirmedRecently === true ? 1 : 0) +
-    (filters.visitable === true ? 1 : 0) +
     (filters.acceptsFarmBucks === true ? 1 : 0) +
     (filters.flowersOnly === true ? 1 : 0) +
     (filters.season !== undefined && filters.season !== "" ? 1 : 0);
@@ -509,14 +541,90 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
 
 
   /**
+   * THE MAP FOLLOWS A CARD-TAP SELECTION (wide screens only).
+   *
+   * The directory is a long column beside a short map. Without this the map stays at the top
+   * while the customer reads a stand far below it, and the pin they just tapped — or are about
+   * to look for — is off screen. So the map slides down to sit beside the selected card, and
+   * stops at the bottom of its column when the selection is near the end of the list.
+   *
+   * ONLY FOR SELECTIONS MADE FROM THE LIST. A pin tap is the opposite situation: the customer
+   * is already looking at the map, so it is the CARD that needs to come to them — `select`
+   * scrolls it into view instead. Sliding the map on a pin tap also moved it toward the far end
+   * of a long directory, which on a 30-stand list carried it out of the visible area entirely.
+   *
+   * Runs as an effect rather than inside `select` because the offset depends on the card's
+   * LAID-OUT position, and selecting a stand expands it: reading the geometry in the click
+   * handler would measure the collapsed card and land the map in the wrong place. The effect
+   * runs after React has committed the expanded card.
+   *
+   * PHONE IS UNTOUCHED. There the map is above the list at full width, and translating it
+   * would push it off screen or open a gap where it was. The phone's answer to the same
+   * problem is the detail sheet, which is already built.
+   */
+  useEffect(() => {
+    const column = mapColumnRef.current;
+    if (column === null) return;
+
+    // The transform is a wide-screen affordance. On a phone the map must sit where the
+    // document put it, so any offset from a previous wide layout is cleared.
+    const isWide = window.matchMedia("(min-width: 56rem)").matches;
+    if (!isWide || selectedId === null) {
+      column.style.transform = "";
+      return;
+    }
+
+    // FROM A PIN — the map returns to the top of its column, where `.list-column-hoisted` has
+    // just put the selected card. The two are then aligned by LAYOUT rather than by measuring,
+    // which is what lets this path work inside VIGA's content-sized iframe.
+    //
+    // Alignment is not the same as visibility, though. A customer who has scrolled down a long
+    // directory ends up with the pair correctly lined up far above the fold — measured in a
+    // browser at scrollY 880: map top -580, card top -564, neither on screen. So the page is
+    // brought to them.
+    //
+    // Scrolling to the LAYOUT, not to the card, is what makes this safe. Earlier versions
+    // scrolled to the card wherever it sat and dragged the map out of view; the card has
+    // already been moved to the layout's top, so this lands on a fixed position that holds
+    // both. Verified in a real browser: map fully visible at top 0, card at 16.
+    if (selectedFrom === "map") {
+      column.style.transform = "";
+      layoutRef.current?.scrollIntoView({ block: "start" });
+      return;
+    }
+
+    const card = cardRefs.current.get(selectedId);
+    const list = listColumnRef.current;
+    const map = mapRef.current;
+    if (card === undefined || list === null || map === null) return;
+
+    const listBox = list.getBoundingClientRect();
+    const offset = mapFollowOffset({
+      // Measured against the LIST's own top rather than the page's, so the number means the
+      // same thing whether or not the page above the columns has grown.
+      cardOffset: card.getBoundingClientRect().top - listBox.top,
+      mapHeight: map.getBoundingClientRect().height,
+      columnHeight: listBox.height,
+      // Viewport coordinates, so the map can be kept on screen and not merely inside the
+      // column. `getBoundingClientRect` is already relative to the visible area, so the list's
+      // own top IS the offset the clamp needs — negative once scrolled past.
+      columnTop: listBox.top,
+      viewportHeight: window.innerHeight,
+    });
+
+    column.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
+  }, [selectedId, selectedFrom, listVisible]);
+
+  /**
    * Selecting from either surface writes the SAME state — one selection, two renderers.
    *
    * WHAT HAPPENS NEXT DEPENDS ON THE VIEWPORT, and that is the design rather than a
    * responsive afterthought:
    *
-   *   WIDE — the list is already on screen beside the map, so the card only needs bringing
-   *   into view. `smooth` was replaced with an instant scroll: the animation took long enough
-   *   that a customer tapping a second pin was still watching the first one travel.
+   *   WIDE — the thing the customer is NOT looking at is the thing that moves. From a card,
+   *   the map slides to meet it (the follow effect above). From a pin, the page brings the
+   *   expanded card into view: their eyes are already on the map, and sliding it there instead
+   *   moved it toward the end of a long directory and out of the visible area.
    *
    *   PHONE — the list is BELOW the map, so scrolling to a card throws away the map the
    *   customer was just reading, and they have to scroll back to tap anything else. Instead
@@ -533,18 +641,16 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       return;
     }
 
-    if (source === "list") {
-      setSelectedId(id);
-      return;
-    }
-
     setSelectedId(id);
+    setSelectedFrom(source);
 
+    if (source === "list") return;
+
+    // WIDE — bringing the card into view is handled by the follow effect above, after React
+    // has committed the expanded card. Scrolling here would measure the COLLAPSED card and stop
+    // short of the detail the tap was asking to see.
     const isWide = window.matchMedia("(min-width: 56rem)").matches;
-    if (isWide) {
-      cardRefs.current.get(id)?.scrollIntoView({ block: "nearest" });
-      return;
-    }
+    if (isWide) return;
 
     // PHONE — bring the unchanged map to the top before the sheet overlays its lower portion.
     // The map must not resize when selection changes: shrinking it moves every marker under
@@ -738,8 +844,8 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
         ) : null}
       </section>
 
-      <div className="layout">
-        <div className="map-column">
+      <div className="layout" ref={layoutRef}>
+        <div className="map-column" ref={mapColumnRef}>
           {/*
           F-043 — the island, drawn rather than tiled. No mapping provider, no per-view
           billing, no runtime seam; `maps/README.md` records that there deliberately is none.
@@ -756,7 +862,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           >
             <IslandArtwork />
             <g className="pin-layer">
-            {visible.map((stand) => {
+            {pinned.map((stand) => {
               // F-038 — a contact-only farm has no coordinate and gets NO PIN. It stays in
               // the list beside the map, because "no stand to visit" is a fact about how to
               // buy from them, not a reason to disappear.
@@ -870,7 +976,18 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           </figure>
         </div>
 
-        <div className="list-column">
+        {/*
+          When a pin tap hoists a card to the top of the directory, the preamble above the list
+          is demoted below it so the card sits level with the map — see `.list-column-hoisted`.
+        */}
+        <div
+          className={
+            selectedFrom === "map" && selectedId !== null
+              ? "list-column list-column-hoisted"
+              : "list-column"
+          }
+          ref={listColumnRef}
+        >
           {view.staleCount > 0 ? (
             <p className="stale-summary" role="note">
               {view.staleCount === 1
@@ -883,15 +1000,15 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           <div className="farm-map-key" aria-label="Farm map key">
             <span className="poster-indicator poster-indicator-no-viga-bucks">
               <span className="poster-dot" aria-hidden="true" />
-              Does not accept VIGA Bucks
+              Don't take VIGA Bucks
             </span>
             <span className="poster-indicator poster-indicator-year-round">
               <span className="poster-dot" aria-hidden="true" />
-              Open year-round
+              Year-round
             </span>
             <span className="poster-indicator poster-indicator-late-november">
               <span className="poster-dot" aria-hidden="true" />
-              Open until late November
+              Thru late November
             </span>
           </div>
 

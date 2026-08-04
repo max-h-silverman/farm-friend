@@ -70,6 +70,16 @@
   --pin: #5d7a4e;         /* the poster's pin green */
   --pin-ink: #ffffff;     /* the number ON the pin — always the maximum contrast pairing */
   --brick-soft: #f6e7e2;
+  /* THE SELECTION. One token because the selected stand is marked in two places at once — the
+   * card's border in the directory and the halo around its pin — and those two must never drift
+   * apart: a customer identifies their selection by matching the colors across the two surfaces
+   * (max, 2026-08-04). */
+  --selected: #e9ae1b;
+  /* THE DIRECTORY ROW'S LIT STATE. One token because hover and selection paint the SAME fill:
+   * a selected row is a row already under the customer's attention, so lifting it a second
+   * time on hover only made the selection twitch. Selection is distinguished by its ring, not
+   * by a third background (max, 2026-08-04). */
+  --row-hover: rgb(255 255 255 / 42%);
   /* The highway. Its own token because the two themes disagree about what a road looks
    * like: pale-on-sage in daylight, light-on-dark at night. */
   --road: #ffffff;
@@ -175,6 +185,8 @@ body {
   height: auto;
 }
 
+
+
 .farm-map-key,
 .poster-indicators {
   display: flex;
@@ -184,6 +196,47 @@ body {
   padding: 0;
   list-style: none;
 }
+
+/*
+ * THE DIRECTORY KEY IS ONE LINE, ALWAYS (max, 2026-08-04).
+ *
+ * It is a legend for the colored dots beside every row, so it is read once, across, and
+ * compared to the list under it. Wrapped onto two or three lines it stops looking like a key
+ * and starts looking like content — and on a phone it wrapped mid-entry, splitting a dot from
+ * the words it defines.
+ *
+ * So the LINE COUNT is fixed and the TYPE SIZE gives way instead: `nowrap` on the row and on
+ * each entry, with a viewport-scaled clamp that shrinks the labels on a narrow screen rather
+ * than breaking them. The floor is a legible size, not an arbitrary minimum — below it the
+ * honest answer would be different copy, not smaller type.
+ */
+.farm-map-key {
+  flex-wrap: nowrap;
+  align-items: center;
+  /* THE LAST RESORT, and it is deliberately a scroll rather than a clip. Below roughly a 340px
+     column the three labels cannot fit on one line at any size still worth reading — the dots
+     and gaps alone overrun it — so the type stops shrinking at a legible floor and the row
+     scrolls instead. Clipping would hide a legend entry with nothing to say it was there. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* Left-aligned, reading as a legend that starts where the list starts, with generous space
+     BETWEEN entries so three dot-and-label pairs stay three things rather than one run-on. */
+  justify-content: flex-start;
+  /* BOTH the type and the gap are sized in `cqi` — against `.list-column`, the box the key is
+     actually laid out in, never the viewport. The column carries padding, so a `vw` clamp
+     sized the key for room it does not have and clipped the last label on a phone. The gap
+     scales with the type for the same reason: held fixed, it spends the space the words need.
+     The slopes and the low floor are MEASURED at 320–414px, not guessed. */
+  gap: clamp(0.3rem, 2.6cqi, 1.4rem);
+  font-size: clamp(0.56rem, 2.6cqi, 0.78rem);
+}
+
+.farm-map-key .poster-indicator {
+  min-width: 0;
+  font-size: inherit;
+  white-space: nowrap;
+}
+
 
 .list-column > .farm-map-key {
   margin-bottom: 0.75rem;
@@ -207,9 +260,19 @@ body {
   background: currentColor;
 }
 
+/* INDICATOR COLORS CARRY MEANING, so no two of them may be the same and none may repeat a color
+ * the MAP already spends on a different fact (max, 2026-08-04). The map's pin palette is the
+ * other half of this system — green year-round, blue seasonal, dark red flowers-only, red
+ * farm-with-no-stand, purple market — and a customer reads both on one screen.
+ *
+ * Year-round deliberately matches the map's year-round pin exactly: same fact, same color, on
+ * both surfaces. The rest are held apart from every pin color and from each other. */
 .poster-indicator-no-viga-bucks { color: #ec641d; }
-.poster-indicator-year-round { color: #9d160e; }
-.poster-indicator-late-november { color: #e9ae1b; }
+.poster-indicator-year-round { color: #65a936; }
+/* Deep magenta: "ending soon" needs to read as a caution without borrowing the map's red, which
+ * already means a farm with no stand to visit — and `contact-only` below spends that same red on
+ * exactly that fact in this very list. */
+.poster-indicator-late-november { color: #a3216b; }
 .poster-indicator-contact-only { color: #d83225; }
 
 .stand .poster-indicators {
@@ -332,6 +395,7 @@ body {
   list-style: none;
   margin: 0;
   padding: 0;
+  padding-top: 1rem;
   display: grid;
   gap: 0.9rem;
 }
@@ -377,9 +441,9 @@ body {
   cursor: pointer;
 }
 
-.stand-summary-toggle:hover {
-  color: var(--green);
-}
+/* No hover color of its own. The whole row is the target — the row's background change IS the
+ * hover affordance, and a second one on the name made the title flicker to a different color
+ * while the customer was simply moving down the directory. */
 
 .stand-summary-toggle:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
@@ -2141,20 +2205,79 @@ button.admin-action-danger:disabled {
 
   .map-column {
     order: 2;
-    /* Keep the map in the viewport while the two-column directory scrolls beside it. */
-    position: sticky;
-    top: 1.25rem;
     align-self: start;
     height: fit-content;
+
+    /* THE MAP FOLLOWS THE SELECTED STAND, moved by a transform from `map-follow.ts`.
+     *
+     * This replaced `position: sticky`, which could not do the job for two reasons: sticky
+     * pins to the VIEWPORT, and the public map is embedded in an iframe sized to its own
+     * content (see `embed-height.tsx`), so inside the frame the viewport IS the whole document
+     * and sticky never engaged at all; and sticky holds one fixed offset where this has to
+     * track a particular card. The two also cannot coexist — each wants the element at a
+     * different place — so the transform is now the map column's only positioning mechanism.
+     *
+     * The transition is short on purpose. Selecting a second stand while the first move is
+     * still running should land promptly rather than leave the customer watching the map
+     * travel; the same reason the phone's scroll correction is instant rather than smooth. */
+    transition: transform 260ms ease-out;
+  }
+
+  /* A customer who asked for less motion gets the position without the travel. */
+  @media (prefers-reduced-motion: reduce) {
+    .map-column {
+      transition: none;
+    }
   }
 
   .list-column {
     order: 1;
   }
 
+  /* ------------------------------------------- the hoisted card, level with the map
+   *
+   * A pin tap moves its card to the top of the directory. But the directory is not the first
+   * thing in its column — a stale-listing summary and the marker key sit above it — so the
+   * hoisted card lands that far BELOW the map's top edge, and the two things the customer just
+   * asked to compare are out of line.
+   *
+   * The map is the first child of its own column and the two columns are grid siblings, so
+   * their tops share a y. Demoting the preamble below the list therefore puts the hoisted card
+   * exactly level with the map.
+   *
+   * WHY ORDER AND NOT A MEASURED OFFSET. The stale summary renders only when something is
+   * stale, so the distance is not a constant and reading it would mean measuring at runtime.
+   * Reordering needs no geometry at all — which is also what lets it work inside VIGA's iframe,
+   * where the frame is sized to its own content and there is no viewport to measure against.
+   *
+   * The preamble is MOVED, never hidden: the stale warning is a standing obligation of the
+   * product, and a customer tapping a pin must not make it disappear. */
+  .list-column-hoisted {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .list-column-hoisted > .stands {
+    order: -1;
+  }
+
+  /* The key's bottom margin separated it from the list when it sat above; below the list it
+     needs the space on top instead. */
+  .list-column-hoisted > .farm-map-key {
+    margin-top: 0.75rem;
+    margin-bottom: 0;
+  }
+
+  .list-column-hoisted > .stale-summary {
+    margin-bottom: 0;
+  }
+
   .stands {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem;
+    /* Rows sit closer than columns: the cards' own padding already separates them vertically,
+       so the full gap on both axes read as loose down the page. Card padding is unchanged —
+       that is what keeps these reading as the printed directory's entries. */
+    gap: 0.4rem 0.65rem;
   }
 
   /* Expanded inventory and directions need one readable column, not two cramped ones. */
@@ -2611,10 +2734,23 @@ button.admin-action-danger,
   background: var(--olive);
 }
 
+/* A THIN outline, the SAME on every pin whether or not it is selected (max, 2026-08-04).
+ * It does the one job an outline should do here — hold each marker apart from the land and
+ * from its overlapping neighbours in a cluster. It deliberately carries no state: the old
+ * white-to-black switch on selection meant a customer had to compare two pins to learn which
+ * was chosen. Selection is said once, by the halo. */
 .pin-shape,
 .pin-market-shape {
   stroke: var(--sage);
-  stroke-width: 3;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+/* The flower's outline matches its own petals rather than the land: its five circles overlap,
+ * and a contrasting stroke draws the seams BETWEEN them, turning one glyph into five discs. */
+.pin-flower-glyph {
+  stroke: #b02d3b;
+  stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
@@ -2700,12 +2836,6 @@ button.admin-action-danger,
   fill: #7d43d8;
 }
 
-.pin-flower-glyph {
-  stroke: #b02d3b;
-  stroke-width: 3;
-  vector-effect: non-scaling-stroke;
-}
-
 .pin-flower-petal {
   fill: #b02d3b;
 }
@@ -2715,18 +2845,12 @@ button.admin-action-danger,
 }
 
 .pin-selection-halo {
-  fill: color-mix(in srgb, var(--olive) 18%, transparent);
-  stroke: var(--olive);
+  fill: color-mix(in srgb, var(--selected) 18%, transparent);
+  stroke: var(--selected);
   stroke-width: 7;
   vector-effect: non-scaling-stroke;
 }
 
-.pin-selected .pin-shape,
-.pin-selected .pin-market-shape,
-.pin-selected .pin-flower-glyph {
-  stroke: var(--ink);
-  stroke-width: 5;
-}
 
 /*
  * The number ON the pin (F-043) — VIGA's poster numbers every stand and keys it to the list.
@@ -3108,8 +3232,8 @@ button.admin-action-danger,
 .stand-selected {
   /* Matches the pin's selected ring, so the link between the two surfaces is visible rather
    * than inferred. */
-  border-color: var(--olive);
-  box-shadow: 0 0 0 2px var(--olive);
+  border-color: var(--selected);
+  box-shadow: 0 0 0 3px var(--selected);
 }
 
 /* The open-state badge. WORDS first — the class only styles them, and every state that is
@@ -3154,6 +3278,9 @@ button.admin-action-danger,
  * language for the interactive directory while retaining a clear selected state and the
  * existing written stale warning. */
 .list-column {
+  /* A container so the one-line key inside can size itself against THIS column's width rather
+     than the window's — see `.list-column > .farm-map-key`. */
+  container-type: inline-size;
   padding: clamp(1rem, 2.4vw, 1.5rem);
   background: var(--panel);
   border-radius: 1.5rem;
@@ -3179,10 +3306,6 @@ button.admin-action-danger,
   background: rgb(255 255 255 / 68%);
   border-color: color-mix(in srgb, var(--olive) 52%, transparent);
   box-shadow: 0 3px 8px rgb(63 74 56 / 9%);
-}
-
-.stand:focus-within {
-  border-color: var(--olive);
 }
 
 .stand-stale {
@@ -3231,9 +3354,6 @@ button.admin-action-danger,
   letter-spacing: -0.015em;
 }
 
-.stand-summary-toggle:hover {
-  color: var(--brick);
-}
 
 .farm {
   margin: 0.1rem 0 0;
@@ -3243,17 +3363,24 @@ button.admin-action-danger,
 
 .stand-selected {
   padding: 0.85rem 0.75rem;
-  background: var(--sage);
+  /* The SAME fill hover paints. Selection is announced by the ring below, so the row does not
+   * also change color under the pointer once it is chosen. */
+  background: var(--row-hover);
+  border-color: transparent;
   border-radius: 0.9rem;
-  box-shadow: 0 0 0 2px var(--olive);
+  /* 3px, matching the selected pin's stroke — the two marks are read as one selection across
+   * the map and the directory, so they carry the same weight as well as the same color. */
+  box-shadow: 0 0 0 3px var(--selected);
 }
 
 .stand-selected.stand-stale {
-  box-shadow: 0 0 0 2px var(--olive), inset 4px 0 0 var(--amber-line);
+  box-shadow: 0 0 0 3px var(--selected), inset 4px 0 0 var(--amber-line);
 }
 
 .stand-selected:hover {
-  background: var(--sage);
+  background: var(--row-hover);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px var(--selected);
 }
 
 .address {
@@ -3425,16 +3552,6 @@ button.admin-action-danger,
   font-size: 0.9rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
-}
-
-.stand-summary-website {
-  display: inline-flex;
-  align-items: center;
-  color: var(--brick);
-  font-size: 0.9rem;
-  font-weight: 700;
-  line-height: 1.35;
-  text-decoration: underline;
 }
 
 .stand-summary-freshness {
@@ -3712,14 +3829,18 @@ button.admin-action-danger,
     border-radius: 1.5rem;
   }
 
+  /* Only the CEILINGS change here. The slope and floor are the base rule's, because the
+     constraint is identical on both arrangements — the key must fit the list column's width.
+     A wide column simply has room to stop shrinking later. */
   .list-column > .farm-map-key {
-    gap: 0.25rem 0.75rem;
+    gap: clamp(0.3rem, 3.6cqi, 1.6rem);
     margin-bottom: 0.4rem;
+    width: 100%;
+    font-size: clamp(0.5rem, 2.6cqi, 0.95rem);
   }
 
   .farm-map-key .poster-indicator {
     gap: 0.25rem;
-    font-size: 0.8rem;
   }
 
   .farm-map-key .poster-dot {
@@ -3740,18 +3861,27 @@ button.admin-action-danger,
   }
 
   .stand {
-    min-height: 4.75rem;
+    /* Was 4.75rem, reserving room for a stacked address AND website line. The website moved to
+       the expanded detail, so the floor now only has to hold the number, name, and address —
+       and a directory of 30 stands is meaningfully shorter for it. */
+    min-height: 3.6rem;
     grid-template-columns: minmax(0, 0.65rem) minmax(0, 1fr);
     column-gap: 0.4rem;
-    padding: 0.5rem 0.45rem;
+    padding: 0.35rem 0.45rem;
     background: transparent;
     border-color: transparent;
-    border-radius: 0;
+    /* Rounded even when the background is transparent, so the hover and selected fills that
+       DO paint share the row's shape rather than arriving as a hard-edged rectangle. */
+    border-radius: 0.6rem;
     box-shadow: none;
   }
 
-  .stand:hover {
-    background: rgb(255 255 255 / 42%);
+  /* `:not(.stand-selected)` is load-bearing, not tidiness. This rule and `.stand-selected`
+     below have the same specificity, so a bare `.stand:hover` sitting later in the file wins
+     while the pointer is over the SELECTED row — and its `box-shadow: none` erased the amber
+     ring exactly when the customer was pointing at their own selection. */
+  .stand:not(.stand-selected):hover {
+    background: var(--row-hover);
     border-color: transparent;
     box-shadow: none;
   }
@@ -3809,15 +3939,6 @@ button.admin-action-danger,
     line-height: 1.2;
   }
 
-  .stand-summary-location {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.15rem;
-  }
-
-  .stand-summary-website,
   .stand-summary-freshness {
     min-height: 1.45rem;
     font-size: 0.82rem;
@@ -3832,9 +3953,9 @@ button.admin-action-danger,
     grid-column: 1 / -1;
     min-height: auto;
     padding: 0.75rem;
-    background: var(--sage);
+    background: var(--row-hover);
     border-radius: 0.9rem;
-    box-shadow: 0 0 0 2px var(--olive);
+    box-shadow: 0 0 0 3px var(--selected);
   }
 
   .stand-selected .stand-details {

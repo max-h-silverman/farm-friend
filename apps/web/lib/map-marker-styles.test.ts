@@ -83,3 +83,77 @@ describe("desktop map layout", () => {
     );
   });
 });
+
+// COLOR IS MEANING ON THIS PAGE, across two palettes a customer reads on one screen: the map's
+// pins say what KIND of place a stand is, the list's dots say facts ABOUT it. A color spent on
+// two different meanings makes both unreadable — which is exactly what happened when
+// "open until late November" was set to the same red the map already uses for "farm, no stand".
+describe("indicator and pin colors do not collide", () => {
+  /** Pull `.selector { color|background|fill: #hex }` out of the stylesheet. */
+  const colorOf = (selector: string): string => {
+    const pattern = new RegExp(
+      `\\${selector}\\s*\\{[^}]*?(?:color|background|fill)\\s*:\\s*(#[0-9a-f]{6})`,
+      "i",
+    );
+    const found = css.match(pattern);
+    if (found === null) throw new Error(`no color found for ${selector}`);
+    return found[1]!.toLowerCase();
+  };
+
+  it("gives every distinct meaning its own color", () => {
+    // EVERY color-bearing selector on both surfaces, keyed by the fact it states. Two selectors
+    // may share a color only when they state the SAME fact — those pairs are collapsed to one
+    // entry here, so anything left sharing a color is a genuine collision.
+    //
+    // An earlier version of this test listed only a subset and stayed green while
+    // "open until late November" wore the same red as "no farm stand to visit" — the exact
+    // defect it was written to catch. Leaving any selector out makes the check meaningless.
+    const meanings = {
+      "no-viga-bucks": colorOf(".poster-indicator-no-viga-bucks"),
+      "late-november": colorOf(".poster-indicator-late-november"),
+      // Stated on both surfaces; the cross-surface test below pins them equal.
+      "year-round": colorOf(".poster-indicator-year-round"),
+      "no-stand-to-visit": colorOf(".poster-indicator-contact-only"),
+      seasonal: colorOf(".marker-legend-seasonal"),
+      "flowers-only": colorOf(".marker-legend-flower-only"),
+      market: colorOf(".marker-legend-farmers-market"),
+    };
+
+    const byColor = new Map<string, string[]>();
+    for (const [meaning, color] of Object.entries(meanings)) {
+      byColor.set(color, [...(byColor.get(color) ?? []), meaning]);
+    }
+    const shared = [...byColor.entries()]
+      .filter(([, names]) => names.length > 1)
+      .map(([color, names]) => `${color} is used for ${names.join(" and ")}`);
+
+    expect(shared).toEqual([]);
+  });
+
+  it("uses ONE color per fact across the list and the map", () => {
+    // Year-round and no-stand-to-visit are each stated on both surfaces. Same fact, same color —
+    // a customer matching a dot in the directory to a pin on the island depends on it.
+    expect(colorOf(".poster-indicator-year-round")).toBe(colorOf(".marker-legend-year-round"));
+    expect(colorOf(".poster-indicator-contact-only")).toBe(
+      colorOf(".marker-legend-contact-only"),
+    );
+  });
+
+  it("keeps the selection color out of the meaning palette", () => {
+    // The selected ring marks WHICH stand you tapped — it is not a fact about the stand, so it
+    // must not be mistakable for one.
+    const selected = css.match(/--selected:\s*(#[0-9a-f]{6})/i)![1]!.toLowerCase();
+    const meaningColors = [
+      ".poster-indicator-no-viga-bucks",
+      ".poster-indicator-year-round",
+      ".poster-indicator-late-november",
+      ".poster-indicator-contact-only",
+      ".marker-legend-seasonal",
+      ".marker-legend-year-round",
+      ".marker-legend-flower-only",
+      ".marker-legend-farmers-market",
+    ].map(colorOf);
+
+    expect(meaningColors).not.toContain(selected);
+  });
+});

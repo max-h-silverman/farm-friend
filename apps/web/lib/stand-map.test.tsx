@@ -119,12 +119,16 @@ describe("farm-map poster treatment", () => {
 
     expect(screen.getByAltText("VIGA Farm Map")).toBeTruthy();
     expect(screen.getByAltText("Vashon Island Growers Association")).toBeTruthy();
-    expect(screen.getAllByText("Does not accept VIGA Bucks")).toHaveLength(1);
-    expect(screen.getAllByText("Open year-round")).toHaveLength(1);
+    // Scoped to the DIRECTORY key. "Year-round" is also a map-legend entry, and an unscoped
+    // text query would pass on either one — including if this key disappeared entirely.
+    const directoryKey = screen.getByLabelText("Farm map key");
+    expect(within(directoryKey).getAllByText("Don't take VIGA Bucks")).toHaveLength(1);
+    expect(within(directoryKey).getAllByText("Year-round")).toHaveLength(1);
+    expect(within(directoryKey).getAllByText("Thru late November")).toHaveLength(1);
 
     const card = screen.getByRole("heading", { name: "Evergreen Farm Stand" }).closest("li")!;
-    expect(within(card).queryByText("Does not accept VIGA Bucks")).toBeNull();
-    expect(within(card).queryByText("Open year-round")).toBeNull();
+    expect(within(card).queryByText("Don't take VIGA Bucks")).toBeNull();
+    expect(within(card).queryByText("Year-round")).toBeNull();
     expect(card.querySelectorAll(".poster-dot")).toHaveLength(2);
     expect(within(card).getByText("1)", { exact: true })).toBeTruthy();
     expect(
@@ -412,10 +416,10 @@ describe("farm-map poster treatment", () => {
 
     const record = screen.getByRole("heading", { name: "Scannable Stand" }).closest("li")!;
     expect(within(record).getByText("34 Orchard Road")).toHaveClass("stand-summary-address");
-    expect(within(record).getByRole("link", { name: "Website" })).toHaveAttribute(
-      "href",
-      "https://scannable.example",
-    );
+    // The website belongs to the expanded detail, not the collapsed row. A directory scanned by
+    // eye wants the fewest lines that identify a stand; the link is one tap away and was
+    // rendered TWICE while it sat here, since the detail body carries its own.
+    expect(within(record).queryByRole("link", { name: "Website" })).toBeNull();
     expect(within(record).queryByText("Carrots")).toBeNull();
     expect(within(record).queryByText("Open every Saturday.")).toBeNull();
 
@@ -533,7 +537,7 @@ describe("farm-map poster treatment", () => {
     expect(within(availability).getByRole("button", { name: "Open now" })).toBeTruthy();
     expect(within(availability).getByRole("button", { name: "Confirmed recently" })).toBeTruthy();
     const details = within(panel).getByRole("group", { name: "Stand details" });
-    expect(within(details).getByRole("button", { name: "Has a stand to visit" })).toBeTruthy();
+    expect(within(details).queryByRole("button", { name: "Has a stand to visit" })).toBeNull();
     expect(within(details).getByRole("button", { name: "Accepts VIGA Bucks" })).toBeTruthy();
     expect(within(details).getByRole("button", { name: "Flowers only" })).toBeTruthy();
     expect(within(panel).queryByText("Listing trust")).toBeNull();
@@ -597,5 +601,251 @@ describe("farm-map poster treatment", () => {
     expect(sheet.querySelector(".stand-detail-body .detail-visit")).toHaveTextContent(
       "9 Orchard Way",
     );
+  });
+});
+
+// The wide layout puts the map beside the directory, and the MAP is what moves when a stand is
+// selected — from a card or from a pin. These assert the rule at the component seam; the
+// arithmetic that decides how far it moves has its own boundary tests in `map-follow.test.ts`.
+describe("wide-screen map follow", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true })),
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  const stand: PublicStandPayload = {
+    id: "follow-stand",
+    farmName: "Follow Farm",
+    locationName: "Follow Stand",
+    locationKind: "farm_stand",
+    visitability: "visitable",
+    offeringType: "produce",
+    address: "5 Follow Lane",
+    latitude: 47.45,
+    longitude: -122.46,
+    description: "Eggs and jam",
+    availability: {
+      season: { kind: "date_range", startMonth: 1, startDay: 1, endMonth: 12, endDay: 31 },
+      hours: { kind: "clock_range", fromMinutes: 480, untilMinutes: 1080 },
+      days: [0, 1, 2, 3, 4, 5, 6],
+    },
+    alsoSellingHere: [],
+    items: [],
+  };
+
+  /** Three stands, so "first in the list" is a real position rather than the only one. */
+  const trio: PublicStandPayload[] = ["Alpha", "Bravo", "Charlie"].map((word, index) => ({
+    ...stand,
+    id: `stand-${word.toLowerCase()}`,
+    farmName: `${word} Farm`,
+    locationName: `${word} Stand`,
+    address: `${index + 1} ${word} Way`,
+    latitude: 47.44 + index * 0.01,
+    longitude: -122.46 + index * 0.01,
+  }));
+
+  it("hoists the selected card to the top of the list when a pin is tapped", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={trio} />);
+
+    const namesBefore = [...container.querySelectorAll(".stands .stand h2")].map(
+      (h) => h.textContent,
+    );
+    expect(namesBefore).toEqual(["Alpha Stand", "Bravo Stand", "Charlie Stand"]);
+
+    // The LAST stand, so a hoist is unmistakable — it has to cross the whole list.
+    await user.click(
+      screen.getByRole("button", { name: "3. Charlie Stand, Charlie Farm" }),
+    );
+
+    // A pin tap asks "what is this stand?", and the answer is the expanded card. Rather than
+    // scrolling the page to reach it — which dragged the map out of view — the card comes to
+    // the top of the directory, where it sits beside the map that produced it.
+    const namesAfter = [...container.querySelectorAll(".stands .stand h2")].map(
+      (h) => h.textContent,
+    );
+    expect(namesAfter).toEqual(["Charlie Stand", "Alpha Stand", "Bravo Stand"]);
+    expect(container.querySelector(".stands .stand")).toHaveClass("stand-selected");
+
+    // The page IS scrolled — but to the layout, not to the card. That distinction is the whole
+    // fix: scrolling to the card chased it down the column and dragged the map off screen,
+    // whereas the card has already been hoisted to the layout's top, so this lands on a fixed
+    // position holding both. Asserted in its own test above.
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+  });
+
+  it("returns the map to the top so it lands beside the hoisted card", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={trio} />);
+    const column = container.querySelector(".map-column") as HTMLElement;
+
+    // Leave the map somewhere other than the top, as a previous card tap would have.
+    column.style.transform = "translateY(400px)";
+
+    await user.click(
+      screen.getByRole("button", { name: "3. Charlie Stand, Charlie Farm" }),
+    );
+
+    // The map is repositioned to meet the hoisted card rather than left where a previous card
+    // tap parked it.
+    //
+    // NOTE ON WHAT THIS PROVES. jsdom reports every element as zero-sized, so the offset here
+    // computes to 0 whatever the geometry would really be — this asserts that the map WAS
+    // repositioned, not that it landed in the right place. Where it lands is decided by
+    // `mapFollowOffset`, whose viewport cases are tested against real numbers in
+    // `map-follow.test.ts`.
+    expect(column.style.transform).toBe("");
+  });
+
+  it("leaves the list order alone when the selection came from a card", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={trio} />);
+
+    await user.click(screen.getByRole("button", { name: "Charlie Stand" }));
+
+    // A card tap is answered by the MAP moving. Reordering the directory as well would pull the
+    // row out from under the finger that just tapped it, and move both surfaces at once.
+    const names = [...container.querySelectorAll(".stands .stand h2")].map((h) => h.textContent);
+    expect(names).toEqual(["Alpha Stand", "Bravo Stand", "Charlie Stand"]);
+    expect(container.querySelector(".stands .stand")).not.toHaveClass("stand-selected");
+  });
+
+  it("lifts the hoisted card level with the map by demoting the list preamble", async () => {
+    const user = userEvent.setup();
+    const stale = trio.map((s) => ({ ...s, stale: true, updated: "updated 9 days ago" }));
+    const { container } = render(<StandMap stands={stale} />);
+
+    const column = container.querySelector(".list-column") as HTMLElement;
+    expect(column).not.toHaveClass("list-column-hoisted");
+
+    await user.click(
+      screen.getByRole("button", { name: "3. Charlie Stand, Charlie Farm" }),
+    );
+
+    // The map is the FIRST child of its column, so the two columns' tops are the same y. The
+    // stand list is not first in its own column — a stale summary and the marker key sit above
+    // it — so a hoisted card lands that far below the map's top edge. Demoting both blocks
+    // below the list puts the card at the column's top, level with the map.
+    //
+    // Done in CSS rather than by measuring: the columns are grid siblings, so this is a layout
+    // fact and needs no geometry. That is what makes it survive inside VIGA's iframe, where
+    // there is no viewport to measure against.
+    expect(column).toHaveClass("list-column-hoisted");
+
+    // The preamble is REORDERED, never removed — the stale warning is a standing obligation of
+    // the product and must not disappear because a customer tapped a pin.
+    expect(within(column).getByRole("note")).toBeTruthy();
+    expect(within(column).getByLabelText("Farm map key")).toBeTruthy();
+  });
+
+  it("brings the aligned pair into view when a pin is tapped", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={trio} />);
+    const layout = container.querySelector(".layout") as HTMLElement;
+
+    await user.click(
+      screen.getByRole("button", { name: "3. Charlie Stand, Charlie Farm" }),
+    );
+
+    // The hoist aligns the card with the map, but alignment alone does not put them ON SCREEN:
+    // a customer who has scrolled down a long directory has both correctly lined up hundreds of
+    // pixels above the fold, and sees neither. Measured in a real browser at scrollY 880: map
+    // top -580, card top -564 — aligned, invisible.
+    //
+    // Scrolling to the LAYOUT is what makes this safe. Earlier versions scrolled to the card
+    // wherever it happened to sit, which dragged the map out of view; here the card has already
+    // been moved to the layout's top, so this is a scroll to a fixed known position where both
+    // are visible together.
+    expect(layout.scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+  });
+
+  it("restores the list preamble when the selection is dismissed", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={trio} />);
+    const column = container.querySelector(".list-column") as HTMLElement;
+    const marker = screen.getByRole("button", { name: "3. Charlie Stand, Charlie Farm" });
+
+    await user.click(marker);
+    await user.click(marker);
+
+    expect(column).not.toHaveClass("list-column-hoisted");
+  });
+
+  it("does not demote the preamble for a selection made from a card", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={trio} />);
+
+    await user.click(screen.getByRole("button", { name: "Charlie Stand" }));
+
+    // A card tap does not hoist, so there is nothing at the column's top to line up with the
+    // map, and moving the key and the stale warning would be motion for no reason.
+    expect(container.querySelector(".list-column")).not.toHaveClass("list-column-hoisted");
+  });
+
+  it("keeps the poster number with its own farm when a card is hoisted", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={trio} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "3. Charlie Stand, Charlie Farm" }),
+    );
+
+    // Hoisting moves a card, it does not RENUMBER. Charlie is 3 wherever it sits — the poster
+    // numbers are keyed to the farm precisely so a number never means a different farm from
+    // one tap to the next, and a reordering that renumbered would break that.
+    const first = container.querySelector(".stands .stand") as HTMLElement;
+    expect(within(first).getByText("3)", { exact: true })).toBeTruthy();
+    expect(within(first).getByRole("heading", { name: "Charlie Stand" })).toBeTruthy();
+  });
+
+  it("restores the original order when the selection is dismissed", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={trio} />);
+    const marker = screen.getByRole("button", { name: "3. Charlie Stand, Charlie Farm" });
+
+    await user.click(marker);
+    await user.click(marker);
+
+    const names = [...container.querySelectorAll(".stands .stand h2")].map((h) => h.textContent);
+    expect(names).toEqual(["Alpha Stand", "Bravo Stand", "Charlie Stand"]);
+  });
+
+  it("does not slide the map when the selection came from a pin", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<StandMap stands={[stand]} />);
+    const column = container.querySelector(".map-column") as HTMLElement;
+
+    await user.click(
+      screen.getByRole("button", { name: "1. Follow Stand, Follow Farm" }),
+    );
+
+    // The map sliding on a pin tap is what carried it out of the visible area on a long list:
+    // the customer's eyes are already ON the map, so moving it is motion with nothing to gain.
+    expect(column.style.transform).toBe("");
+  });
+
+  it("keeps the phone's map correction when the wide layout does not apply", async () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    const user = userEvent.setup();
+    render(<StandMap stands={[stand]} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "1. Follow Stand, Follow Farm" }),
+    );
+
+    // The phone answer is the detail sheet over an anchored map, and it is untouched by this.
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+      block: "start",
+      behavior: "instant",
+    });
   });
 });
