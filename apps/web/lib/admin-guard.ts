@@ -24,18 +24,34 @@ export interface AdminCaller {
 /**
  * A partitioned cookie can travel in VIGA's cross-site iframe, so SameSite no longer rejects
  * forged writes for us. Browser admin writes originate in the embedded app itself: their
- * `Origin` must exactly match the API URL's origin. VIGA is the frame owner, not the request
+ * `Origin` must equal this app's own public origin. VIGA is the frame owner, not the request
  * origin, and is deliberately not accepted here.
+ *
+ * The expected origin is CONFIGURED (`PUBLIC_BASE_URL`), never derived from the request. Cloud
+ * Run terminates TLS at its proxy and forwards plain HTTP to a container bound to `0.0.0.0:8080`,
+ * and Next builds `req.url` from that bind address rather than the public `Host`. Comparing
+ * against `new URL(req.url).origin` therefore compared the browser's real origin to
+ * `localhost:8080` and refused every admin write in production while passing in a test that
+ * hand-built the URL. The request cannot be the authority on its own trusted origin.
+ *
+ * Fails closed: with no valid configured origin there is no way to distinguish the app's own
+ * write from a forged one, so nothing is trusted.
  */
-export function isTrustedAdminMutationSource(req: Request): boolean {
+export function isTrustedAdminMutationSource(
+  req: Request,
+  publicBaseUrl = process.env.PUBLIC_BASE_URL,
+): boolean {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return true;
   const origin = req.headers.get("origin");
   if (origin === null) return false;
+  if (publicBaseUrl === undefined || publicBaseUrl === "") return false;
+  let expected: string;
   try {
-    return origin === new URL(req.url).origin;
+    expected = new URL(publicBaseUrl).origin;
   } catch {
     return false;
   }
+  return origin === expected;
 }
 
 /** Resolve the caller to a live administrator, or the Response that refuses them. */

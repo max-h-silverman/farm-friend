@@ -12,7 +12,26 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal timestamp
 `1786500000000`).
 
-Branch `map-desktop-density` is the next release candidate. It includes:
+Branch `map-slide-to-stand` is the next release candidate. On top of the `map-desktop-density`
+work below it adds:
+
+- **wide-screen map/list coupling.** A card tap slides the map panel down to the selected card
+  (`apps/web/lib/map-follow.ts`, top-aligned, clamped to both the column and the visible area). A
+  marker tap instead hoists the card to the top of the directory (`hoistStand`), demotes the list
+  preamble beneath it so the card sits level with the map, and scrolls the layout into view. The
+  map column's `position: sticky` was removed — it cannot engage inside a content-sized iframe and
+  cannot coexist with the transform;
+- the stand website moved out of every collapsed directory row into the expanded detail, and a
+  shorter collapsed card (`min-height` 4.75rem → 3.6rem, tighter row gap and padding);
+- **admin write origin is configured, not derived.** `isTrustedAdminMutationSource` now compares
+  `Origin` against `PUBLIC_BASE_URL` rather than `new URL(req.url).origin`. Behind Cloud Run's
+  proxy the latter reports `localhost:8080`, which refused every admin write in production while
+  passing a test that hand-built the URL. **The check fails closed**: if `PUBLIC_BASE_URL` is
+  unset or unparseable on the deployed service, every admin write is refused;
+- a local-only seeding script for long-list testing (`packages/db/scripts/seed-map-test-stands.ts`),
+  which refuses any non-loopback database and prefixes every row it creates.
+
+Branch `map-desktop-density` is the release candidate beneath it. It includes:
 
 - a rebuilt, compact public-map finder with button filters, grouped spacing, Farm Bucks and
   flower-only filtering, a Season-column clear action, and no selected-filter chips;
@@ -30,12 +49,22 @@ update because the original public-description backfill is intentionally null-on
 
 ## Verification
 
-- Release candidate: 98 unit-test files / 923 tests, typecheck, lint, production web build, and
-  44/44 scripted eval cases pass.
-- Real-Postgres integration: 40 of 41 files / 562 of 564 tests passed on the first complete run.
-  The two failures were stale JOIN deduplication assertions that expected one outbound row rather
-  than the new exact pair; both now assert one carrier receipt and one welcome by logical key. A
-  complete rerun is still owed before merge.
+- Release candidate: 99 unit-test files / 954 tests, typecheck, and lint pass.
+- Real-Postgres integration: 41 of 41 files / 564 of 564 tests pass on a complete run — this
+  clears the rerun previously owed by `map-desktop-density`.
+- `mapFollowOffset` and `hoistStand` are sabotage-verified: removing each clamp, reversing the
+  top alignment, and leaking the hoist onto card taps each fail a distinct named test.
+- The wide-screen map/list behavior was exercised in a real browser at 1500x900 and its geometry
+  measured, because jsdom reports every element as zero-sized and cannot see any of it. Before the
+  layout scroll, a marker tap at `scrollY` 880 left the map at top −580 and the card at −564 —
+  correctly aligned and entirely off screen; after, the map sits at 0 and the card at 16, both
+  fully visible. **The unit tests around this assert that the map was repositioned, not where it
+  landed.**
+- **Not verified inside VIGA's iframe.** The card-tap path measures the viewport, and the embed's
+  height handshake sizes the frame to its own content, so there is no smaller viewport to clamp
+  against and that path degrades to column-only positioning. The marker-tap path is layout-only
+  and should survive, but its `scrollIntoView` will scroll VIGA's page to the top of the embed.
+  Neither has been exercised in a real frame.
 - Public map was exercised in a real browser at 390x844 and 1440x1000: no horizontal overflow,
   filters are binary buttons, selected-filter chips are absent, and Clear all sits inside Season.
   The document is intentionally light-only; no alternate dark palette exists.
