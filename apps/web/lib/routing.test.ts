@@ -49,6 +49,17 @@ function recordingDb(rows: Record<string, unknown>[] = []): {
     if (text.includes("insert into sms_consents")) {
       return Promise.resolve([{ state: "active" }]);
     }
+    // The default fixture is a sender with NO consent history, so the watermark and the
+    // existing-record probe are empty. Stated per-query rather than by returning `rows`,
+    // because `rows` is the caller's fixture for the ONE table their test is about — an
+    // invitation row answering the watermark select made a first-time sender look like one
+    // with a prior transition, and the ordering guard then read a missing `occurred_at`.
+    if (
+      text.includes("from consent_transition_watermarks") ||
+      text.includes("from sms_consents")
+    ) {
+      return Promise.resolve([]);
+    }
     return Promise.resolve(rows);
   };
 
@@ -499,6 +510,40 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       expect(result.replies).toHaveLength(1);
       expect(result.replies[0]?.body.toLowerCase()).not.toContain("you're all set");
       expect(result.replies[0]?.body.toLowerCase()).not.toContain("approved");
+    });
+
+    it("establishes consent through the SAME writer JOIN uses, never a second one", async () => {
+      // The launch blocker's fix. An invited SIGNUP whose agreement box was ticked opts the
+      // farmer in — but only through `applyConsentTransition`'s existing rules, inside the
+      // redemption transaction. A second consent writer would be a second set of rules for
+      // one fact, and the first-time/STOP/watermark reasoning lives in exactly one place.
+      const { db, queries } = recordingDb([
+        { id: "invite-1", agreed_to_sms_at: new Date(T0.getTime() - 60_000) },
+      ]);
+      await routeInboundMessage(deps({ db }), event(`SIGNUP ${"b".repeat(64)}`));
+
+      expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(true);
+      expect(
+        queries.some((q) => q.includes("insert into consent_transition_watermarks")),
+      ).toBe(true);
+    });
+
+    it("establishes NO consent for a bare SIGNUP with no invitation", async () => {
+      // The uninvited path has no web page to show an agreement on, so there is nothing an
+      // opt-in could be founded on. It must stay as silent about consent as it always was.
+      const { db, queries } = recordingDb();
+      await routeInboundMessage(deps({ db }), event("SIGNUP"));
+
+      expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(false);
+    });
+
+    it("establishes NO consent for an invitation whose box was never ticked", async () => {
+      // VIGA creating an invitation cannot opt a farmer in. Only the farmer's own tick,
+      // followed by their own inbound message, can.
+      const { db, queries } = recordingDb([{ id: "invite-1", agreed_to_sms_at: null }]);
+      await routeInboundMessage(deps({ db }), event(`SIGNUP ${"b".repeat(64)}`));
+
+      expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(false);
     });
 
     it("writes NO authorization for a SIGNUP — the queue is not a grant", async () => {

@@ -5,6 +5,7 @@ import {
   CUSTOMER_SMS_WELCOME,
   FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+  FARMER_SIGNUP_JOIN_INSTRUCTION,
   renderFarmerLinkMessage,
 } from "./onboarding-copy";
 
@@ -58,6 +59,22 @@ describe("farmer onboarding copy", () => {
     expect(body.length).toBeGreaterThan(40);
   });
 
+  it("tells a farmer with no consent basis the one word that establishes it", () => {
+    // The dead end this closes: SIGNUP alone establishes no consent, so the "your farm is
+    // ready" text is suppressed and the farmer is never told. When the web agreement is not
+    // available to lean on — a bare SIGNUP, or an invitation whose box was never ticked —
+    // this is the only route left, and it must name the word that works.
+    const body = FARMER_SIGNUP_JOIN_INSTRUCTION;
+    expect(body).toContain("JOIN");
+    expect(body).toContain("STOP");
+    // First-time enrollment is JOIN's job; START is for returning after an opt-out (B-011)
+    // and naming both here would ask a farmer to choose between them.
+    expect(body).not.toContain("START");
+    // It must not claim the request itself did anything about messaging.
+    expect(body.toLowerCase()).not.toContain("you are subscribed");
+    expect(body.toLowerCase()).not.toContain("you have agreed");
+  });
+
   it("renders a link message carrying the link and nothing invented", () => {
     const link = "https://farmfriend.example/stand/" + "a".repeat(64);
     const body = renderFarmerLinkMessage(link);
@@ -83,6 +100,7 @@ describe("farmer onboarding copy", () => {
     for (const body of [
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       FARMER_AUTHORIZED_NOTIFICATION,
+      FARMER_SIGNUP_JOIN_INSTRUCTION,
     ]) {
       expect(registered).not.toContain(body);
     }

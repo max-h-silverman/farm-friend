@@ -23,6 +23,27 @@ export const FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT =
   "when your farm is ready to update. Reply STOP to opt out, HELP for help.";
 
 /**
+ * Sent alongside the acknowledgement when a SIGNUP leaves the farmer with no consent basis.
+ *
+ * **The dead end this closes.** SIGNUP by itself establishes nothing, so
+ * `FARMER_AUTHORIZED_NOTIFICATION` — a proactive category — is suppressed at the dispatch
+ * claim, and the farmer is authorized in silence with no reason to think the system works.
+ * Web onboarding fixes the invited path by collecting an agreement first; this covers the
+ * two cases where that agreement is not available to rest on: a bare uninvited SIGNUP, and
+ * an invitation whose box was never ticked.
+ *
+ * It names `JOIN` and not `START`, because the sender it reaches has no consent record at
+ * all — `JOIN` is the first-time keyword, and `START` is for returning after an opt-out
+ * (B-011). Naming both would ask a farmer to choose between two words for one act.
+ *
+ * A farmer who ALREADY has a record is deliberately sent nothing here: they need no
+ * instruction, and telling them to JOIN would be false since JOIN no longer restores.
+ */
+export const FARMER_SIGNUP_JOIN_INSTRUCTION =
+  "VIGA Farm Friend: To get texts about your farm, reply JOIN. " +
+  "Msg freq may vary. Msg & data rates may apply. Reply STOP to opt out.";
+
+/**
  * Sent when VIGA authorizes a farmer. max's decision, and the reason is plain: a farmer
  * approved on Tuesday otherwise has no idea until they guess.
  *

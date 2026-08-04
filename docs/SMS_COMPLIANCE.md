@@ -42,7 +42,7 @@ commit or decline.
 
 | Keyword | Behavior |
 |---|---|
-| `SIGNUP` / `SIGN UP` | Ask VIGA to set this farmer up. **Grants nothing** — it opens one queue entry a coordinator acts on, and the reply deliberately does not read as a yes. Repeats are answered identically and produce one entry. |
+| `SIGNUP` / `SIGN UP` | Ask VIGA to set this farmer up. **Grants no authority** — it opens one queue entry a coordinator acts on, and the reply deliberately does not read as a yes. Repeats are answered identically and produce one entry. An **invited** `SIGNUP` whose invitation carries a web agreement also establishes launch consent (see §consent model, farmer onboarding); a bare one does not. |
 | `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets the signup acknowledgement and no link. |
 | `STAND` | Issue a 12-hour numbered menu of the sender's currently editable locations. Each number binds one exact authorization+location pair; the model sees neither menu nor choice. |
 | `SETTINGS` | Send the existing private standing link directly to its settings view. It uses the same token and revocation lifecycle as `LINK`, never a second login. |
@@ -209,9 +209,22 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   state; see GL-034 in [GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md) for the exact edits, which must be made
   in the console first and then transcribed into
   [TELNYX_10DLC_FIELD_VALUES.txt](TELNYX_10DLC_FIELD_VALUES.txt).
-- **Farmer onboarding** — after verifying control of the SMS number, onboarding may capture consent
-  with provenance: how, when, and where it was captured and who recorded it. Every proactive farmer
-  send must trace to that documented opt-in or a deterministic `JOIN`/`START`.
+- **Farmer onboarding** — the invited farmer accepts an SMS agreement on
+  `/farmer/onboarding/[token]`, which stamps `farmer_invitations.agreed_to_sms_at`. That stamp is
+  **not** consent: a tick on a web page proves nothing about who holds the handset. Consent is
+  established when `SIGNUP <token>` arrives from a phone, which is the evidence tying the person who
+  agreed to the number that will be messaged — recorded with capture source `farmer_onboarding`, the
+  agreement's own moment as its documented origin. Every proactive farmer send must trace to that
+  opt-in or a deterministic `JOIN`/`START`.
+
+  It goes through **the same** `applyConsentTransition` writer as `JOIN`, under
+  `firstTimeOnly`, so it establishes consent **only for a sender with no record**. A farmer who
+  already opted in keeps one unchanged record, and a farmer who texted `STOP` is **not** silently
+  re-enrolled by filling in a web form — the same B-011 reasoning, since the carrier would refuse
+  the send regardless and only `START` clears its list. A `SIGNUP` that establishes consent is
+  answered with the registered opt-in receipt; a `SIGNUP` with no consent basis (uninvited, or an
+  invitation whose box was never ticked) is told to reply `JOIN`, which is the one place that word
+  belongs in farmer-facing copy.
 - **Customer-initiated inquiry** — the inbound inquiry permits its relevant direct response but does
   not create durable consent for later proactive notifications. Launch stores no follow-up interest,
   sends no passive customer follow-up, and has no scoped `MUTE` command. `MUTE` and follow-up

@@ -3,6 +3,7 @@ import {
   CUSTOMER_SMS_WELCOME,
   FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+  FARMER_SIGNUP_JOIN_INSTRUCTION,
   renderFarmerLinkMessage,
 } from "@farm-friend/core";
 import { estimateSmsSegments } from "./segments";
@@ -24,6 +25,7 @@ describe("onboarding message segments", () => {
     for (const body of [
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       FARMER_AUTHORIZED_NOTIFICATION,
+      FARMER_SIGNUP_JOIN_INSTRUCTION,
       CUSTOMER_SMS_WELCOME,
     ]) {
       const estimate = estimateSmsSegments(body);

@@ -7,8 +7,8 @@ import {
   maskPhoneSuffix,
 } from "@farm-friend/core";
 import type { Db } from "./index";
-import type { Sql } from "./sql";
-import { queueOutbox } from "./transactions";
+import type { Sql, Tx } from "./sql";
+import { applyConsentTransitionIn, queueOutbox } from "./transactions";
 
 // Farmer onboarding's durable writes (F-040).
 //
@@ -132,6 +132,58 @@ export async function loadFarmerInvitation(
     farmName: (row.farm_name as string | null) ?? null,
     channel: row.channel as FarmerInviteChannel,
   };
+}
+
+export type RecordInvitationAgreementResult =
+  | { status: "agreed" }
+  | { status: "invalid" };
+
+/**
+ * Record that the invited farmer accepted the SMS agreement on the onboarding page.
+ *
+ * **This grants nothing and sends nothing.** It stamps provenance: the agreement was shown
+ * on this invitation's page and accepted at this time. Consent itself is established only
+ * when `SIGNUP <token>` arrives from a handset, because a tick on a web page says nothing
+ * about who holds the phone that will receive the messages. Anyone with the link can reach
+ * this, which is exactly why it may not be the consent write.
+ *
+ * **Stamping is idempotent and keeps the FIRST time.** A farmer who reloads and ticks again
+ * has not agreed twice, and moving the timestamp would falsify the provenance the consent
+ * record points back at — hence `agreed_to_sms_at is null` in the predicate rather than an
+ * unconditional set. A repeat tick still reports `agreed`, because it is the honest answer
+ * to "is this invitation agreed?" and the page has nothing different to say.
+ *
+ * An expired or already-redeemed invitation is refused with the same uniform `invalid` the
+ * page already renders for a dead link, so this endpoint discloses nothing a visitor could
+ * not already learn by loading the page.
+ */
+export async function recordFarmerInvitationSmsAgreement(
+  db: Db,
+  input: { token: string; occurredAt: Date },
+): Promise<RecordInvitationAgreementResult> {
+  if (!/^[0-9a-f]{64}$/.test(input.token)) return { status: "invalid" };
+  const updated = await driver(db)`
+    update farmer_invitations
+    set agreed_to_sms_at = ${input.occurredAt.toISOString()}
+    where token_hash = ${hashFarmerInviteToken(input.token)}
+      and redeemed_at is null
+      and expires_at > ${input.occurredAt.toISOString()}
+      and agreed_to_sms_at is null
+    returning id
+  `;
+  if (updated.length > 0) return { status: "agreed" };
+
+  // No row updated is ambiguous: already agreed (fine), or expired/redeemed/unknown (not).
+  // Re-read to answer honestly rather than reporting a failure for a farmer who simply
+  // ticked twice.
+  const existing = await driver(db)`
+    select id from farmer_invitations
+    where token_hash = ${hashFarmerInviteToken(input.token)}
+      and redeemed_at is null
+      and expires_at > ${input.occurredAt.toISOString()}
+      and agreed_to_sms_at is not null
+  `;
+  return existing.length > 0 ? { status: "agreed" } : { status: "invalid" };
 }
 
 export interface AuthorizeFarmerInput {
@@ -334,7 +386,23 @@ export async function revokeFarmerAuthorization(
 }
 
 export type OpenOnboardingRequestResult =
-  | { status: "opened"; requestId: string }
+  | {
+      status: "opened";
+      requestId: string;
+      /**
+       * True when THIS request established launch-program SMS consent — an invited SIGNUP
+       * whose agreement box was ticked, from a sender with no consent record yet.
+       *
+       * False covers three different senders who all need the same thing said to them or
+       * not: a bare uninvited SIGNUP, an invitation nobody ticked, and someone who already
+       * had a record (active or stopped). The caller distinguishes the last of those with
+       * `hadConsentRecord`, because a farmer who already consented must not be told to
+       * text JOIN.
+       */
+      consentEstablished: boolean;
+      /** Whether a consent record existed BEFORE this request, whatever its state. */
+      hadConsentRecord: boolean;
+    }
   | { status: "already_open" }
   | { status: "invalid_invitation" };
 
@@ -356,7 +424,13 @@ export type OpenOnboardingRequestResult =
  */
 export async function openFarmerOnboardingRequest(
   db: Db,
-  input: { contactHash: string; occurredAt: Date; invitationToken?: string },
+  input: {
+    contactHash: string;
+    occurredAt: Date;
+    invitationToken?: string;
+    /** The inbound event this request came from, recorded as the consent evidence. */
+    providerEventId?: string;
+  },
 ): Promise<OpenOnboardingRequestResult> {
   const invitationToken = input.invitationToken;
   if (invitationToken !== undefined) {
@@ -365,7 +439,7 @@ export async function openFarmerOnboardingRequest(
     }
     return driver(db).begin(async (tx) => {
       const invitations = await tx`
-        select id from farmer_invitations
+        select id, agreed_to_sms_at from farmer_invitations
         where token_hash = ${hashFarmerInviteToken(invitationToken)}
           and redeemed_at is null
           and expires_at > ${input.occurredAt.toISOString()}
@@ -373,6 +447,8 @@ export async function openFarmerOnboardingRequest(
       `;
       const invitationId = invitations[0]?.id as string | undefined;
       if (invitationId === undefined) return { status: "invalid_invitation" as const };
+      const agreedToSmsAt =
+        (invitations[0]?.agreed_to_sms_at as Date | null | undefined) ?? null;
 
       const inserted = await tx`
         insert into farmer_onboarding_requests (contact_hash, invitation_id, requested_at)
@@ -388,7 +464,40 @@ export async function openFarmerOnboardingRequest(
         set redeemed_at = ${input.occurredAt.toISOString()}
         where id = ${invitationId} and redeemed_at is null
       `;
-      return { status: "opened" as const, requestId };
+
+      // The consent write, IN THIS TRANSACTION. It cannot be a follow-up call: the
+      // invitation is now spent, so a crash between the two would leave the farmer
+      // un-consented with no retry — the second SIGNUP finds a redeemed invitation and the
+      // "your farm is ready" text stays suppressed forever. That is the exact silent dead
+      // end this work exists to close.
+      //
+      // `firstTimeOnly` is what makes onboarding safe as an opt-in path. It refuses when
+      // ANY record exists, so a farmer who already texted JOIN keeps one unchanged record,
+      // and a person who texted STOP is never silently re-enrolled by filling in a web
+      // form. Both are decided inside `applyConsentTransitionIn`'s own lock, by the same
+      // rules JOIN gets — this function states no consent rule of its own.
+      //
+      // Read BEFORE the write. Afterwards every consenting sender looks like one who
+      // already had a record, and the reply would drop the opt-in receipt it owes them.
+      const hadConsentRecord = await hasConsentRecord(tx, input.contactHash);
+      const consent =
+        agreedToSmsAt === null
+          ? null
+          : await applyConsentTransitionIn(tx, {
+              recipientHash: input.contactHash,
+              transition: "start",
+              occurredAt: input.occurredAt,
+              providerEventId: input.providerEventId ?? `onboarding-${requestId}`,
+              captureSource: "farmer_onboarding",
+              firstTimeOnly: true,
+            });
+
+      return {
+        status: "opened" as const,
+        requestId,
+        consentEstablished: consent?.applied === true,
+        hadConsentRecord,
+      };
     }) as Promise<OpenOnboardingRequestResult>;
   }
 
@@ -399,9 +508,24 @@ export async function openFarmerOnboardingRequest(
     returning id
   `;
   const requestId = inserted[0]?.id as string | undefined;
+  // An uninvited SIGNUP establishes no consent and never has. There is no web page in that
+  // path to have shown an agreement on, so there is nothing an opt-in could rest on.
   return requestId === undefined
     ? { status: "already_open" }
-    : { status: "opened", requestId };
+    : {
+        status: "opened",
+        requestId,
+        consentEstablished: false,
+        hadConsentRecord: await hasConsentRecord(driver(db), input.contactHash),
+      };
+}
+
+/** Whether this sender has any launch consent record at all, active or stopped. */
+async function hasConsentRecord(sql: Sql | Tx, contactHash: string): Promise<boolean> {
+  const rows = await sql`
+    select 1 from sms_consents where recipient_hash = ${contactHash}
+  `;
+  return rows.length > 0;
 }
 
 export type IssueFarmerLinkResult =
