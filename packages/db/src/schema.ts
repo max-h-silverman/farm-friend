@@ -429,6 +429,16 @@ export const farmerInvitations = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+    /**
+     * When the invited farmer ticked the SMS agreement on the onboarding page.
+     *
+     * **This records where the agreement was shown; it is not consent.** A tick on a web
+     * page proves nothing about who holds the handset, so it grants nothing on its own. The
+     * consent record is written only when a `SIGNUP <token>` arrives from a phone, which is
+     * the evidence that the person agreeing and the person being messaged are the same.
+     * NULL means the box was never ticked, and that SIGNUP establishes no consent.
+     */
+    agreedToSmsAt: timestamp("agreed_to_sms_at", { withTimezone: true }),
   },
   (table) => ({
     tokenHashUnique: unique("farmer_invitations_token_hash_unique").on(table.tokenHash),
@@ -443,6 +453,12 @@ export const farmerInvitations = pgTable(
     validRedemption: check(
       "farmer_invitations_valid_redemption",
       sql`${table.redeemedAt} is null or ${table.redeemedAt} >= ${table.createdAt}`,
+    ),
+    // An agreement cannot predate the invitation that showed it. Without this a backdated
+    // stamp could claim the agreement was shown at a moment the page did not exist.
+    validAgreement: check(
+      "farmer_invitations_valid_agreement",
+      sql`${table.agreedToSmsAt} is null or ${table.agreedToSmsAt} >= ${table.createdAt}`,
     ),
   }),
 );

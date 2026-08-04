@@ -53,6 +53,13 @@ render an honest "updated X ago" without a second provenance axis.
   invent an email provider or bypass SMS consent. A redeemed, farm-bound invitation records its
   farm on the onboarding request; an unbound invitation leaves that decision for the queue. Both
   still grant nothing until VIGA authorizes the farmer.
+
+  `agreed_to_sms_at` records when the invited farmer accepted the SMS agreement on the onboarding
+  page — **where the agreement was shown, not consent itself**. It is stamped once and keeps the
+  first time (a farmer who reloads and re-ticks has not agreed twice), a CHECK constraint forbids it
+  predating the invitation, and NULL means the box was never ticked, in which case the resulting
+  `SIGNUP` establishes no consent. Anyone holding the link can set it, which is exactly why it
+  cannot be the consent write; see §privacy, Consent.
 - **farmer standing links** (F-040, hardened by B-031) — a durable key letting a farmer reach *their own* listing form
   in a browser, with no password and no session. Only the **hash** of the token is stored, as with
   a session token. A link is a **pointer to an authorization, never authority itself**: resolution
@@ -290,10 +297,11 @@ These are **database-level** requirements, not application conventions:
   fields. Model-writable public strings are validated together at publication and the whole write is
   refused — never sanitized — when they contain phone numbers, email addresses, web links, or
   direct-contact instructions. **Direct farmer contact is never public.**
-- **Consent:** active launch-program consent gates every proactive non-required SMS. `START` and
-  documented farmer onboarding establish or restore it with provenance; `JOIN` establishes it only
-  for a sender with **no** consent record, because the carrier's own opt-out list is cleared by
-  `START` alone (B-011, docs/SMS_COMPLIANCE.md). A customer-initiated inquiry
+- **Consent:** active launch-program consent gates every proactive non-required SMS. `START`
+  establishes **or restores** it with provenance; `JOIN` and documented farmer onboarding establish
+  it only for a sender with **no** consent record, because the carrier's own opt-out list is cleared
+  by `START` alone (B-011, docs/SMS_COMPLIANCE.md). Onboarding is therefore never a way back in
+  after an opt-out — a farmer who texted `STOP` and later completes a web form is not re-enrolled. A customer-initiated inquiry
   permits its relevant direct response but creates no durable consent for later proactive
   notifications. `STOP` clears launch consent immediately and applies across all Farm Friend
   messaging. STOP/START transitions are ordered separately from conversation state by provider

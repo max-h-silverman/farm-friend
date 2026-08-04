@@ -9,6 +9,7 @@ import {
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
   renderClarificationRequest,
   renderPublicStringRefusal,
+  signupReplyBodies,
   type Clock,
   type ComplianceKeyword,
   type FarmerKeyword,
@@ -486,20 +487,39 @@ async function routeSignup(
   const opened = await openFarmerOnboardingRequest(deps.db, {
     contactHash: input.senderHash,
     occurredAt: input.occurredAt,
+    providerEventId: input.providerEventId,
     ...(invitationToken !== undefined ? { invitationToken } : {}),
   });
 
-  // The same acknowledgement either way. A farmer who texts twice because nothing visibly
-  // happened is told the same true thing, and the reply never reveals queue state.
+  // The acknowledgement is the same for every sender, and never reveals queue state — a
+  // farmer who texts twice because nothing visibly happened is told the same true thing.
+  //
+  // What may FOLLOW it depends on what the write did to their consent, which is why the
+  // decision is a pure function over the write's own report rather than a re-read here.
+  // A repeat SIGNUP (`already_open`, `invalid_invitation`) established nothing and had no
+  // chance to observe a record, so it is answered with the acknowledgement alone: saying
+  // "reply JOIN" on the second text when the first already said it adds nothing, and the
+  // first text is the one that carried the instruction.
+  const bodies =
+    opened.status === "opened"
+      ? signupReplyBodies({
+          consentEstablished: opened.consentEstablished,
+          hadConsent: opened.hadConsentRecord,
+        })
+      : [FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT];
+
   return {
     outcome: { kind: "farmer", keyword: "SIGNUP", status: opened.status },
-    replies: [
-      {
-        body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-        category: "required_reply",
-        logicalKey: `signup-ack-${input.providerEventId}`,
-      },
-    ],
+    replies: bodies.map((body, index) => ({
+      body,
+      // `required_reply`: each answers the sender's own inbound message. The opt-in receipt
+      // in particular must not be gated on the consent it is confirming.
+      category: "required_reply" as const,
+      logicalKey:
+        index === 0
+          ? `signup-ack-${input.providerEventId}`
+          : `signup-consent-${input.providerEventId}`,
+    })),
   };
 }
 

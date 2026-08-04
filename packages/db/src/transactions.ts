@@ -405,99 +405,105 @@ export async function applyConsentTransition(
   db: Db,
   input: ConsentTransitionInput,
 ): Promise<ConsentTransitionResult> {
-  return driver(db).begin(async (tx) => {
-    const current = await tx`
-      select transition, occurred_at from consent_transition_watermarks
-      where recipient_hash = ${input.recipientHash}
-      for update
+  return driver(db).begin((tx) =>
+    applyConsentTransitionIn(tx, input),
+  ) as Promise<ConsentTransitionResult>;
+}
+
+/**
+ * The consent transition itself, against a caller's transaction handle.
+ *
+ * Exported so a write that must be ATOMIC with a consent decision can hold both in one
+ * transaction — web onboarding is the case that needed it: redeeming the invitation and
+ * establishing consent cannot be separable, or a crash between them leaves the invitation
+ * spent, the farmer un-consented, and no retry path (the second SIGNUP finds the invitation
+ * redeemed).
+ *
+ * **This is the one consent writer, not a second one.** `applyConsentTransition` is now a
+ * `begin` wrapper over this exact body, so the first-time rule, the watermark ordering, and
+ * the STOP tie-break are stated once and every caller gets all of them. Same pattern as
+ * `queueOutbox`, for the same reason.
+ */
+export async function applyConsentTransitionIn(
+  tx: Tx,
+  input: ConsentTransitionInput,
+): Promise<ConsentTransitionResult> {
+  const current = await tx`
+    select transition, occurred_at from consent_transition_watermarks
+    where recipient_hash = ${input.recipientHash}
+    for update
+  `;
+
+  if (current.length > 0) {
+    const previousAt = current[0]?.occurred_at as Date;
+    const previous = current[0]?.transition as "start" | "stop";
+    const older = input.occurredAt < previousAt;
+    // On an exact tie STOP wins: a start can never displace a stop at the same instant.
+    const losesTie =
+      input.occurredAt.getTime() === previousAt.getTime() &&
+      (input.transition === previous || previous === "stop");
+
+    if (older || losesTie) {
+      const state = await tx`
+        select state from sms_consents where recipient_hash = ${input.recipientHash}
+      `;
+      return {
+        applied: false,
+        state: (state[0]?.state as "active" | "stopped") ?? "stopped",
+        refusal: "stale",
+      };
+    }
+  }
+
+  // B-011: JOIN establishes consent only for a sender with no record yet.
+  //
+  // Enforced by the PRIMARY KEY on `sms_consents.recipient_hash`, not by a read — and this
+  // distinction was found by an integration test, not by reasoning. The `for update` above
+  // locks EXISTING watermark rows; a genuinely first-time sender has none, so there is
+  // nothing to lock and concurrent JOINs are not serialized by it at all. An earlier draft
+  // of this guard did `select ... from sms_consents` and refused on a hit, and the
+  // 8-claimant race enrolled THREE of them: every transaction read "no record" before any
+  // of them wrote one. The comment claiming the lock serialized it was simply wrong.
+  //
+  // `on conflict do nothing` moves the decision into the unique index, where the database
+  // resolves it: exactly one insert reports a row, the losers report none, and they learn
+  // it from the write rather than from a stale read. `returning` is what makes the outcome
+  // observable — a plain conflict-swallowing insert cannot tell winner from loser.
+  //
+  // Keyed on the CONSENT row rather than the watermark on purpose: the watermark is written
+  // by every transition including ones that do not enroll, so an absent consent row is the
+  // honest test of "never opted in".
+  if (input.firstTimeOnly) {
+    const claimed = await tx`
+      insert into sms_consents (
+        recipient_hash, state, capture_source, captured_at, capture_evidence_ref, updated_at
+      )
+      values (
+        ${input.recipientHash}, 'active', ${input.captureSource ?? "join"},
+        ${input.occurredAt}, ${input.captureEvidenceRef ?? input.providerEventId},
+        ${input.occurredAt}
+      )
+      on conflict (recipient_hash) do nothing
+      returning state
     `;
 
-    if (current.length > 0) {
-      const previousAt = current[0]?.occurred_at as Date;
-      const previous = current[0]?.transition as "start" | "stop";
-      const older = input.occurredAt < previousAt;
-      // On an exact tie STOP wins: a start can never displace a stop at the same instant.
-      const losesTie =
-        input.occurredAt.getTime() === previousAt.getTime() &&
-        (input.transition === previous || previous === "stop");
-
-      if (older || losesTie) {
-        const state = await tx`
-          select state from sms_consents where recipient_hash = ${input.recipientHash}
-        `;
-        return {
-          applied: false,
-          state: (state[0]?.state as "active" | "stopped") ?? "stopped",
-          refusal: "stale",
-        };
-      }
+    if (claimed.length === 0) {
+      // Someone already holds the record — a returning farmer, or a concurrent JOIN that
+      // won the insert. No watermark write either: this command had no consent
+      // consequence, and advancing the watermark would let a JOIN mask a later
+      // legitimate START arriving at an earlier provider time.
+      const existing = await tx`
+        select state from sms_consents where recipient_hash = ${input.recipientHash}
+      `;
+      return {
+        applied: false,
+        state: (existing[0]?.state as "active" | "stopped") ?? "stopped",
+        refusal: "already_enrolled",
+      };
     }
 
-    // B-011: JOIN establishes consent only for a sender with no record yet.
-    //
-    // Enforced by the PRIMARY KEY on `sms_consents.recipient_hash`, not by a read — and this
-    // distinction was found by an integration test, not by reasoning. The `for update` above
-    // locks EXISTING watermark rows; a genuinely first-time sender has none, so there is
-    // nothing to lock and concurrent JOINs are not serialized by it at all. An earlier draft
-    // of this guard did `select ... from sms_consents` and refused on a hit, and the
-    // 8-claimant race enrolled THREE of them: every transaction read "no record" before any
-    // of them wrote one. The comment claiming the lock serialized it was simply wrong.
-    //
-    // `on conflict do nothing` moves the decision into the unique index, where the database
-    // resolves it: exactly one insert reports a row, the losers report none, and they learn
-    // it from the write rather than from a stale read. `returning` is what makes the outcome
-    // observable — a plain conflict-swallowing insert cannot tell winner from loser.
-    //
-    // Keyed on the CONSENT row rather than the watermark on purpose: the watermark is written
-    // by every transition including ones that do not enroll, so an absent consent row is the
-    // honest test of "never opted in".
-    if (input.firstTimeOnly) {
-      const claimed = await tx`
-        insert into sms_consents (
-          recipient_hash, state, capture_source, captured_at, capture_evidence_ref, updated_at
-        )
-        values (
-          ${input.recipientHash}, 'active', ${input.captureSource ?? "join"},
-          ${input.occurredAt}, ${input.captureEvidenceRef ?? input.providerEventId},
-          ${input.occurredAt}
-        )
-        on conflict (recipient_hash) do nothing
-        returning state
-      `;
-
-      if (claimed.length === 0) {
-        // Someone already holds the record — a returning farmer, or a concurrent JOIN that
-        // won the insert. No watermark write either: this command had no consent
-        // consequence, and advancing the watermark would let a JOIN mask a later
-        // legitimate START arriving at an earlier provider time.
-        const existing = await tx`
-          select state from sms_consents where recipient_hash = ${input.recipientHash}
-        `;
-        return {
-          applied: false,
-          state: (existing[0]?.state as "active" | "stopped") ?? "stopped",
-          refusal: "already_enrolled",
-        };
-      }
-
-      // This transaction established consent. Record the watermark and report it, skipping
-      // the generic write below — the consent row is already exactly what it would produce.
-      await tx`
-        insert into consent_transition_watermarks (
-          recipient_hash, transition, occurred_at, provider_event_id
-        )
-        values (
-          ${input.recipientHash}, ${input.transition}, ${input.occurredAt},
-          ${input.providerEventId}
-        )
-        on conflict (recipient_hash) do update
-          set transition = excluded.transition,
-              occurred_at = excluded.occurred_at,
-              provider_event_id = excluded.provider_event_id
-      `;
-      return { applied: true, state: "active" };
-    }
-
+    // This transaction established consent. Record the watermark and report it, skipping
+    // the generic write below — the consent row is already exactly what it would produce.
     await tx`
       insert into consent_transition_watermarks (
         recipient_hash, transition, occurred_at, provider_event_id
@@ -511,39 +517,54 @@ export async function applyConsentTransition(
             occurred_at = excluded.occurred_at,
             provider_event_id = excluded.provider_event_id
     `;
+    return { applied: true, state: "active" };
+  }
 
-    const state = input.transition === "start" ? "active" : "stopped";
-    if (state === "active") {
-      // Both registered opt-in keywords establish the same one launch-program consent;
-      // only the provenance differs, so there is one row and no program discriminator.
-      const captureSource = input.captureSource ?? "start";
-      await tx`
-        insert into sms_consents (
-          recipient_hash, state, capture_source, captured_at, capture_evidence_ref,
-          updated_at
-        )
-        values (
-          ${input.recipientHash}, 'active', ${captureSource}, ${input.occurredAt},
-          ${input.captureEvidenceRef ?? input.providerEventId}, ${input.occurredAt}
-        )
-        on conflict (recipient_hash) do update
-          set state = 'active', capture_source = excluded.capture_source,
-              captured_at = excluded.captured_at,
-              capture_evidence_ref = excluded.capture_evidence_ref,
-              updated_at = excluded.updated_at
-      `;
-    } else {
-      // STOP clears consent immediately and applies across all Farm Friend messaging.
-      await tx`
-        insert into sms_consents (recipient_hash, state, updated_at)
-        values (${input.recipientHash}, 'stopped', ${input.occurredAt})
-        on conflict (recipient_hash) do update
-          set state = 'stopped', updated_at = excluded.updated_at
-      `;
-    }
+  await tx`
+    insert into consent_transition_watermarks (
+      recipient_hash, transition, occurred_at, provider_event_id
+    )
+    values (
+      ${input.recipientHash}, ${input.transition}, ${input.occurredAt},
+      ${input.providerEventId}
+    )
+    on conflict (recipient_hash) do update
+      set transition = excluded.transition,
+          occurred_at = excluded.occurred_at,
+          provider_event_id = excluded.provider_event_id
+  `;
 
-    return { applied: true, state };
-  }) as Promise<ConsentTransitionResult>;
+  const state = input.transition === "start" ? "active" : "stopped";
+  if (state === "active") {
+    // Both registered opt-in keywords establish the same one launch-program consent;
+    // only the provenance differs, so there is one row and no program discriminator.
+    const captureSource = input.captureSource ?? "start";
+    await tx`
+      insert into sms_consents (
+        recipient_hash, state, capture_source, captured_at, capture_evidence_ref,
+        updated_at
+      )
+      values (
+        ${input.recipientHash}, 'active', ${captureSource}, ${input.occurredAt},
+        ${input.captureEvidenceRef ?? input.providerEventId}, ${input.occurredAt}
+      )
+      on conflict (recipient_hash) do update
+        set state = 'active', capture_source = excluded.capture_source,
+            captured_at = excluded.captured_at,
+            capture_evidence_ref = excluded.capture_evidence_ref,
+            updated_at = excluded.updated_at
+    `;
+  } else {
+    // STOP clears consent immediately and applies across all Farm Friend messaging.
+    await tx`
+      insert into sms_consents (recipient_hash, state, updated_at)
+      values (${input.recipientHash}, 'stopped', ${input.occurredAt})
+      on conflict (recipient_hash) do update
+        set state = 'stopped', updated_at = excluded.updated_at
+    `;
+  }
+
+  return { applied: true, state };
 }
 
 export interface ProposalEntryInput {

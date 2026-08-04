@@ -10,7 +10,13 @@ import {
   createInquiryModel,
   createInventoryInterpreter,
 } from "@farm-friend/ai";
-import { FixedClock, hashPhone } from "@farm-friend/core";
+import {
+  FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+  FARMER_SIGNUP_JOIN_INSTRUCTION,
+  FixedClock,
+  hashPhone,
+  REGISTERED_OPT_IN_AUTO_RESPONSE,
+} from "@farm-friend/core";
 import { authorizeDispatch, createDb, type Db, type Sql } from "@farm-friend/db";
 import { runInboundPass } from "./workers";
 
@@ -583,6 +589,133 @@ describe("inbound routing end to end (integration)", () => {
       expect(flags[0]?.contact_hash).toBe(customerHash);
       expect(flags[0]?.status).toBe("open");
       expect(provider.calls).toBe(0);
+    });
+  });
+
+  describe("invited SIGNUP establishes consent, end to end", () => {
+    // The launch blocker, driven through the REAL webhook handler against real Postgres.
+    //
+    // The unit and `packages/db` suites prove the pieces. This proves the composition: a
+    // farmer's actual text arriving from the carrier reaches the consent writer, and what
+    // Farm Friend queues back says the true thing about messaging. Before this work the
+    // same journey produced an authorized farmer with no consent record and no way to
+    // learn it — behind a fully green suite, because nothing exercised the whole path.
+
+    /** An administrator and an active invitation, returning the raw one-use token. */
+    async function invite(agreed: boolean): Promise<string> {
+      const { createFarmerInvitation, recordFarmerInvitationSmsAgreement } = await import(
+        "@farm-friend/db"
+      );
+      const administrators = await client()`
+        insert into administrators (email, authorized_at)
+        values ('board@vigavashon.org', ${at(0)}) returning id
+      `;
+      const farms = await client()`
+        insert into farms (name) values (${`Invited ${randomUUID()}`}) returning id
+      `;
+      const created = await createFarmerInvitation(database(), {
+        farmId: farms[0]?.id as string,
+        channel: "sms",
+        administratorId: administrators[0]?.id as string,
+        occurredAt: at(0),
+      });
+      if (created.status !== "created") throw new Error(created.status);
+      if (agreed) {
+        await recordFarmerInvitationSmsAgreement(database(), {
+          token: created.token,
+          occurredAt: at(0),
+        });
+      }
+      return created.token;
+    }
+
+    it("records consent and queues the registered opt-in receipt, with NO model call", async () => {
+      const token = await invite(true);
+      await deliverInbound({ fromPhone: farmerPhone, text: `SIGNUP ${token}` });
+      const provider = await runPassWithForbiddenModel();
+
+      const consent = await client()`
+        select state, capture_source from sms_consents
+        where recipient_hash = ${farmerHash}
+      `;
+      expect(consent).toEqual([
+        { state: "active", capture_source: "farmer_onboarding" },
+      ]);
+
+      const work = await client()`
+        select message_category, body from outbox_work
+        where recipient_hash = ${farmerHash}
+        order by logical_key
+      `;
+      expect(work).toEqual([
+        {
+          message_category: "required_reply",
+          body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+        },
+        { message_category: "required_reply", body: REGISTERED_OPT_IN_AUTO_RESPONSE },
+      ]);
+      expect(provider.calls).toBe(0);
+    });
+
+    it("tells a farmer with no agreement to text JOIN, and records no consent", async () => {
+      const token = await invite(false);
+      await deliverInbound({ fromPhone: farmerPhone, text: `SIGNUP ${token}` });
+      const provider = await runPassWithForbiddenModel();
+
+      const consent = await client()`
+        select state from sms_consents where recipient_hash = ${farmerHash}
+      `;
+      expect(consent).toEqual([]);
+
+      const bodies = await client()`
+        select body from outbox_work where recipient_hash = ${farmerHash}
+        order by logical_key
+      `;
+      expect(bodies.map((row) => row.body)).toEqual([
+        FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+        FARMER_SIGNUP_JOIN_INSTRUCTION,
+      ]);
+      expect(provider.calls).toBe(0);
+    });
+
+    it("STOP still wins after an agreed onboarding — the later opt-out clears consent", async () => {
+      // Onboarding is an opt-in path, so it must not become one that is hard to leave. The
+      // consent watermark orders these independently of conversation state.
+      const token = await invite(true);
+      await deliverInbound({
+        fromPhone: farmerPhone,
+        text: `SIGNUP ${token}`,
+        occurredAt: at(0),
+      });
+      await runPassWithForbiddenModel();
+      await deliverInbound({ fromPhone: farmerPhone, text: "STOP", occurredAt: at(1) });
+      await runPassWithForbiddenModel();
+
+      const consent = await client()`
+        select state from sms_consents where recipient_hash = ${farmerHash}
+      `;
+      expect(consent).toEqual([{ state: "stopped" }]);
+    });
+
+    it("a farmer who onboards AFTER opting out is not silently re-enrolled", async () => {
+      // The direction that matters more. A person who texted STOP filling in a web form
+      // must not come back as `active` — and the carrier would refuse the send anyway
+      // (B-011), so recording consent here would make our record disagree with theirs.
+      await deliverInbound({ fromPhone: farmerPhone, text: "STOP", occurredAt: at(0) });
+      await runPassWithForbiddenModel();
+
+      const token = await invite(true);
+      await deliverInbound({
+        fromPhone: farmerPhone,
+        text: `SIGNUP ${token}`,
+        occurredAt: at(1),
+      });
+      await runPassWithForbiddenModel();
+
+      const consent = await client()`
+        select state from sms_consents where recipient_hash = ${farmerHash}
+      `;
+      expect(consent).toEqual([{ state: "stopped" }]);
     });
   });
 

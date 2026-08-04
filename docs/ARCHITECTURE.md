@@ -181,8 +181,9 @@ Launch VIGA Farm Friend is one registered operational SMS program. Each recipien
 launch-program consent state with capture provenance. `START` establishes **or restores** it from
 any state; `JOIN` establishes it **only for a sender with no consent record** — see B-011 in
 docs/SMS_COMPLIANCE.md, where the carrier's own opt-out list, which only `START` clears, is why;
-documented farmer onboarding may establish it only after number-control verification and records
-how, when, and where consent was captured. Inventory prompts, publication confirmations, customer
+documented farmer onboarding establishes it through that same `JOIN` rule — first-time senders only,
+and only once an inbound `SIGNUP <token>` demonstrates control of the number the web agreement was
+accepted for. Inventory prompts, publication confirmations, customer
 inquiry replies, and stock-out alerts are message categories inside that program, not separate
 program enrollments.
 
@@ -203,6 +204,12 @@ provenance and in whether an existing record blocks them (`JOIN` alone is first-
 first-time rule is enforced inside `applyConsentTransition` by an `insert … on conflict do nothing
 returning` against `sms_consents`' primary key — **not** by a read, and not by the watermark's
 `for update`, which cannot lock a row that does not exist yet.
+
+There is exactly **one** consent writer. `applyConsentTransition` is a `begin` wrapper over
+`applyConsentTransitionIn(tx, …)`, which web onboarding calls inside its own transaction so the
+invitation redemption and the consent write commit together (the same shape as `queueOutbox`). The
+first-time rule, the watermark ordering, and STOP's tie-break are therefore stated once and every
+caller gets all of them — a second writer would be a second set of consent rules.
 
 **Deterministic code decides three things about every outbound message, and the model decides none
 of them: who may receive it, whether launch-program consent permits it, and whether it exceeds the
@@ -249,9 +256,11 @@ order:
    opens the settings view through the existing standing link. Like `FLAG` these are **Farm Friend product keywords, never
    carrier-mandated ones**, and must never be registered as such. They are parsed **last among the
    keyword branches** so one can never shadow a compliance keyword or a commitment token — if a
-   synonym ever collided with `STOP`, an opt-out would stop working. Neither grants anything:
+   synonym ever collided with `STOP`, an opt-out would stop working. **Neither grants authority:**
    `SIGNUP` writes a record with no grant column, and `LINK` is refused unless the sender already
-   holds a live authorization.
+   holds a live authorization. An **invited** `SIGNUP` does establish launch *consent* when its
+   invitation carries the web agreement — in the same transaction that redeems the invitation, so
+   the two cannot come apart and strand a farmer with a spent invitation and no consent record.
 7. **`MORE`** (F-046) returns the next page of the sender's pending result list. Also a **Farm
    Friend product keyword, never a carrier-mandated one**, and parsed **alongside the farmer
    keywords at the end** for the same reason: paging must never shadow an opt-out or a commitment

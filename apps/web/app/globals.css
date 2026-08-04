@@ -1744,6 +1744,41 @@ button.admin-action-danger:disabled {
   color: var(--ink-soft);
 }
 
+/* The SMS agreement. Set apart from the surrounding card because it is the one thing on
+   this page the farmer is asked to accept, and the disclosures inside it are what the
+   carrier-registered opt-in receipt claims was shown. */
+.farmer-onboarding-agreement {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.farmer-onboarding-agreement p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--ink-soft);
+}
+
+.farmer-onboarding-agree {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  /* A 44px row so the whole label is a comfortable touch target on a handset — this is the
+     one control on the page and most farmers reach it from the invitation text. */
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.farmer-onboarding-agree input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-top: 0.15rem;
+}
+
 .farmer-onboarding-steps {
   display: grid;
   gap: 0.65rem;

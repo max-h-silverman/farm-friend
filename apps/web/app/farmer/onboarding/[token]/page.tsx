@@ -1,6 +1,7 @@
 import { loadFarmerInvitation } from "@farm-friend/db";
 import { buildSignupSmsUrl } from "../../../../lib/farmer-invite";
 import { publicReadContext } from "../../../../lib/public-context";
+import { AgreementStep } from "./agreement-step";
 
 export const dynamic = "force-dynamic";
 
@@ -49,22 +50,13 @@ export default async function FarmerOnboardingPage({
       </p>
 
       <section className="farmer-onboarding-card" aria-labelledby="verify-phone-heading">
-        <p className="farmer-eyebrow">Step 1 of 3: verify your phone</p>
-        <h2 id="verify-phone-heading">Send one prepared text</h2>
+        <p className="farmer-eyebrow">Step 1 of 3: agree and verify your phone</p>
+        <h2 id="verify-phone-heading">Agree to texts, then send one prepared text</h2>
         <p>
-          Send this from the phone you want to use. It proves you control the number; it does
+          Send it from the phone you want to use. It proves you control the number; it does
           not approve your farm or publish anything.
         </p>
-        {signupUrl === null ? (
-          <p className="farmer-onboarding-instruction">
-            Text <strong>SIGNUP {params.token}</strong> to the Farm Friend number from your
-            invitation.
-          </p>
-        ) : (
-          <a className="farmer-primary-link" href={signupUrl}>
-            Text SIGNUP to verify this phone
-          </a>
-        )}
+        <AgreementStep token={params.token} signupUrl={signupUrl} />
         <p className="farmer-onboarding-instruction">
           The prepared message includes this invitation, so VIGA can connect your request to
           {invitation.farmName === null ? (
