@@ -1000,7 +1000,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           <div className="farm-map-key" aria-label="Farm map key">
             <span className="poster-indicator poster-indicator-no-viga-bucks">
               <span className="poster-dot" aria-hidden="true" />
-              Don't take VIGA Bucks
+              Doesn't take VIGA Bucks
             </span>
             <span className="poster-indicator poster-indicator-year-round">
               <span className="poster-dot" aria-hidden="true" />
