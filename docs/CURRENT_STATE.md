@@ -7,10 +7,10 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00023-frt` and worker revision `farm-friend-worker-00024-mzv`, both at digest
-`sha256:0e98f195d7947735b426254118d769e9ffa9dc49c35c4801920f34ff9ddbb698`. Production Postgres
-is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal timestamp
-`1786500000000`).
+`farm-friend-web-00027-5ng` and worker revision `farm-friend-worker-00028-67c`, both at digest
+`sha256:2f089d8b4a0482a78cea6754b5dfa914800c7e5c021fb2dc9845ee455eab797a` (`main` at `4a8bca7`).
+Production Postgres is `neondb` with all 17 migrations applied (`0000`–`0017`, through journal
+timestamp `1786500000000`).
 
 The wide-screen map/list coupling, the desktop density pass, and the indicator-color correction are
 all merged to `main`. The most recent tranche is a **public-map selection and key polish**:

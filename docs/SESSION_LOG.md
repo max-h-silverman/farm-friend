@@ -58,6 +58,21 @@ reading computed styles rather than trusting screenshots — jsdom reports every
 and can see none of this. No schema migration, no model seam, and no SMS or privacy surface was
 touched, so no integration run or eval was owed.
 
+Released as PR #76, squash-merged to `main` as `4a8bca7`. Cloud Build
+`6a2c341b-22fa-43ee-8952-84f6febc6d74` produced digest
+`sha256:2f089d8b4a0482a78cea6754b5dfa914800c7e5c021fb2dc9845ee455eab797a`. OpenTofu passed 37/37
+plan assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
+`farm-friend-web-00027-5ng` and `farm-friend-worker-00028-67c`; deploy and served-card assertions
+passed. No migration was owed. Verified **by effect** rather than by the apply's exit status: the
+served CSS bundle carries `--row-hover`, `.stand:not(.stand-selected):hover`,
+`container-type:inline-size`, and `cqi` sizing; no served chunk still contains "Has a stand to
+visit"; and the live page reports a 3px amber ring, the selected pin last in the layer, a
+one-line left-aligned key, and a uniform 2px pin stroke.
+
+A local-history note for whoever pulls next: the squash merge rewrote three commits that existed
+only on the local `main` (`c9efe10`, `8f04542`, `7e8326f`); their content is present in `4a8bca7`,
+and local `main` was reset to `origin/main` after confirming the trees matched.
+
 ## 2026-08-02 — map marker colors corrected and deployed
 
 The map’s open-state CSS was overriding the category colors: unknown, by-appointment, and stale
