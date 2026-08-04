@@ -7,13 +7,13 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00027-5ng` and worker revision `farm-friend-worker-00028-67c`, both at digest
-`sha256:2f089d8b4a0482a78cea6754b5dfa914800c7e5c021fb2dc9845ee455eab797a` (`main` at `4a8bca7`).
-Production Postgres is `neondb` with 17 migrations applied (`0000`–`0017`, through journal
-timestamp `1786500000000`).
+`farm-friend-web-00028-mwv` and worker revision `farm-friend-worker-00029-jzz`, both at digest
+`sha256:d27f3639f4a7ccc05da41b77e5cdc3a8581871cb4c5eb393a02422322de6aca6` (`main` at `b8bc76d`).
+Production Postgres is `neondb` with all 18 migrations applied (`0000`–`0018`, through journal
+timestamp `1786700000000`).
 
-Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constraint) is applied,
-before the code that reads it was promoted. The journal shows it landing once at `1786700000000`.
+Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constraint) was applied
+**before** the code that reads it was promoted, per the RUNBOOK's ordering rule.
 
 The most recent tranche closes the **farmer-consent launch blocker**. Before it, the standard
 invited journey dead-ended in silence: a farmer completed onboarding, VIGA approved, and the
@@ -58,6 +58,11 @@ asserted the same wrong wording.
 - The agreement step is proven in jsdom for order, disclosures, failure paths, and the
   double-submit guard. **It has not been looked at in a real browser at phone width** — jsdom
   reports every element as zero-sized and can see none of its layout.
+- Deployed and verified **by effect** against the live service, not by the apply's exit status:
+  `/api/farmer/onboarding` refuses a malformed token with `400` before touching the database, and
+  answers a well-formed but unknown token with the uniform `410 invitation_unavailable` — so the
+  endpoint is not an oracle for whether a guessed token names anything. Plan assertions 37/37,
+  deploy and served-card assertions pass.
 - Production build warnings remain unchanged: Next does not recognize `outputFileTracingRoot`, and
   the Next ESLint plugin is not installed. B-008 owns the lint configuration gap.
 
@@ -67,7 +72,7 @@ asserted the same wrong wording.
   names, transient browser proximity, destination links, and code-bound stock-out reporting.
 - **Farmer workflows:** deterministic `SIGNUP`, `LINK`, `STAND`, `SETTINGS`, and `SAME`; one exact
   stand per credential; SMS/web proposal and confirmation; closures, participants, and reminders.
-  Invited onboarding now establishes SMS consent (merged, not yet deployed).
+  Invited onboarding establishes SMS consent.
 - **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.
@@ -78,8 +83,6 @@ asserted the same wrong wording.
 
 ## Open before go-live
 
-- **Apply migration `0018` to production and deploy**, in that order. The merged code reads the new
-  column.
 - **Approved farmers still start on no reminder schedule.** `authorizeFarmer` writes no
   `inventory_prompt_preferences` row, so the scheduled-prompt machinery — built and correct —
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.

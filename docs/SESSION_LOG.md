@@ -78,12 +78,26 @@ model seam was added, so no eval or `evals:live` run was owed.
 Also fixed: the map directory key read "Don't take VIGA Bucks" of a single stand, with the test
 asserting the same wrong wording. Committed separately from the consent work.
 
+Released as PR #77, squash-merged to `main` as `b8bc76d`.
+
 Migration `0018` was applied to production **before** promoting the code that reads the column, per
 the RUNBOOK's ordering rule. The target was fingerprinted first (`neondb`, 17 migrations, 35 farms
 and 35 locations, column absent) so a mistyped connection string would have failed rather than
 migrated something else. Verified by effect afterwards: the column and its CHECK constraint exist,
 the journal shows `0018` landing exactly once at the corrected `1786700000000` with no duplicate
 timestamps, and all 35 farms and locations are intact.
+
+Cloud Build `04d46497-1e9d-4722-96f1-0e478cc35d2e` produced digest
+`sha256:d27f3639f4a7ccc05da41b77e5cdc3a8581871cb4c5eb393a02422322de6aca6`. OpenTofu passed 37/37
+plan assertions and applied 0 adds, 2 service updates, 0 destroys; deploy and served-card
+assertions passed. Live revisions are `farm-friend-web-00028-mwv` and
+`farm-friend-worker-00029-jzz`. Verified **by effect** rather than by the apply's exit status: the
+live `/api/farmer/onboarding` refuses a malformed token with `400` before any database work, and
+answers a well-formed but unknown one with the uniform `410 invitation_unavailable`, so the new
+endpoint is not an oracle for whether a guessed token names anything.
+
+**Still owed:** the journey has never been exercised against a real handset, and the agreement step
+has not been looked at in a real browser at phone width.
 
 ## 2026-08-04 — interactive map selection and key polish
 
