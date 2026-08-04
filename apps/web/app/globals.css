@@ -70,6 +70,11 @@
   --pin: #5d7a4e;         /* the poster's pin green */
   --pin-ink: #ffffff;     /* the number ON the pin — always the maximum contrast pairing */
   --brick-soft: #f6e7e2;
+  /* THE SELECTION. One token because the selected stand is marked in two places at once — the
+   * card's border in the directory and the halo around its pin — and those two must never drift
+   * apart: a customer identifies their selection by matching the colors across the two surfaces
+   * (max, 2026-08-04). */
+  --selected: #e9ae1b;
   /* The highway. Its own token because the two themes disagree about what a road looks
    * like: pale-on-sage in daylight, light-on-dark at night. */
   --road: #ffffff;
@@ -207,9 +212,19 @@ body {
   background: currentColor;
 }
 
+/* INDICATOR COLORS CARRY MEANING, so no two of them may be the same and none may repeat a color
+ * the MAP already spends on a different fact (max, 2026-08-04). The map's pin palette is the
+ * other half of this system — green year-round, blue seasonal, dark red flowers-only, red
+ * farm-with-no-stand, purple market — and a customer reads both on one screen.
+ *
+ * Year-round deliberately matches the map's year-round pin exactly: same fact, same color, on
+ * both surfaces. The rest are held apart from every pin color and from each other. */
 .poster-indicator-no-viga-bucks { color: #ec641d; }
-.poster-indicator-year-round { color: #9d160e; }
-.poster-indicator-late-november { color: #e9ae1b; }
+.poster-indicator-year-round { color: #65a936; }
+/* Deep magenta: "ending soon" needs to read as a caution without borrowing the map's red, which
+ * already means a farm with no stand to visit — and `contact-only` below spends that same red on
+ * exactly that fact in this very list. */
+.poster-indicator-late-november { color: #a3216b; }
 .poster-indicator-contact-only { color: #d83225; }
 
 .stand .poster-indicators {
@@ -2774,8 +2789,8 @@ button.admin-action-danger,
 }
 
 .pin-selection-halo {
-  fill: color-mix(in srgb, var(--olive) 18%, transparent);
-  stroke: var(--olive);
+  fill: color-mix(in srgb, var(--selected) 18%, transparent);
+  stroke: var(--selected);
   stroke-width: 7;
   vector-effect: non-scaling-stroke;
 }
@@ -3167,8 +3182,8 @@ button.admin-action-danger,
 .stand-selected {
   /* Matches the pin's selected ring, so the link between the two surfaces is visible rather
    * than inferred. */
-  border-color: var(--olive);
-  box-shadow: 0 0 0 2px var(--olive);
+  border-color: var(--selected);
+  box-shadow: 0 0 0 2px var(--selected);
 }
 
 /* The open-state badge. WORDS first — the class only styles them, and every state that is
@@ -3304,11 +3319,11 @@ button.admin-action-danger,
   padding: 0.85rem 0.75rem;
   background: var(--sage);
   border-radius: 0.9rem;
-  box-shadow: 0 0 0 2px var(--olive);
+  box-shadow: 0 0 0 2px var(--selected);
 }
 
 .stand-selected.stand-stale {
-  box-shadow: 0 0 0 2px var(--olive), inset 4px 0 0 var(--amber-line);
+  box-shadow: 0 0 0 2px var(--selected), inset 4px 0 0 var(--amber-line);
 }
 
 .stand-selected:hover {
@@ -3877,7 +3892,7 @@ button.admin-action-danger,
     padding: 0.75rem;
     background: var(--sage);
     border-radius: 0.9rem;
-    box-shadow: 0 0 0 2px var(--olive);
+    box-shadow: 0 0 0 2px var(--selected);
   }
 
   .stand-selected .stand-details {
