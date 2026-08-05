@@ -79,6 +79,13 @@ latest-wins). Wide-screen layout measured in a real browser across 16 stands spa
 no band gap exceeds the 12px grid gap, and the action row wraps without overlap down to a 260px
 card.
 
+**Deployed** at max's call during the wrap: web `farm-friend-web-00029-bgf`, worker
+`farm-friend-worker-00030-vzd`, digest `sha256:3a25dd2c…f33977a464`, no migration. Verified by
+effect rather than by the apply's exit status — the served stylesheet resolves `.detail-actions` and
+`.detail-aside` to `display:flex` with their gaps, and `.stand-selected .stand-detail-body` to
+`minmax(0,1fr)`, so the two-column split is gone from production and not merely from the source.
+Plan assertions 37/37; deploy and served-card assertions pass.
+
 **Owed:** the phone-width and dark-appearance look at the expanded card, which `DEVELOPMENT.md`
 requires for the public map. Not done — the browser in this environment reports a successful resize
 while `window.innerWidth` stays 1728, and AppleScript window control times out (-1712). max chose

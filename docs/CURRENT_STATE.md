@@ -7,10 +7,10 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00028-mwv` and worker revision `farm-friend-worker-00029-jzz`, both at digest
-`sha256:d27f3639f4a7ccc05da41b77e5cdc3a8581871cb4c5eb393a02422322de6aca6` (`main` at `b8bc76d`).
+`farm-friend-web-00029-bgf` and worker revision `farm-friend-worker-00030-vzd`, both at digest
+`sha256:3a25dd2c9f47e47ecac48547b81e366c2a88b0561cf84a385e2321f33977a464` (`main` at `38f02ed`).
 Production Postgres is `neondb` with all 18 migrations applied (`0000`–`0018`, through journal
-timestamp `1786700000000`).
+timestamp `1786700000000`) — **unchanged by this deploy, which carried no migration**.
 
 Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constraint) was applied
 **before** the code that reads it was promoted, per the RUNBOOK's ordering rule.
@@ -18,8 +18,12 @@ Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constrain
 The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
 [session log](SESSION_LOG.md) for its reasoning.
 
-The most recent tranche is **presentation and ingestion groundwork, and changes no deployed
-behavior** — it is web assets, one pure parser, and documentation. The expanded stand detail was
+The most recent tranche is **presentation and ingestion groundwork** — web assets, one pure parser,
+and documentation. It is **deployed**: plan assertions 37/37, deploy and served-card assertions
+pass, and the served stylesheet was checked **by effect** — `.detail-actions` and `.detail-aside`
+resolve to `display:flex` with their gaps, and `.stand-selected .stand-detail-body` is now
+`minmax(0,1fr)`, so the old two-column split is genuinely gone from production rather than merely
+absent from the source. The expanded stand detail was
 rebuilt as three stacked full-width bands after a layout defect ("WebsiteGet directions" rendering
 as one word) turned out to sit on a wrong structure: a narrow action column beside a chip box whose
 heights can never match, leaving a distributed hole on well-tagged stands.
