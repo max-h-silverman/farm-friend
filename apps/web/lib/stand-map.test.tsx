@@ -925,3 +925,61 @@ describe("expanded stand actions", () => {
     ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 });
+
+/**
+ * THE PHONE SHEET keeps its own visit section.
+ *
+ * The stacked-bands work changed the DIRECTORY row's actions, and both surfaces render the
+ * same component — so the risk is that the restructure leaked into the sheet, which places its
+ * website and directions inside `.detail-visit` instead. That branch is selected by
+ * `showDestination`, and this pins the split: the sheet gets the visit section and NOT the
+ * directory's action list, with both destinations still reachable.
+ */
+describe("phone sheet visit section", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  it("renders the visit section, not the directory action list, on the sheet", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "sheet-stand",
+      farmName: "Sheet Farm",
+      locationName: "Sheet Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "23720 Example Rd SW",
+      latitude: 47.44,
+      longitude: -122.46,
+      availability: {},
+      alsoSellingHere: [],
+      items: [],
+      usuallySells: ["plant starts"],
+      farmBucksAccepted: true,
+      description: "Website: https://example.invalid/farm\nOpen: dawn to dusk.",
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Sheet Stand" }));
+
+    const sheet = container.querySelector(".sheet") as HTMLElement;
+    expect(sheet).toBeTruthy();
+
+    // The sheet's own arrangement: a visit section, and none of the directory's action list.
+    expect(sheet.querySelector(".detail-visit")).toBeTruthy();
+    expect(sheet.querySelector(".detail-actions")).toBeNull();
+
+    // Both destinations remain reachable from the sheet — the restructure must not have cost
+    // the phone a way to get anywhere.
+    const visit = sheet.querySelector(".detail-visit") as HTMLElement;
+    expect(within(visit).getByRole("link", { name: "Website" })).toBeTruthy();
+    expect(within(visit).getByRole("link", { name: "Get directions" })).toBeTruthy();
+  });
+});
