@@ -222,6 +222,21 @@ seed/read paths do not carry them end to end:
 - Add corpus-level tests over the real approved artifact, including the suspicious Venison Valley /
   Aeggy's cross-row-looking text in `maps/offerings-proposals.json`.
 
+**Scope has grown — audit first (2026-08-04).** This item is wider than its bullets above, and a
+scoped audit is queued to supersede it rather than a rival item being opened beside it. See
+[LISTING_INGESTION_AUDIT_PROMPT_2026-08-04.md](LISTING_INGESTION_AUDIT_PROMPT_2026-08-04.md). Three
+findings from this session that the bullets do not anticipate:
+
+- **the map CSV is a hand-maintained derivative** of the weekly status form, not an independent
+  source — so ingesting it means ingesting a volunteer's transcription of the origin data;
+- **`parseFormResponses` describes an export VIGA has never produced.** None of its
+  `EXPECTED_COLUMNS` exists in either real file, and two of its own fixtures appear in neither. The
+  `--form` path is green over an invented format, so "the current seed path" above is partly a
+  description of code that has never run against real input;
+- **the customer-visible description is itself the gap.** Nearly every line of it restates a fact
+  with a structured home, and two of those restatements visibly contradict their structured twin on
+  the live map.
+
 ### GL-015 — Provide a real listing-correction path
 
 **Confirmed gap**
