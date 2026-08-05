@@ -110,8 +110,16 @@ describe("web onboarding establishes SMS consent (integration)", () => {
   }
 
   /**
-   * Approve the farmer and report what the dispatch claim decides about the "your farm is
-   * ready" text — `authorized` when consent permits the send, `suppressed` when it does not.
+   * Report what the dispatch claim decides about the "your farm is ready" text —
+   * `authorized` when consent permits the send, `suppressed` when it does not.
+   *
+   * **The question these tests ask is about CONSENT, not about who authorized.** Since F-067
+   * an agreed invited SIGNUP sets the farmer up during redemption, so the notification is
+   * usually already queued by the time this runs; only the paths that still need a human
+   * (no tick, no farm named) leave an open request for `authorizeFarmer` to settle. This
+   * helper covers whichever happened and then claims, so each test keeps proving the thing it
+   * was written to prove: that the dispatch gate re-reads consent and suppresses a send to
+   * someone who never opted in.
    */
   async function authorizeAndClaim(input: {
     contactHash: string;
@@ -121,21 +129,28 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       select id from farmer_onboarding_requests
       where contact_hash = ${input.contactHash} and settled_at is null
     `;
-    const authorized = await authorizeFarmer(database(), {
-      farmId: input.farmId,
-      requestId: requests[0]?.id as string,
-      administratorId,
-      occurredAt: at(10),
-    });
-    if (authorized.status !== "authorized") throw new Error(authorized.status);
+    const openRequestId = requests[0]?.id as string | undefined;
+    if (openRequestId !== undefined) {
+      const authorized = await authorizeFarmer(database(), {
+        farmId: input.farmId,
+        requestId: openRequestId,
+        administratorId,
+        occurredAt: at(10),
+      });
+      if (authorized.status !== "authorized") throw new Error(authorized.status);
+    }
 
     const queued = await sql()`
       select id from outbox_work
       where recipient_hash = ${input.contactHash}
         and logical_key like 'farmer-authorized-%'
     `;
+    const outboxWorkId = queued[0]?.id as string | undefined;
+    if (outboxWorkId === undefined) {
+      throw new Error("no 'your farm is ready' notification was queued");
+    }
     const claim = await authorizeDispatch(database(), {
-      outboxWorkId: queued[0]?.id as string,
+      outboxWorkId,
       now: at(11),
     });
     return claim.status;
@@ -269,6 +284,114 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       expect(consent?.capture_source).toBe("farmer_onboarding");
 
       expect(await authorizeAndClaim({ contactHash, farmId })).toBe("authorized");
+    });
+
+    it("AUTHORIZES the farmer for the invited farm, with no administrator acting", async () => {
+      // F-067 — the invitation IS the authorization decision. A coordinator chose this farm
+      // and sent the link to this person; the later queue click re-approved something already
+      // decided, which is why the old code could say "VIGA always approves".
+      //
+      // Asserted as a DATABASE EFFECT — a live `farmer_authorizations` row binding this phone
+      // to that farm — because that row, not the queue, is what every publish path resolves
+      // through (`resolveFarmerTarget`). A test that only checked the request was settled
+      // would pass while the farmer still could not publish anything.
+      const contactHash = await contact("f1");
+      const farmId = await farmWithStand(`Selfserve ${randomUUID()}`);
+      const token = await invitation(farmId);
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash,
+        occurredAt: at(2),
+        invitationToken: token,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      expect(opened.status).toBe("opened");
+
+      const authorizations = await sql()`
+        select grant_row.id, grant_row.farm_id
+        from farmer_authorizations as grant_row
+        join contacts on contacts.id = grant_row.contact_id
+        where contacts.phone_hash = ${contactHash} and grant_row.revoked_at is null
+      `;
+      expect(authorizations.length).toBe(1);
+      expect(authorizations[0]?.farm_id).toBe(farmId);
+
+      // No human acted, so nothing is left waiting in VIGA's queue.
+      const open = await sql()`
+        select id from farmer_onboarding_requests
+        where contact_hash = ${contactHash} and settled_at is null
+      `;
+      expect(open.length).toBe(0);
+    });
+
+    it("still refuses a settlement that records neither a farmer nor an administrator", async () => {
+      // The constraint's job is unchanged: a settled request must say WHO settled it. F-067
+      // only widened the acceptable answers from "an administrator" to "an administrator or
+      // the authorization a farmer's own redemption granted". A settlement naming neither is
+      // still incoherent, and this is what keeps the widening from becoming a hole.
+      const contactHash = await contact("f4");
+      const requests = await sql()`
+        insert into farmer_onboarding_requests (contact_hash, requested_at)
+        values (${contactHash}, ${at(2).toISOString()})
+        returning id
+      `;
+
+      await expect(
+        sql()`
+          update farmer_onboarding_requests
+          set settled_at = ${at(3).toISOString()}
+          where id = ${requests[0]?.id as string}
+        `,
+      ).rejects.toThrow(/coherent_settlement/);
+    });
+
+    it("does NOT authorize when the farmer never ticked the agreement", async () => {
+      // Authorization rides on the same evidence consent does: an agreed invitation redeemed
+      // from the handset. Without the tick there is no informed opt-in, so setting the farmer
+      // up would authorize someone into messages they never agreed to receive.
+      const contactHash = await contact("f2");
+      const farmId = await farmWithStand(`Untickedauth ${randomUUID()}`);
+      const token = await invitation(farmId);
+
+      await openFarmerOnboardingRequest(database(), {
+        contactHash,
+        occurredAt: at(2),
+        invitationToken: token,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      const authorizations = await sql()`
+        select grant_row.id from farmer_authorizations as grant_row
+        join contacts on contacts.id = grant_row.contact_id
+        where contacts.phone_hash = ${contactHash} and grant_row.revoked_at is null
+      `;
+      expect(authorizations.length).toBe(0);
+    });
+
+    it("does NOT authorize a bare SIGNUP carrying no invitation", async () => {
+      // A stranger texting the keyword names no farm and carries no decision. This is the
+      // path that must never become self-serve — it is reachable by anyone with the number.
+      const contactHash = await contact("f3");
+
+      await openFarmerOnboardingRequest(database(), {
+        contactHash,
+        occurredAt: at(2),
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      const authorizations = await sql()`
+        select grant_row.id from farmer_authorizations as grant_row
+        join contacts on contacts.id = grant_row.contact_id
+        where contacts.phone_hash = ${contactHash} and grant_row.revoked_at is null
+      `;
+      expect(authorizations.length).toBe(0);
+      // The ask still reaches VIGA: an uninvited request is exactly the case a human owns.
+      const open = await sql()`
+        select id from farmer_onboarding_requests
+        where contact_hash = ${contactHash} and settled_at is null
+      `;
+      expect(open.length).toBe(1);
     });
 
     it("establishes NO consent when the box was never ticked", async () => {

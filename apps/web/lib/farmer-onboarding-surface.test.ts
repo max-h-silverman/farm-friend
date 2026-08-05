@@ -8,11 +8,24 @@ const page = readFileSync(
 ).replace(/\s+/g, " ");
 
 describe("farmer invitation onboarding surface", () => {
-  it("makes the phone-verification task, waiting state, and publication boundary explicit", () => {
-    expect(page).toContain("Step 1 of 3: agree and verify your phone");
-    expect(page).toContain("After you send it, you are done for now.");
+  // The farmer's obligation is ONE action — tick, then send the prepared text. What follows is
+  // VIGA's review, which the farmer waits for rather than performs. These assert the promises
+  // the page must keep, not the sentences that keep them: copy is free to improve, but a
+  // rewrite that drops the waiting state or the publication boundary is a farmer left
+  // wondering whether their stand just went public.
+  it("tells the farmer they are done after sending, and that nothing is public yet", () => {
+    expect(page).toMatch(/done|nothing (?:more|else)|wait/i);
     expect(page).toContain("Nothing is public yet.");
-    expect(page).toContain("does not approve your farm");
+  });
+
+  it("names VIGA's review as what happens next, so the wait is expected", () => {
+    expect(page).toMatch(/VIGA reviews/i);
+  });
+
+  // "Step 1 of 3" told the farmer two more screens were coming when there are none — the
+  // remaining steps were VIGA's. A step counter here is a promise the flow cannot keep.
+  it("does not present the farmer's single action as one step of a numbered sequence", () => {
+    expect(page).not.toMatch(/Step \d+ of \d+/i);
   });
 
   it("routes the whole prepared-text affordance through the agreement step", () => {

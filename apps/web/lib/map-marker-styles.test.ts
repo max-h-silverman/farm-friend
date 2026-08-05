@@ -24,6 +24,20 @@ describe("mobile map and sheet layout", () => {
   it("does not resize the map when the bottom sheet opens", () => {
     expect(css).not.toMatch(/\.sheet-open\s+\.island-svg\s*\{/);
   });
+
+  // The scroll-clearance padding exists ONLY so a phone customer can scroll the last cards out
+  // from under the floating sheet. With no sheet open there is nothing to clear, and an
+  // unconditional rule left ~40% of a screen of empty directory panel below the final stand —
+  // the page looked broken at the bottom of every visit that never tapped a stand.
+  it("reserves room under the phone list only while the sheet is covering it", () => {
+    const phone = css.slice(css.indexOf("@media (max-width: 55.99rem)"));
+    const clearance = phone.match(/(\.[a-z-]*[^{}]*\.list-column)\s*\{[^}]*padding-bottom/);
+
+    expect(clearance).not.toBeNull();
+    // Anchored to the selector, not to the presence of the declaration: the whole defect was a
+    // correct padding on an unqualified selector.
+    expect(clearance![1]).toMatch(/\.sheet-open\s+\.list-column/);
+  });
 });
 
 describe("desktop map layout", () => {

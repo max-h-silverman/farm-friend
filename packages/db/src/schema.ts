@@ -580,6 +580,11 @@ export const farmerOnboardingRequests = pgTable(
     )
       .on(table.invitationId)
       .where(sql`${table.invitationId} is not null`),
+    /**
+     * A settled request must say WHO settled it — an administrator working the queue, or (F-067)
+     * the authorization a farmer's own invitation redemption granted. A settlement recording
+     * neither is refused, which is what keeps self-serve onboarding from erasing the trail.
+     */
     coherentSettlement: check(
       "farmer_onboarding_requests_coherent_settlement",
       sql`
@@ -591,6 +596,10 @@ export const farmerOnboardingRequests = pgTable(
         or (
           ${table.settledAt} is not null
           and ${table.settledByAdministratorId} is not null
+        )
+        or (
+          ${table.settledAt} is not null
+          and ${table.authorizationId} is not null
         )
       `,
     ),

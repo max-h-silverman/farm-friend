@@ -491,10 +491,11 @@ async function routeSignup(
     ...(invitationToken !== undefined ? { invitationToken } : {}),
   });
 
-  // The acknowledgement is the same for every sender, and never reveals queue state — a
-  // farmer who texts twice because nothing visibly happened is told the same true thing.
+  // The acknowledgement never reveals queue state — a farmer who texts twice because nothing
+  // visibly happened is told the same true thing. Since F-067 it is also OMITTED entirely for
+  // a farmer the redemption set up, because they are not waiting on VIGA for anything.
   //
-  // What may FOLLOW it depends on what the write did to their consent, which is why the
+  // What accompanies it depends on what the write did to their consent, which is why the
   // decision is a pure function over the write's own report rather than a re-read here.
   // A repeat SIGNUP (`already_open`, `invalid_invitation`) established nothing and had no
   // chance to observe a record, so it is answered with the acknowledgement alone: saying
@@ -505,18 +506,24 @@ async function routeSignup(
       ? signupReplyBodies({
           consentEstablished: opened.consentEstablished,
           hadConsent: opened.hadConsentRecord,
+          authorized: opened.authorizationId !== null,
         })
       : [FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT];
 
   return {
     outcome: { kind: "farmer", keyword: "SIGNUP", status: opened.status },
-    replies: bodies.map((body, index) => ({
+    replies: bodies.map((body) => ({
       body,
       // `required_reply`: each answers the sender's own inbound message. The opt-in receipt
       // in particular must not be gated on the consent it is confirming.
       category: "required_reply" as const,
+      // Keyed by WHICH body this is, never by its position. The acknowledgement is now
+      // conditional, so a positional key would hand `signup-ack-` to the opt-in receipt on
+      // exactly the runs that omit the acknowledgement — two different messages sharing one
+      // idempotency key across senders, which is how a receipt gets silently dropped as a
+      // duplicate of an acknowledgement.
       logicalKey:
-        index === 0
+        body === FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT
           ? `signup-ack-${input.providerEventId}`
           : `signup-consent-${input.providerEventId}`,
     })),

@@ -21,13 +21,43 @@ import { signupReplyBodies } from "./signup-reply";
 // no instruction, and a second receipt would claim an agreement that did not happen today.
 
 describe("signup reply bodies", () => {
-  it("always leads with the acknowledgement, which promises nothing", () => {
+  it("leads with the acknowledgement when the ask still goes to VIGA", () => {
     for (const consentEstablished of [true, false]) {
       for (const hadConsent of [true, false]) {
         const bodies = signupReplyBodies({ consentEstablished, hadConsent });
         expect(bodies[0]).toBe(FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT);
       }
     }
+  });
+
+  // F-067 — a redemption that set the farmer up must not tell them to wait for a review that
+  // is not going to happen. The old acknowledgement says "VIGA has your request. They will
+  // review it and text you when your farm is ready" — three claims that are now false, and it
+  // arrives in the same breath as the "Your farm is ready" notification the same transaction
+  // queues. A farmer reading both learns that the system contradicts itself.
+  it("does NOT promise a VIGA review when the farmer was set up on the spot", () => {
+    const bodies = signupReplyBodies({
+      consentEstablished: true,
+      hadConsent: false,
+      authorized: true,
+    });
+
+    expect(bodies).not.toContain(FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT);
+    // The carrier receipt is still owed: consent was established by this same message, and
+    // that is the moment the registered copy exists for.
+    expect(bodies).toContain(REGISTERED_OPT_IN_AUTO_RESPONSE);
+  });
+
+  it("still says VIGA will review when nothing was authorized", () => {
+    // The uninvited path and the untickd invitation both still need a human, so the promise
+    // of a review remains true there and must survive.
+    const bodies = signupReplyBodies({
+      consentEstablished: false,
+      hadConsent: false,
+      authorized: false,
+    });
+
+    expect(bodies[0]).toBe(FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT);
   });
 
   it("adds the REGISTERED opt-in receipt when this SIGNUP established consent", () => {
