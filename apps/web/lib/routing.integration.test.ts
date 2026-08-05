@@ -1309,10 +1309,10 @@ describe("inbound routing end to end (integration)", () => {
       const revision = await client()`
         insert into inventory_revisions (
           farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-          farm_approval_id, published_at, is_current
+          farm_approval_id, source, published_at, is_current
         )
         values (${farmId}, ${locationId}, ${proposal[0]?.id as string},
-                ${auth[0]?.id as string}, ${approval[0]?.id as string}, ${at(-30)}, true)
+                ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${at(-30)}, true)
         returning id
       `;
       await client()`

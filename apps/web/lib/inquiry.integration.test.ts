@@ -139,10 +139,10 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     const revision = await client()`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-        farm_approval_id, published_at
+        farm_approval_id, source, published_at
       )
       values (${farmId}, ${locationId}, ${proposal[0]?.id as string},
-              ${auth[0]?.id as string}, ${approval[0]?.id as string}, ${publishedAt})
+              ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${publishedAt})
       returning id
     `;
     for (const [index, itemName] of entries.entries()) {

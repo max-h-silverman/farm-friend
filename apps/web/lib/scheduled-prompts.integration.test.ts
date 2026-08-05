@@ -104,10 +104,10 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const revisions = await handle().sql`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-        farm_approval_id, published_at
+        farm_approval_id, source, published_at
       ) values (
         ${ids.farm}, ${ids.location}, ${baselineProposal[0]?.id as string},
-        ${ids.authorization}, ${ids.approval}, ${BASE}
+        ${ids.authorization}, ${ids.approval}, 'sms', ${BASE}
       ) returning id
     `;
     ids.revision = revisions[0]?.id as string;
@@ -219,10 +219,10 @@ describe("scheduled inventory prompt pass (integration)", () => {
       const revision = await handle().sql`
         insert into inventory_revisions (
           farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-          farm_approval_id, published_at
+          farm_approval_id, source, published_at
         ) values (
           ${farmId}, ${salesLocationId}, ${baselineProposal[0]?.id as string},
-          ${authorizationId}, ${approvalId}, ${BASE}
+          ${authorizationId}, ${approvalId}, 'sms', ${BASE}
         ) returning id
       `;
       inventoryRevisionId = revision[0]?.id as string;
@@ -365,10 +365,10 @@ describe("scheduled inventory prompt pass (integration)", () => {
     await handle().sql`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-        farm_approval_id, published_at
+        farm_approval_id, source, published_at
       ) values (
         ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
-        ${fixture.authorizationId}, ${fixture.approvalId}, ${changedAt}
+        ${fixture.authorizationId}, ${fixture.approvalId}, 'sms', ${changedAt}
       )
     `;
   }
@@ -670,10 +670,10 @@ describe("scheduled inventory prompt pass (integration)", () => {
       await handle().sql`
         insert into inventory_revisions (
           farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-          farm_approval_id, published_at
+          farm_approval_id, source, published_at
         ) values (
           ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
-          ${fixture.authorizationId}, ${fixture.approvalId}, ${changedAt}
+          ${fixture.authorizationId}, ${fixture.approvalId}, 'sms', ${changedAt}
         )
       `;
     } else if (reason === "closure base") {

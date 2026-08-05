@@ -1143,12 +1143,12 @@ export async function confirmInventoryPublication(
       const revision = await tx`
         insert into inventory_revisions (
           farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-          farm_approval_id, published_at
+          farm_approval_id, source, published_at
         )
         values (
           ${farmId}, ${salesLocationId}, ${input.proposalId},
           ${authorization[0]?.id as string}, ${approval[0]?.id as string},
-          ${input.occurredAt}
+          'sms', ${input.occurredAt}
         )
         returning id
       `;

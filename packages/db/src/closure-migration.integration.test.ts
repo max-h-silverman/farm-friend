@@ -165,6 +165,15 @@ describe("F-049 forward migration from populated pre-change schema (integration)
       }),
     ]);
     expect(await client()`select id from closure_revisions`).toHaveLength(0);
+
+    // F-063 — the pre-existing revision, inserted before `source` existed, is backfilled to
+    // 'sms' rather than tripping the new NOT NULL. This is the ONLY test that exercises the
+    // backfill against a genuinely populated table: everywhere else the column exists from
+    // the first insert, so a broken backfill would be invisible. Asserted as a VALUE, because
+    // `is not null` would also pass on a column that defaulted to the wrong provenance.
+    expect(await client()`
+      select source from inventory_revisions where id = ${before[0]?.revision_id as string}
+    `).toEqual([{ source: "sms" }]);
     expect(await client()`
       select name, owner_farm_id, timezone, visitability, offering_type
       from sales_locations where id = ${locationId}

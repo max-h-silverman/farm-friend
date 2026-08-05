@@ -457,11 +457,11 @@ describe("authoritative SMS transaction schema (integration)", () => {
     const revisions = await db()`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id,
-        published_by_authorization_id, farm_approval_id, published_at
+        published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
         ${storedId("farm")}, ${storedId("location")}, ${storedId("proposal1")},
-        ${storedId("authorization")}, ${storedId("approval")}, ${t1}
+        ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${t1}
       )
       returning id
     `;
