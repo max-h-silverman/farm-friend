@@ -100,10 +100,11 @@ export interface PublicStand {
    * What this stand USUALLY sells (F-042) — its seeded specialties, never current stock.
    *
    * A SEPARATE FIELD FROM `items`, and that separation is the product rule rather than a
-   * schema convenience. `items` is a farmer's confirmation: writing one requires a verified
-   * authorization and a VIGA approval, which the seeder structurally cannot fabricate. These
-   * come from VIGA's 2026 form text. Merging them would let a year-old form line render as
-   * something a farmer confirmed today.
+   * schema convenience. `items` is a statement about what is out on the table RIGHT NOW —
+   * dated, and attributed by `inventory_revisions.source` to either a farmer's handset or
+   * VIGA's own records (F-063). A specialty is a standing property of the farm, true in March
+   * and in September, dated by nothing. Merging them would let a year-old form line render as
+   * something confirmed today.
    *
    * **Empty, never absent** — unlike the recency fields. An empty list is a complete, honest
    * answer ("we know of no specialties"), whereas "no confirmation" and "confirmed nothing"
@@ -125,7 +126,33 @@ export interface PublicStand {
   closure?: PublicClosure;
   /** Active owner-confirmed display names, separate from aggregate inventory provenance. */
   participantNames: string[];
+  /**
+   * The farm's website and social links (F-061).
+   *
+   * `farm_links` held a correct schema and had NO writer and NO reader — verified in both
+   * directions; its only non-schema appearances were integration-test cleanup lists. The seeder
+   * is now the writer and this is the reader, because a populated table nothing reads is still
+   * invisible to the customer it was for.
+   *
+   * **Empty, never absent**, like `usualOfferings`: "we know of no links" is a complete answer,
+   * and there is no second fact for absence to distinguish.
+   */
+  links: PublicStandLink[];
+  /**
+   * How this stand can be paid (F-061) — canonically spelled, VIGA Bucks excluded.
+   *
+   * Farm Bucks has its own field (`farmBucksAccepted`) fed by its own column, so it is
+   * deliberately not repeated here: one fact, one home, no way for the two to disagree.
+   */
+  paymentMethods: string[];
   items: PublicStandItem[];
+}
+
+export interface PublicStandLink {
+  /** What a person reads — "Website", "Instagram", "Facebook". */
+  label: string;
+  /** Always absolute; `farm_links_absolute_http_url` refuses anything else. */
+  url: string;
 }
 
 /**
@@ -292,6 +319,28 @@ export async function listPublicStands(
         ),
         array[]::text[]
       ) as participant_names,
+      -- F-061 — links belong to the FARM (one website, however many stands it runs), payment
+      -- methods to the LOCATION (what this stand takes at this table). Aggregated as JSON
+      -- because a link is a pair; the text[] aggregates above carry single values.
+      coalesce(
+        (
+          select json_agg(
+            json_build_object('label', link.label, 'url', link.url)
+            order by link.sort_order asc, link.label asc
+          )
+          from farm_links link
+          where link.farm_id = f.id
+        ),
+        '[]'::json
+      ) as links,
+      coalesce(
+        (
+          select array_agg(payment.method order by payment.method asc)
+          from sales_location_payment_methods payment
+          where payment.sales_location_id = l.id
+        ),
+        array[]::text[]
+      ) as payment_methods,
       e.item_name as item_name,
       e.quantity as quantity,
       e.unit as unit,
@@ -373,6 +422,9 @@ export async function listPublicStands(
         availability: readAvailability(row),
         ...(closure !== undefined ? { closure } : {}),
         participantNames: (row.participant_names as string[] | null) ?? [],
+        // Empty, never absent — the same rule as `usualOfferings` above.
+        links: (row.links as PublicStandLink[] | null) ?? [],
+        paymentMethods: (row.payment_methods as string[] | null) ?? [],
         items: [],
       };
       byLocation.set(locationId, stand);
@@ -475,6 +527,11 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     // than null, so this passes straight through.
     availability: stand.availability,
     alsoSellingHere: stand.participantNames,
+    // F-061 — always sent, `[]` when the farm stated none. Structured, so the card renders a
+    // labelled action per link instead of scraping one "Website:" line back out of the prose
+    // and silently dropping every Instagram and Facebook the farm listed.
+    links: stand.links,
+    paymentMethods: stand.paymentMethods,
     ...(stand.closure !== undefined ? { closure: stand.closure } : {}),
     items: stand.items,
   };

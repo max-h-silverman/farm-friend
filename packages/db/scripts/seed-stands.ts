@@ -21,15 +21,19 @@
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
 import {
+  buildStandDescription,
   classifyOfferingType,
   joinStandSources,
   matchStandName,
+  parseFarmLinks,
   parseFormResponses,
   parseFarmBucksPolicy,
   parseOpenHours,
+  parsePaymentMethods,
   parseSeason,
   parseStandCsv,
   parseStocking,
+  refusesPublicAddress,
   stripContactDetails,
   type JoinedStand,
   type ParsedSeason,
@@ -173,21 +177,45 @@ function toSeedInput(stand: JoinedStand): {
 
   const mapDescription =
     stand.map === undefined ? "" : stripContactDetails(stand.map.description);
-  const publicDescription =
-    mapDescription ||
-    [
-      stand.form?.contactNames,
-      stand.form?.accessNote,
-      stand.form?.website !== undefined ? `Website: ${stand.form.website}` : undefined,
-      stand.form?.socialMedia,
-      stand.form?.openSeasonText !== undefined ? `Open: ${stand.form.openSeasonText}` : undefined,
-      stand.form?.openHoursText,
-      stand.form?.stockingText !== undefined ? `Stocking Days: ${stand.form.stockingText}` : undefined,
-      stand.form?.generalInformation,
-      stand.form?.extraNotes,
-    ]
-      .filter((line): line is string => line !== undefined && line.trim() !== "")
-      .join("\n");
+
+  // F-061 — the description is REBUILT from the form's own columns, not taken from the map.
+  //
+  // The line this replaces was `mapDescription || [ ...form fields... ].join("\n")`, which for
+  // the 27 stands carrying a map row stored the transcription's prose and discarded the form's
+  // clean columns for display while still parsing them for the structured fields. That is the
+  // whole cause of both on-screen contradictions: "Hours not listed" beside prose stating the
+  // hours, and "Nothing confirmed recently" above a farmer-dated update.
+  const publicDescription = buildStandDescription({
+    ...(stand.form?.generalInformation !== undefined
+      ? { generalInformation: stand.form.generalInformation }
+      : {}),
+    ...(stand.form?.extraNotes !== undefined ? { extraNotes: stand.form.extraNotes } : {}),
+    ...(stand.form?.openSeasonText !== undefined
+      ? { openSeasonText: stand.form.openSeasonText }
+      : {}),
+    ...(stand.form?.openHoursText !== undefined
+      ? { openHoursText: stand.form.openHoursText }
+      : {}),
+    ...(stand.form?.stockingText !== undefined ? { stockingText: stand.form.stockingText } : {}),
+    ...(stand.form?.website !== undefined ? { website: stand.form.website } : {}),
+    ...(stand.form?.socialMedia !== undefined ? { socialMedia: stand.form.socialMedia } : {}),
+    ...(mapDescription !== "" ? { mapDescription } : {}),
+  });
+
+  // The map's description lines, used as the link fallback for a farm with no form row and as
+  // the ONLY source of payment methods — the profile form has no payment question at all
+  // (measured against the real header, 2026-08-04).
+  const mapLines = mapDescription
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "");
+
+  const links = parseFarmLinks({
+    ...(stand.form?.website !== undefined ? { website: stand.form.website } : {}),
+    ...(stand.form?.socialMedia !== undefined ? { socialMedia: stand.form.socialMedia } : {}),
+    mapLinkLines: mapLines,
+  });
+  const paymentMethods = [...new Set(mapLines.flatMap((line) => parsePaymentMethods(line)))];
 
   const parsedSeason = parseSeason(seasonText || mapDescription);
   const parsedHours = parseOpenHours(hoursText || mapDescription);
@@ -235,7 +263,9 @@ function toSeedInput(stand: JoinedStand): {
 
   const base = {
     name: stand.name,
-    ...(publicDescription !== "" ? { description: publicDescription } : {}),
+    ...(publicDescription !== undefined ? { description: publicDescription } : {}),
+    ...(links.length > 0 ? { links } : {}),
+    ...(paymentMethods.length > 0 ? { paymentMethods } : {}),
     kind: /farmers\s*market/i.test(stand.name)
       ? ("farmers_market" as const)
       : ("farm_stand" as const),
@@ -259,8 +289,25 @@ function toSeedInput(stand: JoinedStand): {
       : {}),
   };
 
+  // B-024 — a farmer who asked us not to publish her address gets no address and no pin.
+  //
+  // Production currently publishes Handpicked Homestead's HOME as a visitable farm stand with a
+  // correct map pin, against her form's plain words: "I don't have my own farmstand - please add
+  // me under Plum Forest's location, do not add my address." That is F-038's misdirecting pin
+  // made worse — the coordinate is right, it is someone's house, and she asked us not to.
+  //
+  // Read from the farmer's own text as a GENERAL rule, so no farm is named here and a farmer who
+  // writes the same next season is covered by the same mechanism. She stays listed and findable;
+  // only the address and the point are withheld.
+  const refusesAddress = refusesPublicAddress(
+    [stand.form?.generalInformation, stand.form?.extraNotes, stand.form?.accessNote]
+      .filter((text): text is string => text !== undefined && text.trim() !== "")
+      .join("\n"),
+  );
+
   if (
     stand.visitability === "contact_only" ||
+    refusesAddress ||
     contactOnlyByDecision.has(matchStandName(stand.name))
   ) {
     // No address, no point — and none taken from the map export even when it has one.

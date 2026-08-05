@@ -97,7 +97,11 @@ export interface StockUpdate {
   items: string[];
 }
 
-const DATED_UPDATE = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*update\s*:\s*(.*)$/i;
+// The separator is a colon OR a dash. Measured over the real export (2026-08-04): 5 of the 18
+// dated lines use a dash, including an en-dash, and one writes "update" in lowercase. Matching
+// only the colon dropped almost a third of them — they stayed in the description and printed as
+// prose directly beneath the card's own "Nothing confirmed recently" (F-061).
+const DATED_UPDATE = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*update\s*[-–—:]\s*(.*)$/i;
 
 /**
  * Read the most recent dated stock update from a description.

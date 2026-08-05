@@ -38,6 +38,8 @@ describe("public participant names", () => {
       stale: false,
       availability: {},
       alsoSellingHere: ["Guest Growers", "Island Apiary"],
+      links: [],
+      paymentMethods: [],
       items: [{ itemName: "Kale" }],
     };
 
@@ -112,6 +114,8 @@ describe("farm-map poster treatment", () => {
         season: { kind: "year_round" },
       },
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [],
     };
 
@@ -158,6 +162,8 @@ describe("farm-map poster treatment", () => {
         "At Peak Moon, we share diversity in our crops.",
       availability: {},
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [],
     };
 
@@ -209,6 +215,8 @@ describe("farm-map poster treatment", () => {
       availability: {},
       usuallySells: ["fresh flowers", "lavender"],
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [],
     };
 
@@ -233,6 +241,8 @@ describe("farm-map poster treatment", () => {
         longitude: -122.46,
         availability: {},
         alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
         items: [],
       },
       {
@@ -246,6 +256,8 @@ describe("farm-map poster treatment", () => {
         longitude: -122.46,
         availability: {},
         alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
         items: [],
       },
       {
@@ -259,6 +271,8 @@ describe("farm-map poster treatment", () => {
         longitude: -122.46,
         availability: {},
         alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
         items: [],
       },
     ];
@@ -283,6 +297,8 @@ describe("farm-map poster treatment", () => {
       longitude: -122.46,
       availability: {},
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [],
     };
 
@@ -310,14 +326,15 @@ describe("farm-map poster treatment", () => {
       latitude: 47.44,
       longitude: -122.46,
       description:
-        "Saturdays, 10am–2pm\nEarly May through the end of September\n" +
-        "Website: https://www.vigavashon.org/market",
+        "Saturdays, 10am–2pm\nEarly May through the end of September",
       availability: {
         season: { kind: "date_range", startMonth: 5, startDay: 1, endMonth: 9, endDay: 30 },
         hours: { kind: "clock_range", fromMinutes: 600, untilMinutes: 840 },
         days: [6],
       },
       alsoSellingHere: [],
+    links: [{ label: "Website", url: "https://www.vigavashon.org/market" }],
+    paymentMethods: [],
       items: [],
     };
 
@@ -382,6 +399,8 @@ describe("farm-map poster treatment", () => {
       longitude: -122.46,
       availability: {},
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [{ itemName: "Carrots" }],
     };
 
@@ -407,12 +426,14 @@ describe("farm-map poster treatment", () => {
       address: "34 Orchard Road",
       latitude: 47.44,
       longitude: -122.46,
-      description: "Website: https://scannable.example\nOpen every Saturday.",
+      description: "Open every Saturday.",
       updated: "updated 1 hour ago",
       confirmedElapsed: "1 hour ago",
       stale: false,
       availability: {},
       alsoSellingHere: [],
+    links: [{ label: "Website", url: "https://scannable.example" }],
+    paymentMethods: [],
       items: [{ itemName: "Carrots" }],
     };
 
@@ -451,6 +472,8 @@ describe("farm-map poster treatment", () => {
         availability: {},
         usuallySells: ["cut flowers"],
         alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
         items: [],
       },
       {
@@ -466,6 +489,8 @@ describe("farm-map poster treatment", () => {
         availability: {},
         usuallySells: ["vegetables"],
         alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
         items: [],
       },
     ];
@@ -502,6 +527,8 @@ describe("farm-map poster treatment", () => {
         availability: {},
         usuallySells: ["flowers"],
         alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
         items: [],
       },
       {
@@ -517,6 +544,8 @@ describe("farm-map poster treatment", () => {
         availability: {},
         usuallySells: ["vegetables"],
         alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
         items: [],
       },
     ];
@@ -578,6 +607,8 @@ describe("farm-map poster treatment", () => {
       availability: {},
       usuallySells: ["flowers"],
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [{ itemName: "Tulips", quantity: 6, unit: "bunches", priceText: "$12" }],
     };
 
@@ -640,6 +671,8 @@ describe("wide-screen map follow", () => {
       days: [0, 1, 2, 3, 4, 5, 6],
     },
     alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
     items: [],
   };
 
@@ -886,10 +919,12 @@ describe("expanded stand actions", () => {
     longitude: -122.46,
     availability: {},
     alsoSellingHere: [],
+    paymentMethods: [],
     items: [],
     usuallySells: ["plant starts", "vegetables"],
     farmBucksAccepted: true,
-    description: "Website: https://example.invalid/farm\nOpen: dawn to dusk.",
+    description: "Open: dawn to dusk.",
+    links: [{ label: "Website", url: "https://example.invalid/farm" }],
   };
 
   it("renders the website and directions as two separate action links", async () => {
@@ -960,10 +995,12 @@ describe("phone sheet visit section", () => {
       longitude: -122.46,
       availability: {},
       alsoSellingHere: [],
+    paymentMethods: [],
       items: [],
       usuallySells: ["plant starts"],
       farmBucksAccepted: true,
-      description: "Website: https://example.invalid/farm\nOpen: dawn to dusk.",
+      description: "Open: dawn to dusk.",
+      links: [{ label: "Website", url: "https://example.invalid/farm" }],
     };
 
     const { container } = render(<StandMap stands={[stand]} />);
@@ -981,5 +1018,128 @@ describe("phone sheet visit section", () => {
     const visit = sheet.querySelector(".detail-visit") as HTMLElement;
     expect(within(visit).getByRole("link", { name: "Website" })).toBeTruthy();
     expect(within(visit).getByRole("link", { name: "Get directions" })).toBeTruthy();
+  });
+});
+
+describe("structured links and payment methods (F-061)", () => {
+  // `farm_links` and `sales_location_payment_methods` were correctly-shaped tables with NO
+  // writer and NO reader. The seeder is now the writer; these assert the reader, because a
+  // populated table nothing reads is still invisible to the customer it was for.
+  //
+  // The card previously recovered a single website by matching a "Website: …" line inside the
+  // description prose. Measured over the real corpus, the farms state 34 links across 24
+  // stands — Instagram and Facebook among them — and that regex could surface only the subset
+  // written as a labelled "Website:" line. Every other link a farm listed was silently dropped.
+
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  const stand = (overrides: Partial<PublicStandPayload> = {}): PublicStandPayload => ({
+    id: "links-stand",
+    farmName: "Linked Farm",
+    locationName: "Linked Stand",
+    visitability: "visitable",
+    offeringType: "produce",
+    address: "1 Link Way",
+    latitude: 47.44,
+    longitude: -122.46,
+    availability: {},
+    alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
+    items: [],
+    ...overrides,
+  });
+
+  it("renders EVERY link the farm stated, not just a website", async () => {
+    const user = userEvent.setup();
+    render(
+      <StandMap
+        stands={[
+          stand({
+            links: [
+              { label: "Website", url: "https://example.invalid/farm" },
+              { label: "Instagram", url: "https://instagram.com/linkedfarm" },
+              { label: "Facebook", url: "https://facebook.com/linkedfarm" },
+            ],
+          }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Linked Stand" }));
+
+    const card = document.querySelector(".stands .stand") as HTMLElement;
+    // Each label is its own action, carrying its own href. The old scrape produced one anchor
+    // reading "Website" whatever the farm had listed.
+    expect(within(card).getByRole("link", { name: "Website" })).toHaveAttribute(
+      "href",
+      "https://example.invalid/farm",
+    );
+    expect(within(card).getByRole("link", { name: "Instagram" })).toHaveAttribute(
+      "href",
+      "https://instagram.com/linkedfarm",
+    );
+    expect(within(card).getByRole("link", { name: "Facebook" })).toHaveAttribute(
+      "href",
+      "https://facebook.com/linkedfarm",
+    );
+  });
+
+  it("renders no link action at all for a farm that stated none", async () => {
+    const user = userEvent.setup();
+    render(<StandMap stands={[stand({ links: [] })]} />);
+    await user.click(screen.getByRole("button", { name: "Linked Stand" }));
+
+    const card = document.querySelector(".stands .stand") as HTMLElement;
+    expect(within(card).queryByRole("link", { name: "Website" })).toBeNull();
+    expect(within(card).queryByRole("link", { name: "Instagram" })).toBeNull();
+  });
+
+  it("shows the stand's other payment methods", async () => {
+    const user = userEvent.setup();
+    render(
+      <StandMap stands={[stand({ paymentMethods: ["Cash", "Check", "Venmo"] })]} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Linked Stand" }));
+
+    const card = document.querySelector(".stands .stand") as HTMLElement;
+    expect(within(card).getByText("Also accepts Cash, Check, Venmo")).toBeTruthy();
+  });
+
+  it("never repeats VIGA Bucks among the payment methods", async () => {
+    // Farm Bucks has its own column, its own badge, and its own filter. If the parser ever let
+    // it into this list the card would state the same fact twice, in two voices that can drift
+    // apart — the seeder writes `farmBucksAccepted` from a different source line than this list.
+    const user = userEvent.setup();
+    render(
+      <StandMap
+        stands={[
+          stand({ farmBucksAccepted: true, paymentMethods: ["Cash", "Venmo"] }),
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Linked Stand" }));
+
+    const card = document.querySelector(".stands .stand") as HTMLElement;
+    expect(within(card).getByText("Accepts VIGA Bucks")).toBeTruthy();
+    expect(within(card).getByText("Also accepts Cash, Venmo")).toBeTruthy();
+    expect(within(card).queryByText(/Also accepts.*VIGA/)).toBeNull();
+  });
+
+  it("says nothing about payment for a stand with no stated methods", async () => {
+    const user = userEvent.setup();
+    render(<StandMap stands={[stand({ paymentMethods: [] })]} />);
+    await user.click(screen.getByRole("button", { name: "Linked Stand" }));
+
+    const card = document.querySelector(".stands .stand") as HTMLElement;
+    expect(within(card).queryByText(/Also accepts/)).toBeNull();
   });
 });

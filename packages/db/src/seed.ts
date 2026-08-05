@@ -72,6 +72,21 @@ export interface SeedStandInput {
   flags: SeedStandFlag[];
   farmBucksAccepted?: boolean;
   farmBucksEligible?: boolean;
+  /**
+   * The farm's website and social links (F-061), already normalized to absolute URLs.
+   *
+   * `farm_links_absolute_http_url` refuses anything else, and a refusal aborts the whole seed
+   * transaction rather than skipping one row — so `parseFarmLinks` does the normalizing and
+   * this type carries only what Postgres will accept.
+   */
+  links?: { label: string; url: string }[];
+  /**
+   * Payment methods the stand states, canonically spelled (F-061).
+   *
+   * VIGA Bucks is deliberately NOT among these: `farmBucksAccepted` owns that fact, and
+   * recording it twice would let the two disagree.
+   */
+  paymentMethods?: string[];
 }
 
 export interface SeedResult {
@@ -383,6 +398,24 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
         ) returning id
       `;
       const locationId = locationRows[0]!.id as string;
+
+      // F-061 — links and payment methods, the two tables that had a schema and no writer.
+      // Keyed differently on purpose: links belong to the FARM (one website, however many
+      // stands), payment methods to the LOCATION (what this stand takes at this table).
+      for (const [index, link] of (stand.links ?? []).entries()) {
+        await tx`
+          insert into farm_links (farm_id, label, url, sort_order)
+          values (${farmId}, ${link.label}, ${link.url}, ${index})
+          on conflict do nothing
+        `;
+      }
+      for (const method of stand.paymentMethods ?? []) {
+        await tx`
+          insert into sales_location_payment_methods (sales_location_id, method)
+          values (${locationId}, ${method})
+          on conflict do nothing
+        `;
+      }
 
       for (const flag of stand.flags) {
         // `on conflict do nothing` against the partial unique index on
