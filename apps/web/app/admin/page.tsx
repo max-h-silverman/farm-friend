@@ -232,7 +232,11 @@ export default async function AdminPage() {
     listStockOutReports(db, { status: "open" }),
   ]);
   const work = [
-    { label: "Farm approvals", count: farms.filter((farm) => !farm.approved).length, href: "#farm-approvals", description: "Confirm farms before their stands can appear to customers." },
+    // F-067 — approval is now the EXCEPTION, not the routine step. An invited farmer's farm is
+    // approved by their own redemption, so anything landing here arrived by one of the three
+    // paths that still need a person: a bare uninvited SIGNUP, an invitation naming no farm, or
+    // one whose agreement was never ticked.
+    { label: "Farm approvals", count: farms.filter((farm) => !farm.approved).length, href: "#farm-approvals", description: "Only farms that signed up without an invitation. Invited farmers are approved automatically." },
     { label: "Farmer access requests", count: farmerRequests.length, href: "/admin/farmers", description: "Give verified farm operators access to update their stands." },
     { label: "Customer reports", count: flags.length + listingQuestions.length, href: "/admin/flags", description: "Review customer FLAG messages and listing questions." },
     { label: "Stock reports", count: stockReports.length, href: "/admin/reports", description: "Review reports without changing a farmer’s listing." },
@@ -267,7 +271,18 @@ export default async function AdminPage() {
 
       <section id="farm-approvals" className="admin-priority admin-priority--farm-approval" aria-labelledby="approve-farms-heading">
         <h2 id="approve-farms-heading" className="admin-section-title">Farm approvals</h2>
-        <p className="admin-note">Approving lets eligible stands appear to customers. It does not publish or edit a listing.</p>
+        {/*
+          The old copy said approving "lets eligible stands appear to customers", which was never
+          quite right and is now actively misleading: `listPublicStands` gates on `is_public`, not
+          on approval, so a seeded stand is already visible. What approval actually gates is
+          whether the FARMER may publish an update — `confirmProposal` and the scheduled prompts
+          both re-read it.
+        */}
+        <p className="admin-note">
+          Approving lets a farmer publish updates to their stand. It does not publish or edit a
+          listing, and it is not what makes a stand visible on the map. Farmers who arrive by
+          invitation are approved automatically, so only uninvited sign-ups appear here.
+        </p>
         <ApprovalQueue
           farms={farms.map((farm) => ({
             farmId: farm.farmId,

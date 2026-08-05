@@ -309,6 +309,30 @@ describe("administrator queue interactions", () => {
     );
   });
 
+  // F-067 — the empty queue is the NORMAL state now that an invited farmer's redemption
+  // approves their farm. An operator seeing "no farms to approve yet" would reasonably wonder
+  // what had failed, so the empty state has to say why it is empty. Asserted rather than left
+  // to review because it is a claim about how the system behaves, not decoration.
+  it("explains that an empty approval queue is expected, not a failure", () => {
+    render(
+      <ApprovalQueue
+        farms={[
+          {
+            farmId: "farm-1",
+            name: "Already Approved Farm",
+            approved: true,
+            approvedAt: "2026-08-01T10:00:00Z",
+            approvedByEmail: "board@vigavashon.org",
+          },
+        ]}
+      />,
+    );
+
+    const empty = screen.getByText(/nothing waiting/i);
+    expect(empty).toBeInTheDocument();
+    expect(empty).toHaveTextContent(/approved automatically/i);
+  });
+
   it("closes the removal confirmation after approval is removed", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => response(200)));

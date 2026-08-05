@@ -108,11 +108,16 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   again** — copy it before navigating away. Replacing a link revokes the previous one, which is
   exactly what you want after a lost phone.
 - **Approve a farm:** open `/admin`, verify the farm is real, is a VIGA participant, and that the
-  person who completed onboarding is authorized to act for it, then approve. Only approved farms
-  publish publicly — an unapproved farm's confirmation is refused, so this is a **hard
-  prerequisite** for any farmer publishing anything, not a formality. **A farm invited by name is
-  already approved** by the invitation you sent, recorded against you; this screen is for the farms
-  that arrived any other way. Approval and revocation both
+  person who completed onboarding is authorized to act for it, then approve. What approval gates is
+  whether the **farmer may publish an update** — an unapproved farm's confirmation is refused, so it
+  is a **hard prerequisite** for a farmer publishing anything, not a formality. It is *not* what
+  makes a stand visible: a stand VIGA seeded is already on the map whether or not its farm is
+  approved, so approving one changes nothing a customer sees today and everything about whether its
+  farmer can correct it tomorrow. **A farm invited by name is already approved** by the invitation
+  you sent, recorded against you; this screen is for the farms that arrived any other way, so an
+  **empty queue is the normal state** rather than a sign something failed.
+  The 35 farms seeded from VIGA's own listings were approved in bulk on 2026-08-05, recorded against
+  the board account — VIGA had already decided they participate by putting them on the map. Approval and revocation both
   record which administrator acted and when, in `farm_approvals` and the audit trail. Revoking
   blocks the *next* publication; it does not retract what is already published.
 - **Restore or rotate administrator access:** follow [RUNBOOK.md](RUNBOOK.md). Rotation adds a new

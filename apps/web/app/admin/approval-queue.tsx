@@ -36,6 +36,11 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
+  // F-067 — an EMPTY queue is the normal, healthy state rather than an absence of work.
+  // Invited farmers approve themselves by redeeming, so this fills only from the three paths
+  // that still need a person: a bare uninvited SIGNUP, an invitation naming no farm, and one
+  // whose agreement was never ticked. Empty-state copy reading "nothing to do YET" invited an
+  // operator to wonder what had gone wrong.
   const waiting = rows.filter((row) => !row.approved);
   const approved = rows.filter((row) => row.approved);
 
@@ -86,7 +91,7 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
   }
 
   if (rows.length === 0) {
-    return <p className="admin-note">No farms to approve yet.</p>;
+    return <p className="admin-note">No farms yet.</p>;
   }
 
   return (
@@ -105,7 +110,9 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
         </p>
       )}
       {waiting.length === 0 ? (
-        <p className="admin-empty-state">No farms are waiting for approval.</p>
+        <p className="admin-empty-state">
+          Nothing waiting. Invited farmers are approved automatically when they sign up.
+        </p>
       ) : (
       <ul className="admin-farms">
         {waiting.map((row) => (
