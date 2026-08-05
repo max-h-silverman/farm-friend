@@ -46,39 +46,41 @@ public description, which it does.
 
 ## Verification
 
-- Branch `f-063-inventory-revision-source`: **105 unit-test files / 1055 tests**, typecheck, and
+- Branch `f-063-inventory-revision-source`: **105 unit-test files / 1067 tests**, typecheck, and
   lint pass. **Not yet merged to `main` and not deployed.**
-- Real-Postgres integration: **45 files / 603 tests pass on a complete run** from an empty schema,
+- Real-Postgres integration: **45 files / 606 tests pass on a complete run** from an empty schema,
   against a local Postgres — never against production Neon.
 - **Migration `0019` verified by effect** against a freshly migrated database (B-022): the `source`
   column exists and is NOT NULL, carries **no default**, the CHECK constraint is present, and
   violating inserts are genuinely *refused* in both directions. The backfill was additionally
   verified against a **populated** pre-change schema, which is what caught that a backfill `UPDATE`
   aborts on `inventory_revisions_guard_history` — it would have failed against production.
-- **Sixteen sabotages this tranche**, each failing named tests. Notable: the naive per-column CHECK
-  that passes on NULL (5 tests), a surviving column DEFAULT (1 — which exposed a real gap, since
-  every refusal test passed while the default silently satisfied the NOT NULL), a weekly row
-  overwriting a farmer's newer fact (1), and disabling the wrong-database guard (2). **Two early
-  sabotage attempts silently failed to apply and proved nothing**; every later one asserts its
-  anchor is present before editing.
+- **Seventeen sabotages this tranche**, each failing named tests. Notable: the naive per-column
+  CHECK that passes on NULL (5 tests), a surviving column DEFAULT (1), a weekly row overwriting a
+  farmer's newer fact (1), and disabling the wrong-database guard (2).
+- **Three sabotages found problems with the tests themselves**, which is the reason to run them:
+  two early attempts silently failed to apply and proved nothing (every later one asserts its
+  anchor is present before editing); the surviving-DEFAULT case passed every refusal test because
+  the default quietly satisfied the NOT NULL; and the name-ambiguity guard was checked with a
+  string that was a prefix of neither candidate, so the candidate list was empty either way and
+  disabling the guard changed nothing. All three now catch their defect.
 - **The launch ingest was rehearsed end to end** against a throwaway local database, in F-064's
   order, with every acceptance criterion checked by querying the result rather than reading script
-  output: `farm_links` 34 rows and payment methods 53 rows (both empty before), 13 revisions all
-  `source='viga'`, 0 visitable stands missing a coordinate, **0 descriptions leaking a structured
-  fact**, and Handpicked Homestead `contact_only` with no address and no pin.
+  output: `farm_links` 34 rows and payment methods 53 rows (both empty before), 16 revisions all
+  `source='viga'`, **0 unknown stands**, 0 visitable stands missing a coordinate, **0 descriptions
+  leaking a structured fact**, and Handpicked Homestead `contact_only` with no address and no pin.
 - **No model seam was added or changed**, so no eval or `evals:live` run is owed. The audit expected
   one for the weekly form's open-ended prose; measured against the real corpus those answers are
   comma-separated lists a deterministic parser reads cleanly.
+
+**From the deployed tranche, still true:**
+
 - **Migration `0018` verified by effect, not by exit status** (B-022): against a freshly migrated
   database the column exists and is nullable, the CHECK constraint is present, and a backdated
   agreement is genuinely *refused* by Postgres. Journal entries are strictly increasing.
-- Six sabotages this tranche, each failing a distinct named test: collapsing the action list back to
-  bare anchors, forcing the phone sheet down the directory branch, and three on the dated-update
-  parser (impossible-date guard, closure exclusion, latest-wins).
 - The stand-detail layout was measured **in a real browser at 1440px** across 16 stands spanning
   every shape (market, flower-only, contact-only, services): no band gap exceeds the 12px grid gap,
   and the action row wraps without overlap or overflow down to a 260px card.
-- **No model seam was added or changed by this work**, so no eval or `evals:live` run is owed.
 - **Two surfaces are unverified at phone width**, both because jsdom reports every element as
   zero-sized: the farmer agreement step, and now the expanded stand detail. For the latter the
   browser in the working environment reports a successful resize while `window.innerWidth` stays
@@ -137,10 +139,13 @@ against the real corpus on 2026-08-04 while implementing.
   profile form is **still open**), a **`neondb` snapshot** — with an insert-only utility and GL-015
   open, the snapshot *is* the rollback — max's explicit approval for the bulk write, and the render
   check on a real card afterwards.
-- **Three weekly-form farms match no seeded stand**: `Venison Valley Farm`, `Ostara`,
-  `Maggie's Farm`. max chose to add them as new stands; **not yet built**, because
-  `Venison Valley Farm` is very likely a spelling variant of the seeded
-  `Venison Valley Farm & Creamery` and adding it blind would duplicate a live stand.
+- **The three unmatched weekly farms were duplicates, and now resolve** (max confirmed
+  2026-08-04). `Venison Valley Farm` and `Ostara` are word-prefixes of their seeded keys;
+  `Maggie's Farm` is a **rename** stated in Green Ears' own form row ("Formerly Maggie's Farm")
+  and reachable by no spelling rule. `resolveStandKey` stays an **exact** comparison of whole
+  words anchored at the start — never a similarity score — and an ambiguous prefix resolves to
+  nothing. Measured over the real 35: no seeded key is a word-prefix of another. Unknown stands
+  went 3 → 0 and published rows 13 → 16.
 - **Attribution for an admin inventory edit is still owed (F-065)** — a revision row carries no
   `admin_actor_id` and there is no general admin audit log, so that workflow must record its own
   action, matching how `stock_out_reports` and `farm_approvals` already work.
