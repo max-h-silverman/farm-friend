@@ -99,6 +99,20 @@ Production went 19 → **22 migrations**. All three are additive and backward-co
 table, a widened constraint), so the pre-tranche image kept serving correctly in the window between
 the migration and the deploy.
 
+### Deployed
+
+Merged as PR #81 (`7c996a7`), then built and deployed **from the merged base** — production must
+never run code that did not land on `main`. Plan was `0 to add, 2 to change, 0 to destroy` (the two
+Cloud Run services taking the new digest, nothing destroyed), plan assertions 37/37, deploy and
+served-card assertions pass. Serving `farm-friend-web-00030-kx6` /
+`farm-friend-worker-00031-tsm` at digest `sha256:6fed811a…`.
+
+**Verified by effect against the live service**, not by the apply's exit status: `/api/public/stands`
+serves 34 stands with **33 reading `usuallySells` from `stand_items`**, so the promoted image and the
+migrated schema demonstrably agree — the single fact that would have broken had the migration been
+skipped. `POST /api/farmer/listing` answers `400` to a malformed token before touching the database
+and a uniform `410` to a well-formed unknown one, so the new endpoint is not an oracle either.
+
 **One verification defect worth recording:** the first check invented a constraint name
 (`inventory_revisions_coherent_source`) and reported a FAIL against a migration that was fine. The
 name is now read from the migration file. A verification script that asserts the wrong thing is

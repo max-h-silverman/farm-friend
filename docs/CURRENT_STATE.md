@@ -6,9 +6,18 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **all 22 migrations applied
-(`0000`–`0021`)**, verified by effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the
-per-migration checks and the fingerprint that preceded them.
+Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
+`farm-friend-web-00030-kx6` and worker revision `farm-friend-worker-00031-tsm`, both at digest
+`sha256:6fed811a57a0d9a8d57d5e82b59128f66f994fe990208c070e3bd45bfff6eabc` (`main` at `7c996a7`).
+Production Postgres is `neondb` with **all 22 migrations applied (`0000`–`0021`)**, verified by
+effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the per-migration checks and the
+fingerprint that preceded them.
+
+**Deployed and verified by effect 2026-08-05**: plan assertions 37/37, deploy and served-card
+assertions pass, and the live site serves **34 stands, 33 reading `usuallySells` from `stand_items`**
+— so the promoted image and the migrated schema demonstrably agree. `POST /api/farmer/listing`
+answers `400` to a malformed token before touching the database and a uniform `410` to a well-formed
+unknown one, so it is not an oracle for whether a guessed token names anything.
 
 `0019`, `0020`, and `0021` were applied **before** the code that reads them was promoted, per the
 RUNBOOK's ordering rule. All three are additive and backward-compatible (a column, a table, a
@@ -20,7 +29,8 @@ pre-migration snapshot when asked.
 The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
 [session log](SESSION_LOG.md) for its reasoning.
 
-Four tranches have now landed on `main`, and **all their migrations are on production**:
+Four tranches have now landed on `main` and are **DEPLOYED**, with all their migrations applied
+ahead of the image that reads them:
 
 - the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard) — migration `0019`
   (`inventory_revisions.source`);
@@ -36,10 +46,7 @@ F-066 and F-067's first half landed together as **PR #80** (`41e6dd0`); the list
 **The schema is current; the listing DATA is not.** F-064's production ingest has still not run, so
 production continues to serve the pre-tranche listing content — see "Open before go-live" below.
 
-The tranche before it — presentation and ingestion groundwork — is deployed: plan assertions 37/37,
-deploy and served-card assertions pass, and the served stylesheet was checked **by effect**.
-
-That earlier tranche produced two findings that outgrew it and drove the ingestion audit:
+An earlier tranche produced two findings that outgrew it and drove the ingestion audit:
 
 - **the map CSV is a hand-maintained derivative**, so the oddities in stand descriptions
   (`WA, WA 98070`, en-dashes in dated lines) are transcription residue from the manual step Farm
@@ -60,14 +67,14 @@ public description, which it does.
 
 ## Verification
 
-- Branch `f-067-listing-form` (the listing form, ahead of `main`): **108 unit-test files /
-  1119 tests**, **48 integration files / 655 tests**, typecheck and lint pass (2026-08-05).
-  **No model seam was added or changed, so no eval or `evals:live` run is owed.** **Not deployed.**
-- Current `main` (merged, `41e6dd0`): **105 unit-test files / 1075 tests**, typecheck,
-  lint, and **evals (critical 11/11, adversarial 29/29, advisory 4/4)** pass (verified 2026-08-05).
-  **Not deployed.**
-- Real-Postgres integration: **47 files / 635 tests pass on a complete run** from an empty schema,
-  against a local Postgres — never against production Neon.
+- Current `main` (`7c996a7`, PR #81 squashed): **108 unit-test files / 1119 tests**, **48
+  integration files / 655 tests**, typecheck and lint pass (2026-08-05).
+  **No model seam was added or changed, so no eval or `evals:live` run is owed.** **Deployed.**
+- Prior `main` (`41e6dd0`): **105 unit-test files / 1075 tests**, typecheck, lint, and **evals
+  (critical 11/11, adversarial 29/29, advisory 4/4)** pass (verified 2026-08-05). Superseded by the
+  run above and now deployed as part of `7c996a7`.
+- Real-Postgres integration runs from an empty schema against a local Postgres — **never** against
+  production Neon.
 - **F-067's listing form verified END TO END in a real browser**, then read back from Postgres and
   from `/api/public/stands` rather than from the screen's success message: a farmer fills the form
   and the stand reaches the public map with address, pin, hours, payment methods, and their own
@@ -156,8 +163,8 @@ public description, which it does.
   chose to merge and look himself (**F-060**). The listing form was checked in a real browser and
   works end to end, but **at desktop width** — its markup and behaviour are covered by tests, its
   phone layout is not. The pin-drop map is the piece most worth max's own look, since it is
-  thumb-driven by design. One cosmetic defect was seen at desktop width: the "North ferry" label
-  is clipped at the map's top edge.
+  thumb-driven by design. One cosmetic defect was seen at desktop width and filed as **B-036**: the
+  "North ferry" label is clipped at the map's top edge.
 - Deployed and verified **by effect** against the live service, not by the apply's exit status:
   `/api/farmer/onboarding` refuses a malformed token with `400` before touching the database, and
   answers a well-formed but unknown token with the uniform `410 invitation_unavailable` — so the
@@ -204,13 +211,15 @@ against the real corpus on 2026-08-04 while implementing.
   and offering type remain editable by nobody. The form deliberately does not touch Farm Bucks:
   it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot make themselves
   eligible by filling in a form.
-- **The ingestion tranche (F-063 → F-061 → F-062, plus F-064's guard) is merged and UNDEPLOYED.**
+- **The ingestion tranche (F-063 → F-061 → F-062, plus F-064's guard) is merged and DEPLOYED —
+  but its DATA has not been ingested.**
   F-063 added `inventory_revisions.source` (`sms` requires the full handset chain under a CHECK;
   `viga` requires none of it). F-061 rebuilt the description from the profile form's columns and
   gave `farm_links` and `sales_location_payment_methods` their first writer and reader. F-062
   ingests the weekly stock form as dated `viga` confirmations. **The two on-screen contradictions
-  are gone at the data level**, verified over the real corpus — but **not on the live map**, which
-  still runs the pre-tranche image and data.
+  are gone at the data level**, verified over the real corpus — but **still not on the live map**.
+  The code that fixes them is now deployed; what is missing is F-064's ingest run, so production
+  continues to serve the pre-tranche listing CONTENT through the new code.
 - ~~Migrations `0019`, `0020`, and `0021` are owed to production~~ — **DONE 2026-08-05**, in that
   order, before the image that reads them, and verified by effect rather than by exit status.
   `0020`'s table is now the only source of what a stand usually sells and `0021`'s widened
@@ -230,7 +239,7 @@ against the real corpus on 2026-08-04 while implementing.
 - **Attribution for an admin inventory edit is still owed (F-065)** — a revision row carries no
   `admin_actor_id` and there is no general admin audit log, so that workflow must record its own
   action, matching how `stock_out_reports` and `farm_approvals` already work.
-- **F-066 — one item vocabulary is BUILT and merged to the branch, UNDEPLOYED.** `stand_items`
+- **F-066 — one item vocabulary is BUILT, merged, and DEPLOYED.** `stand_items`
   holds one record per (stand, item name) with two independent states — `usually_carried`, and
   whether a dated revision names it. The separation that justified two tables survives: sharing
   the vocabulary is not sharing the one-current-per-location slot, proven by the schema test that
@@ -248,7 +257,7 @@ against the real corpus on 2026-08-04 while implementing.
   is the standing state's farmer-facing writer, so F-066's last acceptance criterion — SMS cannot
   write standing state — is now provable and proven. **Migrations `0019` and `0020` are on
   production** (2026-08-05); `0020`'s backfill wrote 212 item rows from the real listing data.
-- **F-067 — self-serve onboarding is HALF BUILT, UNDEPLOYED.** Redeeming an agreed invitation that
+- **F-067 — self-serve onboarding is COMPLETE and DEPLOYED.** Redeeming an agreed invitation that
   **names a farm** now writes `farmer_authorizations` **and `farm_approvals`** in the same
   transaction as the consent and the redemption, so no administrator acts. Both were required:
   `confirmProposal` checks authorization and then approval independently, so granting only the
