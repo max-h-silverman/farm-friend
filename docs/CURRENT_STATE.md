@@ -26,10 +26,9 @@ Three tranches are now ahead of production, all **NOT deployed**:
 - **F-067's self-serve farmer onboarding**, carrying **migration `0021`**
   (`farmer_onboarding_requests_coherent_settlement` widened).
 
-F-066 and F-067 both sit on branch `f-067-self-serve-onboarding`, which carries F-066's three
-commits as well — open as **PR #80**, mergeable and clean, and **deliberately not merged**: a
-second session was active, and merging would move the base under anything branched from where this
-one started. Merging it is the next session's first decision.
+All three are now **merged to `main`** — F-066 and F-067 landed together as **PR #80** (`41e6dd0`),
+squashed, once the concurrent session that had held the merge back was finished. The merged base
+was re-verified green (1075 unit, 638 integration) rather than assumed from the branch's own run.
 
 Production has received none of them, so it still runs the pre-tranche schema and the pre-tranche
 listing data. **`0019`, `0020`, and `0021` are all owed to production, in that order, before the
@@ -60,7 +59,7 @@ public description, which it does.
 
 ## Verification
 
-- Current branch `f-067-self-serve-onboarding`: **105 unit-test files / 1075 tests**, typecheck,
+- Current `main` (merged, `41e6dd0`): **105 unit-test files / 1075 tests**, typecheck,
   lint, and **evals (critical 11/11, adversarial 29/29, advisory 4/4)** pass (verified 2026-08-05).
   **Not deployed.**
 - Real-Postgres integration: **47 files / 635 tests pass on a complete run** from an empty schema,

@@ -106,10 +106,24 @@ were VIGA's. The four carrier-registered disclosures (frequency, rates, STOP, HE
 untouched per SMS_COMPLIANCE.md; only their framing changed, and sabotaging one confirmed the
 compliance test still fails when a required fact goes missing.
 
-**Committed:** `25509a3`, `33a617c`. **F-066's commits ride on this branch** (`2659600`, `8f6e876`,
-`e2ccc2c`) — built last session, never logged. **Owed:** the onboarding listing-details form
-(F-067's remaining half — nothing in the codebase writes listing facts today, they are only ever
-seeded), and migrations `0019`–`0021` to production in order, before the image that reads them.
+**Committed:** `25509a3`, `33a617c`, `34984c8`, `6dc4f41`. **F-066's commits rode on this branch**
+(`2659600`, `8f6e876`, `e2ccc2c`) — built in a concurrent session, logged in the F-066 entry below.
+
+**Merged as PR #80 (`41e6dd0`), squashed.** The merge was held while the second session was still
+running — merging would have moved the base under work branched from where it started — and taken
+once that session finished. The merged base was re-verified rather than inheriting the branch's
+numbers: 1075 unit, 638 integration, typecheck, lint, all green on `main`.
+
+**Sequencing decided with max after the merge:** build the onboarding listing-details form
+*before* deploying and sending any farmer a test link. A link sent today would work — the farmer is
+authorized and their farm approved — but their stand would reach the public map carrying a name and
+nothing else, because the onboarding page still captures only the consent tick. The first farmer to
+use this should get the complete experience, and the same form is the writer F-066's standing item
+state currently lacks, so it closes that item's last acceptance criterion too.
+
+**Owed:** the onboarding listing-details form (F-067's remaining half — nothing in the codebase
+writes listing facts today, they are only ever seeded); then migrations `0019`–`0021` to production
+in order, before the image that reads them; then one real onboarding link to a single farmer.
 
 ## 2026-08-05 — the listing ingestion tranche: F-063, F-061, F-062, and F-064's guard
 
