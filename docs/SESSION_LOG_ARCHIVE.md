@@ -1,7 +1,7 @@
 # Farm Friend — Session Log Archive (through 2026-08-02)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-05; it now holds 50 entries.
+everything older lives here. Last rotated 2026-08-05; it now holds 53 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -9,6 +9,118 @@ architecture documents ([README.md](README.md) is the index). Where an entry her
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
 
 ---
+
+## 2026-08-02 — farmer SMS handling and final map polish deployed
+
+The remaining uncommitted work from the parallel session was included in `81412d7`, then the final
+map name-wrap alignment and farmer-SMS architecture documentation landed in `53ea6fb`. The release
+includes authorized farmer free-text classification before exact stand targeting, routing to
+inventory update, farm-stand question, or code-rendered clarification; VIGA-style colored and
+flower markers; selected-marker halos and final label layering; wide-screen sticky map behavior;
+and top-aligned stand numbers when a name wraps.
+
+Verification: 92 unit-test files / 883 tests, 41 real-Postgres integration-test files / 563 tests,
+typecheck, lint, production web build, and focused map tests 74/74. Cloud Build
+`479ac6d3-9d2a-4cf8-84b5-505171b06c9e` published digest
+`sha256:9b557833f5135912bf2a3d4d90e88aa0fcbc07abcbccc5f8630309a9539f717b`. OpenTofu passed 37/37
+plan assertions and applied 0 adds, 2 service updates, and 0 destroys. Production is live at web
+revision `farm-friend-web-00020-rz7` and worker revision `farm-friend-worker-00021-spx`; deployment
+assertions, served vCard checks, and the canonical map HTTP 200 check passed. No migration was owed:
+production already held all 17 committed migrations.
+
+## 2026-08-02 — parallel admin changes and the VIGA-poster map refinements merged and deployed
+
+The parallel session's uncommitted work was carried into `71bafa7` and merged to `main` in
+`2a6eba1`. It includes farmer invitations and unbound-farm onboarding, the guarded administrator
+Farm Bucks status write path, and the public map refinement requested against VIGA's poster: the
+legend sits above the stand list, cards show only their indicator dots in a dedicated column, card
+text stays left-aligned, and tapping the selected card or marker collapses it again. The map assets
+were included; generated `.idea/` metadata was ignored.
+
+Verification before release: 91 unit-test files / 874 tests, 41 real-Postgres integration-test files
+/ 561 tests against disposable databases, typecheck, lint, production web build, and the focused
+map suite's 4/4 tests passed. Production already had all 17 committed migrations, so no migration
+was applied. Cloud Build `bc444893-2f59-4a9a-aaaa-31d30b2a5c16` published digest
+`sha256:a3d63ff627e6e7e74b7a05f04dcd30c97b827ce235515fbefaaea55eed7d1491`. OpenTofu passed 37/37
+plan assertions and applied two service updates with no adds or destroys. Web revision
+`farm-friend-web-00019-lg9` and worker revision `farm-friend-worker-00020-ndb` are live on that
+digest; secret-freshness, served-card byte, production migration-journal, and canonical public-map
+route checks passed. The remaining live browser and physical-handset journeys stay open in
+`CURRENT_STATE.md`.
+
+## 2026-08-02 (latest) — one pre-go-live architecture shipped, with the dead alternatives removed
+
+### Administrator interface polish — merged, not deployed
+
+The signed-in administrator view now leads with four plain-language workflows: **Stands**,
+**People**, **Needs attention**, and **Stock reports**. The old header is gone; navigation and
+sign-out share one row, desktop content has a wider readable column, and the small color system uses
+the VIGA palette without overwhelming the operational work. Farm approval and farmer-access actions
+carry the yellow priority accent.
+
+Stand cards now disclose with the browser's native control, so mouse, touch, keyboard, and no-script
+use all follow the same reliable behavior. Their expanded view makes the timely information easiest
+to find, then groups visit/listing, hours/season, and remaining facts into distinct sections. Copy
+throughout the admin surface was shortened and softened without changing authority or safety
+meaning.
+
+Final local verification: 858 unit tests; 556 integration tests across 40 files against an isolated
+disposable Postgres server; typecheck; lint; and the production web build. The build retains its
+pre-existing Next configuration warnings about `outputFileTracingRoot` and the missing Next ESLint
+plugin. No production system or data was touched. A final browser walkthrough of the refined view is
+still owed; F-055 remains in review for its broader farmer and mobile proof.
+
+Farm Friend's farmer-behavior tranche and final pre-go-live architecture are now in production at
+`a7e1417`. The deployment carries F-049 closure/reopening, F-050 participant names, F-051 exact
+multi-stand targeting and `STAND`/`SETTINGS`, F-052 scheduled prompts and `SAME`, and F-055's
+completed farmer/admin web workflows. The database moved first to all 15 migrations, through
+`1786300000000`; only then did web revision `farm-friend-web-00015-g76` and worker revision
+`farm-friend-worker-00016-gt2` take the shared digest
+`sha256:9dbf6e6d97e7a3e765bcf856a798eaeb9577054b58f8c0ab401b79b28ed633d9`.
+
+### Pre-go-live meant one architecture, not compatibility machinery
+
+B-031 removed the five access-bearing alternatives that had no launch consumer: nullable farmer
+link targets, raw-hash enrollment, nonce-less admin sessions, administrator phone identity, and a
+generic one-role facade. B-032 removed silent proposal/location defaults and proposal-owned schema
+and YES/NO token fields. Populated forward-migration tests preserve real rows while leaving future
+writes with one exact shape; decisive NULLs fail in Postgres rather than slipping through a CHECK.
+
+B-033 then deleted the misleading surfaces left around that final schema: five unused admin queue
+GET handlers beside the server-rendered pages, provider label and duplicate schema-name fields,
+optional output instructions that every real projection already supplied, and the runnable phone
+rehash path that contradicted the never-rotate salt rule. Only the flag-thread GET remains because
+the browser actually consumes it. Historical migrations and dated records remain evidence, never a
+second callable architecture.
+
+### The absence tests had to prove they could fail
+
+The new tripwires strip comments/imports and anchor to executable exports and call sites. Sabotage
+made all five deleted GETs, the surviving browser fetch, each AI contract removal, and both phone
+recovery guards fail for the claimed effect before restoration. Provider requests across all five
+model projections were byte-identical before and after B-033 (SHA-256
+`80d9dbc6da7ec487f70acd1c2842775b81372a170c3f047c78f3025eacf3b1b5`), so no paid live eval
+was owed: the type surface shrank without changing a projection, schema, output contract, or model
+message.
+
+Final local verification passed 879 unit tests, 572 real-Postgres integration tests across 39
+files, 44 scripted eval cases, typecheck, lint, production build, and true no-op Drizzle generation.
+One integration pass hit the known cross-suite fixture deadlock at a `TRUNCATE`; with the change
+stashed, the unchanged-base file passed 19/19, and the restored complete suite passed 572/572.
+
+### Production is current; user-journey proof remains pre-go-live work
+
+Live health, public, protected-admin, SMS, and removed-route checks passed after deployment. The
+Cloud Tasks queue is `RUNNING` and the Cloud Scheduler job is `ENABLED`. What remains is product
+exercise, not an owed release: run the complete farmer onboarding/status update, administrator,
+farmer settings, customer inquiry, and farmer update journeys against production and verify durable
+database effects. Mail-provider attestation, the Squarespace embed handshake, and physical-handset
+vCard/paging checks remain separate open gates. `npm audit --omit=dev` also reports three
+high-severity production dependency advisory groups in direct `drizzle-orm`, direct Next.js, and
+transitive PostCSS; B-034 owns supported-line upgrades and application-reachability assessment,
+with no observed exploit and some advisory reachability still unconfirmed. F-029 remains open only
+for live carrier/JOIN launch verification; its migration and deploy legs are complete.
+
 
 ## 2026-07-31 — F-046 part 3: paging wired, deployed, and the two tests that could not fail
 

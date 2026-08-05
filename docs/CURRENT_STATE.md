@@ -6,34 +6,35 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00029-bgf` and worker revision `farm-friend-worker-00030-vzd`, both at digest
-`sha256:3a25dd2c9f47e47ecac48547b81e366c2a88b0561cf84a385e2321f33977a464` (`main` at `38f02ed`).
-Production Postgres is `neondb` with all 18 migrations applied (`0000`–`0018`, through journal
-timestamp `1786700000000`) — **unchanged by this deploy, which carried no migration**.
+Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **all 22 migrations applied
+(`0000`–`0021`)**, verified by effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the
+per-migration checks and the fingerprint that preceded them.
 
-Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constraint) was applied
-**before** the code that reads it was promoted, per the RUNBOOK's ordering rule.
+`0019`, `0020`, and `0021` were applied **before** the code that reads them was promoted, per the
+RUNBOOK's ordering rule. All three are additive and backward-compatible (a column, a table, a
+widened constraint), so the pre-tranche image kept serving correctly in the window between the
+migration and the deploy. **`0020` backfilled 212 `stand_items` rows from real production data**;
+listing data was unchanged (35 farms, 35 locations, 2 contacts, before and after). max declined a
+pre-migration snapshot when asked.
 
 The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
 [session log](SESSION_LOG.md) for its reasoning.
 
-Three tranches are now ahead of production, all **NOT deployed**:
+Four tranches have now landed on `main`, and **all their migrations are on production**:
 
-- the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard), merged to `main`,
-  carrying **migration `0019`** (`inventory_revisions.source`);
-- **F-066's one item vocabulary**, carrying **migration `0020`** (`stand_items`);
-- **F-067's self-serve farmer onboarding**, carrying **migration `0021`**
-  (`farmer_onboarding_requests_coherent_settlement` widened).
+- the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard) — migration `0019`
+  (`inventory_revisions.source`);
+- **F-066's one item vocabulary** — migration `0020` (`stand_items`);
+- **F-067's self-serve farmer onboarding** — migration `0021`
+  (`farmer_onboarding_requests_coherent_settlement` widened);
+- **F-067's onboarding listing form** — the first farmer-facing writer of listing facts; no
+  migration of its own.
 
-All three are now **merged to `main`** — F-066 and F-067 landed together as **PR #80** (`41e6dd0`),
-squashed, once the concurrent session that had held the merge back was finished. The merged base
-was re-verified green (1075 unit, 638 integration) rather than assumed from the branch's own run.
+F-066 and F-067's first half landed together as **PR #80** (`41e6dd0`); the listing form landed as
+**PR #81**. Each merged base was re-verified green rather than assumed from the branch's own run.
 
-Production has received none of them, so it still runs the pre-tranche schema and the pre-tranche
-listing data. **`0019`, `0020`, and `0021` are all owed to production, in that order, before the
-image that reads them**, per the RUNBOOK's ordering rule. See the [session log](SESSION_LOG.md) for
-the reasoning.
+**The schema is current; the listing DATA is not.** F-064's production ingest has still not run, so
+production continues to serve the pre-tranche listing content — see "Open before go-live" below.
 
 The tranche before it — presentation and ingestion groundwork — is deployed: plan assertions 37/37,
 deploy and served-card assertions pass, and the served stylesheet was checked **by effect**.
@@ -210,10 +211,11 @@ against the real corpus on 2026-08-04 while implementing.
   ingests the weekly stock form as dated `viga` confirmations. **The two on-screen contradictions
   are gone at the data level**, verified over the real corpus — but **not on the live map**, which
   still runs the pre-tranche image and data.
-- **Migrations `0019`, `0020`, and `0021` are owed to production**, in that order, before the code
-  that reads them (RUNBOOK ordering rule). Deploying the image without them would break every
-  listing read: `0020`'s table is now the only source of what a stand usually sells, and `0021`'s
-  widened settlement CHECK is what lets a farmer's own redemption settle their onboarding request.
+- ~~Migrations `0019`, `0020`, and `0021` are owed to production~~ — **DONE 2026-08-05**, in that
+  order, before the image that reads them, and verified by effect rather than by exit status.
+  `0020`'s table is now the only source of what a stand usually sells and `0021`'s widened
+  settlement CHECK is what lets a farmer's own redemption settle their request, so deploying the
+  image without them would have broken every listing read.
 - **F-064's production run has NOT happened.** Still owed: a re-export of all three CSVs (the
   profile form is **still open**), a **`neondb` snapshot** — with an insert-only utility and GL-015
   open, the snapshot *is* the rollback — max's explicit approval for the bulk write, and the render
@@ -244,8 +246,8 @@ against the real corpus on 2026-08-04 while implementing.
   test that must be deleted before anyone can loosen it.
   **The farmer web form now EXISTS** (F-067, branch `f-067-listing-form`): `saveOnboardingListing`
   is the standing state's farmer-facing writer, so F-066's last acceptance criterion — SMS cannot
-  write standing state — is now provable and proven. **Still owed:** migrations `0019` and `0020`
-  to production.
+  write standing state — is now provable and proven. **Migrations `0019` and `0020` are on
+  production** (2026-08-05); `0020`'s backfill wrote 212 item rows from the real listing data.
 - **F-067 — self-serve onboarding is HALF BUILT, UNDEPLOYED.** Redeeming an agreed invitation that
   **names a farm** now writes `farmer_authorizations` **and `farm_approvals`** in the same
   transaction as the consent and the redemption, so no administrator acts. Both were required:

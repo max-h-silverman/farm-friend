@@ -135,6 +135,13 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   keeps the SMS surface to a single job and puts the deterministic-routing line at the data layer:
   no inbound message, however interpreted, reaches a standing fact.
 
+  **That writer now exists** (F-067, 2026-08-05): `saveOnboardingListing`, behind the onboarding
+  form. Until it landed the seeder was the only thing that had ever written `usually_carried`, so
+  the rule above was a contract with nothing on the farmer's side of it — and the criterion "SMS
+  cannot write standing state" was unprovable, there being no farmer-facing writer to separate SMS
+  from. Verified by effect: a farmer submitting the form writes `stand_items` rows and **zero**
+  inventory revisions.
+
   A shared vocabulary is also what **removes the reconciliation the view currently performs**.
   `standListingLines` case-folds and subtracts confirmed items from the usual list so nothing
   prints under both headings; `sellsMatch` case-folds both lists into one search haystack;
