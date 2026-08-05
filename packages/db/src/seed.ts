@@ -1,4 +1,4 @@
-import { matchStandName } from "@farm-friend/core";
+import { matchStandName, resolveStandKey } from "@farm-friend/core";
 import type { Sql, Tx } from "./sql";
 
 // B-002 — loading VIGA's reference stand data.
@@ -453,6 +453,26 @@ export interface WeeklyConfirmationResult {
   skippedAsOlder: number;
   /** Farm names in the form that match no seeded stand. Reported, never silently dropped. */
   unknownStands: string[];
+  /**
+   * Names that reached a stand under a DIFFERENT name, and which one.
+   *
+   * Reported rather than resolved silently: a farmer's submission landing on the wrong farm's
+   * card is the failure this whole matching design exists to prevent, so every non-exact
+   * resolution stays visible to the operator running the ingest.
+   */
+  resolvedByOtherName: { stated: string; resolvedTo: string }[];
+}
+
+export interface WeeklyConfirmationOptions {
+  /**
+   * Farm names a farmer stated are FORMER names of their listing (`readFormerNames`).
+   *
+   * The weekly form still carries submissions under an old name — Green Ears' row reads
+   * "Formerly Maggie's Farm" — and the two names share no characters, so no spelling rule can
+   * reach it. Supplied by the caller because it is read from the profile form, which this
+   * function does not have.
+   */
+  formerNames?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -476,21 +496,36 @@ export interface WeeklyConfirmationResult {
 export async function seedWeeklyConfirmations(
   sql: Sql,
   submissions: WeeklyConfirmationInput[],
+  options: WeeklyConfirmationOptions = {},
 ): Promise<WeeklyConfirmationResult> {
   let published = 0;
   let skippedAsOlder = 0;
   const unknownStands: string[] = [];
+  const resolvedByOtherName: { stated: string; resolvedTo: string }[] = [];
 
   await sql.begin(async (tx) => {
     // Built inside the transaction so the index cannot go stale mid-batch, and so an ambiguous
     // name aborts before any confirmation lands rather than after some of them have.
     const byKey = await indexLocationsByMatchKey(tx);
+    const seededNames = [...byKey.values()].map((location) => location.name);
 
     for (const submission of submissions) {
-      const location = resolveStand(byKey, submission.standName);
+      // Exact first, then a stated rename, then an unambiguous word-prefix. Farmers do not
+      // retype their full listing name every week — three of the 2026 weekly farms reached no
+      // stand at all under an exact key, and each was a real submission that reached nobody.
+      const resolvedKey = resolveStandKey(submission.standName, seededNames, {
+        ...(options.formerNames !== undefined ? { formerNames: options.formerNames } : {}),
+      });
+      const location = resolvedKey === undefined ? undefined : byKey.get(resolvedKey);
       if (location === undefined) {
         unknownStands.push(submission.standName);
         continue;
+      }
+      if (resolvedKey !== matchStandName(submission.standName)) {
+        resolvedByOtherName.push({
+          stated: submission.standName,
+          resolvedTo: location.name,
+        });
       }
 
       // `for update` so two concurrent ingests cannot both read "no current revision" and then
@@ -540,5 +575,5 @@ export async function seedWeeklyConfirmations(
     }
   });
 
-  return { published, skippedAsOlder, unknownStands };
+  return { published, skippedAsOlder, unknownStands, resolvedByOtherName };
 }

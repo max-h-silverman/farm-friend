@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { matchStandName, standDisplayName, joinStandSources } from "./match-stands";
+import {
+  joinStandSources,
+  matchStandName,
+  readFormerNames,
+  resolveStandKey,
+  standDisplayName,
+} from "./match-stands";
 
 // B-002 — joining the 2026 form export to the map export.
 //
@@ -263,5 +269,133 @@ describe("joinStandSources", () => {
     expect(joined).toHaveLength(1);
     expect(refused).toHaveLength(1);
     expect(refused[0]!.reason).toMatch(/duplicate|already/i);
+  });
+});
+
+describe("resolveStandKey — a farm naming itself differently across forms (F-062)", () => {
+  // The weekly form is filled in by hand, week after week, and farmers do not retype their full
+  // listing name. Three of the 2026 weekly farms matched no seeded stand, and max confirmed all
+  // three are the same farms under different spellings:
+  //
+  //   "Venison Valley Farm"  →  Venison Valley Farm & Creamery   (trailing words dropped)
+  //   "Ostara"               →  Ostara Farm & Flowers            (trailing words dropped)
+  //   "Maggie's Farm"        →  Green Ears                       (a RENAME, stated in the form)
+  //
+  // Two different problems, so two different mechanisms — not one fuzzy matcher covering both.
+  // The header of this module explains why a similarity score is forbidden: a Jaccard matcher
+  // ranked LAVENDER HILL FARM against FLORA HILL FARM at 0.33, and any threshold loose enough to
+  // catch a real pair would have published one farm at another's address.
+
+  const seeded = [
+    "Venison Valley Farm & Creamery",
+    "Ostara Farm & Flowers",
+    "Green Ears",
+    "Flora Hill Farm",
+    "Lavender Hill Farm",
+    "Peach Tree Hill",
+    "Plum Forest Farm",
+    "Provo Farm",
+  ];
+
+  it("resolves a name whose key is a WORD-PREFIX of exactly one seeded stand", () => {
+    // Still an exact comparison — of whole words, anchored at the start — not a similarity
+    // score. Measured over the real corpus: no seeded key is a word-prefix of another, so this
+    // is unambiguous on the data it runs against.
+    expect(resolveStandKey("Venison Valley Farm", seeded)).toBe(
+      matchStandName("Venison Valley Farm & Creamery"),
+    );
+    expect(resolveStandKey("Ostara", seeded)).toBe(matchStandName("Ostara Farm & Flowers"));
+  });
+
+  it("prefers an EXACT key over any prefix candidate", () => {
+    expect(resolveStandKey("Provo Farms", seeded)).toBe(matchStandName("Provo Farm"));
+  });
+
+  it("REFUSES a prefix that matches more than one seeded stand", () => {
+    // THE WHOLE SAFETY PROPERTY. Two farms sharing a leading word is not hypothetical — this is
+    // the shape "Cedar" takes if VIGA ever lists both "Cedar Grove Farm" and "Cedar Ridge Farm".
+    // A prefix that names two farms names NEITHER: guessing publishes one farm's stock on the
+    // other's card, which is the failure the exact key was chosen to prevent.
+    //
+    // Both candidates must be REAL prefixes of the key, or this test passes without ever
+    // reaching the ambiguity guard — an earlier version used "Hill", which is a prefix of
+    // neither "flora hill" nor "lavender hill", so the candidate list was empty either way.
+    const ambiguous = ["Cedar Grove Farm", "Cedar Ridge Farm"];
+    expect(resolveStandKey("Cedar", ambiguous)).toBeUndefined();
+    // And the guard is not just "return nothing when in doubt": an unambiguous prefix over the
+    // same list still resolves.
+    expect(resolveStandKey("Cedar Grove", ambiguous)).toBe(matchStandName("Cedar Grove Farm"));
+  });
+
+  it("never matches on a shared TRAILING word, only a leading one", () => {
+    // "Hill Farm" is the Lavender/Flora trap the module header describes. A suffix match would
+    // reintroduce exactly the false pair an exact key exists to prevent.
+    expect(resolveStandKey("Hill Farm", seeded)).toBeUndefined();
+    expect(resolveStandKey("Forest Farm", seeded)).toBeUndefined();
+  });
+
+  it("never matches a PARTIAL word", () => {
+    // "Ostar" is not "Ostara". Anchoring to whole words is what stops a typo becoming a match.
+    expect(resolveStandKey("Ostar", seeded)).toBeUndefined();
+    expect(resolveStandKey("Ven", seeded)).toBeUndefined();
+  });
+
+  it("returns nothing for a farm that is genuinely absent", () => {
+    expect(resolveStandKey("Somewhere Else Farm", seeded)).toBeUndefined();
+  });
+
+  it("resolves a stated former name, which no spelling rule could reach", () => {
+    // "Maggie's Farm" and "Green Ears" share not one character. This is a RENAME — the form
+    // states it in the farmer's own words ("Formerly Maggie's Farm") — so it is read from the
+    // data rather than guessed, and no farm is hard-coded here.
+    expect(
+      resolveStandKey("Maggie's Farm", seeded, {
+        formerNames: new Map([[matchStandName("Maggie's Farm"), matchStandName("Green Ears")]]),
+      }),
+    ).toBe(matchStandName("Green Ears"));
+  });
+
+  it("does not let a former name override a farm that still exists under it", () => {
+    // If a name is BOTH a live stand and someone's former name, the live stand wins. Otherwise
+    // a rename could silently redirect a working farm's submissions to a different farm.
+    expect(
+      resolveStandKey("Provo Farm", seeded, {
+        formerNames: new Map([[matchStandName("Provo Farm"), matchStandName("Green Ears")]]),
+      }),
+    ).toBe(matchStandName("Provo Farm"));
+  });
+});
+
+describe("readFormerNames", () => {
+  it("reads a rename the farmer stated in their own words", () => {
+    // Green Ears' real 2026 row ends with "Formerly Maggie's Farm" in the free-text column.
+    const names = readFormerNames([
+      { name: "Green Ears *does not accept VIGA Bucks*", extraNotes: "Formerly Maggie's Farm" },
+    ]);
+    expect(names.get(matchStandName("Maggie's Farm"))).toBe(matchStandName("Green Ears"));
+  });
+
+  it("reads the other phrasings a farmer might use", () => {
+    const names = readFormerNames([
+      { name: "A Farm", extraNotes: "previously known as B Farm" },
+      { name: "C Farm", generalInformation: "formerly called D Farm." },
+      { name: "E Farm", extraNotes: "was Fenwick Farm" },
+    ]);
+    expect(names.get(matchStandName("B Farm"))).toBe(matchStandName("A Farm"));
+    expect(names.get(matchStandName("D Farm"))).toBe(matchStandName("C Farm"));
+    expect(names.get(matchStandName("Fenwick Farm"))).toBe(matchStandName("E Farm"));
+  });
+
+  it("ignores prose that merely contains the word 'formerly'", () => {
+    // A false former name silently redirects one farm's submissions to another.
+    const names = readFormerNames([
+      { name: "A Farm", extraNotes: "Our barn was formerly a dairy." },
+      { name: "B Farm", extraNotes: "We formerly grew only flowers." },
+    ]);
+    expect(names.size).toBe(0);
+  });
+
+  it("reads nothing from a farm that stated no prose", () => {
+    expect(readFormerNames([{ name: "A Farm" }]).size).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 // F-062 — ingest VIGA's weekly stock form as dated confirmations.
 //
-//   npm run db:seed-weekly -- --weekly <weekly.csv> [--season 2026] [--dry-run]
+//   npm run db:seed-weekly -- --weekly <weekly.csv> [--form <form.csv>] [--season 2026] [--dry-run]
 //
 // WHAT THIS IS FOR. VIGA's third CSV is a weekly Google Form a farmer has been filling in for
 // years. Nothing has ever read it. If their submission produces nothing on the map, the system
@@ -23,7 +23,7 @@
 
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
-import { parseWeeklyStatus } from "@farm-friend/core";
+import { parseFormResponses, parseWeeklyStatus, readFormerNames } from "@farm-friend/core";
 import { seedWeeklyConfirmations, type WeeklyConfirmationInput } from "../src/seed";
 import { describeTarget } from "../src/connection-target";
 import {
@@ -44,7 +44,9 @@ async function main(): Promise<void> {
 
   if (!weeklyPath) {
     console.error(
-      "usage: npm run db:seed-weekly -- --weekly <weekly.csv> [--season 2026] [--dry-run]",
+      "usage: npm run db:seed-weekly -- --weekly <weekly.csv> [--form <form.csv>] " +
+        "[--season 2026] [--dry-run]\n" +
+        "  --form lets a farmer's stated rename resolve their old name to their current stand",
     );
     process.exit(1);
   }
@@ -64,6 +66,20 @@ async function main(): Promise<void> {
   const parsed = parseWeeklyStatus(readFileSync(weeklyPath, "utf8"), {
     ...(season !== undefined ? { season } : {}),
   });
+
+  // A farmer who renamed their listing still submits under the old name — Green Ears' profile row
+  // reads "Formerly Maggie's Farm", and the two names share no characters, so no spelling rule
+  // could reach it. Read from the PROFILE form, which is where the farmer stated it.
+  const formPath = argValue("--form");
+  const formerNames =
+    formPath === undefined
+      ? new Map<string, string>()
+      : readFormerNames(parseFormResponses(readFileSync(formPath, "utf8")).stands);
+  if (formerNames.size > 0) {
+    console.log(`former names read from the profile form: ${formerNames.size}`);
+  } else if (formPath === undefined) {
+    console.log("note: --form not given, so stated renames cannot be resolved");
+  }
 
   console.log(
     `weekly form: ${parsed.submissions.length} submissions (latest per farm), ` +
@@ -109,12 +125,18 @@ async function main(): Promise<void> {
         : await requireExpectedDatabase(sql, { databaseName: expectDatabase });
     console.log(`target: ${describeTarget(databaseUrl!)} — ${describeFingerprint(fingerprint)}`);
 
-    const result = await seedWeeklyConfirmations(sql, inputs);
+    const result = await seedWeeklyConfirmations(sql, inputs, { formerNames });
     console.log(
       `\npublished ${result.published}, ` +
         `skipped ${result.skippedAsOlder} (something newer is already published), ` +
         `${result.unknownStands.length} unknown stands`,
     );
+    // Every non-exact resolution, printed. A submission landing on the WRONG farm's card is the
+    // failure the matching design exists to prevent, so these stay in front of the operator
+    // rather than being resolved quietly.
+    for (const item of result.resolvedByOtherName) {
+      console.log(`  MATCHED  "${item.stated}" -> "${item.resolvedTo}"`);
+    }
     // The number that says whether the join actually worked. A farm in the form with no stand in
     // the database is a submission that reached nobody.
     for (const name of result.unknownStands) {

@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { matchStandName } from "@farm-friend/core";
 import { seedWeeklyConfirmations } from "./seed";
 import type { Sql } from "./sql";
 
@@ -64,7 +65,7 @@ describe("F-062 weekly confirmations (integration)", () => {
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${farmId}, 'farm_stand', 'Weekly Farm Stand', 'America/Los_Angeles',
+        ${farmId}, 'farm_stand', 'Weekly Quarry Stand', 'America/Los_Angeles',
         'visitable', 'produce', '1 Weekly Way', 47.4, -122.4, false, false
       )
       returning id
@@ -102,7 +103,7 @@ describe("F-062 weekly confirmations (integration)", () => {
   it("publishes a weekly submission as a confirmation Postgres accepts", async () => {
     const result = await seedWeeklyConfirmations(client(), [
       {
-        standName: "Weekly Farm Stand",
+        standName: "Weekly Quarry Stand",
         statedOn: daysAfter(1),
         items: ["Eggs", "Salad greens", "Rhubarb"],
       },
@@ -129,7 +130,7 @@ describe("F-062 weekly confirmations (integration)", () => {
     // A farm submits weekly all season. Two current revisions for one stand is a state the
     // partial unique index forbids outright, so a second run must supersede rather than insert.
     await seedWeeklyConfirmations(client(), [
-      { standName: "Weekly Farm Stand", statedOn: daysAfter(5), items: ["Tomatoes", "Basil"] },
+      { standName: "Weekly Quarry Stand", statedOn: daysAfter(5), items: ["Tomatoes", "Basil"] },
     ]);
 
     const revision = await currentRevision();
@@ -155,7 +156,7 @@ describe("F-062 weekly confirmations (integration)", () => {
     // row is also routinely older than a same-day text.
     const before = await currentRevision();
     const result = await seedWeeklyConfirmations(client(), [
-      { standName: "Weekly Farm Stand", statedOn: daysAfter(2), items: ["Stale", "Old"] },
+      { standName: "Weekly Quarry Stand", statedOn: daysAfter(2), items: ["Stale", "Old"] },
     ]);
 
     expect(result.published).toBe(0);
@@ -173,6 +174,59 @@ describe("F-062 weekly confirmations (integration)", () => {
     ]);
     expect(result.published).toBe(0);
     expect(result.unknownStands).toEqual(["No Such Farm"]);
+  });
+
+  describe("a farm naming itself differently in the weekly form (F-062)", () => {
+    // Farmers do not retype their full listing name every week. Three of the 2026 weekly farms
+    // reached NO stand under an exact key — each a real submission that reached nobody — and max
+    // confirmed all three are the same farms under a different spelling.
+
+    it("resolves a name that is a word-prefix of exactly one stand, and says so", async () => {
+      // The real shape: "Venison Valley Farm" for "Venison Valley Farm & Creamery" — the farmer
+      // dropped the trailing words. The fixture stand keys to "weekly quarry", so "Weekly" alone
+      // is a strict word-prefix and cannot match by the exact key.
+      const result = await seedWeeklyConfirmations(client(), [
+        { standName: "Weekly", statedOn: daysAfter(20), items: ["Prefix matched"] },
+      ]);
+
+      expect(result.published).toBe(1);
+      expect(result.unknownStands).toEqual([]);
+      // Reported, never silent: a submission landing on the wrong farm's card is the failure
+      // this matching design exists to prevent.
+      expect(result.resolvedByOtherName).toEqual([
+        { stated: "Weekly", resolvedTo: "Weekly Quarry Stand" },
+      ]);
+      expect((await currentRevision())?.items).toEqual(["Prefix matched"]);
+    });
+
+    it("resolves a stated former name, which no spelling rule could reach", async () => {
+      // "Maggie's Farm" and "Green Ears" share not one character. The profile form states the
+      // rename in the farmer's own words, so it is read from data rather than hard-coded.
+      const result = await seedWeeklyConfirmations(
+        client(),
+        [{ standName: "Maggie's Farm", statedOn: daysAfter(25), items: ["Renamed"] }],
+        {
+          formerNames: new Map([
+            [matchStandName("Maggie's Farm"), matchStandName("Weekly Quarry Stand")],
+          ]),
+        },
+      );
+
+      expect(result.published).toBe(1);
+      expect(result.resolvedByOtherName).toEqual([
+        { stated: "Maggie's Farm", resolvedTo: "Weekly Quarry Stand" },
+      ]);
+      expect((await currentRevision())?.items).toEqual(["Renamed"]);
+    });
+
+    it("still reports a genuinely unknown farm rather than forcing a match", async () => {
+      const result = await seedWeeklyConfirmations(client(), [
+        { standName: "Somewhere Else Entirely", statedOn: daysAfter(26), items: ["Kale"] },
+      ]);
+      expect(result.published).toBe(0);
+      expect(result.unknownStands).toEqual(["Somewhere Else Entirely"]);
+      expect(result.resolvedByOtherName).toEqual([]);
+    });
   });
 
   it("writes nothing at all for an empty submission list", async () => {

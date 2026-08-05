@@ -94,6 +94,116 @@ export function standDisplayName(name: string): string {
   return name.replace(ANNOTATION, " ").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Resolve a name from ANOTHER form against the seeded corpus (F-062).
+ *
+ * WHY THIS EXISTS AND `matchStandName` ALONE DOES NOT. The weekly stock form is filled in by hand
+ * week after week, and farmers do not retype their full listing name. Three of the 2026 weekly
+ * farms matched no seeded stand, and all three are the same farms under a shorter name:
+ * "Venison Valley Farm" for Venison Valley Farm & Creamery, "Ostara" for Ostara Farm & Flowers.
+ * Each of those submissions is a farmer's real work that reached nobody.
+ *
+ * WHY THIS IS STILL NOT FUZZY MATCHING. The module header explains what a similarity score costs
+ * here: a Jaccard matcher ranked LAVENDER HILL FARM against FLORA HILL FARM at 0.33, and any
+ * threshold loose enough to catch a true pair publishes one farm at another's address. This is an
+ * EXACT comparison of whole words, anchored at the START of the key — "venison valley" is a
+ * word-prefix of "venison valley creamery" and of nothing else in the corpus. Measured over the
+ * real 35: no seeded key is a word-prefix of another, so a prefix names exactly one farm or none.
+ *
+ * A prefix matching two stands resolves to NEITHER. That is the whole safety property: an
+ * ambiguous name is reported for a human, never guessed, because guessing publishes one farm's
+ * stock on another farm's card.
+ *
+ * A suffix is deliberately NOT matched. "Hill Farm" would name both Flora Hill and Lavender Hill
+ * — the exact false pair this module was built to refuse.
+ */
+export function resolveStandKey(
+  name: string,
+  seededNames: readonly string[],
+  options: { formerNames?: ReadonlyMap<string, string> } = {},
+): string | undefined {
+  let key: string;
+  try {
+    key = matchStandName(name);
+  } catch {
+    return undefined;
+  }
+
+  const seededKeys = new Set<string>();
+  for (const seeded of seededNames) {
+    try {
+      seededKeys.add(matchStandName(seeded));
+    } catch {
+      // A seeded name with no key cannot be matched against; the join reports it separately.
+    }
+  }
+
+  // An exact key always wins. A live stand outranks any prefix candidate and any rename, so a
+  // farm that still trades under a name keeps receiving its own submissions.
+  if (seededKeys.has(key)) return key;
+
+  // A stated rename, read from the farmer's own words rather than guessed. "Maggie's Farm" and
+  // "Green Ears" share not one character, so no spelling rule could ever reach it.
+  const renamed = options.formerNames?.get(key);
+  if (renamed !== undefined && seededKeys.has(renamed)) return renamed;
+
+  // Word-prefix, anchored: the trailing space is what makes it whole-word, so "ostar" does not
+  // match "ostara" and "ven" does not match "venison valley".
+  const candidates = [...seededKeys].filter((seeded) =>
+    `${seeded} `.startsWith(`${key} `),
+  );
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/**
+ * Farm names that a farmer stated are FORMER names of their listing.
+ *
+ * Green Ears' 2026 row ends "Formerly Maggie's Farm", and the weekly form still carries
+ * submissions under the old name. A rename cannot be inferred from spelling — the two names share
+ * no characters — so it is read from what the farmer wrote. No farm is named in this code.
+ *
+ * Returns old key → current key.
+ */
+export function readFormerNames(
+  stands: readonly { name: string; extraNotes?: string; generalInformation?: string }[],
+): Map<string, string> {
+  // The phrase must ANNOUNCE a name, not merely contain the word. "Our barn was formerly a
+  // dairy" names no farm, and a false former name silently redirects one farm's submissions to
+  // another — the same class of harm as a false fuzzy match.
+  // The announcing phrase is matched case-insensitively ("Formerly" / "formerly"); the NAME that
+  // follows is then required to be capitalized, which is what separates "Formerly Maggie's Farm"
+  // from "Our barn was formerly a dairy". A false former name silently redirects one farm's
+  // submissions to another — the same class of harm as a false fuzzy match.
+  const STATED_RENAME =
+    /(?:formerly|previously)(?:\s+(?:known\s+as|called|named))?\s+(\S[^.,;\n]*)|\bwas\s+(\S[^.,;\n]*)/gi;
+  const LOOKS_LIKE_A_NAME = /^[A-Z][\w'’.-]*(?:\s+[A-Z&][\w'’.-]*)*$/;
+
+  const formerNames = new Map<string, string>();
+  for (const stand of stands) {
+    let currentKey: string;
+    try {
+      currentKey = matchStandName(stand.name);
+    } catch {
+      continue;
+    }
+    const prose = [stand.extraNotes, stand.generalInformation]
+      .filter((text): text is string => text !== undefined)
+      .join("\n");
+
+    for (const match of prose.matchAll(STATED_RENAME)) {
+      const stated = (match[1] ?? match[2] ?? "").trim().replace(/[.,;]+$/, "");
+      if (!LOOKS_LIKE_A_NAME.test(stated)) continue;
+      try {
+        const formerKey = matchStandName(stated);
+        if (formerKey !== currentKey) formerNames.set(formerKey, currentKey);
+      } catch {
+        // An all-generic former name ("Formerly The Farm") names nothing to match on.
+      }
+    }
+  }
+  return formerNames;
+}
+
 /** A farm with its details resolved and, when it is visitable, its point. */
 export interface JoinedStand {
   name: string;
