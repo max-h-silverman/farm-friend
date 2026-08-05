@@ -441,13 +441,16 @@ describe("administrator queue interactions", () => {
     );
   });
 
-  it("prepares a new-farm invitation without selecting a farm", async () => {
+  // F-067 — a new farm is NAMED at invite time rather than assigned later. The old "New farm —
+  // assign later" option minted an invitation naming no farm, which authorizes nothing when
+  // redeemed and drops the farmer into the queue this work removes.
+  it("names a new farm on the invitation, so redeeming it can set the farmer up", async () => {
     const user = userEvent.setup();
     const fetcher = vi.fn().mockResolvedValueOnce(
       response(200, {
         status: "created",
         channel: "email",
-        farmName: null,
+        farmName: "Misty Hollow Farm",
         link: "https://ff.example/farmer/onboarding/new-farm-token",
       }),
     );
@@ -463,21 +466,108 @@ describe("administrator queue interactions", () => {
 
     await user.click(screen.getByRole("radio", { name: "Email" }));
     await user.type(screen.getByRole("textbox", { name: "Email address" }), "farmer@example.com");
+    await user.type(
+      screen.getByRole("textbox", { name: "New farm name" }),
+      "Misty Hollow Farm",
+    );
     await user.click(screen.getByRole("button", { name: "Prepare invite" }));
 
     expect(await screen.findByRole("link", { name: "Open email" })).toHaveAttribute(
       "href",
       expect.stringContaining("mailto:farmer@example.com?"),
     );
-    await user.click(screen.getByText("Review invite details"));
-    expect(screen.getByDisplayValue("https://ff.example/farmer/onboarding/new-farm-token")).toBeTruthy();
     expect(fetcher).toHaveBeenCalledWith(
       "/api/admin/farmers",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ action: "create_invite", channel: "email" }),
+        body: JSON.stringify({
+          action: "create_invite",
+          newFarmName: "Misty Hollow Farm",
+          channel: "email",
+        }),
       }),
     );
+  });
+
+  it("refuses to prepare a new-farm invite with no name typed", async () => {
+    // Caught before the request, so the operator is told what is missing rather than getting a
+    // 400 back. Minting an invitation with no farm is the exact dead end F-067 removes.
+    const user = userEvent.setup();
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <FarmerQueue
+        requests={[]}
+        authorizations={[]}
+        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+      />,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Email" }));
+    await user.type(screen.getByRole("textbox", { name: "Email address" }), "farmer@example.com");
+    await user.click(screen.getByRole("button", { name: "Prepare invite" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/name the new farm/i);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  // The admin surface runs INSIDE VIGA's site as an iframe (`frame-ancestors` in
+  // next.config.mjs is what permits it). There, `navigator.clipboard.writeText` is gated by
+  // the `clipboard-write` permissions policy: unless the embedding page sets
+  // `allow="clipboard-write"` on the iframe, the promise rejects with NotAllowedError even on
+  // HTTPS and even from a real user click. VIGA owns that embed code, so the frame cannot fix
+  // it from the inside — the copy path has to work without the async Clipboard API.
+  //
+  // Reported from the live embed: "Copy link" said copy failed every time.
+  it("copies the invite link when the embedding page forbids the clipboard API", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        response(200, {
+          status: "created",
+          channel: "email",
+          farmName: "Example Farm",
+          link: "https://ff.example/farmer/onboarding/invite-token",
+        }),
+      ),
+    );
+    // Exactly what an iframe without `clipboard-write` does.
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn(async () => {
+          throw new DOMException("Write permission denied.", "NotAllowedError");
+        }),
+      },
+    });
+    const execCommand = vi.fn(() => true);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    render(
+      <FarmerQueue
+        requests={[]}
+        authorizations={[]}
+        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+      />,
+    );
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Farm" }), "farm-1");
+    await user.click(screen.getByRole("radio", { name: "Email" }));
+    await user.type(screen.getByRole("textbox", { name: "Email address" }), "f@example.com");
+    await user.click(screen.getByRole("button", { name: "Prepare invite" }));
+
+    await user.click(await screen.findByRole("button", { name: "Copy link" }));
+
+    // The fallback ran and the operator is told it worked — not handed the failure notice
+    // that sent them off to select the link by hand.
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(await screen.findByText(/copied/i)).toBeVisible();
+    expect(screen.queryByText(/Copy failed/i)).not.toBeInTheDocument();
   });
 
   it("loads a retained thread honestly and marks the flagged message accessibly", async () => {

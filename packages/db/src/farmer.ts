@@ -44,13 +44,27 @@ export type FarmerInviteChannel = "sms" | "email";
 export type CreateFarmerInvitationResult =
   | { status: "created"; token: string; farmName: string | null; channel: FarmerInviteChannel }
   | { status: "not_an_administrator" }
-  | { status: "unknown_farm" };
+  | { status: "unknown_farm" }
+  | { status: "invalid_farm_name" };
 
-/** Create a one-use onboarding link for an administrator to share. */
+/**
+ * Create a one-use onboarding link for an administrator to share.
+ *
+ * The invitation may name an EXISTING farm (`farmId`) or create a NEW one (`newFarmName`),
+ * never both — two different farms for one invitation is an ambiguous instruction, and
+ * guessing which was meant would bind the farmer to the wrong farm.
+ *
+ * **Naming the farm here is what makes self-serve onboarding reachable for a new farmer**
+ * (F-067). The invitation is the authorization decision, and an invitation naming no farm
+ * grants nothing — it leaves the farmer in the queue this work exists to remove. Creating the
+ * farm at invite time is the coordinator making that decision once, where they already are.
+ */
 export async function createFarmerInvitation(
   db: Db,
   input: {
     farmId?: string | null;
+    /** Create and bind a new farm under this name. Mutually exclusive with `farmId`. */
+    newFarmName?: string;
     channel: FarmerInviteChannel;
     administratorId: string;
     occurredAt: Date;
@@ -64,7 +78,30 @@ export async function createFarmerInvitation(
     `;
     if (administrator.length === 0) return { status: "not_an_administrator" as const };
 
-    const farmId = input.farmId ?? null;
+    // Trimmed before every test below, so padding decides nothing: `"  "` is blank, and a
+    // padded real name is stored clean rather than reaching the public map with its
+    // whitespace. `farms_name_not_blank` is the database's backstop; answering here means the
+    // operator gets a result instead of a constraint violation, and no invitation is minted
+    // pointing at a farm that was never created.
+    const newFarmName = input.newFarmName?.trim();
+    const requestedFarmId = input.farmId ?? null;
+    if (newFarmName !== undefined) {
+      if (newFarmName === "" || requestedFarmId !== null) {
+        return { status: "invalid_farm_name" as const };
+      }
+      const createdFarm = await tx`
+        insert into farms (name) values (${newFarmName}) returning id, name
+      `;
+      return finishFarmerInvitation(tx, {
+        farmId: createdFarm[0]?.id as string,
+        farmName: createdFarm[0]?.name as string,
+        channel: input.channel,
+        administratorId: input.administratorId,
+        occurredAt: input.occurredAt,
+      });
+    }
+
+    const farmId = requestedFarmId;
     const farms =
       farmId === null
         ? []
@@ -72,30 +109,59 @@ export async function createFarmerInvitation(
     const farmName = (farms[0]?.name as string | undefined) ?? null;
     if (farmId !== null && farmName === null) return { status: "unknown_farm" as const };
 
-    const token = issueFarmerInviteToken();
-    const inserted = await tx`
-      insert into farmer_invitations (
-        farm_id, token_hash, channel, created_by_administrator_id,
-        created_at, expires_at
-      ) values (
-        ${farmId}, ${hashFarmerInviteToken(token)}, ${input.channel},
-        ${input.administratorId}, ${input.occurredAt.toISOString()},
-        ${new Date(input.occurredAt.getTime() + FARMER_INVITE_TTL_MS).toISOString()}
-      )
-      returning id
-    `;
-    const invitationId = inserted[0]?.id as string;
-    await tx`
-      insert into audit_events (
-        action, actor_administrator_id, subject_type, subject_id, occurred_at
-      ) values (
-        'farmer_invitation_created', ${input.administratorId},
-        'farmer_invitation', ${invitationId}, ${input.occurredAt.toISOString()}
-      )
-    `;
-
-    return { status: "created" as const, token, farmName, channel: input.channel };
+    return finishFarmerInvitation(tx, {
+      farmId,
+      farmName,
+      channel: input.channel,
+      administratorId: input.administratorId,
+      occurredAt: input.occurredAt,
+    });
   }) as Promise<CreateFarmerInvitationResult>;
+}
+
+/**
+ * Mint the token and write the invitation once the farm is settled, whichever way it was
+ * chosen. One writer, so an invitation naming a new farm and one naming an existing farm
+ * cannot drift apart in expiry, audit, or token handling.
+ */
+async function finishFarmerInvitation(
+  tx: Tx,
+  input: {
+    farmId: string | null;
+    farmName: string | null;
+    channel: FarmerInviteChannel;
+    administratorId: string;
+    occurredAt: Date;
+  },
+): Promise<CreateFarmerInvitationResult> {
+  const token = issueFarmerInviteToken();
+  const inserted = await tx`
+    insert into farmer_invitations (
+      farm_id, token_hash, channel, created_by_administrator_id,
+      created_at, expires_at
+    ) values (
+      ${input.farmId}, ${hashFarmerInviteToken(token)}, ${input.channel},
+      ${input.administratorId}, ${input.occurredAt.toISOString()},
+      ${new Date(input.occurredAt.getTime() + FARMER_INVITE_TTL_MS).toISOString()}
+    )
+    returning id
+  `;
+  const invitationId = inserted[0]?.id as string;
+  await tx`
+    insert into audit_events (
+      action, actor_administrator_id, subject_type, subject_id, occurred_at
+    ) values (
+      'farmer_invitation_created', ${input.administratorId},
+      'farmer_invitation', ${invitationId}, ${input.occurredAt.toISOString()}
+    )
+  `;
+
+  return {
+    status: "created" as const,
+    token,
+    farmName: input.farmName,
+    channel: input.channel,
+  };
 }
 
 export type FarmerInvitationLookup =

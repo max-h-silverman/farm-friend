@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AdminRecoveryError } from "../admin-shell";
+import { copyText } from "../../../lib/copy-text";
 import {
   buildInviteDeliveryUrl,
   inviteMessage,
@@ -18,6 +19,16 @@ import {
 // its opaque `requestId`, and the server resolves the phone behind it at the moment VIGA
 // authorizes. The operator sees a masked number and nothing else, so the one lookup key for
 // a person's phone never reaches a page, a history entry, or a referrer.
+
+/**
+ * The farm select's "create one" option (F-067).
+ *
+ * A sentinel rather than the empty string, which used to mean "assign later". That distinction
+ * matters now: an empty value posts no farm at all, and an invitation naming no farm authorizes
+ * nothing when redeemed. Naming it here is what lets a brand-new farmer be set up by their own
+ * redemption. It cannot collide with a farm id, which is always a UUID.
+ */
+const NEW_FARM = "new-farm";
 
 export interface PendingRequestRow {
   requestId: string;
@@ -65,7 +76,8 @@ export function FarmerQueue({
   const [pendingRequests, setPendingRequests] = useState(requests);
   const [rows, setRows] = useState(authorizations);
   const [farmChoice, setFarmChoice] = useState<Record<string, string>>({});
-  const [inviteFarmId, setInviteFarmId] = useState("");
+  const [inviteFarmId, setInviteFarmId] = useState(NEW_FARM);
+  const [newFarmName, setNewFarmName] = useState("");
   const [inviteChannel, setInviteChannel] = useState<FarmerInviteChannel>("sms");
   const [inviteDestination, setInviteDestination] = useState("");
   const [invite, setInvite] = useState<{
@@ -161,10 +173,18 @@ export function FarmerQueue({
       return;
     }
 
+    const creatingFarm = inviteFarmId === NEW_FARM;
+    if (creatingFarm && newFarmName.trim() === "") {
+      setError("Name the new farm before preparing the invite.");
+      return;
+    }
+
     const { ok, payload } = await post(
       {
         action: "create_invite",
-        ...(inviteFarmId === "" ? {} : { farmId: inviteFarmId }),
+        ...(creatingFarm
+          ? { newFarmName: newFarmName.trim() }
+          : { farmId: inviteFarmId }),
         channel: inviteChannel,
       },
       "create_invite",
@@ -193,12 +213,11 @@ export function FarmerQueue({
 
   async function copyInviteLink() {
     if (invite === null) return;
-    try {
-      await navigator.clipboard.writeText(invite.link);
+    if (await copyText(invite.link)) {
       setSuccess("Onboarding link copied.");
-    } catch {
-      setError("Copy failed. Select the onboarding link and copy it before leaving this page.");
+      return;
     }
+    setError("Copy failed. Select the onboarding link and copy it before leaving this page.");
   }
 
   async function revoke(authorizationId: string) {
@@ -253,12 +272,11 @@ export function FarmerQueue({
 
   async function copyFreshLink() {
     if (freshLink === null) return;
-    try {
-      await navigator.clipboard.writeText(freshLink.link);
+    if (await copyText(freshLink.link)) {
       setSuccess("Private link copied.");
-    } catch {
-      setError("Copy failed. Select the private link and copy it before leaving this page.");
+      return;
     }
+    setError("Copy failed. Select the private link and copy it before leaving this page.");
   }
 
   return (
@@ -348,7 +366,12 @@ export function FarmerQueue({
                 value={inviteFarmId}
                 onChange={(event) => setInviteFarmId(event.target.value)}
               >
-                <option value="">New farm — assign later</option>
+                {/*
+                  F-067 — the farm is named HERE, not assigned later. An invitation naming no
+                  farm authorizes nothing when the farmer redeems it, which puts them straight
+                  back into the queue this work removes.
+                */}
+                <option value={NEW_FARM}>New farm</option>
                 {farms.map((farm) => (
                   <option key={farm.farmId} value={farm.farmId}>
                     {farm.name}
@@ -356,6 +379,16 @@ export function FarmerQueue({
                 ))}
               </select>
             </label>
+            {inviteFarmId === NEW_FARM && (
+              <label className="admin-field">
+                <span className="admin-control-label">New farm name</span>
+                <input
+                  value={newFarmName}
+                  onChange={(event) => setNewFarmName(event.target.value)}
+                  placeholder="Misty Hollow Farm"
+                />
+              </label>
+            )}
           </fieldset>
 
           <div className="admin-invite-actions">
@@ -375,7 +408,7 @@ export function FarmerQueue({
               <h4 id="invite-ready-heading">Your invite is ready</h4>
               <p className="admin-note">
                 {invite.farmName === null
-                  ? "New farm — assign it later from the waiting list."
+                  ? "No farm attached — you will assign it from the waiting list."
                   : `For ${invite.farmName}.`}
               </p>
             </div>

@@ -101,6 +101,74 @@ describe("administrator farmer invitations (integration)", () => {
       .toEqual({ status: "invalid" });
   });
 
+  // F-067 — "New farm — assign later" is replaced by naming the farm at invite time. The
+  // invitation is the authorization decision, and a decision that names no farm cannot grant
+  // anything: it left the farmer in VIGA's queue, which is the step this work removes. Creating
+  // the farm here is what lets a brand-new farmer be set up by their own redemption.
+  it("creates the named farm and binds the invitation to it", async () => {
+    const created = await createFarmerInvitation(database(), {
+      newFarmName: "  Misty Hollow Farm  ",
+      channel: "email",
+      administratorId,
+      occurredAt: new Date(now.getTime() + 30_000),
+    });
+
+    expect(created.status).toBe("created");
+    if (created.status !== "created") return;
+    // Trimmed, because the operator typed it into a text box. The database refuses a blank
+    // name outright; a name that is merely padded would otherwise reach the public map with
+    // its whitespace intact.
+    expect(created.farmName).toBe("Misty Hollow Farm");
+
+    const farms = await sql()`select id, name from farms where name = 'Misty Hollow Farm'`;
+    expect(farms.length).toBe(1);
+
+    // Bound, not merely created alongside: the redemption reads `farm_id` from the invitation
+    // to decide what to authorize, so an invitation that created a farm without pointing at it
+    // would still dead-end in the queue.
+    const active = await loadFarmerInvitation(
+      database(),
+      created.token,
+      new Date(now.getTime() + 31_000),
+    );
+    expect(active).toMatchObject({
+      status: "active",
+      farmId: farms[0]?.id as string,
+      farmName: "Misty Hollow Farm",
+    });
+  });
+
+  it("refuses a new farm name that is blank or only whitespace", async () => {
+    // The database's own `farms_name_not_blank` check is the backstop; refusing here means the
+    // operator gets an answer instead of a constraint violation, and no invitation is minted
+    // pointing at a farm that was never created.
+    const created = await createFarmerInvitation(database(), {
+      newFarmName: "   ",
+      channel: "email",
+      administratorId,
+      occurredAt: new Date(now.getTime() + 32_000),
+    });
+
+    expect(created.status).toBe("invalid_farm_name");
+  });
+
+  it("refuses naming a new farm and choosing an existing one at once", async () => {
+    // Two different farms for one invitation is not a preference to resolve — it is an
+    // ambiguous instruction, and guessing which the operator meant would bind the farmer to
+    // the wrong farm.
+    const created = await createFarmerInvitation(database(), {
+      farmId,
+      newFarmName: "Ambiguous Farm",
+      channel: "email",
+      administratorId,
+      occurredAt: new Date(now.getTime() + 33_000),
+    });
+
+    expect(created.status).toBe("invalid_farm_name");
+    const farms = await sql()`select id from farms where name = 'Ambiguous Farm'`;
+    expect(farms.length).toBe(0);
+  });
+
   it("refuses authorizing an invited request for a different farm", async () => {
     const created = await createFarmerInvitation(database(), {
       farmId,
