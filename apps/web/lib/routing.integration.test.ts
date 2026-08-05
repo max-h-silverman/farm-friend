@@ -11,6 +11,7 @@ import {
   createInventoryInterpreter,
 } from "@farm-friend/ai";
 import {
+  FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_SIGNUP_JOIN_INSTRUCTION,
   FixedClock,
@@ -647,13 +648,23 @@ describe("inbound routing end to end (integration)", () => {
         where recipient_hash = ${farmerHash}
         order by logical_key
       `;
+      // F-067 — this invitation named a farm and its box was ticked, so the redemption set the
+      // farmer up. They get the carrier receipt for the consent this message established, and
+      // the "your farm is ready" notification the same transaction queued.
+      //
+      // The old acknowledgement is deliberately ABSENT: "VIGA has your request, they will
+      // review it and text you when your farm is ready" is false for a farmer who is already
+      // set up, and it would arrive beside the message saying the farm is ready.
       expect(work).toEqual([
         {
-          message_category: "required_reply",
-          body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+          message_category: "inventory_prompt",
+          body: FARMER_AUTHORIZED_NOTIFICATION,
         },
         { message_category: "required_reply", body: REGISTERED_OPT_IN_AUTO_RESPONSE },
       ]);
+      expect(work.map((row) => row.body)).not.toContain(
+        FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+      );
       expect(provider.calls).toBe(0);
     });
 
@@ -1173,8 +1184,8 @@ describe("inbound routing end to end (integration)", () => {
         `;
         const standId = stand[0]?.id as string;
         await client()`
-          insert into sales_location_offerings (sales_location_id, item, sort_order)
-          values (${standId}, 'eggs', 0)
+          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+          values (${standId}, 'eggs', true, 0)
         `;
         pagedStands.push(`offering-${standId}`);
       }

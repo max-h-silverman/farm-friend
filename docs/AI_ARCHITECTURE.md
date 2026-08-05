@@ -121,9 +121,9 @@ the real 31-stand corpus, it produced customer-facing tags like "rotational graz
 and "but following organic practices".
 
 Its projection carries **one description and nothing else** — no farm name, no location id, no
-contact — so a model cannot attach one farm's produce to another's listing. Proposed tags land in
-`sales_location_offerings` (what a stand usually has) and **never** in `inventory_revisions`: this
-path writes only the tag table, and every `inventory_revisions` row must declare a `source` — `sms`
+contact — so a model cannot attach one farm's produce to another's listing. Proposed tags become a
+stand item's **standing state** (what a stand usually has) and **never** a confirmation: this path
+reaches only that state, and every `inventory_revisions` row must declare a `source` — `sms`
 requiring the full handset chain under a database CHECK, `viga` written only by the two operator
 seed scripts, neither of which the model can reach (F-063). It is
 reachable from a build-time script and, if a farmer web form is built, from a farmer editing their

@@ -104,16 +104,50 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   **display-only text that is never filtered on**, so a caveat like "Saturday and Sunday when
   available" survives without the structured fields overstating it. `year_round` is distinct from an
   absent season: "always open" and "never recorded" are different facts.
-- **stand specialties** (F-035) — what a location *usually* carries, held separately from inventory
-  revisions. The separation is about **what kind of claim each makes**, and it is structural: a
-  specialty is a standing property of the farm, true in March and in September, dated by nothing; a
-  revision is a statement about what is out *right now*, always dated and always attributed by
-  `source`. Sharing a table would let a standing fact occupy the one-current-per-location slot that
-  means "the freshest thing anyone has said about this stand". Specialties carry no confirmation
-  time and must never be rendered as current availability. **Read by the public listing** (F-042) as
-  a field of its own, never merged into the confirmed items, and rendered under a heading that takes
-  no timestamp — the record's "no confirmation time" property has to survive all the way to the
-  screen to mean anything.
+- **stand items** (F-066) — the **one vocabulary a stand talks about its own goods in**. "Eggs" is
+  one record per location, and the two things anyone can say about it are **independent states, not
+  separate lists**: *does this stand usually carry it*, and *was it confirmed present on a date*.
+  Either, both, or neither may hold. A stand's item is created by whichever surface first names it
+  and outlives both states — removing eggs from the usual mix clears that state and leaves the
+  record standing with its confirmation history intact, because an item that stopped being a
+  standing claim did not stop having been confirmed in June.
+
+  **The states stay structurally apart even though the vocabulary is shared**, and this is the part
+  that is load-bearing: a standing claim is a property of the farm, true in March and in September,
+  dated by nothing; a confirmation is a statement about what is out *right now*, always dated and
+  always attributed by `source`. The standing state carries no confirmation time, can never occupy
+  the one-current-per-location slot that means "the freshest thing anyone has said about this
+  stand", and must never be rendered as current availability. **Read by the public listing** (F-042)
+  as a field of its own, never merged into the confirmed items, and rendered under a heading that
+  takes no timestamp — the "no confirmation time" property has to survive all the way to the screen
+  to mean anything.
+
+  **Item names are the farmer's own words** ("plant starts", "Gailan"), per-stand and
+  farmer-authored. There is no shared produce taxonomy, no global food ontology, and no vocabulary
+  any behavioral branch may reason about. Two stands that both sell eggs share nothing.
+
+  **Only the farmer's web form writes the standing state; SMS writes only confirmations** (max,
+  2026-08-05). A text message is always a dated statement about right now and can never alter a
+  standing claim — so an SMS-confirmed item outside the usual mix is confirmed and nothing more:
+  no prompt to adopt it, no automatic add. A farmer changing their core set texts `SETTINGS` and
+  edits the form, where their confirmed items and their usual mix appear on one screen, which is
+  the one place the two can be seen to have drifted and the one place drift can be fixed. This
+  keeps the SMS surface to a single job and puts the deterministic-routing line at the data layer:
+  no inbound message, however interpreted, reaches a standing fact.
+
+  A shared vocabulary is also what **removes the reconciliation the view currently performs**.
+  `standListingLines` case-folds and subtracts confirmed items from the usual list so nothing
+  prints under both headings; `sellsMatch` case-folds both lists into one search haystack;
+  `isFlowerOnlyStand` classifies a whole stand from the usual list alone. Each carries a comment
+  that nothing normalizes casing between the two — independent workarounds for a join the data
+  model did not have.
+
+  What goes is the **case-folding**, not the subtraction. A card still shows a confirmed item
+  under one heading and the rest of the usual mix under another, so one list is still subtracted
+  from the other — but as a plain set difference over identical strings, because the reader
+  resolves a confirmed item to its stand item's spelling before the view sees it. The reader
+  deliberately does **not** case-fold as a safety net: if the two ever stop being one vocabulary,
+  the duplicate must show rather than be papered over.
 - **stand data flags** (F-035) — where a contradiction in seeded source data waits for a human.
   Distinct from the customer-message `flags` table, which is keyed to a contact and an inbox event a
   seed flag has neither of. One open flag per (location, reason); resolved flags stay as history.
@@ -126,6 +160,17 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   VIGA's own records (the launch import, the weekly stock form, a later admin edit) are recorded
   without fabricating an attestation about an identifiable person. Written as one biconditional over
   all three keys rather than three per-column rules, because a CHECK *passes* on NULL.
+
+  An entry **resolves to its stand item by the normalized name it already carries** (F-066), and
+  the entries table is **not modified at all**. There is deliberately no `stand_item_id` column:
+  `inventory_entries_guard_history` raises on *every* update with no permitted shape, so
+  backfilling a reference onto published rows would mean disabling the immutability guarantee
+  inside a migration — which would establish that the guarantee is switchable. It is also
+  unnecessary. An entry belongs to a stand and holds the farmer's words, so
+  `(sales_location_id, normalized item_name)` resolves it through the same key the unique index
+  enforces. The product has **no rename** — a farmer edits the mix by removing and adding words,
+  never by declaring one thing is now called another — so the two can never drift apart. Entries
+  keep their own quantity/unit/price text, which belongs to the dated statement, not to the item.
 - **closure revisions** (F-049) — append-only owner-confirmed close/reopen history, separate from
   inventory. A close carries `temporary` or `seasonal` plus a Vashon-local start date; temporary may
   carry an inclusive end date. Reopen carries no kind or dates. Composite foreign keys bind the
@@ -202,6 +247,27 @@ These are **database-level** requirements, not application conventions:
   rechecks the current prompt/version, independent bases, owner authority, and VIGA approval.
 - **One currently published inventory revision per sales location** — "which revision is current"
   is a constraint, not a fragile `max(published_at)`.
+- **One item per stand per name** (F-066) — a unique index over the location and the normalized
+  name is what makes "eggs exists once here" structural rather than a convention the readers
+  case-fold their way around. Normalization is **case and surrounding whitespace only**: it exists
+  so `Eggs` and `eggs` are one item, and it must never fold singulars into plurals or synonyms into
+  each other, which would be a produce taxonomy wearing a different hat. The farmer's own casing is
+  kept for display beside the normalized key.
+
+  That index is also the **first-insert arbiter** when two confirmations name the same new item at
+  once — `insert … on conflict do nothing returning …`, an empty result meaning another writer won
+  and the existing row is read. A row lock cannot serialize a row that does not exist yet, and the
+  two confirmations do not share a parent row to lock. Same rule F-050 already relies on.
+- **An item's standing state is unreachable from the SMS path** (F-066) — enforced by which code
+  holds the capability to write it, not by a column a message handler could set. The inbound
+  message path can create an item and confirm it; only the farmer's authenticated web form can
+  make it a standing claim. A test that publishes an inventory revision naming an unknown item and
+  then asserts the usual mix is unchanged is what proves it.
+- **An inventory entry's published words never change** (F-066) — the entries table gained no
+  column and no backfill, because its history guard refuses every update unconditionally. Editing
+  the usual mix touches item state only. The rendered card resolves a confirmed item to its stand
+  item's current spelling so both lists speak one vocabulary; the **published row keeps its own
+  words**, which is what makes the confirmation still a record of what was said.
 - **One current closure instruction per location and one closure revision per proposal** — partial
   and ordinary unique indexes make both claims structural. CHECK constraints reject malformed
   reopen/close shapes, seasonal end dates, reversed dates, and incoherent current/superseded state;

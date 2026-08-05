@@ -44,13 +44,27 @@ export type FarmerInviteChannel = "sms" | "email";
 export type CreateFarmerInvitationResult =
   | { status: "created"; token: string; farmName: string | null; channel: FarmerInviteChannel }
   | { status: "not_an_administrator" }
-  | { status: "unknown_farm" };
+  | { status: "unknown_farm" }
+  | { status: "invalid_farm_name" };
 
-/** Create a one-use onboarding link for an administrator to share. */
+/**
+ * Create a one-use onboarding link for an administrator to share.
+ *
+ * The invitation may name an EXISTING farm (`farmId`) or create a NEW one (`newFarmName`),
+ * never both — two different farms for one invitation is an ambiguous instruction, and
+ * guessing which was meant would bind the farmer to the wrong farm.
+ *
+ * **Naming the farm here is what makes self-serve onboarding reachable for a new farmer**
+ * (F-067). The invitation is the authorization decision, and an invitation naming no farm
+ * grants nothing — it leaves the farmer in the queue this work exists to remove. Creating the
+ * farm at invite time is the coordinator making that decision once, where they already are.
+ */
 export async function createFarmerInvitation(
   db: Db,
   input: {
     farmId?: string | null;
+    /** Create and bind a new farm under this name. Mutually exclusive with `farmId`. */
+    newFarmName?: string;
     channel: FarmerInviteChannel;
     administratorId: string;
     occurredAt: Date;
@@ -64,7 +78,30 @@ export async function createFarmerInvitation(
     `;
     if (administrator.length === 0) return { status: "not_an_administrator" as const };
 
-    const farmId = input.farmId ?? null;
+    // Trimmed before every test below, so padding decides nothing: `"  "` is blank, and a
+    // padded real name is stored clean rather than reaching the public map with its
+    // whitespace. `farms_name_not_blank` is the database's backstop; answering here means the
+    // operator gets a result instead of a constraint violation, and no invitation is minted
+    // pointing at a farm that was never created.
+    const newFarmName = input.newFarmName?.trim();
+    const requestedFarmId = input.farmId ?? null;
+    if (newFarmName !== undefined) {
+      if (newFarmName === "" || requestedFarmId !== null) {
+        return { status: "invalid_farm_name" as const };
+      }
+      const createdFarm = await tx`
+        insert into farms (name) values (${newFarmName}) returning id, name
+      `;
+      return finishFarmerInvitation(tx, {
+        farmId: createdFarm[0]?.id as string,
+        farmName: createdFarm[0]?.name as string,
+        channel: input.channel,
+        administratorId: input.administratorId,
+        occurredAt: input.occurredAt,
+      });
+    }
+
+    const farmId = requestedFarmId;
     const farms =
       farmId === null
         ? []
@@ -72,30 +109,59 @@ export async function createFarmerInvitation(
     const farmName = (farms[0]?.name as string | undefined) ?? null;
     if (farmId !== null && farmName === null) return { status: "unknown_farm" as const };
 
-    const token = issueFarmerInviteToken();
-    const inserted = await tx`
-      insert into farmer_invitations (
-        farm_id, token_hash, channel, created_by_administrator_id,
-        created_at, expires_at
-      ) values (
-        ${farmId}, ${hashFarmerInviteToken(token)}, ${input.channel},
-        ${input.administratorId}, ${input.occurredAt.toISOString()},
-        ${new Date(input.occurredAt.getTime() + FARMER_INVITE_TTL_MS).toISOString()}
-      )
-      returning id
-    `;
-    const invitationId = inserted[0]?.id as string;
-    await tx`
-      insert into audit_events (
-        action, actor_administrator_id, subject_type, subject_id, occurred_at
-      ) values (
-        'farmer_invitation_created', ${input.administratorId},
-        'farmer_invitation', ${invitationId}, ${input.occurredAt.toISOString()}
-      )
-    `;
-
-    return { status: "created" as const, token, farmName, channel: input.channel };
+    return finishFarmerInvitation(tx, {
+      farmId,
+      farmName,
+      channel: input.channel,
+      administratorId: input.administratorId,
+      occurredAt: input.occurredAt,
+    });
   }) as Promise<CreateFarmerInvitationResult>;
+}
+
+/**
+ * Mint the token and write the invitation once the farm is settled, whichever way it was
+ * chosen. One writer, so an invitation naming a new farm and one naming an existing farm
+ * cannot drift apart in expiry, audit, or token handling.
+ */
+async function finishFarmerInvitation(
+  tx: Tx,
+  input: {
+    farmId: string | null;
+    farmName: string | null;
+    channel: FarmerInviteChannel;
+    administratorId: string;
+    occurredAt: Date;
+  },
+): Promise<CreateFarmerInvitationResult> {
+  const token = issueFarmerInviteToken();
+  const inserted = await tx`
+    insert into farmer_invitations (
+      farm_id, token_hash, channel, created_by_administrator_id,
+      created_at, expires_at
+    ) values (
+      ${input.farmId}, ${hashFarmerInviteToken(token)}, ${input.channel},
+      ${input.administratorId}, ${input.occurredAt.toISOString()},
+      ${new Date(input.occurredAt.getTime() + FARMER_INVITE_TTL_MS).toISOString()}
+    )
+    returning id
+  `;
+  const invitationId = inserted[0]?.id as string;
+  await tx`
+    insert into audit_events (
+      action, actor_administrator_id, subject_type, subject_id, occurred_at
+    ) values (
+      'farmer_invitation_created', ${input.administratorId},
+      'farmer_invitation', ${invitationId}, ${input.occurredAt.toISOString()}
+    )
+  `;
+
+  return {
+    status: "created" as const,
+    token,
+    farmName: input.farmName,
+    channel: input.channel,
+  };
 }
 
 export type FarmerInvitationLookup =
@@ -402,6 +468,14 @@ export type OpenOnboardingRequestResult =
       consentEstablished: boolean;
       /** Whether a consent record existed BEFORE this request, whatever its state. */
       hadConsentRecord: boolean;
+      /**
+       * The authorization this redemption granted (F-067), or null when it granted none.
+       *
+       * Null covers every path that still needs a human: a bare uninvited SIGNUP, an
+       * invitation naming no farm yet, an untickd agreement, and a farmer already authorized
+       * for that farm. In each the onboarding request stays open for VIGA.
+       */
+      authorizationId: string | null;
     }
   | { status: "already_open" }
   | { status: "invalid_invitation" };
@@ -439,7 +513,8 @@ export async function openFarmerOnboardingRequest(
     }
     return driver(db).begin(async (tx) => {
       const invitations = await tx`
-        select id, agreed_to_sms_at from farmer_invitations
+        select id, agreed_to_sms_at, farm_id, created_by_administrator_id
+        from farmer_invitations
         where token_hash = ${hashFarmerInviteToken(invitationToken)}
           and redeemed_at is null
           and expires_at > ${input.occurredAt.toISOString()}
@@ -449,6 +524,8 @@ export async function openFarmerOnboardingRequest(
       if (invitationId === undefined) return { status: "invalid_invitation" as const };
       const agreedToSmsAt =
         (invitations[0]?.agreed_to_sms_at as Date | null | undefined) ?? null;
+      const invitationFarmId = (invitations[0]?.farm_id as string | null | undefined) ?? null;
+      const invitedByAdministratorId = invitations[0]?.created_by_administrator_id as string;
 
       const inserted = await tx`
         insert into farmer_onboarding_requests (contact_hash, invitation_id, requested_at)
@@ -492,11 +569,40 @@ export async function openFarmerOnboardingRequest(
               firstTimeOnly: true,
             });
 
+      // F-067 — THE INVITATION IS THE AUTHORIZATION DECISION, so redeeming it sets the farmer
+      // up. A coordinator chose this farm and sent the link to this person; the queue click
+      // that used to follow re-approved a decision already made, which is why the code it
+      // replaces could say "VIGA always approves".
+      //
+      // The gate is the same evidence consent rides on: an invitation that names a farm, whose
+      // agreement was ticked, redeemed from the handset. Each part is load-bearing —
+      //   - no farm named (a new-farm invitation, or a bare SIGNUP) → nothing to authorize, so
+      //     the request stays open for VIGA. That path is still a human's.
+      //   - no tick → no informed opt-in, and authorizing here would set someone up for
+      //     messages they never agreed to.
+      // Both fall through to the queue rather than failing, which is what keeps the uninvited
+      // path exactly as ungranted as it has always been.
+      //
+      // In THIS transaction, for the reason the consent write above already gives: the
+      // invitation is now spent, so a crash between the two would leave a farmer consented,
+      // unauthorized, and holding a token that can never be redeemed again.
+      const authorizationId =
+        invitationFarmId === null || agreedToSmsAt === null
+          ? null
+          : await authorizeInvitedFarmerIn(tx, {
+              farmId: invitationFarmId,
+              contactHash: input.contactHash,
+              requestId,
+              invitedByAdministratorId,
+              occurredAt: input.occurredAt,
+            });
+
       return {
         status: "opened" as const,
         requestId,
         consentEstablished: consent?.applied === true,
         hadConsentRecord,
+        authorizationId,
       };
     }) as Promise<OpenOnboardingRequestResult>;
   }
@@ -517,7 +623,119 @@ export async function openFarmerOnboardingRequest(
         requestId,
         consentEstablished: false,
         hadConsentRecord: await hasConsentRecord(driver(db), input.contactHash),
+        // An uninvited SIGNUP names no farm and carries no decision — this is the path that
+        // must stay VIGA's, since anyone with the number can reach it.
+        authorizationId: null,
       };
+}
+
+/**
+ * Set an invited farmer up for the farm their invitation named, inside the redemption
+ * transaction. Returns the new authorization, or null when one already existed.
+ *
+ * **This is `authorizeFarmer` minus the administrator, and deliberately nothing else.** The
+ * same row, the same uniqueness rule, the same settle of the open request, the same
+ * notification. What differs is who is recorded as having acted: the audit event names the
+ * FARMER's contact hash rather than an operator, because attributing a self-serve setup to a
+ * coordinator who never clicked anything would put a false claim in the audit trail.
+ *
+ * `phone_verified_at` is this same moment, and the schema requires it to precede
+ * authorization. What verifies the phone is that the redemption arrived from it — the whole
+ * evidentiary basis of the invited path.
+ */
+async function authorizeInvitedFarmerIn(
+  tx: Tx,
+  input: {
+    farmId: string;
+    contactHash: string;
+    requestId: string;
+    /** The administrator who minted the invitation — the approval's honest actor. */
+    invitedByAdministratorId: string;
+    occurredAt: Date;
+  },
+): Promise<string | null> {
+  const contacts = await tx`
+    select id from contacts where phone_hash = ${input.contactHash}
+  `;
+  const contactId = contacts[0]?.id as string | undefined;
+  // The webhook writes the contact at ingress before routing, so this is unreachable in the
+  // SMS path. Returning null rather than throwing keeps a caller that reaches it any other
+  // way from losing the consent and redemption this transaction already did.
+  if (contactId === undefined) return null;
+
+  // Locked for the reason `authorizeFarmer` states: two concurrent redemptions must not both
+  // see "none" and race the partial unique index into an error.
+  const existing = await tx`
+    select id from farmer_authorizations
+    where farm_id = ${input.farmId} and contact_id = ${contactId}
+      and revoked_at is null
+    for update
+  `;
+  if (existing.length > 0) return null;
+
+  const inserted = await tx`
+    insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+    values (
+      ${input.farmId}, ${contactId}, ${input.occurredAt.toISOString()},
+      ${input.occurredAt.toISOString()}
+    )
+    returning id
+  `;
+  const authorizationId = inserted[0]?.id as string;
+
+  // APPROVE THE FARM TOO. Authorization and approval are two independent gates —
+  // `confirmProposal` checks `farmer_authorizations`, then `farm_approvals`, and returns
+  // `not_approved` when the second is missing. Granting only the first would leave the farmer
+  // authorized, texted "your farm is ready", and refused on their very first update: the same
+  // silent dead end this feature closes, moved one step later.
+  //
+  // The approval names the administrator who CREATED THE INVITATION, which is honest rather
+  // than convenient. That is the person who decided this farm participates, at the moment they
+  // minted a one-use link naming it — the same decision the authorization inherits.
+  //
+  // THE INDEX IS THE ARBITER, not a preceding read. `farm_approvals_one_current_per_farm` is a
+  // PARTIAL unique index, and `select … for update` cannot serialize a row that does not exist
+  // yet — two concurrent redemptions for one farm would both observe "unapproved" and the second
+  // insert would raise. `on conflict do nothing` makes an already-approved farm a no-op instead,
+  // which is the same first-insert-race reasoning B-011 and F-050 needed.
+  await tx`
+    insert into farm_approvals (farm_id, administrator_id, approved_at)
+    values (
+      ${input.farmId}, ${input.invitedByAdministratorId},
+      ${input.occurredAt.toISOString()}
+    )
+    on conflict (farm_id) where revoked_at is null do nothing
+  `;
+
+  // Settle the ask this answers. Without it the queue would keep showing a request that has
+  // already been granted, and an operator would work it twice.
+  await tx`
+    update farmer_onboarding_requests
+    set settled_at = ${input.occurredAt.toISOString()},
+        authorization_id = ${authorizationId}
+    where id = ${input.requestId} and settled_at is null
+  `;
+
+  await tx`
+    insert into audit_events (action, actor_contact_hash, subject_type, subject_id,
+      occurred_at)
+    values ('farmer_authorized', ${input.contactHash}, 'farmer_authorization',
+      ${authorizationId}, ${input.occurredAt.toISOString()})
+  `;
+
+  // The same notification VIGA's click used to queue. Still an `inventory_prompt` — a
+  // proactive category — so `authorizeDispatch` re-reads consent at the claim and suppresses
+  // it for anyone who never opted in. Authorization is not consent, and this path must not
+  // become the exception that pretends otherwise.
+  await queueOutbox(tx, {
+    logicalKey: `farmer-authorized-${authorizationId}`,
+    recipientHash: input.contactHash,
+    messageCategory: "inventory_prompt",
+    body: FARMER_AUTHORIZED_NOTIFICATION,
+    now: input.occurredAt,
+  });
+
+  return authorizationId;
 }
 
 /** Whether this sender has any launch consent record at all, active or stopped. */

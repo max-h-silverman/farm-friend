@@ -1756,6 +1756,14 @@ button.admin-action-danger:disabled {
   color: var(--ink-soft);
 }
 
+/* The one-line statement of the task, directly under the farm name. Larger than body copy
+   because on this page it IS the instruction — everything else is terms or reassurance. */
+.farmer-onboarding-lede {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.45;
+}
+
 /* The SMS agreement. Set apart from the surrounding card because it is the one thing on
    this page the farmer is asked to accept, and the disclosures inside it are what the
    carrier-registered opt-in receipt claims was shown. */
@@ -1768,12 +1776,6 @@ button.admin-action-danger:disabled {
   border-radius: 10px;
 }
 
-.farmer-onboarding-agreement p {
-  margin: 0;
-  font-size: 0.95rem;
-  color: var(--ink-soft);
-}
-
 .farmer-onboarding-agree {
   display: flex;
   gap: 0.6rem;
@@ -1782,6 +1784,10 @@ button.admin-action-danger:disabled {
      one control on the page and most farmers reach it from the invitation text. */
   min-height: 44px;
   cursor: pointer;
+  /* The tick is the action; it leads its own card and carries body weight while the terms
+     below it recede. Reversing these two was the page's core legibility problem — the
+     farmer met five lines of disclosure before finding the thing to click. */
+  font-weight: 600;
 }
 
 .farmer-onboarding-agree input {
@@ -1791,11 +1797,41 @@ button.admin-action-danger:disabled {
   margin-top: 0.15rem;
 }
 
-.farmer-onboarding-steps {
+/* Registered disclosure copy. Quiet and small — it must be present and readable, never the
+   first thing competing for the farmer's attention. */
+.farmer-onboarding-terms {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.4rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.farmer-onboarding-terms p {
+  margin: 0;
+}
+
+.farmer-onboarding-terms ul {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+/* What the farmer waits for, not what they do. Plain text on the page background so it reads
+   as an aside to the card above rather than a second task competing with it. */
+.farmer-onboarding-next {
   margin: 1.5rem 0;
-  padding-left: 1.4rem;
+}
+
+.farmer-onboarding-next h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.farmer-onboarding-next p {
+  margin: 0;
+  color: var(--ink-soft);
 }
 
 .farmer-onboarding-note {
@@ -3481,8 +3517,12 @@ button.admin-action-danger,
   }
 
   /* The list keeps its natural length; the sheet floats over it, so the page below needs
-   * room to scroll clear of a sheet that is covering its last cards. */
-  .list-column {
+   * room to scroll clear of a sheet that is covering its last cards.
+   *
+   * Scoped to `.sheet-open` because that is the only time there is anything to clear. Applied
+   * unconditionally it left ~40% of a screen of empty directory panel below the last stand on
+   * every visit that never tapped one — the page read as broken at the bottom. */
+  .sheet-open .list-column {
     padding-bottom: 40vh;
   }
 }

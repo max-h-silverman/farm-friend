@@ -52,6 +52,7 @@ export async function POST(req: Request): Promise<Response> {
     authorizationId?: unknown;
     salesLocationId?: unknown;
     channel?: unknown;
+    newFarmName?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -81,11 +82,20 @@ export async function POST(req: Request): Promise<Response> {
           ? body.farmId
           : undefined;
     const channel = body.channel === "sms" || body.channel === "email" ? body.channel : null;
-    if (farmId === undefined || channel === null) {
+    // A new farm is named here rather than assigned later (F-067): an invitation naming no
+    // farm authorizes nothing when redeemed, which is the queue step this work removes.
+    const newFarmName =
+      body.newFarmName === undefined || body.newFarmName === null || body.newFarmName === ""
+        ? undefined
+        : typeof body.newFarmName === "string"
+          ? body.newFarmName
+          : null;
+    if (farmId === undefined || channel === null || newFarmName === null) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
     const result = await createFarmerInvitation(db, {
       farmId,
+      ...(newFarmName === undefined ? {} : { newFarmName }),
       channel,
       administratorId: caller.administratorId,
       occurredAt,
@@ -174,6 +184,10 @@ function statusFor(status: string): number {
       return 404;
     case "not_an_administrator":
       return 403;
+    // The operator sent a blank farm name, or named a new farm AND picked an existing one.
+    // Both are malformed asks rather than conflicts with stored state.
+    case "invalid_farm_name":
+      return 400;
     case "farm_mismatch":
       return 409;
     // `already_authorized` / `not_authorized`: the caller's decision was NOT recorded, and

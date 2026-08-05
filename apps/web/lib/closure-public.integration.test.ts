@@ -132,8 +132,8 @@ describe("one closure projection across public discovery and customer SMS (integ
     `;
     ids.location = locations[0]?.id as string;
     await client()`
-      insert into sales_location_offerings (sales_location_id, item, sort_order)
-      values (${ids.location}, 'Honey', 0)
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.location}, 'Honey', true, 0)
     `;
     const inventory = await openOrReviseProposal(database(), {
       senderHash: farmerHash,

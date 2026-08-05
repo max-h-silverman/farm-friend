@@ -31,50 +31,44 @@ export default async function FarmerOnboardingPage({
     fromNumber === undefined || fromNumber === ""
       ? null
       : buildSignupSmsUrl(fromNumber, params.token);
-  const farmHeading =
-    invitation.farmName === null
-      ? "Verify your phone for Farm Friend"
-      : `Verify your phone for ${invitation.farmName}`;
-  const invitationDescription =
-    invitation.farmName === null
-      ? "VIGA invited you to start onboarding a new farm on Farm Friend."
-      : `VIGA invited ${invitation.farmName} to join Farm Friend.`;
-
   return (
     <main className="farmer-onboarding">
       <p className="farmer-eyebrow">VIGA Farm Friend</p>
-      <h1>{farmHeading}</h1>
-      <p>
-        {invitationDescription} Use the phone Farm Friend should use for stand updates. This
-        invitation arrived by {invitation.channel === "sms" ? "text" : "email"}.
+      {/*
+        The farm's name IS the heading. It is the one fact the farmer must check before
+        agreeing — that this invitation is for their farm — and an earlier version buried it
+        inside "Verify your phone for {farm}", where the instruction competed with the
+        identification. The task itself is stated once, below, next to the control that
+        performs it.
+      */}
+      <h1>{invitation.farmName ?? "Set up your farm"}</h1>
+      <p className="farmer-onboarding-lede">
+        Agree to texts and send one message from the phone you want to use for stand updates.
       </p>
 
       <section className="farmer-onboarding-card" aria-labelledby="verify-phone-heading">
-        <p className="farmer-eyebrow">Step 1 of 3: agree and verify your phone</p>
-        <h2 id="verify-phone-heading">Agree to texts, then send one prepared text</h2>
-        <p>
-          Send it from the phone you want to use. It proves you control the number; it does
-          not approve your farm or publish anything.
-        </p>
+        <h2 className="sr-only" id="verify-phone-heading">
+          Agree to texts and verify your phone
+        </h2>
         <AgreementStep token={params.token} signupUrl={signupUrl} />
-        <p className="farmer-onboarding-instruction">
-          The prepared message includes this invitation, so VIGA can connect your request to
-          {invitation.farmName === null ? (
-            <strong> new-farm onboarding</strong>
-          ) : (
-            <strong> {invitation.farmName}</strong>
-          )}.
+      </section>
+
+      {/*
+        NOT a numbered to-do list. Everything here happens without the farmer, and presenting
+        it as "step 2, step 3" told them two more screens were coming when there are none —
+        the remaining work is VIGA's. Framed as what to expect, the wait becomes the
+        page's answer to "what now?" rather than an unfinished task.
+      */}
+      <section className="farmer-onboarding-next" aria-labelledby="whats-next-heading">
+        <h2 id="whats-next-heading">What happens next</h2>
+        <p>
+          VIGA reviews your request. Once your farm is approved, Farm Friend texts you how to
+          update your stand.
         </p>
       </section>
 
-      <ol className="farmer-onboarding-steps">
-        <li>After you send it, you are done for now.</li>
-        <li>VIGA reviews the request and decides whether to authorize your farm.</li>
-        <li>When your farm is ready, Farm Friend texts how to update your stand by SMS or web.</li>
-      </ol>
-
       <p className="farmer-onboarding-note">
-        Nothing is public yet. This invitation expires after seven days and can be used once.
+        Nothing is public yet. This link expires after seven days and works once.
       </p>
     </main>
   );

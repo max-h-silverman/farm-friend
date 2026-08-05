@@ -109,10 +109,17 @@ origin-dependent request receives a code-rendered limitation and public-map link
 
 ### Farmer onboarding and activation
 
-A farmer completes simple web onboarding, verifies control of their SMS number, provides listing
-details and communication preferences, and **VIGA approves the farm for publication**. From then
-on the farmer is the authority for inventory publication. The process must be at least as easy as
-the current ad-hoc Google Form.
+**The invitation is the approval.** A VIGA coordinator decides who joins and which farm they run at
+the moment they mint a one-use onboarding link and send it to that person — so a farmer who accepts
+the SMS agreement and redeems that link from their phone **is onboarded**, with no second VIGA step.
+They complete simple web onboarding, verify control of their SMS number by redeeming from it, and
+provide listing details and communication preferences. From then on the farmer is the authority for
+inventory publication. The process must be at least as easy as the current ad-hoc Google Form.
+
+**VIGA still decides the cases the invitation cannot.** A request that names no farm, or arrives
+from someone never invited, carries no decision to inherit and waits for a coordinator. Farmer
+listing content is published as the farmer enters it and corrected by VIGA afterwards rather than
+gated before — max's call: an unreviewed typo is cheaper than a farmer blocked on a queue.
 
 ### Farmer inventory update
 
@@ -147,9 +154,11 @@ provide recipes or food-safety guidance.
 - **Customer** — discovers via the map, asks natural-language questions by SMS, and reports
   stock-outs. Anonymous public lookup, no signup. Supplies questions and private reports,
   **never authoritative inventory**.
-- **VIGA administrator** — verifies and approves participating farms; handles exceptions, flags,
-  and requests the system cannot safely handle. **One administrator level at launch.** Routine
-  inventory maintenance is *not* a VIGA responsibility.
+- **VIGA administrator** — decides who participates, by inviting them; handles the requests no
+  invitation covers, plus exceptions, flags, and anything the system cannot safely handle, and
+  corrects farmer listing content after the fact. **One administrator level at launch.** Routine
+  inventory maintenance is *not* a VIGA responsibility, and neither is approving an invited farmer
+  a second time.
 
 ## Privacy posture
 
@@ -169,7 +178,7 @@ The full Phase 1 launch is publicly available to all participating farmers and c
 Eat Vashon Week beginning **August 8, 2026**.
 
 **In:** public embedded web map and listing experience; natural-language customer inquiry by SMS;
-farmer onboarding and VIGA approval; farmer inventory updates by SMS and web; proactive farmer
+farmer onboarding by invitation; farmer inventory updates by SMS and web; proactive farmer
 prompts and preference management; explicit farmer confirmation before publication; private
 customer stock-out reporting; optional browser-origin approximate proximity and destination routing
 links; one launch operational SMS program, universal STOP, JOIN, START, HELP, and safety escalation;

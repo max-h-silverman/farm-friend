@@ -64,12 +64,13 @@ export function AgreementStep({
   return (
     <>
       <div className="farmer-onboarding-agreement" data-testid="sms-agreement">
-        <p>
-          Farm Friend will text you about your farm stand: reminders to update what you
-          have, confirmations of what you publish, and notices when a customer reports
-          something sold out. Message frequency varies. Message and data rates may apply.
-          Reply STOP at any time to stop all messages, or HELP for help.
-        </p>
+        {/*
+          The tick leads and the disclosure follows it, because the tick is the action and the
+          disclosure is its terms. The four facts the carrier receipt claims were shown —
+          frequency, rates, STOP, HELP — are registered copy and are asserted by test; only
+          their framing is ours. The list replaces a five-line paragraph in which the three
+          message kinds and the four disclosures ran together as one wall.
+        */}
         <label className="farmer-onboarding-agree">
           <input
             type="checkbox"
@@ -77,8 +78,20 @@ export function AgreementStep({
             disabled={busy}
             onChange={(nextEvent) => void toggle(nextEvent.target.checked)}
           />
-          <span>I agree to receive these text messages from VIGA Farm Friend.</span>
+          <span>I agree to receive texts from VIGA Farm Friend.</span>
         </label>
+        <div className="farmer-onboarding-terms">
+          <p>Farm Friend texts you about your stand:</p>
+          <ul>
+            <li>Reminders to update what you have</li>
+            <li>Confirmations of what you publish</li>
+            <li>Notices when a customer reports something sold out</li>
+          </ul>
+          <p>
+            Message frequency varies. Message and data rates may apply. Reply STOP any time to
+            stop all messages, or HELP for help.
+          </p>
+        </div>
         {error === null ? null : (
           <p className="farmer-form-error" role="alert">
             {error}

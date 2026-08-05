@@ -10,6 +10,12 @@ export interface SignupConsentOutcome {
   consentEstablished: boolean;
   /** A consent record existed beforehand — active OR stopped. */
   hadConsent: boolean;
+  /**
+   * This SIGNUP set the farmer up (F-067) — an agreed invitation naming a farm, redeemed
+   * from the handset. When true there is no VIGA review to wait for, and the same
+   * transaction has already queued the "your farm is ready" notification.
+   */
+  authorized?: boolean;
 }
 
 /**
@@ -35,6 +41,18 @@ export interface SignupConsentOutcome {
  * each other, one asserting consent exists and the other that it does not.
  */
 export function signupReplyBodies(outcome: SignupConsentOutcome): string[] {
+  // F-067 — a farmer set up on the spot is NOT waiting on VIGA, so the acknowledgement's
+  // three claims ("VIGA has your request", "they will review it", "they will text you when
+  // your farm is ready") are all false for them. It is dropped rather than reworded: the
+  // same transaction queues `FARMER_AUTHORIZED_NOTIFICATION`, which says the farm is ready
+  // and what to do about it. Two messages saying that would be one too many.
+  //
+  // The carrier receipt still rides along when this message established consent — that is
+  // the exact moment the registered copy was approved for, and it is owed regardless of
+  // whether an authorization happened in the same breath.
+  if (outcome.authorized === true) {
+    return outcome.consentEstablished ? [REGISTERED_OPT_IN_AUTO_RESPONSE] : [];
+  }
   if (outcome.consentEstablished) {
     return [
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
