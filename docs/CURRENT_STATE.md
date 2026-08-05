@@ -153,12 +153,18 @@ against the real corpus on 2026-08-04 while implementing.
 - **Attribution for an admin inventory edit is still owed (F-065)** — a revision row carries no
   `admin_actor_id` and there is no general admin audit log, so that workflow must record its own
   action, matching how `stock_out_reports` and `farm_approvals` already work.
-- **F-066 — whether "usually sells" and "in stock" should share ONE item vocabulary** (max,
-  2026-08-05). Today they are two tables sharing no vocabulary, and `standListingLines` case-folds
-  and subtracts one from the other at render time — that subtraction is the data model's missing
-  reconciliation done in the view. The *separation* is load-bearing and must survive; the question
-  is whether the two states can hang off one per-stand item record. **Settle before F-064's
-  production ingest** if the ingest would write item rows in a shape this changes.
+- **F-066 — the item vocabulary is SETTLED as a contract, and unbuilt.** One item record per
+  (stand, item name) with two independent states — usually carries it, confirmed present on a date
+  — written into DATA_ARCHITECTURE.md §stand items and §constraints. The separation that justified
+  two tables survives: sharing the vocabulary is not sharing the one-current-per-location slot.
+  Decided with max: **only the farmer's web form writes the standing state, SMS writes only
+  confirmations** (an SMS-confirmed item outside the usual mix gets no prompt and no automatic
+  add; `SETTINGS` is the door to the form), and **the product has no rename**, which is what keeps
+  published entry words immutable without a versioning scheme. Normalization is case and
+  whitespace only — never singular/plural or synonyms. **Nothing is migrated or coded**: no item
+  table, no backfill, and `standListingLines` still performs the render-time subtraction.
+  **Should land before F-064's production ingest**, which writes offering rows and would otherwise
+  put the pre-F-066 shape into production for the backfill to redo.
 - **F-029:** finish live carrier/JOIN launch verification.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.
