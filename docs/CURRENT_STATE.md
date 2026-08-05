@@ -27,7 +27,9 @@ Three tranches are now ahead of production, all **NOT deployed**:
   (`farmer_onboarding_requests_coherent_settlement` widened).
 
 F-066 and F-067 both sit on branch `f-067-self-serve-onboarding`, which carries F-066's three
-commits as well — **open as a PR, deliberately not merged** while a second session was active.
+commits as well — open as **PR #80**, mergeable and clean, and **deliberately not merged**: a
+second session was active, and merging would move the base under anything branched from where this
+one started. Merging it is the next session's first decision.
 
 Production has received none of them, so it still runs the pre-tranche schema and the pre-tranche
 listing data. **`0019`, `0020`, and `0021` are all owed to production, in that order, before the
