@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { extractStandFields, parseFarmBucksPolicy } from "./stand-fields";
+import {
+  extractStandFields,
+  extractStockUpdate,
+  parseFarmBucksPolicy,
+} from "./stand-fields";
 
 // B-002 — pulling the labelled facts out of a stand's description.
 //
@@ -106,5 +110,58 @@ describe("extracting VIGA Bucks policy", () => {
     expect(
       parseFarmBucksPolicy("Accepts VIGA Bucks; later note says does not accept VIGA Bucks"),
     ).toBeUndefined();
+  });
+});
+
+describe("extracting a dated stock update", () => {
+  // VIGA's sheet carries lines like "5/26/2026 Update: Salad, spinach, kale". The corpus
+  // already reads the CLOSURE form of this ("7/9/2026 Update: Closed") as a closure note; this
+  // is the same shape carrying items instead, and nothing consumed it. Left as prose it printed
+  // a date directly beneath the card's own "Nothing confirmed recently", which is the
+  // contradiction this parse exists to remove.
+
+  it("reads the date and the items from a dated update line", () => {
+    const update = extractStockUpdate(
+      "Open: March-November.\n5/26/2026 Update: Salad, spinach, kale, radish",
+    );
+    expect(update?.statedOn).toEqual(new Date(Date.UTC(2026, 4, 26)));
+    expect(update?.items).toEqual(["Salad", "spinach", "kale", "radish"]);
+  });
+
+  it("splits a trailing 'and' item, which the corpus writes as a sentence", () => {
+    const update = extractStockUpdate(
+      "5/26/2026 Update: microgreens, pea shoots, herbs, plant starts and flowers",
+    );
+    expect(update?.items).toEqual([
+      "microgreens", "pea shoots", "herbs", "plant starts", "flowers",
+    ]);
+  });
+
+  it("takes the LAST dated update when a description carries several", () => {
+    // Descriptions accumulate notes over a season. The most recent is the only one that could
+    // describe what is there now; an earlier one is history.
+    const update = extractStockUpdate(
+      "4/2/2026 Update: rhubarb\n5/26/2026 Update: salad, kale",
+    );
+    expect(update?.statedOn).toEqual(new Date(Date.UTC(2026, 4, 26)));
+    expect(update?.items).toEqual(["salad", "kale"]);
+  });
+
+  it("returns nothing for a dated CLOSURE, which is not a stock statement", () => {
+    // "7/9/2026 Update: Closed" already has a consumer — `closureNote` — and reading it as an
+    // inventory of one item called "Closed" would publish a closed stand as stocked.
+    expect(extractStockUpdate("7/9/2026 Update: Closed")).toBeUndefined();
+  });
+
+  it("returns nothing when an update line states no items", () => {
+    expect(extractStockUpdate("5/26/2026 Update:")).toBeUndefined();
+    expect(extractStockUpdate("Open: March-November. 7 days a week.")).toBeUndefined();
+  });
+
+  it("refuses an impossible date rather than rolling it into the next month", () => {
+    // `new Date(2026, 1, 31)` silently becomes 3 March. A date the sheet states wrongly must
+    // not become a confident confirmation on a day nobody wrote down.
+    expect(extractStockUpdate("2/31/2026 Update: kale")).toBeUndefined();
+    expect(extractStockUpdate("13/1/2026 Update: kale")).toBeUndefined();
   });
 });
