@@ -393,45 +393,76 @@ function StandDetailBody({
             </a>
           ) : null}
         </section>
-      ) : website !== undefined || stand.routingLink !== null ? (
-        // The expanded DIRECTORY ROW. It suppresses the "Plan your visit" section above,
-        // because the row already shows the address — so this is where its website and
-        // directions live. The website used to sit in the collapsed summary, which put it on
-        // every row of a directory meant to be scanned; it belongs with the other actions a
-        // customer wants only once they have chosen a stand.
-        <div className="detail-actions">
-          {website !== undefined ? (
-            <a
-              className="stand-website"
-              href={website}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              Website
-            </a>
-          ) : null}
-          {stand.routingLink !== null ? (
-            <a
-              className="directions"
-              href={stand.routingLink}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              {isMarket ? "Directions to market" : "Get directions"}
-            </a>
-          ) : null}
-        </div>
       ) : null}
 
-      <div className="detail-status" aria-label="Stand status">
-        {stand.closure?.state === "upcoming" ? (
-          <p className="open-state open-state-upcoming">{stand.closure.label}</p>
+      {/*
+        THE ASIDE — one container for "what you can do, and what is true right now".
+
+        Actions, status badges, and the staleness line used to be three independent children of
+        the detail grid. Beside a tall chip box that made them three separate grid rows, and the
+        surplus height was distributed BETWEEN them: on a well-tagged stand they floated apart
+        with a hole under the last one, which read as something failing to load rather than as
+        an empty column. Grouping them means the column has one row to place, so the surplus
+        falls below the group as ordinary padding — and it is also the honest grouping, since
+        these are the three things a customer checks before deciding to drive somewhere.
+      */}
+      <div className="detail-aside">
+        {showDestination ? null : website !== undefined || stand.routingLink !== null ? (
+          // The expanded DIRECTORY ROW. It suppresses the "Plan your visit" section above,
+          // because the row already shows the address — so this is where its website and
+          // directions live. The website used to sit in the collapsed summary, which put it on
+          // every row of a directory meant to be scanned; it belongs with the other actions a
+          // customer wants only once they have chosen a stand.
+          //
+          // The two links are separated in the MARKUP, not only by the gap in CSS. Rendered as
+          // bare adjacent inline anchors they concatenated to "WebsiteGet directions" — so an
+          // unstyled render (reader mode, a failed stylesheet) reproduces the very defect the
+          // CSS gap fixes. A list gives them structure that survives that.
+          <ul className="detail-actions">
+            {stand.routingLink !== null ? (
+              <li>
+                <a
+                  className="directions"
+                  href={stand.routingLink}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  {isMarket ? "Directions to market" : "Get directions"}
+                </a>
+              </li>
+            ) : null}
+            {website !== undefined ? (
+              <li>
+                <a
+                  className="stand-website"
+                  href={website}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  Website
+                </a>
+              </li>
+            ) : null}
+          </ul>
         ) : null}
-        {stateLabel !== null ? (
-          <p className={`open-state open-state-${stand.openState}`}>{stateLabel}</p>
-        ) : null}
-        {stand.farmBucksAccepted === true ? (
-          <p className="payment-status">Accepts VIGA Bucks</p>
+
+        <div className="detail-status" aria-label="Stand status">
+          {stand.closure?.state === "upcoming" ? (
+            <p className="open-state open-state-upcoming">{stand.closure.label}</p>
+          ) : null}
+          {stateLabel !== null ? (
+            <p className={`open-state open-state-${stand.openState}`}>{stateLabel}</p>
+          ) : null}
+          {stand.farmBucksAccepted === true ? (
+            <p className="payment-status">Accepts VIGA Bucks</p>
+          ) : null}
+        </div>
+
+        {!isMarket && stand.stale === true ? (
+          <p className="recency recency-stale">
+            <strong>May be out of date — </strong>
+            {stand.updated}
+          </p>
         ) : null}
       </div>
 
@@ -446,13 +477,6 @@ function StandDetailBody({
           <ParticipantNames names={stand.alsoSellingHere} />
         </>
       )}
-
-      {!isMarket && stand.stale === true ? (
-        <p className="recency recency-stale">
-          <strong>May be out of date — </strong>
-          {stand.updated}
-        </p>
-      ) : null}
 
       {!isMarket ? <PublicDescription description={description} /> : null}
     </div>

@@ -89,6 +89,73 @@ export function beginsLabelledField(line: string): boolean {
   return NEXT_LABEL.test(line);
 }
 
+/** A dated statement of what a stand had, read from VIGA's sheet rather than sent by a farmer. */
+export interface StockUpdate {
+  /** The day the sheet states, at UTC midnight. Never a time — the sheet records only a date. */
+  statedOn: Date;
+  /** The items named on that line, in stated order, uninterpreted. */
+  items: string[];
+}
+
+const DATED_UPDATE = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*update\s*:\s*(.*)$/i;
+
+/**
+ * Read the most recent dated stock update from a description.
+ *
+ * WHY THIS IS A PARSE AND NOT A DISPLAY CONCERN. VIGA's sheet carries lines like
+ * "5/26/2026 Update: Salad, spinach, kale". Left in the description they rendered as prose
+ * directly beneath the card's code-rendered "Nothing confirmed recently" — two statements
+ * contradicting each other on screen, with the dated one looking the more specific. Parsing the
+ * date is what lets the card state one thing.
+ *
+ * THE CLOSURE FORM IS NOT OURS. "7/9/2026 Update: Closed" is the same shape and already has a
+ * consumer in `closureNote`; reading it here would publish a closed stand as carrying one item
+ * called "Closed". It is deliberately excluded rather than left to the item splitter.
+ *
+ * AN IMPOSSIBLE DATE IS REFUSED, not rolled forward. `new Date(2026, 1, 31)` silently becomes
+ * 3 March, which would date a confirmation to a day nobody wrote down — the same class of
+ * quiet-wrong the seeder's other refusals exist to prevent.
+ */
+export function extractStockUpdate(description: string): StockUpdate | undefined {
+  let latest: StockUpdate | undefined;
+
+  for (const line of description.split(/\r?\n/)) {
+    const match = DATED_UPDATE.exec(line);
+    if (match === null) continue;
+
+    // A dated closure is a different fact with a different consumer.
+    if (CLOSURE.test(match[4]!)) continue;
+
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const year = Number(match[3]);
+    const statedOn = new Date(Date.UTC(year, month - 1, day));
+    // Round-trip the parts: anything Date silently normalized comes back different.
+    if (
+      statedOn.getUTCFullYear() !== year ||
+      statedOn.getUTCMonth() !== month - 1 ||
+      statedOn.getUTCDate() !== day
+    ) {
+      continue;
+    }
+
+    const items = match[4]!
+      // The corpus writes these as sentences — "…, plant starts and flowers".
+      .split(/\s*,\s*|\s+and\s+/i)
+      .map((item) => item.trim())
+      .filter((item) => item !== "");
+    if (items.length === 0) continue;
+
+    // Latest wins. Descriptions accumulate notes across a season, and only the most recent
+    // could describe what is there now; document order is not reliably chronological.
+    if (latest === undefined || statedOn > latest.statedOn) {
+      latest = { statedOn, items };
+    }
+  }
+
+  return latest;
+}
+
 export interface FarmBucksPolicy {
   accepted: boolean;
   eligible: true;

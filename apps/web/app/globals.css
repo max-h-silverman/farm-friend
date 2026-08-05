@@ -552,11 +552,23 @@ body {
   border-top: 1px solid var(--line);
 }
 
+/*
+  The farmer's free text is SUPPORTING detail and now reads like it.
+
+  It inherited the 1rem body size, which made it the largest type on an expanded card — larger
+  than the stand's own name — so a block of hours, socials and payment notes visually outranked
+  the two things the card exists to answer (what is here, how recently anyone confirmed it). It
+  is also the one field of unbounded length, so leaving it at body size let a wordy farm
+  dominate purely by writing more. Sized to the card's supporting scale and softened a step;
+  still comfortably readable, no longer the loudest thing in the room.
+*/
 .description-text {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--ink);
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 .description-text a {
@@ -3692,6 +3704,83 @@ button.admin-action-danger,
   margin-top: 0;
 }
 
+/* The same quiet uppercase label the visit section uses, so the card has ONE way of naming a
+   section instead of a bold body line here and a small caps heading there. */
+.stand-description .listing-label {
+  margin-bottom: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/*
+  THE ACTION ROW of an expanded directory row.
+
+  This element carried no layout at all, and the two links inside it are inline — so "Website"
+  and "Get directions" rendered as the single word "WebsiteGet directions" on the live map. Two
+  destinations reading as one is the defect; a row with a real gap is the fix, and the flex
+  context also stops the pill-shaped directions button from being split across a line break.
+
+  `flex-wrap` matters at the narrow end: the directory column is half a laptop screen and can
+  be much less, and the two actions must drop to a second line rather than overflow the card.
+*/
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+  The aside is a horizontal BAND, not a stack: its three parts are each a short row of small
+  elements, so side by side they occupy one line on a wide card and wrap to two on a narrow
+  one — where stacking them spent three lines to say very little. `align-items: center` keeps
+  the status pills on the pill button's optical centre rather than its box top.
+*/
+.detail-aside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.detail-aside:empty {
+  display: none;
+}
+
+/*
+  The directions PILL, wherever it appears. This styling used to hang off `.detail-visit
+  .directions`, so the expanded directory row — which renders its actions outside that
+  section — got only the pale base `.directions` rule and a visibly different button for the
+  same act. One rule, both surfaces.
+*/
+.detail-actions .directions {
+  min-height: 44px;
+  padding: 0 0.9rem;
+  color: #fff;
+  background: var(--olive);
+  border-radius: 999px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* The website is the SECONDARY action and reads as a link, not a second button — two filled
+   pills side by side would give a farm's homepage the same weight as the direction to drive
+   there. */
+.detail-actions .stand-website {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--brick);
+  font-weight: 650;
+  text-decoration: underline;
+}
+
 .sheet .stand-detail-body {
   margin-top: 0.9rem;
 }
@@ -3997,23 +4086,28 @@ button.admin-action-danger,
     margin-top: 0.65rem;
   }
 
+  /*
+    ONE COLUMN, STACKED — not a two-column split.
+
+    The expanded row used to put a narrow left column (actions, status, staleness) beside the
+    chip box. The two never had comparable heights: the aside is a fixed three-item stack while
+    the box grows with a farm's tag count, so a well-tagged stand left ~180px of empty column
+    under the aside, and a sparsely-tagged one wasted the width instead. A split that is wrong
+    in both directions is the wrong structure, not a spacing problem.
+
+    Stacked, each band gets the full width and is sized by its own content: the actions read as
+    a row, the chips wrap across the whole card instead of into a narrow box, and nothing has
+    to be padded out to match a neighbour. This is also the phone arrangement, so the two
+    surfaces stop diverging in shape for no reason a customer could name.
+  */
   .stand-selected .stand-detail-body {
-    grid-template-columns: minmax(13rem, 0.7fr) minmax(0, 1.3fr);
-    gap: 0.65rem 1rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
     padding-top: 0.65rem;
     border-top: 1px solid var(--sage-deep);
   }
 
-  .stand-selected .detail-actions,
-  .stand-selected .detail-status,
-  .stand-selected .stand-participants,
-  .stand-selected .recency {
-    grid-column: 1;
-  }
-
   .stand-selected .detail-inventory {
-    grid-column: 2;
-    grid-row: 1 / span 4;
     margin: 0;
   }
 
