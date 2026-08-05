@@ -25,6 +25,12 @@ import postgres from "postgres";
 import { readFileSync } from "node:fs";
 import { parseWeeklyStatus } from "@farm-friend/core";
 import { seedWeeklyConfirmations, type WeeklyConfirmationInput } from "../src/seed";
+import { describeTarget } from "../src/connection-target";
+import {
+  describeFingerprint,
+  fingerprintDatabase,
+  requireExpectedDatabase,
+} from "../src/ingest-guard";
 
 function argValue(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
@@ -93,6 +99,16 @@ async function main(): Promise<void> {
 
   const sql = postgres(databaseUrl!, { max: 1 });
   try {
+    // FINGERPRINT BEFORE WRITING (F-064). `--expect-database` is how an operator states which
+    // database they believe they are hitting; without it the target is only reported, because
+    // requiring it on every local run would train people to paste it without reading.
+    const expectDatabase = argValue("--expect-database");
+    const fingerprint =
+      expectDatabase === undefined
+        ? await fingerprintDatabase(sql)
+        : await requireExpectedDatabase(sql, { databaseName: expectDatabase });
+    console.log(`target: ${describeTarget(databaseUrl!)} — ${describeFingerprint(fingerprint)}`);
+
     const result = await seedWeeklyConfirmations(sql, inputs);
     console.log(
       `\npublished ${result.published}, ` +

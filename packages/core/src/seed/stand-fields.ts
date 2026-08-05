@@ -101,7 +101,10 @@ export interface StockUpdate {
 // dated lines use a dash, including an en-dash, and one writes "update" in lowercase. Matching
 // only the colon dropped almost a third of them — they stayed in the description and printed as
 // prose directly beneath the card's own "Nothing confirmed recently" (F-061).
-const DATED_UPDATE = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*update\s*[-–—:]\s*(.*)$/i;
+// The year is written both ways — "7/22/2026 Update:" and "7/9/25 update:" — because the sheet
+// is hand-typed. A two-digit year is read as 20xx: this corpus starts in 2020, and a farm stand
+// note is never about the last century.
+const DATED_UPDATE = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})\s*update\s*[-–—:]\s*(.*)$/i;
 
 /**
  * Read the most recent dated stock update from a description.
@@ -132,7 +135,8 @@ export function extractStockUpdate(description: string): StockUpdate | undefined
 
     const month = Number(match[1]);
     const day = Number(match[2]);
-    const year = Number(match[3]);
+    const statedYear = Number(match[3]);
+    const year = match[3]!.length === 2 ? 2000 + statedYear : statedYear;
     const statedOn = new Date(Date.UTC(year, month - 1, day));
     // Round-trip the parts: anything Date silently normalized comes back different.
     if (

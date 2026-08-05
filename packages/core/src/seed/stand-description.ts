@@ -62,7 +62,9 @@ const STRUCTURED_LINE = [
   // The corpus writes the separator as a colon OR a dash (5 of 18 use a dash, including an
   // en-dash), so matching only the colon leaves a dated line printed as prose beneath the
   // card's own "Nothing confirmed recently" — the exact contradiction this removes.
-  /^\s*\d{1,2}\/\d{1,2}\/\d{4}\s*update\s*[-–—:]/i,
+  // The year is written both ways — "7/22/2026 Update:" and "7/9/25 update:" — because the
+  // sheet is hand-typed.
+  /^\s*\d{1,2}\/\d{1,2}\/(?:\d{4}|\d{2})\s*update\s*[-–—:]/i,
   // A bare URL or handle on its own line is a link, not a description.
   /^\s*(?:https?:\/\/|www\.)[^\s]+\s*$/i,
   /^\s*@[^\s]+\s*$/,

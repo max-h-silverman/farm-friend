@@ -174,6 +174,14 @@ describe("extracting a dated stock update", () => {
     expect(extractStockUpdate("04/02/2026 update - rhubarb")?.items).toEqual(["rhubarb"]);
   });
 
+  it("reads a TWO-digit year, which the hand-typed sheet also uses", () => {
+    // Alta Rosa's real line: "7/9/25 update: Has Silvan berries, salad mix, eggs." A
+    // four-digit-only pattern read this as no update at all, leaving the line in the prose.
+    const update = extractStockUpdate("7/9/25 update: Silvan berries, salad mix, eggs");
+    expect(update?.statedOn).toEqual(new Date(Date.UTC(2025, 6, 9)));
+    expect(update?.items).toEqual(["Silvan berries", "salad mix", "eggs"]);
+  });
+
   it("still refuses a dated CLOSURE written with a dash", () => {
     expect(extractStockUpdate("7/9/2025 Update - Closed")).toBeUndefined();
   });

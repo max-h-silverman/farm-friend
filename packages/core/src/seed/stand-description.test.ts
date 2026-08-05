@@ -120,6 +120,18 @@ describe("buildStandDescription", () => {
       ).toBe("Eggs and vegetables.");
     });
 
+    it("drops a dated update written with a TWO-digit year", () => {
+      // Alta Rosa's real row reads "7/9/25 update: Has Silvan berries, salad mix, eggs." — the
+      // sheet is hand-typed, so the year is written both ways. A four-digit-only pattern left
+      // this one dated line printing beneath the card's own "Nothing confirmed recently", which
+      // is the exact contradiction F-061 exists to remove.
+      expect(
+        buildStandDescription({
+          mapDescription: "7/9/25 update: Has Silvan berries, salad mix, eggs.\nA small stand.",
+        }),
+      ).toBe("A small stand.");
+    });
+
     it("drops the leading contact name and bare address the transcription opens with", () => {
       // Real map rows begin with the farmer's name and street address as their own lines —
       // "Milo" / "12919 SW Cemetery Rd", "Sarah Herridge" / "15324 Vermontville Road SW".

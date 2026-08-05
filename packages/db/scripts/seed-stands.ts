@@ -46,6 +46,12 @@ import {
   type SeededOpenHours,
   type SeededSeason,
 } from "../src/seed";
+import { describeTarget } from "../src/connection-target";
+import {
+  describeFingerprint,
+  fingerprintDatabase,
+  requireExpectedDatabase,
+} from "../src/ingest-guard";
 
 /**
  * Coordinates for farms that submitted a 2026 form but appear in NO map row.
@@ -427,6 +433,16 @@ async function main(): Promise<void> {
 
   const sql = postgres(databaseUrl!, { max: 1 });
   try {
+    // FINGERPRINT BEFORE WRITING (F-064). Naming the target is not enough — an operator reads
+    // `neondb` and sees what they expected. This reports what is actually in there, and
+    // `--expect-database` turns a mistyped connection string into an abort rather than a write.
+    const expectDatabase = argValue("--expect-database");
+    const fingerprint =
+      expectDatabase === undefined
+        ? await fingerprintDatabase(sql)
+        : await requireExpectedDatabase(sql, { databaseName: expectDatabase });
+    console.log(`\ntarget: ${describeTarget(databaseUrl!)} — ${describeFingerprint(fingerprint)}`);
+
     const result = await seedStands(sql, inputs);
     console.log(
       `\nseeded ${result.seeded}, skipped ${result.skipped} (already present), ` +
