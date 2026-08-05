@@ -1173,8 +1173,8 @@ describe("inbound routing end to end (integration)", () => {
         `;
         const standId = stand[0]?.id as string;
         await client()`
-          insert into sales_location_offerings (sales_location_id, item, sort_order)
-          values (${standId}, 'eggs', 0)
+          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+          values (${standId}, 'eggs', true, 0)
         `;
         pagedStands.push(`offering-${standId}`);
       }

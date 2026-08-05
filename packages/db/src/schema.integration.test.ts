@@ -74,6 +74,9 @@ const expectedTables = [
   "sms_consents",
   "sms_messages",
   "stand_data_flags",
+  // F-066 — one item vocabulary per stand, carrying both the standing state and the
+  // confirmations. `sales_location_offerings` remains only as the 0020 backfill's source.
+  "stand_items",
   "stock_out_reports",
 ];
 
@@ -1130,58 +1133,72 @@ describe("clean launch database foundation (integration)", () => {
       unconfirmedLocation = rows[0]?.id as string;
     });
 
-    it("stores offerings against a location without any inventory revision", async () => {
-      // The whole point of the separate table: a stand can advertise what it USUALLY has
-      // without any farmer having confirmed anything today.
+    it("stores a standing claim against a location without any inventory revision", async () => {
+      // The whole point of the two states: a stand can say what it USUALLY has without any
+      // farmer having confirmed anything today. F-066 moved this from a separate table to the
+      // `usually_carried` state of a stand item; the property it protects is unchanged, which
+      // is why the assertion is the same.
       await db()`
-        insert into sales_location_offerings (sales_location_id, item, sort_order)
-        values (${unconfirmedLocation}, 'eggs', 0), (${unconfirmedLocation}, 'lamb', 1)
+        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+        values (${unconfirmedLocation}, 'eggs', true, 0), (${unconfirmedLocation}, 'lamb', true, 1)
       `;
 
       const rows = await db()`
-        select o.item
-        from sales_location_offerings o
+        select o.display_name as item
+        from stand_items o
         left join inventory_revisions r
           on r.sales_location_id = o.sales_location_id and r.is_current
-        where o.sales_location_id = ${unconfirmedLocation} and r.id is null
+        where o.sales_location_id = ${unconfirmedLocation}
+          and o.usually_carried and r.id is null
         order by o.sort_order
       `;
       expect(rows.map((r) => r.item)).toEqual(["eggs", "lamb"]);
     });
 
-    it("refuses a blank offering and duplicate items", async () => {
+    it("refuses a blank item and duplicate items", async () => {
       await expect(
         db()`
-          insert into sales_location_offerings (sales_location_id, item)
+          insert into stand_items (sales_location_id, display_name)
           values (${unconfirmedLocation}, '   ')
         `,
-      ).rejects.toThrow();
-      // The primary key makes re-seeding safe rather than duplicative.
+      ).rejects.toThrow(/stand_items_display_name_not_blank/);
+      // The unique index makes re-seeding safe rather than duplicative — and, unlike the
+      // primary key it replaced, it catches a re-seed that differs only in casing.
       await expect(
         db()`
-          insert into sales_location_offerings (sales_location_id, item)
+          insert into stand_items (sales_location_id, display_name)
           values (${unconfirmedLocation}, 'eggs')
         `,
-      ).rejects.toThrow();
+      ).rejects.toThrow(/stand_items_one_per_location_name/);
+      await expect(
+        db()`
+          insert into stand_items (sales_location_id, display_name)
+          values (${unconfirmedLocation}, 'EGGS')
+        `,
+      ).rejects.toThrow(/stand_items_one_per_location_name/);
     });
 
     it("cannot make a stand look confirmed", async () => {
-      // The load-bearing separation. `listPublicStands` and the SMS inquiry both dereference
-      // `inventory_revisions` for confirmed availability; offerings live in a table neither
-      // joins for that purpose. Writing specialties must therefore leave the stand with NO
-      // current revision — which is what lets B-002 seed VIGA's stands without fabricating a
-      // confirmation no farmer made.
+      // THE load-bearing separation, and the thing F-066 had to preserve while merging the two
+      // vocabularies. `listPublicStands` and the SMS inquiry both dereference
+      // `inventory_revisions` for confirmed availability; a standing claim is a state on
+      // `stand_items` that neither reads for that purpose. Writing standing claims must
+      // therefore leave the stand with NO current revision — which is what lets B-002 seed
+      // VIGA's stands without fabricating a confirmation no farmer made.
+      //
+      // Sharing the VOCABULARY is not sharing the SLOT: that is the whole answer to whether
+      // these two facts could live on one record, and this is where it is proven.
       const revisions = await db()`
         select count(*)::integer as count
         from inventory_revisions
         where sales_location_id = ${unconfirmedLocation} and is_current
       `;
-      const offerings = await db()`
+      const standing = await db()`
         select count(*)::integer as count
-        from sales_location_offerings
-        where sales_location_id = ${unconfirmedLocation}
+        from stand_items
+        where sales_location_id = ${unconfirmedLocation} and usually_carried
       `;
-      expect(offerings[0]!.count as number).toBeGreaterThan(0);
+      expect(standing[0]!.count as number).toBeGreaterThan(0);
       expect(revisions[0]!.count as number).toBe(0);
     });
   });

@@ -500,10 +500,13 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       closure.closure_kind as closure_kind,
       closure.starts_on::text as closure_starts_on,
       closure.closed_through::text as closure_closed_through,
+      -- F-066 — the standing state of a stand item. Only usually_carried rows are a claim
+      -- that the stand usually has the thing.
       coalesce(
-        (select array_agg(offering.item order by offering.sort_order, offering.item)
-         from sales_location_offerings offering
-         where offering.sales_location_id = location.id),
+        (select array_agg(offering.display_name
+           order by offering.sort_order, offering.display_name)
+         from stand_items offering
+         where offering.sales_location_id = location.id and offering.usually_carried),
         array[]::text[]
       ) as usual_offerings,
       coalesce(

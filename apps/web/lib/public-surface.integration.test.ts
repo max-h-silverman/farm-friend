@@ -13,7 +13,12 @@ import {
 import { createPublicActionThrottle, FixedClock } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
-import { handleStandsRequest, listPublicStands } from "./public-listing";
+import { standListingLines } from "./map-view";
+import {
+  handleStandsRequest,
+  listPublicStands,
+  serializePublicStand,
+} from "./public-listing";
 import { handleStockOutReport, handleStockOutRequest } from "./public-stockout";
 
 // F-019 — the launch channel boundary, proven against real Postgres.
@@ -607,12 +612,18 @@ describe("public web surface boundary (integration)", () => {
     // verified farmer and a VIGA approval; a tag is VIGA's 2026 form text. The two facts stay
     // in separate fields all the way to the wire so no renderer can conflate them.
 
-    /** Tag the seeded location, in the given order. */
+    /**
+     * Mark the seeded location's items as standing claims, in the given order (F-066).
+     *
+     * "Usually sells" is the `usually_carried` state of a stand item, not a table of its own.
+     */
     async function tag(items: string[]): Promise<void> {
       for (const [index, item] of items.entries()) {
         await client()`
-          insert into sales_location_offerings (sales_location_id, item, sort_order)
-          values (${ids.location}, ${item}, ${index})
+          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+          values (${ids.location}, ${item}, true, ${index})
+          on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+          do update set usually_carried = true, sort_order = excluded.sort_order
         `;
       }
     }
@@ -632,6 +643,29 @@ describe("public web surface boundary (integration)", () => {
       // be able to tell what a farmer confirmed from what a form once said.
       expect(stands[0]!.usualOfferings).toEqual(["salad greens", "tomatoes", "flowers"]);
       expect(stands[0]!.items.map((i) => i.itemName)).toEqual(["kale"]);
+    });
+
+    it("renders a confirmed item in its stand item's words, across a case difference", async () => {
+      // F-066 — the vocabulary claim, end to end against real Postgres.
+      //
+      // This is the exact production collision: the weekly stock form states "Kale" while the
+      // profile form seeded "kale". Two tables, two spellings, one thing. `standListingLines`
+      // subtracts the confirmed list from the usual list with a plain set difference, so if the
+      // two do not arrive in the SAME words, "kale" prints under both headings as though a
+      // farmer had confirmed it and also merely usually sold it.
+      await tag(["Kale", "tomatoes"]);
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      // The entry says "kale"; the stand item says "Kale"; the card shows the item's words.
+      expect(stands[0]!.items.map((i) => i.itemName)).toEqual(["Kale"]);
+      expect(stands[0]!.usualOfferings).toEqual(["Kale", "tomatoes"]);
+
+      // And therefore the subtraction actually subtracts. Without the resolution this asserts,
+      // `usually` would still contain "Kale" beside a confirmed "kale".
+      const lines = standListingLines(serializePublicStand(stands[0]!));
+      const usual = lines.find((line) => line.kind === "usual");
+      expect(usual?.items).toEqual(["tomatoes"]);
     });
 
     it("carries NO recency for the tags themselves", async () => {
@@ -786,8 +820,8 @@ describe("public web surface boundary (integration)", () => {
       const taggedId = second[0]?.id as string;
       for (const [index, item] of ["a", "b", "c", "d", "e"].entries()) {
         await client()`
-          insert into sales_location_offerings (sales_location_id, item, sort_order)
-          values (${taggedId}, ${item}, ${index})
+          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+          values (${taggedId}, ${item}, true, ${index})
         `;
       }
 

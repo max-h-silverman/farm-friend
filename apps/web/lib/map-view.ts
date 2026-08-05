@@ -296,12 +296,21 @@ export function standListingLines(
   const elapsed = stand.confirmedElapsed;
   const hasConfirmation = elapsed !== undefined;
 
-  // Case-folded, because tags are seeded from VIGA's form text and confirmations arrive in a
-  // farmer's own SMS. Nothing normalizes casing between the two, so an exact-string
-  // subtraction would print "Tomatoes" under both headings as though they were two facts.
-  const confirmedKeys = new Set(confirmedItems.map((name) => name.toLowerCase()));
+  // Subtracted so nothing prints under two headings: "tomatoes" in both places reads as two
+  // separate facts about tomatoes.
+  //
+  // F-066 — this is now a plain set difference over ONE vocabulary. Both lists are a stand
+  // item's words: the usual list is the items marked as standing claims, and a confirmed item
+  // is rendered in its item's `display_name` (resolved in `readPublicStands`, not here). The
+  // case-folding this used to do was the data model's missing reconciliation done in the view,
+  // and it is gone with the join that replaced it.
+  //
+  // It does NOT case-fold as a safety net, deliberately. If these two lists ever stop being one
+  // vocabulary, this must print the duplicate where someone can see it rather than paper over
+  // a broken join — a fallback here would make that failure invisible for as long as it lasted.
+  const confirmedKeys = new Set(confirmedItems);
   const remainingTags = (stand.usuallySells ?? []).filter(
-    (tag) => !confirmedKeys.has(tag.toLowerCase()),
+    (tag) => !confirmedKeys.has(tag),
   );
 
   const lines: StandListingLine[] = [];

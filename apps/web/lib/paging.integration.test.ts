@@ -94,7 +94,7 @@ describe("SMS result paging end to end (integration)", () => {
       truncate table
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         pending_result_lists, outbox_work, farm_approvals, farmer_authorizations,
-        sales_location_offerings, sales_locations, administrators, farms, contacts
+        stand_items, sales_locations, administrators, farms, contacts
       restart identity cascade
     `;
 
@@ -116,8 +116,8 @@ describe("SMS result paging end to end (integration)", () => {
       const locationId = location[0]?.id as string;
       locationIds.push(locationId);
       await client()`
-        insert into sales_location_offerings (sales_location_id, item, sort_order)
-        values (${locationId}, 'eggs', 0)
+        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+        values (${locationId}, 'eggs', true, 0)
       `;
     }
   });
@@ -434,8 +434,8 @@ describe("SMS result paging end to end (integration)", () => {
       returning id
     `;
     await client()`
-      insert into sales_location_offerings (sales_location_id, item, sort_order)
-      values (${location[0]?.id as string}, 'eggs', 0)
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${location[0]?.id as string}, 'eggs', true, 0)
     `;
 
     const page = await more(customerHash, at(1));

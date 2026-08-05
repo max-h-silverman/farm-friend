@@ -166,7 +166,12 @@ describe("F-063 inventory revision provenance (integration)", () => {
     ) as { entries: { when: number; tag: string }[] };
     const stamps = journal.entries.map((entry) => entry.when);
     expect([...stamps].sort((a, b) => a - b)).toStrictEqual(stamps);
-    expect(journal.entries.at(-1)?.tag).toBe("0019_inventory_revision_source");
+    // THIS migration is present and ordered — not that it is the newest one. Asserting it was
+    // last made the test a tripwire on every future migration (it fired on 0020) while proving
+    // nothing extra: what F-063 needs is that its own entry exists in a strictly increasing
+    // journal, which the two assertions above and this one cover.
+    const tags = journal.entries.map((entry) => entry.tag);
+    expect(tags).toContain("0019_inventory_revision_source");
   });
 
   it("created the column and the constraint, not merely a successful apply", async () => {

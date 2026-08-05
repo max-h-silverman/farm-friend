@@ -1212,26 +1212,87 @@ export const salesLocationParticipants = pgTable(
 );
 
 /**
- * What a stand USUALLY has — its specialties, not its current stock (F-035).
+ * The ONE vocabulary a stand talks about its own goods in (F-066).
  *
- * These are two different facts and they live in two different tables on purpose.
- * `inventory_revisions` is CURRENT STOCK — what is out on the table right now, whoever
- * reported it. A specialty is what the stand USUALLY carries: a standing property of the
- * farm, true in March and in September, dated by nothing.
+ * "Eggs" is one record per stand. The two things anyone can say about it are INDEPENDENT
+ * STATES of that record, not two disjoint lists:
  *
- * That is why specialties needed their own home rather than a `kind` column on the revision
- * table. Sharing the table would let a standing fact satisfy `one_current_per_location` and
- * occupy the slot that means "the freshest thing anyone has said about this stand" — so a
- * year-old "usually sells eggs" would suppress the honest "nothing confirmed recently", and
- * a farmer's real confirmation would compete with it for the same row.
+ *   `usuallyCarried`             — a standing property of the farm, true in March and in
+ *                                  September, dated by NOTHING.
+ *   an entry naming it           — a statement about right now, always dated, always
+ *                                  attributed by `source`.
  *
- * Note this is NOT the same boundary as `source` (F-063). `source` separates who reported a
- * current-stock fact — a farmer's handset (`sms`) or VIGA's records (`viga`). Both are
- * genuine claims about right now. A specialty is not a claim about right now at all.
+ * Either, both, or neither may hold, and the item OUTLIVES both — clearing the standing state
+ * keeps the record and everything a past revision said about it.
  *
- * Seeded from VIGA's "Generally Offers:" text and never from its dated update lines. The
- * public surface must label these as what a stand USUALLY carries — never as confirmed
- * availability, which only a farmer's own SMS establishes (Golden Rule #1, #4).
+ * SHARING THE VOCABULARY IS NOT SHARING THE SLOT. The distinction F-035 protected survives
+ * intact: a standing claim still cannot satisfy `one_current_per_location`, still carries no
+ * confirmation time, and is still rendered under a heading that takes no timestamp. What is
+ * gone is the render-time reconciliation — `standListingLines` used to case-fold and subtract
+ * confirmed items from the usual list so nothing printed twice, which was this join done in
+ * the view.
+ *
+ * NO TIMESTAMP MAY BE ADDED HERE. The "no confirmation time" property has to survive all the
+ * way to the screen to mean anything; a date on this row would read as a confirmation of these
+ * items and manufacture exactly the certainty an honor-system stand refuses to fake.
+ *
+ * An entry links to its item by (salesLocationId, normalized itemName) rather than a foreign
+ * key: `inventory_entries` refuses every UPDATE, so a reference column could never have been
+ * backfilled onto published rows without disabling that guard. See `0020_stand_items.sql`.
+ */
+export const standItems = pgTable(
+  "stand_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    /** The farmer's own words, verbatim: "eggs", "plant starts", "Gailan". */
+    displayName: text("display_name").notNull(),
+    /** The standing state. Never a date — see the note above. */
+    usuallyCarried: boolean("usually_carried").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => ({
+    salesLocationReference: foreignKey({
+      name: "stand_items_location_fk",
+      columns: [table.salesLocationId],
+      foreignColumns: [salesLocations.id],
+    }).onDelete("cascade"),
+    /**
+     * `btrim(text)` with no second argument strips SPACES ONLY — not tabs, not newlines. A
+     * test asserting "\t\n" is refused caught the default admitting it. Every normalization
+     * of this column names the whitespace characters explicitly, and the unique index below
+     * must use the IDENTICAL expression or the two disagree about what "blank" and "same" are.
+     */
+    displayNameNotBlank: check(
+      "stand_items_display_name_not_blank",
+      sql`length(btrim(${table.displayName}, E' \t\r\n')) > 0`,
+    ),
+    nonnegativeSortOrder: check(
+      "stand_items_nonnegative_sort_order",
+      sql`${table.sortOrder} >= 0`,
+    ),
+    /**
+     * One item per stand per name, and the first-insert arbiter for concurrent writers.
+     *
+     * Normalization is case and surrounding whitespace ONLY, so the profile form's "eggs" and
+     * the weekly form's "Eggs" are one item. It must never fold singulars into plurals or
+     * synonyms into each other — that is a produce taxonomy, and this index is not where such
+     * a decision belongs.
+     */
+    onePerLocationName: uniqueIndex("stand_items_one_per_location_name").on(
+      table.salesLocationId,
+      sql`lower(btrim(${table.displayName}, E' \t\r\n'))`,
+    ),
+  }),
+);
+
+/**
+ * SUPERSEDED BY `standItems` (F-066) — retained only so the 0020 backfill has a source.
+ *
+ * Was: what a stand usually carries, as its own table because a standing claim and a dated
+ * confirmation are different kinds of fact. That distinction survives; it is now the
+ * `usuallyCarried` state of a stand item rather than a separate table with its own vocabulary.
+ * No reader should be added here.
  */
 export const salesLocationOfferings = pgTable(
   "sales_location_offerings",

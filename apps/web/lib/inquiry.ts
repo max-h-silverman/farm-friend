@@ -175,7 +175,7 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
       l.public_address as public_address,
       f.name as farm_name,
       l.created_at as created_at,
-      o.item as item,
+      o.display_name as item,
       o.sort_order as sort_order,
       c.result as closure_result,
       c.closure_kind as closure_kind,
@@ -183,7 +183,10 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
       c.closed_through::text as closure_closed_through
     from sales_locations l
     join farms f on f.id = l.owner_farm_id
-    join sales_location_offerings o on o.sales_location_id = l.id
+    -- F-066 — usually_carried in the JOIN, not a WHERE: an item that exists only because a
+    -- past revision named it must not enter the offerings half of retrieval, or a customer
+    -- would be told a stand usually sells something nobody ever said that about.
+    join stand_items o on o.sales_location_id = l.id and o.usually_carried
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
     where l.is_public

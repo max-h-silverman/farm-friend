@@ -1267,9 +1267,9 @@ describe("operator review queues (integration)", () => {
             ), '[]'::json)::text as locations,
             coalesce((
               select json_agg(json_build_object(
-                'location', o.sales_location_id, 'item', o.item, 'sort', o.sort_order
-              ) order by o.sales_location_id, o.item)
-              from sales_location_offerings o
+                'location', o.sales_location_id, 'item', o.display_name, 'sort', o.sort_order
+              ) order by o.sales_location_id, o.display_name)
+              from stand_items o
             ), '[]'::json)::text as offerings,
             coalesce((
               select json_agg(json_build_object('id', r.id, 'current', r.is_current)
@@ -1281,8 +1281,8 @@ describe("operator review queues (integration)", () => {
       }
 
       await client()`
-        insert into sales_location_offerings (sales_location_id, item, sort_order)
-        values (${id("location")}, 'bok choy', 0), (${id("location")}, 'eggs', 1)
+        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+        values (${id("location")}, 'bok choy', true, 0), (${id("location")}, 'eggs', true, 1)
       `;
       const flagId = await openStandDataFlag();
 

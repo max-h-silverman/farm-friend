@@ -294,8 +294,8 @@ describe("seeding VIGA's stands (B-002)", () => {
       expect(result.unknownStands).toEqual([]);
 
       const rows = await client`
-        select o.item, o.sort_order
-        from sales_location_offerings o
+        select o.display_name as item, o.sort_order
+        from stand_items o
         join sales_locations l on l.id = o.sales_location_id
         where l.name = 'Alpha Farm'
         order by o.sort_order
@@ -314,11 +314,48 @@ describe("seeding VIGA's stands (B-002)", () => {
 
       const rows = await client`
         select count(*)::integer as count
-        from sales_location_offerings o
+        from stand_items o
         join sales_locations l on l.id = o.sales_location_id
         where l.name = 'Alpha Farm'
       `;
       expect(rows[0]!.count).toBe(4);
+    });
+
+    it("RAISES the standing state on an item that exists only from a confirmation", async () => {
+      // F-066, and a gap a sabotage found: with one item vocabulary, an item can already exist
+      // WITHOUT being a standing claim — the 0020 backfill creates exactly that for every name
+      // a past revision confirmed, and so does any weekly-form ingest.
+      //
+      // A plain `on conflict do nothing` looks correct and silently drops the approved tag: the
+      // row is there, so nothing is inserted, and `usually_carried` stays false forever. The
+      // stand then never shows what it usually sells for that item, with no error anywhere.
+      const location = await client`
+        select id from sales_locations where name = 'Alpha Farm'
+      `;
+      const locationId = location[0]?.id as string;
+
+      // The state a confirmation leaves behind: the item exists, but is no standing claim.
+      await client`
+        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+        values (${locationId}, 'Rhubarb', false, 0)
+      `;
+
+      const result = await seedOfferings(client, [
+        { standName: "Alpha Farm", items: ["rhubarb"] },
+      ]);
+      expect(result.inserted).toBe(1);
+
+      // One item still — matched case-insensitively — and it is NOW a standing claim.
+      const rows = await client`
+        select display_name, usually_carried from stand_items
+        where sales_location_id = ${locationId}
+          and lower(btrim(display_name, E' \t\r\n')) = 'rhubarb'
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.usually_carried).toBe(true);
+      // The farmer's stored casing is untouched: a re-run raises the flag, it does not rewrite
+      // words someone may have edited.
+      expect(rows[0]?.display_name).toBe("Rhubarb");
     });
 
     it("reports an unknown stand rather than silently dropping or inventing it", async () => {
@@ -332,7 +369,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       expect(result.inserted).toBe(1);
 
       const beta = await client`
-        select o.item from sales_location_offerings o
+        select o.display_name as item from stand_items o
         join sales_locations l on l.id = o.sales_location_id
         where l.name = 'Beta Farm'
       `;
@@ -374,7 +411,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       expect(result.inserted).toBe(1);
 
       const rows = await client`
-        select o.item from sales_location_offerings o
+        select o.display_name as item from stand_items o
         join sales_locations l on l.id = o.sales_location_id
         where l.name = 'Renamed Farm'
       `;
@@ -425,7 +462,7 @@ describe("seeding VIGA's stands (B-002)", () => {
 
       // Nothing landed for either candidate — a refused batch writes nothing at all.
       const rows = await client`
-        select count(*)::integer as count from sales_location_offerings o
+        select count(*)::integer as count from stand_items o
         join sales_locations l on l.id = o.sales_location_id
         where l.name in ('Twinned Stand', 'The Twinned Farm')
       `;
@@ -443,7 +480,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       // resolving names against the real database while writing nothing. A dry run that only
       // echoes the file back cannot show the five unknown stands it is there to reveal.
       const before = await client`
-        select count(*)::integer as count from sales_location_offerings
+        select count(*)::integer as count from stand_items
       `;
       const plan = await planOfferings(client, [
         { standName: "Renamed Farms", items: ["garlic", "leeks"] },
@@ -456,7 +493,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       ]);
 
       const after = await client`
-        select count(*)::integer as count from sales_location_offerings
+        select count(*)::integer as count from stand_items
       `;
       expect(after[0]!.count).toBe(before[0]!.count);
     });

@@ -18,11 +18,16 @@ Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constrain
 The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
 [session log](SESSION_LOG.md) for its reasoning.
 
-The most recent tranche is the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard),
-**merged to `main` and NOT deployed**. It carries **migration `0019`**
-(`inventory_revisions.source`), which production has not received — so production still runs the
-pre-tranche schema and the pre-tranche listing data. See the
-[session log](SESSION_LOG.md) for the reasoning.
+Two tranches are now ahead of production, both **NOT deployed**:
+
+- the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard), merged to `main`,
+  carrying **migration `0019`** (`inventory_revisions.source`);
+- **F-066's one item vocabulary**, on branch `f-066-item-vocabulary`, carrying **migration
+  `0020`** (`stand_items`).
+
+Production has received neither, so it still runs the pre-tranche schema and the pre-tranche
+listing data. **`0019` and `0020` are both owed to production before the image that reads them**,
+per the RUNBOOK's ordering rule. See the [session log](SESSION_LOG.md) for the reasoning.
 
 The tranche before it — presentation and ingestion groundwork — is deployed: plan assertions 37/37,
 deploy and served-card assertions pass, and the served stylesheet was checked **by effect**.
@@ -48,10 +53,28 @@ public description, which it does.
 
 ## Verification
 
-- Current `main`: **105 unit-test files / 1067 tests**, typecheck, and lint pass (verified
-  2026-08-05). **Merged but not deployed.**
-- Real-Postgres integration: **45 files / 606 tests pass on a complete run** from an empty schema,
+- Current branch `f-066-item-vocabulary`: **105 unit-test files / 1068 tests**, typecheck, and
+  lint pass (verified 2026-08-05). **Not deployed.**
+- Real-Postgres integration: **47 files / 628 tests pass on a complete run** from an empty schema,
   against a local Postgres — never against production Neon.
+- **Migration `0020` verified by effect on BOTH an empty and a populated pre-change schema.** The
+  populated run applies every migration through `0019`, writes the rows a real database holds —
+  including two offering rows differing only in case, which were legal before and collide under
+  the new index — and only then applies `0020`. It asserts it is genuinely on the pre-change
+  schema first, so it cannot pass by silently running against an already-migrated database.
+- **Five sabotages this tranche, each failing named tests**: removing case normalization from the
+  index (3 tests), deleting the confirmed-only half of the backfill (3), breaking the entry →
+  item resolution in the public reader (1), and reverting the not-blank CHECK to the default
+  `btrim` (1).
+- **One sabotage found a gap in the tests rather than confirming them**, which is the reason to
+  run them: reverting the seeder's `do update` to `do nothing` broke nothing. An item that exists
+  only because a revision confirmed it would silently never become a standing claim — the
+  approved tag dropped, no error anywhere. A test now covers it and fails under that sabotage.
+- **Two real defects were caught by tests before they shipped**, both in the migration:
+  `btrim(text)` strips spaces only, so a tab/newline-only name passed the not-blank CHECK and
+  `"\tEggs\n"` was a distinct key from `"Eggs"`; and a padded entry name carried its padding into
+  the item's display name. Every normalization now names its whitespace characters explicitly.
+- **No model seam was added or changed**, so no eval or `evals:live` run is owed.
 - **Migration `0019` verified by effect** against a freshly migrated database (B-022): the `source`
   column exists and is NOT NULL, carries **no default**, the CHECK constraint is present, and
   violating inserts are genuinely *refused* in both directions. The backfill was additionally
@@ -137,8 +160,9 @@ against the real corpus on 2026-08-04 while implementing.
   ingests the weekly stock form as dated `viga` confirmations. **The two on-screen contradictions
   are gone at the data level**, verified over the real corpus — but **not on the live map**, which
   still runs the pre-tranche image and data.
-- **Migration `0019` is owed to production**, before the code that reads it (RUNBOOK ordering
-  rule). Deploying the image without it would break every listing read.
+- **Migrations `0019` and `0020` are owed to production**, in that order, before the code that
+  reads them (RUNBOOK ordering rule). Deploying the image without them would break every listing
+  read: `0020`'s table is now the only source of what a stand usually sells.
 - **F-064's production run has NOT happened.** Still owed: a re-export of all three CSVs (the
   profile form is **still open**), a **`neondb` snapshot** — with an insert-only utility and GL-015
   open, the snapshot *is* the rollback — max's explicit approval for the bulk write, and the render
@@ -153,18 +177,23 @@ against the real corpus on 2026-08-04 while implementing.
 - **Attribution for an admin inventory edit is still owed (F-065)** — a revision row carries no
   `admin_actor_id` and there is no general admin audit log, so that workflow must record its own
   action, matching how `stock_out_reports` and `farm_approvals` already work.
-- **F-066 — the item vocabulary is SETTLED as a contract, and unbuilt.** One item record per
-  (stand, item name) with two independent states — usually carries it, confirmed present on a date
-  — written into DATA_ARCHITECTURE.md §stand items and §constraints. The separation that justified
-  two tables survives: sharing the vocabulary is not sharing the one-current-per-location slot.
-  Decided with max: **only the farmer's web form writes the standing state, SMS writes only
-  confirmations** (an SMS-confirmed item outside the usual mix gets no prompt and no automatic
-  add; `SETTINGS` is the door to the form), and **the product has no rename**, which is what keeps
-  published entry words immutable without a versioning scheme. Normalization is case and
-  whitespace only — never singular/plural or synonyms. **Nothing is migrated or coded**: no item
-  table, no backfill, and `standListingLines` still performs the render-time subtraction.
-  **Should land before F-064's production ingest**, which writes offering rows and would otherwise
-  put the pre-F-066 shape into production for the backfill to redo.
+- **F-066 — one item vocabulary is BUILT and merged to the branch, UNDEPLOYED.** `stand_items`
+  holds one record per (stand, item name) with two independent states — `usually_carried`, and
+  whether a dated revision names it. The separation that justified two tables survives: sharing
+  the vocabulary is not sharing the one-current-per-location slot, proven by the schema test that
+  standing claims leave a stand with no current revision. Migration **`0020`** creates the table,
+  its unique index over `(location, lower(btrim(display_name)))`, and backfills from **both**
+  `sales_location_offerings` and `inventory_entries` — the second half is what keeps a
+  confirmed-only item as vocabulary without making it a standing claim. `sales_location_offerings`
+  survives as the backfill's source with **no reader left**; dropping it is a later change.
+  **`inventory_entries` was not modified**: its history guard refuses every update, so the entry →
+  item link is the normalized name it already carries, and a confirmed item is resolved to its
+  item's spelling in `readPublicStands` so both lists reach the view as one vocabulary.
+  Normalization is case and whitespace only — never singular/plural or synonyms, asserted by a
+  test that must be deleted before anyone can loosen it.
+  **Still owed:** migrations `0019` and `0020` to production, and the farmer web form that is the
+  standing state's only intended writer (work items 3/3b) — today the seeder is its only writer,
+  so a farmer still cannot edit their own mix.
 - **F-029:** finish live carrier/JOIN launch verification.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.

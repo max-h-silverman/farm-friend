@@ -140,10 +140,14 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   prints under both headings; `sellsMatch` case-folds both lists into one search haystack;
   `isFlowerOnlyStand` classifies a whole stand from the usual list alone. Each carries a comment
   that nothing normalizes casing between the two — independent workarounds for a join the data
-  model did not have. With one item per stand the subtraction disappears entirely, because an
-  item is one row that either was or was not confirmed. Searching both states together stays —
-  that is correct and deliberate — but reads a real vocabulary instead of case-folding two lists
-  into agreement.
+  model did not have.
+
+  What goes is the **case-folding**, not the subtraction. A card still shows a confirmed item
+  under one heading and the rest of the usual mix under another, so one list is still subtracted
+  from the other — but as a plain set difference over identical strings, because the reader
+  resolves a confirmed item to its stand item's spelling before the view sees it. The reader
+  deliberately does **not** case-fold as a safety net: if the two ever stop being one vocabulary,
+  the duplicate must show rather than be papered over.
 - **stand data flags** (F-035) — where a contradiction in seeded source data waits for a human.
   Distinct from the customer-message `flags` table, which is keyed to a contact and an inbox event a
   seed flag has neither of. One open flag per (location, reason); resolved flags stay as history.
@@ -157,14 +161,16 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   without fabricating an attestation about an identifiable person. Written as one biconditional over
   all three keys rather than three per-column rules, because a CHECK *passes* on NULL.
 
-  An entry **names its stand item and keeps the words it was published with** (F-066). The
-  reference is what lets a stand's two states be read as one vocabulary; the retained words are
-  what keeps published history immutable, so nothing a farmer later does to their usual mix can
-  rewrite what a past confirmation said. The product has **no rename**: a farmer edits the mix by
-  removing and adding words, never by declaring that one thing is now called another — so an item
-  record's words are fixed at creation and an entry's copy of them can never disagree with it.
-  Entries still carry their own quantity/unit/price text, which belong to the dated statement and
-  not to the item.
+  An entry **resolves to its stand item by the normalized name it already carries** (F-066), and
+  the entries table is **not modified at all**. There is deliberately no `stand_item_id` column:
+  `inventory_entries_guard_history` raises on *every* update with no permitted shape, so
+  backfilling a reference onto published rows would mean disabling the immutability guarantee
+  inside a migration — which would establish that the guarantee is switchable. It is also
+  unnecessary. An entry belongs to a stand and holds the farmer's words, so
+  `(sales_location_id, normalized item_name)` resolves it through the same key the unique index
+  enforces. The product has **no rename** — a farmer edits the mix by removing and adding words,
+  never by declaring one thing is now called another — so the two can never drift apart. Entries
+  keep their own quantity/unit/price text, which belongs to the dated statement, not to the item.
 - **closure revisions** (F-049) — append-only owner-confirmed close/reopen history, separate from
   inventory. A close carries `temporary` or `seasonal` plus a Vashon-local start date; temporary may
   carry an inclusive end date. Reopen carries no kind or dates. Composite foreign keys bind the
@@ -257,10 +263,11 @@ These are **database-level** requirements, not application conventions:
   message path can create an item and confirm it; only the farmer's authenticated web form can
   make it a standing claim. A test that publishes an inventory revision naming an unknown item and
   then asserts the usual mix is unchanged is what proves it.
-- **An inventory entry's published words never change** (F-066) — entries reference their stand
-  item and retain the words they were published with, and mutation of published entries is refused
-  as it already is for the rest of revision history. Editing the usual mix touches item state, not
-  entries.
+- **An inventory entry's published words never change** (F-066) — the entries table gained no
+  column and no backfill, because its history guard refuses every update unconditionally. Editing
+  the usual mix touches item state only. The rendered card resolves a confirmed item to its stand
+  item's current spelling so both lists speak one vocabulary; the **published row keeps its own
+  words**, which is what makes the confirmation still a record of what was said.
 - **One current closure instruction per location and one closure revision per proposal** — partial
   and ordinary unique indexes make both claims structural. CHECK constraints reject malformed
   reopen/close shapes, seasonal end dates, reversed dates, and incoherent current/superseded state;

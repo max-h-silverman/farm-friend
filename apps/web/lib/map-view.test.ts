@@ -528,14 +528,37 @@ describe("standListingLines (F-042)", () => {
       ]);
     });
 
-    it("matches a tag to a confirmed item case-insensitively", () => {
-      // The tags are seeded from VIGA's form text and the confirmations come from a farmer's
-      // SMS. Nothing normalizes casing between the two, so an exact-string subtraction would
-      // print "Tomatoes" under both headings.
+    it("does NOT case-fold, because the two lists are one vocabulary now (F-066)", () => {
+      // This test used to assert the opposite, and the inversion is the point of F-066.
+      //
+      // Before: the usual list came from `sales_location_offerings` and the confirmed list
+      // from `inventory_entries`, two tables sharing no vocabulary, so this function
+      // case-folded to stop "Tomatoes" printing under both headings. That fold was the data
+      // model's missing reconciliation done in the view.
+      //
+      // Now both lists are a STAND ITEM's words: the usual list is the items marked as
+      // standing claims, and a confirmed item is rendered in its item's `display_name`
+      // (resolved in `readPublicStands`). A differently-cased pair reaching here means the
+      // join upstream is broken — and this function must let that show rather than hide it,
+      // because a silent fold here would mask the breakage for as long as it lasted.
       const usual = lineOfKind(
         standListingLines({
           ...both,
           usuallySells: ["Salad Greens", "TOMATOES", "flowers"],
+        }),
+        "usual",
+      )!;
+
+      expect(usual.items).toEqual(["Salad Greens", "TOMATOES", "flowers"]);
+    });
+
+    it("subtracts a confirmed item from the usual list when they are one vocabulary", () => {
+      // The behaviour that actually protects the card, stated in the terms that now hold:
+      // identical words, because both sides are the same stand item.
+      const usual = lineOfKind(
+        standListingLines({
+          ...both,
+          usuallySells: ["salad greens", "tomatoes", "flowers"],
         }),
         "usual",
       )!;

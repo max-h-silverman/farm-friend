@@ -160,7 +160,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       truncate table
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         stock_out_reports, outbox_work, farm_approvals, farmer_authorizations,
-        sales_location_offerings, sales_locations, administrators, farms, contacts
+        stand_items, sales_locations, administrators, farms, contacts
       restart identity cascade
     `;
 
@@ -306,8 +306,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // "no stand has a current listing" while the public map showed the tags for the same
     // stands. One desk must not give two answers.
     await client()`
-      insert into sales_location_offerings (sales_location_id, item, sort_order)
-      values (${ids.alphaLocation!}, 'frozen lamb', 0), (${ids.alphaLocation!}, 'eggs', 1)
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, 'frozen lamb', true, 0), (${ids.alphaLocation!}, 'eggs', true, 1)
     `;
 
     const { provider, deps } = inquiryDeps({
@@ -350,8 +350,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // Code compares strings and cannot see the relationship, so it must not answer "no" —
     // it hands every candidate to the layer that CAN judge, and validates what comes back.
     await client()`
-      insert into sales_location_offerings (sales_location_id, item, sort_order)
-      values (${ids.alphaLocation!}, 'butter lettuce', 0), (${ids.betaLocation!}, 'beets', 1)
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, 'butter lettuce', true, 0), (${ids.betaLocation!}, 'beets', true, 1)
     `;
 
     const { provider, deps } = inquiryDeps({
@@ -386,8 +386,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   it("leads with confirmed stock and lists offerings second", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Lamb"], hoursAgo(26));
     await client()`
-      insert into sales_location_offerings (sales_location_id, item, sort_order)
-      values (${ids.betaLocation!}, 'frozen lamb', 0)
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.betaLocation!}, 'frozen lamb', true, 0)
     `;
 
     const { deps } = inquiryDeps({

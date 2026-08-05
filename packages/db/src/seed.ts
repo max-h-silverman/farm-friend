@@ -276,16 +276,22 @@ export async function planOfferings(
       continue;
     }
 
-    const present = await sql<{ item: string }[]>`
-      select item from sales_location_offerings where sales_location_id = ${location.id}
+    // F-066 — "already a standing claim here" is asked in the SAME normalized terms the unique
+    // index uses. An exact-string comparison would report "Eggs" as new against a stored
+    // "eggs", so the dry run would promise a write the commit then skips.
+    const present = await sql<{ key: string }[]>`
+      select lower(btrim(display_name, E' \t\r\n')) as key
+      from stand_items
+      where sales_location_id = ${location.id} and usually_carried
     `;
-    const existing = new Set(present.map((row) => row.item));
+    const existing = new Set(present.map((row) => row.key));
+    const key = (item: string) => item.trim().toLowerCase();
 
     matched.push({
       standName: offering.standName,
       locationName: location.name,
-      newItems: offering.items.filter((item) => !existing.has(item)),
-      existingItems: offering.items.filter((item) => existing.has(item)),
+      newItems: offering.items.filter((item) => !existing.has(key(item))),
+      existingItems: offering.items.filter((item) => existing.has(key(item))),
     });
   }
 
@@ -329,11 +335,25 @@ export async function seedOfferings(
       }
 
       for (const [index, item] of offering.items.entries()) {
+        // F-066 — the unique index is the arbiter, not a prior read: two writers naming the
+        // same new item share no parent row to lock, and a row that does not exist yet cannot
+        // be locked at all. An empty `returning` means the item is already there.
+        //
+        // The conflict case RAISES the standing state and nothing else. An item can already
+        // exist without being a standing claim — the backfill creates one for every name a
+        // past revision confirmed — and a plain `do nothing` would leave that item
+        // `usually_carried = false` forever, silently dropping approved tags. So the update
+        // sets the flag, and is guarded by `where not usually_carried` so a row that is
+        // already a standing claim is genuinely untouched rather than rewritten to the same
+        // value. Display name and sort order are left alone: a re-run must never revert an
+        // edit a farmer or operator made, which is the rule this seeder has always held.
         const result = await tx`
-          insert into sales_location_offerings (sales_location_id, item, sort_order)
-          values (${location.id}, ${item}, ${index})
-          on conflict do nothing
-          returning item
+          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+          values (${location.id}, ${item}, true, ${index})
+          on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+          do update set usually_carried = true
+          where not stand_items.usually_carried
+          returning id
         `;
         if (result.length > 0) inserted++;
         else skipped++;

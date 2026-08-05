@@ -299,11 +299,14 @@ export async function listPublicStands(
       --
       -- coalesce, because an aggregate over no rows is NULL rather than an empty array. The
       -- untagged stands are the majority, so that is the common path, not the edge.
+      -- F-066 — the standing state of a stand item, not a table of its own. usually_carried
+      -- is what makes it a standing claim; an item that exists only because a past revision
+      -- named it is vocabulary, not something the stand says it usually has.
       coalesce(
         (
-          select array_agg(o.item order by o.sort_order asc, o.item asc)
-          from sales_location_offerings o
-          where o.sales_location_id = l.id
+          select array_agg(o.display_name order by o.sort_order asc, o.display_name asc)
+          from stand_items o
+          where o.sales_location_id = l.id and o.usually_carried
         ),
         array[]::text[]
       ) as usual_offerings,
@@ -341,7 +344,21 @@ export async function listPublicStands(
         ),
         array[]::text[]
       ) as payment_methods,
-      e.item_name as item_name,
+      -- F-066 — a confirmed item is rendered in its STAND ITEM's words, so the confirmed list
+      -- and the usual list are one vocabulary by the time anything reads them.
+      --
+      -- Both columns hold the farmer's own words, but from different moments: the entry keeps
+      -- what was published (immutably — its table refuses every update), while the item is the
+      -- stand's current spelling. They legitimately differ in case — the weekly form states
+      -- "Eggs", the profile form seeded "eggs" — and standListingLines must subtract one list
+      -- from the other so nothing prints under two headings. Resolving here means that
+      -- subtraction is a plain set difference over one vocabulary instead of a case-fold in the
+      -- view standing in for a join.
+      --
+      -- coalesce, because an entry naming something with no item row must still render rather
+      -- than vanish. The backfill leaves none, and every writer creates the item, but a
+      -- confirmed item silently disappearing from a card is not a failure mode worth risking.
+      coalesce(item.display_name, e.item_name) as item_name,
       e.quantity as quantity,
       e.unit as unit,
       e.price_text as price_text,
@@ -353,6 +370,15 @@ export async function listPublicStands(
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
     left join inventory_entries e on e.inventory_revision_id = r.id
+    -- The entry's stand item, by the same normalized key the unique index enforces. This is
+    -- the link, and it is a join rather than a foreign key because inventory_entries refuses
+    -- every update — a reference column could never have been backfilled onto published rows
+    -- without disabling the immutability guard (see 0020_stand_items.sql). The index makes this
+    -- at most one row, so it cannot multiply the result.
+    left join stand_items item
+      on item.sales_location_id = e.sales_location_id
+     and lower(btrim(item.display_name, E' \t\r\n'))
+       = lower(btrim(e.item_name, E' \t\r\n'))
     where l.is_public
     order by r.published_at desc nulls last, l.id asc, e.sort_order asc
   `;
