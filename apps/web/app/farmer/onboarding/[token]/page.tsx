@@ -2,6 +2,7 @@ import { loadFarmerInvitation } from "@farm-friend/db";
 import { buildSignupSmsUrl } from "../../../../lib/farmer-invite";
 import { publicReadContext } from "../../../../lib/public-context";
 import { AgreementStep } from "./agreement-step";
+import { ListingStep } from "./listing-step";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +44,28 @@ export default async function FarmerOnboardingPage({
       */}
       <h1>{invitation.farmName ?? "Set up your farm"}</h1>
       <p className="farmer-onboarding-lede">
-        Agree to texts and send one message from the phone you want to use for stand updates.
+        Tell people what you have, then send one text from the phone you want to use for
+        stand updates.
       </p>
+
+      {/*
+        F-067 — the listing comes FIRST, and the order is deliberate.
+
+        The agreement step ends in a prepared `SIGNUP` text that leaves the page, and the
+        invitation is spent when that text arrives. A farmer who texted first and then met
+        the listing form would be finishing their listing on a page whose link no longer
+        works if they ever reloaded it. So the listing is written while they are still here.
+
+        max chose (2026-08-05) that it publishes on submit rather than waiting for the text:
+        "the admin can fix anything that's erroneous".
+      */}
+      <section className="farmer-onboarding-card" aria-labelledby="listing-heading">
+        <h2 id="listing-heading">Your stand</h2>
+        <ListingStep
+          token={params.token}
+          farmName={invitation.farmName ?? ""}
+        />
+      </section>
 
       <section className="farmer-onboarding-card" aria-labelledby="verify-phone-heading">
         <h2 className="sr-only" id="verify-phone-heading">
@@ -54,21 +75,25 @@ export default async function FarmerOnboardingPage({
       </section>
 
       {/*
-        NOT a numbered to-do list. Everything here happens without the farmer, and presenting
-        it as "step 2, step 3" told them two more screens were coming when there are none —
-        the remaining work is VIGA's. Framed as what to expect, the wait becomes the
-        page's answer to "what now?" rather than an unfinished task.
+        NOT a numbered to-do list. Presenting this as "step 2, step 3" told farmers more
+        screens were coming when there are none. Framed as what to expect, it answers "what
+        now?" rather than reading as an unfinished task.
+
+        WHAT THIS NO LONGER SAYS: "VIGA reviews your request." Redeeming an agreed invitation
+        that names a farm now authorizes the farmer and approves the farm in one transaction,
+        with no administrator acting — so a review the farmer waits for would be a promise
+        nobody keeps.
       */}
       <section className="farmer-onboarding-next" aria-labelledby="whats-next-heading">
         <h2 id="whats-next-heading">What happens next</h2>
         <p>
-          VIGA reviews your request. Once your farm is approved, Farm Friend texts you how to
-          update your stand.
+          Once you send the text, Farm Friend replies with how to update your stand. You can
+          change anything here later by texting SETTINGS.
         </p>
       </section>
 
       <p className="farmer-onboarding-note">
-        Nothing is public yet. This link expires after seven days and works once.
+        This link expires after seven days and works once.
       </p>
     </main>
   );

@@ -460,6 +460,13 @@ describe("SMS inventory is never gated on farm type (F-038)", () => {
   //    that farm may publish. It legitimately tests `visitability === "visitable"`, and this
   //    scan flagged it on the first run, which is what narrowed the set to the claim actually
   //    being made.
+  //  - the LISTING WRITE path (`farmer-listing.ts`, F-067) — the same distinction from the
+  //    other side. `coherentVisitability` requires an address and coordinates for a visitable
+  //    stand and forbids all three for a contact-only one, so a writer of listing facts must
+  //    branch on visitability to satisfy the database at all. That decides the SHAPE OF A
+  //    LISTING, never whether a farm may publish inventory: this file writes no revision, no
+  //    proposal, and nothing SMS reaches. The test below pins that reason rather than
+  //    trusting it.
   const publicationSources = [
     ...sourceFiles("packages/core/src/inventory"),
     ...sourceFiles("apps/web/lib"),
@@ -467,7 +474,8 @@ describe("SMS inventory is never gated on farm type (F-038)", () => {
     (path) =>
       !path.includes(".test.") &&
       !path.includes("public-listing") &&
-      !path.includes("map-view"),
+      !path.includes("map-view") &&
+      !path.includes("farmer-listing"),
   );
 
   it("scans the real publication path, not an empty set", () => {
@@ -515,6 +523,36 @@ describe("SMS inventory is never gated on farm type (F-038)", () => {
     });
 
     expect(offenders).toEqual([]);
+  });
+
+  it("keeps the excluded LISTING path from reaching inventory (F-067)", () => {
+    // `farmer-listing.ts` is excluded because it branches on visitability to satisfy
+    // `coherentVisitability` when writing a LISTING — not to gate publication. That reason
+    // holds only while it writes no inventory. If it ever gained one, the exclusion above
+    // would be carving a hole in exactly the path this guards, and the branch it already
+    // contains would become a real gate on which farms may publish.
+    //
+    // Anchored to the inventory-write constructs specifically. This file DOES write listing
+    // facts, so a generic write pattern would fire on its legitimate purpose and say nothing.
+    const inventoryWritePattern =
+      /\b(insert\s+into\s+inventory|update\s+inventory\w*\s+set|inventory_revisions|inventory_entries|publication_proposals)\b/i;
+
+    const source = readFileSync(
+      new URL("apps/web/lib/farmer-listing.ts", repositoryRoot),
+      "utf8",
+    )
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(
+      inventoryWritePattern.test(source),
+      "farmer-listing.ts must reach no inventory write",
+    ).toBe(false);
+
+    // Proves the detector detects, so a typo cannot make the assertion above vacuous.
+    expect(
+      inventoryWritePattern.test("insert into inventory_revisions (id)"),
+    ).toBe(true);
+    expect(inventoryWritePattern.test("from inventory_entries where")).toBe(true);
   });
 
   it("keeps the read path free of any WRITE, so its exclusion cannot hide a gate", () => {

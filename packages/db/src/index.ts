@@ -9,6 +9,7 @@ export { schema };
 export * from "./transactions";
 export * from "./admin";
 export * from "./farmer";
+export * from "./onboarding-listing";
 export * from "./farmer-targeting";
 export * from "./pending-result-list";
 export * from "./participants";

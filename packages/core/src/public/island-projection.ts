@@ -99,3 +99,44 @@ export function projectToIsland(coordinate: {
 
   return { x, y, clamped: x !== rawX || y !== rawY };
 }
+
+/** A real coordinate, as the database stores it. */
+export interface IslandCoordinate {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Read a point on the drawing back as a real coordinate — the pin drop (F-067).
+ *
+ * A farmer onboarding a visitable stand has to supply a coordinate pair, because
+ * `coherentVisitability` refuses a visitable location without one. There is no geocoder to
+ * turn their typed address into a pin and there deliberately never will be: a runtime
+ * geocoder/map package is a named non-goal, and every address-lookup service bills per call
+ * on top of placing pins in the wrong driveway. So the farmer points at the island instead,
+ * which they know better than any lookup does.
+ *
+ * **This is the exact algebraic inverse of `projectToIsland`, and must stay that way.** The
+ * two are one statement about where the island is, read in opposite directions. Writing this
+ * as its own mapping — even a correct-looking one — would recreate exactly the failure the
+ * header of this file warns about: two independent guesses at the geography that drift apart,
+ * putting a farm on the wrong side of the highway with every test still green.
+ *
+ * Clamped to the bounds for the same reason the forward direction is: a tap that lands
+ * slightly off the artwork must not become a pin in Puget Sound. `coherentVisitability` only
+ * checks that the numbers are PRESENT, so it would accept one.
+ */
+export function unprojectFromIsland(point: {
+  x: number;
+  y: number;
+}): IslandCoordinate {
+  const x = Math.min(ISLAND_VIEWBOX.width, Math.max(0, point.x));
+  const y = Math.min(ISLAND_VIEWBOX.height, Math.max(0, point.y));
+
+  const longitude =
+    ISLAND_BOUNDS.west + (x / ISLAND_VIEWBOX.width) * LONGITUDE_SPAN;
+  const latitude =
+    ISLAND_BOUNDS.north - (y / ISLAND_VIEWBOX.height) * LATITUDE_SPAN;
+
+  return { latitude, longitude };
+}
