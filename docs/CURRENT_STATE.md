@@ -18,17 +18,14 @@ Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constrain
 The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
 [session log](SESSION_LOG.md) for its reasoning.
 
-The most recent tranche is **presentation and ingestion groundwork** — web assets, one pure parser,
-and documentation. It is **deployed**: plan assertions 37/37, deploy and served-card assertions
-pass, and the served stylesheet was checked **by effect** — `.detail-actions` and `.detail-aside`
-resolve to `display:flex` with their gaps, and `.stand-selected .stand-detail-body` is now
-`minmax(0,1fr)`, so the old two-column split is genuinely gone from production rather than merely
-absent from the source. The expanded stand detail was
-rebuilt as three stacked full-width bands after a layout defect ("WebsiteGet directions" rendering
-as one word) turned out to sit on a wrong structure: a narrow action column beside a chip box whose
-heights can never match, leaving a distributed hole on well-tagged stands.
+The most recent tranche is the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard)
+on branch `f-063-inventory-revision-source`. It is **built and locally verified but neither merged
+nor deployed**, and it carries **migration `0019`**, which production has not received.
 
-It also produced two findings that outgrew it, both now driving the ingestion audit:
+The tranche before it — presentation and ingestion groundwork — is deployed: plan assertions 37/37,
+deploy and served-card assertions pass, and the served stylesheet was checked **by effect**.
+
+That earlier tranche produced two findings that outgrew it and drove the ingestion audit:
 
 - **the map CSV is a hand-maintained derivative**, so the oddities in stand descriptions
   (`WA, WA 98070`, en-dashes in dated lines) are transcription residue from the manual step Farm
@@ -37,21 +34,41 @@ It also produced two findings that outgrew it, both now driving the ingestion au
   disproved** (audit 2026-08-04, **B-035 closed wont-fix**). VIGA supplies **three** CSVs, not two:
   a per-farm **profile form** (`2026 Farm Stand Information (Responses)…`, header matches
   `EXPECTED_COLUMNS` byte for byte, parses to 31 stands + 1 known refusal, **still open**), the map
-  transcription (31 stands, the only coordinates), and the **weekly stock form** (734 rows, 49 farms,
-  **no parser, not ingested**). Both "invented" fixtures are real data. The join is sound: 35 stands,
-  0 refusals.
+  transcription (31 stands, the only coordinates), and the **weekly stock form** (734 rows, 49 farms
+  — **now parsed and ingested for 2026**, F-062). Both "invented" fixtures are real data. The join
+  is sound: 35 stands, 0 refusals.
 
-`extractStockUpdate` parses VIGA's dated `"5/26/2026 Update: …"` lines and **deliberately has no
-consumer**: max has decided such a line should count as a confirmation, but how it is stored is
-unresolved, because `inventory_revisions` requires keys asserting a handset sent it.
+`extractStockUpdate` parses VIGA's dated `"5/26/2026 Update: …"` lines. **How such a line is stored
+is now resolved** — F-063's `source = 'viga'` is exactly that record — and the same parser gained
+two fixes found only by measuring the real export: the separator is written as a dash in 5 of 18
+lines, and one line uses a two-digit year. Its remaining job is to keep those lines out of the
+public description, which it does.
 
 ## Verification
 
-- Current `main`: **102 unit-test files / 993 tests**, typecheck, lint, and the production web build
-  pass.
-- Real-Postgres integration: **42 files / 580 tests pass on a complete run** from an empty schema.
-  Not re-run this tranche, which touched no database code — the seeder change is a local-only test
-  fixture.
+- Branch `f-063-inventory-revision-source`: **105 unit-test files / 1055 tests**, typecheck, and
+  lint pass. **Not yet merged to `main` and not deployed.**
+- Real-Postgres integration: **45 files / 603 tests pass on a complete run** from an empty schema,
+  against a local Postgres — never against production Neon.
+- **Migration `0019` verified by effect** against a freshly migrated database (B-022): the `source`
+  column exists and is NOT NULL, carries **no default**, the CHECK constraint is present, and
+  violating inserts are genuinely *refused* in both directions. The backfill was additionally
+  verified against a **populated** pre-change schema, which is what caught that a backfill `UPDATE`
+  aborts on `inventory_revisions_guard_history` — it would have failed against production.
+- **Sixteen sabotages this tranche**, each failing named tests. Notable: the naive per-column CHECK
+  that passes on NULL (5 tests), a surviving column DEFAULT (1 — which exposed a real gap, since
+  every refusal test passed while the default silently satisfied the NOT NULL), a weekly row
+  overwriting a farmer's newer fact (1), and disabling the wrong-database guard (2). **Two early
+  sabotage attempts silently failed to apply and proved nothing**; every later one asserts its
+  anchor is present before editing.
+- **The launch ingest was rehearsed end to end** against a throwaway local database, in F-064's
+  order, with every acceptance criterion checked by querying the result rather than reading script
+  output: `farm_links` 34 rows and payment methods 53 rows (both empty before), 13 revisions all
+  `source='viga'`, 0 visitable stands missing a coordinate, **0 descriptions leaking a structured
+  fact**, and Handpicked Homestead `contact_only` with no address and no pin.
+- **No model seam was added or changed**, so no eval or `evals:live` run is owed. The audit expected
+  one for the weekly form's open-ended prose; measured against the real corpus those answers are
+  comma-separated lists a deterministic parser reads cleanly.
 - **Migration `0018` verified by effect, not by exit status** (B-022): against a freshly migrated
   database the column exists and is nullable, the CHECK constraint is present, and a backdated
   agreement is genuinely *refused* by Postgres. Journal entries are strictly increasing.
@@ -90,6 +107,18 @@ unresolved, because `inventory_revisions` requires keys asserting a handset sent
 - **Scheduled work:** Cloud Tasks handles immediate sender work; one Cloud Scheduler route runs
   recovery, prompts, delivery, callbacks, and retention.
 
+## Two audit findings the build corrected
+
+The [audit](LISTING_INGESTION_AUDIT_2026-08-04.md) is frozen; these are the corrections, measured
+against the real corpus on 2026-08-04 while implementing.
+
+- **Payment methods exist ONLY in the map transcription.** The profile form has no payment question
+  — its header carries none. The audit's "22 payment lines" were map lines, not form lines. max
+  chose to read them from the map's `Accepts: …` prose rather than ship an empty table.
+- **The "0/31 stands with an empty remainder" figure measured the map description**, not the form's
+  own columns. Rebuilt from the form, one stand of 35 ends with no prose at all — which is honest,
+  since its card still carries hours, season, links, and payments from their own columns.
+
 ## Open before go-live
 
 - **Approved farmers still start on no reminder schedule.** `authorizeFarmer` writes no
@@ -97,31 +126,31 @@ unresolved, because `inventory_revisions` requires keys asserting a handset sent
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
 - **Listing facts are frozen** at whatever VIGA's CSV said: hours, season, offerings, payment
   methods, Farm Bucks, and address are editable by nobody. Work items 3 and 3b.
-- **The listing ingestion audit (F-059) is complete** —
-  [LISTING_INGESTION_AUDIT_2026-08-04.md](LISTING_INGESTION_AUDIT_2026-08-04.md). It corrected its
-  own founding premise (B-035 is not a defect) and max settled four decisions: rebuild the
-  description from the profile form's columns (**F-061**); ingest the weekly stock form (**F-062**);
-  run the ingest **before any farmer onboards** (**F-064**); and record VIGA-sourced facts as
-  confirmations through a **`source` column** rather than by fabricating an authorization
-  (**F-063**) — `sms` requires the full handset chain under a CHECK, `viga` requires neither and
-  covers the import, the weekly form, and later admin edits. Attribution for an admin edit belongs to
-  that workflow (**F-065**), matching how `stock_out_reports` and `farm_approvals` already work.
-- **The real ingestion defect is one line**: `seed-stands.ts:176` stores the volunteer's prose as the
-  public description whenever a map row exists, discarding the form's clean columns for display. That
-  causes both on-screen contradictions.
-- **`sales_location_payment_methods` AND `farm_links` are both correctly-shaped tables that nothing
-  writes or reads** — verified in both directions; their only non-schema appearances are test cleanup
-  lists. Links are the most common structured fact in the corpus (41 lines) and are entirely
-  un-ingested. GL-014 names the first; a rewrite is proposed in the audit.
-- **The public map shows two on-screen contradictions** under real data: a "Hours not listed" badge
-  beside prose reading `Open: Year Round`, and "Nothing confirmed recently" directly above a
-  farmer-dated stock update. Both are ingestion artifacts, not rendering bugs.
+- **The ingestion tranche (F-063 → F-061 → F-062, plus F-064's guard) is built on branch
+  `f-063-inventory-revision-source` and is unmerged.** F-063 added `inventory_revisions.source`
+  (`sms` requires the full handset chain under a CHECK; `viga` requires none of it). F-061 rebuilt
+  the description from the profile form's columns and gave `farm_links` and
+  `sales_location_payment_methods` their first writer and reader. F-062 ingests the weekly stock
+  form as dated `viga` confirmations. **The two on-screen contradictions are gone at the data
+  level**, verified over the real corpus.
+- **F-064's production run has NOT happened.** Still owed: a re-export of all three CSVs (the
+  profile form is **still open**), a **`neondb` snapshot** — with an insert-only utility and GL-015
+  open, the snapshot *is* the rollback — max's explicit approval for the bulk write, and the render
+  check on a real card afterwards.
+- **Three weekly-form farms match no seeded stand**: `Venison Valley Farm`, `Ostara`,
+  `Maggie's Farm`. max chose to add them as new stands; **not yet built**, because
+  `Venison Valley Farm` is very likely a spelling variant of the seeded
+  `Venison Valley Farm & Creamery` and adding it blind would duplicate a live stand.
+- **Attribution for an admin inventory edit is still owed (F-065)** — a revision row carries no
+  `admin_actor_id` and there is no general admin audit log, so that workflow must record its own
+  action, matching how `stock_out_reports` and `farm_approvals` already work.
 - **F-029:** finish live carrier/JOIN launch verification.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.
-- **B-024:** encode the no-public-address source instruction before any reseed. Production remains
-  hidden under the approved interim correction. Work item 3 retires this by making address
-  visibility farmer-owned state.
+- **B-024:** **fixed in code** (F-061) and verified by effect on a rehearsal database — a farmer's
+  written refusal makes the stand `contact_only` with no address and no pin, read as a general rule
+  from her own words rather than by naming a farm. **Production still publishes her address** until
+  F-064's ingest runs; the approved interim correction remains in place.
 - **B-008:** replace the incomplete deployed-build lint gate.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
 - **F-044:** verify public-map and authenticated-admin embeds on VIGA's actual Squarespace pages.
