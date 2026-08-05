@@ -101,10 +101,11 @@ unresolved, because `inventory_revisions` requires keys asserting a handset sent
   [LISTING_INGESTION_AUDIT_2026-08-04.md](LISTING_INGESTION_AUDIT_2026-08-04.md). It corrected its
   own founding premise (B-035 is not a defect) and max settled four decisions: rebuild the
   description from the profile form's columns (**F-061**); ingest the weekly stock form (**F-062**);
-  run the ingest **before any farmer onboards** (**F-064**); and treat the initial import as
-  confirmation — which needs one more decision before it can be built (**F-063**), because
-  `inventory_revisions` requires keys asserting a handset sent the message, and a spreadsheet date
-  has neither handset nor message.
+  run the ingest **before any farmer onboards** (**F-064**); and record VIGA-sourced facts as
+  confirmations through a **`source` column** rather than by fabricating an authorization
+  (**F-063**) — `sms` requires the full handset chain under a CHECK, `viga` requires neither and
+  covers the import, the weekly form, and later admin edits. Attribution for an admin edit belongs to
+  that workflow (**F-065**), matching how `stock_out_reports` and `farm_approvals` already work.
 - **The real ingestion defect is one line**: `seed-stands.ts:176` stores the volunteer's prose as the
   public description whenever a map row exists, discarding the form's clean columns for display. That
   causes both on-screen contradictions.

@@ -296,36 +296,49 @@ artifact in question.
    Retires the `mapDescription ||` line.
 3. **Weekly stock form: ingest it.** *(max chose this over leaving it out.)* Requires a new parser for
    the 734-row feed — none exists. See the open question below.
-4. **Sheet-typed dates: "just treat this initial import as confirmation."** See below — needs one
-   clarification before it can be built.
+4. **VIGA-sourced facts count as confirmations, recorded via a `source` column** — not by fabricating
+   an authorization. Settled in full below; **F-063**.
 5. **Timing: the re-ingest runs before any farmer onboards.** This materially de-risks the whole plan:
    with no farmer-authored rows in existence, the insert-only constraint and the missing rollback
    (GL-015) stop being launch blockers for *this* ingest. It also means the ingest must be **ordered
    ahead of** onboarding in the go-live sequence, and that ordering is now a real dependency.
 
-### The one decision that needs a second pass
+### Decision 4, settled (max, 2026-08-04)
 
-Decision 4 as stated — treat the import itself as a confirmation — is reasonable in product terms:
-these *are* farmer-stated facts, and a stand that launches reading "nothing confirmed recently" when
-VIGA holds a dated update is dishonest in the other direction.
+Treating the import as a confirmation is right in product terms — these *are* farmer-stated facts,
+and launching with "nothing confirmed recently" above a dated update is dishonest in the other
+direction.
 
-But it cannot be built literally as written. A published confirmation currently requires
-`inventory_revisions` rows carrying `proposal_id` and `published_by_authorization_id`, which assert
-**a specific authorized handset sent this message**. A spreadsheet date has no handset and no message.
-Writing those keys anyway would fabricate an attestation about an identifiable person, and would
-destroy the audit trail's ability to tell a real farmer confirmation from a volunteer's typing — the
-inversion golden rule #1 exists to prevent.
+It could not be built literally, because `inventory_revisions` requires `proposal_id` and
+`published_by_authorization_id`, which assert **a specific authorized handset sent this message**.
 
-The two ways to honour the intent without fabricating:
+**Fabricating those keys was considered and rejected.** At system inception every listing is
+VIGA-sourced, so fabrication would make the *entire founding corpus* permanently indistinguishable
+from farmer-authored data, at exactly the moment farmers are asked to trust the system. It would also
+require inventing authorization rows — consent records for real people — or pointing every stand at a
+dummy authorizer.
 
-- **A `source` column**, with the handset chain required only when `source = 'sms'` (enforced by a
-  CHECK constraint). The card can then say "Confirmed 26 May 2026 — from VIGA's records", which is
-  both honest and what max wants on screen.
-- **Show the date without calling it a confirmation** — render VIGA's dated update as sourced
-  information with its date, and reserve "confirmed" for farmer-sent messages.
+**Settled shape — a `source` column with two values:**
 
-Either satisfies "the card shouldn't contradict itself". Neither fabricates. **This is the one item
-that should not proceed to implementation until max picks between them.**
+```
+source = 'sms'   → proposal_id + published_by_authorization_id REQUIRED (CHECK)
+source = 'viga'  → both NULL; covers the launch import, the weekly form, and admin edits
+```
+
+max's reasoning for one `viga` value rather than separating import from admin edit: they are the
+**same actor** — a VIGA volunteer typing what a farmer told them, through different doors. One value,
+one rule, and F-062's weekly rows need no special case.
+
+**No `admin_actor_id` on the revision row** (max's call). This matches the codebase's existing
+convention, verified 2026-08-04: there is no general admin audit log, and attribution lives with the
+*action* rather than the data row — `stock_out_reports` carries `reviewed_by_administrator_id` under a
+CHECK binding reviewer and timestamp together; `farm_approvals` does the same.
+
+Carry-forward, recorded in **F-065**: an admin inventory-edit workflow must therefore record its own
+action, or the edit is unattributable. That belongs to that feature, not to this schema change.
+
+The constraint makes the guarantee for **real** confirmations strictly stronger — what was convention
+becomes database-enforced.
 
 Note for whoever builds it: `farm_approvals` is per-farm onboarding approval, **not** per-update
 review. VIGA does not approve individual stock updates, and any design implying it does is wrong.
