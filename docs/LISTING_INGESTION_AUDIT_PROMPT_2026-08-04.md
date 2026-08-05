@@ -46,6 +46,82 @@ tidiness one:
 - the badge says **"Hours not listed"** while the prose says **"Open: Year Round"**;
 - the card says **"Nothing confirmed recently"** directly above a farmer-dated stock update.
 
+## The two canonical sources, and how they actually relate
+
+max supplied both files and confirmed they are **the two canonical datasets of the existing
+system**. Their relationship is the single most important fact in this audit, and the current code
+does not model it:
+
+> **The map data is hand-updated by a VIGA volunteer based on the form submissions.**
+
+So the map CSV is not a second source — it is a **human-maintained derivative** of the form. Every
+oddity in the descriptions (`WA, WA 98070`, `–` vs `-`, `5/2/2026 Update –Eggs, Jam, Swag`) is
+transcription residue from that manual step. This is the staleness Farm Friend exists to remove.
+
+### `VIGA Farmstand Map- VIGA Member Farm Stands (1).csv` — the derivative
+
+- Parses cleanly through `parseStandCsv`: **31 stands, all with descriptions**. This is the corpus
+  the code was built against. 470 raw CSV lines collapse to 31 because descriptions carry embedded
+  newlines.
+- Columns: `WKT` (geometry), `name`, `description`. Everything else is inside the prose blob.
+
+### `Farm Stand Weekly Status (Responses) 2024 - Form Responses 1.csv` — the origin
+
+- **Fails `parseFormResponses` outright** on its header check. This is not a header-mapping fix: the
+  parser expects a *profile* form (`Address`, `Contact Name(s)`, `Website`, `Social Media`,
+  `Open Season`, `Open Hours & Days`, `Stocking Days` — one row per farm). **None of those columns
+  exist in this file.**
+- What it actually is: a **recurring weekly status form**. 20 columns, including "Are you open this
+  week", "What do you have available", "Are there any changes from last week?", "When will you close
+  your stand for the season?", and "Are other farms or food-related businesses selling at your
+  stand?"
+- **734 submissions from 49 distinct farms**, spanning four seasons: 2020 (339), 2024 (197),
+  2025 (128), **2026 (70, from 21 distinct farms)**.
+
+### The measured shape of the 2026 season — run this before designing anything
+
+Counts over the 70 rows dated 2026, produced by a script over the real file:
+
+| Form column | 2026 rows with a value |
+|---|---|
+| `What do you have available` | **70** |
+| `…confirm the address of your farm stand` (first-time-this-season) | **1** |
+| `…confirm the currencies you accept` (first-time-this-season) | **1** |
+| `…confirm a link to your preferred website/instagram/etc` (first-time-this-season) | **1** |
+
+That asymmetry is the finding, and it reframes the whole audit:
+
+- **Profile facts are gated behind an optional "if this is your first time this season" prompt that
+  almost nobody fills in.** The one farm that did state currencies wrote `Cash, Check, Venmo,
+  CashApp` — which is exactly the `sales_location_payment_methods` gap, arriving as structured form
+  data that nothing consumes.
+- **Stock availability, by contrast, is stated every single time.** 70/70.
+- Therefore the *only* durable home for most profile facts today is **the volunteer's hand-typed map
+  description** — which explains why "Additional information" carries so much, and why it drifts.
+
+### What this means for the audit
+
+Do **not** treat the form as a drop-in replacement source. The real questions are:
+
+1. **Does a separate 2026 profile/registration export exist?** `parseFormResponses` was clearly
+   written against one — its `EXPECTED_COLUMNS` describe a real document. Ask max. If it does not
+   exist, that is itself a major finding: the parser encodes a source that is not part of the
+   current operational reality, and the audit must say so plainly.
+2. **Should Farm Friend ingest the weekly form directly**, rather than the volunteer's transcription
+   of it? That is the product's whole premise — removing the manual step — so the re-ingest design
+   should at least consider reading the origin rather than the derivative.
+3. **How are the two reconciled at launch?** The map holds hand-curated facts (geometry above all —
+   the form has no coordinates) that the form does not. A re-ingest almost certainly needs both,
+   with a stated rule for which wins per field.
+4. **`What do you have available` (70/70, timestamped, per-farm)** is the structured, better-sourced
+   twin of the `"5/26/2026 Update: …"` prose we currently scrape out of descriptions. It bears
+   directly on decision 4 in §5 and is a stronger input than the parsed prose. Same caveat, though:
+   these are farmers filling in a Google Form, **not** texting Farm Friend — so "is this a
+   confirmation?" is the same open question, just with cleaner provenance.
+
+**Both files are on max's machine, not in the repo** (`~/downloads/`). Ask for the paths; do not
+copy corpus data containing personal information into the repository or into any commit.
+
 ## Start here — do not re-derive these
 
 These are established. Confirm cheaply if you wish, but do not spend the session rediscovering them.
@@ -78,9 +154,14 @@ These are established. Confirm cheaply if you wish, but do not spend the session
   rule that would have caught the empty payment table. Every claim about "the data" must come from
   running something over the actual CSVs. Reasoning from the parser about what the corpus contains
   is exactly the failure mode to avoid.
-- **You need the source CSVs from max** (`--form <form.csv> --map <map.csv>`). They are not in the
-  repo. **Ask for them before starting** — most of this audit is not doable without them, and a
-  version done from the code alone would be worth less than nothing because it would look complete.
+- **Both source CSVs have been supplied** and are characterized above. They live on max's machine
+  in `~/downloads/`; ask for the exact paths. A version of this audit done from the code alone
+  would be worth less than nothing, because it would look complete while describing a form export
+  that the current operation does not produce.
+- **The seeder's `--form` file is NOT the file max supplied.** `npm run db:seed -- --form … --map …`
+  expects a profile export whose columns do not exist in the weekly-status form. Do not attempt the
+  re-ingest by pointing the existing command at these files; establish first whether the profile
+  export exists at all.
 - **A doc, a comment, a test name, and a green check are claims, not proof.** GL-014's bullets are
   leads to reconfirm, not findings to restate.
 - Read `CLAUDE.md`, `docs/CURRENT_STATE.md`, `docs/DATA_ARCHITECTURE.md`, and
@@ -174,9 +255,15 @@ A **runnable, ordered** plan, not a description of one:
 List them explicitly, each as **one question with named options** — max reads them cold, without
 having followed your reasoning. At minimum:
 
-1. **Derived vs. raw description** (from §2).
-2. **Which fields get a model seam** vs. deterministic parsing vs. left as free text (from §3).
-3. **How a sheet-typed date is recorded.** Live context: max has already decided that
+1. **Which source is authoritative per field** — the weekly form (the origin) or the map
+   description (the volunteer's hand-typed derivative). This is the biggest decision in the audit.
+   Ingesting the derivative preserves today's behaviour and the hand-curated geometry; ingesting
+   the origin removes the manual step, which is the product's stated reason to exist. It is very
+   likely per-field rather than one global answer — the form has no coordinates, and the map has no
+   timestamps.
+2. **Derived vs. raw description** (from §2).
+3. **Which fields get a model seam** vs. deterministic parsing vs. left as free text (from §3).
+4. **How a sheet-typed date is recorded.** Live context: max has already decided that
    `"5/26/2026 Update: …"` should count as a **confirmation** so the card can say "Confirmed 26 May
    2026" instead of contradicting itself. The open part is *storage*. A published confirmation
    currently requires `inventory_revisions` rows with `proposal_id` and
@@ -191,7 +278,7 @@ having followed your reasoning. At minimum:
    shape, propose it. **Note:** `farm_approvals` is a *per-farm onboarding* approval, not a
    per-update review — VIGA does **not** approve individual stock updates, and any design implying
    it does is wrong.
-4. **Re-ingest timing** relative to farmer onboarding — the later it runs, the more farmer-owned
+5. **Re-ingest timing** relative to farmer onboarding — the later it runs, the more farmer-owned
    data it must avoid clobbering.
 
 ## Deliverables
