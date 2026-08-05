@@ -113,6 +113,35 @@ migrated schema demonstrably agree — the single fact that would have broken ha
 skipped. `POST /api/farmer/listing` answers `400` to a malformed token before touching the database
 and a uniform `410` to a well-formed unknown one, so the new endpoint is not an oracle either.
 
+### The admin surface still described the old world (max, mid-wrap)
+
+max: *"the admin needs updated based on the new no-approval for new farms."* Checked against
+production rather than reasoned from the code, and the finding was sharper than expected: **all 35
+seeded farms sat in the approval queue**, each with a stand already live on the public map.
+
+**Approving them changed nothing a customer sees**, which is the part worth remembering.
+`listPublicStands` gates on `is_public` — **not** on approval — so a seeded stand is visible whether
+or not its farm is approved. What `farm_approvals` actually gates is whether the **farmer may
+publish an update**: `confirmProposal` and the scheduled prompts both re-read it. So the queue was
+presenting 35 items as pending VIGA action, where acting changed only a farmer's ability to correct
+their own listing — and VIGA had already decided those farms participate by putting them on the map.
+
+max chose to approve all 35 and keep the queue. Written insert-only and idempotent against the
+partial unique index (the arbiter, not a preceding read), attributed to the board account,
+fingerprinted before writing, and verified by effect: queue empty, 35 locations untouched, and a
+re-run writes zero. `scripts/approve-seeded-farms.ts` is retained and safe to re-run.
+
+**Copy corrected in three places, each of which had become false rather than merely stale:** the
+dashboard tile (approval is now the exception, reached only by the three uninvited paths), the
+section note (which claimed approval is what lets stands "appear to customers" — it never was), and
+the empty state, which read as "nothing to do *yet*" when an empty queue is now the normal healthy
+outcome. A test pins the empty-state claim; sabotaging the copy fails it. ADMIN_OPERATIONS.md gets
+the same publish-vs-visible distinction.
+
+Deployed as `84c512d` → `farm-friend-web-00031-qn9` / `farm-friend-worker-00032-fbt`, plan
+`0 add / 2 change / 0 destroy`, assertions 37/37, and the public map verified unchanged afterwards
+(34 stands, 33 with items) — the approval write touched publishing rights only, as intended.
+
 **One verification defect worth recording:** the first check invented a constraint name
 (`inventory_revisions_coherent_source`) and reported a FAIL against a migration that was fine. The
 name is now read from the migration file. A verification script that asserts the wrong thing is

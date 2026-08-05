@@ -7,17 +7,28 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00030-kx6` and worker revision `farm-friend-worker-00031-tsm`, both at digest
-`sha256:6fed811a57a0d9a8d57d5e82b59128f66f994fe990208c070e3bd45bfff6eabc` (`main` at `7c996a7`).
+`farm-friend-web-00031-qn9` and worker revision `farm-friend-worker-00032-fbt`, both at digest
+`sha256:2b8e69f3c54922d07a5bedd3715de5c3da5115ea224e04cf398a5e1b8b123d71` (`main` at `84c512d`).
 Production Postgres is `neondb` with **all 22 migrations applied (`0000`–`0021`)**, verified by
 effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the per-migration checks and the
 fingerprint that preceded them.
 
-**Deployed and verified by effect 2026-08-05**: plan assertions 37/37, deploy and served-card
-assertions pass, and the live site serves **34 stands, 33 reading `usuallySells` from `stand_items`**
-— so the promoted image and the migrated schema demonstrably agree. `POST /api/farmer/listing`
-answers `400` to a malformed token before touching the database and a uniform `410` to a well-formed
-unknown one, so it is not an oracle for whether a guessed token names anything.
+**Deployed twice on 2026-08-05, each verified by effect**: plan assertions 37/37 both times,
+deploy and served-card assertions pass, and the live site serves **34 stands, 33 reading
+`usuallySells` from `stand_items`** — so the promoted image and the migrated schema demonstrably
+agree. `POST /api/farmer/listing` answers `400` to a malformed token before touching the database
+and a uniform `410` to a well-formed unknown one, so it is not an oracle for whether a guessed token
+names anything.
+
+**All 35 seeded farms are now approved** (2026-08-05), recorded against the board account. The
+admin's approval queue had held all 35 while approving them changed nothing a customer sees:
+`listPublicStands` gates on `is_public`, **not** on approval, so those stands were already on the
+map. What approval gates is whether the **farmer may publish an update** — `confirmProposal` and the
+scheduled prompts both re-read it. The bulk write was insert-only, idempotent against the partial
+unique index, fingerprinted before writing, and verified by effect (queue empty, 35 locations
+untouched, a re-run writes zero). `scripts/approve-seeded-farms.ts` is retained and safe to re-run.
+Admin copy in three places was corrected to match: approval is now the **exception**, and an empty
+queue is the normal state rather than a sign something failed.
 
 `0019`, `0020`, and `0021` were applied **before** the code that reads them was promoted, per the
 RUNBOOK's ordering rule. All three are additive and backward-compatible (a column, a table, a
@@ -67,9 +78,9 @@ public description, which it does.
 
 ## Verification
 
-- Current `main` (`7c996a7`, PR #81 squashed): **108 unit-test files / 1119 tests**, **48
-  integration files / 655 tests**, typecheck and lint pass (2026-08-05).
-  **No model seam was added or changed, so no eval or `evals:live` run is owed.** **Deployed.**
+- Current `main` (`84c512d`): **1120 unit tests**, **48 integration files / 655 tests**, typecheck
+  and lint pass (2026-08-05). **No model seam was added or changed, so no eval or `evals:live` run
+  is owed.** **Deployed.**
 - Prior `main` (`41e6dd0`): **105 unit-test files / 1075 tests**, typecheck, lint, and **evals
   (critical 11/11, adversarial 29/29, advisory 4/4)** pass (verified 2026-08-05). Superseded by the
   run above and now deployed as part of `7c996a7`.
