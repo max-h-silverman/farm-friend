@@ -27,6 +27,7 @@ export * from "./auth/session";
 export * from "./seed/availability";
 export * from "./seed/farm-links";
 export * from "./seed/stand-description";
+export * from "./seed/weekly-status";
 export * from "./seed/form-responses";
 export * from "./seed/match-stands";
 export * from "./seed/offering-type";

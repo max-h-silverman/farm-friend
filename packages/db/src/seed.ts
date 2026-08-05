@@ -436,3 +436,109 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
 
   return { seeded, skipped, flagsRaised };
 }
+
+/** One farm's weekly statement, already parsed and joined by name (F-062). */
+export interface WeeklyConfirmationInput {
+  /** The farm name as the weekly form states it; resolved through the seed join's own key. */
+  standName: string;
+  /** The day the farmer submitted. The form records a date, not an instant. */
+  statedOn: Date;
+  /** The items named, in stated order. */
+  items: string[];
+}
+
+export interface WeeklyConfirmationResult {
+  published: number;
+  /** Rows refused because something NEWER is already published for that stand. */
+  skippedAsOlder: number;
+  /** Farm names in the form that match no seeded stand. Reported, never silently dropped. */
+  unknownStands: string[];
+}
+
+/**
+ * Publish weekly-form submissions as dated confirmations (F-062).
+ *
+ * WHY THESE ARE CONFIRMATIONS AT ALL. A farmer has filled in VIGA's weekly form for years and
+ * has not heard of Farm Friend. If their submission produced nothing, the system replacing their
+ * old one would be strictly worse for them on day one. And a customer wants both facts: the
+ * standing "usually sells" sets expectations, this dated one says how much to trust it today.
+ *
+ * WHY `source = 'viga'`. A Google Form is not a handset. Before F-063 this row was
+ * unrepresentable without inventing a proposal, an authorization, and an approval — a false
+ * statement about an identifiable person. Now it is simply a different, honestly labelled kind
+ * of confirmation, and the staleness machinery ages it correctly with no special handling.
+ *
+ * THE NEWER FACT ALWAYS WINS, whatever its source. A farmer who texts an update must never have
+ * it reverted by a re-ingest carrying last week's sheet row — that is the migration path off the
+ * legacy form: the moment a farmer texts, their own words take over. The comparison is on
+ * `published_at`, so this holds for an older weekly row against a newer weekly row too.
+ */
+export async function seedWeeklyConfirmations(
+  sql: Sql,
+  submissions: WeeklyConfirmationInput[],
+): Promise<WeeklyConfirmationResult> {
+  let published = 0;
+  let skippedAsOlder = 0;
+  const unknownStands: string[] = [];
+
+  await sql.begin(async (tx) => {
+    // Built inside the transaction so the index cannot go stale mid-batch, and so an ambiguous
+    // name aborts before any confirmation lands rather than after some of them have.
+    const byKey = await indexLocationsByMatchKey(tx);
+
+    for (const submission of submissions) {
+      const location = resolveStand(byKey, submission.standName);
+      if (location === undefined) {
+        unknownStands.push(submission.standName);
+        continue;
+      }
+
+      // `for update` so two concurrent ingests cannot both read "no current revision" and then
+      // both insert, which the partial unique index would reject as a lost race rather than a
+      // clean skip.
+      const current = await tx`
+        select id, published_at from inventory_revisions
+        where sales_location_id = ${location.id} and is_current
+        for update
+      `;
+      const currentPublishedAt = current[0]?.published_at as Date | undefined;
+      if (
+        currentPublishedAt !== undefined &&
+        currentPublishedAt.getTime() >= submission.statedOn.getTime()
+      ) {
+        skippedAsOlder++;
+        continue;
+      }
+
+      if (current.length > 0) {
+        await tx`
+          update inventory_revisions
+          set is_current = false, superseded_at = ${submission.statedOn}
+          where id = ${current[0]?.id as string}
+        `;
+      }
+
+      const revision = await tx`
+        insert into inventory_revisions (
+          farm_id, sales_location_id, source, published_at
+        )
+        select owner_farm_id, id, 'viga', ${submission.statedOn}
+        from sales_locations where id = ${location.id}
+        returning id
+      `;
+      const revisionId = revision[0]?.id as string;
+
+      for (const [index, item] of submission.items.entries()) {
+        await tx`
+          insert into inventory_entries (
+            inventory_revision_id, sales_location_id, item_name, sort_order
+          )
+          values (${revisionId}, ${location.id}, ${item}, ${index})
+        `;
+      }
+      published++;
+    }
+  });
+
+  return { published, skippedAsOlder, unknownStands };
+}
