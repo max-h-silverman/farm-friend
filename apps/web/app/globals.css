@@ -1838,6 +1838,101 @@ button.admin-action-danger:disabled {
   font-size: 0.9rem;
 }
 
+/* ── The onboarding listing form (F-067) ─────────────────────────────────────────────
+ *
+ * The same mobile-first discipline as the farmer's stand form: one column, large type, 48px
+ * targets. A farmer fills this in from the invitation text, on a phone, usually outdoors.
+ *
+ * It reuses `.farmer-form-note`, `.farmer-form-error` and `.farmer-form-published` rather
+ * than restating them — one visual system for everything a farmer writes, not a second per
+ * screen. */
+
+.farmer-listing {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.farmer-listing input[type="text"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.6rem 0.8rem;
+  /* Inherit, so a farmer's own accessibility text-size setting is honoured. */
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.farmer-listing label {
+  margin-top: 0.4rem;
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+/* THE BRANCH — the question that decides what the rest of the form may ask. Boxed and given
+   its own weight because it is not one field among several: whether there is a place to drive
+   to is the fact the database refuses to let anyone invent. */
+.farmer-listing-branch {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.6rem 0 0.2rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.farmer-listing-branch legend {
+  padding: 0 0.3rem;
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+.farmer-listing-choice {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  /* A 44px row, so each option is a comfortable one-handed touch target. */
+  min-height: 44px;
+  margin: 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.farmer-listing-choice input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* The pin-drop map. Full width and tappable — there is no geocoder, so this IS how a stand
+   gets its coordinates, and it has to work with a thumb. */
+.farmer-listing-map {
+  width: 100%;
+  height: auto;
+  margin-top: 0.2rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+
+.farmer-listing-map-label {
+  margin: 0.5rem 0 0;
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+/* The dropped pin. Amber rather than green: it is the farmer's own unsaved choice, not a
+   published stand, and the map's green markers already mean "a listing that exists". */
+.farmer-listing-pin {
+  fill: var(--amber);
+  stroke: var(--card);
+  stroke-width: 3;
+}
+
 .admin-farm button:disabled {
   opacity: 0.65;
   cursor: default;

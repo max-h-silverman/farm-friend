@@ -3,6 +3,7 @@ import {
   ISLAND_BOUNDS,
   ISLAND_VIEWBOX,
   projectToIsland,
+  unprojectFromIsland,
 } from "./island-projection";
 
 // F-043 — putting a real coordinate on hand-drawn artwork.
@@ -143,5 +144,104 @@ describe("projectToIsland", () => {
     // The complement, so `clamped` is not passing by always being true.
     const onIsland = projectToIsland({ latitude: 47.4471, longitude: -122.4594 });
     expect(onIsland.clamped).toBe(false);
+  });
+});
+
+// F-067 — the same projection, run backwards, so a farmer can DROP A PIN.
+//
+// The onboarding form asks a farmer with a visitable stand where it is. The database refuses a
+// visitable location without a complete coordinate pair (`coherentVisitability`), and this
+// codebase has no geocoder and deliberately never will — "a runtime geocoder/map package" is a
+// named non-goal in DEVELOPMENT.md, and `maps/README.md` records that there is no runtime
+// mapping-provider seam. So the coordinate comes from the farmer pointing at the island they
+// live on, which they know better than any address lookup does.
+//
+// This must be the EXACT inverse of `projectToIsland`, not a second statement about where the
+// island is. The file's own warning applies in both directions: two independent guesses at the
+// geography drift, and a farm lands on the wrong side of the highway with nothing failing.
+describe("unprojectFromIsland", () => {
+  it("is the exact inverse of projectToIsland for real Vashon landmarks", () => {
+    // Round-tripping through the drawing must return the coordinate that went in. Anchored to
+    // independently known places rather than to arbitrary numbers, so a shared error in both
+    // directions — a wrong bound, a dropped cosine — cannot cancel itself out unnoticed.
+    const landmarks = [
+      { latitude: 47.5133, longitude: -122.4636 }, // north-end ferry dock
+      { latitude: 47.4471, longitude: -122.4594 }, // Vashon town
+      { latitude: 47.3939, longitude: -122.4649 }, // Burton
+      { latitude: 47.3428, longitude: -122.5089 }, // south-end ferry dock
+    ];
+
+    for (const landmark of landmarks) {
+      const drawn = projectToIsland(landmark);
+      const returned = unprojectFromIsland(drawn);
+
+      // Six decimal places is roughly a tenth of a metre — far finer than a farm stand.
+      expect(returned.latitude).toBeCloseTo(landmark.latitude, 6);
+      expect(returned.longitude).toBeCloseTo(landmark.longitude, 6);
+    }
+  });
+
+  it("reads a tap NEAR THE TOP as further NORTH", () => {
+    // The y-inversion again, from the other side. Getting it backwards here would put every
+    // farmer's pin at the opposite end of the island from where they tapped — and because the
+    // island is roughly symmetrical, the result looks entirely plausible on the artwork.
+    const top = unprojectFromIsland({ x: 500, y: 0 });
+    const bottom = unprojectFromIsland({ x: 500, y: ISLAND_VIEWBOX.height });
+
+    expect(top.latitude).toBeGreaterThan(bottom.latitude);
+  });
+
+  it("reads a tap NEAR THE RIGHT as further EAST", () => {
+    const right = unprojectFromIsland({ x: ISLAND_VIEWBOX.width, y: 200 });
+    const left = unprojectFromIsland({ x: 0, y: 200 });
+
+    expect(right.longitude).toBeGreaterThan(left.longitude);
+  });
+
+  it("returns a coordinate the SEEDER'S OWN bounds accept", () => {
+    // The corners of the drawing are the extremes a farmer can possibly tap. Every one has to
+    // be a coordinate the rest of the system already considers valid — otherwise the form can
+    // produce a pin the database or the map refuses, and the farmer is stuck with no way to
+    // tell what they did wrong.
+    const corners = [
+      { x: 0, y: 0 },
+      { x: ISLAND_VIEWBOX.width, y: 0 },
+      { x: 0, y: ISLAND_VIEWBOX.height },
+      { x: ISLAND_VIEWBOX.width, y: ISLAND_VIEWBOX.height },
+    ];
+
+    for (const corner of corners) {
+      const { latitude, longitude } = unprojectFromIsland(corner);
+
+      expect(latitude).toBeGreaterThanOrEqual(ISLAND_BOUNDS.south);
+      expect(latitude).toBeLessThanOrEqual(ISLAND_BOUNDS.north);
+      expect(longitude).toBeGreaterThanOrEqual(ISLAND_BOUNDS.west);
+      expect(longitude).toBeLessThanOrEqual(ISLAND_BOUNDS.east);
+    }
+  });
+
+  it("clamps a tap outside the drawing back onto the island", () => {
+    // A stray tap, a fat finger at the edge, or a rounding artefact in the browser's
+    // coordinate maths must not produce a coordinate outside the island — that would be a pin
+    // in Puget Sound, which `coherentVisitability` would happily accept because it only checks
+    // that the numbers are present.
+    const beyond = unprojectFromIsland({ x: -80, y: ISLAND_VIEWBOX.height + 120 });
+
+    expect(beyond.latitude).toBeGreaterThanOrEqual(ISLAND_BOUNDS.south);
+    expect(beyond.longitude).toBeGreaterThanOrEqual(ISLAND_BOUNDS.west);
+  });
+
+  it("round-trips every point on a sweep of the drawing", () => {
+    // A single landmark can pass on a projection that is subtly wrong in between. Sweeping the
+    // whole canvas catches a scale error that only shows away from the points chosen above.
+    for (let x = 0; x <= ISLAND_VIEWBOX.width; x += 50) {
+      for (let y = 0; y <= ISLAND_VIEWBOX.height; y += 50) {
+        const coordinate = unprojectFromIsland({ x, y });
+        const back = projectToIsland(coordinate);
+
+        expect(back.x).toBeCloseTo(x, 6);
+        expect(back.y).toBeCloseTo(y, 6);
+      }
+    }
   });
 });

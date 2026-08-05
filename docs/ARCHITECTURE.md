@@ -124,6 +124,20 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   own confirmation and audit event: it is routed through db + clock before full model composition,
   re-resolves the link, and cannot grant access or attach names to profiles. The settings page has
   no second login and no consent control; pausing reminders never changes launch-program consent.
+- **Farmer onboarding** (F-067): `/farmer/onboarding/<token>` — a one-use invitation link that
+  captures the SMS agreement and the farm's **listing details**, then hands off to a prepared
+  `SIGNUP` text. The invitation token is the whole credential and, like the standing link, is
+  posted in the request **body** (`/api/farmer/onboarding`, `/api/farmer/listing`), never a query
+  string. **The token also names the farm**: a `farmId` in the request body is ignored, which is
+  what stops one invitation writing another farm's listing.
+  The listing step is the **first farmer-facing writer of public listing facts** — before it,
+  `sales_locations` had exactly one non-test writer, the seeder. It asks whether there is a stand
+  to visit before it can know whether an address is required, because
+  `sales_locations_coherent_visitability` is all-or-nothing in both directions (F-038, B-024); the
+  coordinate comes from the farmer dropping a pin on the drawn island through F-043's projection
+  run backwards, since there is deliberately **no geocoder and no mapping-provider seam**. It
+  publishes on submit (max, 2026-08-05) rather than waiting for the SIGNUP text, and it writes
+  standing item state only — never a dated confirmation.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.

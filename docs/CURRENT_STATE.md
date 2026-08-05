@@ -6,34 +6,35 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00029-bgf` and worker revision `farm-friend-worker-00030-vzd`, both at digest
-`sha256:3a25dd2c9f47e47ecac48547b81e366c2a88b0561cf84a385e2321f33977a464` (`main` at `38f02ed`).
-Production Postgres is `neondb` with all 18 migrations applied (`0000`–`0018`, through journal
-timestamp `1786700000000`) — **unchanged by this deploy, which carried no migration**.
+Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **all 22 migrations applied
+(`0000`–`0021`)**, verified by effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the
+per-migration checks and the fingerprint that preceded them.
 
-Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constraint) was applied
-**before** the code that reads it was promoted, per the RUNBOOK's ordering rule.
+`0019`, `0020`, and `0021` were applied **before** the code that reads them was promoted, per the
+RUNBOOK's ordering rule. All three are additive and backward-compatible (a column, a table, a
+widened constraint), so the pre-tranche image kept serving correctly in the window between the
+migration and the deploy. **`0020` backfilled 212 `stand_items` rows from real production data**;
+listing data was unchanged (35 farms, 35 locations, 2 contacts, before and after). max declined a
+pre-migration snapshot when asked.
 
 The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
 [session log](SESSION_LOG.md) for its reasoning.
 
-Three tranches are now ahead of production, all **NOT deployed**:
+Four tranches have now landed on `main`, and **all their migrations are on production**:
 
-- the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard), merged to `main`,
-  carrying **migration `0019`** (`inventory_revisions.source`);
-- **F-066's one item vocabulary**, carrying **migration `0020`** (`stand_items`);
-- **F-067's self-serve farmer onboarding**, carrying **migration `0021`**
-  (`farmer_onboarding_requests_coherent_settlement` widened).
+- the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard) — migration `0019`
+  (`inventory_revisions.source`);
+- **F-066's one item vocabulary** — migration `0020` (`stand_items`);
+- **F-067's self-serve farmer onboarding** — migration `0021`
+  (`farmer_onboarding_requests_coherent_settlement` widened);
+- **F-067's onboarding listing form** — the first farmer-facing writer of listing facts; no
+  migration of its own.
 
-All three are now **merged to `main`** — F-066 and F-067 landed together as **PR #80** (`41e6dd0`),
-squashed, once the concurrent session that had held the merge back was finished. The merged base
-was re-verified green (1075 unit, 638 integration) rather than assumed from the branch's own run.
+F-066 and F-067's first half landed together as **PR #80** (`41e6dd0`); the listing form landed as
+**PR #81**. Each merged base was re-verified green rather than assumed from the branch's own run.
 
-Production has received none of them, so it still runs the pre-tranche schema and the pre-tranche
-listing data. **`0019`, `0020`, and `0021` are all owed to production, in that order, before the
-image that reads them**, per the RUNBOOK's ordering rule. See the [session log](SESSION_LOG.md) for
-the reasoning.
+**The schema is current; the listing DATA is not.** F-064's production ingest has still not run, so
+production continues to serve the pre-tranche listing content — see "Open before go-live" below.
 
 The tranche before it — presentation and ingestion groundwork — is deployed: plan assertions 37/37,
 deploy and served-card assertions pass, and the served stylesheet was checked **by effect**.
@@ -59,11 +60,36 @@ public description, which it does.
 
 ## Verification
 
+- Branch `f-067-listing-form` (the listing form, ahead of `main`): **108 unit-test files /
+  1119 tests**, **48 integration files / 655 tests**, typecheck and lint pass (2026-08-05).
+  **No model seam was added or changed, so no eval or `evals:live` run is owed.** **Not deployed.**
 - Current `main` (merged, `41e6dd0`): **105 unit-test files / 1075 tests**, typecheck,
   lint, and **evals (critical 11/11, adversarial 29/29, advisory 4/4)** pass (verified 2026-08-05).
   **Not deployed.**
 - Real-Postgres integration: **47 files / 635 tests pass on a complete run** from an empty schema,
   against a local Postgres — never against production Neon.
+- **F-067's listing form verified END TO END in a real browser**, then read back from Postgres and
+  from `/api/public/stands` rather than from the screen's success message: a farmer fills the form
+  and the stand reaches the public map with address, pin, hours, payment methods, and their own
+  item words, with no VIGA step. The pin landed at 47.4497 / -122.4733 — Vashon town, where the tap
+  was — so the projection round-trips in a live browser, not only in tests. **Zero inventory
+  revisions** were written, which is F-066's separation holding.
+- **Five sabotages this tranche, each failing named tests**: dropping the pin requirement (caught
+  by the integration test AND by `coherentVisitability`, proving both layers real), flipping the
+  projection's y-inversion (3 tests), sending an address and pin regardless of the visitability
+  branch (1), accepting a body-supplied `farmId` (1 — the cross-farm write vector), and adding an
+  inventory write to the listing path (1, via a new architecture tripwire).
+- **One sabotage escaped, which is the reason to run them.** A plural-stripping normalizer
+  ("tomatoes" → "tomatoe") passed all 17 new integration tests: it mangles the key without
+  colliding, and the database index applies the correct rule independently, so the stored rows
+  looked right while the in-memory dedupe had stopped agreeing with the index that arbitrates.
+  `standItemKey` is now exported and asserted directly — including that it returns the word
+  itself, the assertion no collision test can make — and the escaped sabotage fails 4 named tests.
+- **A test-defect of the same family was found in an existing file.**
+  `farmer-onboarding-surface.test.ts` reads page source as raw text, so the comment recording that
+  "VIGA reviews your request" was retired satisfied a search for that phrase. It now strips
+  comments first, verified by effect (present in the raw file, absent after stripping, markup
+  intact). This affected its pre-existing assertions too, not only the new ones.
 - **Migration `0021` verified by effect**, and the check found a gap the suites could not: the
   integration suites build their own databases, so all 635 passed while the local dev database
   still held the pre-`0021` constraint. Confirmed via `pg_get_constraintdef` after applying, then
@@ -123,11 +149,15 @@ public description, which it does.
 - The stand-detail layout was measured **in a real browser at 1440px** across 16 stands spanning
   every shape (market, flower-only, contact-only, services): no band gap exceeds the 12px grid gap,
   and the action row wraps without overlap or overflow down to a 260px card.
-- **Two surfaces are unverified at phone width**, both because jsdom reports every element as
-  zero-sized: the farmer agreement step, and now the expanded stand detail. For the latter the
-  browser in the working environment reports a successful resize while `window.innerWidth` stays
-  1728, and AppleScript window control times out; max chose to merge and look himself (**F-060**).
-  The phone sheet's *markup* is covered by a test; its *layout* is not.
+- **Three surfaces are unverified at phone width**, all because jsdom reports every element as
+  zero-sized: the farmer agreement step, the expanded stand detail, and now **F-067's onboarding
+  listing form including its pin-drop map**. The browser in the working environment reports a
+  successful resize while the viewport stays wide, and AppleScript window control times out; max
+  chose to merge and look himself (**F-060**). The listing form was checked in a real browser and
+  works end to end, but **at desktop width** — its markup and behaviour are covered by tests, its
+  phone layout is not. The pin-drop map is the piece most worth max's own look, since it is
+  thumb-driven by design. One cosmetic defect was seen at desktop width: the "North ferry" label
+  is clipped at the map's top edge.
 - Deployed and verified **by effect** against the live service, not by the apply's exit status:
   `/api/farmer/onboarding` refuses a malformed token with `400` before touching the database, and
   answers a well-formed but unknown token with the uniform `410 invitation_unavailable` — so the
@@ -168,8 +198,12 @@ against the real corpus on 2026-08-04 while implementing.
 - **Approved farmers still start on no reminder schedule.** `authorizeFarmer` writes no
   `inventory_prompt_preferences` row, so the scheduled-prompt machinery — built and correct —
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
-- **Listing facts are frozen** at whatever VIGA's CSV said: hours, season, offerings, payment
-  methods, Farm Bucks, and address are editable by nobody. Work items 3 and 3b.
+- **Listing facts are no longer frozen for an ONBOARDING farmer** (F-067): hours, address, pin,
+  payment methods, and what they usually sell are written by the onboarding form. **Still frozen
+  for everyone else** — an already-onboarded farmer has no edit surface, and season, Farm Bucks,
+  and offering type remain editable by nobody. The form deliberately does not touch Farm Bucks:
+  it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot make themselves
+  eligible by filling in a form.
 - **The ingestion tranche (F-063 → F-061 → F-062, plus F-064's guard) is merged and UNDEPLOYED.**
   F-063 added `inventory_revisions.source` (`sms` requires the full handset chain under a CHECK;
   `viga` requires none of it). F-061 rebuilt the description from the profile form's columns and
@@ -177,10 +211,11 @@ against the real corpus on 2026-08-04 while implementing.
   ingests the weekly stock form as dated `viga` confirmations. **The two on-screen contradictions
   are gone at the data level**, verified over the real corpus — but **not on the live map**, which
   still runs the pre-tranche image and data.
-- **Migrations `0019`, `0020`, and `0021` are owed to production**, in that order, before the code
-  that reads them (RUNBOOK ordering rule). Deploying the image without them would break every
-  listing read: `0020`'s table is now the only source of what a stand usually sells, and `0021`'s
-  widened settlement CHECK is what lets a farmer's own redemption settle their onboarding request.
+- ~~Migrations `0019`, `0020`, and `0021` are owed to production~~ — **DONE 2026-08-05**, in that
+  order, before the image that reads them, and verified by effect rather than by exit status.
+  `0020`'s table is now the only source of what a stand usually sells and `0021`'s widened
+  settlement CHECK is what lets a farmer's own redemption settle their request, so deploying the
+  image without them would have broken every listing read.
 - **F-064's production run has NOT happened.** Still owed: a re-export of all three CSVs (the
   profile form is **still open**), a **`neondb` snapshot** — with an insert-only utility and GL-015
   open, the snapshot *is* the rollback — max's explicit approval for the bulk write, and the render
@@ -209,9 +244,10 @@ against the real corpus on 2026-08-04 while implementing.
   item's spelling in `readPublicStands` so both lists reach the view as one vocabulary.
   Normalization is case and whitespace only — never singular/plural or synonyms, asserted by a
   test that must be deleted before anyone can loosen it.
-  **Still owed:** migrations `0019` and `0020` to production, and the farmer web form that is the
-  standing state's only intended writer (work items 3/3b, now **F-067**) — today the seeder is its
-  only writer, so a farmer still cannot edit their own mix.
+  **The farmer web form now EXISTS** (F-067, branch `f-067-listing-form`): `saveOnboardingListing`
+  is the standing state's farmer-facing writer, so F-066's last acceptance criterion — SMS cannot
+  write standing state — is now provable and proven. **Migrations `0019` and `0020` are on
+  production** (2026-08-05); `0020`'s backfill wrote 212 item rows from the real listing data.
 - **F-067 — self-serve onboarding is HALF BUILT, UNDEPLOYED.** Redeeming an agreed invitation that
   **names a farm** now writes `farmer_authorizations` **and `farm_approvals`** in the same
   transaction as the consent and the redemption, so no administrator acts. Both were required:
@@ -229,12 +265,41 @@ against the real corpus on 2026-08-04 while implementing.
   farm at invite time**, which is what makes a brand-new farmer reachable by self-serve at all. The
   SIGNUP acknowledgement is omitted for a self-served farmer, since "VIGA will review it" is false
   for someone already set up and arrived beside the "your farm is ready" text.
-  **Still owed — the half that is not built:** the onboarding page still asks for nothing but a
-  consent tick, so a new farm reaches the public map with a name and nothing else. **Nothing in the
-  codebase writes listing facts today** — `public_address`, `hours_text`, and the rest are read
-  everywhere and only ever seeded — so the form is the first farmer-facing write path for public
-  listing data. max chose **publish immediately, no VIGA review** ("the admin can fix anything
-  that's erroneous", which leans on F-065) and **full listing details** over a minimal set.
+  **The listing form is now BUILT** (branch `f-067-listing-form`, undeployed).
+  `packages/db/src/onboarding-listing.ts` is the **first non-seeder writer of `sales_locations`** —
+  before it, `public_address`, `hours_text` and the rest were read everywhere and only ever seeded.
+  It supplies the three columns the schema refuses to default, writes payment methods and F-066
+  standing items, and **updates the farm's existing stand rather than adding a second**, so a
+  farmer invited against a seeded farm does not appear twice on the map. max chose **publish
+  immediately, no VIGA review** ("the admin can fix anything that's erroneous", which leans on
+  F-065) and **full listing details** over a minimal set.
+
+  **The visitability branch is the form's structure, not a field on it.** `coherentVisitability`
+  requires an address and a complete coordinate pair for a visitable stand and forbids all three
+  for a contact-only one, so the form asks whether there is a stand to visit before it can know
+  what to require. Refused in the writer AND enforced by the database: the constraint is the
+  guarantee, the writer's check is what turns it into an answer the farmer can act on.
+
+  **The pin is DROPPED, not looked up.** Nothing in the codebase can turn a typed address into a
+  coordinate, and nothing should — a runtime geocoder/map package is a named non-goal and
+  `maps/README.md` records that there is deliberately no mapping-provider seam. max chose
+  (2026-08-05) that the farmer taps the drawn island; `unprojectFromIsland` is F-043's projection
+  run backwards, so it is one statement about where the island is rather than a second one.
+
+  **`apps/web/lib/farmer-listing.ts` is the boundary.** The invitation token is the only credential
+  and it names the farm — a `farmId` in the request body is **ignored**, which is what stops any
+  link overwriting any farm's public listing. It also strips an address and pin sent alongside
+  `contact_only`, since a farmer who fills in an address and then changes their answer is the
+  ordinary case rather than an attack.
+
+  **A consequence max accepted, recorded once:** publish-on-submit means anyone holding an
+  onboarding link can put a stand on VIGA's public map without proving they hold the farmer's
+  phone. Flagged before building; max chose it anyway. Links are one-use, expire in seven days,
+  and an admin can remove a bad listing.
+
+  **The page no longer promises a VIGA review** — that copy was retired rather than reworded, since
+  redemption now authorizes and approves in one transaction and a promised review is a step nobody
+  performs.
 - **F-029:** finish live carrier/JOIN launch verification.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.
