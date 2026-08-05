@@ -680,11 +680,11 @@ describe("clean launch database foundation (integration)", () => {
     const revisionRows = await db()`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id,
-        published_by_authorization_id, farm_approval_id, published_at
+        published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
         ${storedId("farm")}, ${storedId("location")}, ${storedId("proposal1")},
-        ${storedId("authorization")}, ${storedId("approval")}, ${later}
+        ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${later}
       )
       returning id
     `;
@@ -739,11 +739,11 @@ describe("clean launch database foundation (integration)", () => {
       db()`
         insert into inventory_revisions (
           farm_id, sales_location_id, proposal_id,
-          published_by_authorization_id, farm_approval_id, published_at
+          published_by_authorization_id, farm_approval_id, source, published_at
         )
         values (
           ${storedId("farm")}, ${storedId("location")}, ${secondProposalId},
-          ${storedId("authorization")}, ${storedId("approval")}, ${tomorrow}
+          ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${tomorrow}
         )
       `,
     ).rejects.toThrow();
@@ -756,11 +756,11 @@ describe("clean launch database foundation (integration)", () => {
     await db()`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id,
-        published_by_authorization_id, farm_approval_id, published_at
+        published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
         ${storedId("farm")}, ${storedId("location")}, ${secondProposalId},
-        ${storedId("authorization")}, ${storedId("approval")}, ${tomorrow}
+        ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${tomorrow}
       )
     `;
     await expect(

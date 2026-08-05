@@ -181,10 +181,10 @@ describe("SMS result paging end to end (integration)", () => {
     const revision = await client()`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-        farm_approval_id, published_at
+        farm_approval_id, source, published_at
       )
       values (${farmId}, ${locationId}, ${proposal[0]?.id as string},
-              ${auth[0]?.id as string}, ${approval[0]?.id as string}, ${hoursAgo(2)})
+              ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${hoursAgo(2)})
       returning id
     `;
     await client()`

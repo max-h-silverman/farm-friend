@@ -158,6 +158,34 @@ describe("extracting a dated stock update", () => {
     expect(extractStockUpdate("Open: March-November. 7 days a week.")).toBeUndefined();
   });
 
+  it("reads a DASH separator, which 5 of the corpus's 18 dated lines use (F-061)", () => {
+    // Measured against the real map export 2026-08-04: the sheet writes both
+    // "7/22/2026 Update:" and "7/22/2026 Update -", including an en-dash. Matching only the
+    // colon silently dropped almost a third of the dated updates — they stayed in the prose and
+    // printed beneath the card's own "Nothing confirmed recently".
+    const hyphen = extractStockUpdate("7/22/2026 Update - Jam, flowers, blueberries");
+    expect(hyphen?.statedOn).toEqual(new Date(Date.UTC(2026, 6, 22)));
+    expect(hyphen?.items).toEqual(["Jam", "flowers", "blueberries"]);
+
+    const enDash = extractStockUpdate("5/2/2026 Update – salad, kale");
+    expect(enDash?.items).toEqual(["salad", "kale"]);
+
+    // Lowercase "update" appears too ("04/02/2026 update -").
+    expect(extractStockUpdate("04/02/2026 update - rhubarb")?.items).toEqual(["rhubarb"]);
+  });
+
+  it("reads a TWO-digit year, which the hand-typed sheet also uses", () => {
+    // Alta Rosa's real line: "7/9/25 update: Has Silvan berries, salad mix, eggs." A
+    // four-digit-only pattern read this as no update at all, leaving the line in the prose.
+    const update = extractStockUpdate("7/9/25 update: Silvan berries, salad mix, eggs");
+    expect(update?.statedOn).toEqual(new Date(Date.UTC(2025, 6, 9)));
+    expect(update?.items).toEqual(["Silvan berries", "salad mix", "eggs"]);
+  });
+
+  it("still refuses a dated CLOSURE written with a dash", () => {
+    expect(extractStockUpdate("7/9/2025 Update - Closed")).toBeUndefined();
+  });
+
   it("refuses an impossible date rather than rolling it into the next month", () => {
     // `new Date(2026, 1, 31)` silently becomes 3 March. A date the sheet states wrongly must
     // not become a confident confirmation on a day nobody wrote down.

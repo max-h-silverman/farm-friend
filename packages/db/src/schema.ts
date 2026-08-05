@@ -241,6 +241,19 @@ export const modelValidationStatus = pgEnum("model_validation_status", [
   "rejected",
 ]);
 
+/**
+ * Where an `inventory_revisions` row's facts came from (F-063).
+ *
+ * TWO values, not three. The launch import and a later admin edit are the SAME actor — VIGA
+ * recording what a farmer told them, through different doors — so they share one value.
+ * Attribution for an admin edit belongs to that workflow's own action row, matching how
+ * `stock_out_reports.reviewed_by_administrator_id` and `farm_approvals` already work (F-065).
+ */
+export const inventoryRevisionSource = pgEnum("inventory_revision_source", [
+  "sms",
+  "viga",
+]);
+
 export const contacts = pgTable(
   "contacts",
   {
@@ -1202,12 +1215,19 @@ export const salesLocationParticipants = pgTable(
  * What a stand USUALLY has — its specialties, not its current stock (F-035).
  *
  * These are two different facts and they live in two different tables on purpose.
- * `inventory_revisions` is CURRENT STOCK: it requires `published_by_authorization_id` and
- * `farm_approval_id`, so writing one demands a verified farmer and a VIGA approval. The
- * seeder has neither and structurally cannot fabricate them — which is exactly why
- * specialties needed their own home rather than a `kind` column on the revision table. A
- * flag there would have let seeded rows satisfy `one_current_per_location` and render as
- * though a farmer had just confirmed them.
+ * `inventory_revisions` is CURRENT STOCK — what is out on the table right now, whoever
+ * reported it. A specialty is what the stand USUALLY carries: a standing property of the
+ * farm, true in March and in September, dated by nothing.
+ *
+ * That is why specialties needed their own home rather than a `kind` column on the revision
+ * table. Sharing the table would let a standing fact satisfy `one_current_per_location` and
+ * occupy the slot that means "the freshest thing anyone has said about this stand" — so a
+ * year-old "usually sells eggs" would suppress the honest "nothing confirmed recently", and
+ * a farmer's real confirmation would compete with it for the same row.
+ *
+ * Note this is NOT the same boundary as `source` (F-063). `source` separates who reported a
+ * current-stock fact — a farmer's handset (`sms`) or VIGA's records (`viga`). Both are
+ * genuine claims about right now. A specialty is not a claim about right now at all.
  *
  * Seeded from VIGA's "Generally Offers:" text and never from its dated update lines. The
  * public surface must label these as what a stand USUALLY carries — never as confirmed
@@ -1883,11 +1903,16 @@ export const inventoryRevisions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     farmId: uuid("farm_id").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
-    proposalId: uuid("proposal_id").notNull(),
-    publishedByAuthorizationId: uuid(
-      "published_by_authorization_id",
-    ).notNull(),
-    farmApprovalId: uuid("farm_approval_id").notNull(),
+    /**
+     * The handset chain (F-063). All three are nullable in the column definition and
+     * REQUIRED-or-FORBIDDEN by `sourceProvenance` below, according to `source`. Nullability
+     * here is not permissiveness: it is what lets one constraint state the whole rule, instead
+     * of three per-column rules that each pass on NULL.
+     */
+    proposalId: uuid("proposal_id"),
+    publishedByAuthorizationId: uuid("published_by_authorization_id"),
+    farmApprovalId: uuid("farm_approval_id"),
+    source: inventoryRevisionSource("source").notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
     isCurrent: boolean("is_current").notNull().default(true),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
@@ -1934,6 +1959,26 @@ export const inventoryRevisions = pgTable(
         or (
           not ${table.isCurrent}
           and ${table.supersededAt} > ${table.publishedAt}
+        )
+      `,
+    ),
+    // F-063 — the handset keys are all-or-nothing, according to `source`. Written as one
+    // biconditional over all three because a CHECK PASSES on NULL: three independent
+    // per-column rules would silently admit the half-populated row this exists to refuse.
+    sourceProvenance: check(
+      "inventory_revisions_source_keys_coherent",
+      sql`
+        (
+          ${table.source} = 'sms'
+          and ${table.proposalId} is not null
+          and ${table.publishedByAuthorizationId} is not null
+          and ${table.farmApprovalId} is not null
+        )
+        or (
+          ${table.source} = 'viga'
+          and ${table.proposalId} is null
+          and ${table.publishedByAuthorizationId} is null
+          and ${table.farmApprovalId} is null
         )
       `,
     ),

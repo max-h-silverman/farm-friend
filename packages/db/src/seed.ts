@@ -1,15 +1,18 @@
-import { matchStandName } from "@farm-friend/core";
+import { matchStandName, resolveStandKey } from "@farm-friend/core";
 import type { Sql, Tx } from "./sql";
 
 // B-002 — loading VIGA's reference stand data.
 //
-// WHAT THIS DELIBERATELY CANNOT DO: publish inventory. `inventory_revisions` requires a
-// `published_by_authorization_id` and a `farm_approval_id`, and the seeder creates neither, so
-// it is STRUCTURALLY incapable of fabricating a farmer's confirmation. That is the point.
-// VIGA's export carries dated stock notes ("7/9/2026 Update: Closed"), and seeding those as
-// current availability would put words in a farmer's mouth on a map whose entire premise is
-// honesty about when someone last confirmed. Specialties — what a stand USUALLY carries — are
-// a different fact and live in `sales_location_offerings`.
+// WHAT `seedStands` DELIBERATELY DOES NOT DO: publish inventory. A stand it creates renders the
+// honest "no current listing" until something confirms it. Specialties — what a stand USUALLY
+// carries — are a different fact and live in `sales_location_offerings`.
+//
+// Inventory has its own writer, `seedWeeklyConfirmations` (F-062), and it is not a loophole: it
+// writes ONLY from a farmer's own dated weekly-form submission, stamps `source = 'viga'`, and
+// carries none of the three keys asserting a handset sent it (F-063). A database CHECK enforces
+// that split, so neither writer can fabricate a farmer's SMS confirmation — which is what the
+// original "structurally incapable" comment here was protecting, by a mechanism that has since
+// been made explicit rather than incidental.
 //
 // IDEMPOTENT BY NATURAL KEY. Re-running is routine (a corrected row, a new stand), so the
 // loader keys on the stand's name and skips what already exists rather than duplicating it.
@@ -72,6 +75,21 @@ export interface SeedStandInput {
   flags: SeedStandFlag[];
   farmBucksAccepted?: boolean;
   farmBucksEligible?: boolean;
+  /**
+   * The farm's website and social links (F-061), already normalized to absolute URLs.
+   *
+   * `farm_links_absolute_http_url` refuses anything else, and a refusal aborts the whole seed
+   * transaction rather than skipping one row — so `parseFarmLinks` does the normalizing and
+   * this type carries only what Postgres will accept.
+   */
+  links?: { label: string; url: string }[];
+  /**
+   * Payment methods the stand states, canonically spelled (F-061).
+   *
+   * VIGA Bucks is deliberately NOT among these: `farmBucksAccepted` owns that fact, and
+   * recording it twice would let the two disagree.
+   */
+  paymentMethods?: string[];
 }
 
 export interface SeedResult {
@@ -384,6 +402,24 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
       `;
       const locationId = locationRows[0]!.id as string;
 
+      // F-061 — links and payment methods, the two tables that had a schema and no writer.
+      // Keyed differently on purpose: links belong to the FARM (one website, however many
+      // stands), payment methods to the LOCATION (what this stand takes at this table).
+      for (const [index, link] of (stand.links ?? []).entries()) {
+        await tx`
+          insert into farm_links (farm_id, label, url, sort_order)
+          values (${farmId}, ${link.label}, ${link.url}, ${index})
+          on conflict do nothing
+        `;
+      }
+      for (const method of stand.paymentMethods ?? []) {
+        await tx`
+          insert into sales_location_payment_methods (sales_location_id, method)
+          values (${locationId}, ${method})
+          on conflict do nothing
+        `;
+      }
+
       for (const flag of stand.flags) {
         // `on conflict do nothing` against the partial unique index on
         // (sales_location_id, reason) where resolved_at is null: re-running must not pile
@@ -402,4 +438,145 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
   });
 
   return { seeded, skipped, flagsRaised };
+}
+
+/** One farm's weekly statement, already parsed and joined by name (F-062). */
+export interface WeeklyConfirmationInput {
+  /** The farm name as the weekly form states it; resolved through the seed join's own key. */
+  standName: string;
+  /** The day the farmer submitted. The form records a date, not an instant. */
+  statedOn: Date;
+  /** The items named, in stated order. */
+  items: string[];
+}
+
+export interface WeeklyConfirmationResult {
+  published: number;
+  /** Rows refused because something NEWER is already published for that stand. */
+  skippedAsOlder: number;
+  /** Farm names in the form that match no seeded stand. Reported, never silently dropped. */
+  unknownStands: string[];
+  /**
+   * Names that reached a stand under a DIFFERENT name, and which one.
+   *
+   * Reported rather than resolved silently: a farmer's submission landing on the wrong farm's
+   * card is the failure this whole matching design exists to prevent, so every non-exact
+   * resolution stays visible to the operator running the ingest.
+   */
+  resolvedByOtherName: { stated: string; resolvedTo: string }[];
+}
+
+export interface WeeklyConfirmationOptions {
+  /**
+   * Farm names a farmer stated are FORMER names of their listing (`readFormerNames`).
+   *
+   * The weekly form still carries submissions under an old name — Green Ears' row reads
+   * "Formerly Maggie's Farm" — and the two names share no characters, so no spelling rule can
+   * reach it. Supplied by the caller because it is read from the profile form, which this
+   * function does not have.
+   */
+  formerNames?: ReadonlyMap<string, string>;
+}
+
+/**
+ * Publish weekly-form submissions as dated confirmations (F-062).
+ *
+ * WHY THESE ARE CONFIRMATIONS AT ALL. A farmer has filled in VIGA's weekly form for years and
+ * has not heard of Farm Friend. If their submission produced nothing, the system replacing their
+ * old one would be strictly worse for them on day one. And a customer wants both facts: the
+ * standing "usually sells" sets expectations, this dated one says how much to trust it today.
+ *
+ * WHY `source = 'viga'`. A Google Form is not a handset. Before F-063 this row was
+ * unrepresentable without inventing a proposal, an authorization, and an approval — a false
+ * statement about an identifiable person. Now it is simply a different, honestly labelled kind
+ * of confirmation, and the staleness machinery ages it correctly with no special handling.
+ *
+ * THE NEWER FACT ALWAYS WINS, whatever its source. A farmer who texts an update must never have
+ * it reverted by a re-ingest carrying last week's sheet row — that is the migration path off the
+ * legacy form: the moment a farmer texts, their own words take over. The comparison is on
+ * `published_at`, so this holds for an older weekly row against a newer weekly row too.
+ */
+export async function seedWeeklyConfirmations(
+  sql: Sql,
+  submissions: WeeklyConfirmationInput[],
+  options: WeeklyConfirmationOptions = {},
+): Promise<WeeklyConfirmationResult> {
+  let published = 0;
+  let skippedAsOlder = 0;
+  const unknownStands: string[] = [];
+  const resolvedByOtherName: { stated: string; resolvedTo: string }[] = [];
+
+  await sql.begin(async (tx) => {
+    // Built inside the transaction so the index cannot go stale mid-batch, and so an ambiguous
+    // name aborts before any confirmation lands rather than after some of them have.
+    const byKey = await indexLocationsByMatchKey(tx);
+    const seededNames = [...byKey.values()].map((location) => location.name);
+
+    for (const submission of submissions) {
+      // Exact first, then a stated rename, then an unambiguous word-prefix. Farmers do not
+      // retype their full listing name every week — three of the 2026 weekly farms reached no
+      // stand at all under an exact key, and each was a real submission that reached nobody.
+      const resolvedKey = resolveStandKey(submission.standName, seededNames, {
+        ...(options.formerNames !== undefined ? { formerNames: options.formerNames } : {}),
+      });
+      const location = resolvedKey === undefined ? undefined : byKey.get(resolvedKey);
+      if (location === undefined) {
+        unknownStands.push(submission.standName);
+        continue;
+      }
+      if (resolvedKey !== matchStandName(submission.standName)) {
+        resolvedByOtherName.push({
+          stated: submission.standName,
+          resolvedTo: location.name,
+        });
+      }
+
+      // `for update` so two concurrent ingests cannot both read "no current revision" and then
+      // both insert, which the partial unique index would reject as a lost race rather than a
+      // clean skip.
+      const current = await tx`
+        select id, published_at from inventory_revisions
+        where sales_location_id = ${location.id} and is_current
+        for update
+      `;
+      const currentPublishedAt = current[0]?.published_at as Date | undefined;
+      if (
+        currentPublishedAt !== undefined &&
+        currentPublishedAt.getTime() >= submission.statedOn.getTime()
+      ) {
+        skippedAsOlder++;
+        continue;
+      }
+
+      if (current.length > 0) {
+        await tx`
+          update inventory_revisions
+          set is_current = false, superseded_at = ${submission.statedOn}
+          where id = ${current[0]?.id as string}
+        `;
+      }
+
+      const revision = await tx`
+        insert into inventory_revisions (
+          farm_id, sales_location_id, source, published_at
+        )
+        select owner_farm_id, id, 'viga', ${submission.statedOn}
+        from sales_locations where id = ${location.id}
+        returning id
+      `;
+      const revisionId = revision[0]?.id as string;
+
+      for (const [index, item] of submission.items.entries()) {
+        await tx`
+          insert into inventory_entries (
+            inventory_revision_id, sales_location_id, item_name, sort_order
+          )
+          values (${revisionId}, ${location.id}, ${item}, ${index})
+        `;
+      }
+      published++;
+    }
+  });
+
+  return { published, skippedAsOlder, unknownStands, resolvedByOtherName };
 }

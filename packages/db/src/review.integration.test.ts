@@ -749,11 +749,11 @@ describe("operator review queues (integration)", () => {
       const revisions = await client()`
         insert into inventory_revisions (
           farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-          farm_approval_id, published_at, is_current
+          farm_approval_id, source, published_at, is_current
         )
         values (
           ${id("farm")}, ${id("location")}, ${proposals[0]?.id as string},
-          ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, ${T0}, true
+          ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, 'sms', ${T0}, true
         )
         returning id
       `;
@@ -950,11 +950,11 @@ describe("operator review queues (integration)", () => {
       const revisions = await client()`
         insert into inventory_revisions (
           farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-          farm_approval_id, published_at, is_current
+          farm_approval_id, source, published_at, is_current
         )
         values (
           ${id("farm")}, ${id("location")}, ${proposals[0]?.id as string},
-          ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, ${T0}, true
+          ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, 'sms', ${T0}, true
         )
         returning id
       `;
@@ -1037,11 +1037,11 @@ describe("operator review queues (integration)", () => {
       const revisions = await client()`
         insert into inventory_revisions (
           farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-          farm_approval_id, published_at, is_current
+          farm_approval_id, source, published_at, is_current
         )
         values (
           ${id("farm")}, ${id("location")}, ${proposals[0]?.id as string},
-          ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, ${T0}, true
+          ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, 'sms', ${T0}, true
         )
         returning id
       `;

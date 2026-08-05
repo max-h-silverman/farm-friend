@@ -458,10 +458,10 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     const revision = await client()`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-        farm_approval_id, published_at
+        farm_approval_id, source, published_at
       )
       values (${ids.farm}, ${ids.location}, ${proposal[0]?.id as string},
-              ${auth[0]?.id as string}, ${approval[0]?.id as string}, ${T0})
+              ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${T0})
       returning id
     `;
     const entries = await client()`

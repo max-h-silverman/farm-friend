@@ -198,26 +198,34 @@ function PublicDescription({
   );
 }
 
-function splitWebsite(description: string | undefined): {
-  description: string | undefined;
-  website: string | undefined;
-} {
-  if (description === undefined) return { description: undefined, website: undefined };
-
-  let website: string | undefined;
-  const remaining = description.split("\n").filter((line) => {
-    if (website !== undefined) return true;
-    const match = line.match(/^\s*Website:\s*((?:https?:\/\/|www\.)\S+)\s*$/i);
-    if (match === null) return true;
-    const visible = match[1]!.replace(/[.,;:!?)]*$/, "");
-    website = /^www\./i.test(visible) ? `https://${visible}` : visible;
-    return false;
-  });
-  const remainingDescription = remaining.join("\n").trim();
-  return {
-    description: remainingDescription === "" ? undefined : remainingDescription,
-    website,
-  };
+/**
+ * The farm's links, as a list of actions (F-061).
+ *
+ * REPLACES `splitWebsite`, which recovered a single website by matching a "Website: …" line
+ * inside the description prose. That was a workaround for `farm_links` having no writer: it
+ * found at most one link per stand and silently dropped every Instagram and Facebook a farm had
+ * listed. Measured over the real corpus, the farms state 34 links across 24 stands, and that
+ * regex could only ever surface the subset written as a labelled "Website:" line.
+ *
+ * The links now arrive structured and pre-labelled, so nothing is parsed at render time.
+ */
+function StandLinks({ links }: { links: { label: string; url: string }[] }) {
+  if (links.length === 0) return null;
+  return (
+    <>
+      {links.map((link) => (
+        <a
+          key={link.url}
+          className="stand-website"
+          href={link.url}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          {link.label}
+        </a>
+      ))}
+    </>
+  );
 }
 
 function MarkerLegend() {
@@ -351,7 +359,8 @@ function StandDetailBody({
   showDestination?: boolean;
 }) {
   const isMarket = stand.locationKind === "farmers_market";
-  const { description, website } = splitWebsite(stand.description);
+  const description = stand.description;
+  const links = stand.links ?? [];
   const stateLabel =
     stand.closure?.state === "active"
       ? stand.closure.label
@@ -372,16 +381,7 @@ function StandDetailBody({
               <strong>No stand to visit</strong> — order by contacting this farm.
             </p>
           )}
-          {website !== undefined ? (
-            <a
-              className="stand-website"
-              href={website}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              Website
-            </a>
-          ) : null}
+          <StandLinks links={links} />
           {stand.routingLink !== null ? (
             <a
               className="directions"
@@ -407,7 +407,7 @@ function StandDetailBody({
         these are the three things a customer checks before deciding to drive somewhere.
       */}
       <div className="detail-aside">
-        {showDestination ? null : website !== undefined || stand.routingLink !== null ? (
+        {showDestination ? null : links.length > 0 || stand.routingLink !== null ? (
           // The expanded DIRECTORY ROW. It suppresses the "Plan your visit" section above,
           // because the row already shows the address — so this is where its website and
           // directions live. The website used to sit in the collapsed summary, which put it on
@@ -431,18 +431,18 @@ function StandDetailBody({
                 </a>
               </li>
             ) : null}
-            {website !== undefined ? (
-              <li>
+            {links.map((link) => (
+              <li key={link.url}>
                 <a
                   className="stand-website"
-                  href={website}
+                  href={link.url}
                   target="_blank"
                   rel="noreferrer noopener"
                 >
-                  Website
+                  {link.label}
                 </a>
               </li>
-            ) : null}
+            ))}
           </ul>
         ) : null}
 
@@ -455,6 +455,16 @@ function StandDetailBody({
           ) : null}
           {stand.farmBucksAccepted === true ? (
             <p className="payment-status">Accepts VIGA Bucks</p>
+          ) : null}
+          {/*
+            F-061 — the stand's other payment methods, from the table that had no reader.
+            VIGA Bucks is deliberately NOT in this list: it has its own column, its own badge
+            above, and its own filter. One fact, one home.
+          */}
+          {(stand.paymentMethods ?? []).length > 0 ? (
+            <p className="payment-status payment-methods">
+              Also accepts {(stand.paymentMethods ?? []).join(", ")}
+            </p>
           ) : null}
         </div>
 

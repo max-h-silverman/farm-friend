@@ -93,6 +93,17 @@ export interface PublicStandPayload {
   closure?: PublicClosure;
   /** Active owner-confirmed names; never item provenance and never profile links. */
   alsoSellingHere: string[];
+  /**
+   * The farm's own website and social links (F-061), each already labelled and absolute.
+   *
+   * Structured rather than scraped. The card used to recover a single website by matching a
+   * "Website: …" line inside the description prose, which found at most one link and silently
+   * dropped every Instagram and Facebook a farm had listed — 34 links across 24 stands in the
+   * real corpus, of which that regex could ever surface about half.
+   */
+  links: { label: string; url: string }[];
+  /** Canonically spelled, VIGA Bucks excluded — `farmBucksAccepted` owns that fact (F-061). */
+  paymentMethods: string[];
   items: {
     itemName: string;
     quantity?: number;

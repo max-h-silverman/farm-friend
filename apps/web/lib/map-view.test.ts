@@ -31,6 +31,8 @@ const stands: PublicStandPayload[] = [
     stale: false,
     availability: {},
     alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
     items: [{ itemName: "Kale", quantity: 6, unit: "bunches" }],
   },
   {
@@ -46,6 +48,8 @@ const stands: PublicStandPayload[] = [
     stale: true,
     availability: {},
     alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
     items: [{ itemName: "Potatoes" }],
   },
 ];
@@ -155,6 +159,8 @@ describe("buildMapView", () => {
       longitude: -122.4594,
       availability: {},
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [],
     };
 
@@ -201,6 +207,8 @@ describe("buildMapView", () => {
       offeringType: "by_order",
       availability: {},
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [],
     };
 
@@ -303,6 +311,8 @@ describe("buildMapView", () => {
         usuallySells: ["eggs"],
         availability: {},
         alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
         items: [],
       };
 
@@ -395,6 +405,8 @@ describe("standListingLines (F-042)", () => {
     longitude: -122.46,
     availability: {},
     alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
     items: [],
   };
 
@@ -682,6 +694,8 @@ describe("applyStandFilters (F-043)", () => {
       longitude: -122.46,
       availability: {},
       alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
       items: [],
       ...overrides,
     };

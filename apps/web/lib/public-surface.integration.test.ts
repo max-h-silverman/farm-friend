@@ -155,10 +155,10 @@ describe("public web surface boundary (integration)", () => {
     const revision = await client()`
       insert into inventory_revisions (
         farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-        farm_approval_id, published_at
+        farm_approval_id, source, published_at
       )
       values (${ids.farm}, ${ids.location}, ${proposal[0]?.id as string},
-              ${auth[0]?.id as string}, ${approval[0]?.id as string}, ${publishedAt})
+              ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${publishedAt})
       returning id
     `;
     const revisionId = revision[0]?.id as string;

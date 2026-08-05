@@ -163,11 +163,18 @@ This is a **greenfield build**: existing VIGA map content is **reference input, 
 contract**, and there is no non-destructive migration requirement or provenance axis.
 
 A **one-time seed utility** validates and loads farms, sales locations, and approval state.
-**It does not seed inventory** (decided 2026-07-26, B-002): a seeded listing fact would fabricate a
-confirmation no farmer made, and the honor-system product's core promise is showing *when* inventory
-was last confirmed. Stands seed empty and render the honest "no current listing" until a farmer texts.
-It also seeds **no phone numbers** — `farmer_authorizations` requires captured SMS consent, so phones
-arrive through onboarding, never a bulk roster load.
+`db:seed` itself **writes no inventory** — a stand it creates renders the honest "no current
+listing" until something confirms it. It also seeds **no phone numbers**: `farmer_authorizations`
+requires captured SMS consent, so phones arrive through onboarding, never a bulk roster load.
+
+**Inventory is seeded by a separate script, and only from a farmer's own dated statement**
+(F-062, superseding the 2026-07-26 B-002 position that nothing may seed inventory). `db:seed-weekly`
+reads VIGA's weekly stock form — a Google Form farmers have filled in for years — and writes each
+farm's latest submission as an `inventory_revisions` row carrying **`source = 'viga'`** and none of
+the three keys asserting a handset sent it (F-063). That is not a fabricated confirmation: it is a
+real, dated statement a farmer made, honestly labelled, and the staleness machinery ages it with no
+special handling. **A farmer's own SMS always wins** — the writer refuses to overwrite anything
+newer, whatever its source.
 
 **It takes BOTH exports**, because neither can seed a visitable location alone: the form has the
 2026-current details and **no coordinates at all**, the map export has the coordinates and the farms
@@ -176,10 +183,31 @@ that submitted no form.
 ```bash
 npm run db:seed -- --form "<form.csv>" --map "<map.csv>" --dry-run   # report only, writes nothing
 npm run db:seed -- --form "<form.csv>" --map "<map.csv>"             # apply
+
+# The weekly stock form, as dated `source = 'viga'` confirmations. --form is optional and lets a
+# farmer's STATED rename resolve their old name ("Formerly Maggie's Farm") to their current stand.
+npm run db:seed-weekly -- --weekly "<weekly.csv>" --form "<form.csv>" --season 2026 --dry-run
+npm run db:seed-weekly -- --weekly "<weekly.csv>" --form "<form.csv>" --season 2026
 ```
+
+**Always pass `--expect-database` for a non-local write** (F-064). Both seed scripts accept it, and
+it aborts before writing a single row unless the connection really lands on that database:
+
+```bash
+npm run db:seed -- --form … --map … --expect-database neondb
+```
+
+Naming the target is not enough on its own — printing `host/neondb` confirms the string an operator
+typed, not the database it reaches. The guard reports what is *actually* there (database name,
+migrations applied, farms, locations, revisions) and refuses anything unexpected.
 
 The batch is transactional, idempotent by stand name, and skip-only: re-running never overwrites a
 farmer's later correction. It refuses invalid coordinates rather than coercing them.
+
+Both scripts **report everything they did not do** — refused rows, unknown farms, and any farm name
+that resolved to a stand under a *different* name. A submission landing on the wrong farm's card is
+the failure the name matching exists to prevent, so non-exact matches stay visible rather than being
+resolved quietly.
 
 If the database was seeded before public source descriptions and Farm Bucks facts were wired, use
 the guarded null-only backfill against the reviewed public listing artifact:

@@ -26,6 +26,7 @@
     "db:seed": "tsx packages/db/scripts/seed-stands.ts",
     "db:backfill-public-listing-details": "tsx packages/db/scripts/backfill-public-listing-details.ts",
     "db:seed-offerings": "tsx packages/db/scripts/seed-offerings.ts",
+    "db:seed-weekly": "tsx packages/db/scripts/seed-weekly-status.ts",
     "offerings:propose": "node --env-file=.env --import tsx packages/ai/scripts/propose-offerings.ts",
     "evals": "node --import tsx evals/run.ts",
     "evals:live": "node --env-file=.env --import tsx evals/live.ts"

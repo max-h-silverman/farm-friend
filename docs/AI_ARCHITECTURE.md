@@ -122,8 +122,10 @@ and "but following organic practices".
 
 Its projection carries **one description and nothing else** — no farm name, no location id, no
 contact — so a model cannot attach one farm's produce to another's listing. Proposed tags land in
-`sales_location_offerings` (what a stand usually has) and **never** in `inventory_revisions`, which
-requires a farmer authorization and a farm approval this path structurally cannot produce. It is
+`sales_location_offerings` (what a stand usually has) and **never** in `inventory_revisions`: this
+path writes only the tag table, and every `inventory_revisions` row must declare a `source` — `sms`
+requiring the full handset chain under a database CHECK, `viga` written only by the two operator
+seed scripts, neither of which the model can reach (F-063). It is
 reachable from a build-time script and, if a farmer web form is built, from a farmer editing their
 **own** listing; it is never reachable from anonymous public discovery, which stays model-free
 (F-019, policed by `apps/web/lib/public-surface-model-free.test.ts`).
