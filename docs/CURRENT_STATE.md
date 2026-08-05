@@ -18,16 +18,21 @@ Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constrain
 The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
 [session log](SESSION_LOG.md) for its reasoning.
 
-Two tranches are now ahead of production, both **NOT deployed**:
+Three tranches are now ahead of production, all **NOT deployed**:
 
 - the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard), merged to `main`,
   carrying **migration `0019`** (`inventory_revisions.source`);
-- **F-066's one item vocabulary**, on branch `f-066-item-vocabulary`, carrying **migration
-  `0020`** (`stand_items`).
+- **F-066's one item vocabulary**, carrying **migration `0020`** (`stand_items`);
+- **F-067's self-serve farmer onboarding**, carrying **migration `0021`**
+  (`farmer_onboarding_requests_coherent_settlement` widened).
 
-Production has received neither, so it still runs the pre-tranche schema and the pre-tranche
-listing data. **`0019` and `0020` are both owed to production before the image that reads them**,
-per the RUNBOOK's ordering rule. See the [session log](SESSION_LOG.md) for the reasoning.
+F-066 and F-067 both sit on branch `f-067-self-serve-onboarding`, which carries F-066's three
+commits as well — **open as a PR, deliberately not merged** while a second session was active.
+
+Production has received none of them, so it still runs the pre-tranche schema and the pre-tranche
+listing data. **`0019`, `0020`, and `0021` are all owed to production, in that order, before the
+image that reads them**, per the RUNBOOK's ordering rule. See the [session log](SESSION_LOG.md) for
+the reasoning.
 
 The tranche before it — presentation and ingestion groundwork — is deployed: plan assertions 37/37,
 deploy and served-card assertions pass, and the served stylesheet was checked **by effect**.
@@ -53,10 +58,21 @@ public description, which it does.
 
 ## Verification
 
-- Current branch `f-066-item-vocabulary`: **105 unit-test files / 1068 tests**, typecheck, and
-  lint pass (verified 2026-08-05). **Not deployed.**
-- Real-Postgres integration: **47 files / 628 tests pass on a complete run** from an empty schema,
+- Current branch `f-067-self-serve-onboarding`: **105 unit-test files / 1075 tests**, typecheck,
+  lint, and **evals (critical 11/11, adversarial 29/29, advisory 4/4)** pass (verified 2026-08-05).
+  **Not deployed.**
+- Real-Postgres integration: **47 files / 635 tests pass on a complete run** from an empty schema,
   against a local Postgres — never against production Neon.
+- **Migration `0021` verified by effect**, and the check found a gap the suites could not: the
+  integration suites build their own databases, so all 635 passed while the local dev database
+  still held the pre-`0021` constraint. Confirmed via `pg_get_constraintdef` after applying, then
+  sabotaged the constraint to confirm it still refuses a settlement recording neither an
+  administrator nor an authorization.
+- **F-067's self-serve chain verified end to end against real Postgres**, not only by suite: a
+  coordinator names a new farm on an invitation, the farmer ticks the agreement and redeems it, and
+  the farmer holds a live `farmer_authorizations` row for that farm with **no open onboarding
+  request**, the audit event attributing the act to the farmer's contact hash rather than an
+  administrator, and exactly one queued text.
 - **Migration `0020` verified by effect on BOTH an empty and a populated pre-change schema.** The
   populated run applies every migration through `0019`, writes the rows a real database holds —
   including two offering rows differing only in case, which were legal before and collide under
@@ -160,9 +176,10 @@ against the real corpus on 2026-08-04 while implementing.
   ingests the weekly stock form as dated `viga` confirmations. **The two on-screen contradictions
   are gone at the data level**, verified over the real corpus — but **not on the live map**, which
   still runs the pre-tranche image and data.
-- **Migrations `0019` and `0020` are owed to production**, in that order, before the code that
-  reads them (RUNBOOK ordering rule). Deploying the image without them would break every listing
-  read: `0020`'s table is now the only source of what a stand usually sells.
+- **Migrations `0019`, `0020`, and `0021` are owed to production**, in that order, before the code
+  that reads them (RUNBOOK ordering rule). Deploying the image without them would break every
+  listing read: `0020`'s table is now the only source of what a stand usually sells, and `0021`'s
+  widened settlement CHECK is what lets a farmer's own redemption settle their onboarding request.
 - **F-064's production run has NOT happened.** Still owed: a re-export of all three CSVs (the
   profile form is **still open**), a **`neondb` snapshot** — with an insert-only utility and GL-015
   open, the snapshot *is* the rollback — max's explicit approval for the bulk write, and the render
@@ -192,8 +209,31 @@ against the real corpus on 2026-08-04 while implementing.
   Normalization is case and whitespace only — never singular/plural or synonyms, asserted by a
   test that must be deleted before anyone can loosen it.
   **Still owed:** migrations `0019` and `0020` to production, and the farmer web form that is the
-  standing state's only intended writer (work items 3/3b) — today the seeder is its only writer,
-  so a farmer still cannot edit their own mix.
+  standing state's only intended writer (work items 3/3b, now **F-067**) — today the seeder is its
+  only writer, so a farmer still cannot edit their own mix.
+- **F-067 — self-serve onboarding is HALF BUILT, UNDEPLOYED.** Redeeming an agreed invitation that
+  **names a farm** now writes `farmer_authorizations` **and `farm_approvals`** in the same
+  transaction as the consent and the redemption, so no administrator acts. Both were required:
+  `confirmProposal` checks authorization and then approval independently, so granting only the
+  first left the farmer authorized, texted "your farm is ready", and refused with `not_approved`
+  on their first update. The approval names the administrator who **created the invitation** —
+  the person who decided this farm participates — and is written via `on conflict do nothing`
+  against the partial unique index, since `for update` cannot serialize a row that does not exist
+  yet. The invitation is the authorization decision; the queue
+  click it replaces re-approved a decision already made. The three paths that still need a human
+  are unchanged and still queue: a bare uninvited `SIGNUP`, an invitation naming no farm, and an
+  invitation whose agreement was never ticked. Migration **`0021`** widens the settlement CHECK from
+  "an administrator settled it" to "an administrator **or** the authorization the redemption
+  granted" — a settlement recording neither is still refused. The admin invite now **names a new
+  farm at invite time**, which is what makes a brand-new farmer reachable by self-serve at all. The
+  SIGNUP acknowledgement is omitted for a self-served farmer, since "VIGA will review it" is false
+  for someone already set up and arrived beside the "your farm is ready" text.
+  **Still owed — the half that is not built:** the onboarding page still asks for nothing but a
+  consent tick, so a new farm reaches the public map with a name and nothing else. **Nothing in the
+  codebase writes listing facts today** — `public_address`, `hours_text`, and the rest are read
+  everywhere and only ever seeded — so the form is the first farmer-facing write path for public
+  listing data. max chose **publish immediately, no VIGA review** ("the admin can fix anything
+  that's erroneous", which leans on F-065) and **full listing details** over a minimal set.
 - **F-029:** finish live carrier/JOIN launch verification.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.

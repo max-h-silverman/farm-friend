@@ -80,19 +80,20 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Seed initial listing data:** run the one-time seed utility per [RUNBOOK.md](RUNBOOK.md). This
   is a greenfield load from reference input, not a migration with provenance. A location that
   cannot be geocoded is an operator task — the system never invents a coordinate.
-- **Set a farmer up:** open `/admin/farmers`. Farmers who texted `SIGNUP` are waiting at the top,
-  shown by the last four digits of their number. **Check that the person really runs the farm
-  before you authorize them** — a phone number only proves someone has that phone, and nothing
-  automates this decision. On authorizing, Farm Friend texts them that they are set up and how to
-  post their first listing. The farm still needs approving (below) before anything publishes.
-- **Invite a farmer:** in the **Farmer access** section, optionally choose an existing farm,
-  choose text or email, and enter the recipient's address. Leave the farm set to **New farm —
-  assign later** when the farm is not in Farm Friend yet. Farm Friend creates a one-use onboarding
-  link and opens the administrator's own text or email app with the message ready. Send it from
-  there. The link expires after seven days; the farmer sends the prepared `SIGNUP <invite>` message
-  to verify their phone. This works whether or not that phone already joined Farm Friend by SMS.
-  A selected farm is suggested in the waiting queue; an unbound invitation leaves the farm blank.
-  Neither invitation grants access or approves a farm.
+- **Invite a farmer — this is where you decide.** In the **Farmer access** section, choose the
+  farm (or **New farm** and type its name, which creates it), choose text or email, and enter the
+  recipient's address. Farm Friend creates a one-use onboarding link and opens your own text or
+  email app with the message ready. Send it from there. The link expires after seven days.
+  **Sending an invitation that names a farm IS your approval of that farmer for that farm** — when
+  they accept the SMS agreement and send the prepared `SIGNUP <invite>` from their phone, Farm
+  Friend sets them up and approves the farm, and texts them that they are ready. So check the
+  person really runs the farm **before you send the link**; nothing asks you again afterwards.
+- **Set a farmer up by hand:** open `/admin/farmers`. Anyone whose request needs a person is
+  waiting at the top, shown by the last four digits of their number — someone who texted `SIGNUP`
+  with no invitation, an invitation naming no farm, or one whose agreement was never ticked.
+  **Check that the person really runs the farm before you authorize them** — a phone number only
+  proves someone has that phone. On authorizing, Farm Friend texts them that they are set up and
+  how to post their first listing. A farm set up this way still needs approving (below).
 - **Turn off a farmer's link:** also `/admin/farmers`. A farmer's private link **keeps working
   until you revoke it** — so if a farmer loses their phone, or a link gets shared or forwarded,
   revoke it. It stops working on the very next request, and the farmer can text `LINK` for a new
@@ -107,10 +108,11 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   again** — copy it before navigating away. Replacing a link revokes the previous one, which is
   exactly what you want after a lost phone.
 - **Approve a farm:** open `/admin`, verify the farm is real, is a VIGA participant, and that the
-  person who completed onboarding is authorized to act for it, then approve. Approval is **your
-  act**, recorded separately; a farmer completing a form does not approve themselves. Only approved
-  farms publish publicly — an unapproved farm's confirmation is refused, so this is a **hard
-  prerequisite** for any farmer publishing anything, not a formality. Approval and revocation both
+  person who completed onboarding is authorized to act for it, then approve. Only approved farms
+  publish publicly — an unapproved farm's confirmation is refused, so this is a **hard
+  prerequisite** for any farmer publishing anything, not a formality. **A farm invited by name is
+  already approved** by the invitation you sent, recorded against you; this screen is for the farms
+  that arrived any other way. Approval and revocation both
   record which administrator acted and when, in `farm_approvals` and the audit trail. Revoking
   blocks the *next* publication; it does not retract what is already published.
 - **Restore or rotate administrator access:** follow [RUNBOOK.md](RUNBOOK.md). Rotation adds a new

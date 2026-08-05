@@ -513,7 +513,8 @@ export async function openFarmerOnboardingRequest(
     }
     return driver(db).begin(async (tx) => {
       const invitations = await tx`
-        select id, agreed_to_sms_at, farm_id from farmer_invitations
+        select id, agreed_to_sms_at, farm_id, created_by_administrator_id
+        from farmer_invitations
         where token_hash = ${hashFarmerInviteToken(invitationToken)}
           and redeemed_at is null
           and expires_at > ${input.occurredAt.toISOString()}
@@ -524,6 +525,7 @@ export async function openFarmerOnboardingRequest(
       const agreedToSmsAt =
         (invitations[0]?.agreed_to_sms_at as Date | null | undefined) ?? null;
       const invitationFarmId = (invitations[0]?.farm_id as string | null | undefined) ?? null;
+      const invitedByAdministratorId = invitations[0]?.created_by_administrator_id as string;
 
       const inserted = await tx`
         insert into farmer_onboarding_requests (contact_hash, invitation_id, requested_at)
@@ -591,6 +593,7 @@ export async function openFarmerOnboardingRequest(
               farmId: invitationFarmId,
               contactHash: input.contactHash,
               requestId,
+              invitedByAdministratorId,
               occurredAt: input.occurredAt,
             });
 
@@ -646,6 +649,8 @@ async function authorizeInvitedFarmerIn(
     farmId: string;
     contactHash: string;
     requestId: string;
+    /** The administrator who minted the invitation — the approval's honest actor. */
+    invitedByAdministratorId: string;
     occurredAt: Date;
   },
 ): Promise<string | null> {
@@ -677,6 +682,30 @@ async function authorizeInvitedFarmerIn(
     returning id
   `;
   const authorizationId = inserted[0]?.id as string;
+
+  // APPROVE THE FARM TOO. Authorization and approval are two independent gates —
+  // `confirmProposal` checks `farmer_authorizations`, then `farm_approvals`, and returns
+  // `not_approved` when the second is missing. Granting only the first would leave the farmer
+  // authorized, texted "your farm is ready", and refused on their very first update: the same
+  // silent dead end this feature closes, moved one step later.
+  //
+  // The approval names the administrator who CREATED THE INVITATION, which is honest rather
+  // than convenient. That is the person who decided this farm participates, at the moment they
+  // minted a one-use link naming it — the same decision the authorization inherits.
+  //
+  // THE INDEX IS THE ARBITER, not a preceding read. `farm_approvals_one_current_per_farm` is a
+  // PARTIAL unique index, and `select … for update` cannot serialize a row that does not exist
+  // yet — two concurrent redemptions for one farm would both observe "unapproved" and the second
+  // insert would raise. `on conflict do nothing` makes an already-approved farm a no-op instead,
+  // which is the same first-insert-race reasoning B-011 and F-050 needed.
+  await tx`
+    insert into farm_approvals (farm_id, administrator_id, approved_at)
+    values (
+      ${input.farmId}, ${input.invitedByAdministratorId},
+      ${input.occurredAt.toISOString()}
+    )
+    on conflict (farm_id) where revoked_at is null do nothing
+  `;
 
   // Settle the ask this answers. Without it the queue would keep showing a request that has
   // already been granted, and an operator would work it twice.

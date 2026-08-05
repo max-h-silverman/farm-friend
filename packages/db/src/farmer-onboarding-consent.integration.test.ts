@@ -325,6 +325,83 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       expect(open.length).toBe(0);
     });
 
+    it("APPROVES the farm too, so the farmer's first publish is not refused", async () => {
+      // F-067 — authorization and approval are two INDEPENDENT gates. `confirmProposal` checks
+      // `farmer_authorizations` and then `farm_approvals`, and returns `not_approved` when the
+      // second is missing. Setting a farmer up without approving their farm leaves them
+      // authorized, texted "your farm is ready", and refused on their first update — the exact
+      // silent dead end this feature exists to close, moved one step later.
+      //
+      // The approval names the administrator who CREATED THE INVITATION, which is honest rather
+      // than convenient: that is the person who decided this farm participates, at the moment
+      // they minted a one-use link for it.
+      const contactHash = await contact("g1");
+      const farmId = await farmWithStand(`Approved ${randomUUID()}`);
+      const token = await invitation(farmId);
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+
+      await openFarmerOnboardingRequest(database(), {
+        contactHash,
+        occurredAt: at(2),
+        invitationToken: token,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      const approvals = await sql()`
+        select administrator_id from farm_approvals
+        where farm_id = ${farmId} and revoked_at is null
+      `;
+      expect(approvals.length).toBe(1);
+      expect(approvals[0]?.administrator_id).toBe(administratorId);
+    });
+
+    it("does not approve a farm that was already approved", async () => {
+      // `farm_approvals_one_current_per_farm` is a partial unique index, so a second live row is
+      // an error rather than a no-op. A farmer invited to an already-participating farm must not
+      // turn a redemption into a constraint violation.
+      const contactHash = await contact("g2");
+      const farmId = await farmWithStand(`Reapproved ${randomUUID()}`);
+      await sql()`
+        insert into farm_approvals (farm_id, administrator_id, approved_at)
+        values (${farmId}, ${administratorId}, ${at(0).toISOString()})
+      `;
+      const token = await invitation(farmId);
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash,
+        occurredAt: at(2),
+        invitationToken: token,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      expect(opened.status).toBe("opened");
+      const approvals = await sql()`
+        select id from farm_approvals where farm_id = ${farmId} and revoked_at is null
+      `;
+      expect(approvals.length).toBe(1);
+    });
+
+    it("does not approve any farm when the agreement was never ticked", async () => {
+      // Approval rides on the same evidence authorization does. An untickd invitation still
+      // waits for VIGA, and must not quietly publish the farm in the meantime.
+      const contactHash = await contact("g3");
+      const farmId = await farmWithStand(`Unapproved ${randomUUID()}`);
+      const token = await invitation(farmId);
+
+      await openFarmerOnboardingRequest(database(), {
+        contactHash,
+        occurredAt: at(2),
+        invitationToken: token,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      const approvals = await sql()`
+        select id from farm_approvals where farm_id = ${farmId} and revoked_at is null
+      `;
+      expect(approvals.length).toBe(0);
+    });
+
     it("still refuses a settlement that records neither a farmer nor an administrator", async () => {
       // The constraint's job is unchanged: a settled request must say WHO settled it. F-067
       // only widened the acceptable answers from "an administrator" to "an administrator or

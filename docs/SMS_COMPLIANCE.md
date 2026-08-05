@@ -42,7 +42,7 @@ commit or decline.
 
 | Keyword | Behavior |
 |---|---|
-| `SIGNUP` / `SIGN UP` | Ask VIGA to set this farmer up. **Grants no authority** — it opens one queue entry a coordinator acts on, and the reply deliberately does not read as a yes. Repeats are answered identically and produce one entry. An **invited** `SIGNUP` whose invitation carries a web agreement also establishes launch consent (see §consent model, farmer onboarding); a bare one does not. |
+| `SIGNUP` / `SIGN UP` | Ask to be set up. A **bare** SIGNUP **grants no authority** — it opens one queue entry a coordinator acts on, and the reply deliberately does not read as a yes. Repeats are answered identically and produce one entry. An **invited** SIGNUP whose invitation carries a web agreement establishes launch consent (see §consent model, farmer onboarding); if that invitation also **names a farm**, redeeming it authorizes the farmer for it in the same transaction — the invitation is the decision, made when VIGA minted it. An invitation naming no farm still waits for a coordinator. |
 | `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets the signup acknowledgement and no link. |
 | `STAND` | Issue a 12-hour numbered menu of the sender's currently editable locations. Each number binds one exact authorization+location pair; the model sees neither menu nor choice. |
 | `SETTINGS` | Send the existing private standing link directly to its settings view. It uses the same token and revocation lifecycle as `LINK`, never a second login. |
