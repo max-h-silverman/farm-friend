@@ -335,7 +335,10 @@ convention, verified 2026-08-04: there is no general admin audit log, and attrib
 CHECK binding reviewer and timestamp together; `farm_approvals` does the same.
 
 Carry-forward, recorded in **F-065**: an admin inventory-edit workflow must therefore record its own
-action, or the edit is unattributable. That belongs to that feature, not to this schema change.
+action, or the edit is unattributable. That belongs to that feature, not to this schema change. Admin
+inventory edit is **consistent with the golden rules** — rule #1 governs *customers*, and an
+authenticated VIGA operator already holds authority over approval, flags, and stand data (max,
+2026-08-04).
 
 The constraint makes the guarantee for **real** confirmations strictly stronger — what was convention
 becomes database-enforced.
