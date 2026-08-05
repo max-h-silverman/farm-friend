@@ -30,16 +30,16 @@ heights can never match, leaving a distributed hole on well-tagged stands.
 
 It also produced two findings that outgrew it, both now driving the ingestion audit:
 
-- **the map CSV is a hand-maintained derivative of the weekly form**, so the oddities in stand
-  descriptions (`WA, WA 98070`, en-dashes in dated lines) are transcription residue from the manual
-  step Farm Friend exists to remove. Across the 70 form rows dated 2026, `What do you have
-  available` is filled **70/70** while address, currencies, and links appear **once each** — they
-  sit behind an optional "first time this season" prompt. The only durable home for profile facts
-  today is the volunteer's typed description;
-- **`parseFormResponses` describes a source VIGA has never produced.** None of its `EXPECTED_COLUMNS`
-  exists in either real file, and two of its own test fixtures (`13609 SW 220th St`, `Bank Road,
-  East of Town`) appear in neither. The seeder's `--form` path and its 210-line test file are green
-  over an invented format.
+- **the map CSV is a hand-maintained derivative**, so the oddities in stand descriptions
+  (`WA, WA 98070`, en-dashes in dated lines) are transcription residue from the manual step Farm
+  Friend exists to remove;
+- **`parseFormResponses` was suspected of describing a source VIGA has never produced. That is
+  disproved** (audit 2026-08-04, **B-035 closed wont-fix**). VIGA supplies **three** CSVs, not two:
+  a per-farm **profile form** (`2026 Farm Stand Information (Responses)…`, header matches
+  `EXPECTED_COLUMNS` byte for byte, parses to 31 stands + 1 known refusal, **still open**), the map
+  transcription (31 stands, the only coordinates), and the **weekly stock form** (734 rows, 49 farms,
+  **no parser, not ingested**). Both "invented" fixtures are real data. The join is sound: 35 stands,
+  0 refusals.
 
 `extractStockUpdate` parses VIGA's dated `"5/26/2026 Update: …"` lines and **deliberately has no
 consumer**: max has decided such a line should count as a confirmation, but how it is stored is
@@ -97,18 +97,21 @@ unresolved, because `inventory_revisions` requires keys asserting a handset sent
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
 - **Listing facts are frozen** at whatever VIGA's CSV said: hours, season, offerings, payment
   methods, Farm Bucks, and address are editable by nobody. Work items 3 and 3b.
-- **The listing ingestion audit is the next tranche** (**F-059**) and is scoped in
-  [LISTING_INGESTION_AUDIT_PROMPT_2026-08-04.md](LISTING_INGESTION_AUDIT_PROMPT_2026-08-04.md).
-  It must settle: which source is authoritative per field (the weekly form, or the volunteer's
-  hand-typed map derivative); whether the customer-visible description should be *derived* from
-  structured facts rather than stored raw; whether `parseFormResponses` is rewritten or deleted;
-  and how a sheet-typed date is stored without fabricating an authorization (**B-035** covers
-  the parser defect itself). max has decided the
-  launch re-ingest replaces all seeded listing data — but it must not overwrite farmer-authored
-  facts, and the seed utility is currently insert-only (GL-015).
-- **`sales_location_payment_methods` is a correctly-shaped table that nothing writes or reads.** Its
-  only non-schema appearances are test cleanup lists, which is why its emptiness went unnoticed. The
-  gap is wiring, not schema. GL-014 already names it.
+- **The listing ingestion audit (F-059) is complete** —
+  [LISTING_INGESTION_AUDIT_2026-08-04.md](LISTING_INGESTION_AUDIT_2026-08-04.md). It corrected its
+  own founding premise (B-035 is not a defect) and max settled four decisions: rebuild the
+  description from the profile form's columns (**F-061**); ingest the weekly stock form (**F-062**);
+  run the ingest **before any farmer onboards** (**F-064**); and treat the initial import as
+  confirmation — which needs one more decision before it can be built (**F-063**), because
+  `inventory_revisions` requires keys asserting a handset sent the message, and a spreadsheet date
+  has neither handset nor message.
+- **The real ingestion defect is one line**: `seed-stands.ts:176` stores the volunteer's prose as the
+  public description whenever a map row exists, discarding the form's clean columns for display. That
+  causes both on-screen contradictions.
+- **`sales_location_payment_methods` AND `farm_links` are both correctly-shaped tables that nothing
+  writes or reads** — verified in both directions; their only non-schema appearances are test cleanup
+  lists. Links are the most common structured fact in the corpus (41 lines) and are entirely
+  un-ingested. GL-014 names the first; a rewrite is proposed in the audit.
 - **The public map shows two on-screen contradictions** under real data: a "Hours not listed" badge
   beside prose reading `Open: Year Round`, and "Nothing confirmed recently" directly above a
   farmer-dated stock update. Both are ingestion artifacts, not rendering bugs.
