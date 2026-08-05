@@ -18,9 +18,11 @@ Migration `0018` (`farmer_invitations.agreed_to_sms_at` plus its CHECK constrain
 The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
 [session log](SESSION_LOG.md) for its reasoning.
 
-The most recent tranche is the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard)
-on branch `f-063-inventory-revision-source`. It is **built and locally verified but neither merged
-nor deployed**, and it carries **migration `0019`**, which production has not received.
+The most recent tranche is the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard),
+**merged to `main` and NOT deployed**. It carries **migration `0019`**
+(`inventory_revisions.source`), which production has not received — so production still runs the
+pre-tranche schema and the pre-tranche listing data. See the
+[session log](SESSION_LOG.md) for the reasoning.
 
 The tranche before it — presentation and ingestion groundwork — is deployed: plan assertions 37/37,
 deploy and served-card assertions pass, and the served stylesheet was checked **by effect**.
@@ -46,8 +48,8 @@ public description, which it does.
 
 ## Verification
 
-- Branch `f-063-inventory-revision-source`: **105 unit-test files / 1067 tests**, typecheck, and
-  lint pass. **Not yet merged to `main` and not deployed.**
+- Current `main`: **105 unit-test files / 1067 tests**, typecheck, and lint pass (verified
+  2026-08-05). **Merged but not deployed.**
 - Real-Postgres integration: **45 files / 606 tests pass on a complete run** from an empty schema,
   against a local Postgres — never against production Neon.
 - **Migration `0019` verified by effect** against a freshly migrated database (B-022): the `source`
@@ -128,13 +130,15 @@ against the real corpus on 2026-08-04 while implementing.
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
 - **Listing facts are frozen** at whatever VIGA's CSV said: hours, season, offerings, payment
   methods, Farm Bucks, and address are editable by nobody. Work items 3 and 3b.
-- **The ingestion tranche (F-063 → F-061 → F-062, plus F-064's guard) is built on branch
-  `f-063-inventory-revision-source` and is unmerged.** F-063 added `inventory_revisions.source`
-  (`sms` requires the full handset chain under a CHECK; `viga` requires none of it). F-061 rebuilt
-  the description from the profile form's columns and gave `farm_links` and
-  `sales_location_payment_methods` their first writer and reader. F-062 ingests the weekly stock
-  form as dated `viga` confirmations. **The two on-screen contradictions are gone at the data
-  level**, verified over the real corpus.
+- **The ingestion tranche (F-063 → F-061 → F-062, plus F-064's guard) is merged and UNDEPLOYED.**
+  F-063 added `inventory_revisions.source` (`sms` requires the full handset chain under a CHECK;
+  `viga` requires none of it). F-061 rebuilt the description from the profile form's columns and
+  gave `farm_links` and `sales_location_payment_methods` their first writer and reader. F-062
+  ingests the weekly stock form as dated `viga` confirmations. **The two on-screen contradictions
+  are gone at the data level**, verified over the real corpus — but **not on the live map**, which
+  still runs the pre-tranche image and data.
+- **Migration `0019` is owed to production**, before the code that reads it (RUNBOOK ordering
+  rule). Deploying the image without it would break every listing read.
 - **F-064's production run has NOT happened.** Still owed: a re-export of all three CSVs (the
   profile form is **still open**), a **`neondb` snapshot** — with an insert-only utility and GL-015
   open, the snapshot *is* the rollback — max's explicit approval for the bulk write, and the render
@@ -149,6 +153,12 @@ against the real corpus on 2026-08-04 while implementing.
 - **Attribution for an admin inventory edit is still owed (F-065)** — a revision row carries no
   `admin_actor_id` and there is no general admin audit log, so that workflow must record its own
   action, matching how `stock_out_reports` and `farm_approvals` already work.
+- **F-066 — whether "usually sells" and "in stock" should share ONE item vocabulary** (max,
+  2026-08-05). Today they are two tables sharing no vocabulary, and `standListingLines` case-folds
+  and subtracts one from the other at render time — that subtraction is the data model's missing
+  reconciliation done in the view. The *separation* is load-bearing and must survive; the question
+  is whether the two states can hang off one per-stand item record. **Settle before F-064's
+  production ingest** if the ingest would write item rows in a shape this changes.
 - **F-029:** finish live carrier/JOIN launch verification.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.

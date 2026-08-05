@@ -25,8 +25,9 @@ Launch is a **single VIGA operation** and a **greenfield build**. Accordingly:
   `farmer_confirmed` provenance axis, no corpus backfill, and no claim-state machine.
 - **No native-app or multi-level-role state.** One administrator level at launch.
 
-Recency is expressed by **when a revision was published and by whom**, which is sufficient to
-render an honest "updated X ago" without a second provenance axis.
+Recency is expressed by **when a revision was published, by whom, and from where** — the third being
+`source` (F-063), which distinguishes a farmer's own handset from VIGA's records without a second
+axis of its own. That is sufficient to render an honest "updated X ago".
 
 ## Minimum durable data
 
@@ -104,18 +105,27 @@ render an honest "updated X ago" without a second provenance axis.
   available" survives without the structured fields overstating it. `year_round` is distinct from an
   absent season: "always open" and "never recorded" are different facts.
 - **stand specialties** (F-035) — what a location *usually* carries, held separately from inventory
-  revisions. The separation is **structural, not conventional**: a revision requires a farmer
-  authorization and a VIGA approval, so a seeder or an ingest path cannot fabricate a confirmation
-  by writing one. Specialties carry no confirmation time and must never be rendered as current
-  availability. **Read by the public listing** (F-042) as a field of its own, never merged into the
-  confirmed items, and rendered under a heading that takes no timestamp — the record's "no
-  confirmation time" property has to survive all the way to the screen to mean anything.
+  revisions. The separation is about **what kind of claim each makes**, and it is structural: a
+  specialty is a standing property of the farm, true in March and in September, dated by nothing; a
+  revision is a statement about what is out *right now*, always dated and always attributed by
+  `source`. Sharing a table would let a standing fact occupy the one-current-per-location slot that
+  means "the freshest thing anyone has said about this stand". Specialties carry no confirmation
+  time and must never be rendered as current availability. **Read by the public listing** (F-042) as
+  a field of its own, never merged into the confirmed items, and rendered under a heading that takes
+  no timestamp — the record's "no confirmation time" property has to survive all the way to the
+  screen to mean anything.
 - **stand data flags** (F-035) — where a contradiction in seeded source data waits for a human.
   Distinct from the customer-message `flags` table, which is keyed to a contact and an inbox event a
   seed flag has neither of. One open flag per (location, reason); resolved flags stay as history.
 - **inventory revisions and inventory entries** — a revision is an immutable published version of a
   location's inventory; entries are the items in it, with quantity/unit/price text or an
-  approximate label. Revisions have no draft state and are created only by successful confirmation.
+  approximate label. Revisions have no draft state. Every revision declares its **`source`**
+  (F-063), and a database CHECK makes the two shapes mutually exclusive: `sms` requires the full
+  handset chain — `proposal_id`, `published_by_authorization_id`, `farm_approval_id` — so what was
+  previously convention is now enforced; `viga` requires all three to be **NULL**, which is how
+  VIGA's own records (the launch import, the weekly stock form, a later admin edit) are recorded
+  without fabricating an attestation about an identifiable person. Written as one biconditional over
+  all three keys rather than three per-column rules, because a CHECK *passes* on NULL.
 - **closure revisions** (F-049) — append-only owner-confirmed close/reopen history, separate from
   inventory. A close carries `temporary` or `seasonal` plus a Vashon-local start date; temporary may
   carry an inclusive end date. Reopen carries no kind or dates. Composite foreign keys bind the

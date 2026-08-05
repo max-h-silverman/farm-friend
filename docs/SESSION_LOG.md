@@ -6,8 +6,102 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 48. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 50. A log too large to open
 mid-session defeats its own purpose.
+
+---
+
+## 2026-08-05 — the listing ingestion tranche: F-063, F-061, F-062, and F-064's guard
+
+Four items built in dependency order. The through-line is that **almost every design decision was
+settled by measuring the real corpus rather than by reasoning about it**, and measuring contradicted
+the audit twice and my own instincts once.
+
+**F-063 — `source`, and the column the spec didn't name.** `inventory_revisions` asserted in every
+row that a specific authorized handset sent a specific message. VIGA's own records have no handset,
+so the spec added `source` with `sms` requiring `proposal_id` + `published_by_authorization_id`.
+Building it surfaced a third NOT NULL key the spec never mentioned — `farm_approval_id`. max's call:
+`viga` carries none of the three, because approval is the *onboarding* step and F-064 runs before any
+farmer onboards, so at import time no farm has an approval row to point at.
+
+The constraint is **one biconditional over all three keys**, not three per-column rules, because a
+CHECK *passes* on NULL — independent rules would each be satisfied by exactly the half-populated rows
+the constraint exists to refuse.
+
+**The backfill would have failed against production, and only a populated-schema test caught it.**
+The first version used `UPDATE … SET source = 'sms'`. `inventory_revisions_guard_history` is a BEFORE
+UPDATE trigger permitting only the supersede shape, so that aborts on any table holding a current
+revision — which is every real database. Against an empty test database it passed cleanly. It now
+backfills via `ADD COLUMN … DEFAULT`, then **drops the default** so a writer that omits `source`
+cannot be silently recorded as a farmer's confirmation.
+
+**max reversed one acceptance criterion.** F-063 called for the card to read "From VIGA's records"
+vs. a farmer confirmation; max chose the *same* "Confirmed X ago" wording for both. The distinction is
+recorded in the data, not shown on the card.
+
+**F-061 — the one-line defect, and what measuring found around it.** `seed-stands.ts:176` stored the
+map transcription as the public description whenever a map row existed (27 of 35 stands), discarding
+the form's clean columns for display while still parsing them for structured fields. That one line
+caused both on-screen contradictions. Rebuilt from the form's own columns; both are gone at the data
+level, verified over the real corpus.
+
+Measuring corrected the audit twice. **Payment methods exist only in the map transcription** — the
+profile form has no payment question at all, so the audit's "22 payment lines" were map lines. And
+the "0/31 empty remainder" figure measured the *map description*, not the form's columns. Measuring
+also found a **wrong-row link**: the map lists `www.handpickedhomestead.com` under Plum Forest Farm.
+max chose to prefer the farmer's own answer, which fixes that and every case like it without naming a
+farm in code. `farm_links` and `sales_location_payment_methods` — schema, no writer, no reader — got
+both: 34 links and 53 payment rows over the real corpus.
+
+**F-062 — where I had the product wrong, and max corrected it.** I proposed the weekly form feed
+"usually sells" rather than confirmations, reasoning that a 34-day-median row would fake an active
+confirmation loop at launch. max pushed back twice, and was right both times: think about the people.
+A farmer has filled in VIGA's weekly form for years and has not heard of Farm Friend — if their
+submission produces nothing, the replacement system is strictly worse for them on day one and
+silently discards work they did. And a customer wants **both** facts in concert: the standing one
+sets expectations, the dated one says how much to trust it today. I had treated "old" as
+"dishonest", when the architecture's premise is that stale information stays visible *with a
+warning*. Past 48 hours the card already shows its stale caution, which is exactly true.
+
+**No model seam was added.** The audit expected one for the open-ended availability prose; measured
+against the real corpus those answers are comma-separated lists a deterministic parser reads cleanly.
+So no eval or `evals:live` run is owed, and there is no model in this path to jailbreak.
+
+Measuring the real file found four defects the tests had not: payment text publishing as produce
+("…and potatoes. Cash, checks, Venmo…"), sentence fragments as items, Green Ears appearing as *both*
+stocked and closed (one latest-wins timeline per farm now), and two rows refused as unreadable that
+were farmers stating a real fact ("We don't have anything available this week").
+
+**F-064 — the guard, the rehearsal, and the three duplicates.** `describeTarget` names a target but
+confirms only the string an operator typed; `requireExpectedDatabase` reports what is *actually*
+there and aborts on anything unexpected. Verified by effect: pointed at a rehearsal database while
+claiming `neondb`, the seeder refused and named what it found.
+
+The three weekly farms matching no stand turned out to be duplicates (max confirmed), and split into
+**two problems, so two mechanisms**. `Venison Valley Farm` and `Ostara` are word-prefixes of their
+seeded keys. `Maggie's Farm` → `Green Ears` is a **rename**, stated in Green Ears' own form row
+("Formerly Maggie's Farm") — the two names share no characters, so no spelling rule could reach it.
+`resolveStandKey` stays an **exact** comparison of whole words anchored at the start, honoring this
+module's standing prohibition on similarity scoring (a Jaccard matcher once ranked Lavender Hill
+against Flora Hill at 0.33). Checked first: no seeded key is a word-prefix of another, so a prefix
+names exactly one farm or none, and an ambiguous prefix resolves to neither. Unknown stands 3 → 0,
+published 13 → 16.
+
+**B-024 is fixed in code.** A farmer's written refusal now makes her stand contact-only — no address,
+no pin — read as a general rule from her own words rather than by naming a farm. Production still
+publishes her address until the ingest runs.
+
+**Seventeen sabotages, and three of them found problems with the tests rather than the code.** Two
+early attempts silently failed to apply and proved nothing (every later one asserts its anchor is
+present before editing). The surviving-DEFAULT case passed every refusal test because the default
+quietly satisfied the NOT NULL. And the name-ambiguity guard was checked with a string that was a
+prefix of *neither* candidate, so the candidate list was empty either way and disabling the guard
+changed nothing. All three now catch their defect.
+
+**Committed and merged; not deployed.** The tranche carries **migration `0019`**, which production
+has not received. F-064's production run is deliberately not done: it is a bulk write to `neondb`
+needing max's explicit approval, a re-export of all three CSVs (the profile form is still open), and
+a `neondb` snapshot — with an insert-only utility and GL-015 open, the snapshot *is* the rollback.
 
 ---
 
@@ -392,191 +486,3 @@ high-severity production dependency advisory groups in direct `drizzle-orm`, dir
 transitive PostCSS; B-034 owns supported-line upgrades and application-reachability assessment,
 with no observed exploit and some advisory reachability still unconfirmed. F-029 remains open only
 for live carrier/JOIN launch verification; its migration and deploy legs are complete.
-
-## 2026-07-31 — F-046 part 3: paging wired, deployed, and the two tests that could not fail
-
-Parts 1-2 had merged deliberately inert: the page renderer, the `MORE` keyword, and migration
-`0009_pending_result_lists` all existed and **nothing wired them**, so a customer texting `MORE`
-fell through to free text and reached the model as a question. This session connected them and
-shipped it.
-
-### The shape: one callback, one repository, one renderer
-
-`MORE` is a `nextPage` callback on `RouteDeps`, mirroring `freeText` — routing keeps owning only
-the deterministic order, and retrieval/rendering stay outside it. The difference worth stating:
-**the handler behind `nextPage` takes no model dependency at all**, so "paging reaches no model"
-is a property of its signature rather than of a seam that happens not to be called. Ordering it
-after the compliance keywords and commitment tokens is what makes "paging can never shadow an
-opt-out" structural.
-
-The repository (`packages/db/src/pending-result-list.ts`) makes the database the arbiter rather
-than application code: save replaces via the unique index on `sender_hash`; a page is claimed and
-the offset advanced in **one locked transaction**; expiry is measured against the **message's own
-time**, never `now()`, so a delayed pass can neither refuse a page asked for in time nor silently
-extend the window. Expired and exhausted rows are deleted as found — "never asked", "expired",
-and "exhausted" become one honest reply instead of three shades of no.
-
-**Replay, not re-retrieval** (max's call, this session): identity and order frozen at question
-time, values dereferenced **fresh** at page time, because the table stores no copy of them. A
-stand withdrawn mid-paging is dropped rather than rendered stale; a page whose stands have *all*
-gone is **skipped**, since an empty page reads to a customer as "no results" — a false claim
-while later pages still hold real answers.
-
-### Deleting the second renderer, and the type that hid the (null) bug
-
-After part 3, `renderGroundedAnswer` had **no production consumer left**. It also carried a
-second fact type differing from the pager's in exactly one way: a non-nullable `publicAddress`.
-**The nullable half was the true one** — the column is nullable, two real stands carry no
-address — and that mismatch is precisely how F-045 shipped the literal word "null" to customers
-past a fully satisfied compiler. Both are now gone, leaving one renderer and one fact type. The
-grounding assertions moved to the survivor rather than retiring with the function, and the evals
-render through the same path; sabotaging that renderer fails two adversarial fixtures, so they
-genuinely exercise it.
-
-### The two sabotages that survived — both were defects in my own tests
-
-24 sabotages applied. Two initially survived, and both are the "a test that cannot fail proves
-nothing" class:
-
-1. **The concurrency test could not fail.** `Promise.all` over six claimants did not race them —
-   measured, not assumed: each claim completed in under a millisecond, so every transaction
-   committed before the next one read, and deleting `for update` passed the whole suite. The fix
-   is to *manufacture* contention: a separate connection takes the row lock and holds it until
-   every claimant has queued behind it, signalled by awaiting actual acquisition rather than a
-   sleep. Now, without the lock **all six** claimants are served the same stands; with it,
-   exactly three. This is the CLAUDE.md warning about `Promise.all` not racing async branches,
-   met head-on.
-2. **"The page was actually served" was asserted on the offset** — which an implementation that
-   claims a page and then discards it *also* satisfies, since the claim advances the offset
-   regardless. It now asserts the queued reply body.
-
-Both directions of the confirmation/paging independence are asserted end to end through the real
-webhook, for the same reason: each direction alone is satisfiable by the defect it forbids
-("the confirmation survived" passes trivially if `MORE` did nothing; "the page was served" passes
-trivially if no confirmation was ever open).
-
-### Two things learned about the fixtures themselves
-
-`deliverInbound` also drives the kick route, which builds its own deps from the composition root
-with the **real** clock — and that expires a fixture proposal anchored a day in the past. The
-existing suite already used `deliverInboundOnly` for exactly this reason; worth knowing before
-debugging a phantom expiry again. Separately, a pending list of **invented** fact IDs drains
-itself, because the pager dereferences and skips empty pages by design — a fixture list must name
-real published stands or the assertions are about nothing.
-
-### Verified against the real corpus, then in production
-
-The offerings corpus is tracked (`maps/offerings-proposals.json`, 34 stands / 212 tags, matching
-production), so paging was exercised over real names and real address widths rather than
-fixtures: `"any eggs?"` matches **13 stands** and pages **5 pages, every one 2 segments**, against
-F-045's single 488-character / 4-segment message. `"honey?"` matches 2 and saves **no row at
-all**. The corpus's three widest name+address entries on one page render **285 chars / 2
-segments**, so the two-segment ceiling holds against real data.
-
-**Deployed** — migration first (`0009_pending_result_lists`, verified by effect: 10 applied,
-every pre-existing count unchanged, all three CHECKs proven to reject *with a valid-row positive
-control*, cleanup left 0 rows), then the image. Revisions `farm-friend-web-00013-djk` /
-`farm-friend-worker-00014-qv2`, digest `sha256:5e6a4d49`. Plan read leaf by leaf: exactly one
-real leaf per service plus the known non-converging `scaling` block. Against real production
-rows, `Open Gate Lamb and Grazing` now renders **`address not listed`** — the `(null)` bug is
-dead.
-
-**A doc correction worth carrying**: there is no migration "0010". There are 10 migration
-*files*, `0000`–`0009`; production had applied 9 of them, through `0008`. Earlier wording in
-CLAUDE.md and CURRENT_STATE invented a 0010 and was fixed.
-
-**Still owed: a handset tap.** Only a real phone proves threading and segment behaviour.
-
----
-
-## 2026-07-31 — F-045 shipped: SMS could not see the offerings corpus, and matched food by string equality
-
-max texted the production number "Who has lamb?" and "Any leafy greens available?" and got
-"No stand has a current listing" to both, while the public map showed those stands the whole
-time. **Two defects, one root cause**, and the root cause is the interesting part.
-
-### The inquiry path was reading a table that is empty in production
-
-`retrieveCurrentListings` queried only `inventory_revisions` + `inventory_entries` — farmer
-**confirmed** stock. Production holds **zero** current inventory revisions, because no farmer has
-published yet. So retrieval returned empty on *every* question, short-circuited to the honest
-"no current listing", and never reached the fact-selection seam at all. Meanwhile the **212
-offering tags** F-042 shipped to the map sat in `sales_location_offerings`, which this path never
-queried. **One desk was giving two answers**: the map knew Holmestead sells lamb; SMS did not.
-
-Retrieval now unions both, tagging each candidate with its `basis` — `confirmed` or `offering`.
-
-### Comparing strings to answer a question about meaning
-
-`rankCandidates` filtered candidates by **exact normalized item-name equality**. "leafy greens"
-never matched "butter lettuce"; "root vegetables" never matched "beets". The corpus proves it
-cuts both ways: it holds a literal `"leafy greens"` tag *and* `"baby lettuce mix"`, so even exact
-matching hit inconsistently — which reads worse to a customer than never hitting.
-
-The filter ran **before** the model, so the only layer that could understand "beets are root
-vegetables" never saw beets. The fix is not a synonym table — that is the food-taxonomy-as-policy
-CLAUDE.md forbids, and no finite list covers an open corpus of farmer-authored names. **Code
-stopped deciding which items answer a request.** It now orders and caps candidates
-(`MAX_INQUIRY_CANDIDATES`, a stated bound rather than one inherited from corpus size) and the
-model selects across them.
-
-**Grounding is untouched** — code retrieves, validates every returned identifier against the
-retrieved set, and renders every word. **What moved is RECALL**, which is a quality property, not
-an authority one. So recall became something *measured*: five live fixtures over real corpus
-vocabulary, each with distractors, and the `live-recall` group **exits non-zero** rather than
-merely recording. A model that cannot category-match is not a degraded experience; it is this
-defect restored.
-
-**Mistral Small 24B passes all five**, so the model upgrade max pre-approved was not needed and
-nothing extra is being spent. The swap remains one env var if recall ever regresses.
-
-### Two defects the tests caught mid-build, and one they didn't
-
-Caught: `offering:<uuid>` identifiers were refused by `assertOpaqueId` (a colon is not an
-identifier shape — the guard was right); and removing the item filter made an answer about kale
-recite the eggs, so **rendering** now narrows by exact name separately from **retrieval**, which
-does not.
-
-**Not caught, and shipped to production:** `publicAddress` is **nullable**, two real stands carry
-no address, and the renderer printed the literal word **"null"** to customers. The guard was
-`publicAddress === ""`; the type said `string`, so the compiler was satisfied and every fixture
-had an address. Textbook NULL-semantics miss. Fixed in F-046's renderer, not yet deployed.
-
-### F-046 designed and half-built
-
-max's follow-up: the replies are hard to parse. Measured against the real corpus — the *common*
-questions are the big ones (eggs 16 stands, flowers 15, leafy greens 9) and name+address runs
-22-57 chars — so **three per page** is the honest maximum inside **two billed segments**. The
-shipped format was 488 characters / **four** segments.
-
-Built this session: page rendering, `MORE` as a deterministic keyword ordered after `STOP`, and
-migration 0009's `pending_result_lists`. **Not yet wired** — a customer texting `MORE` still
-falls through to free text. Part 3 is the routing branch.
-
-**max chose (2026-07-31)**: page 3 at a time; `MORE` **replays the saved list** rather than
-re-running retrieval, so paging is consistent and costs no model call, accepting that stock
-confirmed mid-paging waits for the next question; and **`YES`/`NO` and `MORE` both work** — a
-farmer with an open confirmation can page without disturbing it.
-
-### drizzle-kit omits CHECK constraints, silently
-
-Asked to generate a snapshot, drizzle-kit also wrote **its own migration** for the same table
-whose SQL **dropped all three CHECK constraints**, with a journal timestamp **older** than the
-hand-written one — which is B-022's silent-skip trap. The timestamp half was already tripwired;
-the dropped-constraint half was not. **Now it is**: `migration-metadata.test.ts` fails when a
-CHECK constraint declared in `schema.ts` reaches no migration. Checked against migration **SQL**,
-not the snapshot, because SQL is what runs. No drift today — all 71 declared constraints present.
-
-`array_length` of an empty array returns **NULL**, and a CHECK constraint **passes** on NULL, so
-the obvious spelling of "the list must not be empty" admits empty lists. `coalesce` is required,
-and each constraint was verified by trying to violate it.
-
-### Verified
-
-F-045: unit 735/735, integration 407/407, evals 11/11 + 4/4 + 29/29, `evals:live` containment
-4/4 / recall 5/5 / quality 6/6. **13 sabotages, all caught.** Deployed 2026-07-30 —
-`web-00012-glc` / `worker-00013-b9t`, digest `sha256:b178bf93`, no migration owed.
-
-This session's wrap: unit **758/758**, integration **407/407**, typecheck and lint clean, evals
-green. F-046 parts 1-2 merged but **inert and undeployed** — production keeps today's behavior,
-including the `(null)` bug.

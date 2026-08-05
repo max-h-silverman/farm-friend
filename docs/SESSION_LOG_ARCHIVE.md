@@ -1,7 +1,7 @@
-# Farm Friend — Session Log Archive (through 2026-07-31)
+# Farm Friend — Session Log Archive (through 2026-08-02)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-04.
+everything older lives here. Last rotated 2026-08-05; it now holds 50 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -9,6 +9,194 @@ architecture documents ([README.md](README.md) is the index). Where an entry her
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
 
 ---
+
+## 2026-07-31 — F-046 part 3: paging wired, deployed, and the two tests that could not fail
+
+Parts 1-2 had merged deliberately inert: the page renderer, the `MORE` keyword, and migration
+`0009_pending_result_lists` all existed and **nothing wired them**, so a customer texting `MORE`
+fell through to free text and reached the model as a question. This session connected them and
+shipped it.
+
+### The shape: one callback, one repository, one renderer
+
+`MORE` is a `nextPage` callback on `RouteDeps`, mirroring `freeText` — routing keeps owning only
+the deterministic order, and retrieval/rendering stay outside it. The difference worth stating:
+**the handler behind `nextPage` takes no model dependency at all**, so "paging reaches no model"
+is a property of its signature rather than of a seam that happens not to be called. Ordering it
+after the compliance keywords and commitment tokens is what makes "paging can never shadow an
+opt-out" structural.
+
+The repository (`packages/db/src/pending-result-list.ts`) makes the database the arbiter rather
+than application code: save replaces via the unique index on `sender_hash`; a page is claimed and
+the offset advanced in **one locked transaction**; expiry is measured against the **message's own
+time**, never `now()`, so a delayed pass can neither refuse a page asked for in time nor silently
+extend the window. Expired and exhausted rows are deleted as found — "never asked", "expired",
+and "exhausted" become one honest reply instead of three shades of no.
+
+**Replay, not re-retrieval** (max's call, this session): identity and order frozen at question
+time, values dereferenced **fresh** at page time, because the table stores no copy of them. A
+stand withdrawn mid-paging is dropped rather than rendered stale; a page whose stands have *all*
+gone is **skipped**, since an empty page reads to a customer as "no results" — a false claim
+while later pages still hold real answers.
+
+### Deleting the second renderer, and the type that hid the (null) bug
+
+After part 3, `renderGroundedAnswer` had **no production consumer left**. It also carried a
+second fact type differing from the pager's in exactly one way: a non-nullable `publicAddress`.
+**The nullable half was the true one** — the column is nullable, two real stands carry no
+address — and that mismatch is precisely how F-045 shipped the literal word "null" to customers
+past a fully satisfied compiler. Both are now gone, leaving one renderer and one fact type. The
+grounding assertions moved to the survivor rather than retiring with the function, and the evals
+render through the same path; sabotaging that renderer fails two adversarial fixtures, so they
+genuinely exercise it.
+
+### The two sabotages that survived — both were defects in my own tests
+
+24 sabotages applied. Two initially survived, and both are the "a test that cannot fail proves
+nothing" class:
+
+1. **The concurrency test could not fail.** `Promise.all` over six claimants did not race them —
+   measured, not assumed: each claim completed in under a millisecond, so every transaction
+   committed before the next one read, and deleting `for update` passed the whole suite. The fix
+   is to *manufacture* contention: a separate connection takes the row lock and holds it until
+   every claimant has queued behind it, signalled by awaiting actual acquisition rather than a
+   sleep. Now, without the lock **all six** claimants are served the same stands; with it,
+   exactly three. This is the CLAUDE.md warning about `Promise.all` not racing async branches,
+   met head-on.
+2. **"The page was actually served" was asserted on the offset** — which an implementation that
+   claims a page and then discards it *also* satisfies, since the claim advances the offset
+   regardless. It now asserts the queued reply body.
+
+Both directions of the confirmation/paging independence are asserted end to end through the real
+webhook, for the same reason: each direction alone is satisfiable by the defect it forbids
+("the confirmation survived" passes trivially if `MORE` did nothing; "the page was served" passes
+trivially if no confirmation was ever open).
+
+### Two things learned about the fixtures themselves
+
+`deliverInbound` also drives the kick route, which builds its own deps from the composition root
+with the **real** clock — and that expires a fixture proposal anchored a day in the past. The
+existing suite already used `deliverInboundOnly` for exactly this reason; worth knowing before
+debugging a phantom expiry again. Separately, a pending list of **invented** fact IDs drains
+itself, because the pager dereferences and skips empty pages by design — a fixture list must name
+real published stands or the assertions are about nothing.
+
+### Verified against the real corpus, then in production
+
+The offerings corpus is tracked (`maps/offerings-proposals.json`, 34 stands / 212 tags, matching
+production), so paging was exercised over real names and real address widths rather than
+fixtures: `"any eggs?"` matches **13 stands** and pages **5 pages, every one 2 segments**, against
+F-045's single 488-character / 4-segment message. `"honey?"` matches 2 and saves **no row at
+all**. The corpus's three widest name+address entries on one page render **285 chars / 2
+segments**, so the two-segment ceiling holds against real data.
+
+**Deployed** — migration first (`0009_pending_result_lists`, verified by effect: 10 applied,
+every pre-existing count unchanged, all three CHECKs proven to reject *with a valid-row positive
+control*, cleanup left 0 rows), then the image. Revisions `farm-friend-web-00013-djk` /
+`farm-friend-worker-00014-qv2`, digest `sha256:5e6a4d49`. Plan read leaf by leaf: exactly one
+real leaf per service plus the known non-converging `scaling` block. Against real production
+rows, `Open Gate Lamb and Grazing` now renders **`address not listed`** — the `(null)` bug is
+dead.
+
+**A doc correction worth carrying**: there is no migration "0010". There are 10 migration
+*files*, `0000`–`0009`; production had applied 9 of them, through `0008`. Earlier wording in
+CLAUDE.md and CURRENT_STATE invented a 0010 and was fixed.
+
+**Still owed: a handset tap.** Only a real phone proves threading and segment behaviour.
+
+---
+
+## 2026-07-31 — F-045 shipped: SMS could not see the offerings corpus, and matched food by string equality
+
+max texted the production number "Who has lamb?" and "Any leafy greens available?" and got
+"No stand has a current listing" to both, while the public map showed those stands the whole
+time. **Two defects, one root cause**, and the root cause is the interesting part.
+
+### The inquiry path was reading a table that is empty in production
+
+`retrieveCurrentListings` queried only `inventory_revisions` + `inventory_entries` — farmer
+**confirmed** stock. Production holds **zero** current inventory revisions, because no farmer has
+published yet. So retrieval returned empty on *every* question, short-circuited to the honest
+"no current listing", and never reached the fact-selection seam at all. Meanwhile the **212
+offering tags** F-042 shipped to the map sat in `sales_location_offerings`, which this path never
+queried. **One desk was giving two answers**: the map knew Holmestead sells lamb; SMS did not.
+
+Retrieval now unions both, tagging each candidate with its `basis` — `confirmed` or `offering`.
+
+### Comparing strings to answer a question about meaning
+
+`rankCandidates` filtered candidates by **exact normalized item-name equality**. "leafy greens"
+never matched "butter lettuce"; "root vegetables" never matched "beets". The corpus proves it
+cuts both ways: it holds a literal `"leafy greens"` tag *and* `"baby lettuce mix"`, so even exact
+matching hit inconsistently — which reads worse to a customer than never hitting.
+
+The filter ran **before** the model, so the only layer that could understand "beets are root
+vegetables" never saw beets. The fix is not a synonym table — that is the food-taxonomy-as-policy
+CLAUDE.md forbids, and no finite list covers an open corpus of farmer-authored names. **Code
+stopped deciding which items answer a request.** It now orders and caps candidates
+(`MAX_INQUIRY_CANDIDATES`, a stated bound rather than one inherited from corpus size) and the
+model selects across them.
+
+**Grounding is untouched** — code retrieves, validates every returned identifier against the
+retrieved set, and renders every word. **What moved is RECALL**, which is a quality property, not
+an authority one. So recall became something *measured*: five live fixtures over real corpus
+vocabulary, each with distractors, and the `live-recall` group **exits non-zero** rather than
+merely recording. A model that cannot category-match is not a degraded experience; it is this
+defect restored.
+
+**Mistral Small 24B passes all five**, so the model upgrade max pre-approved was not needed and
+nothing extra is being spent. The swap remains one env var if recall ever regresses.
+
+### Two defects the tests caught mid-build, and one they didn't
+
+Caught: `offering:<uuid>` identifiers were refused by `assertOpaqueId` (a colon is not an
+identifier shape — the guard was right); and removing the item filter made an answer about kale
+recite the eggs, so **rendering** now narrows by exact name separately from **retrieval**, which
+does not.
+
+**Not caught, and shipped to production:** `publicAddress` is **nullable**, two real stands carry
+no address, and the renderer printed the literal word **"null"** to customers. The guard was
+`publicAddress === ""`; the type said `string`, so the compiler was satisfied and every fixture
+had an address. Textbook NULL-semantics miss. Fixed in F-046's renderer, not yet deployed.
+
+### F-046 designed and half-built
+
+max's follow-up: the replies are hard to parse. Measured against the real corpus — the *common*
+questions are the big ones (eggs 16 stands, flowers 15, leafy greens 9) and name+address runs
+22-57 chars — so **three per page** is the honest maximum inside **two billed segments**. The
+shipped format was 488 characters / **four** segments.
+
+Built this session: page rendering, `MORE` as a deterministic keyword ordered after `STOP`, and
+migration 0009's `pending_result_lists`. **Not yet wired** — a customer texting `MORE` still
+falls through to free text. Part 3 is the routing branch.
+
+**max chose (2026-07-31)**: page 3 at a time; `MORE` **replays the saved list** rather than
+re-running retrieval, so paging is consistent and costs no model call, accepting that stock
+confirmed mid-paging waits for the next question; and **`YES`/`NO` and `MORE` both work** — a
+farmer with an open confirmation can page without disturbing it.
+
+### drizzle-kit omits CHECK constraints, silently
+
+Asked to generate a snapshot, drizzle-kit also wrote **its own migration** for the same table
+whose SQL **dropped all three CHECK constraints**, with a journal timestamp **older** than the
+hand-written one — which is B-022's silent-skip trap. The timestamp half was already tripwired;
+the dropped-constraint half was not. **Now it is**: `migration-metadata.test.ts` fails when a
+CHECK constraint declared in `schema.ts` reaches no migration. Checked against migration **SQL**,
+not the snapshot, because SQL is what runs. No drift today — all 71 declared constraints present.
+
+`array_length` of an empty array returns **NULL**, and a CHECK constraint **passes** on NULL, so
+the obvious spelling of "the list must not be empty" admits empty lists. `coalesce` is required,
+and each constraint was verified by trying to violate it.
+
+### Verified
+
+F-045: unit 735/735, integration 407/407, evals 11/11 + 4/4 + 29/29, `evals:live` containment
+4/4 / recall 5/5 / quality 6/6. **13 sabotages, all caught.** Deployed 2026-07-30 —
+`web-00012-glc` / `worker-00013-b9t`, digest `sha256:b178bf93`, no migration owed.
+
+This session's wrap: unit **758/758**, integration **407/407**, typecheck and lint clean, evals
+green. F-046 parts 1-2 merged but **inert and undeployed** — production keeps today's behavior,
+including the `(null)` bug.
 
 ## 2026-07-30 — F-043's poster pass: the map made to look like VIGA's, and two defects live in production
 

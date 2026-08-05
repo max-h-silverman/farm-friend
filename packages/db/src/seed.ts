@@ -3,13 +3,16 @@ import type { Sql, Tx } from "./sql";
 
 // B-002 — loading VIGA's reference stand data.
 //
-// WHAT THIS DELIBERATELY CANNOT DO: publish inventory. `inventory_revisions` requires a
-// `published_by_authorization_id` and a `farm_approval_id`, and the seeder creates neither, so
-// it is STRUCTURALLY incapable of fabricating a farmer's confirmation. That is the point.
-// VIGA's export carries dated stock notes ("7/9/2026 Update: Closed"), and seeding those as
-// current availability would put words in a farmer's mouth on a map whose entire premise is
-// honesty about when someone last confirmed. Specialties — what a stand USUALLY carries — are
-// a different fact and live in `sales_location_offerings`.
+// WHAT `seedStands` DELIBERATELY DOES NOT DO: publish inventory. A stand it creates renders the
+// honest "no current listing" until something confirms it. Specialties — what a stand USUALLY
+// carries — are a different fact and live in `sales_location_offerings`.
+//
+// Inventory has its own writer, `seedWeeklyConfirmations` (F-062), and it is not a loophole: it
+// writes ONLY from a farmer's own dated weekly-form submission, stamps `source = 'viga'`, and
+// carries none of the three keys asserting a handset sent it (F-063). A database CHECK enforces
+// that split, so neither writer can fabricate a farmer's SMS confirmation — which is what the
+// original "structurally incapable" comment here was protecting, by a mechanism that has since
+// been made explicit rather than incidental.
 //
 // IDEMPOTENT BY NATURAL KEY. Re-running is routine (a corrected row, a new stand), so the
 // loader keys on the stand's name and skips what already exists rather than duplicating it.
