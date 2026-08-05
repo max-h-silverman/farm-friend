@@ -99,21 +99,48 @@ That asymmetry is the finding, and it reframes the whole audit:
 - Therefore the *only* durable home for most profile facts today is **the volunteer's hand-typed map
   description** — which explains why "Additional information" carries so much, and why it drifts.
 
+### `parseFormResponses` describes a source that does not exist — treat it as suspect
+
+**max has confirmed (2026-08-04) that the two files above are the complete set of farm data VIGA
+has.** There is no third profile export. He believes the form parser's schema was most likely
+*inferred* early on from the map CSV rather than written against a real document.
+
+Evidence gathered this session, consistent with that:
+
+- `EXPECTED_COLUMNS` names `Address`, `Contact Name(s)`, `Email Address(es)`, `Social Media`,
+  `Website`, `Open Season`, `Open Hours & Days`, `Stocking Days` as **separate columns**. No such
+  columns exist in either supplied file.
+- Test fixtures in `form-responses.test.ts` assert oddly specific values. Traced against the real
+  files: `13609 SW 220th St` (Aeggy's) and `Bank Road, East of Town` appear in **neither** file.
+  `23720 Dockton Rd SW` and `15624 115th AV SW` appear **only inside map description prose**, never
+  as a structured field.
+- The one place those facts genuinely live is the volunteer's hand-typed description blob — which
+  is exactly where a plausible-looking column layout could have been reverse-engineered from.
+
+**Consequences the audit must take seriously:**
+
+- The seeder's entire `--form` path may be **built on a fiction**, in which case `parseFormResponses`
+  and its 210-line test file are testing a shape nothing produces. A green suite over an invented
+  format is the "test that cannot fail" failure mode at the level of a whole module.
+- **Confirm this before designing anything.** Run both real files through both parsers and report
+  what happens. If confirmed, say plainly whether `parseFormResponses` should be rewritten against
+  the weekly-status format or deleted outright — and check what else assumed the profile export
+  existed (`SUPPLEMENTAL_COORDINATES` in `seed-stands.ts`, the address-refusal flow, and GL-014's
+  own wording are all candidates).
+- Do not preserve the invented schema for compatibility. Nothing in production depends on a file
+  that was never produced.
+
 ### What this means for the audit
 
 Do **not** treat the form as a drop-in replacement source. The real questions are:
 
-1. **Does a separate 2026 profile/registration export exist?** `parseFormResponses` was clearly
-   written against one — its `EXPECTED_COLUMNS` describe a real document. Ask max. If it does not
-   exist, that is itself a major finding: the parser encodes a source that is not part of the
-   current operational reality, and the audit must say so plainly.
-2. **Should Farm Friend ingest the weekly form directly**, rather than the volunteer's transcription
+1. **Should Farm Friend ingest the weekly form directly**, rather than the volunteer's transcription
    of it? That is the product's whole premise — removing the manual step — so the re-ingest design
    should at least consider reading the origin rather than the derivative.
-3. **How are the two reconciled at launch?** The map holds hand-curated facts (geometry above all —
+2. **How are the two reconciled at launch?** The map holds hand-curated facts (geometry above all —
    the form has no coordinates) that the form does not. A re-ingest almost certainly needs both,
    with a stated rule for which wins per field.
-4. **`What do you have available` (70/70, timestamped, per-farm)** is the structured, better-sourced
+3. **`What do you have available` (70/70, timestamped, per-farm)** is the structured, better-sourced
    twin of the `"5/26/2026 Update: …"` prose we currently scrape out of descriptions. It bears
    directly on decision 4 in §5 and is a stronger input than the parsed prose. Same caveat, though:
    these are farmers filling in a Google Form, **not** texting Farm Friend — so "is this a
