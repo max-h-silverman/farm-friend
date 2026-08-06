@@ -394,3 +394,89 @@ async function writeStandingItems(
     `;
   }
 }
+
+/**
+ * A stand's current listing, in the exact shape the form writes back (F-073).
+ *
+ * **This exists so an edit form can prefill.** `saveOnboardingListing` writes the WHOLE listing
+ * every time — that is what makes it idempotent and what lets a farmer drop a payment method or
+ * an item by leaving it out. The same property makes a blank edit form destructive: a farmer who
+ * opened it to change their hours would erase their address, payments, and items by omission.
+ * So the read and the write are deliberately the same shape, and a round trip changes nothing.
+ *
+ * Returns `null` for a stand that does not exist.
+ */
+export interface StandListing {
+  standName: string;
+  visitability: "visitable" | "contact_only";
+  offeringType: "produce" | "services" | "by_order";
+  publicAddress: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  hoursText: string | null;
+  availability: ListingAvailability;
+  paymentMethods: string[];
+  items: string[];
+}
+
+export async function readStandListing(
+  db: Db,
+  input: { salesLocationId: string },
+): Promise<StandListing | null> {
+  const rows = await driver(db)`
+    select
+      location.name, location.visitability, location.offering_type,
+      location.public_address, location.public_latitude, location.public_longitude,
+      location.hours_text,
+      location.season_kind, location.season_start_month, location.season_start_day,
+      location.season_end_month, location.season_end_day, location.season_names,
+      location.open_hours_kind, location.open_from_minutes, location.open_until_minutes,
+      location.open_days, location.stocking_cadence, location.stocking_days,
+      coalesce(
+        (
+          select array_agg(payment.method order by payment.method)
+          from sales_location_payment_methods as payment
+          where payment.sales_location_id = location.id
+        ),
+        '{}'
+      ) as payment_methods,
+      coalesce(
+        (
+          select array_agg(item.display_name order by item.sort_order, item.display_name)
+          from stand_items as item
+          where item.sales_location_id = location.id and item.usually_carried
+        ),
+        '{}'
+      ) as items
+    from sales_locations as location
+    where location.id = ${input.salesLocationId}
+  `;
+
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    standName: row.name as string,
+    visitability: row.visitability as "visitable" | "contact_only",
+    offeringType: row.offering_type as "produce" | "services" | "by_order",
+    publicAddress: (row.public_address as string | null) ?? null,
+    latitude: (row.public_latitude as number | null) ?? null,
+    longitude: (row.public_longitude as number | null) ?? null,
+    hoursText: (row.hours_text as string | null) ?? null,
+    availability: {
+      seasonKind: row.season_kind as ListingAvailability["seasonKind"],
+      seasonStartMonth: (row.season_start_month as number | null) ?? null,
+      seasonStartDay: (row.season_start_day as number | null) ?? null,
+      seasonEndMonth: (row.season_end_month as number | null) ?? null,
+      seasonEndDay: (row.season_end_day as number | null) ?? null,
+      seasonNames: (row.season_names as string[] | null) ?? null,
+      openHoursKind: row.open_hours_kind as ListingAvailability["openHoursKind"],
+      openFromMinutes: (row.open_from_minutes as number | null) ?? null,
+      openUntilMinutes: (row.open_until_minutes as number | null) ?? null,
+      openDays: (row.open_days as number[] | null) ?? null,
+      stockingCadence: row.stocking_cadence as ListingAvailability["stockingCadence"],
+      stockingDays: (row.stocking_days as number[] | null) ?? null,
+    },
+    paymentMethods: row.payment_methods as string[],
+    items: row.items as string[],
+  };
+}

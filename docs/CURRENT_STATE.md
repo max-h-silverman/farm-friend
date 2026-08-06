@@ -101,7 +101,39 @@ public description, which it does.
 
 ## Verification
 
-- Current `main` (the stand-card redesign): **112 unit files / 1243 tests**, **50 integration
+- Branch `f-072-grandfathered-onboarding` (F-072 + F-073): **115 unit files / 1293 tests**, **52
+  integration files / 710 tests**, typecheck, lint, and the production build pass. **No
+  `packages/ai` file changed, so no eval or `evals:live` run is owed.** **No migration** — both
+  items are new readers, writers, and surfaces over the existing schema. **Not merged, not
+  deployed.**
+- **F-072 and F-073 were verified END TO END against the running app**, then read back from
+  Postgres and `/api/public/stands` rather than from the screen's success message:
+  - a grandfathered farmer publishes a listing with **no invitation and no administrator**, and it
+    reaches the public map with address, pin, hours, payments, and their own item words;
+  - posting an **already-onboarded** farm's id to the same endpoint is refused `409`, and that
+    farm's stand row was confirmed unchanged — the hijack this door had to refuse;
+  - an onboarded farmer's phone gets their stand link by SMS: one queued message whose token
+    **hashes to a live `farmer_links` row**, while a wrong number, a farmer of a different farm,
+    and a revoked authorization each queued **zero** — with all three HTTP responses byte-identical;
+  - the texted link opens their stand page, and the new listing-edit surface changed hours,
+    address, and items with **zero inventory revisions written** (F-066's separation holding
+    through a new writer).
+- **A real defect was found only by running it.** `/api/farmer/link-request` was first bound to
+  the full composition root, which validates SMS, model, and map configuration — so the
+  unauthenticated farmer page returned **500** on a missing unrelated variable. No test could see
+  it: every test injects these dependencies. It now builds from `publicReadContext` plus the two
+  values it actually needs.
+- **Five sabotages this tranche, each failing named tests**: the resolver no longer refusing an
+  onboarded farm (2 tests), the claimable predicate ignoring revocation (1), the boundary
+  accepting any claim status (1), dropping the farm scope from the phone match so any farmer
+  could pull any farm's link (1), the boundary passing the raw phone past the hash (1), the
+  prefill reader returning empty payments and items (1), and the edit form failing to prefill
+  `hoursText` (1) — the last two are the destructive-edit failure mode, since the writer replaces
+  the whole listing and a blank form would erase by omission.
+- **The local database held a fixture contact with a placeholder hash** (`aaaa…`), which made the
+  first live link-request check queue nothing. The code was correct and the data was fake;
+  recorded because it is exactly the shape of failure that would otherwise be blamed on the code.
+- Prior `main` (the stand-card redesign): **112 unit files / 1243 tests**, **50 integration
   files / 688 tests**, typecheck and lint pass — **re-run on the merged base**, not carried over
   from the branch. **No `packages/ai` file changed, so no eval or `evals:live` run is owed.** **Not
   deployed**, and migration `0022` is not applied to production (see Release state).
@@ -257,13 +289,43 @@ against the real corpus on 2026-08-04 while implementing.
 - **Approved farmers still start on no reminder schedule.** `authorizeFarmer` writes no
   `inventory_prompt_preferences` row, so the scheduled-prompt machinery — built and correct —
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
-- **Listing facts are no longer frozen for an ONBOARDING farmer** (F-067, extended by F-069):
-  hours, address, pin, payment methods, what they usually sell, and — since F-069 — **season,
-  structured hours, open days, and restocking cadence/days** are written by the onboarding form.
-  **Still frozen for everyone else** — an already-onboarded farmer has no edit surface, and Farm
-  Bucks and offering type remain editable by nobody. The form deliberately does not touch Farm
-  Bucks: it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot make
-  themselves eligible by filling in a form.
+- ~~**Listing facts are frozen for everyone except an ONBOARDING farmer**~~ — **CLOSED by F-073**
+  (branch, undeployed). An already-onboarded farmer now has an edit surface at
+  `/stand/<token>/listing`, under their existing private stand link: `resolveFarmerLink` re-reads
+  the authorization per request, so a revoked farmer's link resolves to nothing without the new
+  page restating the rule. The form is **prefilled from `readStandListing`**, and that is
+  load-bearing rather than polish — `saveOnboardingListing` replaces the whole listing, so a blank
+  edit form would erase a farmer's address and payments when they came only to change their hours.
+  **Farm Bucks and offering type remain editable by nobody**: Farm Bucks is a VIGA eligibility
+  fact with its own admin workflow, and a farmer cannot make themselves eligible from a form.
+- **F-072 — the grandfathered onboarding door is BUILT** (branch, undeployed). VIGA's Google
+  "Farm Stand Weekly Status" form is replaced by one global link at `/farmer/start`: a farmer
+  picks their farm from a dropdown and fills in the F-067/F-069 listing form with **no invitation
+  and no administrator**. max chose the honour system (2026-08-06) because **VIGA supplied no
+  phone roster** — `contacts` holds people who have texted Farm Friend, not a record of who owns
+  which farm — so there is no possession check available to build, and picking the farm is the
+  whole claim.
+  **What keeps the door narrow**: the dropdown offers only farms with **no live farmer
+  authorization**, which is F-071's `listFarmsAwaitingOnboarding` predicate stated once and shared
+  by the public list and the resolver, so the convenience and the guarantee cannot drift.
+  `claimGrandfatheredFarm` **re-checks on submit**, since the dropdown's omission protects nothing
+  against a posted farm id, and a farm can gain a farmer while the page is open.
+  **Publishing is silent** (max, 2026-08-06) — no VIGA notification and no admin queue entry,
+  matching the invited form rather than adding a second pattern.
+  **A consequence max accepted, recorded once**: a submission through this door OVERWRITES a
+  seeded VIGA listing rather than adding a stand, and with F-065 still open there is no record of
+  who changed what. The reachable set shrinks to zero as farms onboard, and an onboarded farm is
+  never exposed.
+  **The credential design question from the item is resolved**: the body must name the farm (there
+  is no token to name one), which inverts the invited path's rule — and the protection that
+  replaces it is server-side re-resolution, not trust. `parseListingSubmission` is shared by all
+  three doors, so one statement of what a listing may contain serves the invited, grandfathered,
+  and edit paths.
+  **The geocoding gate was deliberately weakened, and this is the note that says so**: a
+  grandfathered farmer holds no token, so a claimable farm stands in the token's place on the
+  billed address-lookup endpoint. Farm ids are not secret, so the **throttle is the real cost
+  defense on that path**; what the claim check still buys is that the lookup closes for a farm as
+  soon as it has a farmer.
 - **F-069 is MERGED and DEPLOYED** (2026-08-06). Two changes max asked for on 2026-08-05:
   1. **Structured season / hours / stocking, and payments as a closed set.** F-035's filterable
      columns existed since the seeder but the onboarding form wrote none of them, so a farmer's

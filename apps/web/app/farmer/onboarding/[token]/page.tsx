@@ -62,7 +62,7 @@ export default async function FarmerOnboardingPage({
       <section className="farmer-onboarding-card" aria-labelledby="listing-heading">
         <h2 id="listing-heading">Your stand</h2>
         <ListingStep
-          token={params.token}
+          credential={{ kind: "invitation", token: params.token }}
           farmName={invitation.farmName ?? ""}
         />
       </section>

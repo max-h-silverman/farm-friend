@@ -121,25 +121,97 @@ interface DraftPin {
   confirmed: boolean;
 }
 
+/**
+ * Which door this form is being filled in through (F-072).
+ *
+ * **The form states WHAT is being written; the credential states who may write it.** An invited
+ * farmer holds a one-use token that names their farm; a grandfathered farmer picked their farm
+ * from the public dropdown and holds nothing. Those are the only two differences, so they are
+ * the only thing parameterized — every field, every rule, and every refusal below is shared.
+ *
+ * Making this a prop rather than forking the component is what stops the two doors drifting
+ * into publishing different shapes onto the same map.
+ */
+export type ListingCredential =
+  | { kind: "invitation"; token: string }
+  | { kind: "grandfathered"; farmId: string }
+  /** F-073 — an already-onboarded farmer editing, via their private stand link. */
+  | { kind: "stand_link"; token: string };
+
+/** Where each credential submits, and what it calls itself in the body. */
+const LISTING_ENDPOINT: Record<ListingCredential["kind"], string> = {
+  invitation: "/api/farmer/listing",
+  grandfathered: "/api/farmer/grandfathered-listing",
+  stand_link: "/api/farmer/listing-edit",
+};
+
+function credentialBody(credential: ListingCredential): Record<string, string> {
+  // The token travels in the BODY, never a query string: a credential in a URL lands in server
+  // logs and browser history by default. A farm id is not a credential and is not secret, but
+  // it rides in the body too so all three doors post one shape.
+  return credential.kind === "grandfathered"
+    ? { farmId: credential.farmId }
+    : { token: credential.token };
+}
+
+/**
+ * The listing a farmer is EDITING, prefilled (F-073).
+ *
+ * **The write is whole-listing, so a blank edit form is destructive.** `saveOnboardingListing`
+ * replaces everything it is given, which is what lets a farmer drop an item by leaving it out —
+ * and would let a farmer who opened the form to change their hours erase their address and
+ * payments by omission. Prefilling is therefore load-bearing, not a nicety.
+ */
+export interface ListingDefaults {
+  standName: string;
+  visitability: "visitable" | "contact_only";
+  publicAddress: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  hoursText: string | null;
+  paymentMethods: string[];
+  items: string[];
+}
+
 export function ListingStep({
-  token,
+  credential,
   farmName,
+  defaults,
 }: {
-  token: string;
+  credential: ListingCredential;
   farmName: string;
+  /** Present when EDITING an existing listing (F-073). Absent when creating one. */
+  defaults?: ListingDefaults;
 }) {
-  const [standName, setStandName] = useState(farmName);
+  // A stored payment method is either one of the offered checkboxes or something the farmer
+  // typed. Split on the closed set so an edit shows "Venmo" ticked rather than as free text —
+  // and so re-saving an untouched form writes back what was already there.
+  const offered = new Set<string>(PAYMENT_OPTIONS);
+  const storedPayments = defaults?.paymentMethods ?? [];
+
+  const [standName, setStandName] = useState(defaults?.standName ?? farmName);
   const [visitability, setVisitability] = useState<
     "visitable" | "contact_only" | null
-  >(null);
-  const [address, setAddress] = useState("");
-  const [pin, setPin] = useState<DraftPin | null>(null);
+  >(defaults?.visitability ?? null);
+  const [address, setAddress] = useState(defaults?.publicAddress ?? "");
+  const [pin, setPin] = useState<DraftPin | null>(
+    defaults?.latitude != null && defaults.longitude != null
+      ? // Already the farmer's own confirmed coordinate, so it is not a draft awaiting
+        // confirmation — requiring them to re-confirm a pin they placed earlier would make
+        // every edit a re-placement.
+        { latitude: defaults.latitude, longitude: defaults.longitude, confirmed: true }
+      : null,
+  );
   const [lookingUp, setLookingUp] = useState(false);
   const [lookupNote, setLookupNote] = useState<string | null>(null);
-  const [hoursText, setHoursText] = useState("");
-  const [payments, setPayments] = useState<string[]>([]);
-  const [otherPayment, setOtherPayment] = useState("");
-  const [items, setItems] = useState("");
+  const [hoursText, setHoursText] = useState(defaults?.hoursText ?? "");
+  const [payments, setPayments] = useState<string[]>(
+    storedPayments.filter((method) => offered.has(method)),
+  );
+  const [otherPayment, setOtherPayment] = useState(
+    storedPayments.filter((method) => !offered.has(method)).join(", "),
+  );
+  const [items, setItems] = useState((defaults?.items ?? []).join(", "));
 
   const [seasonKind, setSeasonKind] = useState<SeasonKind | "">("");
   const [seasonStartMonth, setSeasonStartMonth] = useState("");
@@ -194,7 +266,7 @@ export function ListingStep({
       const response = await fetch("/api/farmer/address-lookup", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token, address }),
+        body: JSON.stringify({ ...credentialBody(credential), address }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         status?: string;
@@ -288,13 +360,11 @@ export function ListingStep({
     setError(null);
     setBusy(true);
     try {
-      const response = await fetch("/api/farmer/listing", {
+      const response = await fetch(LISTING_ENDPOINT[credential.kind], {
         method: "POST",
         headers: { "content-type": "application/json" },
-        // The token travels in the body, never a query string: a credential in a URL lands
-        // in server logs and browser history by default.
         body: JSON.stringify({
-          token,
+          ...credentialBody(credential),
           standName,
           visitability,
           // Everything a farmer might sell is `produce` unless they say otherwise. The other
@@ -359,7 +429,12 @@ export function ListingStep({
                 : body.error === "invitation_unavailable"
                   ? "This invitation is no longer available. Ask the VIGA coordinator who " +
                     "invited you for a new link."
-                  : "That did not save. Check your answers and try again.",
+                  : // F-072 — this farm gained a farmer while the form was open. Says what
+                    // happened and what to do, rather than reading as the farmer's mistake.
+                    body.error === "already_onboarded"
+                    ? "Someone has already set this farm up on Farm Friend. If that was not " +
+                      "you, contact VIGA."
+                    : "That did not save. Check your answers and try again.",
         );
         return;
       }

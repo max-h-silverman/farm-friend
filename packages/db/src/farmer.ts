@@ -1,5 +1,6 @@
 import {
   FARMER_AUTHORIZED_NOTIFICATION,
+  farmerLinkUrl,
   hashFarmerLinkToken,
   hashFarmerInviteToken,
   issueFarmerLinkToken,
@@ -775,47 +776,68 @@ export async function issueFarmerLink(
   },
 ): Promise<IssueFarmerLinkResult> {
   return driver(db).begin(async (tx) => {
-    // Publication lock order: location before authorization. Link issuance names no sender
-    // state or proposal, so these are the first two shared resources it can touch.
-    const locations = await tx`
-      select id, owner_farm_id from sales_locations
-      where id = ${input.salesLocationId}
-      for update
-    `;
-    const ownerFarmId = locations[0]?.owner_farm_id as string | undefined;
-    if (ownerFarmId === undefined) return { status: "not_authorized" as const };
-
-    const authorization = await tx`
-      select id, farm_id from farmer_authorizations
-      where id = ${input.authorizationId}
-        and farm_id = ${ownerFarmId}
-        and revoked_at is null
-      for update
-    `;
-    if (authorization.length === 0) {
-      return { status: "not_authorized" as const };
-    }
-
-    await tx`
-      update farmer_links
-      set revoked_at = ${input.occurredAt.toISOString()}
-      where authorization_id = ${input.authorizationId} and revoked_at is null
-    `;
-
-    const token = issueFarmerLinkToken();
-    await tx`
-      insert into farmer_links (
-        token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
-      )
-      values (
-        ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${ownerFarmId},
-        ${input.salesLocationId},
-        ${input.occurredAt.toISOString()}
-      )
-    `;
-
-    return { status: "issued" as const, token };
+    const issued = await issueFarmerLinkIn(tx, input);
+    return issued === null
+      ? { status: "not_authorized" as const }
+      : { status: "issued" as const, token: issued.token };
   }) as Promise<IssueFarmerLinkResult>;
+}
+
+/**
+ * Mint a farmer link inside a caller's transaction. `null` means not authorized.
+ *
+ * Extracted so F-073's web request can issue a link and queue the text that carries it in ONE
+ * transaction — a link written but never sent is a credential the farmer cannot use and cannot
+ * ask for again without revoking. One issuer, so the SMS and web doors cannot drift in how they
+ * revoke, what they record, or which stand a link names.
+ */
+async function issueFarmerLinkIn(
+  tx: Tx,
+  input: {
+    authorizationId: string;
+    salesLocationId: string;
+    occurredAt: Date;
+  },
+): Promise<{ token: string; linkId: string } | null> {
+  // Publication lock order: location before authorization. Link issuance names no sender
+  // state or proposal, so these are the first two shared resources it can touch.
+  const locations = await tx`
+    select id, owner_farm_id from sales_locations
+    where id = ${input.salesLocationId}
+    for update
+  `;
+  const ownerFarmId = locations[0]?.owner_farm_id as string | undefined;
+  if (ownerFarmId === undefined) return null;
+
+  const authorization = await tx`
+    select id, farm_id from farmer_authorizations
+    where id = ${input.authorizationId}
+      and farm_id = ${ownerFarmId}
+      and revoked_at is null
+    for update
+  `;
+  if (authorization.length === 0) return null;
+
+  await tx`
+    update farmer_links
+    set revoked_at = ${input.occurredAt.toISOString()}
+    where authorization_id = ${input.authorizationId} and revoked_at is null
+  `;
+
+  const token = issueFarmerLinkToken();
+  const inserted = await tx`
+    insert into farmer_links (
+      token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+    )
+    values (
+      ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${ownerFarmId},
+      ${input.salesLocationId},
+      ${input.occurredAt.toISOString()}
+    )
+    returning id
+  `;
+
+  return { token, linkId: inserted[0]?.id as string };
 }
 
 /**
@@ -1122,6 +1144,234 @@ export async function listFarmsAwaitingOnboarding(
       invitationExpiresAt: expiresAt,
     };
   });
+}
+
+// ── F-072: the grandfathered onboarding door ──────────────────────────────────────────────
+//
+// VIGA's Google form is replaced by one global link with a farm dropdown and NO invitation
+// behind it (max, 2026-08-06). There is no phone roster to verify a claimant against — VIGA
+// never supplied one — so the honour system is the whole claim, and the only thing keeping the
+// door narrow is WHICH farms it can reach.
+//
+// **"Claimable" is the same predicate F-071's operator list uses**: a farm nobody can currently
+// publish for, which is the ABSENCE OF A LIVE AUTHORIZATION — never an unredeemed invitation.
+// Stated once, below, and shared by the public list and the resolver so the convenience and the
+// guarantee cannot drift apart. Keying on invitations instead would strand a farm VIGA
+// authorized straight from the queue and miss a farm whose only farmer was revoked.
+
+/**
+ * The claimable predicate, written ONCE.
+ *
+ * Inlined into both readers rather than duplicated: the dropdown is a convenience and the
+ * resolver is the guarantee, and two copies of this rule is exactly how a farm ends up
+ * omitted from the list but still claimable by anyone who posts its id.
+ */
+/**
+ * A farm id's shape, checked before it reaches a query.
+ *
+ * Postgres raises on a malformed uuid rather than returning no rows, so a public endpoint
+ * handed junk would 500 instead of answering. Checked here so every caller gets the same
+ * refusal without restating the rule.
+ */
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const NO_LIVE_FARMER = (alias: string) => `
+  not exists (
+    select 1 from farmer_authorizations as auth
+    where auth.farm_id = ${alias}.id and auth.revoked_at is null
+  )
+`;
+
+export interface ClaimableFarmRow {
+  farmId: string;
+  farmName: string;
+}
+
+/**
+ * Every farm a grandfathered farmer may claim, for the PUBLIC dropdown (F-072).
+ *
+ * Carries the farm and nothing else. This is the one farm reader reachable with no credential
+ * at all, so it exposes no invitation state, no token, no hash, and no contact — an operator
+ * needs that context and an anonymous visitor does not (Golden Rule #5).
+ *
+ * A farm being unclaimed is not a secret: participation is already public on the map, and max
+ * confirmed (2026-08-06) the page may say plainly that a farm is already set up.
+ */
+export async function listClaimableFarms(db: Db): Promise<ClaimableFarmRow[]> {
+  const rows = await driver(db).unsafe(`
+    select farm.id, farm.name
+    from farms as farm
+    where ${NO_LIVE_FARMER("farm")}
+    order by farm.name, farm.id
+  `);
+  return rows.map((row) => ({
+    farmId: row.id as string,
+    farmName: row.name as string,
+  }));
+}
+
+export interface SelfServiceFarmRow {
+  farmId: string;
+  farmName: string;
+  /** True when someone can already publish for this farm, so it may not be claimed. */
+  onboarded: boolean;
+}
+
+/**
+ * Every farm, for the public picker (F-072 / F-073), saying which already have a farmer.
+ *
+ * The picker needs BOTH kinds because it routes rather than merely offering: a farmer whose
+ * farm is already set up must be told so and sent to the update path, not left thinking their
+ * farm is missing. `listClaimableFarms` is the same rule with the onboarded ones dropped, and
+ * an integration test asserts the two cannot disagree.
+ *
+ * That a farm is set up is not a secret — participation is already public on the map, and max
+ * confirmed (2026-08-06) the page may say so plainly. It still carries the farm and nothing
+ * else: no invitation state, no token, no hash, no contact (Golden Rule #5).
+ */
+export async function listFarmsForSelfService(db: Db): Promise<SelfServiceFarmRow[]> {
+  const rows = await driver(db).unsafe(`
+    select farm.id, farm.name, not ${NO_LIVE_FARMER("farm")} as onboarded
+    from farms as farm
+    order by farm.name, farm.id
+  `);
+  return rows.map((row) => ({
+    farmId: row.id as string,
+    farmName: row.name as string,
+    onboarded: row.onboarded as boolean,
+  }));
+}
+
+export type ClaimGrandfatheredFarmResult =
+  | { status: "claimable"; farmId: string; farmName: string }
+  | { status: "already_onboarded" }
+  | { status: "unknown_farm" };
+
+/**
+ * Resolve a farm a grandfathered farmer picked, refusing one that already has a farmer.
+ *
+ * **This is the guarantee, and the dropdown's omission is not.** Anyone can post any farm id
+ * to the endpoint above this, so "the list didn't offer it" protects nothing on its own. A
+ * farm with a live farmer is refused here, which is what stops a stranger overwriting the
+ * public listing of a farm whose farmer already onboarded.
+ *
+ * It grants no authority. Resolving says only "this farm has no farmer, so its listing may be
+ * written through the grandfather door" — publishing INVENTORY still requires an authorization,
+ * which still requires a handset. Nothing on this path writes `farmer_authorizations`.
+ */
+export async function claimGrandfatheredFarm(
+  db: Db,
+  input: { farmId: string },
+): Promise<ClaimGrandfatheredFarmResult> {
+  // A malformed id names no farm. Checked before the query because Postgres RAISES on a bad
+  // uuid rather than returning no rows, which would turn junk into a 500 on a public endpoint.
+  if (!UUID_SHAPE.test(input.farmId)) return { status: "unknown_farm" };
+
+  const rows = await driver(db).unsafe(
+    `
+      select farm.id, farm.name, ${NO_LIVE_FARMER("farm")} as claimable
+      from farms as farm
+      where farm.id = $1
+    `,
+    [input.farmId],
+  );
+  const row = rows[0];
+  if (row === undefined) return { status: "unknown_farm" };
+  if (row.claimable !== true) return { status: "already_onboarded" };
+  return {
+    status: "claimable",
+    farmId: row.id as string,
+    farmName: row.name as string,
+  };
+}
+
+/**
+ * The one answer this endpoint ever gives (F-073).
+ *
+ * **There is deliberately no "matched" or "not matched".** The caller is an anonymous web form,
+ * and telling it whether a number belongs to a farmer would make the page a way to ask "is this
+ * number a farmer?" about every number on the island. The real answer travels to the handset;
+ * the screen learns only that the request was taken.
+ */
+export type RequestFarmerStandLinkResult = { status: "accepted" };
+
+/**
+ * Text an already-onboarded farmer their own stand link, from the public picker (F-073).
+ *
+ * A farmer who follows VIGA's old weekly-status link and picks a farm that already has a farmer
+ * needs a way in, and there is no farmer login. They enter the number they onboarded with; if it
+ * is a live farmer on that farm, this queues their private link to that handset.
+ *
+ * **The phone is matched by HASH, never read.** `contacts.phone_hash` is the lookup key and the
+ * raw column is touched only by the outbound send path (Golden Rule #5). Nothing here logs,
+ * returns, or reads a raw number.
+ *
+ * **Every failure is silent and identical**: wrong number, a farmer of another farm, a revoked
+ * authorization, an unknown farm, a farm with no stand. Each queues nothing and answers
+ * `accepted`, so the timing and the response are the same either way.
+ *
+ * This grants nothing new. It re-sends a credential the farmer already has a right to, exactly
+ * as the SMS `LINK` keyword does — and `issueFarmerLink` revokes their previous link, so asking
+ * twice does not leave two live credentials.
+ */
+export async function requestFarmerStandLink(
+  db: Db,
+  input: {
+    farmId: string;
+    /** The hash of the number the farmer typed. The raw number never reaches this function. */
+    contactHash: string;
+    occurredAt: Date;
+    publicBaseUrl: string;
+  },
+): Promise<RequestFarmerStandLinkResult> {
+  const accepted = { status: "accepted" as const };
+  if (!UUID_SHAPE.test(input.farmId)) return accepted;
+
+  return driver(db).begin(async (tx) => {
+    // One query for the whole match: a LIVE authorization on THIS farm held by the contact with
+    // THIS hash, and a stand belonging to that same farm. Being a farmer somewhere must not
+    // open every farm, so the authorization is joined to the requested farm rather than to the
+    // contact alone.
+    const matches = await tx`
+      select auth.id as authorization_id, location.id as sales_location_id
+      from farmer_authorizations as auth
+      join contacts as contact on contact.id = auth.contact_id
+      join sales_locations as location on location.owner_farm_id = auth.farm_id
+      where auth.farm_id = ${input.farmId}
+        and contact.phone_hash = ${input.contactHash}
+        and auth.revoked_at is null
+        and location.retired_at is null
+      order by location.name, location.id
+      limit 1
+    `;
+    const match = matches[0];
+    if (match === undefined) return accepted;
+
+    const issued = await issueFarmerLinkIn(tx, {
+      authorizationId: match.authorization_id as string,
+      salesLocationId: match.sales_location_id as string,
+      occurredAt: input.occurredAt,
+    });
+    if (issued === null) return accepted;
+
+    // Queued in the SAME transaction as the issuance: a link written but never sent is a
+    // credential the farmer cannot use and cannot ask for again without revoking this one.
+    //
+    // The category is `inventory_prompt`, matching the SMS LINK flow — proactive, so
+    // `authorizeDispatch` re-reads consent at the claim and suppresses this for a farmer who
+    // never opted in. Queuing is unconditional; sending is not.
+    await queueOutbox(tx, {
+      logicalKey: `farmer-web-link-${issued.linkId}`,
+      recipientHash: input.contactHash,
+      messageCategory: "inventory_prompt",
+      body:
+        `VIGA Farm Friend: Your private update link - keep it to yourself. ` +
+        `${farmerLinkUrl(input.publicBaseUrl, issued.token)} Reply STOP to opt out.`,
+      now: input.occurredAt,
+    });
+
+    return accepted;
+  }) as Promise<RequestFarmerStandLinkResult>;
 }
 
 export interface FarmerOnboardingRequestRow {

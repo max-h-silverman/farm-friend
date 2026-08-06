@@ -226,6 +226,86 @@ function readAvailability(
 }
 
 /**
+ * What a farmer stated about their stand, read from a request body and validated.
+ *
+ * Carries no farm and no credential — deliberately. **Who may write, and to which farm, is the
+ * credential's question; WHAT may be written is this one**, and the two are separated so a
+ * second credential (F-072's grandfather claim) reuses every field rule here rather than
+ * restating it. Two statements of "what a listing may contain" is how the two paths would drift
+ * into publishing different things onto the same map.
+ */
+export interface ParsedListingSubmission {
+  /** The stand name the farmer typed, or null to fall back to the farm's own name. */
+  standName: string | null;
+  listing: OnboardingListingInput;
+}
+
+/**
+ * Read and validate every listing field, without deciding anything about authority.
+ *
+ * Returns `null` for a malformed body, which every caller answers as `invalid_request`.
+ */
+export function parseListingSubmission(
+  body: Record<string, unknown>,
+): ParsedListingSubmission | null {
+  // The central question, and the one thing that may never be defaulted: whether there is a
+  // place to drive to. Guessing it is what F-038 and B-024 exist to prevent.
+  const visitability = body.visitability;
+  if (visitability !== "visitable" && visitability !== "contact_only") return null;
+  const offeringType = body.offeringType;
+  if (
+    offeringType !== "produce" &&
+    offeringType !== "services" &&
+    offeringType !== "by_order"
+  ) {
+    return null;
+  }
+
+  const standName = optionalText(body.standName, MAX_TEXT);
+  const address = optionalText(body.publicAddress, MAX_ADDRESS);
+  const hoursText = optionalText(body.hoursText, MAX_TEXT);
+  const paymentMethods = stringList(body.paymentMethods);
+  const items = stringList(body.items);
+  const latitude = optionalCoordinate(body.latitude);
+  const longitude = optionalCoordinate(body.longitude);
+  const availability = readAvailability(body);
+
+  if (
+    standName === undefined ||
+    address === undefined ||
+    hoursText === undefined ||
+    paymentMethods === undefined ||
+    items === undefined ||
+    latitude === undefined ||
+    longitude === undefined ||
+    availability === MALFORMED
+  ) {
+    return null;
+  }
+
+  // A contact-only stand carries NO address and NO pin, and the boundary enforces that rather
+  // than trusting the form to have hidden the fields. `coherentVisitability` would refuse the
+  // write anyway, but as a constraint violation the farmer cannot act on — and a farmer who
+  // filled in an address and then changed their answer is the ordinary case, not an attack.
+  const visitable = visitability === "visitable";
+
+  return {
+    standName,
+    listing: {
+      visitability,
+      offeringType,
+      publicAddress: visitable ? address : null,
+      latitude: visitable ? latitude : null,
+      longitude: visitable ? longitude : null,
+      hoursText,
+      availability,
+      paymentMethods,
+      items,
+    },
+  };
+}
+
+/**
  * HTTP boundary for the onboarding listing form.
  *
  * Publishes on submit (max, 2026-08-05): the listing is live when the farmer sends the form
@@ -252,40 +332,8 @@ export async function handleFarmerListingPost(
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  // The central question, and the one thing that may never be defaulted: whether there is a
-  // place to drive to. Guessing it is what F-038 and B-024 exist to prevent.
-  const visitability = body.visitability;
-  if (visitability !== "visitable" && visitability !== "contact_only") {
-    return Response.json({ error: "invalid_request" }, { status: 400 });
-  }
-  const offeringType = body.offeringType;
-  if (
-    offeringType !== "produce" &&
-    offeringType !== "services" &&
-    offeringType !== "by_order"
-  ) {
-    return Response.json({ error: "invalid_request" }, { status: 400 });
-  }
-
-  const standName = optionalText(body.standName, MAX_TEXT);
-  const address = optionalText(body.publicAddress, MAX_ADDRESS);
-  const hoursText = optionalText(body.hoursText, MAX_TEXT);
-  const paymentMethods = stringList(body.paymentMethods);
-  const items = stringList(body.items);
-  const latitude = optionalCoordinate(body.latitude);
-  const longitude = optionalCoordinate(body.longitude);
-  const availability = readAvailability(body);
-
-  if (
-    standName === undefined ||
-    address === undefined ||
-    hoursText === undefined ||
-    paymentMethods === undefined ||
-    items === undefined ||
-    latitude === undefined ||
-    longitude === undefined ||
-    availability === MALFORMED
-  ) {
+  const submission = parseListingSubmission(body);
+  if (submission === null) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 
@@ -303,28 +351,12 @@ export async function handleFarmerListingPost(
     );
   }
 
-  // A contact-only stand carries NO address and NO pin, and the boundary enforces that rather
-  // than trusting the form to have hidden the fields. `coherentVisitability` would refuse the
-  // write anyway, but as a constraint violation the farmer cannot act on — and a farmer who
-  // filled in an address and then changed their answer is the ordinary case, not an attack.
-  const visitable = visitability === "visitable";
-
   const result = await deps.saveListing(deps.db, {
     farmId: invitation.farmId,
     // The farm's own name is the sensible default for its stand: a farmer who never renames it
     // still gets a listing titled the thing their invitation named.
-    standName: standName ?? invitation.farmName ?? "",
-    listing: {
-      visitability,
-      offeringType,
-      publicAddress: visitable ? address : null,
-      latitude: visitable ? latitude : null,
-      longitude: visitable ? longitude : null,
-      hoursText,
-      availability,
-      paymentMethods,
-      items,
-    },
+    standName: submission.standName ?? invitation.farmName ?? "",
+    listing: submission.listing,
     occurredAt: deps.clock.now(),
   });
 

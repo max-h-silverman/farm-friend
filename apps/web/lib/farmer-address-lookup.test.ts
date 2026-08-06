@@ -58,6 +58,24 @@ function lookup(
   return vi.fn<Parameters<Lookup>, ReturnType<Lookup>>(async () => result);
 }
 
+type Claimer = FarmerAddressLookupDeps["claimFarm"];
+
+function claimer(
+  result: Awaited<ReturnType<Claimer>> = {
+    status: "claimable",
+    farmId: FARM_ID,
+    farmName: "Test Farm",
+  },
+) {
+  return vi.fn<Parameters<Claimer>, ReturnType<Claimer>>(async () => result);
+}
+
+type LinkResolver = FarmerAddressLookupDeps["resolveLink"];
+
+function linkResolver(result: Awaited<ReturnType<LinkResolver>> = null) {
+  return vi.fn<Parameters<LinkResolver>, ReturnType<LinkResolver>>(async () => result);
+}
+
 function deps(
   loadInvitation = loader(),
   lookupAddress = lookup(),
@@ -66,6 +84,8 @@ function deps(
     limit: 10,
     windowMs: 60_000,
   }),
+  claimFarm = claimer(),
+  resolveLink = linkResolver(),
 ): FarmerAddressLookupDeps {
   return {
     db: {} as Db,
@@ -73,6 +93,8 @@ function deps(
     loadInvitation,
     lookupAddress,
     throttle,
+    claimFarm,
+    resolveLink,
     clientSignalSalt: "test-salt",
   };
 }
@@ -236,5 +258,141 @@ describe("farmer address lookup endpoint", () => {
     const body = (await response.json()) as Record<string, unknown>;
     expect(Object.keys(body).sort()).toEqual(["latitude", "longitude", "status"]);
     expect(JSON.stringify(body)).not.toContain("key");
+  });
+
+  // ── F-072: the second credential ───────────────────────────────────────────────────────
+  //
+  // A grandfathered farmer holds no invitation, so a claimable farm stands in the token's
+  // place on this BILLED endpoint. It is a weaker gate — farm ids are not secret — and these
+  // tests pin down exactly what it does and does not buy, so the weakening is deliberate and
+  // visible rather than discovered later.
+
+  describe("the grandfathered credential", () => {
+    it("returns a draft coordinate for a claimable farm", async () => {
+      const response = await handleAddressLookupPost(
+        deps(),
+        post({ farmId: FARM_ID, address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        status: "found",
+        latitude: 47.4471,
+        longitude: -122.4594,
+      });
+    });
+
+    it("REFUSES a farm that already has a farmer, before spending a provider call", async () => {
+      // The lookup closes for a farm as soon as it has a farmer, so the billed surface shrinks
+      // as farms onboard rather than staying open to every farm forever.
+      const spend = lookup();
+      const response = await handleAddressLookupPost(
+        deps(loader(), spend, undefined, claimer({ status: "already_onboarded" })),
+        post({ farmId: FARM_ID, address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(response.status).toBe(410);
+      expect(spend).not.toHaveBeenCalled();
+    });
+
+    it("refuses an unknown farm before spending a provider call", async () => {
+      const spend = lookup();
+      const response = await handleAddressLookupPost(
+        deps(loader(), spend, undefined, claimer({ status: "unknown_farm" })),
+        post({ farmId: FARM_ID, address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(response.status).toBe(410);
+      expect(spend).not.toHaveBeenCalled();
+    });
+
+    it("REFUSES a malformed farm id before spending a provider call", async () => {
+      const spend = lookup();
+      const claim = claimer();
+      const response = await handleAddressLookupPost(
+        deps(loader(), spend, undefined, claim),
+        post({ farmId: "not-a-uuid", address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(claim).not.toHaveBeenCalled();
+      expect(spend).not.toHaveBeenCalled();
+    });
+
+    it("refuses a request carrying BOTH credentials rather than picking one", async () => {
+      // Ambiguous, not clever: honouring the weaker one would let a farm id downgrade a
+      // request that also carried a token, and honouring the stronger would let a token
+      // launder a lookup for a farm it does not name.
+      const spend = lookup();
+      const response = await handleAddressLookupPost(
+        deps(loader(), spend),
+        post({ token: TOKEN, farmId: FARM_ID, address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(spend).not.toHaveBeenCalled();
+    });
+
+    it("refuses a request carrying NO credential", async () => {
+      const spend = lookup();
+      const response = await handleAddressLookupPost(
+        deps(loader(), spend),
+        post({ address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(spend).not.toHaveBeenCalled();
+    });
+
+    it("accepts an already-onboarded farmer's STAND LINK token (F-073)", async () => {
+      // An invitation token and a stand link are both 64 hex, so the shape check cannot tell
+      // them apart. An editing farmer holds the second kind and is placing a pin on a stand
+      // they already control, which is the same act.
+      const invalidInvitation = loader({ status: "invalid" });
+      const response = await handleAddressLookupPost(
+        deps(invalidInvitation, lookup(), undefined, claimer(), linkResolver({
+          authorizationId: "auth-1",
+          farmId: FARM_ID,
+          salesLocationId: "loc-1",
+          senderHash: "hash-1",
+        })),
+        post({ token: TOKEN, address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(response.status).toBe(200);
+    });
+
+    it("refuses a token that is NEITHER an invitation nor a live stand link", async () => {
+      const spend = lookup();
+      const response = await handleAddressLookupPost(
+        deps(loader({ status: "invalid" }), spend, undefined, claimer(), linkResolver(null)),
+        post({ token: TOKEN, address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(response.status).toBe(410);
+      expect(spend).not.toHaveBeenCalled();
+    });
+
+    it("is still fronted by the throttle, which is the real cost defense here", async () => {
+      // The credential is weak on this path, so the rationing is what actually bounds spend.
+      const spend = lookup();
+      const throttle = createPublicActionThrottle({
+        clock: new FixedClock(T0),
+        limit: 1,
+        windowMs: 60_000,
+      });
+      const first = await handleAddressLookupPost(
+        deps(loader(), spend, throttle),
+        post({ farmId: FARM_ID, address: "12345 Vashon Highway SW" }),
+      );
+      const second = await handleAddressLookupPost(
+        deps(loader(), spend, throttle),
+        post({ farmId: FARM_ID, address: "12345 Vashon Highway SW" }),
+      );
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(429);
+      expect(spend).toHaveBeenCalledTimes(1);
+    });
   });
 });

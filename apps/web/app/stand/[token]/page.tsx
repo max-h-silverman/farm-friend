@@ -61,6 +61,15 @@ export default async function StandPage({
 
       <StandForm token={params.token} />
 
+      {/*
+        F-073 — the listing facts, kept clearly separate from the stock update above. "What I
+        usually sell" and "what is on the table today" are two different claims (F-066), and the
+        wording says which is which so a farmer does not come here to report today's eggs.
+      */}
+      <Link className="farmer-settings-back" href={`/stand/${params.token}/listing`}>
+        Stand details: address, hours, payment, and what you usually sell
+      </Link>
+
       <Link className="farmer-settings-back" href={`/stand/${params.token}/settings`}>
         Stand settings: reminders, default stand, and other sellers
       </Link>
