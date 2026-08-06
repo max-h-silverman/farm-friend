@@ -28,6 +28,12 @@ locals {
     admin-password-hash = "Argon2id verifier for the fixed administrator. Web service only."
     telnyx-api-key      = "Telnyx delivery credential."
     deepinfra-api-key   = "DeepInfra model provider credential."
+    # F-069. OPTIONAL, and the only secret here whose absence is a supported deployment: with no
+    # version the onboarding form asks the farmer to tap the map, which is the pre-F-069
+    # behaviour. Web service only — the worker never geocodes. BILLED PER CALL, so restrict the
+    # key to the Geocoding API in the console; an unrestricted Maps key bills across every Maps
+    # product. Rotatable, unlike the salt: a new version and a redeploy is the whole procedure.
+    geocoding-api-key = "Google Geocoding key for the onboarding draft pin. Optional; web only; billed per call."
   }
 }
 

@@ -68,7 +68,13 @@ def changed_addresses(plan: dict, type_: str) -> dict[str, list[str]]:
 
 
 def secret_cutover_changes_are_safe(secret_changes: dict[str, list[str]]) -> bool:
-    """Accept the two cutover phases and the stable state after the cutover is complete."""
+    """Accept the known cutover phases and the stable state after each is complete.
+
+    An allow-list rather than a rule, deliberately: every entry is a change someone reviewed. A
+    secret CREATE is cheap to approve and a secret DELETE destroys every version inside it, and
+    `phone-hash-salt` is unrecoverable by design — so "no unexpected secret change" is worth more
+    here than the convenience of a general predicate.
+    """
     initial = {
         'google_secret_manager_secret.protected["admin-password-hash"]': ["create"],
         'google_secret_manager_secret.app["magic-link-secret"]': ["delete"],
@@ -76,7 +82,12 @@ def secret_cutover_changes_are_safe(secret_changes: dict[str, list[str]]) -> boo
     post_provision = {
         'google_secret_manager_secret.app["magic-link-secret"]': ["delete"],
     }
-    return secret_changes in ({}, initial, post_provision)
+    # F-069 — the optional geocoding key. A CREATE only; the container is added empty and its
+    # version goes in out of band, so no value passes through Terraform or its state.
+    geocoding = {
+        'google_secret_manager_secret.protected["geocoding-api-key"]': ["create"],
+    }
+    return secret_changes in ({}, initial, post_provision, geocoding)
 
 
 def main() -> int:
@@ -148,10 +159,15 @@ def main() -> int:
 
     print("\nSecrets")
     secrets = by_type(plan, "google_secret_manager_secret")
-    check("five application secrets are declared", len(secrets) == 5, f"found {len(secrets)}")
+    check("six application secrets are declared", len(secrets) == 6, f"found {len(secrets)}")
     secret_ids = {value.get("secret_id") for value in secrets.values()}
     check("the admin password verifier container is declared",
           "farm-friend-admin-password-hash" in secret_ids)
+    # F-069. Declared as a container whether or not it holds a version: the web service mounts it
+    # only when `mount_geocoding_key` is true, because `latest` on a versionless secret resolves
+    # to nothing and Cloud Run refuses the revision.
+    check("the geocoding key container is declared",
+          "farm-friend-geocoding-api-key" in secret_ids)
     check("the magic-link secret container is absent",
           "farm-friend-magic-link-secret" not in secret_ids)
 
@@ -254,6 +270,12 @@ def main() -> int:
           "ADMIN_PASSWORD_HASH" in secret_names(web))
     check("the worker does not mount ADMIN_PASSWORD_HASH",
           "ADMIN_PASSWORD_HASH" not in secret_names(worker))
+    # F-069 — geocoding is BILLED PER CALL and its only caller is a throttled web route. The
+    # worker has no use for it, so mounting it there would put a spending credential in a process
+    # with nothing rationing it. Asserted unconditionally: true whether or not the web service
+    # mounts it, so flipping `mount_geocoding_key` can never quietly hand it to the worker.
+    check("the worker never mounts GEOCODING_API_KEY",
+          "GEOCODING_API_KEY" not in secret_names(worker))
     check("no service mounts MAGIC_LINK_SECRET",
           all("MAGIC_LINK_SECRET" not in secret_names(service) for service in (web, worker)))
 

@@ -40,6 +40,18 @@ needed a clock. The guard is a **real import with the variables deleted** across
 not a source grep, and it reproduces the Cloud Build error locally; sabotage-verified. Fixed in
 `41412b4`. The live route now answers `400` to a malformed body rather than `500`.
 
+**PRODUCTION HOLDS ONE TEST FARM** (2026-08-06): `Test Farm` at `20714 Westside Hwy SW`, farm id
+`c3b47b9e-d1d4-41ab-9fae-1e7bb8c02bc5`. max onboarded it end to end against the freshly deployed
+build — approve → invite → authorize → publish — which is F-074's whole purpose, and it went live
+on the public map because the flag is not set automatically. It is now **marked**, recorded as
+`farm_marked_test` against `board@vigavashon.org`.
+
+**Verified by effect afterwards**: an islander gets **34 stands with `Test Farm` absent**;
+`?hidden=true` serves **35 including it**. So the public count is 34 real stands and the extra one
+is deliberate. A future session reading "35 locations" in the database against "34 stands" on the
+map should look here first rather than treating it as a defect. Marking is reversible from
+`/admin` → **Test farms**.
+
 **F-069 and F-070 are DEPLOYED** (2026-08-06). Neither adds a migration, so none was owed. Plan
 assertions 37/37, deploy and served-card assertions pass. **Verified by effect in the served
 bytes**, not from the green apply: the root page carries **12 secondary road paths and 1 highway
@@ -53,14 +65,32 @@ production serves.
 **`GEOCODING_API_KEY` is still unset in PRODUCTION**, so address lookup is off there and the
 onboarding form serves the pre-F-069 pin-drop behaviour — a supported deployment.
 
-**Production cannot receive this key yet, and that is an infrastructure gap rather than a missing
-value** (found 2026-08-06). `composition.ts:289` reads `GEOCODING_API_KEY`, but `infra/secrets.tf`
-declares only five secrets and `infra/services.tf` mounts only six environment variables — neither
-includes geocoding. Turning it on in production therefore needs: the secret added to
-`local.app_secrets`, mounted into the **web** service only (the worker never geocodes), the value
-added out of band with `printf %s` (never through Terraform, which writes values to state), then
-plan/assert/apply and a redeploy. A redeploy is **required**, not optional: `deploy_assertions.py`
-demands serving revisions be newer than every secret version.
+**The production wiring is now BUILT and half-applied** (2026-08-06). `infra/secrets.tf` declares
+`farm-friend-geocoding-api-key` and `infra/services.tf` mounts it into the **web service only** —
+the worker never geocodes, and mounting a billed credential there would put spending in a process
+with no throttle in front of it. The IAM accessor grant came free, because `runtime_reads`
+iterates the secrets map.
+
+**The mount is behind `var.mount_geocoding_key`, and that flag is the whole point.**
+`version = "latest"` is resolved when a container STARTS, and a secret with **no versions**
+resolves to nothing — Cloud Run then refuses the revision. An unconditional mount would therefore
+take the public map down in order to add an optional feature, inverting the property geocoding is
+supposed to have. So it is three steps:
+
+1. **DONE** — applied with the flag `false`: the empty secret container and its IAM grant exist,
+   nothing mounts it, and the live service was confirmed healthy afterwards (35 stands, health 200).
+2. **OWED, and it is max's** — add the value out of band, never through Terraform:
+   `printf %s "<key>" | gcloud secrets versions add farm-friend-geocoding-api-key --project farm-friend-vashon --data-file=-`
+   (`printf %s`, not `echo`: a trailing newline produces a key that looks right in every listing
+   and fails at runtime).
+3. **OWED** — apply with `-var="mount_geocoding_key=true"`, which mounts it and forces a new
+   revision. Setting it back to `false` is also the kill switch: apply, and lookup stops without
+   touching the key.
+
+Plan assertions are **39/39** (was 37): six secrets declared, the geocoding container present, and
+**the worker never mounts `GEOCODING_API_KEY`** — that last one asserted unconditionally, so
+flipping the flag can never quietly hand a spending credential to the worker.
+**Sabotage-verified**: moving the key into `shared_secret_env` fails that named check (38/39).
 
 **The geocoding path HAS now made real billed calls** (2026-08-06, key set locally only) — the
 check that was owed since F-069, and it is done. Three calls through the shipped

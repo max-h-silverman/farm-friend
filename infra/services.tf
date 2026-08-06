@@ -75,9 +75,28 @@ locals {
 
   # Password verification is a public-service concern. The worker neither mounts nor can
   # accidentally read this value from its process environment.
+  #
+  # Geocoding is web-only for the same reason and one more: it is BILLED PER CALL, and the only
+  # caller is `POST /api/farmer/address-lookup` behind its own throttle. Mounting it on the worker
+  # would put a spending credential in a process that has no use for it and no throttle in front
+  # of it. Its absence is supported at the APPLICATION layer — `composition.ts` reads it as
+  # `|| undefined` and `lookupIslandAddress` answers `not_configured` without calling out, so the
+  # form degrades to pin-dropping rather than failing.
+  #
+  # **It is NOT optional at the PLATFORM layer, which is why this is a variable rather than an
+  # unconditional mount.** `version = "latest"` is resolved when a container starts, and a secret
+  # with NO versions resolves to nothing — Cloud Run then refuses the revision. Mounting an empty
+  # secret would therefore take the public map down to add an optional feature, turning "absent is
+  # supported" into exactly the opposite. So the mount appears only once `mount_geocoding_key` is
+  # true, which is safe to flip *after* a version exists.
+  #
+  # Order: apply with the flag false (creates the empty container), add the version out of band,
+  # then apply with it true. See RUNBOOK.md §Environment.
   web_secret_env = merge(local.shared_secret_env, {
     ADMIN_PASSWORD_HASH = google_secret_manager_secret.protected["admin-password-hash"].secret_id
-  })
+    }, var.mount_geocoding_key ? {
+    GEOCODING_API_KEY = google_secret_manager_secret.protected["geocoding-api-key"].secret_id
+  } : {})
 }
 
 # ---------------------------------------------------------------------------

@@ -157,3 +157,27 @@ variable "cloud_run_host_suffix" {
   EOT
   type        = string
 }
+
+variable "mount_geocoding_key" {
+  description = <<-EOT
+    Whether the WEB service mounts `GEOCODING_API_KEY` (F-069).
+
+    False until the secret actually holds a version. `version = "latest"` is resolved when a
+    container STARTS, and a secret with no versions resolves to nothing — Cloud Run then refuses
+    the revision. Mounting the empty container would take the public map down in order to add an
+    optional feature, which is the exact opposite of the intended property: geocoding's absence is
+    a supported deployment, and the form degrades to pin-dropping.
+
+    So the order is three steps, not one:
+
+      1. apply with this false — creates the empty secret container
+      2. printf %s "<key>" | gcloud secrets versions add farm-friend-geocoding-api-key \
+           --project farm-friend-vashon --data-file=-
+      3. apply with this true — the web service mounts it and a new revision picks it up
+
+    Setting it back to false is also the kill switch: apply, and address lookup stops without
+    touching the key or the application.
+  EOT
+  type        = bool
+  default     = false
+}
