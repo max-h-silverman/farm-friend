@@ -7,7 +7,8 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00033-fgq` and worker revision `farm-friend-worker-00034-4cn`, both at digest
+`farm-friend-web-00034-77d` (bumped by the geocoding mount, below) and worker revision
+`farm-friend-worker-00034-4cn`, both at digest
 `sha256:85657998baca6a7416144aff9f990852d429920bc34f4b580ccbffc7fdd2cfff` (`main` at `41412b4`).
 Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
 effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
@@ -62,10 +63,11 @@ no key.
 **Nothing is merged-and-undeployed, and no migration is owed.** `main` at `41412b4` is what
 production serves.
 
-**`GEOCODING_API_KEY` is still unset in PRODUCTION**, so address lookup is off there and the
-onboarding form serves the pre-F-069 pin-drop behaviour — a supported deployment.
+**`GEOCODING_API_KEY` IS NOW SET IN PRODUCTION** (2026-08-06), so address lookup is on and the
+onboarding form offers a draft pin the farmer confirms. Its absence remains a supported
+deployment — the form falls back to pin-dropping — and the kill switch is one apply away.
 
-**The production wiring is now BUILT and half-applied** (2026-08-06). `infra/secrets.tf` declares
+**The production wiring is BUILT and fully applied** (2026-08-06). `infra/secrets.tf` declares
 `farm-friend-geocoding-api-key` and `infra/services.tf` mounts it into the **web service only** —
 the worker never geocodes, and mounting a billed credential there would put spending in a process
 with no throttle in front of it. The IAM accessor grant came free, because `runtime_reads`
@@ -79,20 +81,32 @@ supposed to have. So it is three steps:
 
 1. **DONE** — applied with the flag `false`: the empty secret container and its IAM grant exist,
    nothing mounts it, and the live service was confirmed healthy afterwards (35 stands, health 200).
-2. **OWED, and it is max's** — add the value out of band, never through Terraform:
-   `printf %s "<key>" | gcloud secrets versions add farm-friend-geocoding-api-key --project farm-friend-vashon --data-file=-`
-   (`printf %s`, not `echo`: a trailing newline produces a key that looks right in every listing
-   and fails at runtime).
-3. **OWED** — apply with `-var="mount_geocoding_key=true"`, which mounts it and forces a new
-   revision. Setting it back to `false` is also the kill switch: apply, and lookup stops without
-   touching the key.
+2. **DONE** — max added version 1 out of band, never through Terraform.
+3. **DONE** — applied with `mount_geocoding_key=true`. Plan assertions 39/39.
+
+**GEOCODING IS NOW LIVE IN PRODUCTION** (2026-08-06). Web serves revision
+`farm-friend-web-00034-77d` with `GEOCODING_API_KEY` mounted; the worker stays on
+`farm-friend-worker-00034-4cn` and **does not mount it**, confirmed against the live service
+rather than from the plan. Health 200, and `POST /api/farmer/address-lookup` answers `400` to a
+malformed body — so the route is live and not failing on configuration. Setting the flag back to
+`false` and applying is the kill switch; it stops lookup without touching the key.
+
+**That apply was INTERRUPTED partway and still landed**, which is worth knowing rather than
+tidying away: the process died holding the state lock, blocking a second terminal with a
+misleading "resource temporarily unavailable". The lock cleared itself when the process exited
+(`force-unlock` reported `LocalState not locked`). Live state was then verified directly —
+revision, mount, worker exclusion, health — instead of inferred from the failed command.
+A re-plan still reports **2 in-place changes**, and they are a provider-level `scaling`
+normalisation (`min_instance_count 0 → null`, semantically identical) present before this work,
+**not** unfinished geocoding.
 
 Plan assertions are **39/39** (was 37): six secrets declared, the geocoding container present, and
 **the worker never mounts `GEOCODING_API_KEY`** — that last one asserted unconditionally, so
 flipping the flag can never quietly hand a spending credential to the worker.
 **Sabotage-verified**: moving the key into `shared_secret_env` fails that named check (38/39).
 
-**The geocoding path HAS now made real billed calls** (2026-08-06, key set locally only) — the
+**The geocoding path HAS now made real billed calls** (2026-08-06, run locally before the key
+reached production; production has since had its own key mounted) — the
 check that was owed since F-069, and it is done. Three calls through the shipped
 `lookupIslandAddress`, not a hand-rolled fetch, so what was exercised is the code production would
 run: the request it builds, the live response shape it parses, and the bounds check on the way
