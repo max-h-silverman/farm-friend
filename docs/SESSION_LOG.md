@@ -90,10 +90,10 @@ check, **both public read filters independently** (map filter intact while break
 reverse — `inquiry.ts` runs its own SQL, so the map passing proves nothing about the text reply),
 the route's session guard, and the awaiting-onboarding revocation clause.
 
-**Owed: the browser check.** This changes the public map's read path, and the project requires
-looking at that at phone width in both light and dark before calling it done. max deferred it
-during the session. Migration `0022` was applied to the **local sandbox only** (43 farms / 39
-stands unchanged, verified by effect); production is untouched.
+**No browser check was run, and it is not tracked as owed.** max's call at the wrap: he does his own
+browser testing in a pass before go-live, so recording a per-tranche browser debt overstates what is
+outstanding. Migration `0022` was applied to the **local sandbox only** (43 farms / 39 stands
+unchanged, verified by effect); production is untouched, and max chose not to deploy this tranche.
 
 ---
 

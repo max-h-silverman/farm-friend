@@ -24,9 +24,7 @@ no key.
 carries migration **`0022_stand_retirement`**, which is **not applied to production** — apply it
 before promoting any image built from this base, per the RUNBOOK's ordering rule. The migration is
 additive (two nullable columns, one CHECK, one partial index), so the currently deployed image keeps
-serving correctly in the window between the migration and the deploy. **The browser check F-071 owes
-is also outstanding** — it changes the public map's read path, and the project requires looking at
-that at phone width in both light and dark appearance before calling it done.
+serving correctly in the window between the migration and the deploy.
 
 **`GEOCODING_API_KEY` is still unset in production**, so address lookup is off and the onboarding
 form serves the pre-F-069 pin-drop behaviour — a supported deployment. The two live checks below
@@ -101,11 +99,12 @@ public description, which it does.
   typecheck and lint pass — **re-run on the merged base**, not carried over from the branch. **No
   `packages/ai` file changed, so no eval or `evals:live` run is owed.** **Not deployed**, and
   migration `0022` is not applied to production (see Release state).
-  **Three live checks remain owed**, recorded rather than assumed: F-071's admin surface and the
-  retired-stand map behaviour have **not been looked at in a browser**; the onboarding form has
-  **not been exercised in a real browser** since F-069; and the geocoding path has **never made a
-  real billed call** — every test injects the provider, so the live request/response shape is
-  unverified. The geocoding check is **blocked until `GEOCODING_API_KEY` is set** in production.
+  **Two live checks remain owed**, recorded rather than assumed: the onboarding form has **not been
+  exercised in a real browser** since F-069, and the geocoding path has **never made a real billed
+  call** — every test injects the provider, so the live request/response shape is unverified. The
+  geocoding check is **blocked until `GEOCODING_API_KEY` is set** in production. **Per-tranche
+  browser checks are no longer tracked here** (max, 2026-08-05): he runs browser testing himself in
+  a pass before go-live, so listing them per item recorded a debt that was not one.
 - Prior `main` (`3b6e580`, F-069 + F-070): **1234 unit tests**, **48 integration files / 665
   tests**, typecheck and lint pass. **Deployed** 2026-08-06. Superseded by the run above.
 - Prior `main` (`84c512d`): **1120 unit tests**, **48 integration files / 655 tests**, typecheck
