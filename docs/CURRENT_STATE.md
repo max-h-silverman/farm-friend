@@ -185,14 +185,25 @@ public description, which it does.
 - **Branch `farmer-ux-pass` (`b922b1e`), MERGED to nothing yet — NOT deployed.** Four
   farmer/admin defects max reported from using the app, plus a test-harness gap found on the
   way. **1320 unit / 729 integration**, typecheck, lint pass. No migration.
-  - **An `evals:live` run IS OWED** — `packages/ai/src/projections.ts` changed. The
-    inventory-extraction prompt never said *when* to emit a removal, so a bare list of items
-    ("we have eggs and bok choy") could be read as a whole-listing replacement and silently
-    delete the kale the farmer never mentioned. It now states that omission is not removal,
-    names what does justify one, and requires a clarification over a guessed deletion. **Three
-    new `live-quality` fixtures measure exactly this** against the real model, including the
-    mirror case (an explicit "kale is all gone" must still remove) so the guard cannot pass by
-    making removal unreachable. Prompt text is a claim; until that run happens this is unmeasured.
+  - ~~**An `evals:live` run IS OWED**~~ — **DONE 2026-08-06, 25/25 pass** against
+    `mistralai/Mistral-Small-24B-Instruct-2501` (containment 4/4, closure 7/7, quality 9/9,
+    recall 5/5). `packages/ai/src/projections.ts` changed: the inventory-extraction prompt never
+    said *when* to emit a removal, so a bare list of items ("we have eggs and bok choy") could be
+    read as a whole-listing replacement and silently delete the kale the farmer never mentioned.
+    It now states that omission is not removal, names what does justify one, and requires a
+    clarification over a guessed deletion. **Three new `live-quality` fixtures measured exactly
+    this against the real model**, and all three passed on the recorded output:
+    - "we have eggs and bok choy" → `additions: [eggs, bok choy]`, **`removals: []`** — the
+      unmentioned kale survives.
+    - "kale is all gone" → `removals: [e2]` — an explicit sold-out still removes.
+    - "all we have left today is eggs" → `removals: [e1, e2]` — an explicit replacement replaces.
+
+    The second and third are the mirror cases and are why this is evidence rather than a
+    tautology: a prompt that simply never removed would satisfy the first fixture alone.
+    **This measures the CURRENT brain, not the harness.** The model is swappable and is never
+    vouched for, so the fixtures stay in the suite — a weaker or hostile model must be re-measured,
+    and the properties that must survive regardless live in code (`entries` is the sole authority
+    on what publishes; `removedItemNames` is confirmation copy no consequence reads).
   - **`ProposedSnapshot` gained `removedItemNames`** — confirmation copy only, never consulted
     by `confirmInventoryPublication`; `entries` remains the whole authority on what publishes.
     A removal was previously visible ONLY as an absence from the rendered result, which is what
