@@ -13,7 +13,8 @@ mid-session defeats its own purpose.
 
 ## 2026-08-05 — structured listing facts, a geocoded draft pin, and roads on the island map
 
-Two asks on the onboarding form (F-069), then the map (F-070). Both merged; **neither deployed**.
+Two asks on the onboarding form (F-069), then the map (F-070). Both merged as PR #82 and **deployed**
+(web `farm-friend-web-00032-msc`, worker `farm-friend-worker-00033-tp9`); no migration was owed.
 
 ### The structured fields already existed — nothing wrote them
 

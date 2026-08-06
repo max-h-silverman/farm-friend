@@ -7,16 +7,22 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00031-qn9` and worker revision `farm-friend-worker-00032-fbt`, both at digest
-`sha256:2b8e69f3c54922d07a5bedd3715de5c3da5115ea224e04cf398a5e1b8b123d71` (`main` at `84c512d`).
-Production Postgres is `neondb` with **all 22 migrations applied (`0000`–`0021`)**, verified by
-effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the per-migration checks and the
-fingerprint that preceded them.
+`farm-friend-web-00032-msc` and worker revision `farm-friend-worker-00033-tp9`, both at digest
+`sha256:95ae621177b59ce53834e8267da16d0e792950d5ed596bfae682b753755b4eb3` (`main` at `3b6e580`,
+PR #82). Production Postgres is `neondb` with **all 22 migrations applied (`0000`–`0021`)**,
+verified by effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the per-migration
+checks and the fingerprint that preceded them.
 
-**`main` is now AHEAD of production by F-069 and F-070** (merged 2026-08-05, undeployed). Neither
-adds a migration, so **no migration is owed** — the schema above is current for them. A deploy is
-owed, and two live checks with it: the onboarding form in a real browser, and one real geocoding
-call. `GEOCODING_API_KEY` is unset in production, so deploying as-is keeps the pin-drop behaviour.
+**F-069 and F-070 are DEPLOYED** (2026-08-06). Neither adds a migration, so none was owed. Plan
+assertions 37/37, deploy and served-card assertions pass. **Verified by effect in the served
+bytes**, not from the green apply: the root page carries **12 secondary road paths and 1 highway
+path** (F-070's exact geometry), and `POST /api/farmer/address-lookup` answers `invalid_request`
+to a malformed token and a uniform `invitation_unavailable` to a well-formed unknown one, leaking
+no key.
+
+**`GEOCODING_API_KEY` is still unset in production**, so address lookup is off and the onboarding
+form serves the pre-F-069 pin-drop behaviour — a supported deployment. The two live checks below
+remain owed, and the geocoding one **cannot be run until that key is set**.
 
 **Deployed twice on 2026-08-05, each verified by effect**: plan assertions 37/37 both times,
 deploy and served-card assertions pass, and the live site serves **34 stands, 33 reading
@@ -83,16 +89,16 @@ public description, which it does.
 
 ## Verification
 
-- Current `main` (F-069 + F-070, merged 2026-08-05, **UNDEPLOYED**): **1234 unit tests**,
-  **48 integration files / 665 tests**, typecheck and lint pass. **No `packages/ai` file changed,
-  so no eval or `evals:live` run is owed.**
-  **Two live checks are owed before this is trustworthy**, both recorded rather than assumed:
-  the onboarding form has **not been exercised in a real browser** since F-069, and the geocoding
-  path has **never made a real billed call** — every test injects the provider, so the live
-  request/response shape is unverified. A deployment without `GEOCODING_API_KEY` runs the
-  pre-F-069 pin-drop behaviour, which is supported.
+- Current `main` (`3b6e580`, F-069 + F-070): **1234 unit tests**, **48 integration files / 665
+  tests**, typecheck and lint pass — **re-run on the merged base**, not carried over from the
+  branch. **No `packages/ai` file changed, so no eval or `evals:live` run is owed.** **Deployed**
+  2026-08-06.
+  **Two live checks remain owed**, recorded rather than assumed: the onboarding form has **not been
+  exercised in a real browser** since F-069, and the geocoding path has **never made a real billed
+  call** — every test injects the provider, so the live request/response shape is unverified. The
+  geocoding check is **blocked until `GEOCODING_API_KEY` is set** in production.
 - Prior `main` (`84c512d`): **1120 unit tests**, **48 integration files / 655 tests**, typecheck
-  and lint pass (2026-08-05). **Deployed** — this is what production currently runs.
+  and lint pass (2026-08-05). Superseded by the run above.
 - Prior `main` (`41e6dd0`): **105 unit-test files / 1075 tests**, typecheck, lint, and **evals
   (critical 11/11, adversarial 29/29, advisory 4/4)** pass (verified 2026-08-05). Superseded by the
   run above and now deployed as part of `7c996a7`.
@@ -235,7 +241,7 @@ against the real corpus on 2026-08-04 while implementing.
   Bucks and offering type remain editable by nobody. The form deliberately does not touch Farm
   Bucks: it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot make
   themselves eligible by filling in a form.
-- **F-069 is MERGED to `main` and UNDEPLOYED.** Two changes max asked for on 2026-08-05:
+- **F-069 is MERGED and DEPLOYED** (2026-08-06). Two changes max asked for on 2026-08-05:
   1. **Structured season / hours / stocking, and payments as a closed set.** F-035's filterable
      columns existed since the seeder but the onboarding form wrote none of them, so a farmer's
      listing was prose in `hours_text` and NULL everywhere a filter looks. `stocking_days`,
@@ -255,7 +261,7 @@ against the real corpus on 2026-08-04 while implementing.
   **Owed before this is trustworthy:** a real browser round trip, and one live geocoding call
   against the real provider with a real key. `GEOCODING_API_KEY` is **optional and unset** — until
   it is set, the form asks the farmer to tap the map, which is the pre-F-069 behaviour.
-- **F-070 put the island's main roads on the map (merged, undeployed).** F-043 drew one road on
+- **F-070 put the island's main roads on the map (deployed 2026-08-06; 12 secondary road paths verified in the served bytes).** F-043 drew one road on
   purpose ("side roads would turn a legible poster into a street map"), which was right while the
   artwork only oriented a customer. **The onboarding form gave it a second job** — it is how a
   farmer places their own pin — and one spine gives them nothing to place themselves against. max
