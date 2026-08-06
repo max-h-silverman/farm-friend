@@ -182,6 +182,49 @@ public description, which it does.
 
 ## Verification
 
+- **Branch `farmer-ux-pass` (`b922b1e`), MERGED to nothing yet — NOT deployed.** Four
+  farmer/admin defects max reported from using the app, plus a test-harness gap found on the
+  way. **1320 unit / 729 integration**, typecheck, lint pass. No migration.
+  - **An `evals:live` run IS OWED** — `packages/ai/src/projections.ts` changed. The
+    inventory-extraction prompt never said *when* to emit a removal, so a bare list of items
+    ("we have eggs and bok choy") could be read as a whole-listing replacement and silently
+    delete the kale the farmer never mentioned. It now states that omission is not removal,
+    names what does justify one, and requires a clarification over a guessed deletion. **Three
+    new `live-quality` fixtures measure exactly this** against the real model, including the
+    mirror case (an explicit "kale is all gone" must still remove) so the guard cannot pass by
+    making removal unreachable. Prompt text is a claim; until that run happens this is unmeasured.
+  - **`ProposedSnapshot` gained `removedItemNames`** — confirmation copy only, never consulted
+    by `confirmInventoryPublication`; `entries` remains the whole authority on what publishes.
+    A removal was previously visible ONLY as an absence from the rendered result, which is what
+    nobody notices in a text message. Both new renderer tests were **sabotaged and confirmed to
+    fail**. SMS and web share the renderer, so one seam covered both surfaces. Two integration
+    assertions that required a removed item's name be absent from the *whole* confirmation were
+    corrected — the real property is that it is gone from the LISTING.
+  - **A farm's name was immutable and public.** Written at invitation time (`farmer.ts:95`) and
+    changeable by nobody — no farmer path, no admin path, no writer anywhere — while shown to
+    customers on the map. It also *looked* editable: the farmer's listing editor passed
+    `listing.standName` into a prop named `farmName`, so a field named for the farm held the
+    stand's name. `readStandListing` now returns both and the editor prefills each from its own
+    source. `renameFarm` reports `unknown_farm` via `returning` rather than treating a zero-row
+    update as success — **sabotaged and confirmed to fail**. Verified by effect: the renamed row
+    read back from the database, not from the success banner.
+  - **Admin stand removal already existed and worked** (retire: leaves the map and text answers,
+    stops farmer publishing, keeps everything published, reversible, confirm-gated). It was named
+    "Take off the map", sat last inside a collapsed panel, and never used the word anyone searches
+    for — so operators concluded stands could not be removed. Heading only. The first version of
+    that test **passed against existing body copy** without the heading changing and was tightened
+    to anchor on the heading.
+  - **Testing Library's `cleanup` never ran.** Without `globals: true` there is no global
+    `afterEach` for it to register against, so every mounted component stayed in the document for
+    the rest of the file and `getByText` could satisfy a later test from an earlier test's render
+    — a component test could pass while the behavior it named was broken. A setup file now runs it.
+    Adding it exposed no existing failures.
+  - **Exercised in the running app** against local Postgres, not only in tests: current stock
+    renders on the update form, the save confirms instead of collapsing, "Change something"
+    reopens with answers intact, and the rename landed in the row. **The local `LLM_PROVIDER` is
+    `stub`, so the interpretation path returns a clarification and the confirmation screen could
+    not be reached in the browser** — the removal copy above was verified through the real shared
+    renderer directly. A cooperative stub cannot stand in for the model here.
 - **`main` at `41412b4`, MERGED and DEPLOYED** (F-072, F-073, F-074, plus the build fix):
   **115 unit files / 1301 tests**, **53 integration files / 724 tests**, typecheck, lint, and the
   production build pass — **re-run on the merged base**, not carried over from either branch.
