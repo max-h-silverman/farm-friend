@@ -1933,6 +1933,114 @@ button.admin-action-danger:disabled {
   stroke-width: 3;
 }
 
+/* An UNCONFIRMED suggestion from the address lookup (F-069). Hollow and dashed, so it does not
+   read as a decision the farmer has made — the whole point is that they look at it and say
+   whether it is right. A solid pin means "chosen"; this one means "is this you?". */
+.farmer-listing-pin-draft {
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 4;
+  stroke-dasharray: 6 5;
+}
+
+/* The lookup and confirm buttons. Secondary to the submit button: they refine an answer rather
+   than publishing anything. */
+.farmer-listing-lookup,
+.farmer-listing-confirm {
+  min-height: 48px;
+  margin-top: 0.4rem;
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.farmer-listing-lookup:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+/* F-069 — the structured season / hours / restocking pickers. */
+.farmer-listing select,
+.farmer-listing input[type="number"],
+.farmer-listing input[type="time"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+/* A date or time pair on one line, wrapping on a narrow phone rather than overflowing. */
+.farmer-listing-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.2rem;
+}
+
+.farmer-listing-row select,
+.farmer-listing-row input {
+  flex: 1 1 8rem;
+  width: auto;
+}
+
+.farmer-listing-row label,
+.farmer-listing-inline-label {
+  flex: none;
+  margin-top: 0;
+}
+
+/* The weekday pickers. Seven targets that must stay tappable on the narrowest phone, so they
+   wrap rather than shrink below a thumb's width. */
+.farmer-listing-days,
+.farmer-listing-payments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin: 0.6rem 0 0.2rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.farmer-listing-days legend,
+.farmer-listing-payments legend {
+  padding: 0 0.3rem;
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+.farmer-listing-payments {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.farmer-listing-day {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  min-height: 44px;
+  margin: 0;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.farmer-listing-day input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
 .admin-farm button:disabled {
   opacity: 0.65;
   cursor: default;
@@ -2557,6 +2665,24 @@ button.admin-action-danger:disabled {
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: 0.9;
+}
+
+/*
+ * The secondary arteries (F-070). Deliberately SUBORDINATE: half the highway's width and well
+ * under its opacity, so the spine still reads as the spine at a glance.
+ *
+ * The point of these is orientation for a farmer placing their own pin — "north of Cemetery
+ * Road" — not navigation. Drawn at equal weight they would compete with the highway and make
+ * the island harder to read, not easier, which is exactly what the one-road decision was
+ * protecting against.
+ */
+.island-road-minor {
+  fill: none;
+  stroke: var(--road);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.55;
 }
 
 /*

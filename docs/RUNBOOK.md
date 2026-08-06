@@ -83,6 +83,7 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `TELNYX_API_KEY`, `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY` | All required with Telnyx; the public key verifies webhook signatures |
 | `LLM_PROVIDER` | Required `stub` or `deepinfra`; no default or environment exception |
 | `DEEPINFRA_API_KEY`, `DEEPINFRA_MODEL` | Required with DeepInfra; `anthropic/` and `google/` models are refused because their terms are not attested |
+| `GEOCODING_API_KEY` | **Optional.** Google Geocoding key for the onboarding draft pin (F-069). Absent or blank disables lookup and the form asks the farmer to tap the map, which is fully supported. **Billed per call** — server-side only, behind the invitation token and its own throttle bucket. Restrict the key to the Geocoding API in the GCP console |
 
 There is no mail dependency and no `CRON_SECRET`; Cloud Scheduler uses OIDC and IAM.
 
@@ -234,8 +235,10 @@ Corpus-specific operating facts:
   and retains public websites/social handles.
 - It seeds neither inventory nor phone authorization. Inventory requires farmer confirmation;
   phones require captured consent.
-- Unresolvable coordinates become operator refusals, never fabricated points. Geocoding is
-  seed-time only; the running product has no geocoder.
+- Unresolvable coordinates become operator refusals, never fabricated points. **The seeder does no
+  geocoding.** Since F-069 the onboarding form may look an address up to offer a **draft pin the
+  farmer confirms** (`GEOCODING_API_KEY`, optional) — off-island results are refused and every
+  failure falls back to the farmer tapping the map. Nothing else in the product geocodes.
 - `offering_type` and visitability are independent and classification uses the farmer's words, not
   the farm name.
 

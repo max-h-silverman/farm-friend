@@ -2,10 +2,17 @@ import type { Clock } from "@farm-friend/core";
 import {
   loadFarmerInvitation,
   saveOnboardingListing,
+  OPEN_HOURS_KINDS,
+  SEASON_KINDS,
+  STOCKING_CADENCES,
   type Db,
   type FarmerInvitationLookup,
+  type ListingAvailability,
   type OnboardingListingInput,
+  type OpenHoursKind,
   type SaveOnboardingListingResult,
+  type SeasonKind,
+  type StockingCadence,
 } from "@farm-friend/db";
 
 // F-067 — the HTTP boundary for the listing details an onboarding farmer types.
@@ -83,6 +90,141 @@ function optionalCoordinate(value: unknown): number | null | undefined {
   return value;
 }
 
+// ── F-069: the structured availability fields ─────────────────────────────────────────────
+//
+// These land in columns guarded by five CHECK constraints. Validated as the types they are and
+// never coerced: `Number("13")` is a number and `Number(null)` is 0, so a coercing parser turns
+// junk and absence alike into confident values a farmer never stated.
+
+/** One of a fixed set of enum values, or absent. `undefined` means malformed. */
+function optionalEnum<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return undefined;
+  return (allowed as readonly string[]).includes(value) ? (value as T) : undefined;
+}
+
+/**
+ * An INTEGER within an inclusive range, or absent.
+ *
+ * Integer-checked rather than merely numeric: month 3.5 is not a month, and truncating it would
+ * invent a value. The range mirrors the `valid_season_dates` / `valid_open_minutes` constraints,
+ * so an out-of-range value is refused here with a name instead of arriving as a violation.
+ */
+function optionalIntegerInRange(
+  value: unknown,
+  min: number,
+  max: number,
+): number | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value)) return undefined;
+  return value >= min && value <= max ? value : undefined;
+}
+
+/**
+ * A weekday set — 1 to 7 integers each in 0-6 — or absent.
+ *
+ * An EMPTY array is refused rather than normalized to null: it asserts "open on no day", which
+ * no stand means, and `valid_open_days` refuses it.
+ */
+function optionalDaySet(value: unknown): number[] | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length < 1 || value.length > 7) return undefined;
+  for (const entry of value) {
+    if (typeof entry !== "number" || !Number.isInteger(entry)) return undefined;
+    if (entry < 0 || entry > 6) return undefined;
+  }
+  if (new Set(value as number[]).size !== value.length) return undefined;
+  return value as number[];
+}
+
+/** Marks a malformed field, distinguishing it from a legitimately absent one. */
+const MALFORMED = Symbol("malformed");
+
+/**
+ * Read the availability a farmer stated, keeping only the detail its stated KIND carries.
+ *
+ * **The stripping is the interesting half.** A farmer who typed a date range and then switched
+ * their answer to "year-round" is the ordinary case, not an attack — the browser may well still
+ * hold the old dates. `coherentSeason` refuses `year_round` carrying dates, so passing them
+ * through would refuse the farmer's submission over a field the form no longer shows them.
+ * Each group therefore keeps exactly what its kind requires and drops the rest.
+ *
+ * Returns `MALFORMED` when a value is the wrong type or out of range — that is a bad request,
+ * not a farmer's mistake, and it is refused rather than silently narrowed.
+ */
+function readAvailability(
+  body: Record<string, unknown>,
+): ListingAvailability | typeof MALFORMED {
+  const seasonKind = optionalEnum<SeasonKind>(body.seasonKind, SEASON_KINDS);
+  const openHoursKind = optionalEnum<OpenHoursKind>(body.openHoursKind, OPEN_HOURS_KINDS);
+  const stockingCadence = optionalEnum<StockingCadence>(
+    body.stockingCadence,
+    STOCKING_CADENCES,
+  );
+
+  const seasonStartMonth = optionalIntegerInRange(body.seasonStartMonth, 1, 12);
+  const seasonStartDay = optionalIntegerInRange(body.seasonStartDay, 1, 31);
+  const seasonEndMonth = optionalIntegerInRange(body.seasonEndMonth, 1, 12);
+  const seasonEndDay = optionalIntegerInRange(body.seasonEndDay, 1, 31);
+  const seasonNames = stringList(body.seasonNames);
+  const openFromMinutes = optionalIntegerInRange(body.openFromMinutes, 0, 1439);
+  const openUntilMinutes = optionalIntegerInRange(body.openUntilMinutes, 0, 1439);
+  const openDays = optionalDaySet(body.openDays);
+  const stockingDays = optionalDaySet(body.stockingDays);
+
+  if (
+    seasonKind === undefined ||
+    openHoursKind === undefined ||
+    stockingCadence === undefined ||
+    seasonStartMonth === undefined ||
+    seasonStartDay === undefined ||
+    seasonEndMonth === undefined ||
+    seasonEndDay === undefined ||
+    seasonNames === undefined ||
+    openFromMinutes === undefined ||
+    openUntilMinutes === undefined ||
+    openDays === undefined ||
+    stockingDays === undefined
+  ) {
+    return MALFORMED;
+  }
+
+  // Which season detail the stated kind carries. `date_range` takes all four endpoints,
+  // `open_ended` only the start, `named_season` only the names, `year_round` and "not stated"
+  // none of it.
+  const keepStart = seasonKind === "date_range" || seasonKind === "open_ended";
+  const keepEnd = seasonKind === "date_range";
+  const keepNames = seasonKind === "named_season";
+  // Blank names are dropped the way blank items are, then an empty list becomes "not stated"
+  // — but only when the kind does not require names, since `named_season` with none is the
+  // farmer's own incoherence and must reach them as `incoherent_availability`.
+  const statedNames = seasonNames.map((name) => name.trim()).filter((name) => name !== "");
+
+  // `clock_range` needs both clock times, `until_dusk` only the opening one. Every other kind
+  // — and "not stated" — carries none.
+  const keepFrom = openHoursKind === "clock_range" || openHoursKind === "until_dusk";
+  const keepUntil = openHoursKind === "clock_range";
+
+  return {
+    seasonKind,
+    seasonStartMonth: keepStart ? seasonStartMonth : null,
+    seasonStartDay: keepStart ? seasonStartDay : null,
+    seasonEndMonth: keepEnd ? seasonEndMonth : null,
+    seasonEndDay: keepEnd ? seasonEndDay : null,
+    seasonNames: keepNames ? statedNames : null,
+    openHoursKind,
+    openFromMinutes: keepFrom ? openFromMinutes : null,
+    openUntilMinutes: keepUntil ? openUntilMinutes : null,
+    openDays,
+    stockingCadence,
+    // Only `specific_days` carries a day list, in both directions.
+    stockingDays: stockingCadence === "specific_days" ? stockingDays : null,
+  };
+}
+
 /**
  * HTTP boundary for the onboarding listing form.
  *
@@ -132,6 +274,7 @@ export async function handleFarmerListingPost(
   const items = stringList(body.items);
   const latitude = optionalCoordinate(body.latitude);
   const longitude = optionalCoordinate(body.longitude);
+  const availability = readAvailability(body);
 
   if (
     standName === undefined ||
@@ -140,7 +283,8 @@ export async function handleFarmerListingPost(
     paymentMethods === undefined ||
     items === undefined ||
     latitude === undefined ||
-    longitude === undefined
+    longitude === undefined ||
+    availability === MALFORMED
   ) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
@@ -177,6 +321,7 @@ export async function handleFarmerListingPost(
       latitude: visitable ? latitude : null,
       longitude: visitable ? longitude : null,
       hoursText,
+      availability,
       paymentMethods,
       items,
     },

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   ISLAND_VIEWBOX,
@@ -6,6 +7,7 @@ import {
 import {
   ISLAND_HIGHWAY,
   ISLAND_PLACES,
+  ISLAND_ROADS,
   ISLAND_SHORELINE,
   ISLAND_WOODS,
   projectedShoreline,
@@ -90,6 +92,57 @@ const REAL_STANDS: readonly (readonly [string, number, number])[] = [
   ["Peak Moon Nursery", 47.3453, -122.5052],
 ];
 
+/** Great-circle metres. Roads are checked in real distance, not in drawing units. */
+function haversineMetres(
+  fromLat: number,
+  fromLon: number,
+  toLat: number,
+  toLon: number,
+): number {
+  const R = 6_371_000;
+  const toRad = (degrees: number): number => (degrees * Math.PI) / 180;
+  const dLat = toRad(toLat - fromLat);
+  const dLon = toRad(toLon - fromLon);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(fromLat)) * Math.cos(toRad(toLat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/**
+ * How far a point lies outside the drawn coastline, in metres. Zero when inside.
+ *
+ * Needed because the shoreline is simplified at ~25m, so a genuine waterfront road sits a few
+ * metres outside a polygon that is itself an approximation. Without this the on-land test would
+ * fail on correct data, and the honest fix is to measure the miss rather than loosen the test.
+ */
+function metresFromShore(lat: number, lon: number): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < ISLAND_SHORELINE.length; i++) {
+    const [aLat, aLon] = ISLAND_SHORELINE[i]!;
+    const [bLat, bLon] = ISLAND_SHORELINE[(i + 1) % ISLAND_SHORELINE.length]!;
+    // Locally flat is exact enough at island scale, and keeps the projection out of it.
+    const scale = Math.cos((lat * Math.PI) / 180);
+    const ax = aLon * scale;
+    const ay = aLat;
+    const bx = bLon * scale;
+    const by = bLat;
+    const px = lon * scale;
+    const py = lat;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lengthSq = dx * dx + dy * dy;
+    const t =
+      lengthSq === 0
+        ? 0
+        : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
+    const nearLat = ay + t * dy;
+    const nearLon = (ax + t * dx) / scale;
+    best = Math.min(best, haversineMetres(lat, lon, nearLat, nearLon));
+  }
+  return best;
+}
+
 describe("the island artwork agrees with the projection", () => {
   it("draws a closed shape with enough vertices to be an island", () => {
     expect(ISLAND_SHORELINE.length).toBeGreaterThan(20);
@@ -120,34 +173,105 @@ describe("the island artwork agrees with the projection", () => {
     }
   });
 
-  it("keeps the highway on land, never crossing open water", () => {
-    // The road is the other thing drawn from coordinates, and it can be wrong the same way a
-    // pin can. An earlier version ran straight from Burton to the Tahlequah dock and drew
-    // the highway floating across Quartermaster Harbour — the single detail on this map an
-    // islander would spot instantly. Sampled along each segment, not just at the vertices,
+  it("keeps EVERY road on land, never crossing open water", () => {
+    // The roads are the other thing drawn from coordinates, and they can be wrong the same way
+    // a pin can. An earlier highway ran straight from Burton to the Tahlequah dock and drew
+    // the road floating across Quartermaster Harbour — the single detail on this map an
+    // islander would spot instantly. Sampled ALONG each segment, not just at the vertices,
     // because a road can have both endpoints on land and still cut a corner over the water.
+    //
+    // Covers the secondary arteries too (F-070). Sampling density follows LENGTH rather than a
+    // fixed count per segment: Vashon Highway has one legitimately straight 7km span, and ten
+    // samples across it would check one point every 700m — wide enough to miss an inlet
+    // entirely. Every road is checked at roughly 100m.
+    //
+    // The 25m tolerance is the SHORELINE's own resolution, not slack for the roads. The coast
+    // is simplified at ~25m, so a genuine waterfront road (Quartermaster Drive, the highway at
+    // Portage) sits a few metres outside a polygon that is itself approximate. Anything beyond
+    // that is a road in the water, which is the defect this test exists for.
     const polygon = projectedShoreline();
     const offLand: string[] = [];
 
-    for (let i = 0; i < ISLAND_HIGHWAY.length - 1; i++) {
-      const [fromLat, fromLon] = ISLAND_HIGHWAY[i]!;
-      const [toLat, toLon] = ISLAND_HIGHWAY[i + 1]!;
-      for (let step = 0; step <= 10; step++) {
-        const t = step / 10;
-        const point = projectPoint(
-          fromLat + (toLat - fromLat) * t,
-          fromLon + (toLon - fromLon) * t,
-        );
-        if (!isInside(point, polygon)) {
+    const named: { name: string; line: readonly (readonly [number, number])[] }[] = [
+      { name: "Vashon Highway", line: ISLAND_HIGHWAY },
+      ...ISLAND_ROADS.map((road) => ({ name: road.name, line: road.line })),
+    ];
+
+    for (const road of named) {
+      for (let i = 0; i < road.line.length - 1; i++) {
+        const [fromLat, fromLon] = road.line[i]!;
+        const [toLat, toLon] = road.line[i + 1]!;
+        const metres = haversineMetres(fromLat, fromLon, toLat, toLon);
+        const steps = Math.max(4, Math.ceil(metres / 100));
+        for (let step = 0; step <= steps; step++) {
+          const t = step / steps;
+          const lat = fromLat + (toLat - fromLat) * t;
+          const lon = fromLon + (toLon - fromLon) * t;
+          if (isInside(projectPoint(lat, lon), polygon)) continue;
+          if (metresFromShore(lat, lon) <= 25) continue;
           offLand.push(
-            `segment ${i} at ${(fromLat + (toLat - fromLat) * t).toFixed(4)}, ` +
-              `${(fromLon + (toLon - fromLon) * t).toFixed(4)}`,
+            `${road.name} segment ${i} at ${lat.toFixed(4)}, ${lon.toFixed(4)} — ` +
+              `${metresFromShore(lat, lon).toFixed(0)}m outside the drawn coast`,
           );
         }
       }
     }
 
     expect(offLand).toEqual([]);
+  });
+
+  it("draws each road as ONE connected line, with no leap to an unrelated place", () => {
+    // The failure this catches is a stitching bug, not a data problem: joining two OSM ways
+    // that do not actually meet draws a straight line between wherever they happen to end.
+    // Its signature is a span that is both long AND a detour — the drawn line leaving the
+    // road's own corridor.
+    //
+    // A long span alone is NOT the defect and must not be asserted as one. Vashon Highway runs
+    // genuinely straight for 7km between Vashon town and Burton, deviating about 45m, so 164
+    // source vertices simplify to two. An earlier version of this check flagged exactly that
+    // and would have forced a false "fix" — bending a straight road to satisfy a test.
+    //
+    // So the assertion is on DIRECTNESS: each span is compared against the straight-line
+    // distance between the road's own endpoints. A span longer than the road it belongs to is
+    // incoherent by construction.
+    const suspicious: string[] = [];
+
+    for (const road of ISLAND_ROADS) {
+      const [firstLat, firstLon] = road.line[0]!;
+      const [lastLat, lastLon] = road.line[road.line.length - 1]!;
+      const span = haversineMetres(firstLat, firstLon, lastLat, lastLon);
+      for (let i = 0; i < road.line.length - 1; i++) {
+        const [fromLat, fromLon] = road.line[i]!;
+        const [toLat, toLon] = road.line[i + 1]!;
+        const hop = haversineMetres(fromLat, fromLon, toLat, toLon);
+        if (hop > span + 100) {
+          suspicious.push(
+            `${road.name} segment ${i}: ${(hop / 1000).toFixed(2)}km hop on a ` +
+              `${(span / 1000).toFixed(2)}km road`,
+          );
+        }
+      }
+    }
+
+    expect(suspicious).toEqual([]);
+  });
+
+  it("keeps the secondary roads visually subordinate to the highway", () => {
+    // Not decoration: the one-road decision (F-043) existed because equal-weight roads turn an
+    // orienting poster into a street map. F-070 added arteries for the farmer placing a pin,
+    // and the thing that keeps that from undoing the original reasoning is the DRAWN WEIGHT.
+    // Asserted against the stylesheet so "make them all the same" fails here rather than being
+    // noticed on a screenshot, or not at all.
+    const css = readFileSync(
+      new URL("../app/globals.css", import.meta.url),
+      "utf8",
+    );
+    const highway = /\.island-road\s*\{[^}]*stroke-width:\s*(\d+(?:\.\d+)?)/.exec(css);
+    const minor = /\.island-road-minor\s*\{[^}]*stroke-width:\s*(\d+(?:\.\d+)?)/.exec(css);
+
+    expect(highway, "the highway rule must exist").not.toBeNull();
+    expect(minor, "the secondary-road rule must exist").not.toBeNull();
+    expect(Number(minor![1])).toBeLessThan(Number(highway![1]));
   });
 
   it("keeps every wooded area ON LAND (F-043 interior detail)", () => {

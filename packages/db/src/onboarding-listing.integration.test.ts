@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { NO_AVAILABILITY_STATED } from "./listing-availability";
 import { saveOnboardingListing } from "./onboarding-listing";
 import type { Db, Sql } from "./index";
 
@@ -299,7 +300,10 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(items[0]!.display_name).toBe("Eggs");
   });
 
-  it("writes payment methods as stated", async () => {
+  it("writes payment methods CANONICALIZED, so a filter can join them", async () => {
+    // F-069 changed this from "as stated": the farmer typed "cash" and the stored value is
+    // "Cash". Payments are a closed VIGA-known set, so one spelling per method is what makes
+    // them filterable — the unfilterable free text is exactly what Farm Friend replaces.
     await saveOnboardingListing(database(), {
       farmId,
       standName: "Payment Stand",
@@ -314,7 +318,47 @@ describe("F-067 onboarding listing (integration)", () => {
     `;
     // Compared as a SET: the table's primary key is (location, method) and carries no order,
     // so asserting a sequence would be asserting the collation rather than the behaviour.
-    expect(methods.map((row) => row.method).sort()).toEqual(["Venmo", "cash"].sort());
+    expect(methods.map((row) => row.method).sort()).toEqual(["Cash", "Venmo"].sort());
+  });
+
+  it("keeps an UNRECOGNIZED payment method as the farmer's own words", async () => {
+    // The closed set must not silently swallow a real fact. A farmer who barters says so.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Barter Stand",
+      listing: {
+        ...visitableListing,
+        paymentMethods: ["venmo", "trade for eggs"],
+      },
+      occurredAt: new Date("2026-08-05T17:00:00Z"),
+    });
+
+    const methods = await client()`
+      select m.method from sales_location_payment_methods m
+      join sales_locations l on l.id = m.sales_location_id
+      where l.owner_farm_id = ${farmId}
+    `;
+    expect(methods.map((row) => row.method).sort()).toEqual(
+      ["Venmo", "trade for eggs"].sort(),
+    );
+  });
+
+  it("stores ONE row when a farmer states the same method two ways", async () => {
+    // "cash" and "Cash" in the same submission. Without canonicalization these are two
+    // distinct primary keys and both land, giving the map a stand that takes cash twice.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Double Cash Stand",
+      listing: { ...visitableListing, paymentMethods: ["cash", "Cash", "CASH"] },
+      occurredAt: new Date("2026-08-05T17:00:00Z"),
+    });
+
+    const methods = await client()`
+      select m.method from sales_location_payment_methods m
+      join sales_locations l on l.id = m.sales_location_id
+      where l.owner_farm_id = ${farmId}
+    `;
+    expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
 
   it("drops blank items and blank payment methods rather than refusing the form", async () => {
@@ -344,7 +388,7 @@ describe("F-067 onboarding listing (integration)", () => {
       join sales_locations l on l.id = m.sales_location_id
       where l.owner_farm_id = ${farmId}
     `;
-    expect(methods.map((row) => row.method)).toEqual(["cash"]);
+    expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
 
   it("stores a padded name and address trimmed, not as the farmer typed the padding", async () => {
@@ -448,7 +492,7 @@ describe("F-067 onboarding listing (integration)", () => {
       join sales_locations l on l.id = m.sales_location_id
       where l.owner_farm_id = ${farmId}
     `;
-    expect(methods.map((row) => row.method)).toEqual(["cash"]);
+    expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
 
   it("refuses an unknown farm rather than creating an orphan stand", async () => {
@@ -528,5 +572,264 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(mine[0]!.hours_text).toBe("Daylight hours, most days");
     expect(theirs[0]!.name).toBe("Theirs");
     expect(theirs[0]!.hours_text).toBe("Different hours");
+  });
+
+  // ── F-069: the FILTERABLE availability columns ────────────────────────────────────────
+  //
+  // F-035 added season / hours / stocking columns and five CHECK constraints; until F-069 the
+  // seeder was their only writer, so an onboarding farmer's listing was prose in `hours_text`
+  // and NULL in every column a filter can use. These tests are here rather than only in
+  // `listing-availability.test.ts` because ONLY REAL POSTGRES applies the constraints — the
+  // in-memory mirror and the database can disagree, and that disagreement is the defect.
+
+  describe("F-069 structured availability", () => {
+    it("writes season, hours, days and stocking as FILTERABLE columns", async () => {
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Filterable Stand",
+        listing: {
+          ...visitableListing,
+          availability: {
+            seasonKind: "date_range",
+            seasonStartMonth: 3,
+            seasonStartDay: 1,
+            seasonEndMonth: 11,
+            seasonEndDay: 30,
+            seasonNames: null,
+            openHoursKind: "dawn_to_dusk",
+            openFromMinutes: null,
+            openUntilMinutes: null,
+            openDays: [0, 1, 2, 3, 4, 5, 6],
+            stockingCadence: "specific_days",
+            stockingDays: [3, 6],
+          },
+        },
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`
+        select season_kind, season_start_month, season_start_day, season_end_month,
+               season_end_day, open_hours_kind, open_days, stocking_cadence, stocking_days,
+               hours_text
+        from sales_locations where owner_farm_id = ${farmId}
+      `;
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      // Asserted as VALUES, not merely as non-null: a writer that put the season in the hours
+      // column would satisfy a null-check and be wrong.
+      expect(row.season_kind).toBe("date_range");
+      expect(row.season_start_month).toBe(3);
+      expect(row.season_start_day).toBe(1);
+      expect(row.season_end_month).toBe(11);
+      expect(row.season_end_day).toBe(30);
+      expect(row.open_hours_kind).toBe("dawn_to_dusk");
+      expect(row.open_days).toEqual([0, 1, 2, 3, 4, 5, 6]);
+      expect(row.stocking_cadence).toBe("specific_days");
+      expect(row.stocking_days).toEqual([3, 6]);
+      // `hours_text` SURVIVES beside the structured columns. It is display-only and never
+      // filtered on, because a caveat like "when available" fits in no day set.
+      expect(row.hours_text).toBe("Daylight hours, most days");
+    });
+
+    it("writes clock times when the farmer states them, midnight included", async () => {
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Clock Stand",
+        listing: {
+          ...visitableListing,
+          availability: {
+            ...NO_AVAILABILITY_STATED,
+            openHoursKind: "clock_range",
+            // Midnight to noon. 0 must survive as a stated time rather than being read as
+            // absent — a truthiness check anywhere on this path turns it into NULL and the
+            // `clock_range` constraint then refuses the row.
+            openFromMinutes: 0,
+            openUntilMinutes: 720,
+          },
+        },
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`
+        select open_hours_kind, open_from_minutes, open_until_minutes
+        from sales_locations where owner_farm_id = ${farmId}
+      `;
+      expect(rows[0]!.open_hours_kind).toBe("clock_range");
+      expect(rows[0]!.open_from_minutes).toBe(0);
+      expect(rows[0]!.open_until_minutes).toBe(720);
+    });
+
+    it("writes a named season as the farmer's own season words", async () => {
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Named Season Stand",
+        listing: {
+          ...visitableListing,
+          availability: {
+            ...NO_AVAILABILITY_STATED,
+            seasonKind: "named_season",
+            seasonNames: ["berry season", "pumpkin season"],
+          },
+        },
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`
+        select season_kind, season_names from sales_locations where owner_farm_id = ${farmId}
+      `;
+      expect(rows[0]!.season_kind).toBe("named_season");
+      expect(rows[0]!.season_names).toEqual(["berry season", "pumpkin season"]);
+    });
+
+    it("leaves every availability column NULL when the farmer states nothing", async () => {
+      // "Not stated" must stay distinguishable from `year_round` and from an empty day set.
+      // A writer that defaulted anything here would invent a fact the farmer never gave.
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Silent Stand",
+        listing: visitableListing,
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`
+        select season_kind, season_start_month, season_names, open_hours_kind,
+               open_from_minutes, open_days, stocking_cadence, stocking_days
+        from sales_locations where owner_farm_id = ${farmId}
+      `;
+      const row = rows[0]!;
+      expect(row.season_kind).toBeNull();
+      expect(row.season_start_month).toBeNull();
+      expect(row.season_names).toBeNull();
+      expect(row.open_hours_kind).toBeNull();
+      expect(row.open_from_minutes).toBeNull();
+      expect(row.open_days).toBeNull();
+      expect(row.stocking_cadence).toBeNull();
+      expect(row.stocking_days).toBeNull();
+    });
+
+    it("year_round is stored as a STATED fact, distinct from nothing stated", async () => {
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Year Round Stand",
+        listing: {
+          ...visitableListing,
+          availability: { ...NO_AVAILABILITY_STATED, seasonKind: "year_round" },
+        },
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`
+        select season_kind, season_start_month from sales_locations
+        where owner_farm_id = ${farmId}
+      `;
+      expect(rows[0]!.season_kind).toBe("year_round");
+      expect(rows[0]!.season_start_month).toBeNull();
+    });
+
+    it("REFUSES an incoherent availability instead of hitting a CHECK violation", async () => {
+      // `clock_range` with no closing time. The constraint would refuse this write; the point
+      // of the named status is that the farmer learns which answer to fix. If this ever throws
+      // instead of returning, the in-memory mirror has drifted from the constraint.
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Contradictory Stand",
+        listing: {
+          ...visitableListing,
+          availability: {
+            ...NO_AVAILABILITY_STATED,
+            openHoursKind: "clock_range",
+            openFromMinutes: 480,
+          },
+        },
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+
+      expect(result.status).toBe("incoherent_availability");
+      // Nothing was written — the refusal happens before the transaction opens.
+      const rows = await client()`
+        select id from sales_locations where owner_farm_id = ${farmId}
+      `;
+      expect(rows).toHaveLength(0);
+    });
+
+    it("REFUSES specific_days with no days, and an empty day set", async () => {
+      const noDays = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Cadence Stand",
+        listing: {
+          ...visitableListing,
+          availability: { ...NO_AVAILABILITY_STATED, stockingCadence: "specific_days" },
+        },
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+      expect(noDays.status).toBe("incoherent_availability");
+
+      const emptyDays = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Empty Days Stand",
+        listing: {
+          ...visitableListing,
+          availability: { ...NO_AVAILABILITY_STATED, openDays: [] },
+        },
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+      expect(emptyDays.status).toBe("incoherent_availability");
+    });
+
+    it("CLEARS availability a farmer retracts rather than leaving the old dates", async () => {
+      // The resubmission case that a partial update would break: moving from "March-November"
+      // to "year-round" must clear the four date columns, or the row violates
+      // `coherentSeason` in the database and the farmer's correction is refused.
+      await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Changing Stand",
+        listing: {
+          ...visitableListing,
+          availability: {
+            ...NO_AVAILABILITY_STATED,
+            seasonKind: "date_range",
+            seasonStartMonth: 3,
+            seasonStartDay: 1,
+            seasonEndMonth: 11,
+            seasonEndDay: 30,
+            stockingCadence: "specific_days",
+            stockingDays: [3],
+          },
+        },
+        occurredAt: new Date("2026-08-05T17:00:00Z"),
+      });
+
+      const second = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Changing Stand",
+        listing: {
+          ...visitableListing,
+          availability: { ...NO_AVAILABILITY_STATED, seasonKind: "year_round" },
+        },
+        occurredAt: new Date("2026-08-05T18:00:00Z"),
+      });
+      expect(second.status).toBe("saved");
+
+      const rows = await client()`
+        select season_kind, season_start_month, season_start_day, season_end_month,
+               season_end_day, stocking_cadence, stocking_days
+        from sales_locations where owner_farm_id = ${farmId}
+      `;
+      expect(rows).toHaveLength(1);
+      const row = rows[0]!;
+      expect(row.season_kind).toBe("year_round");
+      expect(row.season_start_month).toBeNull();
+      expect(row.season_start_day).toBeNull();
+      expect(row.season_end_month).toBeNull();
+      expect(row.season_end_day).toBeNull();
+      // The retracted stocking cadence clears too, days included.
+      expect(row.stocking_cadence).toBeNull();
+      expect(row.stocking_days).toBeNull();
+    });
   });
 });

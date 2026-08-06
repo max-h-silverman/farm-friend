@@ -135,9 +135,15 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   to visit before it can know whether an address is required, because
   `sales_locations_coherent_visitability` is all-or-nothing in both directions (F-038, B-024); the
   coordinate comes from the farmer dropping a pin on the drawn island through F-043's projection
-  run backwards, since there is deliberately **no geocoder and no mapping-provider seam**. It
-  publishes on submit (max, 2026-08-05) rather than waiting for the SIGNUP text, and it writes
-  standing item state only — never a dated confirmation.
+  run backwards, optionally **pre-positioned by an address lookup the farmer must confirm**
+  (F-069 — see §provider seams; there is still no mapping-provider seam). It also collects
+  **structured season, hours, weekday and restocking facts** into F-035's filterable columns, and
+  payment methods as a **closed set** plus a free-text tail — VIGA Farm Bucks excluded, since
+  acceptance depends on an eligibility only VIGA grants. It publishes on submit (max, 2026-08-05)
+  rather than waiting for the SIGNUP text, and it writes standing item state only — never a dated
+  confirmation.
+- **Farmer address lookup:** `POST /api/farmer/address-lookup` — invitation-gated, throttled,
+  server-side geocoding that returns a **draft** coordinate and writes nothing.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
@@ -456,8 +462,26 @@ Narrow interfaces so I/O is swappable and tests are hermetic:
 Geocoding is a **one-time seeding concern**, not a permanent provider seam. There is no `MapProvider`
 interface and no coordinate-inventing stub — an earlier one fabricated deterministic
 pseudo-coordinates near Vashon for **any** address string, which is exactly the fabrication an
-unresolved location must never receive. `packages/core/src/architecture.test.ts` fails if either name,
-a `geocode(` call, or a mapping/geocoding/routing dependency reappears in any workspace.
+unresolved location must never receive. `packages/core/src/architecture.test.ts` fails if either name
+or a mapping/geocoding/routing dependency reappears in any workspace.
+
+**One narrowing, for farm stand onboarding only** (max, 2026-08-05). `apps/web/lib/address-lookup.ts`
+may call the Google Geocoding REST endpoint to offer a **draft pin**, behind
+`POST /api/farmer/address-lookup`. What did *not* change is what makes it safe:
+
+- **It is a suggestion, not an answer.** The farmer confirms the spot or taps the map to move it,
+  and `listing-step.tsx` submits only a confirmed coordinate. A stand is frequently at the road
+  rather than at its mailing address, which only the farmer knows.
+- **Off-island results are refused, never shown**, against `ISLAND_BOUNDS` — the single statement of
+  where the island is, not a second envelope that could drift from it.
+- **Every failure degrades to tapping the map**, the pre-existing behaviour. No result, a malformed
+  body, a provider error, or an absent key are one answer with no coordinate; a deployment without
+  `GEOCODING_API_KEY` is fully supported.
+- **No SDK and no second call site.** It is a `fetch` to a REST endpoint, so the dependency tripwire
+  stays armed; the allowlist is one file, so a second caller fails the architecture suite.
+- **The key is server-side.** The route reads it from the composition root and returns a coordinate
+  and status only. It sits behind the invitation token *and* its own abuse/cost throttle bucket,
+  because the call is billed.
 
 Their replacement is arithmetic, not a provider: `packages/core/src/public/proximity.ts` is a pure
 module (haversine distance, coordinate validation, destination-link construction) with no network

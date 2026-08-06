@@ -343,4 +343,282 @@ describe("farmer onboarding listing endpoint", () => {
     expect(response.status).toBe(400);
     expect(save).not.toHaveBeenCalled();
   });
+
+  // ── F-069: the structured availability fields ─────────────────────────────────────────
+  //
+  // These reach five CHECK constraints. The boundary's job is to refuse a MALFORMED request —
+  // a bad enum value, a non-integer month, a weekday of 9 — before it becomes either a
+  // constraint violation or, worse, a coerced value the farmer never stated.
+
+  describe("F-069 structured availability", () => {
+    const AVAILABILITY = {
+      seasonKind: "date_range",
+      seasonStartMonth: 3,
+      seasonStartDay: 1,
+      seasonEndMonth: 11,
+      seasonEndDay: 30,
+      openHoursKind: "dawn_to_dusk",
+      openDays: [0, 1, 2, 3, 4, 5, 6],
+      stockingCadence: "specific_days",
+      stockingDays: [3, 6],
+    };
+
+    it("passes a fully stated availability through to the writer", async () => {
+      const save = saver();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save),
+        post({ token: TOKEN, ...LISTING, ...AVAILABILITY }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(save).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          listing: expect.objectContaining({
+            availability: {
+              seasonKind: "date_range",
+              seasonStartMonth: 3,
+              seasonStartDay: 1,
+              seasonEndMonth: 11,
+              seasonEndDay: 30,
+              seasonNames: null,
+              openHoursKind: "dawn_to_dusk",
+              openFromMinutes: null,
+              openUntilMinutes: null,
+              openDays: [0, 1, 2, 3, 4, 5, 6],
+              stockingCadence: "specific_days",
+              stockingDays: [3, 6],
+            },
+          }),
+        }),
+      );
+    });
+
+    it("passes ALL-NULL availability when the farmer states none", async () => {
+      // A form that asks nothing about season must still produce a writable value rather than
+      // leaving the field undefined for the writer to guess at.
+      const save = saver();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save),
+        post({ token: TOKEN, ...LISTING }),
+      );
+
+      expect(response.status).toBe(200);
+      const passed = save.mock.calls[0]![1].listing.availability;
+      expect(passed).toEqual({
+        seasonKind: null,
+        seasonStartMonth: null,
+        seasonStartDay: null,
+        seasonEndMonth: null,
+        seasonEndDay: null,
+        seasonNames: null,
+        openHoursKind: null,
+        openFromMinutes: null,
+        openUntilMinutes: null,
+        openDays: null,
+        stockingCadence: null,
+        stockingDays: null,
+      });
+    });
+
+    it("refuses an unknown enum value rather than storing it", async () => {
+      for (const bad of [
+        { seasonKind: "whenever" },
+        { openHoursKind: "sunrise_ish" },
+        { stockingCadence: "sometimes", stockingDays: [1] },
+      ]) {
+        const save = saver();
+        const response = await handleFarmerListingPost(
+          deps(loader(), save),
+          post({ token: TOKEN, ...LISTING, ...bad }),
+        );
+        expect(response.status).toBe(400);
+        expect(save).not.toHaveBeenCalled();
+      }
+    });
+
+    it("refuses a non-integer month, day, or minute rather than COERCING it", async () => {
+      // `Number("3")` is 3 and `Number(null)` is 0 — coercion here would turn a malformed or
+      // absent value into a confident one. A string month must be refused, not parsed.
+      for (const bad of [
+        { seasonKind: "date_range", seasonStartMonth: "3", seasonStartDay: 1, seasonEndMonth: 11, seasonEndDay: 30 },
+        { seasonKind: "date_range", seasonStartMonth: 3.5, seasonStartDay: 1, seasonEndMonth: 11, seasonEndDay: 30 },
+        { openHoursKind: "clock_range", openFromMinutes: "480", openUntilMinutes: 1080 },
+        { openHoursKind: "clock_range", openFromMinutes: 480.5, openUntilMinutes: 1080 },
+      ]) {
+        const save = saver();
+        const response = await handleFarmerListingPost(
+          deps(loader(), save),
+          post({ token: TOKEN, ...LISTING, ...bad }),
+        );
+        expect(response.status).toBe(400);
+        expect(save).not.toHaveBeenCalled();
+      }
+    });
+
+    it("refuses an out-of-range month, day, minute, or weekday", async () => {
+      for (const bad of [
+        { seasonKind: "date_range", seasonStartMonth: 13, seasonStartDay: 1, seasonEndMonth: 11, seasonEndDay: 30 },
+        { seasonKind: "date_range", seasonStartMonth: 3, seasonStartDay: 32, seasonEndMonth: 11, seasonEndDay: 30 },
+        { openHoursKind: "clock_range", openFromMinutes: 480, openUntilMinutes: 1440 },
+        { openHoursKind: "clock_range", openFromMinutes: -1, openUntilMinutes: 1080 },
+        { openDays: [9] },
+        { stockingCadence: "specific_days", stockingDays: [-1] },
+      ]) {
+        const save = saver();
+        const response = await handleFarmerListingPost(
+          deps(loader(), save),
+          post({ token: TOKEN, ...LISTING, ...bad }),
+        );
+        expect(response.status).toBe(400);
+        expect(save).not.toHaveBeenCalled();
+      }
+    });
+
+    it("accepts minute 0 as a real opening time", async () => {
+      // Midnight. A truthiness check anywhere on this path reads 0 as absent and the
+      // `clock_range` constraint then refuses the row.
+      const save = saver();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save),
+        post({
+          token: TOKEN,
+          ...LISTING,
+          openHoursKind: "clock_range",
+          openFromMinutes: 0,
+          openUntilMinutes: 720,
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const passed = save.mock.calls[0]![1].listing.availability!;
+      expect(passed.openFromMinutes).toBe(0);
+      expect(passed.openUntilMinutes).toBe(720);
+    });
+
+    it("refuses a day array that is not an array of numbers", async () => {
+      for (const bad of [
+        { openDays: "everyday" },
+        { openDays: [1, "2"] },
+        { stockingCadence: "specific_days", stockingDays: { 0: 1 } },
+      ]) {
+        const save = saver();
+        const response = await handleFarmerListingPost(
+          deps(loader(), save),
+          post({ token: TOKEN, ...LISTING, ...bad }),
+        );
+        expect(response.status).toBe(400);
+        expect(save).not.toHaveBeenCalled();
+      }
+    });
+
+    it("STRIPS detail that does not belong to the stated kind", async () => {
+      // A farmer who typed dates, then switched their answer to "year-round", is the ordinary
+      // case. The stale dates must not travel: `coherentSeason` refuses `year_round` carrying
+      // them, and the farmer would get a refusal for a field the form no longer shows.
+      const save = saver();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save),
+        post({
+          token: TOKEN,
+          ...LISTING,
+          seasonKind: "year_round",
+          seasonStartMonth: 3,
+          seasonStartDay: 1,
+          seasonEndMonth: 11,
+          seasonEndDay: 30,
+          seasonNames: ["summer"],
+          openHoursKind: "dawn_to_dusk",
+          openFromMinutes: 480,
+          openUntilMinutes: 1080,
+          stockingCadence: "daily",
+          stockingDays: [3],
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const passed = save.mock.calls[0]![1].listing.availability!;
+      expect(passed.seasonKind).toBe("year_round");
+      expect(passed.seasonStartMonth).toBeNull();
+      expect(passed.seasonStartDay).toBeNull();
+      expect(passed.seasonEndMonth).toBeNull();
+      expect(passed.seasonEndDay).toBeNull();
+      expect(passed.seasonNames).toBeNull();
+      expect(passed.openHoursKind).toBe("dawn_to_dusk");
+      expect(passed.openFromMinutes).toBeNull();
+      expect(passed.openUntilMinutes).toBeNull();
+      expect(passed.stockingCadence).toBe("daily");
+      expect(passed.stockingDays).toBeNull();
+    });
+
+    it("STRIPS day and date detail when no kind is stated at all", async () => {
+      const save = saver();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save),
+        post({
+          token: TOKEN,
+          ...LISTING,
+          seasonStartMonth: 3,
+          seasonStartDay: 1,
+          openFromMinutes: 480,
+          stockingDays: [3],
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const passed = save.mock.calls[0]![1].listing.availability!;
+      expect(passed.seasonStartMonth).toBeNull();
+      expect(passed.openFromMinutes).toBeNull();
+      expect(passed.stockingDays).toBeNull();
+    });
+
+    it("reports incoherent availability as something the farmer can fix", async () => {
+      // The writer's refusal must reach the browser as a named error, not a 500.
+      const response = await handleFarmerListingPost(
+        deps(loader(), saver({ status: "incoherent_availability" })),
+        post({ token: TOKEN, ...LISTING }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "incoherent_availability",
+      });
+    });
+
+    it("passes named_season with only BLANK names on as the farmer's own incoherence", async () => {
+      // An empty list must not be quietly normalized to "not stated" — the farmer chose
+      // "named season" and typed nothing, and they need to hear that rather than having their
+      // season silently dropped. It reaches the writer as `[]`, which `coherentAvailability`
+      // refuses, so the answer is `incoherent_availability` and not a save.
+      const save = saver();
+      await handleFarmerListingPost(
+        deps(loader(), save),
+        post({
+          token: TOKEN,
+          ...LISTING,
+          seasonKind: "named_season",
+          seasonNames: ["  ", ""],
+        }),
+      );
+
+      expect(save).toHaveBeenCalled();
+      expect(save.mock.calls[0]![1].listing.availability!.seasonNames).toEqual([]);
+    });
+
+    it("caps how many season names one submission can write", async () => {
+      const save = saver();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save),
+        post({
+          token: TOKEN,
+          ...LISTING,
+          seasonKind: "named_season",
+          seasonNames: Array.from({ length: 300 }, (_, index) => `season ${index}`),
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(save).not.toHaveBeenCalled();
+    });
+  });
 });

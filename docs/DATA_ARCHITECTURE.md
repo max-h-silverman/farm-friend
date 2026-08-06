@@ -95,6 +95,14 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   eligibility as **read-only facts**, plus a sanitized source-listing description, farmer-selected
   web/social links, and an optional photo or short biography. Direct farmer email addresses and
   phone numbers never enter the public description.
+  **Payment methods are canonicalized to a closed set** (F-069, `packages/db/src/payment-methods.ts`)
+  so "venmo", "Venmo" and "VENMO" are one filterable value rather than three a filter cannot join.
+  Methods outside the set are kept as the farmer's **own words** — a closed set that silently
+  dropped what it did not recognize would lose a real fact. This is a *spelling* table and must stay
+  one: unlike produce, payment methods are a small VIGA-known set, which is why folding them is
+  correct here and folding food vocabulary is forbidden. **VIGA Farm Bucks is never farmer-settable**
+  — acceptance is gated on `acceptanceRequiresEligibility`, so the onboarding form does not offer it
+  and the writer does not touch it.
 - **structured availability** (F-035) — season, days of week, time of day, and restocking cadence as
   **queryable columns rather than prose**, so "what is open right now" is a filter and not a text
   scan. Kinds that are not clock times (`dawn_to_dusk`, `daylight_hours`) and cadences that are not
@@ -104,6 +112,11 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   **display-only text that is never filtered on**, so a caveat like "Saturday and Sunday when
   available" survives without the structured fields overstating it. `year_round` is distinct from an
   absent season: "always open" and "never recorded" are different facts.
+  **Written by the onboarding form since F-069** — before it, the seeder was these columns' only
+  writer, so a farmer who onboarded through the form got prose and NULLs in every filterable column.
+  The form's pickers branch to match the five CHECK constraints, and `coherentAvailability`
+  (`packages/db/src/listing-availability.ts`) mirrors them in memory so a contradictory answer
+  reaches the farmer as a fixable message rather than as a constraint violation.
 - **stand items** (F-066) — the **one vocabulary a stand talks about its own goods in**. "Eggs" is
   one record per location, and the two things anyone can say about it are **independent states, not
   separate lists**: *does this stand usually carry it*, and *was it confirmed present on a date*.

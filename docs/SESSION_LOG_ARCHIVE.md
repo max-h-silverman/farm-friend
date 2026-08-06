@@ -1,7 +1,7 @@
 # Farm Friend — Session Log Archive (through 2026-08-02)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-05; it now holds 53 entries.
+everything older lives here. Last rotated 2026-08-05; it now holds 54 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -9,6 +9,32 @@ architecture documents ([README.md](README.md) is the index). Where an entry her
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
 
 ---
+
+## 2026-08-02 — complete interactive map listing details, marker mapping, and order deployed
+
+F-058 (`71cc48f`, PR #72; final marker correction `640f0ac`, PR #73) completes the public map
+tranche. The map now carries sanitized source
+listing prose, hours, stocking notes, updates, and public web/social links into the detail view;
+direct email addresses and phone numbers are removed. The default directory is ascending by stable
+stand number, while explicit distance sorting remains unchanged. The legend and marker rendering now
+use visitability, destination type, season, approved usual offerings, flower-product terms, and
+reviewed Farm Bucks facts.
+The requested sticky-map behavior was explicitly withdrawn and was not changed. Contact-only farms
+remain list entries without pins because they have no customer-visitable coordinate.
+
+The null-only backfill applied 34 descriptions and 24 reviewed payment facts with 0 unmatched source
+entries; a dry-run rerun found 0 remaining changes. Production checks found 0 direct emails or phone
+numbers in descriptions, Peak Moon's details and payment fact in the live API, and the expected
+farmers-market, seasonal, year-round, and flower-only marker classifications. Handpicked Homestead
+is intentionally unpublished and is the one database row outside the 34-stand public response.
+
+Verification: 93 unit-test files / 894 tests, 41 real-Postgres integration-test files / 564 tests,
+typecheck, lint, production web build, and 44/44 scripted eval cases. Cloud Build
+`b3904d28-05ba-4276-9c7a-22281962e513` produced digest
+`sha256:8e66a05b6734531d980f5193102ba3a4c9e845b221184dc96fdab9fcdf16066d`. OpenTofu passed 37/37
+assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
+`farm-friend-web-00022-sk9` and `farm-friend-worker-00023-zhh`; deployment, secret-freshness,
+served-card, and public-API checks passed. No migration was owed: production already held all 17.
 
 ## 2026-08-02 — farmer SMS handling and final map polish deployed
 

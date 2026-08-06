@@ -6,10 +6,114 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 53. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 54. A log too large to open
 mid-session defeats its own purpose.
 
 ---
+
+## 2026-08-05 — structured listing facts, a geocoded draft pin, and roads on the island map
+
+Two asks on the onboarding form (F-069), then the map (F-070). Both merged; **neither deployed**.
+
+### The structured fields already existed — nothing wrote them
+
+max asked whether the form's free text should be structured, or passed through a model to
+structure it. Reading the schema dissolved the choice: **F-035 built all of it in migration
+`0005`** — `season_kind`, `open_hours_kind`, `stocking_cadence`, `stocking_days`, five CHECK
+constraints — and the seeder was its only writer. `dawn_to_dusk` and `until_dusk`, which max
+guessed at as options, were *already enum values*. So the onboarding form wrote prose into
+`hours_text` and NULL into every column a filter can use, which is exactly the unfilterable shape
+VIGA's existing map fails at.
+
+**No migration, no model.** The model's real job here is F-064's ingest of the existing 31-farm
+prose corpus — prose that already exists and cannot be re-asked. A farmer sitting in front of a
+form is not that case: structured input is exact and free, and golden rule 3 means the model could
+only propose anyway, so a confirmation step would sit *on top of* the picker rather than replace it.
+
+**`coherentAvailability` mirrors the five constraints in memory.** The constraint is the guarantee;
+the mirror is what turns a contradiction into `incoherent_availability` naming the group to fix
+rather than a 500. It is asserted **directly** rather than only through stored rows, because a
+sabotage proved the two layers can drift while every row assertion stays green — the database
+applies its rule independently. The integration suite catches that drift with the real Postgres
+violation, which is the evidence both layers are real.
+
+**Payments are a closed set with a free-text tail.** "venmo"/"Venmo"/"VENMO" were three unjoinable
+values in an unconstrained `method text` column. Canonicalizing is correct here and forbidden for
+produce for a reason worth keeping straight: payment methods are a small VIGA-known set, so this is
+a **spelling** table — folding "VENMO" decides how a word is written, folding "tomatoes" decides
+something about the world. Unrecognized methods are kept verbatim or the set would silently lose a
+real fact. **VIGA Farm Bucks is not offered**: acceptance is gated on `acceptanceRequiresEligibility`,
+so a farmer ticking a box would be claiming a VIGA decision about themselves.
+
+### The no-geocoder boundary was narrowed, not removed — max's call after pushback
+
+max asked to geocode the typed address instead of dropping a pin. Pushed back first, because this
+was a *decided* boundary with three things holding it: PRODUCT_BRIEF §launch decisions,
+DEVELOPMENT §non-goals, and a tripwire in `architecture.test.ts`. The reason on record is that a
+`StubMapProvider` once invented deterministic pseudo-coordinates near Vashon for **any** address
+string, and a stand at a fabricated point is worse than one with no point — it sends a customer
+somewhere real and wrong. Rural Vashon is where lookup is weakest, and a stand is frequently at the
+road rather than the mailing address, which only the farmer knows.
+
+max reaffirmed, and chose **draft-with-confirmation** over silent use. So the lookup is a
+suggestion: off-island results are refused rather than shown (against `ISLAND_BOUNDS`, the single
+statement of where the island is), the farmer confirms or taps to move it, only a confirmed
+coordinate submits, and **every** failure — no result, no key, provider error, network error —
+degrades to tapping the map, which is the pre-F-069 behaviour. A deployment with no
+`GEOCODING_API_KEY` is fully supported.
+
+**What did not reopen.** No SDK (a `fetch` to a REST endpoint, so the dependency tripwire stays
+armed), no `MapProvider` seam, and one approved call site — `architecture.test.ts` now fails on a
+*second* geocode caller rather than on any at all. The key is server-side, behind the invitation
+token and its **own** throttle bucket, because a farmer refining an address makes several lookups
+in a row and sharing the stock-out bucket would let either surface starve the other.
+
+**Fixing that tripwire exposed a real weakness in it.** It matched raw source, so a comment
+*explaining* why `StubMapProvider` is forbidden satisfied a search for `StubMapProvider` — a file
+could be flagged for documenting the defect it avoids, and worse, a forbidden call hidden in a
+string would have passed. It now strips comments and string literals before matching.
+
+### Roads on the island map (F-070)
+
+F-043 drew one road deliberately: "drawing the side roads would turn a legible poster into a street
+map." That was right when the artwork only oriented a customer. **The onboarding form gave it a
+second job** — it is now how a farmer says where their own stand is — and one spine gives them
+almost nothing to place themselves against. max chose main arteries plus Westside Highway: twelve
+roads, 101 vertices against the coastline's 246, residential grid excluded.
+
+**Traced from OpenStreetMap through the same `projectToIsland` as the pins**, the discipline the
+coastline and woods already follow. Vashon Highway itself was **replaced**: it was 13 hand-chosen
+vertices whose own comment admitted guessing "put the line in the water twice". Westside Highway
+stays **two chains** — OSM records it in pieces that do not share endpoints, and joining them would
+draw pavement across a gap.
+
+**The test that was nearly wrong.** A first version flagged any long span as a splice, which fired
+on the highway's *real* 7km straight run between Vashon town and Burton (45m deviation across 164
+source vertices) — it would have forced bending a straight road to satisfy a test. Replaced with a
+**directness** check: a span longer than the road's own end-to-end distance is incoherent by
+construction. The on-land test now samples by distance (~100m) rather than ten points per segment,
+because the old density checked one point per 700m across that span — wide enough to miss an inlet.
+
+**The render bug no test could catch.** The first rendered preview drew **twelve empty paths** — a
+regex bug in the throwaway render script, not in the data. Every suite passed, because the suite
+checks coordinates and nothing checks that a road reaches the screen. Caught only by looking at the
+picture, which is the argument for looking.
+
+### Verification
+
+**1234 unit, 665 integration, typecheck, lint.** No `packages/ai` file changed, so no evals or
+`evals:live` are owed. **Fourteen sabotages, each caught by a named test** — including the mirror
+drifting from the constraints, an unconfirmed pin publishing, a second geocode caller, a road across
+Quartermaster Harbour, and minor roads raised to highway weight.
+
+**One sabotage escaped and was fixed:** a duplicate-weekday test used eight entries, so the *length
+ceiling* refused it and the dedupe it named was never exercised — deleting the dedupe left it green.
+Rewritten to two entries, which only the dedupe can refuse. Same family as the plural-normalizer
+escape recorded in the entry below.
+
+**Owed before this is trustworthy:** a real browser round trip, and **one live geocoding call
+against the real provider** — every test injects the provider, so the real request/response shape is
+unverified and the path has never made a billed call.
 
 ## 2026-08-05 — the onboarding listing form: the first farmer-facing listing writer, and three migrations to production
 
@@ -599,29 +703,3 @@ Verification: 94 unit-test files / 896 tests, typecheck, lint, and production we
 assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
 `farm-friend-web-00023-frt` and `farm-friend-worker-00024-mzv`; deployment and served-card checks
 passed. No database migration or data backfill was needed.
-
-## 2026-08-02 — complete interactive map listing details, marker mapping, and order deployed
-
-F-058 (`71cc48f`, PR #72; final marker correction `640f0ac`, PR #73) completes the public map
-tranche. The map now carries sanitized source
-listing prose, hours, stocking notes, updates, and public web/social links into the detail view;
-direct email addresses and phone numbers are removed. The default directory is ascending by stable
-stand number, while explicit distance sorting remains unchanged. The legend and marker rendering now
-use visitability, destination type, season, approved usual offerings, flower-product terms, and
-reviewed Farm Bucks facts.
-The requested sticky-map behavior was explicitly withdrawn and was not changed. Contact-only farms
-remain list entries without pins because they have no customer-visitable coordinate.
-
-The null-only backfill applied 34 descriptions and 24 reviewed payment facts with 0 unmatched source
-entries; a dry-run rerun found 0 remaining changes. Production checks found 0 direct emails or phone
-numbers in descriptions, Peak Moon's details and payment fact in the live API, and the expected
-farmers-market, seasonal, year-round, and flower-only marker classifications. Handpicked Homestead
-is intentionally unpublished and is the one database row outside the 34-stand public response.
-
-Verification: 93 unit-test files / 894 tests, 41 real-Postgres integration-test files / 564 tests,
-typecheck, lint, production web build, and 44/44 scripted eval cases. Cloud Build
-`b3904d28-05ba-4276-9c7a-22281962e513` produced digest
-`sha256:8e66a05b6734531d980f5193102ba3a4c9e845b221184dc96fdab9fcdf16066d`. OpenTofu passed 37/37
-assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
-`farm-friend-web-00022-sk9` and `farm-friend-worker-00023-zhh`; deployment, secret-freshness,
-served-card, and public-API checks passed. No migration was owed: production already held all 17.

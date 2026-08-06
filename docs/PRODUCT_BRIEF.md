@@ -245,6 +245,15 @@ just the code, is the product answer:
   gate rather than chosen by preference (AI_ARCHITECTURE §provider privacy gate).
 - **Seed geocoding: no provider at all.** Coordinates are validated seed input; an unresolved
   location becomes an operator task and never a fabricated coordinate.
+- **Onboarding address lookup: a draft the farmer confirms** (max, 2026-08-05; narrows the line
+  above for **farm stand onboarding only**). Typing an address offers a *suggested* pin; the
+  farmer confirms it or taps the map to move it, and only the confirmed coordinate is written. A
+  result outside the island bounds is refused rather than shown, and every failure — no result,
+  no key, a provider error — falls back to the farmer tapping the map, which is how the form
+  worked before. The lookup can save a farmer work; it can never decide where a stand is, because
+  a Vashon stand is often at the road rather than at the mailing address and only the farmer knows
+  that. Still no `MapProvider` seam, no mapping package, and one approved call site
+  (ARCHITECTURE §provider seams).
 - **10DLC campaign alignment: verified against the live console.** The registered keyword set,
   universal STOP, and the one operational program agree with the parser, and the transcript of
   console state is what the tests pin.

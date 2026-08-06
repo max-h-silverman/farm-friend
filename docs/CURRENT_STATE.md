@@ -13,6 +13,11 @@ Production Postgres is `neondb` with **all 22 migrations applied (`0000`–`0021
 effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the per-migration checks and the
 fingerprint that preceded them.
 
+**`main` is now AHEAD of production by F-069 and F-070** (merged 2026-08-05, undeployed). Neither
+adds a migration, so **no migration is owed** — the schema above is current for them. A deploy is
+owed, and two live checks with it: the onboarding form in a real browser, and one real geocoding
+call. `GEOCODING_API_KEY` is unset in production, so deploying as-is keeps the pin-drop behaviour.
+
 **Deployed twice on 2026-08-05, each verified by effect**: plan assertions 37/37 both times,
 deploy and served-card assertions pass, and the live site serves **34 stands, 33 reading
 `usuallySells` from `stand_items`** — so the promoted image and the migrated schema demonstrably
@@ -78,9 +83,16 @@ public description, which it does.
 
 ## Verification
 
-- Current `main` (`84c512d`): **1120 unit tests**, **48 integration files / 655 tests**, typecheck
-  and lint pass (2026-08-05). **No model seam was added or changed, so no eval or `evals:live` run
-  is owed.** **Deployed.**
+- Current `main` (F-069 + F-070, merged 2026-08-05, **UNDEPLOYED**): **1234 unit tests**,
+  **48 integration files / 665 tests**, typecheck and lint pass. **No `packages/ai` file changed,
+  so no eval or `evals:live` run is owed.**
+  **Two live checks are owed before this is trustworthy**, both recorded rather than assumed:
+  the onboarding form has **not been exercised in a real browser** since F-069, and the geocoding
+  path has **never made a real billed call** — every test injects the provider, so the live
+  request/response shape is unverified. A deployment without `GEOCODING_API_KEY` runs the
+  pre-F-069 pin-drop behaviour, which is supported.
+- Prior `main` (`84c512d`): **1120 unit tests**, **48 integration files / 655 tests**, typecheck
+  and lint pass (2026-08-05). **Deployed** — this is what production currently runs.
 - Prior `main` (`41e6dd0`): **105 unit-test files / 1075 tests**, typecheck, lint, and **evals
   (critical 11/11, adversarial 29/29, advisory 4/4)** pass (verified 2026-08-05). Superseded by the
   run above and now deployed as part of `7c996a7`.
@@ -216,12 +228,42 @@ against the real corpus on 2026-08-04 while implementing.
 - **Approved farmers still start on no reminder schedule.** `authorizeFarmer` writes no
   `inventory_prompt_preferences` row, so the scheduled-prompt machinery — built and correct —
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
-- **Listing facts are no longer frozen for an ONBOARDING farmer** (F-067): hours, address, pin,
-  payment methods, and what they usually sell are written by the onboarding form. **Still frozen
-  for everyone else** — an already-onboarded farmer has no edit surface, and season, Farm Bucks,
-  and offering type remain editable by nobody. The form deliberately does not touch Farm Bucks:
-  it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot make themselves
-  eligible by filling in a form.
+- **Listing facts are no longer frozen for an ONBOARDING farmer** (F-067, extended by F-069):
+  hours, address, pin, payment methods, what they usually sell, and — since F-069 — **season,
+  structured hours, open days, and restocking cadence/days** are written by the onboarding form.
+  **Still frozen for everyone else** — an already-onboarded farmer has no edit surface, and Farm
+  Bucks and offering type remain editable by nobody. The form deliberately does not touch Farm
+  Bucks: it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot make
+  themselves eligible by filling in a form.
+- **F-069 is MERGED to `main` and UNDEPLOYED.** Two changes max asked for on 2026-08-05:
+  1. **Structured season / hours / stocking, and payments as a closed set.** F-035's filterable
+     columns existed since the seeder but the onboarding form wrote none of them, so a farmer's
+     listing was prose in `hours_text` and NULL everywhere a filter looks. `stocking_days`,
+     `dawn_to_dusk` and `until_dusk` were already in the schema and are now offered as real
+     answers. Payments became checkboxes over a closed set with a free-text tail
+     (`packages/db/src/payment-methods.ts`), so "venmo"/"Venmo" stop being two unjoinable values.
+     No migration was needed: **no schema change, columns only newly written.**
+     `coherentAvailability` mirrors the five CHECK constraints in memory so a contradictory answer
+     returns `incoherent_availability` rather than a 500.
+  2. **The no-geocoder boundary was NARROWED, not removed** (max reaffirmed after pushback).
+     `apps/web/lib/address-lookup.ts` is the one approved call site, behind
+     `POST /api/farmer/address-lookup`. The lookup offers a **draft pin the farmer must confirm**;
+     an off-island result is refused rather than shown, and every failure degrades to tapping the
+     map. `MapProvider`, coordinate-inventing stubs, and mapping **dependencies** remain forbidden
+     everywhere, and `architecture.test.ts` now fails on a *second* geocode caller. Its
+     comment-stripping fix also closed a real weakness: the old tripwire matched its own prose.
+  **Owed before this is trustworthy:** a real browser round trip, and one live geocoding call
+  against the real provider with a real key. `GEOCODING_API_KEY` is **optional and unset** — until
+  it is set, the form asks the farmer to tap the map, which is the pre-F-069 behaviour.
+- **F-070 put the island's main roads on the map (merged, undeployed).** F-043 drew one road on
+  purpose ("side roads would turn a legible poster into a street map"), which was right while the
+  artwork only oriented a customer. **The onboarding form gave it a second job** — it is how a
+  farmer places their own pin — and one spine gives them nothing to place themselves against. max
+  chose main arteries plus Westside Highway: twelve roads, 101 vertices against the coastline's
+  246, residential grid excluded, drawn at half the highway's weight so the spine still reads as
+  the spine (asserted in a test, not left to a screenshot). All traced from OpenStreetMap through
+  the same `projectToIsland` as the pins; **Vashon Highway itself was replaced**, since its 13
+  hand-placed vertices carried a comment admitting guessing "put the line in the water twice".
 - **The ingestion tranche (F-063 → F-061 → F-062, plus F-064's guard) is merged and DEPLOYED —
   but its DATA has not been ingested.**
   F-063 added `inventory_revisions.source` (`sms` requires the full handset chain under a CHECK;
