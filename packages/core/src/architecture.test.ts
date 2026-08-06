@@ -68,6 +68,23 @@ function sourceFiles(relativeDirectory: string): string[] {
   });
 }
 
+/**
+ * Source with comments and string literals removed, so a tripwire tests CODE.
+ *
+ * Without this, a source-text tripwire matches its own documentation: a comment explaining why
+ * `StubMapProvider` was removed satisfies a search for `StubMapProvider`, and a file can be
+ * flagged for describing the defect it avoids — or, far worse, pass because the forbidden call
+ * appears only inside a string. Comments are stripped first, then quoted text.
+ */
+function codeOnly(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+}
+
 function workspaceImports(relativeDirectory: string): string[] {
   const importPattern = /(?:from\s+|import\s+)["'](@farm-friend\/[^"']+)["']/g;
 
@@ -246,15 +263,37 @@ describe("the retired config and contracts packages stay deleted (F-028)", () =>
   });
 });
 
-describe("no runtime geocoder or map provider (F-017)", () => {
-  // Geocoding is a ONE-TIME SEEDING concern. The approved boundary adds "no runtime
-  // geocoder, permanent map package, coordinate-inventing stub, mapping platform, routing
-  // engine, or travel-time estimator" — so this is the tripwire that makes reintroducing one
-  // fail rather than merely being noticed in review.
+describe("no runtime geocoder or map provider (F-017, narrowed by F-068)", () => {
+  // Geocoding was a ONE-TIME SEEDING concern with no runtime provider at all. The original
+  // boundary forbade "no runtime geocoder, permanent map package, coordinate-inventing stub,
+  // mapping platform, routing engine, or travel-time estimator", and this is the tripwire that
+  // makes reintroducing one fail rather than merely being noticed in review.
   //
-  // `StubMapProvider` previously invented deterministic pseudo-coordinates near Vashon for
-  // ANY address string. A stand placed at a fabricated point is worse than a stand with no
-  // point: it sends a customer somewhere real and wrong.
+  // ## What max reopened, and what did NOT reopen (2026-08-05)
+  //
+  // Address lookup is permitted for FARM STAND ONBOARDING ONLY, as a DRAFT the farmer confirms.
+  // One file — `apps/web/lib/address-lookup.ts` — may call the geocoding endpoint. Everything
+  // else this describe block guards stayed shut:
+  //
+  //   * No `MapProvider` seam and no `StubMapProvider` ANYWHERE, including the allowed file. The
+  //     stub invented deterministic pseudo-coordinates near Vashon for ANY address string, and a
+  //     stand at a fabricated point is worse than a stand with no point — it sends a customer
+  //     somewhere real and wrong. That is the defect, and it is still forbidden.
+  //   * No mapping/geocoding/routing PACKAGE in any workspace (the test below). The allowed file
+  //     calls a REST endpoint with `fetch`; a permanent map package remains the thing the
+  //     boundary forbids.
+  //   * No second geocode call site. The allowlist is one file, so a future caller fails here.
+  //
+  // The properties that make the narrowing safe live in `apps/web/lib/address-lookup.ts` and are
+  // asserted in its own suite: an off-island result is refused rather than shown, every failure
+  // degrades to the farmer tapping the map, and only a confirmed pin is ever committed.
+
+  /**
+   * The ONE file permitted to call a geocoding endpoint. Adding a second entry here is a
+   * boundary change and needs the same approval this one had — see PRODUCT_BRIEF §launch
+   * decisions and DEVELOPMENT §non-goals, which record the reopening.
+   */
+  const GEOCODE_ALLOWLIST = ["apps/web/lib/address-lookup.ts"];
 
   const productionSources = [
     ...sourceFiles("packages/core/src"),
@@ -265,11 +304,45 @@ describe("no runtime geocoder or map provider (F-017)", () => {
   ].filter((path) => !path.endsWith(".test.ts") && !path.endsWith(".type-test.ts"));
 
   it("declares no MapProvider seam or coordinate-inventing stub anywhere", () => {
+    // Unchanged and unnarrowed: the allowlist does NOT apply to these names. A provider seam or
+    // a coordinate-inventing stub is forbidden in every file, the allowed one included.
+    // Comments stripped first: this file's own history note names `StubMapProvider` to explain
+    // why it is forbidden, and a raw-text search cannot tell an explanation from a declaration.
     const offenders = productionSources.filter((path) => {
-      const source = readFileSync(new URL(path, repositoryRoot), "utf8");
-      return /\bMapProvider\b|\bStubMapProvider\b|\bgeocode\s*\(/.test(source);
+      const source = codeOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
+      return /\bMapProvider\b|\bStubMapProvider\b/.test(source);
     });
     expect(offenders).toEqual([]);
+  });
+
+  it("calls a geocoding endpoint from ONE approved file and nowhere else", () => {
+    // Anchored to a `geocode(` call and to the endpoint host, so a new caller — whether it
+    // builds the URL itself or wraps the approved module in a second seam — fails here.
+    //
+    // The host is matched against code with string literals stripped, so it catches an
+    // identifier or property path rather than a URL in prose; the allowed file is exempt anyway.
+    const offenders = productionSources.filter((path) => {
+      const relative = path.replace(/^\.\.\/\.\.\/\.\.\//, "");
+      if (GEOCODE_ALLOWLIST.some((allowed) => relative.endsWith(allowed))) return false;
+      const raw = readFileSync(new URL(path, repositoryRoot), "utf8");
+      return /\bgeocode\s*\(/.test(codeOnly(raw)) || /maps\.googleapis\.com/.test(raw);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps the approved file's own guarantees: bounds-checked, no invention", () => {
+    // The allowlist entry earns its exemption by REFUSING an off-island result. Asserted against
+    // the source because this is the property that made the narrowing acceptable — a version of
+    // this file that returned whatever the provider said would reintroduce the original defect.
+    const source = readFileSync(
+      new URL("../../../apps/web/lib/address-lookup.ts", import.meta.url),
+      "utf8",
+    );
+    // The comparison itself, not merely the imported name: an import line alone would satisfy a
+    // bare /ISLAND_BOUNDS/ search while the check was deleted from the call site.
+    expect(source).toMatch(/onIsland\(latitude,\s*longitude\)/);
+    expect(source).toMatch(/ISLAND_BOUNDS\.(south|north|west|east)/);
+    expect(source).toMatch(/status:\s*"off_island"/);
   });
 
   it("takes no mapping, geocoding, or routing dependency in any workspace", () => {

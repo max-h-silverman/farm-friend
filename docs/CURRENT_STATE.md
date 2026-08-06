@@ -78,6 +78,12 @@ public description, which it does.
 
 ## Verification
 
+- **Branch `f-068-structured-listing-and-geocoded-pin` (UNMERGED, UNDEPLOYED):** **1232 unit
+  tests**, **48 integration files / 665 tests**, typecheck and lint pass (2026-08-05). **No model
+  seam was added or changed, so no eval or `evals:live` run is owed.** **Not yet exercised in a
+  real browser** — the round trip through a live form, the geocoding provider, and Postgres is
+  owed before this ships. The geocoding path has **never made a real billed call**: every test
+  injects the provider, so the live request/response shape is unverified.
 - Current `main` (`84c512d`): **1120 unit tests**, **48 integration files / 655 tests**, typecheck
   and lint pass (2026-08-05). **No model seam was added or changed, so no eval or `evals:live` run
   is owed.** **Deployed.**
@@ -216,12 +222,33 @@ against the real corpus on 2026-08-04 while implementing.
 - **Approved farmers still start on no reminder schedule.** `authorizeFarmer` writes no
   `inventory_prompt_preferences` row, so the scheduled-prompt machinery — built and correct —
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
-- **Listing facts are no longer frozen for an ONBOARDING farmer** (F-067): hours, address, pin,
-  payment methods, and what they usually sell are written by the onboarding form. **Still frozen
-  for everyone else** — an already-onboarded farmer has no edit surface, and season, Farm Bucks,
-  and offering type remain editable by nobody. The form deliberately does not touch Farm Bucks:
-  it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot make themselves
-  eligible by filling in a form.
+- **Listing facts are no longer frozen for an ONBOARDING farmer** (F-067, extended by F-068):
+  hours, address, pin, payment methods, what they usually sell, and — since F-068 — **season,
+  structured hours, open days, and restocking cadence/days** are written by the onboarding form.
+  **Still frozen for everyone else** — an already-onboarded farmer has no edit surface, and Farm
+  Bucks and offering type remain editable by nobody. The form deliberately does not touch Farm
+  Bucks: it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot make
+  themselves eligible by filling in a form.
+- **F-068 is BUILT on branch `f-068-structured-listing-and-geocoded-pin` (undeployed).** Two
+  changes max asked for on 2026-08-05:
+  1. **Structured season / hours / stocking, and payments as a closed set.** F-035's filterable
+     columns existed since the seeder but the onboarding form wrote none of them, so a farmer's
+     listing was prose in `hours_text` and NULL everywhere a filter looks. `stocking_days`,
+     `dawn_to_dusk` and `until_dusk` were already in the schema and are now offered as real
+     answers. Payments became checkboxes over a closed set with a free-text tail
+     (`packages/db/src/payment-methods.ts`), so "venmo"/"Venmo" stop being two unjoinable values.
+     No migration was needed: **no schema change, columns only newly written.**
+     `coherentAvailability` mirrors the five CHECK constraints in memory so a contradictory answer
+     returns `incoherent_availability` rather than a 500.
+  2. **The no-geocoder boundary was NARROWED, not removed** (max reaffirmed after pushback).
+     `apps/web/lib/address-lookup.ts` is the one approved call site, behind
+     `POST /api/farmer/address-lookup`. The lookup offers a **draft pin the farmer must confirm**;
+     an off-island result is refused rather than shown, and every failure degrades to tapping the
+     map. `MapProvider`, coordinate-inventing stubs, and mapping **dependencies** remain forbidden
+     everywhere, and `architecture.test.ts` now fails on a *second* geocode caller. Its
+     comment-stripping fix also closed a real weakness: the old tripwire matched its own prose.
+  **Owed before this is trustworthy:** a real browser round trip, and one live geocoding call
+  against the real provider with a real key.
 - **The ingestion tranche (F-063 → F-061 → F-062, plus F-064's guard) is merged and DEPLOYED —
   but its DATA has not been ingested.**
   F-063 added `inventory_revisions.source` (`sms` requires the full handset chain under a CHECK;

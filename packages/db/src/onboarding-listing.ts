@@ -1,5 +1,11 @@
 import { ISLAND_BOUNDS } from "@farm-friend/core";
 import type { Db } from "./index";
+import {
+  coherentAvailability,
+  NO_AVAILABILITY_STATED,
+  type ListingAvailability,
+} from "./listing-availability";
+import { canonicalPaymentMethods } from "./payment-methods";
 import type { Sql, Tx } from "./sql";
 
 // F-067 — the first farmer-facing writer of PUBLIC LISTING FACTS.
@@ -78,6 +84,11 @@ export interface OnboardingListingInput {
   longitude: number | null;
   /** The farmer's own words about when they are open, preserved verbatim (display only). */
   hoursText: string | null;
+  /**
+   * F-068 — the FILTERABLE season / hours / stocking facts, beside `hoursText` rather than
+   * instead of it. Optional: a form that states none of it writes the same NULLs as before.
+   */
+  availability?: ListingAvailability;
   paymentMethods: string[];
   /** What they usually sell, in their own words and their own order. */
   items: string[];
@@ -89,7 +100,9 @@ export type SaveOnboardingListingResult =
   | { status: "invalid_name" }
   /** The visitability branch is contradicted: see `coherentVisitability`. */
   | { status: "incomplete_location" }
-  | { status: "off_island" };
+  | { status: "off_island" }
+  /** The stated season / hours / stocking contradict themselves: see `coherentAvailability`. */
+  | { status: "incoherent_availability" };
 
 /**
  * Write the listing an onboarding farmer typed, as their farm's stand.
@@ -149,6 +162,14 @@ export async function saveOnboardingListing(
     }
   }
 
+  // F-068. Refused BEFORE the transaction opens, and named as its own status: the five F-035
+  // CHECK constraints would refuse the write anyway, but as a violation the farmer cannot act
+  // on. `coherentAvailability` is the same rule stated where an error message can reach them.
+  const availability = listing.availability ?? NO_AVAILABILITY_STATED;
+  if (!coherentAvailability(availability)) {
+    return { status: "incoherent_availability" };
+  }
+
   return driver(db).begin(async (tx) => {
     // Locked, so two submissions from one farmer — a double-tapped button, a reload — cannot
     // both observe "no stand" and insert one each.
@@ -167,13 +188,14 @@ export async function saveOnboardingListing(
 
     const salesLocationId =
       existingId === undefined
-        ? await insertStand(tx, { ...input, standName, address, hoursText })
+        ? await insertStand(tx, { ...input, standName, address, hoursText, availability })
         : await updateStand(tx, {
             salesLocationId: existingId,
             ...input,
             standName,
             address,
             hoursText,
+            availability,
           });
 
     await writePaymentMethods(tx, salesLocationId, listing.paymentMethods);
@@ -198,21 +220,34 @@ async function insertStand(
     standName: string;
     address: string | null;
     hoursText: string | null;
+    availability: ListingAvailability;
     listing: OnboardingListingInput;
     occurredAt: Date;
   },
 ): Promise<string> {
+  const available = input.availability;
   const rows = await tx`
     insert into sales_locations (
       owner_farm_id, kind, name, timezone, visitability, offering_type,
       public_address, public_latitude, public_longitude, hours_text,
+      season_kind, season_start_month, season_start_day,
+      season_end_month, season_end_day, season_names,
+      open_hours_kind, open_from_minutes, open_until_minutes, open_days,
+      stocking_cadence, stocking_days,
       is_public, farm_bucks_accepted, farm_bucks_eligible,
       created_at, updated_at
     ) values (
       ${input.farmId}, 'farm_stand', ${input.standName}, 'America/Los_Angeles',
       ${input.listing.visitability}, ${input.listing.offeringType},
       ${input.address}, ${input.listing.latitude}, ${input.listing.longitude},
-      ${input.hoursText}, true, false, false,
+      ${input.hoursText},
+      ${available.seasonKind}, ${available.seasonStartMonth}, ${available.seasonStartDay},
+      ${available.seasonEndMonth}, ${available.seasonEndDay},
+      ${available.seasonNames as string[] | null},
+      ${available.openHoursKind}, ${available.openFromMinutes},
+      ${available.openUntilMinutes}, ${available.openDays as number[] | null},
+      ${available.stockingCadence}, ${available.stockingDays as number[] | null},
+      true, false, false,
       ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()}
     )
     returning id
@@ -235,10 +270,16 @@ async function updateStand(
     standName: string;
     address: string | null;
     hoursText: string | null;
+    availability: ListingAvailability;
     listing: OnboardingListingInput;
     occurredAt: Date;
   },
 ): Promise<string> {
+  // The availability columns are written as ONE STATEMENT, every column named — including the
+  // NULLs. A farmer who moves from "March-November" to "year-round" must clear the old dates,
+  // and a partial update that set `season_kind` while leaving them would violate
+  // `coherentSeason` in the database. Twelve columns, always all twelve.
+  const available = input.availability;
   await tx`
     update sales_locations
     set name = ${input.standName},
@@ -248,6 +289,18 @@ async function updateStand(
         public_latitude = ${input.listing.latitude},
         public_longitude = ${input.listing.longitude},
         hours_text = ${input.hoursText},
+        season_kind = ${available.seasonKind},
+        season_start_month = ${available.seasonStartMonth},
+        season_start_day = ${available.seasonStartDay},
+        season_end_month = ${available.seasonEndMonth},
+        season_end_day = ${available.seasonEndDay},
+        season_names = ${available.seasonNames as string[] | null},
+        open_hours_kind = ${available.openHoursKind},
+        open_from_minutes = ${available.openFromMinutes},
+        open_until_minutes = ${available.openUntilMinutes},
+        open_days = ${available.openDays as number[] | null},
+        stocking_cadence = ${available.stockingCadence},
+        stocking_days = ${available.stockingDays as number[] | null},
         is_public = true,
         updated_at = ${input.occurredAt.toISOString()}
     where id = ${input.salesLocationId}
@@ -260,22 +313,20 @@ async function updateStand(
  *
  * A full replace rather than an upsert, because removing a method is a thing the farmer must
  * be able to do: an upsert-only write would make "we stopped taking checks" unsayable.
+ *
+ * F-068 — canonicalized on the way in (`canonicalPaymentMethods`), so "venmo" and "VENMO" are
+ * one filterable value rather than two the map cannot join. Unrecognized methods are kept as
+ * the farmer's own words; the fold applies only to the known closed set.
  */
 async function writePaymentMethods(
   tx: Tx,
   salesLocationId: string,
   methods: string[],
 ): Promise<void> {
-  // A blank box is a farmer leaving a spare field alone, not an error worth blocking their
-  // listing over — the not-blank CHECK would otherwise turn one stray space into a failed
-  // submission with nothing useful to say about which field caused it.
-  const stated: string[] = [];
-  for (const method of methods) {
-    const trimmed = method.trim();
-    if (trimmed !== "" && !stated.some((seen) => seen.toLowerCase() === trimmed.toLowerCase())) {
-      stated.push(trimmed);
-    }
-  }
+  // Blanks are dropped rather than refused: a stray comma is a farmer typing, and the not-blank
+  // CHECK would otherwise turn one stray space into a failed submission with nothing useful to
+  // say about which field caused it.
+  const stated = canonicalPaymentMethods(methods);
 
   await tx`
     delete from sales_location_payment_methods

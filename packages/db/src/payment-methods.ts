@@ -1,0 +1,115 @@
+// F-068 — payment methods as a CLOSED SET plus a free-text tail.
+//
+// F-067's form asked "How can people pay?" as one comma-separated box writing straight into an
+// unconstrained `method text` column, so "venmo", "Venmo" and "VENMO ONLY" became three values
+// no filter could join. That is the unfilterable shape Farm Friend exists to replace.
+//
+// ## Why canonicalizing HERE is correct and canonicalizing produce is not
+//
+// The rule in CLAUDE.md is that no business code hard-codes a produce taxonomy — farms, foods
+// and listings are DATA. Payment methods are not food vocabulary: they are a small, closed,
+// VIGA-known set that the real map corpus already states uniformly (`Accepts Cash, Check,
+// Venmo, VIGA Farm Bucks`), and the listing audit calls them "mechanical". Folding "tomatoes"
+// into "tomato" decides something about the world; folding "VENMO" into "Venmo" decides
+// something about spelling.
+//
+// ## The tail is not decoration
+//
+// A closed set that dropped what it did not recognize would LOSE A REAL FACT. Unrecognized
+// methods are kept verbatim (trimmed only), so a farmer who takes something nobody anticipated
+// can still say it. Only known methods are folded to one spelling.
+
+/**
+ * VIGA Farm Bucks, spelled the way VIGA spells it.
+ *
+ * Deliberately NOT in `FARMER_SELECTABLE_PAYMENT_METHODS`: acceptance is gated on an
+ * eligibility only VIGA grants (`acceptanceRequiresEligibility`), so a farmer ticking a box
+ * would be asserting a VIGA decision. It is canonicalized because SEEDED listings and the
+ * admin surface carry it — recognizing the words is not the same as letting a farmer claim them.
+ */
+export const VIGA_FARM_BUCKS = "VIGA Farm Bucks";
+
+/**
+ * What the onboarding form may offer as checkboxes.
+ *
+ * Ordered as a farmer would expect to see them: the two that nearly every unattended stand
+ * takes, then the phone apps, then cards. A stand taking cards at all is rare on Vashon, but
+ * "rare" is not "absent" and a farmer who takes them must be able to say so.
+ */
+export const FARMER_SELECTABLE_PAYMENT_METHODS: readonly string[] = [
+  "Cash",
+  "Check",
+  "Venmo",
+  "PayPal",
+  "Cash App",
+  "Zelle",
+  "Credit card",
+];
+
+/**
+ * Known spellings → the one canonical value.
+ *
+ * Keys are compared after lowercasing and whitespace collapsing, so only genuinely different
+ * WORDS need an entry here. This is a spelling table, and it must stay one: an entry that mapped
+ * two different payment methods together would be deciding a fact rather than a spelling.
+ */
+const CANONICAL_BY_SPELLING = new Map<string, string>([
+  ["cash", "Cash"],
+  ["cash only", "Cash"],
+  ["check", "Check"],
+  ["checks", "Check"],
+  ["cheque", "Check"],
+  ["venmo", "Venmo"],
+  ["paypal", "PayPal"],
+  ["pay pal", "PayPal"],
+  ["cashapp", "Cash App"],
+  ["cash app", "Cash App"],
+  ["zelle", "Zelle"],
+  ["credit card", "Credit card"],
+  ["credit cards", "Credit card"],
+  ["credit", "Credit card"],
+  ["card", "Credit card"],
+  ["cards", "Credit card"],
+  ["debit card", "Credit card"],
+  ["viga farm bucks", VIGA_FARM_BUCKS],
+  ["viga bucks", VIGA_FARM_BUCKS],
+  ["farm bucks", VIGA_FARM_BUCKS],
+  ["farmbucks", VIGA_FARM_BUCKS],
+]);
+
+/** Lowercase, trim, and collapse interior runs of whitespace, for LOOKUP ONLY. */
+function spellingKey(method: string): string {
+  return method.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * The methods to store, canonicalized where recognized and kept verbatim where not.
+ *
+ * Order is the farmer's. Blanks are dropped rather than refused — a stray comma is someone
+ * typing, and the column's not-blank CHECK would otherwise fail their whole submission with
+ * nothing useful to say about which field caused it.
+ *
+ * Deduplicated on the canonical value for known methods and case-insensitively for the tail, so
+ * one method cannot land twice under two spellings.
+ */
+export function canonicalPaymentMethods(methods: string[]): string[] {
+  const stated: string[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of methods) {
+    const key = spellingKey(raw);
+    if (key === "") continue;
+
+    const canonical = CANONICAL_BY_SPELLING.get(key);
+    // The tail keeps the farmer's own capitalization: this layer knows how "Venmo" is spelled
+    // and has no basis for an opinion about "Trade for Eggs".
+    const value = canonical ?? raw.trim();
+    // Deduplicated on the folded key either way, so "Bitcoin" and "bitcoin" are one method.
+    const dedupeKey = canonical ?? key;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    stated.push(value);
+  }
+
+  return stated;
+}

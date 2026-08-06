@@ -83,6 +83,7 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `TELNYX_API_KEY`, `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY` | All required with Telnyx; the public key verifies webhook signatures |
 | `LLM_PROVIDER` | Required `stub` or `deepinfra`; no default or environment exception |
 | `DEEPINFRA_API_KEY`, `DEEPINFRA_MODEL` | Required with DeepInfra; `anthropic/` and `google/` models are refused because their terms are not attested |
+| `GEOCODING_API_KEY` | **Optional.** Google Geocoding key for the onboarding draft pin (F-068). Absent or blank disables lookup and the form asks the farmer to tap the map, which is fully supported. **Billed per call** — server-side only, behind the invitation token and its own throttle bucket. Restrict the key to the Geocoding API in the GCP console |
 
 There is no mail dependency and no `CRON_SECRET`; Cloud Scheduler uses OIDC and IAM.
 

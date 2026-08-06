@@ -86,10 +86,16 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   multi-level roles. All are explicit non-goals at launch. Gleaning, volunteer coordination, and Farm
   Bucks are plausible *future* work; the architecture leaves room by staying small, never by
   pre-creating their tables, states, packages, or UI.
-- **Arbitrary-origin SMS geocoding**, a runtime geocoder/map package, model-backed natural-language
-  web inquiry, or generated recipe/food-safety content. Public proximity uses transient browser
-  geolocation against seeded public coordinates; recipe requests receive grounded ingredient
-  availability plus a code-rendered scope response.
+- **Arbitrary-origin SMS geocoding**, a runtime geocoder/map **package**, model-backed
+  natural-language web inquiry, or generated recipe/food-safety content. Public proximity uses
+  transient browser geolocation against seeded public coordinates; recipe requests receive grounded
+  ingredient availability plus a code-rendered scope response.
+  **One narrow exception** (max, 2026-08-05): `apps/web/lib/address-lookup.ts` may call a geocoding
+  REST endpoint to offer a **draft pin the farmer confirms** during farm stand onboarding. It is
+  the only permitted call site — `architecture.test.ts` fails on a second one — and it earns the
+  exemption by refusing off-island results and degrading every failure to "tap the map". A
+  `MapProvider` seam, a coordinate-inventing stub, and a mapping/geocoding **dependency** remain
+  forbidden everywhere, that file included.
 - **An import-provenance model.** This is a greenfield build; existing map content is
   **reference input** that gets **seeded**, with no non-destructive migration requirement.
 - **Farm names, food vocabulary, produce taxonomy, or a fixed strategy catalog in behavioral

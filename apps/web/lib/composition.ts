@@ -80,6 +80,17 @@ export interface AppConfig {
   publicBaseUrl: string;
   /** The canonical customer-facing map URL, returned by the deterministic MAP command. */
   publicMapUrl: string;
+  /**
+   * F-068 — the Google Geocoding key for the onboarding DRAFT pin lookup.
+   *
+   * OPTIONAL, and absent is a supported state: with no key the onboarding form falls back to
+   * pin-dropping, which was the only behaviour before F-068 and is still the authority. The
+   * farmer's tap decides where the stand is; the geocoder only saves them the work of finding it.
+   *
+   * Read server-side only. A geocoding key in client JavaScript is a published key, and this one
+   * bills per call.
+   */
+  geocodingApiKey?: string;
   sms: SmsConfig;
   model: ModelConfig;
 }
@@ -272,6 +283,10 @@ export function resolveConfig(env: EnvVars = process.env): AppConfig {
     phoneSalt: required(env, "PHONE_HASH_SALT"),
     publicBaseUrl: resolvePublicBaseUrl(env),
     publicMapUrl: resolvePublicMapUrl(env),
+    // Optional by design: absent means the onboarding form asks the farmer to tap the map,
+    // exactly as it did before F-068. An empty string is treated as absent so a blank
+    // deployment variable does not become a key that fails on every call.
+    geocodingApiKey: env.GEOCODING_API_KEY || undefined,
     sms: sms.config,
     model,
   };
@@ -301,6 +316,15 @@ export interface AppContext {
    * capped; SMS uses its own sender/consent/frequency controls (F-019).
    */
   publicActionThrottle: PublicActionThrottle;
+  /**
+   * F-068 — its OWN budget for the onboarding address lookup, not the one above.
+   *
+   * Same general mechanism, a separate bucket: a farmer correcting a typed address makes several
+   * lookups in a row, which is nothing like the "submits once, maybe twice" shape the stock-out
+   * budget is tuned for. Sharing one bucket would let either surface starve the other, and the
+   * two ration different bills.
+   */
+  addressLookupThrottle: PublicActionThrottle;
   /**
    * The durable fast path from "a message arrived" to "the reply is sent" — the Cloud Tasks
    * queue that replaced `waitUntil`. Absent configuration yields a queue that refuses, and
@@ -484,6 +508,13 @@ export function createAppContext(env: EnvVars = process.env): AppContext {
     publicActionThrottle: createPublicActionThrottle({
       clock,
       limit: 5,
+      windowMs: 60_000,
+    }),
+    // A farmer refining an address types, looks, retypes. Generous enough that nobody
+    // onboarding hits it, tight enough that a loop cannot run up a geocoding bill.
+    addressLookupThrottle: createPublicActionThrottle({
+      clock,
+      limit: 20,
       windowMs: 60_000,
     }),
     immediateWork: resolveImmediateWork(env),
