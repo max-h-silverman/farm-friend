@@ -124,6 +124,54 @@ describe("the image builds the whole workspace, not just the app", () => {
   });
 });
 
+describe("every route module IMPORTS with no environment at all", () => {
+  // The defect this exists to catch shipped, and only the Cloud Build failed on it.
+  //
+  // `next build` collects page data by **importing every route module** in a process with no
+  // `.env` — the container has no environment at build time. So anything a route does at
+  // MODULE SCOPE runs there. `/api/farmer/link-request` built its throttle at module scope
+  // from `publicReadContext()`, which constructs the database pool and therefore demands
+  // `DATABASE_URL`; the import threw, and `next build` failed with "Failed to collect page
+  // data". Locally it passed every time, because `.env` is present on this machine — the
+  // exact "local runtime is not the deployed runtime" trap.
+  //
+  // This is a real IMPORT with the variable deleted, not a source grep: a regex for
+  // `publicReadContext` at module scope would match the import line and survive the call
+  // site moving into the handler, which is the whole thing being asserted.
+  const routes = [
+    "../app/api/farmer/link-request/route",
+    "../app/api/public/stands/route",
+    "../app/api/farmer/address-lookup/route",
+    "../app/api/farmer/listing/route",
+    "../app/api/farmer/onboarding/route",
+    "../app/api/admin/farms/route",
+    "../app/api/admin/stands/route",
+    "../app/api/admin/test-farm-phones/route",
+  ];
+
+  for (const route of routes) {
+    it(`imports ${route.replace("../app/api/", "").replace("/route", "")} without DATABASE_URL`, async () => {
+      const saved = { ...process.env };
+      // Every variable a route might reach for at module scope, removed together. A route
+      // that needs one of these to be IMPORTED cannot be built into the image.
+      for (const key of [
+        "DATABASE_URL",
+        "PHONE_HASH_SALT",
+        "PUBLIC_BASE_URL",
+        "TELNYX_API_KEY",
+        "DEEPINFRA_API_KEY",
+      ]) {
+        delete process.env[key];
+      }
+      try {
+        await expect(import(route)).resolves.toBeDefined();
+      } finally {
+        process.env = saved;
+      }
+    });
+  }
+});
+
 describe("the build context excludes what must never enter an image", () => {
   const dockerignore = existsSync(resolve(root, ".dockerignore"))
     ? readRepo(".dockerignore")

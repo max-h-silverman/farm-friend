@@ -1,5 +1,5 @@
 import { createPublicActionThrottle } from "@farm-friend/core";
-import { publicReadContext } from "../../../../lib/public-context";
+import { publicReadContext, sharedClock } from "../../../../lib/public-context";
 import {
   farmerLinkRequestConfig,
   farmerLinkRequestDeps,
@@ -23,9 +23,17 @@ export const dynamic = "force-dynamic";
  * would admit every caller and ration nothing. Tighter than the address lookup's twenty: a
  * farmer asks for their link once and then reads their phone, and each admitted request costs a
  * message and buzzes a real handset.
+ *
+ * **Takes `sharedClock()`, NOT `publicReadContext()`, and that is a build-time requirement
+ * rather than a style preference.** `next build` collects page data by importing every route
+ * module in a process with no environment, so anything at module scope runs there.
+ * `publicReadContext()` constructs the database pool and therefore demands `DATABASE_URL`,
+ * which made the image build fail with "Failed to collect page data" while every local check
+ * passed — `.env` exists on a developer machine and not in a build container. The throttle only
+ * ever needed a clock; the database belongs in the handler, where a request has an environment.
  */
 const throttle = createPublicActionThrottle({
-  clock: publicReadContext().clock,
+  clock: sharedClock(),
   limit: 5,
   windowMs: 60_000,
 });
