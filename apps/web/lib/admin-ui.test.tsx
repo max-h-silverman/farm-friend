@@ -30,7 +30,7 @@ function response(status: number, payload: Record<string, unknown> = {}): Respon
 }
 
 describe("the shared administrator shell", () => {
-  it("uses job-based navigation that starts with the volunteer desk", () => {
+  it("uses job-based navigation that starts with Home", () => {
     render(
       <AdminShell
         currentPath="/admin"
@@ -42,10 +42,13 @@ describe("the shared administrator shell", () => {
     expect(
       screen.getAllByRole(
         "link",
-        { name: /^(volunteer desk|farmers|customer reports|stock reports)$/i },
+        { name: /^(home|farmers|customer reports|stock reports)$/i },
       ),
     ).toHaveLength(4);
-    expect(screen.getByRole("link", { name: "Volunteer desk" })).toHaveAttribute("href", "/admin");
+    // F-071 — max: "change 'volunteer desk' to 'Home'". Asserted on the rendered link rather
+    // than on source text, so a rename that misses the tab fails here.
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/admin");
+    expect(screen.queryByRole("link", { name: /volunteer desk/i })).toBeNull();
     expect(screen.getByRole("link", { name: "Farmers" })).toHaveAttribute(
       "href",
       "/admin/farmers",
@@ -85,7 +88,7 @@ describe("the shared administrator shell", () => {
       "aria-current",
       "page",
     );
-    expect(screen.queryByRole("heading", { name: "Volunteer desk" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /volunteer desk|home/i })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Sign out" }));
 
@@ -120,6 +123,7 @@ describe("the stand list", () => {
             status: "Public",
             openState: "Open now",
             approved: true,
+            retired: false,
             farmBucksStatus: "not_eligible",
             sections: [
               {
@@ -177,6 +181,7 @@ describe("the stand list", () => {
           status: "Visible to customers",
           openState: "Open now",
           approved: true,
+          retired: false,
           farmBucksStatus: "not_eligible",
           sections: [{ title: "Other details", items: [["Farm Bucks", "Not reviewed"]] }],
         }]}
@@ -196,6 +201,115 @@ describe("the stand list", () => {
     expect(screen.getByText("Accepted")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save Farm Bucks decision" })).toBeNull();
   });
+
+  it("takes a stand off the map only after the operator confirms it (F-071)", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn(async () => response(200, { status: "retired" }));
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <StandList
+        stands={[{
+          standId: "stand-retire",
+          name: "North Stand",
+          farmName: "Example Farm",
+          status: "Visible to customers",
+          openState: "Open now",
+          approved: true,
+          retired: false,
+          farmBucksStatus: "not_eligible",
+          sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
+        }]}
+      />,
+    );
+
+    await user.click(screen.getByText("North Stand"));
+    await user.click(screen.getByRole("button", { name: "Take off the map" }));
+
+    // The first click asks rather than acts. Retirement is reversible, but it removes a farm
+    // from the island's only guide — a misplaced click should not be enough to do it.
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(screen.getByText(/take North Stand off the map/i)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Yes, take it off the map" }));
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/admin/stands",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ standId: "stand-retire", action: "retire" }),
+      }),
+    );
+    // The row reports the new state without a reload, and offers the way back.
+    expect(screen.getByText("Off the map")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Put back on the map" })).toBeTruthy();
+  });
+
+  it("puts a retired stand back with one click, no confirmation (F-071)", async () => {
+    // Restoring is not destructive, so it does not ask. The confirmation exists for the
+    // direction that removes a farm from the map, not for the one that undoes it.
+    const user = userEvent.setup();
+    const fetcher = vi.fn(async () => response(200, { status: "restored" }));
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <StandList
+        stands={[{
+          standId: "stand-restore",
+          name: "South Stand",
+          farmName: "Example Farm",
+          status: "Visible to customers",
+          openState: "Open now",
+          approved: true,
+          retired: true,
+          farmBucksStatus: "not_eligible",
+          sections: [{ title: "Visit", items: [["Address", "9 Farm Lane"]] }],
+        }]}
+      />,
+    );
+
+    expect(screen.getByText("Off the map")).toBeTruthy();
+    await user.click(screen.getByText("South Stand"));
+    await user.click(screen.getByRole("button", { name: "Put back on the map" }));
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/admin/stands",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ standId: "stand-restore", action: "restore" }),
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Take off the map" })).toBeTruthy();
+  });
+
+  it("says so when a retirement does not go through, rather than showing it as done", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn(async () => response(409, { status: "already_retired" }));
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <StandList
+        stands={[{
+          standId: "stand-fail",
+          name: "West Stand",
+          farmName: "Example Farm",
+          status: "Visible to customers",
+          openState: "Open now",
+          approved: true,
+          retired: false,
+          farmBucksStatus: "not_eligible",
+          sections: [{ title: "Visit", items: [["Address", "3 Farm Lane"]] }],
+        }]}
+      />,
+    );
+
+    await user.click(screen.getByText("West Stand"));
+    await user.click(screen.getByRole("button", { name: "Take off the map" }));
+    await user.click(screen.getByRole("button", { name: "Yes, take it off the map" }));
+
+    // An operator who believes a stand is off the map when it is still being served is worse
+    // off than one who sees an error.
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("Off the map")).toBeNull();
+    expect(screen.getByRole("button", { name: "Take off the map" })).toBeTruthy();
+  });
 });
 
 describe("administrator language", () => {
@@ -211,6 +325,7 @@ describe("administrator language", () => {
               status: "Shown on map",
               openState: "Open now",
               approved: true,
+              retired: false,
               farmBucksStatus: "not_eligible",
               sections: [{ title: "Visit", items: [["Visit in person", "Yes"]] }],
             },
@@ -592,6 +707,72 @@ describe("administrator queue interactions", () => {
     expect(execCommand).toHaveBeenCalledWith("copy");
     expect(await screen.findByText(/copied/i)).toBeVisible();
     expect(screen.queryByText(/Copy failed/i)).not.toBeInTheDocument();
+  });
+
+  it("sends a farmer who lost their link a new one, and says the old one is gone (F-071)", async () => {
+    const user = userEvent.setup();
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      response(200, {
+        status: "created",
+        channel: "sms",
+        farmName: "Waiting Farm",
+        link: "https://ff.example/farmer/onboarding/fresh-token",
+      }),
+    );
+    vi.stubGlobal("fetch", fetcher);
+
+    render(
+      <FarmerQueue
+        requests={[]}
+        authorizations={[]}
+        farms={[{ farmId: "farm-waiting", name: "Waiting Farm" }]}
+        awaitingOnboarding={[
+          {
+            farmId: "farm-waiting",
+            farmName: "Waiting Farm",
+            invitationState: "expired",
+            invitationExpiresAt: "2026-07-01T10:00:00Z",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Waiting Farm" })).toBeTruthy();
+    // The operator must not be left thinking the old link can be recovered — it cannot, and
+    // the copy has to say so rather than letting them assume otherwise.
+    expect(screen.getByText(/link expired/i)).toBeTruthy();
+    expect(screen.getByText(/earlier links cannot be looked up/i)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "New onboarding link for Waiting Farm" }));
+
+    // A fresh invitation for the SAME farm, through the mechanism that already exists. No
+    // second endpoint, and no attempt to resurrect a token that is stored only as a hash.
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/admin/farmers",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          action: "create_invite",
+          farmId: "farm-waiting",
+          channel: "sms",
+        }),
+      }),
+    );
+    expect(
+      await screen.findByDisplayValue("https://ff.example/farmer/onboarding/fresh-token"),
+    ).toBeTruthy();
+  });
+
+  it("says nothing is waiting when every farm has a farmer (F-071)", async () => {
+    render(
+      <FarmerQueue
+        requests={[]}
+        authorizations={[]}
+        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+        awaitingOnboarding={[]}
+      />,
+    );
+    expect(screen.getByText(/every farm has someone who can update it/i)).toBeTruthy();
   });
 
   it("loads a retained thread honestly and marks the flagged message accessibly", async () => {

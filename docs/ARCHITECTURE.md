@@ -112,8 +112,10 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   it is posted in the request **body** to `/api/farmer/stand`, never a query string, because a
   standing credential must not reach proxy logs or history. **The web path gets no bypass of the
   confirmation gate**: a submission opens or revises the farmer's one pending proposal and
-  publication happens only through `confirmInventoryPublication`, which re-reads farmer authority
-  and VIGA approval under lock. The one honest difference from SMS is activation — there is no
+  publication happens only through `confirmInventoryPublication`, which re-reads farmer authority,
+  VIGA approval, and whether VIGA has retired the stand (F-071) under lock — the retirement read
+  comes from the location row that transaction already holds, so a retirement racing an in-flight
+  confirmation resolves at the lock rather than by arrival order. The one honest difference from SMS is activation — there is no
   carrier prompt to be accepted, so the window is opened against a queued confirmation message the
   farmer also receives. A leaked link can at worst propose a wrong listing on ONE stand;
   `apps/web/lib/farmer-stand.integration.test.ts` asserts and sabotages each bound.

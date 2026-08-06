@@ -27,10 +27,6 @@ export default async function ReportsPage() {
 
   return (
     <AdminShell currentPath="/admin/reports">
-      <header className="admin-page-intro">
-        <h1>Stock reports</h1>
-        <p className="admin-note">Review reports without changing a farmer’s listing.</p>
-      </header>
       <ReportQueue
         reports={reports.map((report) => ({
           reportId: report.reportId,

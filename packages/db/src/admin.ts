@@ -379,6 +379,139 @@ export async function revokeFarmApproval(
   });
 }
 
+export interface StandRetirementInput {
+  salesLocationId: string;
+  administratorId: string;
+  occurredAt: Date;
+}
+
+export type RetireStandResult =
+  | { status: "retired" }
+  | { status: "already_retired" }
+  | { status: "not_an_administrator" }
+  | { status: "unknown_stand" };
+
+/**
+ * Take a stand down: off the map, off the SMS answers, and closed to new publication.
+ *
+ * **This is what "delete a stand" means here** (F-071, max's choice between erasing and
+ * taking down). It is not a softened deletion — it is the only correct one:
+ *
+ *   - `sales_locations` is referenced `on delete restrict` by `inventory_revisions`,
+ *     `inventory_entries`, `stand_items` and `stock_out_reports`, so a hard DELETE fails at
+ *     the constraint for any stand that has ever published.
+ *   - Erasing published revisions would erase the answer to "what did this stand say it had,
+ *     and when" — which is exactly what the audit trail exists to keep (Golden Rule #1).
+ *
+ * The effect that makes it real is NOT here: `confirmInventoryPublication` re-reads
+ * `retired_at` while holding its locks, the same way it re-reads authority and approval. A
+ * caller cannot skip it, and a retirement racing an in-flight confirmation resolves at the
+ * lock rather than by whichever request arrived first.
+ *
+ * The administrator's authority is re-read inside the transaction. A principal resolved at
+ * the start of a request proves they were an administrator then; the row proves they are one
+ * now, and a revocation that committed in between must win.
+ */
+export async function retireStand(
+  db: Db,
+  input: StandRetirementInput,
+): Promise<RetireStandResult> {
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators
+      where id = ${input.administratorId} and revoked_at is null
+      for update
+    `;
+    if (administrator.length === 0) {
+      return { status: "not_an_administrator" as const };
+    }
+
+    // Locked so two concurrent retirements cannot both see "live" and write two audit events
+    // for one decision.
+    const stand = await tx`
+      select id, retired_at from sales_locations
+      where id = ${input.salesLocationId}
+      for update
+    `;
+    if (stand.length === 0) return { status: "unknown_stand" as const };
+    // Idempotent, and it keeps the FIRST retirement's timestamp. Moving it would falsify when
+    // the stand actually came down, which is the one fact the record is for.
+    if (stand[0]?.retired_at !== null) return { status: "already_retired" as const };
+
+    await tx`
+      update sales_locations
+      set retired_at = ${input.occurredAt.toISOString()},
+          retired_by_administrator_id = ${input.administratorId},
+          updated_at = ${input.occurredAt.toISOString()}
+      where id = ${input.salesLocationId}
+    `;
+
+    // The audit event commits with the retirement or not at all: a stand taken down with no
+    // record of who did it is exactly what the audit trail exists to prevent.
+    await tx`
+      insert into audit_events (action, actor_administrator_id, subject_type, subject_id,
+        occurred_at)
+      values ('stand_retired', ${input.administratorId}, 'sales_location',
+        ${input.salesLocationId}, ${input.occurredAt.toISOString()})
+    `;
+
+    return { status: "retired" as const };
+  });
+}
+
+export type RestoreStandResult =
+  | { status: "restored" }
+  | { status: "not_retired" }
+  | { status: "not_an_administrator" }
+  | { status: "unknown_stand" };
+
+/**
+ * Put a retired stand back. This is what makes retirement safe to reach for: an operator who
+ * takes down the wrong stand fixes it themselves rather than asking for a database repair.
+ *
+ * Clears the actor alongside the timestamp — `sales_locations_coherent_retirement` requires
+ * the two to move together, and a stand that is not retired was retired by nobody.
+ */
+export async function restoreStand(
+  db: Db,
+  input: StandRetirementInput,
+): Promise<RestoreStandResult> {
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators
+      where id = ${input.administratorId} and revoked_at is null
+      for update
+    `;
+    if (administrator.length === 0) {
+      return { status: "not_an_administrator" as const };
+    }
+
+    const stand = await tx`
+      select id, retired_at from sales_locations
+      where id = ${input.salesLocationId}
+      for update
+    `;
+    if (stand.length === 0) return { status: "unknown_stand" as const };
+    if (stand[0]?.retired_at === null) return { status: "not_retired" as const };
+
+    await tx`
+      update sales_locations
+      set retired_at = null, retired_by_administrator_id = null,
+          updated_at = ${input.occurredAt.toISOString()}
+      where id = ${input.salesLocationId}
+    `;
+
+    await tx`
+      insert into audit_events (action, actor_administrator_id, subject_type, subject_id,
+        occurred_at)
+      values ('stand_restored', ${input.administratorId}, 'sales_location',
+        ${input.salesLocationId}, ${input.occurredAt.toISOString()})
+    `;
+
+    return { status: "restored" as const };
+  });
+}
+
 export interface AdminFarmRow {
   farmId: string;
   name: string;
@@ -444,6 +577,9 @@ export interface AdminStandRow {
   stockingCadence: string | null;
   stockingDays: number[] | null;
   isPublic: boolean;
+  /** F-071 — VIGA has taken this stand down. It keeps every record it published. */
+  retired: boolean;
+  retiredAt: Date | null;
   farmBucksAccepted: boolean;
   farmBucksEligible: boolean;
   approved: boolean;
@@ -492,6 +628,7 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       location.stocking_cadence,
       location.stocking_days,
       location.is_public,
+      location.retired_at,
       location.farm_bucks_accepted,
       location.farm_bucks_eligible,
       approval.approved_at,
@@ -536,7 +673,11 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       on inventory.sales_location_id = location.id and inventory.is_current
     left join closure_revisions closure
       on closure.sales_location_id = location.id and closure.is_current
-    order by location.name, location.id
+    -- A retired stand is still LISTED here, deliberately: this queue is where an operator
+    -- restores one, and a stand that vanished from the only surface that can bring it back
+    -- would make retirement irreversible in practice. Sorted after the live ones so the
+    -- working list is not interrupted by stands nobody is serving.
+    order by (location.retired_at is not null), location.name, location.id
   `;
 
   return rows.map((row) => ({
@@ -567,6 +708,8 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     stockingCadence: (row.stocking_cadence as string | null) ?? null,
     stockingDays: (row.stocking_days as number[] | null) ?? null,
     isPublic: row.is_public as boolean,
+    retired: row.retired_at !== null,
+    retiredAt: row.retired_at === null ? null : new Date(row.retired_at as string),
     farmBucksAccepted: row.farm_bucks_accepted as boolean,
     farmBucksEligible: row.farm_bucks_eligible as boolean,
     approved: row.approved_at !== null,

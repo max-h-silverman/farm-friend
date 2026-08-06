@@ -34,10 +34,6 @@ export default async function FlagsPage() {
 
   return (
     <AdminShell currentPath="/admin/flags">
-      <header className="admin-page-intro">
-        <h1>Customer reports</h1>
-        <p className="admin-note">Review concerns without changing a farmer’s listing.</p>
-      </header>
       <h2 className="admin-section-title">Messages needing review</h2>
       <FlagQueue
         flags={flags.map((flag) => ({

@@ -11,7 +11,7 @@ import {
   type ModelSafeContext,
 } from "@farm-friend/ai";
 import { createPublicActionThrottle, FixedClock } from "@farm-friend/core";
-import { createDb, type Db, type Sql } from "@farm-friend/db";
+import { createDb, retireStand, type Db, type Sql } from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
 import { standListingLines } from "./map-view";
 import {
@@ -586,6 +586,56 @@ describe("public web surface boundary (integration)", () => {
       await client()`update sales_locations set is_public = false where id = ${ids.location}`;
       const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
       expect(stands).toEqual([]);
+    });
+
+    it("omits a stand VIGA retired, from the map AND from the SMS answer (F-071)", async () => {
+      // Retirement is a SECOND, operator-owned reason a stand leaves the public surface, and
+      // it deliberately is not `is_public`: that column is a listing attribute the farmer's
+      // own onboarding form sets to true, so an operator retirement expressed through it
+      // would be silently undone the next time the farmer saved their listing.
+      //
+      // Asserted on BOTH channels in one test, because the failure this guards against is a
+      // stand that vanishes from the map while SMS keeps recommending it — a customer driving
+      // to a stand VIGA has taken down. `inquiry.ts` runs its own SQL, so the map passing
+      // proves nothing about the text reply.
+      const clock = new FixedClock(T0);
+      const before = await listPublicStands({ db: db!, clock });
+      expect(before, "the stand must be public before it is retired").toHaveLength(1);
+
+      const admins = await client()`select id from administrators limit 1`;
+      await retireStand(db!, {
+        salesLocationId: ids.location,
+        administratorId: admins[0]?.id as string,
+        occurredAt: T0,
+      });
+
+      expect(await listPublicStands({ db: db!, clock })).toEqual([]);
+
+      // The model is scripted to select the retired stand anyway — a hostile selection, not a
+      // cooperative one. Code must refuse to ground an answer in a fact retrieval no longer
+      // returns, so the reply cannot name the stand whatever the model asks for.
+      const answer = await answerInquiry(
+        {
+          db: db!,
+          model: createInquiryModel(
+            new ScriptedProvider(
+              JSON.stringify({ kind: "lookup", items: ["kale"], ranking: "freshest" }),
+              JSON.stringify({ kind: "selection", factIds: [ids.location] }),
+            ),
+          ),
+          clock,
+        },
+        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0 },
+      );
+      // The honest reply is still `answered` — an empty retrieval short-circuits to a
+      // code-rendered "no current listing" (Golden Rule #4), which is the right answer rather
+      // than a failure. What must be true is that the retired stand is NEITHER selected NOR
+      // named, whatever the model asked for.
+      expect(answer.outcome).toBe("answered");
+      if (answer.outcome !== "answered") throw new Error("expected an answer");
+      expect(answer.selectedFactIds).toEqual([]);
+      expect(answer.body).not.toContain("Provo Stand");
+      expect(answer.body).not.toContain("Provo Farms");
     });
 
     it("is never capped by the public model throttle", async () => {

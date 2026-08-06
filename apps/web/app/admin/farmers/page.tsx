@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import {
   listFarmerAuthorizations,
+  listFarmsAwaitingOnboarding,
   listFarmsForApproval,
   listOpenFarmerOnboardingRequests,
   listUsersForAdministration,
@@ -37,20 +38,17 @@ export default async function FarmersPage() {
     return <SignedOutAdmin />;
   }
 
-  const { db } = publicReadContext();
-  const [requests, authorizations, farms, users] = await Promise.all([
+  const { db, clock } = publicReadContext();
+  const [requests, authorizations, farms, users, awaiting] = await Promise.all([
     listOpenFarmerOnboardingRequests(db),
     listFarmerAuthorizations(db),
     listFarmsForApproval(db),
     listUsersForAdministration(db),
+    listFarmsAwaitingOnboarding(db, clock.now()),
   ]);
 
   return (
     <AdminShell currentPath="/admin/farmers">
-      <header className="admin-page-intro">
-        <h1>People</h1>
-      </header>
-
       <section className="admin-priority admin-priority--farmer-access" aria-labelledby="farmer-access-heading">
         <h2 id="farmer-access-heading" className="admin-section-title">Farmer access</h2>
         <p className="admin-boundary-note">Only give access to a verified farm operator.</p>
@@ -74,6 +72,12 @@ export default async function FarmersPage() {
             liveLinkStand: authorization.liveLinkStand,
           }))}
           farms={farms.map((farm) => ({ farmId: farm.farmId, name: farm.name }))}
+          awaitingOnboarding={awaiting.map((row) => ({
+            farmId: row.farmId,
+            farmName: row.farmName,
+            invitationState: row.invitationState,
+            invitationExpiresAt: row.invitationExpiresAt?.toISOString() ?? null,
+          }))}
         />
       </section>
 

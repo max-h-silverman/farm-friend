@@ -131,7 +131,10 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
     join inventory_entries e on e.inventory_revision_id = r.id
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
-    where l.is_public
+    -- F-071 — a stand VIGA retired leaves SMS retrieval too, not just the map. Both surfaces
+    -- run their own SQL, so the map's filter proves nothing about this one; the failure it
+    -- guards against is a text reply sending someone to a stand that has been taken down.
+    where l.is_public and l.retired_at is null
     order by l.id asc, e.sort_order asc
   `;
 
@@ -189,7 +192,7 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
     join stand_items o on o.sales_location_id = l.id and o.usually_carried
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
-    where l.is_public
+    where l.is_public and l.retired_at is null
     order by l.id asc, o.sort_order asc
   `;
 

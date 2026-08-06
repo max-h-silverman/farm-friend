@@ -27,10 +27,6 @@ export default async function StandDataPage() {
 
   return (
     <AdminShell currentPath="/admin/stand-data">
-      <header className="admin-page-intro">
-        <h1>Listing questions</h1>
-        <p className="admin-note">Record what VIGA decided. This does not change the map.</p>
-      </header>
       <StandDataQueue
         flags={flags.map((flag) => ({
           flagId: flag.flagId,

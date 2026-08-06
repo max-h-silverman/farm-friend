@@ -55,6 +55,7 @@ describe("admin routes (integration)", () => {
   let reportsRoute: typeof import("../app/api/admin/stock-out-reports/route");
   let standDataRoute: typeof import("../app/api/admin/stand-data-flags/route");
   let farmersRoute: typeof import("../app/api/admin/farmers/route");
+  let standsRoute: typeof import("../app/api/admin/stands/route");
   let logoutRoute: typeof import("../app/api/auth/logout/route");
 
   const request = (url: string, init?: RequestInit & { token?: string }) =>
@@ -124,12 +125,23 @@ describe("admin routes (integration)", () => {
     `;
     ids.farm = farms[0]?.id as string;
 
+    const locations = await sql()`
+      insert into sales_locations (owner_farm_id, kind, name, timezone, visitability,
+        offering_type, public_address, public_latitude, public_longitude,
+        farm_bucks_accepted, farm_bucks_eligible)
+      values (${ids.farm}, 'farm_stand', 'Route Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '7 Route Way', 47.42, -122.43, false, false)
+      returning id
+    `;
+    ids.stand = locations[0]?.id as string;
+
     farmsRoute = await import("../app/api/admin/farms/route");
     flagsRoute = await import("../app/api/admin/flags/route");
     threadRoute = await import("../app/api/admin/flags/[flagId]/thread/route");
     reportsRoute = await import("../app/api/admin/stock-out-reports/route");
     standDataRoute = await import("../app/api/admin/stand-data-flags/route");
     farmersRoute = await import("../app/api/admin/farmers/route");
+    standsRoute = await import("../app/api/admin/stands/route");
     logoutRoute = await import("../app/api/auth/logout/route");
   }, 30_000);
 
@@ -218,6 +230,20 @@ describe("admin routes (integration)", () => {
             request("https://ff.example/api/admin/stand-data-flags", {
               method: "POST",
               body: JSON.stringify({ flagId: randomUUID(), note: "decided" }),
+            }),
+          )
+        ).status,
+      ).toBe(403);
+
+      // F-071 — the stands route was missing from this sweep entirely, which is exactly the
+      // gap this test exists to close. It now also carries retirement, so an unguarded
+      // handler here is the power to take any stand off the public map.
+      expect(
+        (
+          await standsRoute.POST(
+            request("https://ff.example/api/admin/stands", {
+              method: "POST",
+              body: JSON.stringify({ standId: ids.stand, action: "retire" }),
             }),
           )
         ).status,
@@ -357,6 +383,101 @@ describe("admin routes (integration)", () => {
       expect(after[0]?.n).toBe(before[0]?.n);
     });
 
+  });
+
+  describe("stand retirement through the route (F-071)", () => {
+    it("retires and restores, recording the SESSION's administrator not the body's", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const impostorId = randomUUID();
+
+      const retire = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          // A caller naming someone else must not be able to act as them.
+          body: JSON.stringify({
+            standId: ids.stand,
+            action: "retire",
+            administratorId: impostorId,
+          }),
+        }),
+      );
+      expect(retire.status).toBe(200);
+
+      const rows = await sql()`
+        select retired_at, retired_by_administrator_id from sales_locations
+        where id = ${ids.stand as string}
+      `;
+      expect(rows[0]?.retired_at).not.toBeNull();
+      expect(rows[0]?.retired_by_administrator_id).toBe(ids.administrator);
+      expect(rows[0]?.retired_by_administrator_id).not.toBe(impostorId);
+
+      const restore = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ standId: ids.stand, action: "restore" }),
+        }),
+      );
+      expect(restore.status).toBe(200);
+      const after = await sql()`
+        select retired_at from sales_locations where id = ${ids.stand as string}
+      `;
+      expect(after[0]?.retired_at).toBeNull();
+    });
+
+    it("rejects a malformed or unknown request without retiring anything", async () => {
+      const token = await sessionFor(ids.administrator as string);
+
+      for (const body of [
+        {},
+        { standId: ids.stand },
+        { action: "retire" },
+        { standId: ids.stand, action: "obliterate" },
+        { standId: 42, action: "retire" },
+      ]) {
+        const response = await standsRoute.POST(
+          request("https://ff.example/api/admin/stands", {
+            method: "POST",
+            token,
+            body: JSON.stringify(body),
+          }),
+        );
+        expect(response.status, JSON.stringify(body)).toBe(400);
+      }
+
+      const unknownStand = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ standId: randomUUID(), action: "retire" }),
+        }),
+      );
+      expect(unknownStand.status).toBe(404);
+
+      const live = await sql()`
+        select count(*)::int as n from sales_locations where retired_at is not null
+      `;
+      expect(live[0]?.n, "no malformed request may retire a stand").toBe(0);
+    });
+
+    it("still saves a Farm Bucks decision through the same route", async () => {
+      // The route carries two different admin acts now. This is the regression guard: adding
+      // retirement must not have broken the decision the route already owned.
+      const token = await sessionFor(ids.administrator as string);
+      const response = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ standId: ids.stand, farmBucksStatus: "accepts" }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const rows = await sql()`
+        select farm_bucks_accepted from sales_locations where id = ${ids.stand as string}
+      `;
+      expect(rows[0]?.farm_bucks_accepted).toBe(true);
+    });
   });
 
   describe("the review queues through their routes (F-030)", () => {

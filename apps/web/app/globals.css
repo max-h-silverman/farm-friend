@@ -760,21 +760,6 @@ body {
   margin-top: 1.25rem;
 }
 
-.admin-page-intro {
-  margin: 1.35rem 0 1.5rem;
-}
-
-.admin-page-intro h1 {
-  margin: 0;
-  font-size: clamp(1.75rem, 7vw, 2.35rem);
-  line-height: 1.1;
-  letter-spacing: -0.025em;
-}
-
-.admin-page-intro .admin-note {
-  margin: 0.45rem 0 0;
-}
-
 .admin-work-list {
   display: grid;
   gap: 0.65rem;
@@ -2832,11 +2817,6 @@ button.admin-action-danger:disabled {
 .admin-inline-confirm p { margin: 0; color: var(--ink); font-size: 0.86rem; line-height: 1.4; }
 
 /* Admin is an operator tool: compact rows, square controls and rules instead of panels. */
-.admin-page-intro {
-  margin: 0.9rem 0 1rem;
-}
-
-.admin-page-intro h1,
 .admin-header h1,
 .admin-signed-out h1 {
   font-size: 1.55rem;

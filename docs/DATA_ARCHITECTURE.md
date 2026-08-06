@@ -36,6 +36,19 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   authority is not seller participation. Each location carries one reviewed timezone used for
   local scheduled work; launch currently permits only `America/Los_Angeles`. A farm without a
   public stand records an exact, approximate, or hidden map location.
+
+  **`retired_at` is VIGA taking a stand down, and it is the only "delete" there is** (F-071). A
+  retired location leaves every public surface and refuses publication, but keeps every revision it
+  published — the answer to "what did this stand say it had, and when" is exactly what the record
+  exists to hold (Golden Rule #1). Erasure is not an alternative that was rejected on taste: nearly
+  every reference to a location is `on delete restrict`, so a hard delete fails at the constraint
+  for any stand with history.
+
+  It is deliberately **not** `is_public`, which is a listing attribute the farmer's own onboarding
+  form writes on every save — an operator decision expressed through that column would be reverted
+  the next time the farmer edited their listing. Two actors owning one column is the failure this
+  separation prevents. `retired_at` and `retired_by_administrator_id` move together, enforced by a
+  CHECK stated as a full disjunction so the NULL case cannot pass silently.
 - **farmer contacts and authorization** — who may act for a farm, and proof they control the phone
   number. **VIGA always grants this**, because a phone proves possession of a phone and not
   ownership of a farm: the only writer is administrator-gated, re-reads the administrator's

@@ -51,12 +51,12 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Volunteer desk | `/admin` | See work needing a decision, verify and approve farms, and inspect stand records |
+| Home | `/admin` | See work needing a decision, verify and approve farms, inspect stand records, and take a stand off the map or put it back |
 | Flag review + thread viewer | `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
 | Stand-data questions | `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
 | Stand listing facts | `/admin` (Stand records) | Review and save a stand's Farm Bucks eligibility and acceptance status |
-| Farmer access | `/admin/farmers` | Invite a farmer, authorize them to publish for a farm, see every farmer's access live and withdrawn, revoke it, and issue a replacement private link |
+| Farmer access | `/admin/farmers` | Invite a farmer, authorize them to publish for a farm, see every farmer's access live and withdrawn, revoke it, issue a replacement private link, and send a fresh onboarding link to a farm nobody can update yet |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
 
@@ -88,6 +88,17 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   they accept the SMS agreement and send the prepared `SIGNUP <invite>` from their phone, Farm
   Friend sets them up and approves the farm, and texts them that they are ready. So check the
   person really runs the farm **before you send the link**; nothing asks you again afterwards.
+- **A farmer lost their onboarding link:** `/admin/farmers` lists every farm nobody can update yet
+  under **Farms with no one to update them**, saying whether its most recent link is still open,
+  has expired, or was never sent. **The original link cannot be shown again** — only a scrambled
+  form of it is stored, the same reason a website sends a password reset instead of your old
+  password. Press **New onboarding link** for that farm and send the new one; it replaces any
+  earlier link, and the same "sending it is your approval" rule applies.
+- **Take a stand off the map:** open its record under **Stand records** on `/admin` and press
+  **Take off the map**, then confirm. The stand leaves the map and the text answers, and its farmer
+  can no longer publish updates to it. **Nothing it already published is deleted** — the record of
+  what that stand said it had, and when, is kept. Press **Put back on the map** to undo it. Use this
+  when a farm stops running a stand; it is not how you fix a wrong listing detail.
 - **Set a farmer up by hand:** open `/admin/farmers`. Anyone whose request needs a person is
   waiting at the top, shown by the last four digits of their number — someone who texted `SIGNUP`
   with no invitation, an invitation naming no farm, or one whose agreement was never ticked.

@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 
 const ADMIN_ROUTES = [
-  { href: "/admin", label: "Volunteer desk" },
+  { href: "/admin", label: "Home" },
   { href: "/admin/farmers", label: "Farmers" },
   { href: "/admin/flags", label: "Customer reports" },
   { href: "/admin/reports", label: "Stock reports" },
