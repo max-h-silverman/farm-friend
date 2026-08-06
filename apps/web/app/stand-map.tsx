@@ -289,6 +289,25 @@ function PosterIndicators({
   );
 }
 
+/*
+  THE CARD'S HEADLINE (max, 2026-08-06).
+
+  What a customer came for is what is there right now, so the inventory leads the card and the
+  two facts on it are told in two different VOICES — the distinction F-042 established, now
+  carried by shape rather than by two nearly-identical chip styles:
+
+    a confirmation → CHIPS. Discrete, countable things a farmer vouched for, dated by a label
+                     directly above them so the timestamp attaches to the items it covers.
+    a specialty    → a plain grey SENTENCE. No chip, no border, no box — nothing that gives it
+                     the shape of a countable stock list, and no visual slot where a date would
+                     look at home. The no-timestamp rule lives in `standListingLines`; this
+                     styling refuses to leave a place to put one.
+
+  The elapsed phrase is split off the label here. `standListingLines` renders "Confirmed 4 hours
+  ago:" as one string for the SMS-shaped surfaces; the card wants the recency as its own small
+  line above the chips, so it reads the same `detail` field rather than slicing the verb off a
+  sentence — the failure mode `confirmedElapsed` exists to prevent.
+*/
 function StandListings({ stand }: { stand: FilteredStand }) {
   return (
     <section className="detail-inventory" aria-label="Availability and inventory">
@@ -296,32 +315,46 @@ function StandListings({ stand }: { stand: FilteredStand }) {
         <div className={`listing listing-${line.kind}`} key={line.kind}>
           {line.items === undefined ? (
             <p className="listing-note">{line.label}</p>
+          ) : line.kind === "confirmed" ? (
+            <>
+              {/*
+                THE TIMESTAMP FOLLOWS STALENESS, and this is an honesty rule rather than a
+                colour preference. Rendered green on a stale stand, this label says "trust
+                this" in the confirmed colour while the recency line below says "may be out of
+                date" in amber — the card contradicting itself on the one question it exists to
+                answer. Green is reserved for a confirmation still inside its window.
+              */}
+              <p
+                className={
+                  stand.stale === true
+                    ? "listing-label listing-label-confirmed listing-label-aged"
+                    : "listing-label listing-label-confirmed"
+                }
+              >
+                Confirmed {line.detail}
+              </p>
+              <ul className="items">
+                {stand.items.map((item, index) => (
+                  <li key={`${stand.id}-${index}`}>
+                    <span className="item-name">{item.itemName}</span>
+                    {item.quantity !== undefined || item.approximation !== undefined ? (
+                      <span className="item-detail">
+                        {item.quantity !== undefined
+                          ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
+                          : item.approximation}
+                      </span>
+                    ) : null}
+                    {item.priceText !== undefined ? (
+                      <span className="item-price">{item.priceText}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : (
             <>
-              <p className="listing-label">{line.label}</p>
-              <ul className={line.kind === "confirmed" ? "items" : "items items-usual"}>
-                {line.kind === "confirmed"
-                  ? stand.items.map((item, index) => (
-                      <li key={`${stand.id}-${index}`}>
-                        <span className="item-name">{item.itemName}</span>
-                        {item.quantity !== undefined || item.approximation !== undefined ? (
-                          <span className="item-detail">
-                            {item.quantity !== undefined
-                              ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
-                              : item.approximation}
-                          </span>
-                        ) : null}
-                        {item.priceText !== undefined ? (
-                          <span className="item-price">{item.priceText}</span>
-                        ) : null}
-                      </li>
-                    ))
-                  : line.items.map((item) => (
-                      <li key={item}>
-                        <span className="item-name">{item}</span>
-                      </li>
-                    ))}
-              </ul>
+              <p className="listing-label">Usually sells</p>
+              <p className="items-usual">{line.items.join(", ")}</p>
             </>
           )}
         </div>
@@ -368,6 +401,19 @@ function StandDetailBody({
 
   return (
     <div className="stand-detail-body">
+      {/*
+        STOCK LEADS (max, 2026-08-06). What is there right now is why a customer opened the
+        card, so it is the first thing under the farm's name — the address and the way to get
+        there follow it, because those only matter once the answer to "is it worth the drive"
+        is yes. This section used to sit third, below the visit block and the status band.
+      */}
+      {isMarket ? null : (
+        <>
+          <StandListings stand={stand} />
+          <ParticipantNames names={stand.alsoSellingHere} />
+        </>
+      )}
+
       {showDestination ? (
         <section
           className="detail-visit"
@@ -396,15 +442,15 @@ function StandDetailBody({
       ) : null}
 
       {/*
-        THE ASIDE — one container for "what you can do, and what is true right now".
+        THE ASIDE — "what you can do, and what is true right now": the actions and the status
+        badges, on one row.
 
-        Actions, status badges, and the staleness line used to be three independent children of
-        the detail grid. Beside a tall chip box that made them three separate grid rows, and the
-        surplus height was distributed BETWEEN them: on a well-tagged stand they floated apart
-        with a hole under the last one, which read as something failing to load rather than as
-        an empty column. Grouping them means the column has one row to place, so the surplus
-        falls below the group as ordinary padding — and it is also the honest grouping, since
-        these are the three things a customer checks before deciding to drive somewhere.
+        It held a third child, the staleness line, until that line was removed (max,
+        2026-08-06) — the card's dated "Confirmed 6 days ago" says the same thing attached to
+        the items it is actually about, where this one sat beside "Get directions" and read as
+        a caveat about the route. Its original job was to close a gap the old two-column detail
+        grid opened between these children; the body is a single column now, so the grouping
+        survives on its own merit rather than as a layout fix.
       */}
       <div className="detail-aside">
         {showDestination ? null : links.length > 0 || stand.routingLink !== null ? (
@@ -468,12 +514,6 @@ function StandDetailBody({
           ) : null}
         </div>
 
-        {!isMarket && stand.stale === true ? (
-          <p className="recency recency-stale">
-            <strong>May be out of date — </strong>
-            {stand.updated}
-          </p>
-        ) : null}
       </div>
 
       {isMarket ? (
@@ -482,13 +522,8 @@ function StandDetailBody({
           label="Market schedule and information"
         />
       ) : (
-        <>
-          <StandListings stand={stand} />
-          <ParticipantNames names={stand.alsoSellingHere} />
-        </>
+        <PublicDescription description={description} />
       )}
-
-      {!isMarket ? <PublicDescription description={description} /> : null}
     </div>
   );
 }

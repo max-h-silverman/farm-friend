@@ -6,10 +6,85 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 55. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 56. A log too large to open
 mid-session defeats its own purpose.
 
 ---
+
+## 2026-08-06 — the expanded stand card, redesigned around what's in stock
+
+A design pass max asked for on the expanded card — specifically the "usually sells" and confirmed
+stock blocks, and the card generally, built from scratch rather than carried over. He supplied an
+e-commerce product page as a reference for hierarchy and use of space. What was taken from it was
+its *typographic method* (one dominant fact, quiet uppercase section labels, weight spent
+sparingly, space instead of boxes), not its layout — a product page is built around one price and
+one buy button, and this card answers "what's here, how sure are we, how do I get there".
+
+Two decisions were put to max rather than assumed, because both change the whole card: **stock
+leads** (the confirmed items are the headline, not the farm's identity or the freshness caveat),
+and **chips for confirmed items only**.
+
+### The two voices are now told by SHAPE, not by two shades of the same shape
+
+F-042 established that a farmer's confirmation and a seeded specialty are different kinds of claim
+and must be distinguishable at a glance. They were a filled chip list and an outlined chip list —
+which still gave a soft fact the countable shape of a stock list, so at speed the two blocks read
+as one kind of claim in two tints. Now a confirmation is chips (discrete, countable, dated by a
+label directly above the items it covers) and a specialty is a plain grey comma-joined sentence.
+Prose cannot be mistaken for a stock list, and it leaves **no visual slot where a date would look
+at home** — the no-timestamp rule stays enforced in `standListingLines`, and the styling stops
+inviting a violation of it.
+
+`StandListings` splits the elapsed phrase off `line.label` and reads `line.detail` instead. That
+field is guaranteed present on a `confirmed` line and *never* on a `usual` one, so the split is
+type-safe rather than a string slice off a rendered sentence — the failure `confirmedElapsed`
+exists to prevent.
+
+### Looking at it caught an honesty defect that the code review could not
+
+On a stale stand the card rendered a green `CONFIRMED 6 DAYS AGO` directly above an amber
+"May be out of date". Green is this map's colour for *a farmer vouched for this*, so the card was
+saying trust this and don't trust this about one fact — the exact contradiction the recency design
+exists to prevent. The timestamp now follows staleness into amber. This is a behaviour rule, so it
+has its own sabotage-verified test rather than living only in CSS.
+
+### The fourth staleness signal was removed, and the accessibility rule re-anchored
+
+max flagged the "May be out of date — updated 6 days ago" line as not understandable. It was
+genuinely confusing and this pass had made it worse: the card said one fact four times, and that
+line sat inside `.detail-aside` next to "Get directions", where it read as a caveat about the
+*route* rather than the produce. **Its placement was never a design decision** — the aside exists
+to close a gap the old two-column detail grid opened between its children, and the staleness line
+was grouped in to fix that layout hole, then rationalised afterwards in the comment.
+
+It was NOT removed on the "it's redundant" reasoning alone. `globals.css` carries a documented
+rule: staleness is never signalled by colour alone, because colour fails for a colourblind
+customer and in bright sun, and this is the one signal the product cannot afford to have missed.
+That rule was written when the timestamp was neutral. It no longer is — **two word-based signals
+survive** (`Needs confirmation` beside the address, and the dated `Confirmed 6 days ago` above the
+items), so the guarantee holds without the fourth line. The rule's comment was rewritten to
+describe what actually carries it now, rather than a line that no longer exists.
+
+**Removing a user-facing accessibility signal broke zero tests** — nothing guarded that rule, which
+is how the line drifted into redundancy unnoticed in the first place. A test now asserts staleness
+appears in readable *text* (not class names: a `.stand-summary-freshness` query passes against an
+empty span). Sabotaged both ways — emptying the label and dropping the date each fail it.
+
+### Deleted on the way through
+
+The nested bordered inventory panel (a panel inside a panel spends a border and two paddings to
+say what the gap already says), `.recency`/`.recency-stale` (no renderer left), the description
+block's duplicate margin/border and its `.listing-label` override (now identical to the base rule),
+`.sheet .detail-inventory`'s background, and `.detail-visit`'s own rule — section separators are
+owned in one place, `.stand-detail-body`.
+
+### Verified
+
+1243 tests / 112 files, typecheck and lint clean. Three tests added, **each sabotage-verified**.
+Browser-checked at desktop width and at phone width (the sheet, forced visible at 390px since the
+window manager would not resize the window) — and the light-only palette confirmed **while the OS
+sat in dark appearance**, which is the check DEVELOPMENT.md §before you ship requires and which
+F-043 shipped five defects past. No model seam, schema, or projection changed, so no evals owed.
 
 ## 2026-08-05 — retiring a stand, re-issuing a lost onboarding link, and quieter admin chrome
 
@@ -713,65 +788,3 @@ endpoint is not an oracle for whether a guessed token names anything.
 
 **Still owed:** the journey has never been exercised against a real handset, and the agreement step
 has not been looked at in a real browser at phone width.
-
-## 2026-08-04 — interactive map selection and key polish
-
-Nine small corrections to the public map, requested directly rather than through a PM item, plus two
-mid-session amendments. Selection now reads the same on both surfaces: the directory row's selected
-fill IS its hover fill (one new `--row-hover` token), so a chosen row no longer shifts color under
-the pointer, and its ring thickened 2px → 3px to match the selected pin's weight.
-
-**The selected pin is drawn last.** SVG has no `z-index` — paint order is stacking order — so a
-selected pin rendered in place hid under whichever pins came after it, worst in the dense clusters
-where the selection is hardest to find. Rather than add a second near-duplicate helper, `hoistStand`
-gained a `"front" | "end"` parameter: the directory still hoists the selection to the front, the pin
-layer hoists it to the end. Both ends are sabotage-verified.
-
-**Pin outlines carry no state.** The white-unselected/black-selected switch is gone; every pin now
-wears the same thin 2px outline, whose only job is holding markers apart from the land and from each
-other. Selection is said once, by the halo. The flower glyph keeps an outline matching its own
-petals, because a contrasting stroke draws the seams *between* its five overlapping circles and
-turns one glyph into five discs.
-
-Two defects were found by measuring rather than by reading the diff. The **thin black border**
-appearing beside the amber one on first selection was `.stand:focus-within { border-color:
-var(--olive) }` — clicking a row focuses the button inside it, so the dark border fired alongside the
-selection ring; removed, with keyboard focus still carried by the button's own `:focus-visible`.
-Separately, on wide screens the **amber ring was being erased whenever the pointer rested on the
-selected row**: `.stand:hover { box-shadow: none }` and `.stand-selected` have equal specificity and
-the hover rule sat later in the file. Computed style read `box-shadow: "none"` in a real browser;
-`.stand:not(.stand-selected):hover` fixes it. Neither was visible to any test.
-
-**The directory key never wraps.** Its type and its gap both scale in `cqi` against `.list-column`,
-which is now a container — a `vw` clamp sized the key for room the padded column does not have and
-clipped the last label on a phone. The slopes and floors are measured at 320–414px, not guessed.
-An honest limit: below roughly a 340px column the three labels cannot share one line at any legible
-size — the dots and gaps alone overrun it, verified down to 7px type — so the type stops at a
-readable floor and the row scrolls rather than clipping a legend entry invisibly. The key is also
-left-aligned with wider inter-item spacing.
-
-The **"Has a stand to visit" filter was removed end-to-end** — the option, the active-filter count,
-the `StandFilters` field, the predicate in `applyStandFilters`, and its test — rather than left as an
-unreachable key with no consumer.
-
-Verification: 99 unit-test files / 959 tests, typecheck, lint, and production web build. The new
-`hoistStand` end-hoist tests were sabotage-checked: reverting the branch fails both, restoring passes.
-Every visual claim was confirmed in a real browser at 1440x1000 and in 390px and 320px frames,
-reading computed styles rather than trusting screenshots — jsdom reports every element as zero-sized
-and can see none of this. No schema migration, no model seam, and no SMS or privacy surface was
-touched, so no integration run or eval was owed.
-
-Released as PR #76, squash-merged to `main` as `4a8bca7`. Cloud Build
-`6a2c341b-22fa-43ee-8952-84f6febc6d74` produced digest
-`sha256:2f089d8b4a0482a78cea6754b5dfa914800c7e5c021fb2dc9845ee455eab797a`. OpenTofu passed 37/37
-plan assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
-`farm-friend-web-00027-5ng` and `farm-friend-worker-00028-67c`; deploy and served-card assertions
-passed. No migration was owed. Verified **by effect** rather than by the apply's exit status: the
-served CSS bundle carries `--row-hover`, `.stand:not(.stand-selected):hover`,
-`container-type:inline-size`, and `cqi` sizing; no served chunk still contains "Has a stand to
-visit"; and the live page reports a 3px amber ring, the selected pin last in the layer, a
-one-line left-aligned key, and a uniform 2px pin stroke.
-
-A local-history note for whoever pulls next: the squash merge rewrote three commits that existed
-only on the local `main` (`c9efe10`, `8f04542`, `7e8326f`); their content is present in `4a8bca7`,
-and local `main` was reset to `origin/main` after confirming the trees matched.

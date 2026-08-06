@@ -5,10 +5,18 @@
  * viewport to make sense.
  *
  * The palette carries meaning rather than decoration. Green is "confirmed recently"; amber
- * is "confirmed a while ago". Staleness is signalled THREE ways — a left border, an amber
- * label, and the words "May be out of date" — because colour alone fails for a colourblind
- * customer and in bright sun, and this is the one signal the product cannot afford to have
- * missed. */
+ * is "confirmed a while ago".
+ *
+ * STALENESS IS NEVER SIGNALLED BY COLOUR ALONE — colour fails for a colourblind customer and
+ * in bright sun, and this is the one signal the product cannot afford to have missed. Three
+ * signals carry it, two of them WORDS: a left border, the "Needs confirmation" label beside
+ * the address, and the dated "Confirmed 6 days ago" above the items.
+ *
+ * A fourth signal — a separate "May be out of date — updated 6 days ago" line — was removed
+ * (max, 2026-08-06). It predated the card's dated timestamp and had become the same fact told
+ * a second time in the same colour, stranded beside "Get directions" where it read as a
+ * caveat about the DIRECTIONS rather than about the produce. The words-based guarantee above
+ * is what the rule actually requires, and it survives without it. */
 
 :root {
   /*
@@ -489,67 +497,115 @@ body {
   font-size: 0.9rem;
 }
 
+/*
+  CONFIRMED STOCK — the card's headline, and the only chips left on it.
+
+  A chip gives an item the shape of a discrete, countable thing, which is exactly what a
+  farmer's confirmation is. Sized up from the old 0.9rem and given real internal padding so the
+  row reads as the card's most important content rather than as metadata; the quantity and price
+  sit inside the chip with the name, one step down in size and softened, so a chip is one object
+  and not three fragments.
+*/
 .items {
   list-style: none;
-  margin: 0 0 0.8rem;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.45rem;
 }
 
+/* A visible EDGE, not just a tint: `--green-soft` alone is nearly the same value as the card's
+   cream, so on the directory row the chips dissolved into the background and the card's most
+   important content read as loose text. The border is what makes a chip a chip on both the
+   white sheet and the cream row. */
 .items li {
   display: inline-flex;
   align-items: baseline;
-  gap: 0.35rem;
-  padding: 0.3rem 0.6rem;
+  gap: 0.4rem;
+  padding: 0.42rem 0.75rem;
   background: var(--green-soft);
+  border: 1px solid #cfe0d5;
   border-radius: 999px;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  line-height: 1.3;
 }
 
 .item-name {
   font-weight: 600;
+  color: var(--ink);
 }
 
 .item-detail,
 .item-price {
   color: var(--ink-soft);
-  font-size: 0.83rem;
+  font-size: 0.82rem;
+  font-weight: 500;
 }
 
 /*
   F-042 — the two voices on a stand card, and the visual gap between them IS the honesty.
 
-  A farmer's confirmation is the certain fact: full-strength ink, filled chips, and it comes
-  first. What a stand "usually sells" is a specialty off VIGA's 2026 form that nobody
-  confirmed today, so its chips are outlined rather than filled and its label is quieter. A
-  customer must be able to tell the two apart at a glance, without reading either label.
+  A farmer's confirmation is the certain fact: it leads the card, it is dated, and its items are
+  filled chips. What a stand "usually sells" is a specialty off VIGA's 2026 form that nobody
+  confirmed today — so it is not given a chip at all. It is a plain grey sentence, which is what
+  a soft claim looks like. A customer can tell the two apart without reading either label.
 
-  What is deliberately ABSENT from `.listing-usual`: anything that would read as a date. The
-  no-timestamp rule is enforced in `standListingLines`, which never puts one on a usual line —
-  this styling just refuses to leave a visual slot where one would look at home.
+  What is deliberately ABSENT from `.listing-usual`: anything that would read as a date, and any
+  shape that would read as a countable stock list. The no-timestamp rule is enforced in
+  `standListingLines`, which never puts one on a usual line — this styling refuses to leave a
+  visual slot where one would look at home.
 */
-.listing {
-  margin: 0 0 0.8rem;
-}
-
-.listing-label {
-  margin: 0 0 0.35rem;
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.listing-usual .listing-label {
-  font-weight: 500;
-  color: var(--ink-soft);
-}
-
-.stand-description {
-  margin: 1rem 0 0.8rem;
-  padding-top: 0.8rem;
+/* The two voices are separated by the same hairline every other section on the card gets —
+   without it "Confirmed" and "Usually sells" run together as one block and the distinction the
+   whole design rests on has to be carried by type alone. */
+.listing + .listing {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
   border-top: 1px solid var(--line);
+}
+
+/*
+  ONE WAY TO NAME A SECTION, everywhere on the card — small, uppercase, letterspaced, grey.
+  The eye learns it once and then skips past it to the content underneath, which is the whole
+  job of a section label. Previously the card had a bold body-sized line here and a small-caps
+  heading in the visit block, so the same act of naming a section looked like two things.
+*/
+.listing-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/*
+  The one label that carries a FACT rather than a section name — it dates the chips below it, so
+  it outranks its siblings: green, a step larger, and not letterspaced down to a whisper. Held
+  apart from `.listing-label` deliberately; at the same size and weight as "USUALLY SELLS" the
+  eye could not tell which of the two blocks was the certain one.
+
+  Amber is NOT applied here. Staleness has its own line lower on the card, and colouring the
+  timestamp too would say it twice.
+*/
+.listing-label-confirmed {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  color: var(--green);
+}
+
+/* Past the staleness window the same label goes amber, so the card never says "trust this" in
+   green directly above a "may be out of date" warning. The chips stay as they are — the items
+   really were confirmed; it is their AGE that changed, and the date is where that is said. */
+.listing-label-aged {
+  color: var(--amber);
+}
+
+/* Spacing and the separator come from `.stand-detail-body`, which owns the card's rhythm for
+   every section. This block used to carry its own margin and rule, which doubled both. */
+.stand-description {
+  margin: 0;
 }
 
 /*
@@ -576,15 +632,18 @@ body {
   text-decoration: underline;
 }
 
-/* Outlined, not filled: a specialty is a weaker claim than a confirmation, and it looks it. */
-.items-usual li {
-  background: transparent;
-  border: 1px solid var(--green-soft);
-}
+/*
+  A SENTENCE, not chips: a specialty is a weaker claim than a confirmation and it looks it.
 
-.items-usual .item-name {
-  font-weight: 500;
+  This was an outlined-chip list, which still gave a soft fact the countable shape of a stock
+  list — at a glance the two blocks read as the same kind of claim in two shades. Comma-joined
+  grey prose cannot be mistaken for one.
+*/
+.items-usual {
+  margin: 0;
   color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.5;
 }
 
 /* "Nothing confirmed recently." and the two no-listing sentences. */
@@ -593,18 +652,6 @@ body {
   font-size: 0.92rem;
   color: var(--ink-soft);
   font-style: italic;
-}
-
-/* Staleness, signal two of three: the recency line itself. */
-.recency {
-  margin: 0;
-  font-size: 0.88rem;
-  color: var(--ink-soft);
-}
-
-.recency-stale {
-  color: var(--amber);
-  font-weight: 500;
 }
 
 .address {
@@ -3852,11 +3899,24 @@ button.admin-action-danger,
   margin: 0.9rem 0 0 2.1rem;
 }
 
+/*
+  THE EXPANDED CARD (max, 2026-08-06). Sections are separated by SPACE and a hairline, never by
+  nesting a bordered box inside the card — a panel within a panel spends a border and two
+  paddings to say "these lines are related", which the gap already says. Rhythm over chrome.
+*/
 .stand-detail-body {
   display: grid;
-  gap: 0.9rem;
+  gap: 1.25rem;
   text-align: left;
 }
+
+/* The hairline sits ON the gap the grid already opened, so a section's rule and its spacing are
+   one measurement rather than two that have to be kept in agreement. */
+.stand-detail-body > * + * {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
 
 .detail-status {
   display: flex;
@@ -3884,34 +3944,30 @@ button.admin-action-danger,
   background: var(--green-soft);
 }
 
+/* No box. The section separator and the card's own edge do the containing — see
+   `.stand-detail-body`. */
 .detail-inventory {
-  padding: 0.9rem;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 0.75rem;
+  padding: 0;
+  background: none;
+  border: none;
 }
 
-.detail-inventory .listing:last-child,
-.detail-inventory .items:last-child,
-.detail-inventory .listing-note:last-child {
-  margin-bottom: 0;
-}
-
+/* No rule of its own: `.stand-detail-body` draws every section separator. */
 .detail-visit {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.25rem 0.9rem;
-  padding-bottom: 0.9rem;
-  border-bottom: 1px solid var(--line);
 }
 
+/* The card's one section-label style, matching `.listing-label` exactly. */
 .detail-visit h3 {
   grid-column: 1 / -1;
-  margin: 0;
-  font-size: 0.78rem;
-  color: var(--ink-soft);
-  letter-spacing: 0.05em;
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 
@@ -3919,7 +3975,8 @@ button.admin-action-danger,
   grid-column: 1;
   grid-row: 2;
   margin: 0;
-  font-size: 0.94rem;
+  font-size: 0.98rem;
+  color: var(--ink);
 }
 
 .stand-website {
@@ -3939,21 +3996,6 @@ button.admin-action-danger,
   border-radius: 999px;
   text-decoration: none;
   white-space: nowrap;
-}
-
-.stand-description {
-  margin-top: 0;
-}
-
-/* The same quiet uppercase label the visit section uses, so the card has ONE way of naming a
-   section instead of a bold body line here and a small caps heading there. */
-.stand-description .listing-label {
-  margin-bottom: 0.4rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--ink-soft);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 /*
@@ -4024,10 +4066,6 @@ button.admin-action-danger,
 
 .sheet .stand-detail-body {
   margin-top: 0.9rem;
-}
-
-.sheet .detail-inventory {
-  background: var(--panel);
 }
 
 .sheet .stand-number {
@@ -4341,15 +4379,17 @@ button.admin-action-danger,
     to be padded out to match a neighbour. This is also the phone arrangement, so the two
     surfaces stop diverging in shape for no reason a customer could name.
   */
+  /* Tighter on a wide directory row, and the section separator's padding tracks the gap so the
+     rule stays optically centred in the space it divides. */
   .stand-selected .stand-detail-body {
     grid-template-columns: minmax(0, 1fr);
-    gap: 0.75rem;
+    gap: 1rem;
     padding-top: 0.65rem;
     border-top: 1px solid var(--sage-deep);
   }
 
-  .stand-selected .detail-inventory {
-    margin: 0;
+  .stand-selected .stand-detail-body > * + * {
+    padding-top: 1rem;
   }
 
   .stand-selected .stand-description {
