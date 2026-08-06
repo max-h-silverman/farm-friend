@@ -3,6 +3,7 @@ import {
   type Db,
 } from "@farm-friend/db";
 import { appContext } from "../../../../lib/composition";
+import { parseStructuredEdit } from "../../../../lib/farmer-stand-edit";
 import { publicReadContext } from "../../../../lib/public-context";
 import {
   confirmFromLink,
@@ -43,6 +44,8 @@ export async function POST(req: Request): Promise<Response> {
     token?: unknown;
     action?: unknown;
     text?: unknown;
+    /** A structured edit from the form's chips. Shape is checked by `parseStructuredEdit`. */
+    edit?: unknown;
     proposalId?: unknown;
     confirmationText?: unknown;
     participantNames?: unknown;
@@ -109,10 +112,50 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (action === "propose") {
-    const text = typeof body.text === "string" ? body.text : null;
-    if (text === null || text.trim() === "") {
+    /*
+      Two ways to describe a change, ONE gate after it.
+
+      The form's chips post a structured `edit`; the text box posts `text` for the model to
+      interpret. A structured edit skips the model — it is already in the shape the model
+      would produce — but it is parsed strictly here and then meets the same snapshot
+      validation, the same proposal composition, and the same confirmation.
+
+      A request carrying BOTH is refused rather than resolved by precedence: two descriptions
+      of one change is a client bug, and picking a winner would publish whichever the farmer
+      was not looking at.
+    */
+    const hasEdit = body.edit !== undefined;
+    const hasText = typeof body.text === "string" && body.text.trim() !== "";
+    if (hasEdit === hasText) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
+
+    if (hasEdit) {
+      const edit = parseStructuredEdit(body.edit);
+      if (edit === null) {
+        return Response.json({ error: "invalid_request" }, { status: 400 });
+      }
+      const proposedEdit = await proposeFromLink(deps, { token, edit });
+      if (proposedEdit.outcome === "not_authorized") {
+        return Response.json({ error: "not_authorized" }, { status: 403 });
+      }
+      if (proposedEdit.outcome === "proposed") {
+        return Response.json({
+          outcome: "proposed",
+          proposalId: proposedEdit.proposalId,
+          confirmationText: proposedEdit.confirmationText,
+        });
+      }
+      if (proposedEdit.outcome === "clarification") {
+        return Response.json({
+          outcome: "clarification",
+          question: proposedEdit.question,
+        });
+      }
+      return Response.json({ outcome: "rejected" });
+    }
+
+    const text = body.text as string;
 
     const proposed = await proposeFromLink(deps, { token, taskText: text });
     if (proposed.outcome === "not_authorized") {

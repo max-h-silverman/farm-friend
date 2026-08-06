@@ -8,6 +8,7 @@ import {
   type ClosureInstruction,
   type Clock,
   type InventoryCompositionBase,
+  type InventoryInterpretation,
   type InventoryInterpreter,
   type ProposedSnapshot,
   type SnapshotEntry,
@@ -35,12 +36,33 @@ export interface InterpretationDeps {
   clock: Clock;
 }
 
-export interface InterpretationInput {
+/**
+ * What to compose a proposal FROM: the farmer's words, or an edit they built directly.
+ *
+ * The web form's chips express edits structurally — removing a chip already *is*
+ * `removals: [{entryId}]`. Rendering that into a sentence for the model to parse back into
+ * the shape it started as would add a lossy step and make the model a dependency of an edit
+ * that needs no interpreting. So a structured edit skips the MODEL.
+ *
+ * It skips nothing else. Both forms meet the same `validateInterpretation` against the same
+ * retrieved snapshot, compose the same proposal, and reach the same confirmation gate — the
+ * checks are not the model's work, they are code's, and they run either way.
+ */
+export type InterpretationInput = {
   senderHash: string;
   salesLocationId: string;
-  /** The farmer's own message text. */
-  taskText: string;
-}
+} & (
+  | {
+      /** The farmer's own message text, for the model to interpret. */
+      taskText: string;
+      edit?: undefined;
+    }
+  | {
+      /** An edit the farmer built directly, already in the interpreter's output shape. */
+      edit: Extract<InventoryInterpretation, { kind: "edits" | "clear_all" }>;
+      taskText?: undefined;
+    }
+);
 
 export type InterpretationOutcome =
   | {
@@ -213,16 +235,29 @@ export async function applyInterpretedInventory(
     input.salesLocationId,
   );
 
-  // Only the current task text and opaque identifiers cross the seam.
-  const raw = await deps.interpreter.interpret({
-    taskText: input.taskText,
-    currentEntries: (state.inventoryBase?.entries ?? []).map((entry) => ({
-      entryId: entry.entryId,
-      itemName: entry.itemName,
-    })),
-    currentClosure: state.closureBase,
-    currentLocalDate: vashonLocalDate(deps.clock.now()),
-  });
+  // A structured edit is already in the interpreter's output shape, so there is nothing to
+  // interpret — the model is not called at all. It is still validated below, by the same
+  // code and against the same snapshot: skipping the model never skips the checks.
+  // The union guarantees exactly one of these is present. Asserted rather than defaulted:
+  // an empty task text is a real input the model would try to interpret, so coercing a
+  // missing one into `""` would turn a caller bug into a silent model call.
+  if (input.edit === undefined && input.taskText === undefined) {
+    throw new Error("an interpretation needs either taskText or a structured edit");
+  }
+
+  const raw =
+    input.edit !== undefined
+      ? input.edit
+      : // Only the current task text and opaque identifiers cross the seam.
+        await deps.interpreter.interpret({
+          taskText: input.taskText as string,
+          currentEntries: (state.inventoryBase?.entries ?? []).map((entry) => ({
+            entryId: entry.entryId,
+            itemName: entry.itemName,
+          })),
+          currentClosure: state.closureBase,
+          currentLocalDate: vashonLocalDate(deps.clock.now()),
+        });
 
   const validated = validateInterpretation(raw, state.inventoryBase);
   if (!validated.ok) {

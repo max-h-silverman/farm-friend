@@ -45,8 +45,14 @@ export default async function StandPage({
   const locations = await db.sql`
     select name from sales_locations where id = ${stand.salesLocationId}
   `;
-  // Scoped to the location the TOKEN resolved to, never one named by the request.
-  const currentEntries = await readCurrentStandEntries(db, stand.salesLocationId);
+  // Scoped to the location AND sender the TOKEN resolved to, never ones named by the
+  // request. The sender matters: the chips must show the base this farmer's next edit will
+  // be composed against, which is their own open proposal when they have one.
+  const currentEntries = await readCurrentStandEntries(
+    db,
+    stand.salesLocationId,
+    stand.senderHash,
+  );
   return (
     <main className="farmer-form">
       <header>
@@ -56,9 +62,14 @@ export default async function StandPage({
         </p>
       </header>
 
+      {/*
+        Says what the screen now IS. It used to promise "update in your own words", which
+        described the text box back when that was the only way in — with the listing directly
+        editable, leading with prose would point a farmer at the slower path.
+      */}
       <p className="farmer-form-note">
-        Update what changed today in your own words. We&apos;ll show you exactly what people will
-        see, and <strong>nothing changes until you confirm it</strong>.
+        Take things off, add what you have, or write it out. We&apos;ll show you exactly what
+        people will see, and <strong>nothing changes until you confirm it</strong>.
       </p>
 
       <StandForm token={params.token} currentEntries={currentEntries} />

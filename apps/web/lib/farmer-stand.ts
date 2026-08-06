@@ -3,6 +3,7 @@ import {
   renderPublicStringRefusal,
   renderProposedSnapshot,
   type Clock,
+  type InventoryInterpretation,
   type InventoryInterpreter,
 } from "@farm-friend/core";
 import {
@@ -75,28 +76,53 @@ export async function resolveStandFromToken(
   return resolveFarmerLink(db, { tokenHash: hashFarmerLinkToken(token) });
 }
 
+/** One item as the farmer's own page shows it. Display shape, not a durable record. */
+export interface StandEntryView {
+  entryId: string;
+  itemName: string;
+  quantity?: number;
+  unit?: string;
+  priceText?: string;
+  approximation?: "some" | "limited" | "plentiful";
+}
+
 /**
- * Read what a stand is currently publishing, to SHOW the farmer before they describe a
- * change.
+ * Read the entries the farmer's NEXT edit will be composed against, to show them.
  *
- * Display only, and deliberately narrow: it takes the sales location from the caller's
- * already-resolved link, never an identifier from the request, so it cannot be pointed at
- * another farm's stand. Nothing here feeds interpretation or publication — the proposal the
- * farmer confirms is still composed server-side from the published revision.
+ * **The sender's open proposal wins over the published revision**, because that is the base
+ * `applyInterpretedInventory` composes from. Showing the published listing instead was a real
+ * defect once the listing became editable: the chips send ENTRY IDS, so a farmer who edited
+ * once and came back saw chips for items their own pending proposal had already dropped, and
+ * tapping one sent an id absent from the base — refused, correctly, for a change they had
+ * every reason to believe was on offer. The typed path never hit it because free text names
+ * items rather than identifiers.
+ *
+ * Scoped to ONE sender: proposals are per-sender, so a second authorized farmer at the same
+ * stand composes against what is published, and never sees the other's unconfirmed edit.
+ *
+ * Display only, and deliberately narrow: the location comes from the caller's already-resolved
+ * link, never an identifier from the request, so it cannot be pointed at another farm's stand.
+ * Nothing here publishes — the proposal is still composed and confirmed server-side.
  */
 export async function readCurrentStandEntries(
   db: Db,
   salesLocationId: string,
-): Promise<
-  {
-    entryId: string;
-    itemName: string;
-    quantity?: number;
-    unit?: string;
-    priceText?: string;
-    approximation?: "some" | "limited" | "plentiful";
-  }[]
-> {
+  senderHash: string,
+): Promise<StandEntryView[]> {
+  const pending = await db.sql`
+    select payload from inventory_publication_proposals
+    where sender_hash = ${senderHash}
+      and sales_location_id = ${salesLocationId}
+      and state = 'open'
+      and has_inventory
+  `;
+  const payload = pending[0]?.payload as { entries?: unknown } | undefined;
+  if (payload !== undefined && Array.isArray(payload.entries)) {
+    // Already the snapshot shape the proposal stores, so it is returned as-is rather than
+    // re-derived: re-deriving would be a second statement of what an entry looks like.
+    return payload.entries as StandEntryView[];
+  }
+
   const rows = await db.sql`
     select entry.id, entry.item_name, entry.quantity, entry.unit,
       entry.price_text, entry.approximation
@@ -148,7 +174,14 @@ export type FarmerStandProposal =
  */
 export async function proposeFromLink(
   deps: FarmerStandDeps,
-  input: { token: string; taskText: string },
+  input:
+    | { token: string; taskText: string; edit?: undefined }
+    | {
+        token: string;
+        /** A structured edit from the form's chips — no model call, same checks. */
+        edit: Extract<InventoryInterpretation, { kind: "edits" | "clear_all" }>;
+        taskText?: undefined;
+      },
 ): Promise<FarmerStandProposal> {
   const stand = await resolveStandFromToken(deps.db, input.token);
   if (stand === null) return { outcome: "not_authorized" };
@@ -160,7 +193,9 @@ export async function proposeFromLink(
       // cannot propose as somebody else by naming them.
       senderHash: stand.senderHash,
       salesLocationId: stand.salesLocationId,
-      taskText: input.taskText,
+      ...(input.edit !== undefined
+        ? { edit: input.edit }
+        : { taskText: input.taskText }),
     },
   );
 

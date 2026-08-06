@@ -59,6 +59,31 @@ export function StandForm({
   const [linkInactive, setLinkInactive] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
+  /*
+    The chips' working state, held until the farmer previews.
+
+    A stand listing is a SET OF SHORT STRINGS, so removing an item should be a tap rather
+    than a sentence a model has to read back into the removal we already had. These two
+    pieces of state ARE the edit: `removedIds` and `added` compose directly into the typed
+    shape the interpreter would otherwise produce.
+
+    Nothing here publishes. The tap marks an intention; `propose` turns it into the same
+    proposal the typed path opens, and the farmer still confirms the rendered result.
+  */
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
+  const [added, setAdded] = useState<{ itemName: string }[]>([]);
+  const [draftItem, setDraftItem] = useState("");
+
+  const removed = new Set(removedIds);
+  const hasChanges = removedIds.length > 0 || added.length > 0;
+
+  function addDraftItem() {
+    const itemName = draftItem.trim();
+    if (itemName === "") return;
+    setAdded((current) => [...current, { itemName }]);
+    setDraftItem("");
+  }
+
   useEffect(() => {
     if (stage.step === "asked") textRef.current?.focus();
   }, [stage]);
@@ -100,13 +125,32 @@ export function StandForm({
     }
   }
 
-  async function propose() {
-    if (text.trim() === "") return;
+  /**
+   * Open a proposal from whichever description the farmer gave.
+   *
+   * Chips post a STRUCTURED edit and skip the model — it is already the shape the model
+   * would return. Free text posts `text` for interpretation. Never both: the server refuses
+   * a request carrying two descriptions of one change rather than picking a winner.
+   */
+  async function propose(source: "chips" | "text") {
+    if (source === "text" && text.trim() === "") return;
+    if (source === "chips" && !hasChanges) return;
     // A publication, decline, or clarification describes the request that just ended.
     // Once another proposal starts, keeping that terminal message beside a new failure
     // would make two contradictory claims about the current request.
     setStage({ step: "typing" });
-    const payload = await post({ action: "propose", text });
+    const payload = await post(
+      source === "chips"
+        ? {
+            action: "propose",
+            edit: {
+              additions: added,
+              changes: [],
+              removals: removedIds.map((entryId) => ({ entryId })),
+            },
+          }
+        : { action: "propose", text },
+    );
     if (payload === null) return;
 
     if (payload.outcome === "proposed") {
@@ -133,7 +177,15 @@ export function StandForm({
     });
     if (payload === null) return;
     setStage({ step: accept ? "published" : "declined" });
-    if (accept) setText("");
+    if (accept) {
+      // The chips described a change that is now published, so the marks that described it
+      // are spent. Leaving them would show a farmer their next visit's listing as already
+      // half-edited against a listing that has since moved on.
+      setText("");
+      setRemovedIds([]);
+      setAdded([]);
+      setDraftItem("");
+    }
   }
 
   return (
@@ -167,39 +219,126 @@ export function StandForm({
           )}
 
           {/*
-            WHAT IS THERE NOW, above the box where they describe a change.
+            THE LISTING, DIRECTLY EDITABLE.
 
-            Without it the farmer is asked "what changed?" against a listing they cannot
-            see, and — the sharper problem — cannot tell whether typing "eggs and bok choy"
-            adds to their listing or replaces it. Those differ by whether the kale survives.
-            The rule the system actually applies (omission preserves) is stated here, beside
-            the typing, rather than left to be discovered in the confirmation afterwards.
+            A stand listing is a set of short strings, so the farmer manipulates it rather
+            than composing a sentence about it: tap × to take something off, type to add.
+            That removes the whole class of confusion this screen used to have — there is no
+            "does typing this add or replace?" question when the farmer can see the set and
+            act on its members. Items they do not touch are visibly untouched.
 
-            Display only: `currentEntries` is rendered, never posted. What publishes is still
-            the proposal the server composes and the farmer confirms.
+            Nothing here publishes. The marks compose into the same typed edit the model
+            would produce, open the same proposal, and reach the same confirmation.
           */}
           <section className="farmer-current" aria-labelledby="farmer-current-heading">
             <h2 id="farmer-current-heading">Your stand is showing now</h2>
-            {currentEntries.length === 0 ? (
+            {currentEntries.length === 0 && added.length === 0 ? (
               <p className="farmer-current-empty">
-                Nothing listed yet. What you send below will be your first listing.
+                Nothing listed yet. What you add below will be your first listing.
               </p>
             ) : (
-              <>
-                <ul className="farmer-current-list">
-                  {currentEntries.map((entry) => (
-                    <li key={entry.entryId}>{describeEntry(entry)}</li>
-                  ))}
-                </ul>
-                <p className="farmer-current-rule">
-                  Anything you don&apos;t mention stays on your listing. To take something off,
-                  say so — like &ldquo;sold out of kale&rdquo;.
-                </p>
-              </>
+              <ul className="farmer-chips">
+                {currentEntries.map((entry) => {
+                  const isRemoved = removed.has(entry.entryId);
+                  return (
+                    <li
+                      key={entry.entryId}
+                      className={isRemoved ? "farmer-chip farmer-chip--removed" : "farmer-chip"}
+                    >
+                      <span className="farmer-chip-label">{describeEntry(entry)}</span>
+                      {isRemoved ? (
+                        <button
+                          type="button"
+                          className="farmer-chip-action"
+                          onClick={() =>
+                            setRemovedIds((ids) => ids.filter((id) => id !== entry.entryId))
+                          }
+                        >
+                          Undo
+                          <span className="sr-only"> removing {entry.itemName}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="farmer-chip-action"
+                          aria-label={`Remove ${entry.itemName}`}
+                          onClick={() => setRemovedIds((ids) => [...ids, entry.entryId])}
+                        >
+                          <span aria-hidden="true">×</span>
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+                {added.map((item, index) => (
+                  <li key={`added-${item.itemName}`} className="farmer-chip farmer-chip--added">
+                    <span className="farmer-chip-label">{item.itemName}</span>
+                    <button
+                      type="button"
+                      className="farmer-chip-action"
+                      aria-label={`Remove ${item.itemName}`}
+                      onClick={() =>
+                        setAdded((current) => current.filter((_, at) => at !== index))
+                      }
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
+
+            <div className="farmer-chip-add">
+              <label htmlFor="farmer-add-item">Add something</label>
+              <div className="farmer-chip-add-row">
+                <input
+                  id="farmer-add-item"
+                  type="text"
+                  value={draftItem}
+                  placeholder="plum jam"
+                  maxLength={120}
+                  onChange={(event) => setDraftItem(event.target.value)}
+                  onKeyDown={(event) => {
+                    // Enter adds the item rather than submitting a form the farmer has not
+                    // finished building.
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addDraftItem();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  className="farmer-chip-add-button"
+                  disabled={draftItem.trim() === ""}
+                  onClick={addDraftItem}
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="farmer-chip-preview"
+              disabled={busy || !hasChanges}
+              onClick={() => void propose("chips")}
+            >
+              {busy ? "Checking…" : "Preview update"}
+            </button>
           </section>
 
-          <label htmlFor="farmer-form-text">What changed at your stand today?</label>
+          {/*
+            The escape hatch, deliberately secondary.
+
+            The chips cover the common case — what is on the table is a set of items. They
+            cannot express "closed through Sunday", "half the eggs are gone", or a price
+            change stated in passing, and those are exactly what the model seam is for. A
+            farmer who wants to write it out still can; they are just not made to.
+          */}
+          <label className="farmer-form-freetext-label" htmlFor="farmer-form-text">
+            Or write it in your own words
+          </label>
           <textarea
             ref={textRef}
             id="farmer-form-text"
@@ -208,8 +347,18 @@ export function StandForm({
             onChange={(event) => setText(event.target.value)}
             placeholder="a dozen eggs, lots of kale, plum jam $6"
           />
-          <button type="button" disabled={busy || text.trim() === ""} onClick={() => void propose()}>
-            {busy ? "Checking…" : "Preview update"}
+          {/*
+            Named for its own input, not "Preview update" a second time: two controls with
+            one label is ambiguous to a farmer skimming and to a screen reader listing
+            buttons, and they send genuinely different requests.
+          */}
+          <button
+            className="farmer-form-freetext-button"
+            type="button"
+            disabled={busy || text.trim() === ""}
+            onClick={() => void propose("text")}
+          >
+            {busy ? "Checking…" : "Preview what I wrote"}
           </button>
         </>
       )}
@@ -226,7 +375,14 @@ export function StandForm({
           <p className="farmer-form-note">Nothing has changed yet.</p>
           {/* Code-rendered from the validated snapshot — never model prose. */}
           <pre className="farmer-form-snapshot">{stage.confirmationText}</pre>
-          <button type="button" disabled={busy} onClick={() => void settle(true)}>
+          {/* The one control that publishes, marked as such rather than inferred from being
+              first in the document — see `.farmer-form-affirmative`. */}
+          <button
+            className="farmer-form-affirmative"
+            type="button"
+            disabled={busy}
+            onClick={() => void settle(true)}
+          >
             {busy ? "Publishing…" : "Confirm and publish"}
           </button>
           <button type="button" disabled={busy} onClick={() => void settle(false)}>
