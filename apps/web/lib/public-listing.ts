@@ -379,7 +379,11 @@ export async function listPublicStands(
       on item.sales_location_id = e.sales_location_id
      and lower(btrim(item.display_name, E' \t\r\n'))
        = lower(btrim(e.item_name, E' \t\r\n'))
-    where l.is_public
+    -- F-071 — retired_at is a SECOND, operator-owned reason a stand leaves the public
+    -- surface, and it is deliberately not folded into is_public: that column is a listing
+    -- attribute the farmer's own onboarding form sets to true on every save, so VIGA's
+    -- decision expressed through it would be reverted the next time the farmer edited.
+    where l.is_public and l.retired_at is null
     order by r.published_at desc nulls last, l.id asc, e.sort_order asc
   `;
 

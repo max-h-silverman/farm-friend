@@ -1050,6 +1050,80 @@ export async function listFarmerAuthorizations(
   }));
 }
 
+export interface FarmAwaitingOnboardingRow {
+  farmId: string;
+  farmName: string;
+  /**
+   * The newest invitation's state, or `none` when no one has ever invited this farm.
+   * `open` means a link is out there and still works; `expired` means it has lapsed.
+   */
+  invitationState: "none" | "open" | "expired";
+  /** When the newest invitation stops working. NULL when there is no invitation. */
+  invitationExpiresAt: Date | null;
+}
+
+/**
+ * Every farm nobody can currently publish for (F-071).
+ *
+ * max asked to see the onboarding link for a farm that has not finished onboarding, "in case
+ * they lose it". The link itself is **not recoverable** — `farmer_invitations` stores only
+ * `token_hash` and the token is returned exactly once — so what an operator needs is this list
+ * plus the ability to mint a fresh link, which is the same shape as a password reset.
+ *
+ * **"Unfinished" is the absence of a LIVE AUTHORIZATION, not an unredeemed invitation.** The
+ * two come apart in both directions and each direction matters: VIGA can authorize a farmer
+ * straight from the queue with no invitation involved (that farm is finished, and keying on
+ * redemption would strand it here forever), and a farm whose only farmer was revoked has
+ * nobody who can update it again (so it belongs back on this list).
+ *
+ * An EXPIRED invitation keeps the farm listed rather than dropping it. A farmer who lost their
+ * link usually notices after it lapsed, so hiding those would hide exactly the farms an
+ * operator came here to find.
+ *
+ * Carries no token, no hash, and no phone number — an operator needs the farm and the state,
+ * and nothing here needs a contact (Golden Rule #5).
+ */
+export async function listFarmsAwaitingOnboarding(
+  db: Db,
+  now: Date,
+): Promise<FarmAwaitingOnboardingRow[]> {
+  const rows = await driver(db)`
+    select
+      farm.id,
+      farm.name,
+      -- A correlated subquery rather than a join, so a farm re-invited three times stays ONE
+      -- row. A join would multiply the farm by its invitations, and the state shown would be
+      -- whichever row the reader happened to reach first.
+      (
+        select invitation.expires_at
+        from farmer_invitations as invitation
+        where invitation.farm_id = farm.id
+        order by invitation.created_at desc, invitation.id desc
+        limit 1
+      ) as invitation_expires_at
+    from farms as farm
+    where not exists (
+      select 1 from farmer_authorizations as auth
+      where auth.farm_id = farm.id and auth.revoked_at is null
+    )
+    order by farm.name, farm.id
+  `;
+
+  return rows.map((row) => {
+    const expiresAt =
+      row.invitation_expires_at === null
+        ? null
+        : new Date(row.invitation_expires_at as string);
+    return {
+      farmId: row.id as string,
+      farmName: row.name as string,
+      invitationState:
+        expiresAt === null ? "none" : expiresAt > now ? "open" : "expired",
+      invitationExpiresAt: expiresAt,
+    };
+  });
+}
+
 export interface FarmerOnboardingRequestRow {
   requestId: string;
   senderMask: string;

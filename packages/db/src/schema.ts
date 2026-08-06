@@ -806,6 +806,24 @@ export const salesLocations = pgTable(
     stockingDays: integer("stocking_days").array(),
 
     isPublic: boolean("is_public").notNull().default(true),
+
+    /**
+     * F-071 — VIGA has taken this stand down. NULL means live.
+     *
+     * Deliberately separate from `isPublic`, which is a LISTING attribute the farmer's own
+     * onboarding form sets on every save. One column owned by two actors would mean an
+     * operator's decision is reverted the next time the farmer edits their listing.
+     *
+     * A retired stand leaves every public surface and refuses publication, but keeps every
+     * revision it published: the record of what a farm said it had, and when, is the thing the
+     * audit trail exists to preserve (Golden Rule #1). It is reversible — see `restoreStand`.
+     */
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    retiredByAdministratorId: uuid("retired_by_administrator_id").references(
+      () => administrators.id,
+      { onDelete: "restrict" },
+    ),
+
     farmBucksAccepted: boolean("farm_bucks_accepted").notNull(),
     farmBucksEligible: boolean("farm_bucks_eligible").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -875,6 +893,31 @@ export const salesLocations = pgTable(
       "sales_locations_farm_bucks_acceptance_requires_eligibility",
       sql`not ${table.farmBucksAccepted} or ${table.farmBucksEligible}`,
     ),
+
+    /**
+     * F-071 — the two retirement columns move together or not at all.
+     *
+     * A full disjunction over both shapes rather than a one-directional test, because a CHECK
+     * *passes* on NULL: asserting only "an actor is recorded" would admit a stand retired by
+     * nobody, and only the mirror image would admit an actor against a live stand.
+     */
+    coherentRetirement: check(
+      "sales_locations_coherent_retirement",
+      sql`
+        (
+          ${table.retiredAt} is null
+          and ${table.retiredByAdministratorId} is null
+        )
+        or (
+          ${table.retiredAt} is not null
+          and ${table.retiredByAdministratorId} is not null
+        )
+      `,
+    ),
+    /** Every public read filters on this; retired stands are the rare case, so partial. */
+    liveIdx: index("sales_locations_live_idx")
+      .on(table.id)
+      .where(sql`${table.retiredAt} is null`),
 
     // F-035 — the enums are only worth having if the DATABASE enforces that each kind
     // carries exactly the detail it needs. Without these, a `date_range` with no dates or a

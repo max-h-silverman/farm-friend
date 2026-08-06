@@ -489,13 +489,21 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
 
     let queued = 0;
     try {
+      // The probe matches the location SELECT that takes the row lock inside
+      // `confirmInventoryPublication`. It is anchored to the two things that make it THAT
+      // query — the locked table and the `for update` — rather than to its full column list,
+      // which is not part of what this test proves and changes whenever a column is added.
+      // F-071 added `retired_at` there and silently reduced this probe to zero observed
+      // claimants: the contention this test exists to prove stopped being measured while the
+      // test kept running.
       for (let attempt = 0; attempt < 100 && queued < 2; attempt += 1) {
         const rows = await client()`
           select count(*)::integer as count
           from pg_stat_activity
           where datname = current_database()
             and wait_event_type = 'Lock'
-            and query like '%select owner_farm_id, name from sales_locations%'
+            and query like '%from sales_locations%'
+            and query like '%for update%'
         `;
         queued = rows[0]?.count as number;
         if (queued < 2) await new Promise((resolve) => setTimeout(resolve, 10));

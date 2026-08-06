@@ -878,6 +878,7 @@ export type ConfirmPublicationResult =
   | { status: "base_conflict" }
   | { status: "not_authorized" }
   | { status: "not_approved" }
+  | { status: "stand_retired" }
   | { status: "unsafe_public_text"; prohibited: ProhibitedPublicStringKind[] }
   | { status: "already_consumed" }
   | { status: "no_open_proposal" };
@@ -914,7 +915,7 @@ export async function confirmInventoryPublication(
     if (target.length === 0) return { status: "no_open_proposal" };
     const salesLocationId = target[0]?.sales_location_id as string;
     const location = await tx`
-      select owner_farm_id, name from sales_locations
+      select owner_farm_id, name, retired_at from sales_locations
       where id = ${salesLocationId}
       for update
     `;
@@ -1101,6 +1102,18 @@ export async function confirmInventoryPublication(
       for update
     `;
     if (approval.length === 0) return { status: "not_approved" };
+
+    // F-071 — VIGA took this stand down. Read from the location row locked at the top of this
+    // transaction, so a retirement committing mid-confirmation either loses the lock race and
+    // is seen here, or wins it and queues behind this publication. Either way the answer is
+    // honest rather than dependent on which request arrived first.
+    //
+    // Checked HERE rather than in the caller, alongside authority and approval, for the reason
+    // those two are here: this is the seam every publication path funnels through, so nothing
+    // can reach around it. Note it deliberately does NOT gate the `no` branch above — a farmer
+    // declining a prompt for a stand that has since been retired is closing their own proposal,
+    // not publishing, and refusing that would strand it open forever.
+    if (location[0]?.retired_at !== null) return { status: "stand_retired" };
 
     const payload = proposal.payload as {
       entries?: ProposalEntryInput[];

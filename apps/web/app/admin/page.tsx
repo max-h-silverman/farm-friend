@@ -162,6 +162,7 @@ function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdministratio
           : "not_eligible",
       openState: OPEN_STATE_LABEL[openState],
       approved: row.approved,
+      retired: row.retired,
       sections: [
         {
           title: "Availability",
@@ -245,9 +246,6 @@ export default async function AdminPage() {
 
   return (
     <AdminShell currentPath="/admin">
-      <header className="admin-page-intro">
-        <h1>Volunteer desk</h1>
-      </header>
       <section className="admin-work" aria-labelledby="needs-attention-heading">
         <h2 id="needs-attention-heading" className="admin-section-title">Needs attention</h2>
         {totalWork === 0 ? (

@@ -56,6 +56,14 @@ export interface FarmOption {
   name: string;
 }
 
+/** A farm nobody can publish for yet, and the state of its most recent invitation (F-071). */
+export interface AwaitingOnboardingRow {
+  farmId: string;
+  farmName: string;
+  invitationState: "none" | "open" | "expired";
+  invitationExpiresAt: string | null;
+}
+
 function formatDate(value: string): string {
   return new Date(value).toLocaleDateString(undefined, {
     year: "numeric",
@@ -68,10 +76,12 @@ export function FarmerQueue({
   requests,
   authorizations,
   farms,
+  awaitingOnboarding = [],
 }: {
   requests: PendingRequestRow[];
   authorizations: AuthorizationRow[];
   farms: FarmOption[];
+  awaitingOnboarding?: AwaitingOnboardingRow[];
 }) {
   const [pendingRequests, setPendingRequests] = useState(requests);
   const [rows, setRows] = useState(authorizations);
@@ -82,7 +92,8 @@ export function FarmerQueue({
   const [inviteDestination, setInviteDestination] = useState("");
   const [invite, setInvite] = useState<{
     link: string;
-    deliveryUrl: string;
+    /** Absent when the invite was minted from the waiting list, where no address was typed. */
+    deliveryUrl?: string;
     channel: FarmerInviteChannel;
     message: string;
     farmName: string | null;
@@ -179,15 +190,33 @@ export function FarmerQueue({
       return;
     }
 
-    const { ok, payload } = await post(
-      {
-        action: "create_invite",
-        ...(creatingFarm
-          ? { newFarmName: newFarmName.trim() }
-          : { farmId: inviteFarmId }),
-        channel: inviteChannel,
-      },
+    await mintInvite(
+      creatingFarm
+        ? { newFarmName: newFarmName.trim() }
+        : { farmId: inviteFarmId },
+      inviteChannel,
+      destination,
       "create_invite",
+    );
+  }
+
+  /**
+   * Mint an invitation and show the ready panel. One writer for both the invite form and the
+   * "new onboarding link" button on a waiting farm (F-071), because they are the same act —
+   * the second is not a recovery of the first, it is another invitation for the same farm.
+   *
+   * `destination` may be null: re-issuing from the waiting list has no address typed into it,
+   * so there is no pre-filled message to open, only a link to copy.
+   */
+  async function mintInvite(
+    farm: { farmId: string } | { newFarmName: string },
+    channel: FarmerInviteChannel,
+    destination: string | null,
+    key: string,
+  ) {
+    const { ok, payload } = await post(
+      { action: "create_invite", ...farm, channel },
+      key,
     );
     if (!ok) return;
     if (
@@ -201,7 +230,9 @@ export function FarmerQueue({
     const message = inviteMessage({ farmName: payload.farmName, link: payload.link });
     setInvite({
       link: payload.link,
-      deliveryUrl: buildInviteDeliveryUrl(payload.channel, destination, message),
+      ...(destination === null
+        ? {}
+        : { deliveryUrl: buildInviteDeliveryUrl(payload.channel, destination, message) }),
       channel: payload.channel,
       message,
       farmName: payload.farmName,
@@ -413,9 +444,11 @@ export function FarmerQueue({
               </p>
             </div>
             <div className="admin-invite-result-actions">
-              <a className="admin-action-primary" href={invite.deliveryUrl}>
-                Open {invite.channel === "sms" ? "text message" : "email"}
-              </a>
+              {invite.deliveryUrl !== undefined && (
+                <a className="admin-action-primary" href={invite.deliveryUrl}>
+                  Open {invite.channel === "sms" ? "text message" : "email"}
+                </a>
+              )}
               <button className="admin-action-secondary" type="button" onClick={() => void copyInviteLink()}>
                 Copy link
               </button>
@@ -431,6 +464,72 @@ export function FarmerQueue({
               </div>
             </details>
           </div>
+        )}
+      </section>
+
+      <section className="admin-queue-group" aria-labelledby="awaiting-onboarding-heading">
+        <div className="admin-group-heading">
+          <div>
+            <h3 id="awaiting-onboarding-heading">Farms with no one to update them</h3>
+          </div>
+          <span
+            className="admin-count"
+            aria-label={`${awaitingOnboarding.length} farms with no one to update them`}
+          >
+            {awaitingOnboarding.length}
+          </span>
+        </div>
+        {awaitingOnboarding.length === 0 ? (
+          <p className="admin-empty-state">Every farm has someone who can update it.</p>
+        ) : (
+          <>
+            {/*
+              The link a farmer was originally sent CANNOT be shown again — it is stored
+              scrambled and shown once, the same way a site sends a password reset rather than
+              your old password. So the offer here is a new link, and the copy says which it is
+              rather than letting an operator believe they are retrieving the old one.
+            */}
+            <p className="admin-note">
+              Nobody can publish updates for these farms yet. A new link replaces any earlier
+              one; earlier links cannot be looked up.
+            </p>
+            <ul className="admin-farms">
+              {awaitingOnboarding.map((row) => (
+                <li key={row.farmId} className="admin-farm admin-request-card">
+                  <div className="admin-card-person">
+                    <h4>{row.farmName}</h4>
+                    <p className="admin-note">
+                      {row.invitationState === "none"
+                        ? "Never invited"
+                        : row.invitationState === "open"
+                          ? `Link expires ${formatDate(row.invitationExpiresAt as string)}`
+                          : `Link expired ${formatDate(row.invitationExpiresAt as string)}`}
+                    </p>
+                  </div>
+                  <div className="admin-request-decision">
+                    <button
+                      className="admin-action-primary"
+                      type="button"
+                      aria-label={`New onboarding link for ${row.farmName}`}
+                      disabled={busy === `reinvite-${row.farmId}`}
+                      onClick={() =>
+                        void mintInvite(
+                          { farmId: row.farmId },
+                          "sms",
+                          null,
+                          `reinvite-${row.farmId}`,
+                        )
+                      }
+                    >
+                      {busy === `reinvite-${row.farmId}`
+                        ? "Preparing…"
+                        : "New onboarding link"}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
 
