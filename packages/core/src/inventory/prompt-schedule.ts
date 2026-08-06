@@ -98,6 +98,9 @@ export function renderScheduledInventoryPrompt(input: {
       entries: input.entries,
       baseRevisionId: null,
       isFirstPublication: false,
+      // This prompt shows what is ALREADY published, not a proposed change — nothing is
+      // being taken off, so there is no loss to name.
+      removedItemNames: [],
     }),
     "Reply SAME if this complete listing is still right, or text what changed.",
   ].join("\n\n");

@@ -172,6 +172,10 @@ async function compositionState(
           baseRevisionId:
             (pendingRow.base_revision_id as string | null | undefined) ?? null,
           isFirstPublication: pendingRow.base_is_first_publication as boolean,
+          // Reloaded as the BASE for the sender's next edit, not as a proposal being
+          // confirmed. Whatever this snapshot once dropped is already absent from its
+          // entries; the next edit names its own losses against this base.
+          removedItemNames: [],
         }
       : undefined;
   const composedClosure =

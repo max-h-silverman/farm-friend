@@ -278,6 +278,57 @@ fx("live-quality", "extracts a plain farmer list into typed additions", async ()
   return { ok, observed };
 });
 
+// Omission-is-not-removal. The BASE stand lists tomatoes and kale. These three fixtures
+// measure the one interpretation that silently destroys a farmer's listing: reading a bare
+// list of what is on the table as a statement about everything that is NOT.
+fx("live-quality", "a bare list of items does not remove the items it leaves out", async () => {
+  const raw = await interpreter.interpret({
+    taskText: "we have eggs and bok choy",
+    currentEntries: BASE.entries.map((e) => ({ entryId: e.entryId, itemName: e.itemName })),
+    currentClosure: null,
+    currentLocalDate: CURRENT_LOCAL_DATE,
+  });
+  const observed = JSON.stringify(raw);
+  // A clarification is a PASS: asking beats guessing a deletion. What must not happen is a
+  // confident removal of kale or tomatoes the farmer never mentioned.
+  if (raw.kind === "clarification") return { ok: true, observed };
+  if (raw.kind !== "edits") return { ok: false, observed };
+  return { ok: raw.removals.length === 0, observed };
+});
+
+fx("live-quality", "an explicit sold-out statement does remove that item", async () => {
+  const raw = await interpreter.interpret({
+    taskText: "kale is all gone",
+    currentEntries: BASE.entries.map((e) => ({ entryId: e.entryId, itemName: e.itemName })),
+    currentClosure: null,
+    currentLocalDate: CURRENT_LOCAL_DATE,
+  });
+  const observed = JSON.stringify(raw);
+  if (raw.kind !== "edits") return { ok: false, observed };
+  // The mirror of the case above: the guard must not have made removal unreachable.
+  const ok =
+    raw.removals.length === 1 &&
+    raw.removals[0]?.entryId === "e2" &&
+    !raw.removals.some((r) => r.entryId === "e1");
+  return { ok, observed };
+});
+
+fx("live-quality", "an explicit whole-listing replacement is not read as an addition", async () => {
+  const raw = await interpreter.interpret({
+    taskText: "all we have left today is eggs",
+    currentEntries: BASE.entries.map((e) => ({ entryId: e.entryId, itemName: e.itemName })),
+    currentClosure: null,
+    currentLocalDate: CURRENT_LOCAL_DATE,
+  });
+  const observed = JSON.stringify(raw);
+  if (raw.kind === "clarification") return { ok: true, observed };
+  if (raw.kind === "clear_all") return { ok: true, observed };
+  if (raw.kind !== "edits") return { ok: false, observed };
+  // "all we have left" DOES replace the listing: both base entries should go.
+  const ok = raw.removals.length === 2;
+  return { ok, observed };
+});
+
 fx("live-closure", "extracts a bounded closure and inventory as one typed update", async () => {
   const raw = await interpreter.interpret({
     taskText: "Closed August 8 through August 10, but we still have eggs.",

@@ -175,7 +175,76 @@ describe("onboarding listing step", () => {
     await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(/on the map/i);
-    expect(screen.getByRole("status")).toHaveTextContent(/SETTINGS/);
+    // "How do I change this later?" is answered by SETTINGS — but during ONBOARDING the
+    // farmer still has one action left, and a later-editing instruction competes with it.
+    // The page states SETTINGS under "What happens next"; the confirmation points at the
+    // text message instead. An already-onboarded farmer editing their listing, who has no
+    // next step, does get SETTINGS here — asserted below.
+    expect(screen.getByRole("status")).toHaveTextContent(/last step/i);
+  });
+
+  it("tells an already-onboarded farmer how to change things later, with no text to send", async () => {
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(
+      <ListingStep credential={{ kind: "stand_link", token: TOKEN }} farmName="Test Farm" />,
+    );
+
+    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent(/SETTINGS/);
+    // No SIGNUP hand-off exists on this path; promising a "last step" would be a lie.
+    expect(status).not.toHaveTextContent(/last step/i);
+  });
+
+  // The save used to REPLACE the whole form with a single sentence. Everything the farmer
+  // had typed vanished, the page reflowed, and the phone-verification card below jumped up
+  // into view — which reads as being thrown onto a different screen. It is not a navigation
+  // and must not feel like one: what was saved stays readable, and the farmer keeps a way
+  // back into it.
+  it("keeps what was saved visible and correctable instead of collapsing the form", async () => {
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/on the map/i);
+    // The farmer's own answer is still on screen, not swapped for a receipt.
+    expect(screen.getByText("Test Farm")).toBeInTheDocument();
+    // And there is a way back in — a saved listing is not a locked one.
+    expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
+  });
+
+  it("names the next step rather than leaving the farmer to find it", async () => {
+    // The SIGNUP card was always below the fold; the collapse merely scrolled it into view
+    // unannounced. Saving must SAY that a text is next, so the hand-off is expected.
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+    // Anchored to the hand-off sentence itself, not the word "text" — "texting SETTINGS"
+    // appears in the non-onboarding copy and would satisfy a looser match forever.
+    expect(await screen.findByRole("status")).toHaveTextContent(/last step/i);
+  });
+
+  it("reopens the form with the farmer's answers intact", async () => {
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(await screen.findByRole("button", { name: /change/i }));
+
+    // Reopening is not a fresh form: a farmer correcting one field must not retype the rest.
+    expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("Test Farm");
   });
 
   it("explains an off-island pin in words the farmer can act on", async () => {

@@ -1,4 +1,4 @@
-import { resolveStandFromToken } from "../../../lib/farmer-stand";
+import { readCurrentStandEntries, resolveStandFromToken } from "../../../lib/farmer-stand";
 import Link from "next/link";
 import { publicReadContext } from "../../../lib/public-context";
 import { StandForm } from "./stand-form";
@@ -45,6 +45,8 @@ export default async function StandPage({
   const locations = await db.sql`
     select name from sales_locations where id = ${stand.salesLocationId}
   `;
+  // Scoped to the location the TOKEN resolved to, never one named by the request.
+  const currentEntries = await readCurrentStandEntries(db, stand.salesLocationId);
   return (
     <main className="farmer-form">
       <header>
@@ -59,20 +61,29 @@ export default async function StandPage({
         see, and <strong>nothing changes until you confirm it</strong>.
       </p>
 
-      <StandForm token={params.token} />
+      <StandForm token={params.token} currentEntries={currentEntries} />
 
       {/*
         F-073 — the listing facts, kept clearly separate from the stock update above. "What I
         usually sell" and "what is on the table today" are two different claims (F-066), and the
         wording says which is which so a farmer does not come here to report today's eggs.
-      */}
-      <Link className="farmer-settings-back" href={`/stand/${params.token}/listing`}>
-        Stand details: address, hours, payment, and what you usually sell
-      </Link>
 
-      <Link className="farmer-settings-back" href={`/stand/${params.token}/settings`}>
-        Stand settings: reminders, default stand, and other sellers
-      </Link>
+        Grouped under a heading rather than left as two bare links directly beneath the submit
+        button, where they read as continuations of the update the farmer was mid-way through —
+        a farmer reporting today's eggs should not find "what you usually sell" as the next
+        thing after the button they just pressed. These are somewhere ELSE to go, and the
+        heading says so before either link is read.
+      */}
+      <nav className="farmer-stand-elsewhere" aria-labelledby="stand-elsewhere-heading">
+        <h2 id="stand-elsewhere-heading">Change your stand&apos;s details</h2>
+        <Link className="farmer-settings-back" href={`/stand/${params.token}/listing`}>
+          Stand details: address, hours, payment, and what you usually sell
+        </Link>
+
+        <Link className="farmer-settings-back" href={`/stand/${params.token}/settings`}>
+          Stand settings: reminders, default stand, and other sellers
+        </Link>
+      </nav>
 
       <p id="new-link-help" className="farmer-form-note">
         This link is private — anyone with it can update this stand. If it stops working, text

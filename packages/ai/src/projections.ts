@@ -118,7 +118,15 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "and its closure field; closure-only output would discard inventory and is wrong. " +
     "For edits, all three arrays (additions, changes, removals) are REQUIRED, each possibly " +
     "empty. additions are items not currently listed; changes and removals refer to listed " +
-    "entries and their entryId MUST be one of the currentEntries ids. quantity is always a " +
+    "entries and their entryId MUST be one of the currentEntries ids. " +
+    "OMISSION IS NOT REMOVAL. A listed item the message does not mention STAYS - do not put " +
+    "it in removals. Remove an entry ONLY when the message says it is gone (sold out, all " +
+    "out, done, finished, took it down) or explicitly replaces the whole listing (\"all we " +
+    "have now is X\", \"just X today\", \"only X left\"). A bare list of items - \"we have " +
+    "eggs and bok choy\" - is an update about THOSE items, not a statement about the ones it " +
+    "leaves out. When you genuinely cannot tell whether the farmer is adding to their " +
+    "listing or replacing it, return the clarification shape and ask - never guess a " +
+    "removal. quantity is always a " +
     'NUMBER - write "a dozen" as 12 - and goes with unit ("lb", "dozen") or is omitted; ' +
     "include only details the message states, never invented ones. If the message is not a " +
     "readable inventory or stand-status update, return the clarification shape with one short " +

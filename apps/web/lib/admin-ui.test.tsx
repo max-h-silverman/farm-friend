@@ -1130,7 +1130,7 @@ describe("the farmer stand form", () => {
       .mockResolvedValueOnce(response(200, { outcome: "published" }));
     vi.stubGlobal("fetch", fetcher);
 
-    render(<StandForm token="private-token" />);
+    render(<StandForm token="private-token" currentEntries={[]} />);
     const input = screen.getByRole("textbox", { name: "What changed at your stand today?" });
     await user.type(input, "squash");
     await user.click(screen.getByRole("button", { name: "Preview update" }));
@@ -1169,7 +1169,7 @@ describe("the farmer stand form", () => {
   it("keeps a failed request unchanged and gives a revoked link a recovery action", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => response(403)));
-    render(<StandForm token="private-token" />);
+    render(<StandForm token="private-token" currentEntries={[]} />);
 
     await user.type(
       screen.getByRole("textbox", { name: "What changed at your stand today?" }),
@@ -1200,7 +1200,7 @@ describe("the farmer stand form", () => {
         .mockResolvedValueOnce(response(200, { outcome: "published" }))
         .mockResolvedValueOnce(response(500, { message: "Could not save the proposal." })),
     );
-    render(<StandForm token="private-token" />);
+    render(<StandForm token="private-token" currentEntries={[]} />);
 
     const input = screen.getByRole("textbox", {
       name: "What changed at your stand today?",

@@ -75,6 +75,51 @@ export async function resolveStandFromToken(
   return resolveFarmerLink(db, { tokenHash: hashFarmerLinkToken(token) });
 }
 
+/**
+ * Read what a stand is currently publishing, to SHOW the farmer before they describe a
+ * change.
+ *
+ * Display only, and deliberately narrow: it takes the sales location from the caller's
+ * already-resolved link, never an identifier from the request, so it cannot be pointed at
+ * another farm's stand. Nothing here feeds interpretation or publication — the proposal the
+ * farmer confirms is still composed server-side from the published revision.
+ */
+export async function readCurrentStandEntries(
+  db: Db,
+  salesLocationId: string,
+): Promise<
+  {
+    entryId: string;
+    itemName: string;
+    quantity?: number;
+    unit?: string;
+    priceText?: string;
+    approximation?: "some" | "limited" | "plentiful";
+  }[]
+> {
+  const rows = await db.sql`
+    select entry.id, entry.item_name, entry.quantity, entry.unit,
+      entry.price_text, entry.approximation
+    from inventory_entries entry
+    join inventory_revisions revision on revision.id = entry.inventory_revision_id
+    where revision.sales_location_id = ${salesLocationId} and revision.is_current
+    order by entry.sort_order asc
+  `;
+  return rows.map((row) => {
+    const record = row as Record<string, unknown>;
+    return {
+      entryId: record.id as string,
+      itemName: record.item_name as string,
+      ...(record.quantity !== null ? { quantity: Number(record.quantity) } : {}),
+      ...(record.unit !== null ? { unit: record.unit as string } : {}),
+      ...(record.price_text !== null ? { priceText: record.price_text as string } : {}),
+      ...(record.approximation !== null
+        ? { approximation: record.approximation as "some" | "limited" | "plentiful" }
+        : {}),
+    };
+  });
+}
+
 export type FarmerStandProposal =
   | {
       outcome: "proposed";

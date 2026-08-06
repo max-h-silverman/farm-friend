@@ -21,7 +21,37 @@ type Stage =
   | { step: "published" }
   | { step: "declined" };
 
-export function StandForm({ token }: { token: string }) {
+/** What the stand is publishing right now, for display only. */
+export interface CurrentEntry {
+  entryId: string;
+  itemName: string;
+  quantity?: number;
+  unit?: string;
+  priceText?: string;
+  approximation?: "some" | "limited" | "plentiful";
+}
+
+/** Render one listed item the way the farmer's own confirmation will phrase it. */
+function describeEntry(entry: CurrentEntry): string {
+  const details = [
+    entry.quantity !== undefined && entry.unit !== undefined
+      ? `${entry.quantity} ${entry.unit}`
+      : entry.quantity !== undefined
+        ? `${entry.quantity}`
+        : entry.approximation,
+    entry.priceText,
+  ].filter((part): part is string => typeof part === "string" && part !== "");
+
+  return details.length > 0 ? `${entry.itemName} (${details.join(", ")})` : entry.itemName;
+}
+
+export function StandForm({
+  token,
+  currentEntries,
+}: {
+  token: string;
+  currentEntries: CurrentEntry[];
+}) {
   const [text, setText] = useState("");
   const [stage, setStage] = useState<Stage>({ step: "typing" });
   const [busy, setBusy] = useState(false);
@@ -135,6 +165,39 @@ export function StandForm({ token }: { token: string }) {
               {stage.question}
             </p>
           )}
+
+          {/*
+            WHAT IS THERE NOW, above the box where they describe a change.
+
+            Without it the farmer is asked "what changed?" against a listing they cannot
+            see, and — the sharper problem — cannot tell whether typing "eggs and bok choy"
+            adds to their listing or replaces it. Those differ by whether the kale survives.
+            The rule the system actually applies (omission preserves) is stated here, beside
+            the typing, rather than left to be discovered in the confirmation afterwards.
+
+            Display only: `currentEntries` is rendered, never posted. What publishes is still
+            the proposal the server composes and the farmer confirms.
+          */}
+          <section className="farmer-current" aria-labelledby="farmer-current-heading">
+            <h2 id="farmer-current-heading">Your stand is showing now</h2>
+            {currentEntries.length === 0 ? (
+              <p className="farmer-current-empty">
+                Nothing listed yet. What you send below will be your first listing.
+              </p>
+            ) : (
+              <>
+                <ul className="farmer-current-list">
+                  {currentEntries.map((entry) => (
+                    <li key={entry.entryId}>{describeEntry(entry)}</li>
+                  ))}
+                </ul>
+                <p className="farmer-current-rule">
+                  Anything you don&apos;t mention stays on your listing. To take something off,
+                  say so — like &ldquo;sold out of kale&rdquo;.
+                </p>
+              </>
+            )}
+          </section>
 
           <label htmlFor="farmer-form-text">What changed at your stand today?</label>
           <textarea

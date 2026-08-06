@@ -447,10 +447,68 @@ export function ListingStep({
   }
 
   if (saved) {
+    /*
+      A CONFIRMATION, not a replacement.
+
+      This used to return one sentence in place of the entire form. Everything the farmer had
+      just typed disappeared, the card collapsed from a full screen to a single line, and the
+      phone-verification card that had been below the fold the whole time snapped upward — so
+      a save that changed no page read as being thrown onto a different screen, with no way
+      to check or fix what had been sent.
+
+      What replaces it says three things in the order a farmer asks them: what happened, what
+      was recorded, and what to do next. Onboarding adds the hand-off to the text message,
+      because there the next action is on a different device and must be announced rather
+      than discovered.
+    */
+    const isOnboarding = credential.kind === "invitation";
     return (
-      <p className="farmer-form-published" role="status">
-        Your stand is on the map. You can change any of this later by texting SETTINGS.
-      </p>
+      <div className="farmer-listing-saved" role="status">
+        <p className="farmer-form-published">
+          {isOnboarding ? "Your stand is on the map." : "Your changes are saved."}
+        </p>
+
+        <dl className="farmer-listing-summary">
+          <div>
+            <dt>Stand</dt>
+            <dd>{standName.trim() === "" ? farmName : standName}</dd>
+          </div>
+          <div>
+            <dt>Visitors</dt>
+            <dd>
+              {visitability === "visitable"
+                ? "People can come to the stand"
+                : "No stand to visit — you deliver or sell elsewhere"}
+            </dd>
+          </div>
+          {address.trim() === "" ? null : (
+            <div>
+              <dt>Address</dt>
+              <dd>{address}</dd>
+            </div>
+          )}
+          {items.trim() === "" ? null : (
+            <div>
+              <dt>Usually sells</dt>
+              <dd>{items}</dd>
+            </div>
+          )}
+        </dl>
+
+        <button
+          className="farmer-listing-change"
+          type="button"
+          onClick={() => setSaved(false)}
+        >
+          Change something
+        </button>
+
+        <p className="farmer-listing-saved-next">
+          {isOnboarding
+            ? "Next: send one text from the phone you want to use for stand updates. It is the last step."
+            : "You can change any of this later by texting SETTINGS."}
+        </p>
+      </div>
     );
   }
 
