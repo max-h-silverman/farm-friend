@@ -637,6 +637,164 @@ describe("farm-map poster treatment", () => {
       "9 Orchard Way",
     );
   });
+
+  /*
+    THE TWO VOICES, asserted as STRUCTURE rather than as styling (max, 2026-08-06).
+
+    A confirmation and a specialty must not be able to read as the same kind of claim. The card
+    says so by giving them different SHAPES — the confirmation is a list of chips, the specialty
+    is a sentence — and that difference is what this test holds. It asserts the elements, not the
+    CSS: a rule that repainted `.items-usual` back into chips would be caught by the eye, but a
+    markup change that rendered specialties as `<li>` again is the regression that would slip
+    through review, because it looks correct in the diff.
+  */
+  it("gives a confirmation and a specialty different shapes, and leads the card with stock", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "voices",
+      farmName: "Two Voices Farm",
+      locationName: "Two Voices Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "11 Split Road",
+      latitude: 47.44,
+      longitude: -122.46,
+      updated: "updated 2 hours ago",
+      confirmedElapsed: "2 hours ago",
+      stale: false,
+      availability: {},
+      usuallySells: ["flowers", "honey"],
+      alsoSellingHere: [],
+      links: [],
+      paymentMethods: [],
+      items: [{ itemName: "Tulips" }],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Two Voices Stand" }));
+
+    const body = container.querySelector(".stands .stand-detail-body")!;
+
+    // The confirmed line is a LIST of chips, dated by its own label.
+    const confirmed = body.querySelector(".listing-confirmed")!;
+    expect(confirmed.querySelector(".listing-label")).toHaveTextContent("Confirmed 2 hours ago");
+    expect(confirmed.querySelectorAll(".items li")).toHaveLength(1);
+
+    // The usual line is a SENTENCE. No list, no chips — nothing countable-looking, and no date.
+    const usual = body.querySelector(".listing-usual")!;
+    expect(usual.querySelector("li")).toBeNull();
+    expect(usual.querySelector(".items-usual")).toHaveTextContent("flowers, honey");
+    expect(usual.textContent).not.toMatch(/ago/);
+
+    // Stock leads the card. Asserted on the phone SHEET, which is the surface that renders both
+    // sections: the expanded directory row suppresses "Plan your visit" because its address is
+    // already in the collapsed summary above.
+    await user.click(screen.getByRole("button", { name: "Two Voices Stand" }));
+    await user.click(
+      screen.getByRole("button", { name: "1. Two Voices Stand, Two Voices Farm" }),
+    );
+    const sheetBody = screen
+      .getByRole("dialog", { name: "Two Voices Stand details" })
+      .querySelector(".stand-detail-body")!;
+    const sections = Array.from(sheetBody.children);
+    expect(sections.indexOf(sheetBody.querySelector(".detail-inventory")!)).toBeLessThan(
+      sections.indexOf(sheetBody.querySelector(".detail-visit")!),
+    );
+  });
+
+  /*
+    STALENESS IS NEVER SIGNALLED BY COLOUR ALONE (globals.css, top).
+
+    Colour fails for a colourblind customer and in bright sun, so the rule is that WORDS always
+    carry it too. This asserts the words, and it exists because nothing did: the card once had a
+    third signal, a "May be out of date" line, and removing it broke no test at all. A guarantee
+    with no test is a guarantee that leaves silently.
+
+    Asserted as TEXT a customer can read, deliberately — not as a class name or an element. A
+    version of this that queried `.stand-summary-freshness` would pass against an empty span.
+  */
+  it("says staleness in words, not only in colour", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "words",
+      farmName: "Wordy Farm",
+      locationName: "Wordy Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "5 Plain Road",
+      latitude: 47.44,
+      longitude: -122.46,
+      availability: {},
+      alsoSellingHere: [],
+      links: [],
+      paymentMethods: [],
+      items: [{ itemName: "Apples" }],
+      updated: "updated 6 days ago",
+      confirmedElapsed: "6 days ago",
+      stale: true,
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Wordy Stand" }));
+
+    // Signal one: the summary label, beside the address.
+    expect(container.querySelector(".stands .stand")).toHaveTextContent("Needs confirmation");
+    // Signal two: the dated label above the items, which states the age in words.
+    expect(container.querySelector(".listing-label-confirmed")).toHaveTextContent(
+      "Confirmed 6 days ago",
+    );
+
+    // A fresh stand claims neither.
+    const fresh = render(<StandMap stands={[{ ...stand, id: "fresh", stale: false }]} />);
+    expect(fresh.container.querySelector(".stands .stand")).not.toHaveTextContent(
+      "Needs confirmation",
+    );
+  });
+
+  /*
+    A STALE CARD MUST NOT CONTRADICT ITSELF (max, 2026-08-06).
+
+    The confirmed label is green — the colour this map uses for "a farmer vouched for this". On a
+    stand the card is otherwise flagging as needing confirmation, green says trust this about the
+    very fact the rest of the card doubts, which is the honesty failure the recency design exists
+    to prevent. Past the staleness window the timestamp goes amber.
+
+    This label is also now one of the two WORD-based staleness signals (see globals.css), so it
+    carries an accessibility guarantee and not only a visual one.
+  */
+  it("does not colour the confirmation as certain once the stand is stale", async () => {
+    const user = userEvent.setup();
+    const base: PublicStandPayload = {
+      id: "aged",
+      farmName: "Aged Farm",
+      locationName: "Aged Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "3 Old Lane",
+      latitude: 47.44,
+      longitude: -122.46,
+      availability: {},
+      alsoSellingHere: [],
+      links: [],
+      paymentMethods: [],
+      items: [{ itemName: "Apples" }],
+      updated: "updated 6 days ago",
+      confirmedElapsed: "6 days ago",
+    };
+
+    const fresh = render(<StandMap stands={[{ ...base, stale: false }]} />);
+    await user.click(screen.getByRole("button", { name: "Aged Stand" }));
+    expect(
+      fresh.container.querySelector(".listing-label-confirmed"),
+    ).not.toHaveClass("listing-label-aged");
+    fresh.unmount();
+
+    const stale = render(<StandMap stands={[{ ...base, stale: true }]} />);
+    await user.click(screen.getByRole("button", { name: "Aged Stand" }));
+    expect(stale.container.querySelector(".listing-label-confirmed")).toHaveClass(
+      "listing-label-aged",
+    );
+  });
 });
 
 // The wide layout puts the map beside the directory, and the MAP is what moves when a stand is

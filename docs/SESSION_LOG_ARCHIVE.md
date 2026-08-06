@@ -1,7 +1,7 @@
-# Farm Friend — Session Log Archive (through 2026-08-02)
+# Farm Friend — Session Log Archive (through 2026-08-04)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-05; it now holds 55 entries.
+everything older lives here. Last rotated 2026-08-06; it now holds 56 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -9,6 +9,68 @@ architecture documents ([README.md](README.md) is the index). Where an entry her
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
 
 ---
+
+## 2026-08-04 — interactive map selection and key polish
+
+Nine small corrections to the public map, requested directly rather than through a PM item, plus two
+mid-session amendments. Selection now reads the same on both surfaces: the directory row's selected
+fill IS its hover fill (one new `--row-hover` token), so a chosen row no longer shifts color under
+the pointer, and its ring thickened 2px → 3px to match the selected pin's weight.
+
+**The selected pin is drawn last.** SVG has no `z-index` — paint order is stacking order — so a
+selected pin rendered in place hid under whichever pins came after it, worst in the dense clusters
+where the selection is hardest to find. Rather than add a second near-duplicate helper, `hoistStand`
+gained a `"front" | "end"` parameter: the directory still hoists the selection to the front, the pin
+layer hoists it to the end. Both ends are sabotage-verified.
+
+**Pin outlines carry no state.** The white-unselected/black-selected switch is gone; every pin now
+wears the same thin 2px outline, whose only job is holding markers apart from the land and from each
+other. Selection is said once, by the halo. The flower glyph keeps an outline matching its own
+petals, because a contrasting stroke draws the seams *between* its five overlapping circles and
+turns one glyph into five discs.
+
+Two defects were found by measuring rather than by reading the diff. The **thin black border**
+appearing beside the amber one on first selection was `.stand:focus-within { border-color:
+var(--olive) }` — clicking a row focuses the button inside it, so the dark border fired alongside the
+selection ring; removed, with keyboard focus still carried by the button's own `:focus-visible`.
+Separately, on wide screens the **amber ring was being erased whenever the pointer rested on the
+selected row**: `.stand:hover { box-shadow: none }` and `.stand-selected` have equal specificity and
+the hover rule sat later in the file. Computed style read `box-shadow: "none"` in a real browser;
+`.stand:not(.stand-selected):hover` fixes it. Neither was visible to any test.
+
+**The directory key never wraps.** Its type and its gap both scale in `cqi` against `.list-column`,
+which is now a container — a `vw` clamp sized the key for room the padded column does not have and
+clipped the last label on a phone. The slopes and floors are measured at 320–414px, not guessed.
+An honest limit: below roughly a 340px column the three labels cannot share one line at any legible
+size — the dots and gaps alone overrun it, verified down to 7px type — so the type stops at a
+readable floor and the row scrolls rather than clipping a legend entry invisibly. The key is also
+left-aligned with wider inter-item spacing.
+
+The **"Has a stand to visit" filter was removed end-to-end** — the option, the active-filter count,
+the `StandFilters` field, the predicate in `applyStandFilters`, and its test — rather than left as an
+unreachable key with no consumer.
+
+Verification: 99 unit-test files / 959 tests, typecheck, lint, and production web build. The new
+`hoistStand` end-hoist tests were sabotage-checked: reverting the branch fails both, restoring passes.
+Every visual claim was confirmed in a real browser at 1440x1000 and in 390px and 320px frames,
+reading computed styles rather than trusting screenshots — jsdom reports every element as zero-sized
+and can see none of this. No schema migration, no model seam, and no SMS or privacy surface was
+touched, so no integration run or eval was owed.
+
+Released as PR #76, squash-merged to `main` as `4a8bca7`. Cloud Build
+`6a2c341b-22fa-43ee-8952-84f6febc6d74` produced digest
+`sha256:2f089d8b4a0482a78cea6754b5dfa914800c7e5c021fb2dc9845ee455eab797a`. OpenTofu passed 37/37
+plan assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
+`farm-friend-web-00027-5ng` and `farm-friend-worker-00028-67c`; deploy and served-card assertions
+passed. No migration was owed. Verified **by effect** rather than by the apply's exit status: the
+served CSS bundle carries `--row-hover`, `.stand:not(.stand-selected):hover`,
+`container-type:inline-size`, and `cqi` sizing; no served chunk still contains "Has a stand to
+visit"; and the live page reports a 3px amber ring, the selected pin last in the layer, a
+one-line left-aligned key, and a uniform 2px pin stroke.
+
+A local-history note for whoever pulls next: the squash merge rewrote three commits that existed
+only on the local `main` (`c9efe10`, `8f04542`, `7e8326f`); their content is present in `4a8bca7`,
+and local `main` was reset to `origin/main` after confirming the trees matched.
 
 ## 2026-08-02 — map marker colors corrected and deployed
 
