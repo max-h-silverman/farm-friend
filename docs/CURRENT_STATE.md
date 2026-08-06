@@ -182,9 +182,42 @@ public description, which it does.
 
 ## Verification
 
-- **Branch `farmer-ux-pass` (`b922b1e`), MERGED to nothing yet — NOT deployed.** Four
-  farmer/admin defects max reported from using the app, plus a test-harness gap found on the
-  way. **1320 unit / 729 integration**, typecheck, lint pass. No migration.
+- **Branch `farmer-ux-pass` (`74a6fcf`), MERGED to nothing yet — NOT deployed.** Four
+  farmer/admin defects max reported from using the app, the chip interface below, plus a
+  test-harness gap found on the way. **1342 unit / 735 integration**, typecheck, lint pass.
+  No migration.
+  - **The stand listing is now DIRECTLY EDITABLE** (max: "maybe instead of a chat input the
+    web update form can just be like adding/removing tags"). A listing is a set of short
+    strings, so a farmer taking kale off was doing manual labour to express "remove one
+    member of a set". Chips are primary; free text remains as the escape hatch for what chips
+    cannot say (a closure, a price mentioned in passing), which is also what keeps the model
+    seam a live path rather than dead code.
+  - **A structured edit skips the MODEL, and nothing else.** `applyInterpretedInventory`
+    takes either `taskText` or an `edit` already in the interpreter's output shape; every
+    step after interpretation was always code and is unchanged — same
+    `validateInterpretation` against the same snapshot, same composition, same confirmation
+    gate. **Sabotaged**: bypassing validation for structured edits is caught by a test
+    sending an entry id belonging to no snapshot. A strict boundary parser
+    (`farmer-stand-edit.ts`) refuses unknown keys rather than stripping them, rejects
+    non-finite quantities, and cannot express `clear_all`; two sabotages confirmed those.
+  - **A defect only the browser found.** Chips send ENTRY IDS, and the page drew the
+    PUBLISHED revision while composition uses the sender's OPEN PROPOSAL as its base. A
+    farmer who edited once and returned saw chips for items their own pending proposal had
+    dropped; tapping one sent an id absent from the base and was refused — correctly, for a
+    change they had every reason to think was available. The free-text path never hit it
+    because prose names items, not identifiers. `readCurrentStandEntries` now returns the
+    pending base when one is open, scoped to one sender. **Sabotaged and confirmed.**
+  - **`button:first-of-type` styled the wrong control.** Written when the screen had one
+    button; once the listing became editable the first button was a chip's ×, so the control
+    that TAKES AN ITEM OFF rendered as the one that publishes. The affirmative action now
+    carries an explicit class, asserted by test. Position is not intent.
+  - **Verified in the running app, by effect.** Published via chips with no model call and
+    checked against the row: a new current revision carrying the composed items and prices.
+    The gate refused twice first (`not_approved` — the local seed farm had no
+    `farm_approvals` row), which is the gate working, not a defect.
+  - **"Weekly update form" was never the product's name** — it was mine in conversation and
+    is dropped. VIGA's "weekly form" (the Google form volunteers transcribe) and the
+    `weekly` reminder cadence are real and unchanged; no farmer surface calls itself that.
   - ~~**An `evals:live` run IS OWED**~~ — **DONE 2026-08-06, 25/25 pass** against
     `mistralai/Mistral-Small-24B-Instruct-2501` (containment 4/4, closure 7/7, quality 9/9,
     recall 5/5). `packages/ai/src/projections.ts` changed: the inventory-extraction prompt never
