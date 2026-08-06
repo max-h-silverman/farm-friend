@@ -50,9 +50,28 @@ no key.
 **Nothing is merged-and-undeployed, and no migration is owed.** `main` at `41412b4` is what
 production serves.
 
-**`GEOCODING_API_KEY` is still unset in production**, so address lookup is off and the onboarding
-form serves the pre-F-069 pin-drop behaviour — a supported deployment. The two live checks below
-remain owed, and the geocoding one **cannot be run until that key is set**.
+**`GEOCODING_API_KEY` is still unset in PRODUCTION**, so address lookup is off there and the
+onboarding form serves the pre-F-069 pin-drop behaviour — a supported deployment.
+
+**Production cannot receive this key yet, and that is an infrastructure gap rather than a missing
+value** (found 2026-08-06). `composition.ts:289` reads `GEOCODING_API_KEY`, but `infra/secrets.tf`
+declares only five secrets and `infra/services.tf` mounts only six environment variables — neither
+includes geocoding. Turning it on in production therefore needs: the secret added to
+`local.app_secrets`, mounted into the **web** service only (the worker never geocodes), the value
+added out of band with `printf %s` (never through Terraform, which writes values to state), then
+plan/assert/apply and a redeploy. A redeploy is **required**, not optional: `deploy_assertions.py`
+demands serving revisions be newer than every secret version.
+
+**The geocoding path HAS now made real billed calls** (2026-08-06, key set locally only) — the
+check that was owed since F-069, and it is done. Three calls through the shipped
+`lookupIslandAddress`, not a hand-rolled fetch, so what was exercised is the code production would
+run: the request it builds, the live response shape it parses, and the bounds check on the way
+back. Every test injects `fetch`, so none of that had ever been verified against the real provider.
+  - a real Vashon address → `found`, pinned at **47.4496, -122.4609** (Vashon town — the right
+    place, not merely a well-formed answer);
+  - **`400 Broad St, Seattle` → `off_island`, REFUSED** — the one that matters, since it is a
+    valid geocode the bounds check rejected rather than handing a farmer a pin fifteen miles away;
+  - nonsense → `no_result`, degrading to pin-dropping.
 
 **Deployed twice on 2026-08-05, each verified by effect**: plan assertions 37/37 both times,
 deploy and served-card assertions pass, and the live site serves **34 stands, 33 reading
@@ -181,14 +200,14 @@ public description, which it does.
   recorded because it is exactly the shape of failure that would otherwise be blamed on the code.
 - Prior `main` (the stand-card redesign): **112 unit files / 1243 tests**, **50 integration
   files / 688 tests**, typecheck and lint pass — **re-run on the merged base**, not carried over
-  from the branch. **No `packages/ai` file changed, so no eval or `evals:live` run is owed.** **Not
-  deployed**, and migration `0022` is not applied to production (see Release state).
-  **Two live checks remain owed**, recorded rather than assumed: the onboarding form has **not been
-  exercised in a real browser** since F-069, and the geocoding path has **never made a real billed
-  call** — every test injects the provider, so the live request/response shape is unverified. The
-  geocoding check is **blocked until `GEOCODING_API_KEY` is set** in production. **Per-tranche
-  browser checks are no longer tracked here** (max, 2026-08-05): he runs browser testing himself in
-  a pass before go-live, so listing them per item recorded a debt that was not one.
+  from the branch. **No `packages/ai` file changed, so no eval or `evals:live` run is owed.** Now
+  deployed, and migration `0022` is applied (see Release state).
+  ~~**Two live checks remain owed**~~ — **the geocoding one is CLOSED** (2026-08-06, see Release
+  state: three real billed calls through the shipped code, including a Seattle address genuinely
+  refused as off-island). What remains is the onboarding form in a **real browser** since F-069.
+  **Per-tranche browser checks are no longer tracked here** (max, 2026-08-05): he runs browser
+  testing himself in a pass before go-live, so listing them per item recorded a debt that was not
+  one.
 - **The card redesign was browser-checked at both widths, including in dark OS appearance.** Not
   logged as an owed item — the check is done. At 390px the phone sheet leads with the confirmed
   chips, wraps them to two rows and the "usually sells" sentence as prose; with the machine in dark
@@ -389,9 +408,11 @@ against the real corpus on 2026-08-04 while implementing.
      map. `MapProvider`, coordinate-inventing stubs, and mapping **dependencies** remain forbidden
      everywhere, and `architecture.test.ts` now fails on a *second* geocode caller. Its
      comment-stripping fix also closed a real weakness: the old tripwire matched its own prose.
-  **Owed before this is trustworthy:** a real browser round trip, and one live geocoding call
-  against the real provider with a real key. `GEOCODING_API_KEY` is **optional and unset** — until
-  it is set, the form asks the farmer to tap the map, which is the pre-F-069 behaviour.
+  **The live geocoding call is DONE** (2026-08-06): three real billed calls through the shipped
+  `lookupIslandAddress` against the real provider, including a valid Seattle geocode genuinely
+  refused as off-island. Still owed: a real **browser** round trip. `GEOCODING_API_KEY` is
+  **optional and unset in production** — until it is set there (which needs the infra wiring
+  described in Release state), the form asks the farmer to tap the map, the pre-F-069 behaviour.
 - **F-070 put the island's main roads on the map (deployed 2026-08-06; 12 secondary road paths verified in the served bytes).** F-043 drew one road on
   purpose ("side roads would turn a legible poster into a street map"), which was right while the
   artwork only oriented a customer. **The onboarding form gave it a second job** — it is how a
