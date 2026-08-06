@@ -5,6 +5,7 @@ import {
   date,
   doublePrecision,
   foreignKey,
+  type AnyPgColumn,
   index,
   integer,
   jsonb,
@@ -352,6 +353,75 @@ export const adminSessions = pgTable(
 );
 
 /**
+ * F-074 — phone numbers that may SEE test farms over SMS. Nothing else.
+ *
+ * This is the riskiest concept in the feature and the constraints on it are deliberate.
+ * Administrators are otherwise an email + password account with **no phone identity at all**,
+ * so this introduces a second way to be privileged, reachable from untrusted inbound SMS —
+ * the exact surface the safety boundary exists to contain. What keeps it safe is that the
+ * capability it grants is a single boolean at retrieval time: a listed sender sees test farms
+ * in results and gains **no other power**. It cannot publish, approve, or read a farmer's data,
+ * because nothing on those paths consults this table.
+ *
+ * `phoneHash` is the only lookup key, exactly as everywhere else (Golden Rule #5). Unlike
+ * `contacts` there is deliberately **no `phone_e164` column**: the raw number exists there only
+ * because the outbound send path needs something to send TO, and nothing here ever sends. The
+ * four digits are the same lossy fragment the admin surface already shows operators, kept so a
+ * human can tell which row to remove — they identify a row, never a subscriber.
+ *
+ * Removal is a REVOCATION rather than a delete, matching `administrators` and
+ * `farmer_authorizations`: the row stays so the audit trail can still answer who was listed and
+ * when. A revoked row stops granting visibility immediately, because every reader filters on
+ * `revoked_at is null`.
+ */
+export const administratorPhones = pgTable(
+  "administrator_phones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    phoneHash: text("phone_hash").notNull(),
+    /** The last four digits, so an operator can tell one row from another. Never more. */
+    phoneLastFour: text("phone_last_four").notNull(),
+    addedByAdministratorId: uuid("added_by_administrator_id")
+      .notNull()
+      .references(() => administrators.id, { onDelete: "restrict" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedByAdministratorId: uuid("revoked_by_administrator_id").references(
+      () => administrators.id,
+      { onDelete: "restrict" },
+    ),
+  },
+  (table) => ({
+    // One LIVE listing per number; revoked rows accumulate as history. A partial unique index
+    // rather than a plain unique, for the same reason `farm_approvals` uses one: re-listing a
+    // number that was removed must be allowed, and must not resurrect the old row.
+    oneLivePerPhone: uniqueIndex("administrator_phones_one_live")
+      .on(table.phoneHash)
+      .where(sql`${table.revokedAt} is null`),
+    // A short value here would mean the number was stored rather than hashed.
+    phoneHashShape: check(
+      "administrator_phones_phone_hash_shape",
+      sql`${table.phoneHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    // Exactly four digits — the mask `maskPhoneSuffix` refuses anything longer, and the column
+    // must refuse it too rather than trusting every writer to have normalized first.
+    lastFourShape: check(
+      "administrator_phones_last_four_shape",
+      sql`${table.phoneLastFour} ~ '^[0-9]{4}$'`,
+    ),
+    // Both revocation columns move together or not at all, as a full disjunction: a CHECK
+    // passes on NULL, so a one-directional test would admit a row revoked by nobody.
+    coherentRevocation: check(
+      "administrator_phones_coherent_revocation",
+      sql`
+        (${table.revokedAt} is null and ${table.revokedByAdministratorId} is null)
+        or (${table.revokedAt} is not null and ${table.revokedByAdministratorId} is not null)
+      `,
+    ),
+  }),
+);
+
+/**
  * Durable failed-login budgets. Both the coarse client key and the account-wide key are
  * opaque salted hashes; no network address, email, or password material is stored.
  *
@@ -393,6 +463,29 @@ export const farms = pgTable(
     mapProjection: publicMapProjection("map_projection"),
     publicLatitude: doublePrecision("public_latitude"),
     publicLongitude: doublePrecision("public_longitude"),
+    /**
+     * F-074 — VIGA marked this whole farm as a TEST farm. NULL means a real farm.
+     *
+     * A test farm is absent from every public surface unless the viewer deliberately asked for
+     * it: `?hidden=true` on the web, a listed sender hash over SMS. It is not a listing with a
+     * warning on it — it is not there.
+     *
+     * On `farms` rather than `sales_locations` because the intent is "this whole farm is fake",
+     * and one decision should cover every stand it has. Deliberately its OWN column rather than
+     * folded into `sales_locations.is_public`, for the same reason `retired_at` is: `is_public`
+     * is a listing attribute the farmer's own form rewrites on every save, so an operator
+     * decision expressed through it would be silently cleared the next time anyone edited.
+     *
+     * It is an operator fact about a fake farm, NEVER a privacy control for a real one. A farmer
+     * who does not want their address published is `contact_only` (B-024) — `?hidden=true` is a
+     * guessable URL parameter, so this hides nothing from anyone determined to look.
+     */
+    testFarmAt: timestamp("test_farm_at", { withTimezone: true }),
+    testFarmByAdministratorId: uuid("test_farm_by_administrator_id").references(
+      (): AnyPgColumn => administrators.id,
+      { onDelete: "restrict" },
+    ),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -402,6 +495,19 @@ export const farms = pgTable(
   },
   (table) => ({
     nameNotBlank: check("farms_name_not_blank", sql`length(trim(${table.name})) > 0`),
+    /**
+     * The two test-farm columns move together or not at all — the same shape as
+     * `sales_locations_coherent_retirement`, and written as a full disjunction for the same
+     * reason: a CHECK *passes* on NULL, so a one-directional test would admit a farm marked by
+     * nobody, and only its mirror image would admit an actor recorded against a real farm.
+     */
+    coherentTestFarm: check(
+      "farms_coherent_test_farm",
+      sql`
+        (${table.testFarmAt} is null and ${table.testFarmByAdministratorId} is null)
+        or (${table.testFarmAt} is not null and ${table.testFarmByAdministratorId} is not null)
+      `,
+    ),
     projectionCoordinates: check(
       "farms_projection_coordinates_coherent",
       sql`

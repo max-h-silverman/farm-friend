@@ -10,6 +10,7 @@ import {
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 import { applyConsentTransitionIn, queueOutbox } from "./transactions";
+import { visibleFarms } from "./test-farms";
 
 // Farmer onboarding's durable writes (F-040).
 //
@@ -1197,11 +1198,15 @@ export interface ClaimableFarmRow {
  * A farm being unclaimed is not a secret: participation is already public on the map, and max
  * confirmed (2026-08-06) the page may say plainly that a farm is already set up.
  */
-export async function listClaimableFarms(db: Db): Promise<ClaimableFarmRow[]> {
+export async function listClaimableFarms(
+  db: Db,
+  scope: { includeTestFarms: boolean } = { includeTestFarms: false },
+): Promise<ClaimableFarmRow[]> {
   const rows = await driver(db).unsafe(`
     select farm.id, farm.name
     from farms as farm
     where ${NO_LIVE_FARMER("farm")}
+      and ${visibleFarms("farm", scope.includeTestFarms)}
     order by farm.name, farm.id
   `);
   return rows.map((row) => ({
@@ -1229,10 +1234,14 @@ export interface SelfServiceFarmRow {
  * confirmed (2026-08-06) the page may say so plainly. It still carries the farm and nothing
  * else: no invitation state, no token, no hash, no contact (Golden Rule #5).
  */
-export async function listFarmsForSelfService(db: Db): Promise<SelfServiceFarmRow[]> {
+export async function listFarmsForSelfService(
+  db: Db,
+  scope: { includeTestFarms: boolean } = { includeTestFarms: false },
+): Promise<SelfServiceFarmRow[]> {
   const rows = await driver(db).unsafe(`
     select farm.id, farm.name, not ${NO_LIVE_FARMER("farm")} as onboarded
     from farms as farm
+    where ${visibleFarms("farm", scope.includeTestFarms)}
     order by farm.name, farm.id
   `);
   return rows.map((row) => ({
@@ -1258,6 +1267,14 @@ export type ClaimGrandfatheredFarmResult =
  * It grants no authority. Resolving says only "this farm has no farmer, so its listing may be
  * written through the grandfather door" — publishing INVENTORY still requires an authorization,
  * which still requires a handset. Nothing on this path writes `farmer_authorizations`.
+ *
+ * **A test farm is deliberately still claimable here** (F-074), even though the picker hides it.
+ * That is not the picker's omission failing to be enforced — it is the whole point of a test
+ * farm: walking onboarding end to end against real production is what one exists for, and a
+ * farm nobody can claim could never be walked. Hiding it from the picker keeps a real farmer
+ * from picking a fake farm by accident; it was never a secret, and a farm id is not one either.
+ * What a test farm's claim CANNOT do is reach a customer, and that is enforced where it belongs
+ * — in the three read sites, not here.
  */
 export async function claimGrandfatheredFarm(
   db: Db,

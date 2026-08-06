@@ -15,8 +15,22 @@ import { StandMap } from "./stand-map";
 
 export const dynamic = "force-dynamic";
 
-export default async function HomePage() {
-  const stands = await listPublicStands(publicReadContext());
+// F-074 — `?hidden=true` reaches a server component as `searchParams`, not as a URL, so the
+// page reads the parameter itself rather than sharing `viewerScopeFromUrl` with the API route.
+// The RULE both surfaces obey — which farms a scope may see — is shared where it matters, in
+// `visibleFarms`; what differs here is only how Next hands over the query string.
+//
+// A repeated parameter arrives as an array. That is not `"true"`, so it does not open the door
+// — a near-miss failing CLOSED is the only safe direction for a visibility filter.
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const stands = await listPublicStands(publicReadContext(), {
+    includeTestFarms: params.hidden === "true",
+  });
 
   // The SAME serializer `GET /api/public/stands` uses (F-042). This mapping used to be
   // written out again here, and the two copies had already diverged — the page sent

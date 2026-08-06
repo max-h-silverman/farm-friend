@@ -17,6 +17,7 @@ export * from "./pending-result-list";
 export * from "./participants";
 export * from "./review";
 export * from "./scheduled-prompts";
+export * from "./test-farms";
 export type { Sql } from "./sql";
 
 export interface Db {

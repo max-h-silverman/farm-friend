@@ -215,7 +215,12 @@ describe("SMS result paging end to end (integration)", () => {
         model: createInquiryModel(provider),
         clock: new FixedClock(occurredAt),
       },
-      { taskText: "any eggs?", senderHash, occurredAt },
+      {
+        taskText: "any eggs?",
+        senderHash,
+        occurredAt,
+        scope: { includeTestFarms: false },
+      },
     );
   }
 
@@ -283,7 +288,7 @@ describe("SMS result paging end to end (integration)", () => {
     });
     const answer = await answerInquiry(
       { db: db as Db, model: createInquiryModel(provider), clock: new FixedClock(T0) },
-      { taskText: "any durian?", senderHash: customerHash, occurredAt: T0 },
+      { taskText: "any durian?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
     );
 
     expect(answer.outcome).toBe("answered");

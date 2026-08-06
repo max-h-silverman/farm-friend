@@ -277,7 +277,7 @@ describe("one closure projection across public discovery and customer SMS (integ
     ]);
     const closedAnswer = await answerInquiry(
       { db: database(), model: createInquiryModel(closedProvider), clock: new FixedClock(T0) },
-      { taskText: "eggs?", senderHash: customerHash, occurredAt: T0 },
+      { taskText: "eggs?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
     );
     expect(closedAnswer.outcome).toBe("answered");
     if (closedAnswer.outcome === "answered") expect(closedAnswer.body).toMatch(/no stand has a current listing/i);
@@ -297,7 +297,7 @@ describe("one closure projection across public discovery and customer SMS (integ
     ]);
     const upcomingAnswer = await answerInquiry(
       { db: database(), model: createInquiryModel(upcomingProvider), clock: new FixedClock(T0) },
-      { taskText: "eggs?", senderHash: customerHash, occurredAt: T0 },
+      { taskText: "eggs?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
     );
     expect(upcomingAnswer.outcome).toBe("answered");
     if (upcomingAnswer.outcome === "answered") expect(upcomingAnswer.body).toContain("Reader Stand");

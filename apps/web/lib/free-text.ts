@@ -4,7 +4,12 @@ import {
   type InventoryInterpreter,
 } from "@farm-friend/core";
 import type { FarmerMessageIntentModel, InquiryModel } from "@farm-friend/ai";
-import { hasLiveFarmerAuthorization, resolveFarmerTarget, type Db } from "@farm-friend/db";
+import {
+  hasLiveFarmerAuthorization,
+  isPrivilegedSender,
+  resolveFarmerTarget,
+  type Db,
+} from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
 import { applyInterpretedInventory } from "./interpretation";
 import { renderFarmerTargetMenu } from "./farmer-targeting";
@@ -44,6 +49,17 @@ async function handleCustomerInquiry(
     occurredAt: Date;
   },
 ): Promise<FreeTextResult> {
+  // F-074 — whether this sender may see test farms, resolved by CODE from the sender hash
+  // BEFORE the model runs. The model never receives this boolean and never sees the hash; it
+  // selects from whatever retrieval returned, so a test farm the filter excluded cannot be
+  // named however directly the question asks for it.
+  //
+  // It grants visibility and nothing else. Being listed does not reach the farmer branch above
+  // — that is still `farmer_authorizations` and nothing here consults this list.
+  const includeTestFarms = await isPrivilegedSender(deps.db, {
+    senderHash: input.senderHash,
+  });
+
   // Not an authorized farmer, or an authorized farmer who explicitly asked a question.
   // Every factual word of the reply is rendered by code from retrieved rows; the model only
   // interprets and orders identifiers.
@@ -55,6 +71,7 @@ async function handleCustomerInquiry(
       // and the expiry runs from the message's own time rather than the pass's.
       senderHash: input.senderHash,
       occurredAt: input.occurredAt,
+      scope: { includeTestFarms },
     },
   );
 

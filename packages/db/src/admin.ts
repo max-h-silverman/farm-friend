@@ -518,6 +518,8 @@ export interface AdminFarmRow {
   approved: boolean;
   approvedAt: Date | null;
   approvedByEmail: string | null;
+  /** F-074 — VIGA marked this farm as fake, so customers never see it. */
+  isTestFarm: boolean;
 }
 
 /**
@@ -529,7 +531,8 @@ export interface AdminFarmRow {
  */
 export async function listFarmsForApproval(db: Db): Promise<AdminFarmRow[]> {
   const rows = await driver(db)`
-    select farm.id, farm.name, approval.approved_at, administrator.email
+    select farm.id, farm.name, farm.test_farm_at, approval.approved_at,
+      administrator.email
     from farms as farm
     left join farm_approvals as approval
       on approval.farm_id = farm.id and approval.revoked_at is null
@@ -544,6 +547,10 @@ export async function listFarmsForApproval(db: Db): Promise<AdminFarmRow[]> {
     approvedAt:
       row.approved_at === null ? null : new Date(row.approved_at as string),
     approvedByEmail: (row.email as string | null) ?? null,
+    // F-074 — the ADMIN surface is the one place a test farm is never hidden. An operator
+    // managing the flag has to be able to see which farms carry it, and this reader is already
+    // behind the session guard.
+    isTestFarm: row.test_farm_at !== null,
   }));
 }
 

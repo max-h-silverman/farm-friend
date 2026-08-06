@@ -15,7 +15,7 @@ import {
   type RetrievedFact,
 } from "@farm-friend/core";
 import type { InquiryModel } from "@farm-friend/ai";
-import { savePendingResultList, type Db } from "@farm-friend/db";
+import { savePendingResultList, visibleFarms, type Db } from "@farm-friend/db";
 import { readPublicClosure } from "./closure-projection";
 
 // Customer inquiry: question → code-rendered grounded answer.
@@ -42,6 +42,22 @@ export interface InquiryDeps {
   db: Db;
   model: InquiryModel;
   clock: Clock;
+}
+
+/**
+ * Whether this SENDER may see test farms (F-074).
+ *
+ * A resolved boolean by the time it reaches retrieval, and that is the containment. Whether a
+ * sender is privileged is CODE's decision from the sender hash, made before any model call; the
+ * model never learns it, never sees the hash, and cannot influence it. Nothing downstream can
+ * escalate a fact it was never given.
+ *
+ * Required rather than optional, unlike the web's scope. A caller that forgets it on the map
+ * shows a fake farm to a browser; a caller that forgets it here answers a stranger's text about
+ * one — and the compiler is the only thing that reliably notices a new call site.
+ */
+export interface SmsViewerScope {
+  includeTestFarms: boolean;
 }
 
 /**
@@ -106,8 +122,12 @@ export interface LocationRow {
  * Retrieval stays deliberately general — it selects rows, and the layers above order and
  * select. There is no food vocabulary or farm name in this query.
  */
-async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]> {
-  const rows = await db.sql`
+async function retrieveCurrentListings(
+  db: Db,
+  at: Date,
+  scope: SmsViewerScope,
+): Promise<LocationRow[]> {
+  const rows = await db.sql.unsafe(`
     select
       l.id as location_id,
       l.name as location_name,
@@ -134,9 +154,14 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
     -- F-071 — a stand VIGA retired leaves SMS retrieval too, not just the map. Both surfaces
     -- run their own SQL, so the map's filter proves nothing about this one; the failure it
     -- guards against is a text reply sending someone to a stand that has been taken down.
+    --
+    -- F-074 — and a test farm leaves it unless this SENDER is privileged. The filter is in
+    -- RETRIEVAL, which is what makes "the model cannot name a test farm however directly it is
+    -- asked" true rather than promised: the model only ever selects from what came back here.
     where l.is_public and l.retired_at is null
+      and ${visibleFarms("f", scope.includeTestFarms)}
     order by l.id asc, e.sort_order asc
-  `;
+  `);
 
   const byLocation = new Map<string, LocationRow>();
   for (const raw of rows) {
@@ -171,7 +196,7 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
 
   // The offerings half. `created_at` orders these among themselves; it is never rendered,
   // because an offering is a standing description that nobody confirmed.
-  const offeringRows = await db.sql`
+  const offeringRows = await db.sql.unsafe(`
     select
       l.id as location_id,
       l.name as location_name,
@@ -192,9 +217,13 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
     join stand_items o on o.sales_location_id = l.id and o.usually_carried
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
+    -- The SECOND query in this function, and it needs the F-074 filter independently. A stand
+    -- with no confirmed revision reaches a customer only through this half, so filtering the
+    -- confirmed query alone would hide a test farm's fresh items and publish its standing ones.
     where l.is_public and l.retired_at is null
+      and ${visibleFarms("f", scope.includeTestFarms)}
     order by l.id asc, o.sort_order asc
-  `;
+  `);
 
   const offeringsByLocation = new Map<string, LocationRow>();
   for (const raw of offeringRows) {
@@ -245,10 +274,24 @@ async function retrieveCurrentListings(db: Db, at: Date): Promise<LocationRow[]>
  */
 export async function dereferenceFacts(
   db: Db,
-  input: { factIds: string[]; itemsRequested: string[]; at: Date },
+  input: {
+    factIds: string[];
+    itemsRequested: string[];
+    at: Date;
+    /**
+     * F-074 — re-applied on the paging path too. A saved list holds identifiers, and this
+     * dereferences them through the SAME retrieval: a sender whose listing was removed between
+     * the question and their `MORE` stops seeing test farms mid-conversation, and a saved id
+     * cannot be replayed by anyone else into an answer they were never entitled to.
+     */
+    scope: SmsViewerScope;
+  },
 ): Promise<PageableFact[]> {
   const byId = new Map(
-    (await retrieveCurrentListings(db, input.at)).map((row) => [row.factId, row]),
+    (await retrieveCurrentListings(db, input.at, input.scope)).map((row) => [
+      row.factId,
+      row,
+    ]),
   );
   return input.factIds
     .map((factId) => byId.get(factId))
@@ -301,6 +344,8 @@ export async function answerInquiry(
     senderHash: string;
     /** The inbound message's own time — what the saved list's expiry is measured from. */
     occurredAt: Date;
+    /** F-074 — whether this sender may see test farms. Code's decision, never the model's. */
+    scope: SmsViewerScope;
   },
 ): Promise<InquiryOutcome> {
   // Step 2 — interpret. This call sees the question and no facts.
@@ -336,7 +381,7 @@ export async function answerInquiry(
 
   // Step 3 — CODE retrieves, then ranks by the validated interpretation.
   const now = deps.clock.now();
-  const listings = await retrieveCurrentListings(deps.db, now);
+  const listings = await retrieveCurrentListings(deps.db, now, input.scope);
   const candidates: InquiryCandidate[] = listings.map((row) => ({
     factId: row.factId,
     farmName: row.farmName,

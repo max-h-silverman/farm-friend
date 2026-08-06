@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import {
+  listAdministratorPhones,
   listFarmsForApproval,
   listFlagsForReview,
   listOpenFarmerOnboardingRequests,
@@ -19,6 +20,7 @@ import { publicReadContext } from "../../lib/public-context";
 import { ApprovalQueue } from "./approval-queue";
 import { AdminShell, SignedOutAdmin } from "./admin-shell";
 import { StandList, type AdminStandCard } from "./stand-list";
+import { TestFarms } from "./test-farms";
 
 // The VIGA operator surface (F-025a): sign in, see every farm, approve or revoke.
 //
@@ -224,13 +226,14 @@ export default async function AdminPage() {
   }
 
   const { db } = publicReadContext();
-  const [farms, stands, farmerRequests, flags, listingQuestions, stockReports] = await Promise.all([
+  const [farms, stands, farmerRequests, flags, listingQuestions, stockReports, testPhones] = await Promise.all([
     listFarmsForApproval(db),
     listStandsForAdministration(db),
     listOpenFarmerOnboardingRequests(db),
     listFlagsForReview(db, { status: "open" }),
     listStandDataFlags(db, { status: "open" }),
     listStockOutReports(db, { status: "open" }),
+    listAdministratorPhones(db),
   ]);
   const work = [
     // F-067 — approval is now the EXCEPTION, not the routine step. An invited farmer's farm is
@@ -297,6 +300,30 @@ export default async function AdminPage() {
           <summary id="stand-records-heading">Stand records ({stands.length})</summary>
           <p className="admin-note">Check what customers can currently see.</p>
           <StandList stands={asStandCards(stands)} />
+        </details>
+      </section>
+
+      {/*
+        F-074 — setup rather than pending work, so it sits with the reference records behind a
+        disclosure rather than in "Needs attention". A test farm is not a decision waiting on
+        anyone; it is a rehearsal VIGA set up on purpose.
+      */}
+      <section className="admin-records" aria-labelledby="test-farms-heading">
+        <details className="admin-secondary-disclosure">
+          <summary id="test-farms-heading">
+            Test farms ({farms.filter((farm) => farm.isTestFarm).length})
+          </summary>
+          <TestFarms
+            farms={farms.map((farm) => ({
+              farmId: farm.farmId,
+              name: farm.name,
+              isTestFarm: farm.isTestFarm,
+            }))}
+            phones={testPhones.map((phone) => ({
+              id: phone.id,
+              lastFour: phone.lastFour,
+            }))}
+          />
         </details>
       </section>
     </AdminShell>

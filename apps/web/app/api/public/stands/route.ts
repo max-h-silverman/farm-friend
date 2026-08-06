@@ -1,5 +1,8 @@
 import { publicReadContext } from "../../../../lib/public-context";
-import { handleStandsRequest } from "../../../../lib/public-listing";
+import {
+  handleStandsRequest,
+  viewerScopeFromUrl,
+} from "../../../../lib/public-listing";
 
 // Public discovery — ungated, anonymous, MODEL-FREE, and deliberately NOT throttled.
 //
@@ -21,6 +24,10 @@ import { handleStandsRequest } from "../../../../lib/public-listing";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<Response> {
-  return handleStandsRequest(publicReadContext());
+// F-074 — `?hidden=true` is the one thing this route reads off the URL, and it only ever
+// ADDS test farms to the answer. It is a query parameter rather than a credential, which is
+// acceptable because a test farm holds no real data; it must never be used to hide a real
+// farm that wants privacy (that is `contact_only` — B-024).
+export async function GET(req: Request): Promise<Response> {
+  return handleStandsRequest(publicReadContext(), viewerScopeFromUrl(req.url));
 }

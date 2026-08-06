@@ -4,7 +4,7 @@ import {
   renderResultPage,
   type Clock,
 } from "@farm-friend/core";
-import { takeNextResultPage, type Db } from "@farm-friend/db";
+import { isPrivilegedSender, takeNextResultPage, type Db } from "@farm-friend/db";
 import { dereferenceFacts } from "./inquiry";
 
 // The MORE branch of inbound routing (F-046 part 3).
@@ -65,10 +65,20 @@ export async function handleNextPage(
       return { body: renderNoPendingList(), status: "no_pending_list" };
     }
 
+    // F-074 — the sender's privilege is re-read on every page rather than saved with the list.
+    // A saved list holds identifiers, not entitlement: if the number was removed from the
+    // administrator phone list between the question and this `MORE`, the test farms drop out
+    // of the remaining pages. The `facts.length === 0` branch below already handles a page
+    // that empties out, so a revoked sender walks off the end honestly rather than erroring.
     const facts = await dereferenceFacts(deps.db, {
       factIds: claimed.factIds,
       itemsRequested: claimed.itemsRequested,
       at: deps.clock.now(),
+      scope: {
+        includeTestFarms: await isPrivilegedSender(deps.db, {
+          senderHash: input.senderHash,
+        }),
+      },
     });
 
     if (facts.length === 0) {

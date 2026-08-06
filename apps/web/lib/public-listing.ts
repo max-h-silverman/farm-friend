@@ -1,5 +1,5 @@
 import { isStale, renderElapsed, renderRecency, type Clock } from "@farm-friend/core";
-import type { Db } from "@farm-friend/db";
+import { visibleFarms, type Db } from "@farm-friend/db";
 // A TYPE-ONLY import of the browser view model's input shape. It adds no runtime edge (and
 // `map-view.ts` is already inside the public read graph, model-free and asserted so), and it
 // makes the wire format a compiler-checked contract between the server that writes it and the
@@ -31,6 +31,21 @@ export interface PublicListingDeps {
   db: Db;
   clock: Clock;
 }
+
+/**
+ * What a viewer deliberately asked to see (F-074).
+ *
+ * `includeTestFarms` is false everywhere except a request that carried `?hidden=true`. It is
+ * separated from `PublicListingDeps` on purpose: dependencies are how the surface is wired,
+ * this is a property of the REQUEST, and folding a per-request fact into the composition root
+ * is how one visitor's query string ends up deciding what every other visitor sees.
+ */
+export interface PublicViewerScope {
+  includeTestFarms: boolean;
+}
+
+/** The ordinary visitor. Named so the common case is a value rather than a repeated literal. */
+export const PUBLIC_VIEWER: PublicViewerScope = { includeTestFarms: false };
 
 export interface PublicStandItem {
   itemName: string;
@@ -258,8 +273,9 @@ function readAvailability(row: Record<string, unknown>): StandAvailability {
  */
 export async function listPublicStands(
   deps: PublicListingDeps,
+  scope: PublicViewerScope = PUBLIC_VIEWER,
 ): Promise<PublicStand[]> {
-  const rows = await deps.db.sql`
+  const rows = await deps.db.sql.unsafe(`
     select
       l.id as location_id,
       l.name as location_name,
@@ -377,15 +393,21 @@ export async function listPublicStands(
     -- at most one row, so it cannot multiply the result.
     left join stand_items item
       on item.sales_location_id = e.sales_location_id
-     and lower(btrim(item.display_name, E' \t\r\n'))
-       = lower(btrim(e.item_name, E' \t\r\n'))
+     and lower(btrim(item.display_name, E' \\t\\r\\n'))
+       = lower(btrim(e.item_name, E' \\t\\r\\n'))
     -- F-071 — retired_at is a SECOND, operator-owned reason a stand leaves the public
     -- surface, and it is deliberately not folded into is_public: that column is a listing
     -- attribute the farmer's own onboarding form sets to true on every save, so VIGA's
     -- decision expressed through it would be reverted the next time the farmer edited.
+    --
+    -- F-074 adds a THIRD, and it is the same shape of rule for the same reason: a test farm is
+    -- absent unless this viewer deliberately asked for one. The predicate is composed from
+    -- visibleFarms rather than written out, because SMS retrieval runs its own two queries
+    -- and the map's filter proves nothing about those — three copies is three chances to leak.
     where l.is_public and l.retired_at is null
+      and ${visibleFarms("f", scope.includeTestFarms)}
     order by r.published_at desc nulls last, l.id asc, e.sort_order asc
-  `;
+  `);
 
   const now = deps.clock.now();
   const byLocation = new Map<string, PublicStand>();
@@ -488,10 +510,27 @@ export async function listPublicStands(
  */
 export async function handleStandsRequest(
   deps: PublicListingDeps,
+  scope: PublicViewerScope = PUBLIC_VIEWER,
 ): Promise<Response> {
-  const stands = await listPublicStands(deps);
+  const stands = await listPublicStands(deps, scope);
 
   return Response.json({ stands: stands.map(serializePublicStand) });
+}
+
+/**
+ * Read the deliberate-viewer decision out of a request URL (F-074).
+ *
+ * Stated once and shared by the API route and the page, so the two surfaces cannot disagree
+ * about what asking for test farms looks like. Exactly `?hidden=true` counts — `hidden=1`,
+ * `hidden`, and `hidden=TRUE` do not, because a filter that leaks on a near-miss is worse than
+ * one that is strict and predictable.
+ *
+ * This is a query parameter, NOT a credential. Anyone who guesses it sees test farms, which is
+ * acceptable only because a test farm holds no real data.
+ */
+export function viewerScopeFromUrl(url: string): PublicViewerScope {
+  const hidden = new URL(url).searchParams.get("hidden");
+  return { includeTestFarms: hidden === "true" };
 }
 
 /**

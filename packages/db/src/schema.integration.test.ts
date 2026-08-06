@@ -37,6 +37,9 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 const expectedTables = [
   "admin_login_failures",
   "admin_sessions",
+  // F-074 — who may see test farms over SMS. Hashes only; no raw number, because nothing on
+  // this path ever sends to it.
+  "administrator_phones",
   "administrators",
   "audit_events",
   "closure_revisions",

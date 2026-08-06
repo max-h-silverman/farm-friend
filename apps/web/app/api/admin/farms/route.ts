@@ -1,6 +1,7 @@
 import {
   approveFarm,
   revokeFarmApproval,
+  setTestFarm,
 } from "@farm-friend/db";
 import { requireAdministrator } from "../../../../lib/admin-guard";
 import { publicReadContext } from "../../../../lib/public-context";
@@ -32,7 +33,16 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const farmId = typeof body.farmId === "string" ? body.farmId : null;
-  const action = body.action === "approve" || body.action === "revoke" ? body.action : null;
+  // F-074 adds two more actions here rather than a route of their own: marking a farm as a
+  // test farm is the same KIND of act as approving one — VIGA recording a decision about a
+  // farm — and a second route would be a second place to remember the session guard.
+  const action =
+    body.action === "approve" ||
+    body.action === "revoke" ||
+    body.action === "mark_test" ||
+    body.action === "unmark_test"
+      ? body.action
+      : null;
   if (farmId === null || action === null) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
@@ -48,14 +58,24 @@ export async function POST(req: Request): Promise<Response> {
           administratorId: caller.administratorId,
           occurredAt,
         })
-      : await revokeFarmApproval(db, {
-          farmId,
-          administratorId: caller.administratorId,
-          occurredAt,
-        });
+      : action === "revoke"
+        ? await revokeFarmApproval(db, {
+            farmId,
+            administratorId: caller.administratorId,
+            occurredAt,
+          })
+        : await setTestFarm(db, {
+            farmId,
+            isTestFarm: action === "mark_test",
+            administratorId: caller.administratorId,
+            occurredAt,
+          });
 
   const status =
-    result.status === "approved" || result.status === "revoked"
+    result.status === "approved" ||
+    result.status === "revoked" ||
+    result.status === "marked" ||
+    result.status === "unmarked"
       ? 200
       : result.status === "unknown_farm"
         ? 404

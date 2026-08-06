@@ -11,7 +11,20 @@ import {
   type ModelSafeContext,
 } from "@farm-friend/ai";
 import { createPublicActionThrottle, FixedClock } from "@farm-friend/core";
-import { createDb, retireStand, type Db, type Sql } from "@farm-friend/db";
+import {
+  addAdministratorPhone,
+  claimGrandfatheredFarm,
+  createDb,
+  hasLiveFarmerAuthorization,
+  isPrivilegedSender,
+  listFarmsForSelfService,
+  removeAdministratorPhone,
+  retireStand,
+  saveOnboardingListing,
+  setTestFarm,
+  type Db,
+  type Sql,
+} from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
 import { standListingLines } from "./map-view";
 import {
@@ -549,7 +562,7 @@ describe("public web surface boundary (integration)", () => {
           ),
           clock,
         },
-        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0 },
+        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
       );
 
       expect(answer.outcome).toBe("answered");
@@ -625,7 +638,7 @@ describe("public web surface boundary (integration)", () => {
           ),
           clock,
         },
-        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0 },
+        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
       );
       // The honest reply is still `answered` — an empty retrieval short-circuits to a
       // code-rendered "no current listing" (Golden Rule #4), which is the right answer rather
@@ -636,6 +649,305 @@ describe("public web surface boundary (integration)", () => {
       expect(answer.selectedFactIds).toEqual([]);
       expect(answer.body).not.toContain("Provo Stand");
       expect(answer.body).not.toContain("Provo Farms");
+    });
+
+    // ──────────────────────────────────────────────────── F-074: test farms
+    //
+    // A test farm is a farm VIGA marked as fake so the whole journey can be walked against real
+    // production without an islander seeing it. The property that makes it worth building is
+    // ABSENCE: not a listing with a warning on it, but a stand that is not there.
+    //
+    // Four surfaces decide this and each runs its own SQL — the map, both halves of SMS
+    // retrieval, and the grandfathered picker. Every test below therefore asserts a surface
+    // rather than the predicate: `visibleFarms` returning the right string proves nothing about
+    // whether a query actually composed it.
+
+    /** Mark the fixture farm as a test farm through the real writer, never by hand. */
+    async function markTestFarm(): Promise<void> {
+      const admins = await client()`select id from administrators limit 1`;
+      const result = await setTestFarm(db!, {
+        farmId: ids.farm,
+        isTestFarm: true,
+        administratorId: admins[0]?.id as string,
+        occurredAt: T0,
+      });
+      expect(result.status, "the fixture must really be marked").toBe("marked");
+    }
+
+    it("hides a test farm from the map, and shows it only for ?hidden=true (F-074)", async () => {
+      const clock = new FixedClock(T0);
+      expect(
+        await listPublicStands({ db: db!, clock }),
+        "the stand must be public before it is marked",
+      ).toHaveLength(1);
+
+      await markTestFarm();
+
+      // The ordinary visitor — the default, stated as a call with no scope at all, because
+      // that is how every pre-F-074 caller in the codebase reads.
+      expect(await listPublicStands({ db: db!, clock })).toEqual([]);
+      expect(
+        await listPublicStands({ db: db!, clock }, { includeTestFarms: false }),
+      ).toEqual([]);
+
+      // The deliberate viewer. Present, and NOT labelled — max chose no marker, since a test
+      // farm's NAME already reads as one (2026-08-06).
+      const deliberate = await listPublicStands(
+        { db: db!, clock },
+        { includeTestFarms: true },
+      );
+      expect(deliberate).toHaveLength(1);
+      expect(deliberate[0]!.farmName).toBe("Provo Farms");
+    });
+
+    it("keeps a test farm out of BOTH SMS retrieval queries unless the sender is listed (F-074)", async () => {
+      await markTestFarm();
+      const clock = new FixedClock(T0);
+
+      // The model is scripted to select the test farm anyway — a hostile selection, not a
+      // cooperative one. The filter is in RETRIEVAL, so code cannot ground an answer in a fact
+      // that never came back, however directly the question asked for it.
+      const ask = async (includeTestFarms: boolean) =>
+        answerInquiry(
+          {
+            db: db!,
+            model: createInquiryModel(
+              new ScriptedProvider(
+                JSON.stringify({ kind: "lookup", items: ["kale"], ranking: "freshest" }),
+                JSON.stringify({ kind: "selection", factIds: [ids.location] }),
+              ),
+            ),
+            clock,
+          },
+          {
+            taskText: "who has kale?",
+            senderHash: "4".repeat(64),
+            occurredAt: T0,
+            scope: { includeTestFarms },
+          },
+        );
+
+      const hidden = await ask(false);
+      expect(hidden.outcome).toBe("answered");
+      if (hidden.outcome !== "answered") throw new Error("expected an answer");
+      expect(hidden.selectedFactIds).toEqual([]);
+      expect(hidden.body).not.toContain("Provo Stand");
+      expect(hidden.body).not.toContain("Provo Farms");
+
+      const shown = await ask(true);
+      expect(shown.outcome).toBe("answered");
+      if (shown.outcome !== "answered") throw new Error("expected an answer");
+      expect(shown.body).toContain("Provo Stand");
+    });
+
+    it("hides a test farm with NO confirmed revision, which only the offerings query returns (F-074)", async () => {
+      // The second retrieval query is a genuinely separate leak. A stand whose farmer has
+      // never confirmed anything reaches a customer ONLY through the standing-items half, so
+      // filtering the confirmed query alone would hide fresh stock and publish the rest.
+      //
+      // A SECOND farm rather than stripping the fixture's revisions: `inventory_entries`
+      // refuses every delete (its immutability guard is real, and the attempt proved it), and
+      // a never-confirmed stand is the honest shape of this case anyway.
+      const admins = await client()`select id from administrators limit 1`;
+      const quietFarm = await client()`
+        insert into farms (name) values ('Rhubarb Test Farm') returning id
+      `;
+      const quietFarmId = quietFarm[0]?.id as string;
+      const quietLocation = await client()`
+        insert into sales_locations (
+          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (${quietFarmId}, 'farm_stand', 'Rhubarb Stand', 'America/Los_Angeles',
+                'visitable', 'produce', '9 Vashon Hwy', 47.4, -122.46, false, false)
+        returning id
+      `;
+      const quietLocationId = quietLocation[0]?.id as string;
+      await client()`
+        insert into stand_items (sales_location_id, display_name, usually_carried)
+        values (${quietLocationId}, 'Rhubarb', true)
+      `;
+
+      const marked = await setTestFarm(db!, {
+        farmId: quietFarmId,
+        isTestFarm: true,
+        administratorId: admins[0]?.id as string,
+        occurredAt: T0,
+      });
+      expect(marked.status, "the quiet farm must really be marked").toBe("marked");
+
+      const ask = async (includeTestFarms: boolean) =>
+        answerInquiry(
+          {
+            db: db!,
+            model: createInquiryModel(
+              new ScriptedProvider(
+                JSON.stringify({ kind: "lookup", items: ["rhubarb"], ranking: "any" }),
+                JSON.stringify({
+                  kind: "selection",
+                  factIds: [`offering-${quietLocationId}`],
+                }),
+              ),
+            ),
+            clock: new FixedClock(T0),
+          },
+          {
+            taskText: "anyone got rhubarb?",
+            senderHash: "4".repeat(64),
+            occurredAt: T0,
+            scope: { includeTestFarms },
+          },
+        );
+
+      // REJECTED, not an empty answer, and that is the stronger result. The fixture's other
+      // farm still has kale, so retrieval is non-empty and the model really runs — it then
+      // names the test farm's offering id anyway, and code refuses a selection that is not in
+      // the retrieved set (Golden Rule #4). Nothing model-authored is delivered.
+      const hidden = await ask(false);
+      expect(hidden.outcome).toBe("rejected");
+      if (hidden.outcome === "answered") {
+        throw new Error("a hidden test farm must never be answered from");
+      }
+
+      // The mirror image, which is what proves the stand was reachable through this query at
+      // all. Without it, a test asserting only absence would pass against a stand that was
+      // never retrievable for some unrelated reason.
+      const shown = await ask(true);
+      expect(shown.outcome).toBe("answered");
+      if (shown.outcome !== "answered") throw new Error("expected an answer");
+      expect(shown.body).toContain("Rhubarb Stand");
+    });
+
+    it("grants a listed sender VISIBILITY and nothing else (F-074)", async () => {
+      // The acceptance criterion that matters most, because the phone list is a second way to
+      // be privileged reachable from untrusted inbound SMS. Being listed must not make a
+      // sender a farmer: `hasLiveFarmerAuthorization` is what decides that, and it does not
+      // consult this table.
+      const admins = await client()`select id from administrators limit 1`;
+      // Deliberately NOT `farmerHash` — a hash that is already an authorized farmer would
+      // pass this test for the wrong reason and prove nothing about the phone list.
+      const strangerHash = "b".repeat(64);
+      await addAdministratorPhone(db!, {
+        phoneHash: strangerHash,
+        phoneLastFour: "0139",
+        administratorId: admins[0]?.id as string,
+        occurredAt: T0,
+      });
+
+      expect(await isPrivilegedSender(db!, { senderHash: strangerHash })).toBe(true);
+      // Listed, and still not a farmer. If this ever flips, the phone list has become an
+      // authorization mechanism and a stranger can publish to someone else's stand.
+      expect(
+        await hasLiveFarmerAuthorization(db!, {
+          senderHash: strangerHash,
+          occurredAt: T0,
+        }),
+        "being on the phone list must never grant farmer authority",
+      ).toBe(false);
+    });
+
+    it("stops granting visibility the moment a number is removed (F-074)", async () => {
+      const admins = await client()`select id from administrators limit 1`;
+      const operatorHash = "9".repeat(64);
+      const added = await addAdministratorPhone(db!, {
+        phoneHash: operatorHash,
+        phoneLastFour: "0139",
+        administratorId: admins[0]?.id as string,
+        occurredAt: T0,
+      });
+      expect(added.status).toBe("added");
+      if (added.status !== "added") throw new Error("expected an addition");
+      expect(await isPrivilegedSender(db!, { senderHash: operatorHash })).toBe(true);
+
+      const removed = await removeAdministratorPhone(db!, {
+        id: added.id,
+        administratorId: admins[0]?.id as string,
+        occurredAt: T0,
+      });
+      expect(removed.status).toBe("removed");
+      expect(
+        await isPrivilegedSender(db!, { senderHash: operatorHash }),
+        "a removed number must stop seeing test farms immediately",
+      ).toBe(false);
+
+      // Revocation, not deletion: the row survives so the audit trail can still answer who was
+      // listed and when.
+      const rows = await client()`
+        select revoked_at from administrator_phones where id = ${added.id}
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.revoked_at).not.toBeNull();
+    });
+
+    it("keeps a test farm out of the grandfathered picker, but still CLAIMABLE (F-074)", async () => {
+      // The picker and the resolver deliberately disagree here, and that is the design rather
+      // than a leak. Hiding a fake farm from the dropdown stops a real farmer picking it by
+      // accident; refusing to RESOLVE it would make a test farm impossible to onboard, which
+      // is the one thing a test farm exists for.
+      await markTestFarm();
+
+      const ordinary = await listFarmsForSelfService(db!);
+      expect(ordinary.map((row) => row.farmId)).not.toContain(ids.farm);
+
+      const deliberate = await listFarmsForSelfService(db!, { includeTestFarms: true });
+      expect(deliberate.map((row) => row.farmId)).toContain(ids.farm);
+
+      // The fixture farm has a live authorization, so `already_onboarded` is the correct
+      // refusal — and crucially NOT `unknown_farm`, which is what a resolver that filtered
+      // test farms would answer.
+      const claim = await claimGrandfatheredFarm(db!, { farmId: ids.farm });
+      expect(claim.status).toBe("already_onboarded");
+
+      // With the authorization gone the same test farm resolves, proving the resolver never
+      // filtered on the test flag at all.
+      //
+      // REVOKED, not deleted: published revisions reference the authorization that made them,
+      // so a delete fails at the constraint — and revocation is what the real system does
+      // anyway. `NO_LIVE_FARMER` keys on `revoked_at`, which is the whole point of that
+      // predicate over an invitation-based one.
+      await client()`
+        update farmer_authorizations set revoked_at = ${T0} where farm_id = ${ids.farm}
+      `;
+      const claimable = await claimGrandfatheredFarm(db!, { farmId: ids.farm });
+      expect(claimable.status).toBe("claimable");
+    });
+
+    it("is never cleared by a farmer saving their listing (F-074)", async () => {
+      // The whole reason this is its own column. `is_public` is rewritten on every listing
+      // save, so a flag folded into it would be silently undone by the farmer's next edit —
+      // exactly why F-071 kept `retired_at` separate.
+      //
+      // Driven through the REAL writer rather than a hand-written UPDATE: a fixture that sets
+      // `is_public` itself would prove the column survives and leave the writer untested,
+      // which is precisely the failure this test exists to catch.
+      await markTestFarm();
+
+      const saved = await saveOnboardingListing(db!, {
+        farmId: ids.farm,
+        standName: "Provo Stand",
+        occurredAt: T0,
+        listing: {
+          visitability: "visitable",
+          offeringType: "produce",
+          publicAddress: "123 Vashon Hwy",
+          latitude: 47.4471,
+          longitude: -122.4594,
+          hoursText: "Daily, dawn to dusk",
+          paymentMethods: [],
+          items: [],
+        },
+      });
+      expect(saved.status, "the farmer's save must really commit").toBe("saved");
+
+      const rows = await client()`
+        select test_farm_at from farms where id = ${ids.farm}
+      `;
+      expect(
+        rows[0]?.test_farm_at,
+        "a listing save must not clear the test-farm flag",
+      ).not.toBeNull();
+      expect(await listPublicStands({ db: db!, clock: new FixedClock(T0) })).toEqual([]);
     });
 
     it("is never capped by the public model throttle", async () => {

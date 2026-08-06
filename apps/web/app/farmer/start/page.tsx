@@ -19,11 +19,23 @@ export const dynamic = "force-dynamic";
  * Saying plainly that a farm is already set up discloses nothing: participation is already
  * public on the map (max, 2026-08-06).
  */
-export default async function FarmerStartPage() {
+export default async function FarmerStartPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { db } = publicReadContext();
+  const params = await searchParams;
   // BOTH kinds: the picker routes rather than merely offering, so a farmer whose farm is
   // already set up must find it here and be sent to the update path.
-  const farms = await listFarmsForSelfService(db);
+  //
+  // F-074 — and NEITHER kind includes a test farm unless the URL asked for one, the same rule
+  // the map obeys (max, 2026-08-06). This is a convenience filter, not a guarantee: it keeps a
+  // real farmer from picking a fake farm by accident. `claimGrandfatheredFarm` deliberately
+  // still resolves a test farm, because walking onboarding end to end is what one is FOR.
+  const farms = await listFarmsForSelfService(db, {
+    includeTestFarms: params.hidden === "true",
+  });
 
   return (
     <main className="farmer-onboarding">
