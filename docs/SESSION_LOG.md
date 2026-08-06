@@ -6,8 +6,94 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 54. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 55. A log too large to open
 mid-session defeats its own purpose.
+
+---
+
+## 2026-08-05 — retiring a stand, re-issuing a lost onboarding link, and quieter admin chrome
+
+Four small admin asks from max (F-071). Two were one-line changes; two turned out to have a real
+design decision underneath, and both were put to max rather than assumed. Merged as PR #83.
+**Not deployed** — migration `0022_stand_retirement` is not applied to production.
+
+### "Delete a farm/stand" could only ever mean taking it off the map
+
+Reading the schema settled it before asking: nearly every reference to `sales_locations` is
+`on delete restrict` — `inventory_revisions`, `inventory_entries`, `stand_items`,
+`stock_out_reports` — so **a hard DELETE fails at the constraint for any stand that has ever
+published**, which is nearly all of them. Erasure would also erase the answer to "what did this
+stand say it had, and when", which Golden Rule #1 and the audit trail exist to keep. max was asked
+anyway, with the constraint stated, and chose "take it off the map, keep records".
+
+**`retired_at` is deliberately not `is_public`.** That column is a *listing attribute the farmer's
+own onboarding form writes on every save* (`onboarding-listing.ts` sets `is_public = true`), so an
+operator decision expressed through it would be silently reverted the next time the farmer edited
+their listing. One column owned by two actors is the failure; a separate operator-owned column is
+the fix.
+
+**The enforcement is at the publication seam, not in the caller.** `confirmInventoryPublication`
+reads `retired_at` from the location row it had *already locked* at the top of the transaction, so
+a retirement racing an in-flight confirmation resolves at the lock rather than by arrival order.
+It deliberately does **not** gate the `no` branch: declining a prompt for a since-retired stand is
+closing your own proposal, not publishing, and refusing it would strand that proposal open forever.
+
+### A lost onboarding link is re-minted, never recovered
+
+`farmer_invitations` stores only `token_hash`, and `createFarmerInvitation` returns the token
+exactly once. So max's "view onboarding link" is not implementable as a view, and shouldn't be —
+the password-reset argument. max chose "make a new link". The farmers page now lists farms with no
+live authorization and mints a fresh link through the invite path that already existed, rather than
+a second endpoint.
+
+**"Unfinished" is the absence of a LIVE AUTHORIZATION, not an unredeemed invitation.** Those come
+apart in both directions and each is a test: VIGA can authorize a farmer straight from the queue
+with no invitation involved (that farm is finished, and keying on redemption would strand it in the
+list forever), and a farm whose only farmer was revoked again has nobody who can update it. An
+*expired* invitation keeps the farm listed rather than dropping it — a farmer who lost their link
+usually notices after it lapsed, so hiding those would hide exactly the farms an operator came for.
+
+### Three existing guards caught real defects rather than passing
+
+The most valuable part of the session, and none of it was found by reading the code.
+
+- **drizzle-kit silently omits CHECK constraints when it generates SQL.** The coherent-retirement
+  invariant existed in `schema.ts` and in *nothing the database enforced*.
+  `migration-metadata.test.ts` caught it by name. The constraint is now hand-written into the
+  migration and verified **by effect** against a freshly migrated database: present in
+  `pg_constraint`, and it refuses an insert carrying half a retirement.
+- **The generated journal timestamp was LOWER than `0021`'s** (1785992670717 vs 1787000000000) —
+  precisely the documented silent-skip condition, where drizzle applies only when
+  `created_at < folderMillis` and reports success for a migration it skipped. Corrected by hand.
+- **`closure.integration.test.ts` detects lock contention by matching `pg_stat_activity` query
+  text**, and adding a column to the locked SELECT reduced its observed claimants to **zero while
+  the test kept running**. It was re-anchored to the locked table plus `for update` — the
+  constructs it actually proves — rather than to a column list that changes whenever a column is
+  added, then re-sabotaged to confirm it still bites. This is the "anchor a source assertion to the
+  construct it proves" lesson appearing in a *runtime* probe.
+
+Stashing the branch proved the closure failure was ours rather than environmental, which is what
+distinguished it from a flaky concurrency test.
+
+### The admin stands route had no guard test at all
+
+`/api/admin/stands` was missing from the "every admin route refuses an unauthorized caller" sweep
+in `admin-routes.integration.test.ts` — a sweep whose entire stated purpose is that adding a route
+without a guard shows up there rather than in production. It is now covered, which matters more
+than before: the route now carries the power to take any stand off the public map.
+
+### Verified
+
+1240 unit / 688 integration, typecheck and lint clean, on the merged base. No `packages/ai` file
+changed, so no evals are owed. Every new guard was sabotaged and confirmed to fail: the publication
+check, **both public read filters independently** (map filter intact while breaking SMS, and the
+reverse — `inquiry.ts` runs its own SQL, so the map passing proves nothing about the text reply),
+the route's session guard, and the awaiting-onboarding revocation clause.
+
+**Owed: the browser check.** This changes the public map's read path, and the project requires
+looking at that at phone width in both light and dark before calling it done. max deferred it
+during the session. Migration `0022` was applied to the **local sandbox only** (43 farms / 39
+stands unchanged, verified by effect); production is untouched.
 
 ---
 
@@ -689,18 +775,3 @@ one-line left-aligned key, and a uniform 2px pin stroke.
 A local-history note for whoever pulls next: the squash merge rewrote three commits that existed
 only on the local `main` (`c9efe10`, `8f04542`, `7e8326f`); their content is present in `4a8bca7`,
 and local `main` was reset to `origin/main` after confirming the trees matched.
-
-## 2026-08-02 — map marker colors corrected and deployed
-
-The map’s open-state CSS was overriding the category colors: unknown, by-appointment, and stale
-classes could turn a category marker gray or amber. Flower glyph strokes were also gray. PR #74
-(`87ea51c`) makes the category fill authoritative: seasonal stays blue, year-round stays green,
-farmers market stays purple, and flower petals and outlines stay red. Written open-state and stale
-warnings remain in the card/list, and CSS regression tests cover the cascade boundary.
-
-Verification: 94 unit-test files / 896 tests, typecheck, lint, and production web build. Cloud Build
-`0d4f9963-535f-4ecd-81f5-7c35900390f6` produced digest
-`sha256:0e98f195d7947735b426254118d769e9ffa9dc49c35c4801920f34ff9ddbb698`. OpenTofu passed 37/37
-assertions and applied 0 adds, 2 service updates, and 0 destroys. Live revisions are
-`farm-friend-web-00023-frt` and `farm-friend-worker-00024-mzv`; deployment and served-card checks
-passed. No database migration or data backfill was needed.
