@@ -7,11 +7,38 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00032-msc` and worker revision `farm-friend-worker-00033-tp9`, both at digest
-`sha256:95ae621177b59ce53834e8267da16d0e792950d5ed596bfae682b753755b4eb3` (`main` at `3b6e580`,
-PR #82). Production Postgres is `neondb` with **all 22 migrations applied (`0000`–`0021`)**,
-verified by effect on 2026-08-05 — see the [session log](SESSION_LOG.md) for the per-migration
-checks and the fingerprint that preceded them.
+`farm-friend-web-00033-fgq` and worker revision `farm-friend-worker-00034-4cn`, both at digest
+`sha256:85657998baca6a7416144aff9f990852d429920bc34f4b580ccbffc7fdd2cfff` (`main` at `41412b4`).
+Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
+effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
+contacts) was taken before writing, and the pre-change schema was asserted so a pass could not
+come from an already-migrated database.
+
+**F-071, F-072, F-073, and F-074 are DEPLOYED** (2026-08-06), together with the stand-card
+redesign that had been merged and waiting. Migrations `0022` and `0023` were applied **before**
+the image that reads them, per the RUNBOOK's ordering rule. max chose to apply them **without a
+pre-migration snapshot** when asked. Both are additive and nullable, and listing data was
+unchanged across the migration (36 farms / 35 locations / 2 contacts, before and after).
+
+**Verified by effect in the served bytes, not from the apply's exit status.** Plan assertions
+37/37, deploy and served-card assertions pass. The F-074 filter was proven by **marking a real
+production farm and watching it leave the served JSON**: `/api/public/stands` went 34 → 33 stands
+with `3 Brothers Outpost` absent, `?hidden=true` still served all 34 including it, and unmarking
+restored 34. **Production holds zero test farms** — the check put the farm back and confirmed it.
+Two identical 34-stand responses would have been produced by a filter that did nothing, which is
+why the check marks a farm rather than reading the default twice. The four new CHECK constraints
+were each proven to genuinely **refuse** on production, in both directions of each coherence
+pair, every attempt rolled back.
+
+**A real defect was found by deploying, and only the container build could see it.** F-073's
+`/api/farmer/link-request` built its throttle at **module scope** from `publicReadContext()`,
+which constructs the database pool and demands `DATABASE_URL`. `next build` collects page data by
+importing every route module in a process with **no environment**, so the image build failed with
+"Failed to collect page data" while `npm test`, typecheck, lint, and a local `next build` all
+passed — `.env` exists on a developer machine and not in a build container. The throttle only
+needed a clock. The guard is a **real import with the variables deleted** across eight routes,
+not a source grep, and it reproduces the Cloud Build error locally; sabotage-verified. Fixed in
+`41412b4`. The live route now answers `400` to a malformed body rather than `500`.
 
 **F-069 and F-070 are DEPLOYED** (2026-08-06). Neither adds a migration, so none was owed. Plan
 assertions 37/37, deploy and served-card assertions pass. **Verified by effect in the served
@@ -20,22 +47,8 @@ path** (F-070's exact geometry), and `POST /api/farmer/address-lookup` answers `
 to a malformed token and a uniform `invitation_unavailable` to a well-formed unknown one, leaking
 no key.
 
-**Two migrations are now owed to production, in this order**: `0022_stand_retirement` (F-071,
-merged) and then `0023_test_farms` (F-074, branch only). Both are additive and nullable, so the
-currently deployed image keeps serving correctly in the window between each migration and the
-deploy that reads it.
-
-**Two changes are now MERGED and NOT DEPLOYED, in this order ahead of production:**
-
-1. **F-071**, which carries migration **`0022_stand_retirement`**. That migration is **not applied
-   to production** — apply it before promoting any image built from this base, per the RUNBOOK's
-   ordering rule. It is additive (two nullable columns, one CHECK, one partial index), so the
-   currently deployed image keeps serving correctly in the window between the migration and the
-   deploy.
-2. **The expanded stand card redesign** (2026-08-06). Presentation only — `stand-map.tsx`,
-   `globals.css`, and its tests. **No migration, no schema, no API, no model seam**, so it adds
-   nothing to the deploy ordering above. max chose merge-without-deploy for it, so it ships
-   whenever the F-071 deploy is next run.
+**Nothing is merged-and-undeployed, and no migration is owed.** `main` at `41412b4` is what
+production serves.
 
 **`GEOCODING_API_KEY` is still unset in production**, so address lookup is off and the onboarding
 form serves the pre-F-069 pin-drop behaviour — a supported deployment. The two live checks below
@@ -106,12 +119,12 @@ public description, which it does.
 
 ## Verification
 
-- Branch `f-074-test-farms` (F-074, commit `ab1fd86`): **115 unit files / 1293 tests**, **53
-  integration files / 724 tests**, typecheck, lint, and the production build pass. **No
-  `packages/ai` file changed, so no eval or `evals:live` run is owed.** Carries migration
-  **`0023_test_farms`**. **Not merged, not deployed.** It branches off
-  `f-072-grandfathered-onboarding` rather than `main`, because it changes F-072's farm picker —
-  **so that branch merges first.**
+- **`main` at `41412b4`, MERGED and DEPLOYED** (F-072, F-073, F-074, plus the build fix):
+  **115 unit files / 1301 tests**, **53 integration files / 724 tests**, typecheck, lint, and the
+  production build pass — **re-run on the merged base**, not carried over from either branch.
+  **No `packages/ai` file changed, so no eval or `evals:live` run is owed.** Carries migrations
+  `0022` and `0023`, both applied to production ahead of the image.
+  The unit count rose 1293 → **1301** on the eight new route-import guards described above.
 - **Migration `0023` verified BY EFFECT** against a freshly migrated database, never by exit
   status. The two `farms` columns exist, are nullable, and carry **no default** — which is what
   makes the migration safe to apply ahead of the image that reads it. All four CHECK constraints
@@ -134,11 +147,11 @@ public description, which it does.
   answer and got `rejected`, which is the *stronger* result: retrieval was non-empty because
   another farm had stock, so the model genuinely ran, named the test farm anyway, and code
   refused a selection outside the retrieved set (Golden Rule #4).
-- Prior branch `f-072-grandfathered-onboarding` (F-072 + F-073): **115 unit files / 1293 tests**,
-  **52 integration files / 710 tests**, typecheck, lint, and the production build pass. **No
-  `packages/ai` file changed, so no eval or `evals:live` run is owed.** **No migration** — both
-  items are new readers, writers, and surfaces over the existing schema. **Not merged, not
-  deployed.**
+- Prior branch `f-072-grandfathered-onboarding` (F-072 + F-073), now **merged and deployed**:
+  **115 unit files / 1293 tests**, **52 integration files / 710 tests**, typecheck, lint, and the
+  production build passed on the branch. **No `packages/ai` file changed, so no eval or
+  `evals:live` run is owed.** **No migration** — both items are new readers, writers, and
+  surfaces over the existing schema. Superseded by the merged-base run above.
 - **F-072 and F-073 were verified END TO END against the running app**, then read back from
   Postgres and `/api/public/stands` rather than from the screen's success message:
   - a grandfathered farmer publishes a listing with **no invitation and no administrator**, and it
@@ -323,7 +336,7 @@ against the real corpus on 2026-08-04 while implementing.
   `inventory_prompt_preferences` row, so the scheduled-prompt machinery — built and correct —
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
 - ~~**Listing facts are frozen for everyone except an ONBOARDING farmer**~~ — **CLOSED by F-073**
-  (branch, undeployed). An already-onboarded farmer now has an edit surface at
+  (**deployed** 2026-08-06). An already-onboarded farmer now has an edit surface at
   `/stand/<token>/listing`, under their existing private stand link: `resolveFarmerLink` re-reads
   the authorization per request, so a revoked farmer's link resolves to nothing without the new
   page restating the rule. The form is **prefilled from `readStandListing`**, and that is
@@ -331,7 +344,7 @@ against the real corpus on 2026-08-04 while implementing.
   edit form would erase a farmer's address and payments when they came only to change their hours.
   **Farm Bucks and offering type remain editable by nobody**: Farm Bucks is a VIGA eligibility
   fact with its own admin workflow, and a farmer cannot make themselves eligible from a form.
-- **F-072 — the grandfathered onboarding door is BUILT** (branch, undeployed). VIGA's Google
+- **F-072 — the grandfathered onboarding door is BUILT and DEPLOYED** (2026-08-06). VIGA's Google
   "Farm Stand Weekly Status" form is replaced by one global link at `/farmer/start`: a farmer
   picks their farm from a dropdown and fills in the F-067/F-069 listing form with **no invitation
   and no administrator**. max chose the honour system (2026-08-06) because **VIGA supplied no
@@ -418,7 +431,7 @@ against the real corpus on 2026-08-04 while implementing.
   action, matching how `stock_out_reports` and `farm_approvals` already work. **F-072/F-073 widened
   this**: there are now three writers of public listing state (invited, grandfathered, edit) and
   none records who wrote. The edit path is the one holding an authorization to attribute to.
-- **F-074 — test farms are BUILT** (branch `f-074-test-farms`, undeployed). VIGA can mark a farm
+- **F-074 — test farms are BUILT and DEPLOYED** (2026-08-06, verified by effect in the served bytes). VIGA can mark a farm
   as a test farm, and it is then **absent** from the map, from `/api/public/stands`, from both
   halves of customer SMS retrieval, and from F-072's farm picker — appearing only for a viewer
   who deliberately asked: `?hidden=true` on the web, a listed sender hash over SMS. Carries
