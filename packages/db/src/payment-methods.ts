@@ -1,4 +1,4 @@
-// F-068 — payment methods as a CLOSED SET plus a free-text tail.
+// F-069 — payment methods as a CLOSED SET plus a free-text tail.
 //
 // F-067's form asked "How can people pay?" as one comma-separated box writing straight into an
 // unconstrained `method text` column, so "venmo", "Venmo" and "VENMO ONLY" became three values

@@ -136,7 +136,7 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   `sales_locations_coherent_visitability` is all-or-nothing in both directions (F-038, B-024); the
   coordinate comes from the farmer dropping a pin on the drawn island through F-043's projection
   run backwards, optionally **pre-positioned by an address lookup the farmer must confirm**
-  (F-068 — see §provider seams; there is still no mapping-provider seam). It also collects
+  (F-069 — see §provider seams; there is still no mapping-provider seam). It also collects
   **structured season, hours, weekday and restocking facts** into F-035's filterable columns, and
   payment methods as a **closed set** plus a free-text tail — VIGA Farm Bucks excluded, since
   acceptance depends on an eligibility only VIGA grants. It publishes on submit (max, 2026-08-05)

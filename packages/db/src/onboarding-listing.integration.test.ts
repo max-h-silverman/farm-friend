@@ -301,7 +301,7 @@ describe("F-067 onboarding listing (integration)", () => {
   });
 
   it("writes payment methods CANONICALIZED, so a filter can join them", async () => {
-    // F-068 changed this from "as stated": the farmer typed "cash" and the stored value is
+    // F-069 changed this from "as stated": the farmer typed "cash" and the stored value is
     // "Cash". Payments are a closed VIGA-known set, so one spelling per method is what makes
     // them filterable — the unfilterable free text is exactly what Farm Friend replaces.
     await saveOnboardingListing(database(), {
@@ -574,15 +574,15 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(theirs[0]!.hours_text).toBe("Different hours");
   });
 
-  // ── F-068: the FILTERABLE availability columns ────────────────────────────────────────
+  // ── F-069: the FILTERABLE availability columns ────────────────────────────────────────
   //
-  // F-035 added season / hours / stocking columns and five CHECK constraints; until F-068 the
+  // F-035 added season / hours / stocking columns and five CHECK constraints; until F-069 the
   // seeder was their only writer, so an onboarding farmer's listing was prose in `hours_text`
   // and NULL in every column a filter can use. These tests are here rather than only in
   // `listing-availability.test.ts` because ONLY REAL POSTGRES applies the constraints — the
   // in-memory mirror and the database can disagree, and that disagreement is the defect.
 
-  describe("F-068 structured availability", () => {
+  describe("F-069 structured availability", () => {
     it("writes season, hours, days and stocking as FILTERABLE columns", async () => {
       const result = await saveOnboardingListing(database(), {
         farmId,

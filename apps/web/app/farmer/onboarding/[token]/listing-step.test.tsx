@@ -203,8 +203,8 @@ describe("onboarding listing step", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/no longer available/i);
   });
 
-  // ── F-068: payments as a closed set ───────────────────────────────────────────────────
-  describe("F-068 payment methods", () => {
+  // ── F-069: payments as a closed set ───────────────────────────────────────────────────
+  describe("F-069 payment methods", () => {
     it("offers the closed set as CHECKBOXES rather than a text box", async () => {
       render(<ListingStep token={TOKEN} farmName="Test Farm" />);
 
@@ -265,8 +265,8 @@ describe("onboarding listing step", () => {
     });
   });
 
-  // ── F-068: structured season / hours / stocking ───────────────────────────────────────
-  describe("F-068 structured availability", () => {
+  // ── F-069: structured season / hours / stocking ───────────────────────────────────────
+  describe("F-069 structured availability", () => {
     it("sends NOTHING stated when the farmer answers none of it", async () => {
       // "Rather not say" must stay a real answer: NULL and "open all year" are different facts.
       const user = userEvent.setup();
@@ -492,12 +492,12 @@ describe("onboarding listing step", () => {
     });
   });
 
-  // ── F-068: the geocoded DRAFT pin ─────────────────────────────────────────────────────
+  // ── F-069: the geocoded DRAFT pin ─────────────────────────────────────────────────────
   //
   // The property under test is that a LOOKUP IS A SUGGESTION. max approved reopening the
   // no-geocoder boundary on the condition that the farmer confirms the spot, because a farm
   // stand is often at the road rather than the mailing address and only the farmer knows.
-  describe("F-068 geocoded draft pin", () => {
+  describe("F-069 geocoded draft pin", () => {
     /** A fetch stub that answers the lookup and the listing POST differently. */
     function stubRoutes(lookupBody: unknown, lookupOk = true) {
       const fetchMock = vi.fn(async (url: string) => {

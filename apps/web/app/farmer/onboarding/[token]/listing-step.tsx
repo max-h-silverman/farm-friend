@@ -9,7 +9,7 @@ import {
 import { IslandArtwork } from "../../../island-artwork";
 
 /**
- * F-067 / F-068 — the listing details a farmer fills in while onboarding.
+ * F-067 / F-069 — the listing details a farmer fills in while onboarding.
  *
  * **The visitability question is this form's structure, not a field on it.** The database
  * refuses a `visitable` stand without an address and a complete coordinate pair, and refuses a
@@ -18,20 +18,20 @@ import { IslandArtwork } from "../../../island-artwork";
  * sends a customer driving to a place with nothing to buy. So the form ASKS first, and the
  * address and pin only exist once the farmer says there is somewhere to go.
  *
- * **The pin is a DRAFT the farmer confirms, never a lookup's answer** (F-068, max reopened the
+ * **The pin is a DRAFT the farmer confirms, never a lookup's answer** (F-069, max reopened the
  * no-geocoder boundary for onboarding on 2026-08-05). Typing an address offers a suggested spot;
  * the farmer confirms it or taps to move it, and only the confirmed coordinate is submitted. The
  * geocoder cannot be the authority: rural Vashon is where address lookup is weakest, and a farm
  * stand is often at the road rather than at the mailing address — which only the farmer knows.
- * Every lookup failure falls back to tapping the map, which is how this worked before F-068.
+ * Every lookup failure falls back to tapping the map, which is how this worked before F-069.
  *
- * **Payment methods are a closed set with a free-text tail** (F-068). They were one comma box
+ * **Payment methods are a closed set with a free-text tail** (F-069). They were one comma box
  * into an unconstrained column, so "venmo" and "Venmo" became two values no filter could join —
  * the unfilterable shape Farm Friend exists to replace. VIGA Farm Bucks is deliberately NOT
  * offered: it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot grant
  * themselves eligibility by ticking a box.
  *
- * **Season, hours and stocking are structured** (F-068) into F-035's existing filterable
+ * **Season, hours and stocking are structured** (F-069) into F-035's existing filterable
  * columns, with `hoursText` surviving beside them as the farmer's own words. "Dawn to dusk" is a
  * real value rather than missing clock times — dusk on Vashon moves ~6 hours across the season.
  *

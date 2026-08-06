@@ -180,7 +180,7 @@ describe("the island artwork agrees with the projection", () => {
     // islander would spot instantly. Sampled ALONG each segment, not just at the vertices,
     // because a road can have both endpoints on land and still cut a corner over the water.
     //
-    // Covers the secondary arteries too (F-069). Sampling density follows LENGTH rather than a
+    // Covers the secondary arteries too (F-070). Sampling density follows LENGTH rather than a
     // fixed count per segment: Vashon Highway has one legitimately straight 7km span, and ten
     // samples across it would check one point every 700m — wide enough to miss an inlet
     // entirely. Every road is checked at roughly 100m.
@@ -258,7 +258,7 @@ describe("the island artwork agrees with the projection", () => {
 
   it("keeps the secondary roads visually subordinate to the highway", () => {
     // Not decoration: the one-road decision (F-043) existed because equal-weight roads turn an
-    // orienting poster into a street map. F-069 added arteries for the farmer placing a pin,
+    // orienting poster into a street map. F-070 added arteries for the farmer placing a pin,
     // and the thing that keeps that from undoing the original reasoning is the DRAWN WEIGHT.
     // Asserted against the stylesheet so "make them all the same" fails here rather than being
     // noticed on a screenshot, or not at all.

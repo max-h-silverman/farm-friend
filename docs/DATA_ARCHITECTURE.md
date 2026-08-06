@@ -95,7 +95,7 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   eligibility as **read-only facts**, plus a sanitized source-listing description, farmer-selected
   web/social links, and an optional photo or short biography. Direct farmer email addresses and
   phone numbers never enter the public description.
-  **Payment methods are canonicalized to a closed set** (F-068, `packages/db/src/payment-methods.ts`)
+  **Payment methods are canonicalized to a closed set** (F-069, `packages/db/src/payment-methods.ts`)
   so "venmo", "Venmo" and "VENMO" are one filterable value rather than three a filter cannot join.
   Methods outside the set are kept as the farmer's **own words** — a closed set that silently
   dropped what it did not recognize would lose a real fact. This is a *spelling* table and must stay
@@ -112,7 +112,7 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   **display-only text that is never filtered on**, so a caveat like "Saturday and Sunday when
   available" survives without the structured fields overstating it. `year_round` is distinct from an
   absent season: "always open" and "never recorded" are different facts.
-  **Written by the onboarding form since F-068** — before it, the seeder was these columns' only
+  **Written by the onboarding form since F-069** — before it, the seeder was these columns' only
   writer, so a farmer who onboarded through the form got prose and NULLs in every filterable column.
   The form's pickers branch to match the five CHECK constraints, and `coherentAvailability`
   (`packages/db/src/listing-availability.ts`) mirrors them in memory so a contradictory answer

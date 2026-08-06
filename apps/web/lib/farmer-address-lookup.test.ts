@@ -6,7 +6,7 @@ import {
   type FarmerAddressLookupDeps,
 } from "./farmer-address-lookup";
 
-// F-068 — the HTTP boundary for the DRAFT pin lookup.
+// F-069 — the HTTP boundary for the DRAFT pin lookup.
 //
 // The properties this endpoint has to hold, and why each one:
 //

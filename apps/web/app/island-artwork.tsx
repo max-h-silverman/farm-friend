@@ -44,7 +44,7 @@ export function IslandArtwork() {
         <path key={wood.name} d={svgRing(wood.ring)} className="island-wood" />
       ))}
       {/*
-      The secondary arteries go UNDER the highway, and are drawn thinner and lighter (F-069).
+      The secondary arteries go UNDER the highway, and are drawn thinner and lighter (F-070).
       The spine has to keep reading as the spine: if every road carries the same weight, the
       drawing stops orienting anyone and becomes the street map this deliberately is not.
       */}

@@ -344,13 +344,13 @@ describe("farmer onboarding listing endpoint", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  // ── F-068: the structured availability fields ─────────────────────────────────────────
+  // ── F-069: the structured availability fields ─────────────────────────────────────────
   //
   // These reach five CHECK constraints. The boundary's job is to refuse a MALFORMED request —
   // a bad enum value, a non-integer month, a weekday of 9 — before it becomes either a
   // constraint violation or, worse, a coerced value the farmer never stated.
 
-  describe("F-068 structured availability", () => {
+  describe("F-069 structured availability", () => {
     const AVAILABILITY = {
       seasonKind: "date_range",
       seasonStartMonth: 3,

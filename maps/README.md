@@ -40,7 +40,10 @@ What the loader may write and what it may not is structural, not a convention:
 - It **refuses rather than coerces**. A **visitable** stand with no street address is not seeded
   (F-038: a `contact_only` farm legitimately has none — Open Gate Lamb delivers only) and an
   out-of-range coordinate aborts the batch; an unresolved location becomes an operator task and
-  never an invented coordinate. There is no runtime geocoder and no permanent mapping-provider seam.
+  never an invented coordinate. **The seeder has no geocoder at all** and there is no
+  mapping-provider seam. One narrow runtime exception since F-069 (max, 2026-08-05), which does not
+  touch this loader: the onboarding form may look an address up to offer a **draft pin the farmer
+  confirms**, off-island results refused and every failure falling back to tapping the map.
 - Contradictions it cannot resolve become **stand-data flags** for a VIGA operator, not guesses.
 
 `offerings-proposals.json` is the reviewed artifact from the offering-extraction seam: the model

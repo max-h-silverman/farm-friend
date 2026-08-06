@@ -589,7 +589,7 @@ export const ISLAND_WOODS: readonly {
 /**
  * Vashon Highway — the island's spine, north dock to south dock.
  *
- * TRACED, not placed by hand (F-069). The previous version was 13 hand-chosen vertices, and its
+ * TRACED, not placed by hand (F-070). The previous version was 13 hand-chosen vertices, and its
  * own comment records what that cost: an earlier straight run drew the road floating over
  * Quartermaster Harbour, and two later vertices had to be sampled against the shoreline because
  * guessing "put the line in the water twice". These 26 vertices come from OpenStreetMap's
@@ -631,7 +631,7 @@ export const ISLAND_HIGHWAY: readonly (readonly [number, number])[] = [
 ];
 
 /**
- * The other roads an islander gives directions by (F-069, max: "main arteries plus westside
+ * The other roads an islander gives directions by (F-070, max: "main arteries plus westside
  * highway").
  *
  * WHY THESE EXIST NOW, when F-043 deliberately drew one road. The original note said drawing

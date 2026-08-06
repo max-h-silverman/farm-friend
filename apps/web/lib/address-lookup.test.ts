@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { lookupIslandAddress, type AddressLookupDeps } from "./address-lookup";
 
-// F-068 — turning a typed address into a DRAFT pin the farmer confirms.
+// F-069 — turning a typed address into a DRAFT pin the farmer confirms.
 //
 // ## The boundary this narrows, and why it is still narrow
 //
@@ -26,7 +26,7 @@ import { lookupIslandAddress, type AddressLookupDeps } from "./address-lookup";
 //      or a missing key all produce the SAME "no draft" answer, and the farmer places the pin
 //      themselves exactly as before.
 //
-// Every failure path is therefore "the farmer taps the map", which is the pre-F-068 behaviour.
+// Every failure path is therefore "the farmer taps the map", which is the pre-F-069 behaviour.
 // The geocoder can only ever save them work; it can never be the authority.
 
 const KEY = "test-geocoding-key";

@@ -1,8 +1,8 @@
-// F-068 — the structured availability a farmer states, and the in-memory mirror of the CHECK
+// F-069 — the structured availability a farmer states, and the in-memory mirror of the CHECK
 // constraints that arbitrate it.
 //
 // F-035 added `sales_locations`' season / hours / stocking columns and five constraints
-// (`0005_structured_stand_availability.sql`). Until F-068 the seeder was their only writer, so
+// (`0005_structured_stand_availability.sql`). Until F-069 the seeder was their only writer, so
 // a farmer who onboarded through the form got filterable NULLs and prose in `hours_text` —
 // which is exactly the unfilterable shape VIGA's existing map fails at.
 //

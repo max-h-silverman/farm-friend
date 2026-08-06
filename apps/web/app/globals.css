@@ -1933,7 +1933,7 @@ button.admin-action-danger:disabled {
   stroke-width: 3;
 }
 
-/* An UNCONFIRMED suggestion from the address lookup (F-068). Hollow and dashed, so it does not
+/* An UNCONFIRMED suggestion from the address lookup (F-069). Hollow and dashed, so it does not
    read as a decision the farmer has made — the whole point is that they look at it and say
    whether it is right. A solid pin means "chosen"; this one means "is this you?". */
 .farmer-listing-pin-draft {
@@ -1964,7 +1964,7 @@ button.admin-action-danger:disabled {
   cursor: default;
 }
 
-/* F-068 — the structured season / hours / restocking pickers. */
+/* F-069 — the structured season / hours / restocking pickers. */
 .farmer-listing select,
 .farmer-listing input[type="number"],
 .farmer-listing input[type="time"] {
@@ -2668,7 +2668,7 @@ button.admin-action-danger:disabled {
 }
 
 /*
- * The secondary arteries (F-069). Deliberately SUBORDINATE: half the highway's width and well
+ * The secondary arteries (F-070). Deliberately SUBORDINATE: half the highway's width and well
  * under its opacity, so the spine still reads as the spine at a glance.
  *
  * The point of these is orientation for a farmer placing their own pin — "north of Cemetery

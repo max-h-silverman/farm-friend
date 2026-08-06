@@ -5,7 +5,7 @@ import {
   VIGA_FARM_BUCKS,
 } from "./payment-methods";
 
-// F-068 — payment methods as a CLOSED SET plus a free-text tail.
+// F-069 — payment methods as a CLOSED SET plus a free-text tail.
 //
 // The gap this closes: the onboarding form asked "How can people pay?" as one comma-separated
 // text box into an unconstrained `method text` column. So "venmo", "Venmo", "VENMO ONLY" and

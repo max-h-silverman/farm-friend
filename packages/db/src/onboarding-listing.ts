@@ -85,7 +85,7 @@ export interface OnboardingListingInput {
   /** The farmer's own words about when they are open, preserved verbatim (display only). */
   hoursText: string | null;
   /**
-   * F-068 — the FILTERABLE season / hours / stocking facts, beside `hoursText` rather than
+   * F-069 — the FILTERABLE season / hours / stocking facts, beside `hoursText` rather than
    * instead of it. Optional: a form that states none of it writes the same NULLs as before.
    */
   availability?: ListingAvailability;
@@ -162,7 +162,7 @@ export async function saveOnboardingListing(
     }
   }
 
-  // F-068. Refused BEFORE the transaction opens, and named as its own status: the five F-035
+  // F-069. Refused BEFORE the transaction opens, and named as its own status: the five F-035
   // CHECK constraints would refuse the write anyway, but as a violation the farmer cannot act
   // on. `coherentAvailability` is the same rule stated where an error message can reach them.
   const availability = listing.availability ?? NO_AVAILABILITY_STATED;
@@ -314,7 +314,7 @@ async function updateStand(
  * A full replace rather than an upsert, because removing a method is a thing the farmer must
  * be able to do: an upsert-only write would make "we stopped taking checks" unsayable.
  *
- * F-068 — canonicalized on the way in (`canonicalPaymentMethods`), so "venmo" and "VENMO" are
+ * F-069 — canonicalized on the way in (`canonicalPaymentMethods`), so "venmo" and "VENMO" are
  * one filterable value rather than two the map cannot join. Unrecognized methods are kept as
  * the farmer's own words; the fold applies only to the known closed set.
  */

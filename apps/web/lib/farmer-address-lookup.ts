@@ -7,7 +7,7 @@ import {
 import { lookupIslandAddress, type AddressLookupResult } from "./address-lookup";
 import { clientSignalFor } from "./client-signal";
 
-// F-068 — the HTTP boundary for the DRAFT pin lookup.
+// F-069 — the HTTP boundary for the DRAFT pin lookup.
 //
 // This endpoint exists because max reopened the no-geocoder boundary for farm stand onboarding
 // (2026-08-05). It looks an address up and hands back a coordinate the FARMER then confirms;

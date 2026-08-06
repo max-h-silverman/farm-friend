@@ -1,6 +1,6 @@
 import { ISLAND_BOUNDS } from "@farm-friend/core";
 
-// F-068 — turning a typed address into a DRAFT pin the farmer confirms.
+// F-069 — turning a typed address into a DRAFT pin the farmer confirms.
 //
 // ## The reopened boundary, and what still holds it
 //
@@ -21,7 +21,7 @@ import { ISLAND_BOUNDS } from "@farm-friend/core";
 //      `ISLAND_BOUNDS` is the single statement of where it is — this module does not carry a
 //      second envelope of its own, because two would drift and a farm on the wrong side of the
 //      drift is a pin in Puget Sound.
-//   2. **Every failure is "the farmer taps the map"** — the pre-F-068 behaviour. No result, a
+//   2. **Every failure is "the farmer taps the map"** — the pre-F-069 behaviour. No result, a
 //      malformed body, a provider error, a thrown request, an unset key: one answer, no
 //      coordinate. This module cannot invent one, which is why there is no code path that
 //      constructs a coordinate from anything but a provider number that passed the bounds check.

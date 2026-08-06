@@ -263,7 +263,7 @@ describe("the retired config and contracts packages stay deleted (F-028)", () =>
   });
 });
 
-describe("no runtime geocoder or map provider (F-017, narrowed by F-068)", () => {
+describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () => {
   // Geocoding was a ONE-TIME SEEDING concern with no runtime provider at all. The original
   // boundary forbade "no runtime geocoder, permanent map package, coordinate-inventing stub,
   // mapping platform, routing engine, or travel-time estimator", and this is the tripwire that

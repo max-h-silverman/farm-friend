@@ -90,7 +90,7 @@ function optionalCoordinate(value: unknown): number | null | undefined {
   return value;
 }
 
-// ── F-068: the structured availability fields ─────────────────────────────────────────────
+// ── F-069: the structured availability fields ─────────────────────────────────────────────
 //
 // These land in columns guarded by five CHECK constraints. Validated as the types they are and
 // never coerced: `Number("13")` is a number and `Number(null)` is 0, so a coercing parser turns

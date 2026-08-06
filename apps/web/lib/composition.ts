@@ -81,10 +81,10 @@ export interface AppConfig {
   /** The canonical customer-facing map URL, returned by the deterministic MAP command. */
   publicMapUrl: string;
   /**
-   * F-068 — the Google Geocoding key for the onboarding DRAFT pin lookup.
+   * F-069 — the Google Geocoding key for the onboarding DRAFT pin lookup.
    *
    * OPTIONAL, and absent is a supported state: with no key the onboarding form falls back to
-   * pin-dropping, which was the only behaviour before F-068 and is still the authority. The
+   * pin-dropping, which was the only behaviour before F-069 and is still the authority. The
    * farmer's tap decides where the stand is; the geocoder only saves them the work of finding it.
    *
    * Read server-side only. A geocoding key in client JavaScript is a published key, and this one
@@ -284,7 +284,7 @@ export function resolveConfig(env: EnvVars = process.env): AppConfig {
     publicBaseUrl: resolvePublicBaseUrl(env),
     publicMapUrl: resolvePublicMapUrl(env),
     // Optional by design: absent means the onboarding form asks the farmer to tap the map,
-    // exactly as it did before F-068. An empty string is treated as absent so a blank
+    // exactly as it did before F-069. An empty string is treated as absent so a blank
     // deployment variable does not become a key that fails on every call.
     geocodingApiKey: env.GEOCODING_API_KEY || undefined,
     sms: sms.config,
@@ -317,7 +317,7 @@ export interface AppContext {
    */
   publicActionThrottle: PublicActionThrottle;
   /**
-   * F-068 — its OWN budget for the onboarding address lookup, not the one above.
+   * F-069 — its OWN budget for the onboarding address lookup, not the one above.
    *
    * Same general mechanism, a separate bucket: a farmer correcting a typed address makes several
    * lookups in a row, which is nothing like the "submits once, maybe twice" shape the stock-out

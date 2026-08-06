@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { coherentAvailability, type ListingAvailability } from "./listing-availability";
 
-// F-068 — the availability shape a farmer may state, asserted DIRECTLY.
+// F-069 — the availability shape a farmer may state, asserted DIRECTLY.
 //
 // F-035 gave `sales_locations` structured season / hours / stocking columns and five CHECK
-// constraints that arbitrate them. Until F-068 the only writer was the seeder, so the
+// constraints that arbitrate them. Until F-069 the only writer was the seeder, so the
 // onboarding form wrote `hours_text` prose and left every filterable column NULL.
 //
 // This module is the in-memory mirror of those constraints. It exists so a farmer gets an
