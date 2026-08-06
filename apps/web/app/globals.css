@@ -2668,6 +2668,24 @@ button.admin-action-danger:disabled {
 }
 
 /*
+ * The secondary arteries (F-069). Deliberately SUBORDINATE: half the highway's width and well
+ * under its opacity, so the spine still reads as the spine at a glance.
+ *
+ * The point of these is orientation for a farmer placing their own pin — "north of Cemetery
+ * Road" — not navigation. Drawn at equal weight they would compete with the highway and make
+ * the island harder to read, not easier, which is exactly what the one-road decision was
+ * protecting against.
+ */
+.island-road-minor {
+  fill: none;
+  stroke: var(--road);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.55;
+}
+
+/*
  * Label size tracks the RENDERED size, not the viewBox.
  *
  * SVG type scales with the viewBox, so capping the drawing's height on phones shrank every

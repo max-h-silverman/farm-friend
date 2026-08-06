@@ -5,6 +5,7 @@ import {
 import {
   ISLAND_HIGHWAY,
   ISLAND_PLACES,
+  ISLAND_ROADS,
   ISLAND_SHORELINE,
   ISLAND_WOODS,
   svgLine,
@@ -41,6 +42,19 @@ export function IslandArtwork() {
       */}
       {ISLAND_WOODS.map((wood) => (
         <path key={wood.name} d={svgRing(wood.ring)} className="island-wood" />
+      ))}
+      {/*
+      The secondary arteries go UNDER the highway, and are drawn thinner and lighter (F-069).
+      The spine has to keep reading as the spine: if every road carries the same weight, the
+      drawing stops orienting anyone and becomes the street map this deliberately is not.
+      */}
+      {ISLAND_ROADS.map((road, index) => (
+        <path
+          // Westside Highway is two separate chains, so the name alone is not unique.
+          key={`${road.name}-${index}`}
+          d={svgLine(road.line)}
+          className="island-road-minor"
+        />
       ))}
       <path d={svgLine(ISLAND_HIGHWAY)} className="island-road" />
       {ISLAND_PLACES.map((place) => {

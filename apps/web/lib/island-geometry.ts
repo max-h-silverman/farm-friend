@@ -587,35 +587,213 @@ export const ISLAND_WOODS: readonly {
 ];
 
 /**
- * Vashon Highway — the island's one spine, north dock to south dock.
+ * Vashon Highway — the island's spine, north dock to south dock.
  *
- * A single road, because a customer orients by the highway and nothing else. Drawing the side
- * roads would turn a legible poster into a street map, which is the thing tiles already do
- * better and which this deliberately is not.
+ * TRACED, not placed by hand (F-069). The previous version was 13 hand-chosen vertices, and its
+ * own comment records what that cost: an earlier straight run drew the road floating over
+ * Quartermaster Harbour, and two later vertices had to be sampled against the shoreline because
+ * guessing "put the line in the water twice". These 26 vertices come from OpenStreetMap's
+ * `Vashon Highway Southwest` ways — 469 nodes across 17 ways, stitched on shared endpoints and
+ * simplified at 40m — so the road is the real road rather than a good guess at it.
+ *
+ * The long straight spans are REAL. Between Vashon town and Burton the highway deviates about
+ * 45m from dead straight over 7km, which is why 164 source vertices collapse to two. A span
+ * being long is not evidence of a defect; departing from the real road is, and
+ * `island-geometry.test.ts` measures that directly.
  */
 export const ISLAND_HIGHWAY: readonly (readonly [number, number])[] = [
-  // Starts just inland of the north dock rather than at the pier head: a ferry terminal sits
-  // on the water by definition, and drawing the road out onto it puts the line in the sound.
-  [47.5085, -122.4645],
-  [47.4914, -122.4622],
-  [47.4655, -122.4611],
-  [47.4471, -122.4594],
-  [47.4288, -122.4632],
-  [47.4102, -122.4658],
-  // South of Burton the real highway swings WEST, around the head of Quartermaster
-  // Harbour — it does not cross the water. An earlier straight run to Tahlequah drew the
-  // road floating over the harbour, which is the one thing on this map that would read as
-  // obviously wrong to an islander.
-  // Vertices sampled against the traced shoreline rather than guessed: south of Burton the
-  // island narrows to a leg roughly 0.03° wide between the harbour and the west shore, and
-  // the road hugs its eastern edge. Guessing here put the line in the water twice.
-  [47.3960, -122.4690],
-  [47.3870, -122.4790],
-  [47.3800, -122.4870],
-  [47.3700, -122.4890],
-  [47.3620, -122.4910],
-  [47.3500, -122.4940],
-  [47.3400, -122.4970],
+  [47.5085, -122.4642],
+  [47.5062, -122.4619],
+  [47.5038, -122.4612],
+  [47.4992, -122.4627],
+  [47.4979, -122.4680],
+  [47.4944, -122.4681],
+  [47.4917, -122.4694],
+  [47.4867, -122.4696],
+  [47.4837, -122.4670],
+  [47.4796, -122.4666],
+  [47.4748, -122.4602],
+  [47.4084, -122.4604],
+  [47.4038, -122.4659],
+  [47.3953, -122.4660],
+  [47.3933, -122.4668],
+  [47.3882, -122.4659],
+  [47.3879, -122.4715],
+  [47.3862, -122.4771],
+  [47.3821, -122.4849],
+  [47.3723, -122.4888],
+  [47.3696, -122.4917],
+  [47.3663, -122.4932],
+  [47.3588, -122.5035],
+  [47.3473, -122.5037],
+  [47.3445, -122.5055],
+  [47.3336, -122.5077],
+];
+
+/**
+ * The other roads an islander gives directions by (F-069, max: "main arteries plus westside
+ * highway").
+ *
+ * WHY THESE EXIST NOW, when F-043 deliberately drew one road. The original note said drawing
+ * side roads "would turn a legible poster into a street map", and for a customer orienting on
+ * the public map that was right. What changed is the ONBOARDING FORM: the same artwork is now
+ * how a farmer says where their own stand is, and a single spine gives them almost nothing to
+ * place themselves against — "am I north or south of Cemetery Road?" is unanswerable on a
+ * drawing with only the highway. The map acquired a second job, so it needs a little more map.
+ *
+ * It is still not a street map. These are arteries, chosen because an islander names them when
+ * giving directions; the residential grid is deliberately absent, and the whole set is 101
+ * vertices against the coastline's 246.
+ *
+ * WESTSIDE HIGHWAY IS TWO CHAINS, not one. OSM records it in pieces that do not share endpoints
+ * where the road is interrupted, and joining them would draw pavement across the gap. Two
+ * honest chains beat one convenient line — the same principle that keeps the ferry docks off
+ * the shoreline ring.
+ *
+ * Same discipline as the coastline and the woods, for the same reason: real traced coordinates
+ * through the SAME `projectToIsland` as the pins. Hand-drawing these would be another
+ * independent guess at where the island is, and that guess is what put 16 of 32 farms in open
+ * water the first time.
+ */
+export const ISLAND_ROADS: readonly {
+  name: string;
+  line: readonly (readonly [number, number])[];
+}[] = [
+  {
+    name: "Westside Highway",
+    line: [
+      [47.4292, -122.5015],
+      [47.4377, -122.5006],
+      [47.4384, -122.5040],
+      [47.4369, -122.5052],
+      [47.4367, -122.5064],
+      [47.4390, -122.5083],
+      [47.4515, -122.5085],
+      [47.4584, -122.5026],
+      [47.4600, -122.5004],
+      [47.4625, -122.4925],
+      [47.4756, -122.4924],
+      [47.4763, -122.4903],
+    ],
+  },
+  {
+    name: "Westside Highway",
+    line: [
+      [47.4073, -122.4992],
+      [47.4099, -122.4992],
+      [47.4140, -122.4976],
+      [47.4184, -122.5033],
+      [47.4286, -122.5031],
+    ],
+  },
+  {
+    name: "Cemetery Road",
+    line: [
+      [47.4291, -122.4445],
+      [47.4291, -122.4923],
+      [47.4302, -122.4972],
+      [47.4292, -122.5015],
+    ],
+  },
+  {
+    name: "Bank Road",
+    line: [
+      [47.4471, -122.4498],
+      [47.4474, -122.4503],
+      [47.4472, -122.4997],
+    ],
+  },
+  {
+    name: "Beall Road",
+    line: [
+      [47.4256, -122.4497],
+      [47.4471, -122.4498],
+    ],
+  },
+  {
+    name: "99th Avenue",
+    line: [
+      [47.3462, -122.4611],
+      [47.3715, -122.4612],
+      [47.3724, -122.4606],
+    ],
+  },
+  {
+    name: "Wax Orchard Road",
+    line: [
+      [47.3588, -122.5035],
+      [47.3768, -122.5033],
+      [47.3780, -122.5026],
+      [47.3799, -122.5035],
+      [47.4073, -122.5033],
+    ],
+  },
+  {
+    name: "Quartermaster Drive",
+    line: [
+      [47.4059, -122.4373],
+      [47.4067, -122.4394],
+      [47.4047, -122.4474],
+      [47.4046, -122.4519],
+      [47.4038, -122.4532],
+      [47.4037, -122.4602],
+      [47.4030, -122.4623],
+      [47.4030, -122.4659],
+    ],
+  },
+  {
+    name: "Dockton Road",
+    line: [
+      [47.4175, -122.4404],
+      [47.4120, -122.4375],
+      [47.4085, -122.4387],
+      [47.4067, -122.4372],
+      [47.4032, -122.4378],
+      [47.4004, -122.4349],
+      [47.4002, -122.4309],
+      [47.3996, -122.4303],
+      [47.3944, -122.4274],
+      [47.3877, -122.4274],
+      [47.3834, -122.4359],
+      [47.3739, -122.4402],
+      [47.3735, -122.4416],
+      [47.3736, -122.4473],
+      [47.3698, -122.4546],
+    ],
+  },
+  {
+    name: "Point Robinson Road",
+    line: [
+      [47.3881, -122.3745],
+      [47.3869, -122.3757],
+      [47.3886, -122.3771],
+      [47.3890, -122.3784],
+      [47.3893, -122.4078],
+      [47.3937, -122.4129],
+      [47.3979, -122.4202],
+      [47.4002, -122.4284],
+      [47.4002, -122.4309],
+    ],
+  },
+  {
+    name: "Monument Road",
+    line: [
+      [47.4220, -122.4514],
+      [47.4198, -122.4498],
+      [47.4047, -122.4493],
+    ],
+  },
+  {
+    name: "Cove Road",
+    line: [
+      [47.4560, -122.5039],
+      [47.4550, -122.5038],
+      [47.4545, -122.5019],
+      [47.4550, -122.5007],
+      [47.4545, -122.4989],
+      [47.4546, -122.4604],
+    ],
+  },
 ];
 
 export function svgLine(points: readonly (readonly [number, number])[]): string {
