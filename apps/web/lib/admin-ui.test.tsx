@@ -202,6 +202,36 @@ describe("the stand list", () => {
     expect(screen.queryByRole("button", { name: "Save Farm Bucks decision" })).toBeNull();
   });
 
+  // An operator looking to DELETE a farm could not find this. The control does exactly what
+  // deleting should do — the stand leaves the map and all farmer surfaces, nothing published
+  // is destroyed, and it can be put back — but it is named "Take off the map", sits last
+  // inside a collapsed panel, and never says the word. So the capability existed and read as
+  // missing. The section states what it is in the vocabulary an operator arrives with.
+  it("names removing a stand in the words an operator looks for", () => {
+    render(
+      <StandList
+        stands={[{
+          standId: "stand-vocab",
+          name: "North Stand",
+          farmName: "Example Farm",
+          status: "Visible to customers",
+          openState: "Open now",
+          approved: true,
+          retired: false,
+          farmBucksStatus: "not_eligible",
+          sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
+        }]}
+      />,
+    );
+
+    // Anchored to the SECTION HEADING, which is what someone scanning for "delete" reads —
+    // the body copy already contained "Removes this stand", and asserting on that passed
+    // while the heading still said only "Take off the map".
+    expect(
+      screen.getByRole("heading", { name: /remove|delete/i }),
+    ).toBeTruthy();
+  });
+
   it("takes a stand off the map only after the operator confirms it (F-071)", async () => {
     const user = userEvent.setup();
     const fetcher = vi.fn(async () => response(200, { status: "retired" }));

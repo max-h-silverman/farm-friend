@@ -37,6 +37,18 @@ function stubFetch(response: { ok: boolean; status?: number; body?: unknown }) {
   return fetchMock as unknown as ReturnType<typeof vi.fn>;
 }
 
+/** A saved listing, as an already-onboarded farmer's editor is prefilled from. */
+const EDIT_DEFAULTS = {
+  standName: "Existing Stand",
+  visitability: "contact_only" as const,
+  publicAddress: null,
+  latitude: null,
+  longitude: null,
+  hoursText: null,
+  paymentMethods: [],
+  items: [],
+};
+
 /** The body the form posted, parsed. */
 function posted(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
   const call = fetchMock.mock.calls[0] as [string, { body: string }];
@@ -245,6 +257,55 @@ describe("onboarding listing step", () => {
 
     // Reopening is not a fresh form: a farmer correcting one field must not retype the rest.
     expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("Test Farm");
+  });
+
+  // The farm name is public on the map beside the stand and was previously unchangeable by
+  // anyone. An editing farmer gets a field for it; an onboarding farmer does not, because
+  // the invitation just named their farm and a second name box beside the stand-name box is
+  // the confusion, not the fix.
+  describe("the farm's name", () => {
+    it("offers an editing farmer a field for their farm's name", () => {
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Two Sisters Farm"
+          defaults={{ ...EDIT_DEFAULTS, standName: "The Red Shed" }}
+        />,
+      );
+
+      // Prefilled from the FARM, not from the stand — they are different records.
+      expect(screen.getByLabelText(/farm.*called|name of your farm/i)).toHaveValue(
+        "Two Sisters Farm",
+      );
+      expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("The Red Shed");
+    });
+
+    it("does not ask an onboarding farmer to name their farm twice", () => {
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      expect(screen.queryByLabelText(/farm.*called|name of your farm/i)).not.toBeInTheDocument();
+    });
+
+    it("sends the farm name with the listing when it is edited", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Two Sisters Farm"
+          defaults={{ ...EDIT_DEFAULTS, standName: "The Red Shed" }}
+        />,
+      );
+
+      const farmField = screen.getByLabelText(/farm.*called|name of your farm/i);
+      await user.clear(farmField);
+      await user.type(farmField, "Misty Hollow Farm");
+      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+      const body = posted(fetchMock);
+      expect(body.farmName).toBe("Misty Hollow Farm");
+      expect(body.standName).toBe("The Red Shed");
+    });
   });
 
   it("explains an off-island pin in words the farmer can act on", async () => {

@@ -356,7 +356,10 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     );
     expect(third.outcome).toBe("proposed");
     if (third.outcome !== "proposed") return;
-    expect(third.confirmationText).not.toContain("Winter squash");
+    // Gone from the listing, and named as leaving — see the omission-preserving test below
+    // for why a removal must be stated rather than shown only as an absence.
+    expect(third.confirmationText.split("Taking off")[0]).not.toContain("Winter squash");
+    expect(third.confirmationText).toMatch(/Taking off.*Winter squash/s);
     expect(third.confirmationText).toContain("Pears");
 
     const afterThird = await client()`
@@ -495,7 +498,11 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     expect(result.outcome).toBe("proposed");
     if (result.outcome !== "proposed") return;
     expect(result.confirmationText).toContain("Potatoes");
-    expect(result.confirmationText).not.toContain("Bok choy");
+    // Gone from the LISTING, and named as leaving. The confirmation used to say nothing
+    // about a removal at all, so a farmer could only detect one as a gap in a list — the
+    // one edit that is invisible precisely when it matters.
+    expect(result.confirmationText.split("Taking off")[0]).not.toContain("Bok choy");
+    expect(result.confirmationText).toMatch(/Taking off.*Bok choy/s);
 
     const pending = await client()`
       select payload from inventory_publication_proposals

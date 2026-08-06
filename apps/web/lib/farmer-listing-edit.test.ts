@@ -65,12 +65,23 @@ function saver(
   return vi.fn<Parameters<Saver>, ReturnType<Saver>>(async () => result);
 }
 
-function deps(resolveLink = resolver(), saveListing = saver()): FarmerListingEditDeps {
+type Renamer = FarmerListingEditDeps["renameFarm"];
+
+function renamer(result: Awaited<ReturnType<Renamer>> = { status: "saved" }) {
+  return vi.fn<Parameters<Renamer>, ReturnType<Renamer>>(async () => result);
+}
+
+function deps(
+  resolveLink = resolver(),
+  saveListing = saver(),
+  renameFarm = renamer(),
+): FarmerListingEditDeps {
   return {
     db: {} as Db,
     clock: new FixedClock(T0),
     resolveLink,
     saveListing,
+    renameFarm,
   };
 }
 
@@ -104,6 +115,73 @@ describe("farmer listing edit endpoint", () => {
     );
 
     expect(save).toHaveBeenCalledWith({}, expect.objectContaining({ farmId: FARM_ID }));
+  });
+
+  // The farm's name is public on the map beside the stand and was previously immutable —
+  // set when the invitation was created and changeable by nobody, farmer or administrator.
+  describe("renaming the farm", () => {
+    it("renames the farm the LINK names when a new name is sent", async () => {
+      const rename = renamer();
+      await handleFarmerListingEditPost(
+        deps(resolver(), saver(), rename),
+        post({ token: TOKEN, ...LISTING, farmName: "Misty Hollow Farm" }),
+      );
+
+      expect(rename).toHaveBeenCalledWith(
+        {},
+        { farmId: FARM_ID, name: "Misty Hollow Farm" },
+      );
+    });
+
+    it("renames nothing when the request carries no farm name", async () => {
+      // Every existing caller omits the field. Absence must mean "leave it alone", never
+      // "rename it to empty" — the listing form posts a whole listing on every save.
+      const rename = renamer();
+      await handleFarmerListingEditPost(
+        deps(resolver(), saver(), rename),
+        post({ token: TOKEN, ...LISTING }),
+      );
+
+      expect(rename).not.toHaveBeenCalled();
+    });
+
+    it("renames the farm from the LINK even when the body names another", async () => {
+      // The same attack the listing writer refuses: a caller-supplied farm id would let any
+      // farmer's link rename any other farm.
+      const rename = renamer();
+      await handleFarmerListingEditPost(
+        deps(resolver(), saver(), rename),
+        post({
+          token: TOKEN,
+          ...LISTING,
+          farmName: "Renamed",
+          farmId: "22222222-2222-4222-8222-222222222222",
+        }),
+      );
+
+      expect(rename).toHaveBeenCalledWith({}, expect.objectContaining({ farmId: FARM_ID }));
+    });
+
+    it("refuses a blank farm name rather than erasing it", async () => {
+      const rename = renamer();
+      const response = await handleFarmerListingEditPost(
+        deps(resolver(), saver(), rename),
+        post({ token: TOKEN, ...LISTING, farmName: "   " }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(rename).not.toHaveBeenCalled();
+    });
+
+    it("does not rename when the link is revoked", async () => {
+      const rename = renamer();
+      await handleFarmerListingEditPost(
+        deps(resolver(null), saver(), rename),
+        post({ token: TOKEN, ...LISTING, farmName: "Renamed" }),
+      );
+
+      expect(rename).not.toHaveBeenCalled();
+    });
   });
 
   it("refuses a REVOKED or unknown link, and writes nothing", async () => {

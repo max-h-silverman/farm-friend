@@ -104,6 +104,42 @@ export type SaveOnboardingListingResult =
   /** The stated season / hours / stocking contradict themselves: see `coherentAvailability`. */
   | { status: "incoherent_availability" };
 
+export type RenameFarmResult =
+  | { status: "saved" }
+  | { status: "unknown_farm" }
+  | { status: "invalid_name" };
+
+/**
+ * Rename a farm.
+ *
+ * **The farm's name was previously immutable.** It was written when the invitation was
+ * created and no path — farmer or administrator — could change it afterwards, yet it is
+ * shown to customers on the map beside the stand. A name mistyped at invitation time was
+ * therefore permanent and public. The farmer owns their published state, so the farmer is
+ * who corrects it.
+ *
+ * Deliberately NOT part of `saveOnboardingListing`: the stand name and the farm name are
+ * different facts about different records, and folding them into one writer is what made
+ * them easy to confuse in the first place. The caller supplies a `farmId` it already
+ * resolved from a credential — this function performs no authorization of its own, exactly
+ * like its neighbours here.
+ *
+ * The `returning` clause is what distinguishes "renamed" from "matched no row": an update
+ * against a missing id affects nothing and would otherwise report success.
+ */
+export async function renameFarm(
+  db: Db,
+  input: { farmId: string; name: string },
+): Promise<RenameFarmResult> {
+  const name = input.name.trim();
+  if (name === "") return { status: "invalid_name" };
+
+  const rows = await driver(db)`
+    update farms set name = ${name} where id = ${input.farmId} returning id
+  `;
+  return rows.length === 0 ? { status: "unknown_farm" } : { status: "saved" };
+}
+
 /**
  * Write the listing an onboarding farmer typed, as their farm's stand.
  *
@@ -408,6 +444,13 @@ async function writeStandingItems(
  */
 export interface StandListing {
   standName: string;
+  /**
+   * The FARM's name, which is a different record from the stand's and is shown to customers
+   * beside it. Both are returned because the editor prefills each from its own source —
+   * passing the stand's name into a farm-name field is exactly the conflation that left the
+   * farm name looking editable when nothing could change it.
+   */
+  farmName: string;
   visitability: "visitable" | "contact_only";
   offeringType: "produce" | "services" | "by_order";
   publicAddress: string | null;
@@ -448,7 +491,9 @@ export async function readStandListing(
         ),
         '{}'
       ) as items
+      , farm.name as farm_name
     from sales_locations as location
+    join farms as farm on farm.id = location.owner_farm_id
     where location.id = ${input.salesLocationId}
   `;
 
@@ -456,6 +501,7 @@ export async function readStandListing(
   if (row === undefined) return null;
   return {
     standName: row.name as string,
+    farmName: row.farm_name as string,
     visitability: row.visitability as "visitable" | "contact_only",
     offeringType: row.offering_type as "produce" | "services" | "by_order",
     publicAddress: (row.public_address as string | null) ?? null,

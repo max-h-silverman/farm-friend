@@ -1,9 +1,11 @@
 import { hashFarmerLinkToken, type Clock } from "@farm-friend/core";
 import {
+  renameFarm,
   resolveFarmerLink,
   saveOnboardingListing,
   type Db,
   type OnboardingListingInput,
+  type RenameFarmResult,
   type ResolvedFarmerLink,
   type SaveOnboardingListingResult,
 } from "@farm-friend/db";
@@ -50,6 +52,10 @@ export interface FarmerListingEditDeps {
       occurredAt: Date;
     },
   ) => Promise<SaveOnboardingListingResult>;
+  renameFarm: (
+    db: Db,
+    input: { farmId: string; name: string },
+  ) => Promise<RenameFarmResult>;
 }
 
 /**
@@ -86,11 +92,42 @@ export async function handleFarmerListingEditPost(
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 
+  /*
+    The FARM's name, which is a different record from the stand's and is optional here.
+
+    ABSENCE MEANS LEAVE IT ALONE. This form posts a whole listing on every save, so a
+    missing field must never be read as "set it to empty" — that would rename a farm to
+    nothing the first time any existing caller saved. A present-but-blank name is a
+    different thing: the farmer cleared the box, and that is refused rather than obeyed,
+    because a farm with no name is unidentifiable on the public map.
+  */
+  const rawFarmName = body.farmName;
+  if (rawFarmName !== undefined && typeof rawFarmName !== "string") {
+    return Response.json({ error: "invalid_request" }, { status: 400 });
+  }
+  const farmName = typeof rawFarmName === "string" ? rawFarmName.trim() : null;
+  if (rawFarmName !== undefined && farmName === "") {
+    return Response.json({ error: "invalid_request" }, { status: 400 });
+  }
+
   const link = await deps.resolveLink(deps.db, {
     tokenHash: hashFarmerLinkToken(token),
   });
   if (link === null) {
     return Response.json({ error: "link_unavailable" }, { status: 410 });
+  }
+
+  // After the link resolves, so a revoked farmer renames nothing, and against the farm the
+  // LINK names — never a `farmId` from the body.
+  if (farmName !== null && farmName !== "") {
+    const renamed = await deps.renameFarm(deps.db, {
+      farmId: link.farmId,
+      name: farmName,
+    });
+    if (renamed.status !== "saved") {
+      const status = renamed.status === "unknown_farm" ? 410 : 400;
+      return Response.json({ error: renamed.status }, { status });
+    }
   }
 
   const result = await deps.saveListing(deps.db, {
@@ -116,5 +153,6 @@ export function farmerListingEditDeps(context: {
     clock: context.clock,
     resolveLink: resolveFarmerLink,
     saveListing: saveOnboardingListing,
+    renameFarm,
   };
 }

@@ -5,7 +5,11 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NO_AVAILABILITY_STATED } from "./listing-availability";
-import { saveOnboardingListing } from "./onboarding-listing";
+import {
+  readStandListing,
+  renameFarm,
+  saveOnboardingListing,
+} from "./onboarding-listing";
 import type { Db, Sql } from "./index";
 
 // F-067 — the first farmer-facing writer of PUBLIC LISTING FACTS.
@@ -830,6 +834,75 @@ describe("F-067 onboarding listing (integration)", () => {
       // The retracted stocking cadence clears too, days included.
       expect(row.stocking_cadence).toBeNull();
       expect(row.stocking_days).toBeNull();
+    });
+  });
+
+  // A farm's name is public on the map beside its stand, and until now nothing could change
+  // it — not the farmer, not an administrator. It was written once when the invitation was
+  // created and was permanent, so a typo made at invitation time was a typo the island saw
+  // forever. The farmer owns their published state (Golden Rule #1), so the farmer is who
+  // gets to correct it.
+  describe("renaming a farm", () => {
+    it("renames the farm a stand belongs to", async () => {
+      const result = await renameFarm(database(), {
+        farmId,
+        name: "Misty Hollow Farm",
+      });
+
+      expect(result.status).toBe("saved");
+      const rows = await client()`select name from farms where id = ${farmId}`;
+      expect(rows[0]?.name).toBe("Misty Hollow Farm");
+    });
+
+    it("trims a padded name rather than publishing the whitespace", async () => {
+      await renameFarm(database(), { farmId, name: "  Padded Farm  " });
+
+      const rows = await client()`select name from farms where id = ${farmId}`;
+      expect(rows[0]?.name).toBe("Padded Farm");
+    });
+
+    it("refuses a blank name instead of erasing the farm's identity on the map", async () => {
+      const before = await client()`select name from farms where id = ${farmId}`;
+
+      const result = await renameFarm(database(), { farmId, name: "   " });
+
+      expect(result.status).toBe("invalid_name");
+      // Refusal means UNCHANGED, not "changed to something else".
+      const after = await client()`select name from farms where id = ${farmId}`;
+      expect(after[0]?.name).toBe(before[0]?.name);
+    });
+
+    it("reads the farm's own name back, distinctly from the stand's", async () => {
+      // The two are separate records and the editor must prefill each from its own source.
+      // Reading the stand name into a "farm name" box is how the conflation started.
+      await renameFarm(database(), { farmId, name: "Two Sisters Farm" });
+      await saveOnboardingListing(database(), {
+        farmId,
+        standName: "The Red Shed",
+        listing: visitableListing,
+        occurredAt: new Date("2026-08-06T17:00:00Z"),
+      });
+
+      const locations = await client()`
+        select id from sales_locations where owner_farm_id = ${farmId}
+      `;
+      const listing = await readStandListing(database(), {
+        salesLocationId: locations[0]?.id as string,
+      });
+
+      expect(listing?.standName).toBe("The Red Shed");
+      expect(listing?.farmName).toBe("Two Sisters Farm");
+    });
+
+    it("reports an unknown farm rather than silently writing nothing", async () => {
+      const result = await renameFarm(database(), {
+        farmId: randomUUID(),
+        name: "Ghost Farm",
+      });
+
+      // A rename that matched no row must not read as success — the caller would tell a
+      // farmer their farm was renamed when nothing happened.
+      expect(result.status).toBe("unknown_farm");
     });
   });
 });
