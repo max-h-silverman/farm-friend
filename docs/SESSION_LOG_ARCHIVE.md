@@ -1,12 +1,102 @@
 # Farm Friend — Session Log Archive (through 2026-08-04)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-06; it now holds 56 entries.
+everything older lives here. Last rotated 2026-08-06; it now holds 57 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
 architecture documents ([README.md](README.md) is the index). Where an entry here disagrees with the
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
+
+---
+
+## 2026-08-04 — web onboarding establishes SMS consent (the launch blocker)
+
+The first tranche of the pre-go-live farmer plan (`~/.claude/plans/warm-dazzling-kahn.md`), worked
+from an approved plan rather than a PM item — max's call, and the plan file is the record.
+
+**The defect, stated plainly.** `SIGNUP` opened a request row and established no consent.
+`FARMER_AUTHORIZED_NOTIFICATION` is a proactive `inventory_prompt`, so `authorizeDispatch`
+correctly suppressed it for anyone with no consent record. Nothing in the invitation text, the
+onboarding page, or the SIGNUP reply ever asked the farmer to text `JOIN` — the word appeared only
+in code comments. So the standard invited path was: farmer completes onboarding → VIGA approves →
+**the farmer is never told, and never will be.** Every piece was individually correct and fully
+tested; nothing exercised the composition, which is exactly where it failed.
+
+**A tick on a web page is not consent, and the design turns on that.** Anyone holding the
+invitation link can tick a box, so the tick proves only that someone with the link ticked. What it
+does is stamp `farmer_invitations.agreed_to_sms_at` — *where the agreement was shown*. The consent
+record is written when `SIGNUP <token>` arrives from a handset, because the inbound message is the
+evidence tying the person who agreed to the number that will be messaged. The page gates the
+prepared `sms:` link behind the server having recorded the tick, so a farmer cannot spend the
+one-use invitation before the agreement exists.
+
+**The write is atomic with the redemption, and that is load-bearing rather than tidy.** A crash
+between redeeming the invitation and writing consent would leave the invitation spent, the farmer
+un-consented, and no retry path — the second `SIGNUP` finds a redeemed invitation and the approval
+text stays suppressed forever. That is the original dead end, reached by a different route. So
+`applyConsentTransition` became a thin `begin` wrapper over `applyConsentTransitionIn(tx, …)` and
+onboarding calls the inner form inside its own transaction. Same shape as `queueOutbox`, for the
+same reason: **one consent writer**, so the first-time rule, the watermark ordering and STOP's
+tie-break are stated once and every caller gets all of them.
+
+**`firstTimeOnly` is what makes onboarding safe as an opt-in path**, and it needed no new code —
+the B-011 machinery already does exactly the right thing. A farmer who already texted `JOIN` keeps
+one unchanged record with its original provenance; a farmer who texted `STOP` is **not** silently
+re-enrolled by filling in a web form. That second case is the one worth naming: the carrier would
+refuse the send regardless, and only `START` clears its list, so recording `active` there would
+make our record disagree with theirs about the same person.
+
+**The reply had four cases and one rule: say the true thing about messaging.** Consent established
+→ the registered opt-in receipt verbatim, since that is the moment the carrier registered it for.
+No consent basis at all → an instruction to reply `JOIN`, the one place that word belongs in
+farmer-facing copy. Already consented → neither, because they need no instruction and a second
+receipt would claim an agreement not made today. That decision is a pure function
+(`signupReplyBodies`) rather than branching inside the router: the router owns the deterministic
+*order* and proves it with a throwing model seam, and putting four copy cases in there would make
+each reachable only through a SQL stub shaped to produce it.
+
+Two things the tooling got wrong and the plan predicted. Drizzle generated the `0018` journal
+timestamp **out of order** (`1785873477704`, earlier than `0017`) — the B-022 trap where a migration
+is silently skipped and reports success; corrected to `1786700000000`. And this drizzle version
+tracks no CHECK constraints in snapshots at all, so the constraint was hand-written into the SQL,
+matching how `0016` already did it.
+
+The `provenance` wording in the new schema comment tripped `schema.integration.test.ts`'s forbidden-
+concept scan, which reads raw source including comments. Reworded rather than exempted — the
+tripwire is right that the *concept* has no place in this schema.
+
+Verification: 102 unit files / 985 tests, 42 integration files / 580 tests against real Postgres
+from an empty schema, typecheck, lint, production web build. Four new end-to-end journeys run
+through the real signed webhook with a provider that throws on any call. Migration verified **by
+effect** — column, constraint, and a backdated agreement actually refused — never by an exit code.
+Four sabotages each fail a distinct named test: removing the consent write, removing `firstTimeOnly`,
+inverting the agreement check, and replacing the `AgreementStep` call site with a bare link. No
+model seam was added, so no eval or `evals:live` run was owed.
+
+Also fixed: the map directory key read "Don't take VIGA Bucks" of a single stand, with the test
+asserting the same wrong wording. Committed separately from the consent work.
+
+Released as PR #77, squash-merged to `main` as `b8bc76d`.
+
+Migration `0018` was applied to production **before** promoting the code that reads the column, per
+the RUNBOOK's ordering rule. The target was fingerprinted first (`neondb`, 17 migrations, 35 farms
+and 35 locations, column absent) so a mistyped connection string would have failed rather than
+migrated something else. Verified by effect afterwards: the column and its CHECK constraint exist,
+the journal shows `0018` landing exactly once at the corrected `1786700000000` with no duplicate
+timestamps, and all 35 farms and locations are intact.
+
+Cloud Build `04d46497-1e9d-4722-96f1-0e478cc35d2e` produced digest
+`sha256:d27f3639f4a7ccc05da41b77e5cdc3a8581871cb4c5eb393a02422322de6aca6`. OpenTofu passed 37/37
+plan assertions and applied 0 adds, 2 service updates, 0 destroys; deploy and served-card
+assertions passed. Live revisions are `farm-friend-web-00028-mwv` and
+`farm-friend-worker-00029-jzz`. Verified **by effect** rather than by the apply's exit status: the
+live `/api/farmer/onboarding` refuses a malformed token with `400` before any database work, and
+answers a well-formed but unknown one with the uniform `410 invitation_unavailable`, so the new
+endpoint is not an oracle for whether a guessed token names anything.
+
+**Still owed:** the journey has never been exercised against a real handset, and the agreement step
+has not been looked at in a real browser at phone width.
 
 ---
 

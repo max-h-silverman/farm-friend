@@ -382,7 +382,17 @@ against the real corpus on 2026-08-04 while implementing.
   went 3 → 0 and published rows 13 → 16.
 - **Attribution for an admin inventory edit is still owed (F-065)** — a revision row carries no
   `admin_actor_id` and there is no general admin audit log, so that workflow must record its own
-  action, matching how `stock_out_reports` and `farm_approvals` already work.
+  action, matching how `stock_out_reports` and `farm_approvals` already work. **F-072/F-073 widened
+  this**: there are now three writers of public listing state (invited, grandfathered, edit) and
+  none records who wrote. The edit path is the one holding an authorization to attribute to.
+- **F-074 — test farms are FILED, not built** (planned, next session). A farm markable as a test
+  farm, hidden from the map and from customer SMS unless the URL carries `?hidden=true` or the
+  sender is on a new **administrator phone list**. Two things are worth knowing before that work
+  starts: the flag needs **its own column** — `is_public` is rewritten by the farmer's own listing
+  form on every save, which is exactly why F-071 kept `retired_at` separate — and the phone list is
+  a **second way to be privileged, reachable from untrusted inbound SMS**, so it must grant
+  visibility and nothing else. Three read sites gate it: `public-listing.ts:386`,
+  `inquiry.ts:137`, `inquiry.ts:195`.
 - **F-066 — one item vocabulary is BUILT, merged, and DEPLOYED.** `stand_items`
   holds one record per (stand, item name) with two independent states — `usually_carried`, and
   whether a dated revision names it. The separation that justified two tables survives: sharing

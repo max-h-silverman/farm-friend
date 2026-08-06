@@ -6,8 +6,99 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 56. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 57. A log too large to open
 mid-session defeats its own purpose.
+
+---
+
+## 2026-08-06 — the weekly form switchover: a self-serve farm door (F-072 / F-073)
+
+max's last piece of go-live planning: VIGA's Google "Farm Stand Weekly Status" form is replaced by
+one global Farm Friend link. Two cases he named — a farm not yet on Farm Friend needs to onboard
+itself, and a farm already on Farm Friend that follows the old link should be sent to *update*
+rather than set up again.
+
+### The suggestion that was wrong, and what it changed
+
+The first proposal back to max was to keep a possession check: farmer picks their farm, Farm Friend
+texts a one-use link to the number VIGA has on file. He answered that **there are no farm phone
+numbers** — and he was right. `contacts` holds people who have texted Farm Friend, not a roster of
+who owns which farm; VIGA never supplied one. There is therefore no possession check available to
+build, and the honour system is not a shortcut but the only design the data supports. Recorded
+because the instinct to "just verify the phone" will recur and the answer will still be no.
+
+### What actually keeps the door narrow
+
+Not the dropdown. Anyone can post a farm id to the endpoint behind it, so omission from a list
+protects nothing. The guarantee is `claimGrandfatheredFarm` **re-resolving on submit**, and the
+predicate it uses is F-071's — **the absence of a live farmer authorization**, never an unredeemed
+invitation. That definition was already reasoned through once and comes apart in both directions
+(VIGA can authorize straight from the queue with no invitation; a revoked farmer's farm belongs
+back on the list). It is now stated **once** as a shared SQL fragment and used by both the public
+list and the resolver, because two copies is exactly how a farm ends up hidden from the dropdown
+and still claimable.
+
+### An acceptance criterion deliberately not met
+
+F-072's filed item asked that redemption leave a live `farmer_authorizations` row, matching F-067's
+self-serve chain. It does not, and should not: naming a farm on an unauthenticated form is evidence
+of nothing, so granting publish-by-SMS authority from it would hand the SMS surface to anyone with
+the link. **The honour system buys a LISTING; speaking as the farm still needs a handset.** The
+page says so rather than letting a farmer discover it when their first text is refused.
+
+### One form, three credentials — the alternative was three forms
+
+`ListingStep` and `parseListingSubmission` are parameterized by credential rather than forked. The
+failure being avoided is drift: three doors publishing three different shapes onto one map. The
+same reasoning extended to the billed address-lookup endpoint, which now accepts an invitation
+token, a claimable farm id, or a stand link — and **refuses a request carrying two**, since
+honouring either would let one credential launder the other.
+
+**The geocoding gate got weaker on the grandfathered path, and that is written down rather than
+glossed.** A farm id is not secret, so the throttle rather than the credential is the real cost
+defense there. What the claim check still buys is that the lookup closes for a farm the moment it
+has a farmer.
+
+### F-073's third half was the real work
+
+Recognition and routing are small. The gap was that **listing facts were frozen for everyone except
+a farmer mid-onboarding** — the form is welded to a one-use invitation token, so an onboarded farmer
+could change nothing. The edit surface lives under the existing `/stand/<token>` credential, so
+revocation is inherited rather than reimplemented.
+
+**Prefill is load-bearing, not polish.** `saveOnboardingListing` replaces the whole listing — that
+is what lets a farmer drop an item by leaving it out — so a blank edit form would erase a farmer's
+address and payments when they came only to change their hours. Two sabotages target exactly this:
+the reader returning empty payments/items, and the form failing to prefill `hoursText`. Both fail
+named tests.
+
+### The defect only running it could find
+
+`/api/farmer/link-request` was first bound to `appContext()`, which validates SMS, model, and map
+configuration — so an unauthenticated farmer page returned **500** on an unrelated missing variable.
+**No test could see it**: every test injects these dependencies, so the composition itself is
+invisible to the suite. It now builds from `publicReadContext` plus the two values it needs. This is
+the second time the full composition root has leaked into a public surface; `public-context.ts`
+exists because of the first.
+
+### A fixture that looked like a bug
+
+The first live link-request check queued nothing for a matching farmer. The cause was a seeded
+contact carrying a **placeholder hash** (`aaaa…`) rather than one under the real salt — fake data,
+correct code. Recorded because the shape of that failure (verified behaviour, silent zero result)
+is one that invites blaming the code.
+
+### Verified, and how
+
+Every claim read back from Postgres or `/api/public/stands`, never from a success message: a
+grandfathered listing reaches the public map; posting an **already-onboarded** farm's id is refused
+`409` with that farm's row confirmed unchanged; a matching phone queues exactly one text whose token
+**hashes to a live `farmer_links` row** while a wrong number, a cross-farm farmer, and a revoked
+authorization each queue **zero** — with all three HTTP responses byte-identical; and the edit writes
+listing facts with **zero inventory revisions**, so F-066's separation survives a new writer.
+
+1293 unit / 710 integration tests, typecheck, lint, production build. No migration, no model seam.
+**Merged nowhere and deployed nowhere** — branch `f-072-grandfathered-onboarding`, commit `5e1c596`.
 
 ---
 
@@ -700,91 +791,3 @@ Plan assertions 37/37; deploy and served-card assertions pass.
 requires for the public map. Not done — the browser in this environment reports a successful resize
 while `window.innerWidth` stays 1728, and AppleScript window control times out (-1712). max chose
 to merge and check it himself. The phone sheet's *markup* is covered by a test; its *layout* is not.
-
-## 2026-08-04 — web onboarding establishes SMS consent (the launch blocker)
-
-The first tranche of the pre-go-live farmer plan (`~/.claude/plans/warm-dazzling-kahn.md`), worked
-from an approved plan rather than a PM item — max's call, and the plan file is the record.
-
-**The defect, stated plainly.** `SIGNUP` opened a request row and established no consent.
-`FARMER_AUTHORIZED_NOTIFICATION` is a proactive `inventory_prompt`, so `authorizeDispatch`
-correctly suppressed it for anyone with no consent record. Nothing in the invitation text, the
-onboarding page, or the SIGNUP reply ever asked the farmer to text `JOIN` — the word appeared only
-in code comments. So the standard invited path was: farmer completes onboarding → VIGA approves →
-**the farmer is never told, and never will be.** Every piece was individually correct and fully
-tested; nothing exercised the composition, which is exactly where it failed.
-
-**A tick on a web page is not consent, and the design turns on that.** Anyone holding the
-invitation link can tick a box, so the tick proves only that someone with the link ticked. What it
-does is stamp `farmer_invitations.agreed_to_sms_at` — *where the agreement was shown*. The consent
-record is written when `SIGNUP <token>` arrives from a handset, because the inbound message is the
-evidence tying the person who agreed to the number that will be messaged. The page gates the
-prepared `sms:` link behind the server having recorded the tick, so a farmer cannot spend the
-one-use invitation before the agreement exists.
-
-**The write is atomic with the redemption, and that is load-bearing rather than tidy.** A crash
-between redeeming the invitation and writing consent would leave the invitation spent, the farmer
-un-consented, and no retry path — the second `SIGNUP` finds a redeemed invitation and the approval
-text stays suppressed forever. That is the original dead end, reached by a different route. So
-`applyConsentTransition` became a thin `begin` wrapper over `applyConsentTransitionIn(tx, …)` and
-onboarding calls the inner form inside its own transaction. Same shape as `queueOutbox`, for the
-same reason: **one consent writer**, so the first-time rule, the watermark ordering and STOP's
-tie-break are stated once and every caller gets all of them.
-
-**`firstTimeOnly` is what makes onboarding safe as an opt-in path**, and it needed no new code —
-the B-011 machinery already does exactly the right thing. A farmer who already texted `JOIN` keeps
-one unchanged record with its original provenance; a farmer who texted `STOP` is **not** silently
-re-enrolled by filling in a web form. That second case is the one worth naming: the carrier would
-refuse the send regardless, and only `START` clears its list, so recording `active` there would
-make our record disagree with theirs about the same person.
-
-**The reply had four cases and one rule: say the true thing about messaging.** Consent established
-→ the registered opt-in receipt verbatim, since that is the moment the carrier registered it for.
-No consent basis at all → an instruction to reply `JOIN`, the one place that word belongs in
-farmer-facing copy. Already consented → neither, because they need no instruction and a second
-receipt would claim an agreement not made today. That decision is a pure function
-(`signupReplyBodies`) rather than branching inside the router: the router owns the deterministic
-*order* and proves it with a throwing model seam, and putting four copy cases in there would make
-each reachable only through a SQL stub shaped to produce it.
-
-Two things the tooling got wrong and the plan predicted. Drizzle generated the `0018` journal
-timestamp **out of order** (`1785873477704`, earlier than `0017`) — the B-022 trap where a migration
-is silently skipped and reports success; corrected to `1786700000000`. And this drizzle version
-tracks no CHECK constraints in snapshots at all, so the constraint was hand-written into the SQL,
-matching how `0016` already did it.
-
-The `provenance` wording in the new schema comment tripped `schema.integration.test.ts`'s forbidden-
-concept scan, which reads raw source including comments. Reworded rather than exempted — the
-tripwire is right that the *concept* has no place in this schema.
-
-Verification: 102 unit files / 985 tests, 42 integration files / 580 tests against real Postgres
-from an empty schema, typecheck, lint, production web build. Four new end-to-end journeys run
-through the real signed webhook with a provider that throws on any call. Migration verified **by
-effect** — column, constraint, and a backdated agreement actually refused — never by an exit code.
-Four sabotages each fail a distinct named test: removing the consent write, removing `firstTimeOnly`,
-inverting the agreement check, and replacing the `AgreementStep` call site with a bare link. No
-model seam was added, so no eval or `evals:live` run was owed.
-
-Also fixed: the map directory key read "Don't take VIGA Bucks" of a single stand, with the test
-asserting the same wrong wording. Committed separately from the consent work.
-
-Released as PR #77, squash-merged to `main` as `b8bc76d`.
-
-Migration `0018` was applied to production **before** promoting the code that reads the column, per
-the RUNBOOK's ordering rule. The target was fingerprinted first (`neondb`, 17 migrations, 35 farms
-and 35 locations, column absent) so a mistyped connection string would have failed rather than
-migrated something else. Verified by effect afterwards: the column and its CHECK constraint exist,
-the journal shows `0018` landing exactly once at the corrected `1786700000000` with no duplicate
-timestamps, and all 35 farms and locations are intact.
-
-Cloud Build `04d46497-1e9d-4722-96f1-0e478cc35d2e` produced digest
-`sha256:d27f3639f4a7ccc05da41b77e5cdc3a8581871cb4c5eb393a02422322de6aca6`. OpenTofu passed 37/37
-plan assertions and applied 0 adds, 2 service updates, 0 destroys; deploy and served-card
-assertions passed. Live revisions are `farm-friend-web-00028-mwv` and
-`farm-friend-worker-00029-jzz`. Verified **by effect** rather than by the apply's exit status: the
-live `/api/farmer/onboarding` refuses a malformed token with `400` before any database work, and
-answers a well-formed but unknown one with the uniform `410 invitation_unavailable`, so the new
-endpoint is not an oracle for whether a guessed token names anything.
-
-**Still owed:** the journey has never been exercised against a real handset, and the agreement step
-has not been looked at in a real browser at phone width.
