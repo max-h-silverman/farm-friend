@@ -20,6 +20,11 @@ path** (F-070's exact geometry), and `POST /api/farmer/address-lookup` answers `
 to a malformed token and a uniform `invitation_unavailable` to a well-formed unknown one, leaking
 no key.
 
+**Two migrations are now owed to production, in this order**: `0022_stand_retirement` (F-071,
+merged) and then `0023_test_farms` (F-074, branch only). Both are additive and nullable, so the
+currently deployed image keeps serving correctly in the window between each migration and the
+deploy that reads it.
+
 **Two changes are now MERGED and NOT DEPLOYED, in this order ahead of production:**
 
 1. **F-071**, which carries migration **`0022_stand_retirement`**. That migration is **not applied
@@ -101,8 +106,36 @@ public description, which it does.
 
 ## Verification
 
-- Branch `f-072-grandfathered-onboarding` (F-072 + F-073): **115 unit files / 1293 tests**, **52
-  integration files / 710 tests**, typecheck, lint, and the production build pass. **No
+- Branch `f-074-test-farms` (F-074, commit `ab1fd86`): **115 unit files / 1293 tests**, **53
+  integration files / 724 tests**, typecheck, lint, and the production build pass. **No
+  `packages/ai` file changed, so no eval or `evals:live` run is owed.** Carries migration
+  **`0023_test_farms`**. **Not merged, not deployed.** It branches off
+  `f-072-grandfathered-onboarding` rather than `main`, because it changes F-072's farm picker —
+  **so that branch merges first.**
+- **Migration `0023` verified BY EFFECT** against a freshly migrated database, never by exit
+  status. The two `farms` columns exist, are nullable, and carry **no default** — which is what
+  makes the migration safe to apply ahead of the image that reads it. All four CHECK constraints
+  are **hand-written**, because drizzle-kit omits CHECKs entirely, and each is asserted by a
+  genuinely *refused* write: both directions of each coherence pair, a hash that is not a
+  64-character digest, and four bad suffix shapes. `administrator_phones` is asserted to hold
+  **no `phone_e164` column at all**, read from the real schema rather than from the schema file's
+  word.
+- **Seven sabotages this tranche, each failing named tests**: removing the filter at each of the
+  **four** read sites (the map — 2 tests; the confirmed SMS query — 1; the offerings SMS query —
+  1; the farm picker — 1), ignoring `revoked_at` on the phone list (1), making the phone list
+  grant farmer authority (1), and replacing the coherence CHECK with the naive one-directional
+  form that passes on NULL (1).
+- **Two test defects were found by running the tests, not by reading them.** A stranger hash
+  collided with the fixture's own farmer, so the "visibility only" test would have passed for
+  entirely the wrong reason. And deleting `farmer_authorizations` is refused by a foreign key
+  from published revisions — revocation is what the real system does anyway, and
+  `NO_LIVE_FARMER` keys on it.
+- **One assertion was wrong in an instructive way.** The hidden-offerings test expected an empty
+  answer and got `rejected`, which is the *stronger* result: retrieval was non-empty because
+  another farm had stock, so the model genuinely ran, named the test farm anyway, and code
+  refused a selection outside the retrieved set (Golden Rule #4).
+- Prior branch `f-072-grandfathered-onboarding` (F-072 + F-073): **115 unit files / 1293 tests**,
+  **52 integration files / 710 tests**, typecheck, lint, and the production build pass. **No
   `packages/ai` file changed, so no eval or `evals:live` run is owed.** **No migration** — both
   items are new readers, writers, and surfaces over the existing schema. **Not merged, not
   deployed.**
@@ -385,14 +418,40 @@ against the real corpus on 2026-08-04 while implementing.
   action, matching how `stock_out_reports` and `farm_approvals` already work. **F-072/F-073 widened
   this**: there are now three writers of public listing state (invited, grandfathered, edit) and
   none records who wrote. The edit path is the one holding an authorization to attribute to.
-- **F-074 — test farms are FILED, not built** (planned, next session). A farm markable as a test
-  farm, hidden from the map and from customer SMS unless the URL carries `?hidden=true` or the
-  sender is on a new **administrator phone list**. Two things are worth knowing before that work
-  starts: the flag needs **its own column** — `is_public` is rewritten by the farmer's own listing
-  form on every save, which is exactly why F-071 kept `retired_at` separate — and the phone list is
-  a **second way to be privileged, reachable from untrusted inbound SMS**, so it must grant
-  visibility and nothing else. Three read sites gate it: `public-listing.ts:386`,
-  `inquiry.ts:137`, `inquiry.ts:195`.
+- **F-074 — test farms are BUILT** (branch `f-074-test-farms`, undeployed). VIGA can mark a farm
+  as a test farm, and it is then **absent** from the map, from `/api/public/stands`, from both
+  halves of customer SMS retrieval, and from F-072's farm picker — appearing only for a viewer
+  who deliberately asked: `?hidden=true` on the web, a listed sender hash over SMS. Carries
+  migration **`0023`** (additive, nullable, safe ahead of the image that reads it).
+  **The two ways to be a deliberate viewer are different kinds of thing, and the docs should not
+  blur them.** `?hidden=true` is a URL parameter, **not a credential** — anyone who guesses it
+  sees test farms, which is acceptable only because a test farm holds no real data. That is
+  exactly why this must **never** be used to hide a real farm that wants privacy: B-024's case
+  stays `contact_only`.
+  **The administrator phone list is a real credential and the riskier half** — a second way to be
+  privileged, reachable from untrusted inbound SMS. Three properties contain it, all structural
+  rather than promised: it grants **visibility and nothing else** (no path but retrieval reads
+  `administrator_phones`, proven by a test that a listed sender still holds no farmer authority);
+  it is **code's decision from the sender hash before any model call**, so the model never learns
+  it and cannot be argued into naming a test farm; and removal takes effect on the very next
+  message. Removal is a **revocation, not a delete**, so the audit trail still answers who was
+  listed and when.
+  **The flag has its own column on `farms`** — not `is_public`, which the farmer's own form
+  rewrites on every save (F-071's lesson, asserted here through the real writer rather than a
+  hand-written UPDATE), and not `sales_locations`, because the intent is "this whole farm is
+  fake".
+  **Four read sites share ONE predicate** (`visibleFarms`), the same shape as F-072's
+  `NO_LIVE_FARMER`. The item named three; the farm picker is the fourth.
+  **The picker and the resolver deliberately disagree, and that is the design**: a test farm is
+  hidden from `/farmer/start`'s dropdown so a real farmer cannot pick it by accident, but
+  `claimGrandfatheredFarm` still resolves it — walking onboarding end to end is the one thing a
+  test farm exists for, and a farm nobody can claim could never be walked.
+  **No "test farm" label anywhere** (max, 2026-08-06): test farm names will already read as test
+  farms, so the flag decides presence and never presentation. Nothing was added to the card, the
+  wire format, or an SMS answer.
+  **Still open, and max's call**: whether `?hidden=true` needs to survive the Squarespace embed,
+  or whether working on the direct URL is enough (the embed is how the island actually reaches
+  the map — F-044).
 - **F-066 — one item vocabulary is BUILT, merged, and DEPLOYED.** `stand_items`
   holds one record per (stand, item name) with two independent states — `usually_carried`, and
   whether a dated revision names it. The separation that justified two tables survives: sharing

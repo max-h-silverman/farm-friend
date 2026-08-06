@@ -49,6 +49,25 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   the next time the farmer edited their listing. Two actors owning one column is the failure this
   separation prevents. `retired_at` and `retired_by_administrator_id` move together, enforced by a
   CHECK stated as a full disjunction so the NULL case cannot pass silently.
+
+  **`farms.test_farm_at` is the same rule applied a second time** (F-074): a farm VIGA marked as
+  fake so the whole journey can be walked against real production without an islander seeing it.
+  It is on **`farms`**, not `sales_locations`, because the intent is "this whole farm is fake" —
+  one decision covering every stand it has. It is its own column for exactly the `retired_at`
+  reason, and a test asserts a real listing save does not clear it. It pairs with
+  `test_farm_by_administrator_id` under the same full-disjunction CHECK.
+
+  **It decides presence, never presentation.** A test farm is *absent* from the map, from both
+  halves of SMS retrieval, and from the grandfathered farm picker — there is no label, no badge,
+  and nothing added to the wire format (max, 2026-08-06: test farm names already read as fake).
+  All four readers compose **one** predicate, `visibleFarms`, for the reason `NO_LIVE_FARMER`
+  exists: four copies of a visibility rule is four chances to miss one.
+
+  **It is an operator fact about a fake farm, never a privacy control for a real one.** The web
+  half of "deliberate viewer" is `?hidden=true`, a guessable query parameter rather than a
+  credential, so it hides nothing from anyone determined to look. A farmer who does not want her
+  address published is `contact_only` (B-024) — a fact about the listing, which is a different
+  kind of thing entirely.
 - **farmer contacts and authorization** — who may act for a farm, and proof they control the phone
   number. **VIGA always grants this**, because a phone proves possession of a phone and not
   ownership of a farm: the only writer is administrator-gated, re-reads the administrator's
@@ -368,6 +387,15 @@ These are **database-level** requirements, not application conventions:
 - **Phones:** normalized at ingress; the raw E.164 lives in **exactly one column**, read **only** by
   the outbound send path (SMS cannot be sent to a hash); the **hash is the only lookup/log key**.
   Raw numbers are **never logged**, **never enter model context**, and are masked in admin.
+
+  **`administrator_phones` (F-074) does not weaken this, and the reason is worth stating.** It is a
+  second table holding phone-derived data, and it deliberately has **no `phone_e164` column at
+  all** — asserted against the real schema, not left to this document's word. `contacts` keeps the
+  raw number *only* because the sender needs something to send to; nothing on the test-farm path
+  ever sends, so a raw column there would be stored personal data with no reader. What it keeps
+  beside the hash is the **last four digits**, the same lossy fragment the admin surface already
+  shows everywhere (`right(phone_e164, 4)` → `maskPhoneSuffix`), so an operator can tell which row
+  to remove. Four digits identify a row to a human being; they do not identify a subscriber.
 - **Raw message context is short-lived** and deleted on expiry. A body is written with a **30-day**
   `body_expires_at` (`DEFAULT_BODY_TTL_MS`); the scheduled retention purge clears it once that
   instant passes. Only the body text goes — the `sms_messages` row, its inbox projection, dispatch

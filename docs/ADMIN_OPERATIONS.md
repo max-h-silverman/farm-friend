@@ -99,6 +99,23 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   can no longer publish updates to it. **Nothing it already published is deleted** — the record of
   what that stand said it had, and when, is kept. Press **Put back on the map** to undo it. Use this
   when a farm stops running a stand; it is not how you fix a wrong listing detail.
+- **Rehearse against the real site with a test farm (F-074):** open **Test farms** on `/admin`.
+  Marking a farm as a test farm makes it **absent** — from the map, from `/api/public/stands`,
+  from customer text answers, and from the farm list at `/farmer/start`. It is not a listing with
+  a warning on it; islanders simply never see it. Unmark it to put it back. Both directions are
+  recorded against you.
+  **To see test farms yourself**, add `?hidden=true` to the map address, or add your mobile
+  number under **Phones that can see test farms** and text Farm Friend normally.
+  **Two things to be clear about before you use this.** First, `?hidden=true` is **not a
+  password** — anyone who knows to type it sees test farms. That is fine for a fake farm and
+  wrong for a real one: a farmer who does not want her address published is set to *contact only*
+  instead, which is a fact about her listing rather than a web address anyone can guess. Second,
+  a number on the phone list gets **visibility and nothing else** — it cannot publish, approve,
+  or read anything an ordinary number cannot. Removing a number stops it seeing test farms on its
+  very next text.
+  **A test farm can still be set up through `/farmer/start`** even though it is not in the
+  dropdown, which is deliberate: walking a farmer's whole journey is the thing a test farm exists
+  for. Name test farms so they read as fake — that name is the only marker anywhere.
 - **Set a farmer up by hand:** open `/admin/farmers`. Anyone whose request needs a person is
   waiting at the top, shown by the last four digits of their number — someone who texted `SIGNUP`
   with no invitation, an invitation naming no farm, or one whose agreement was never ticked.

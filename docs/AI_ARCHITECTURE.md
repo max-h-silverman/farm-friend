@@ -252,6 +252,17 @@ dereferences the authoritative values, and renders the factual answer and recenc
 is code-rendered without a grounded-selection call.
 Model-supplied values or prose are not accepted as evidence.
 
+**Retrieval is also where VISIBILITY is decided, and that placement is the guarantee** (F-074).
+Whether a sender may see test farms is code's decision, made from the sender hash *before* any
+model call and never carried into or out of model context — the model receives no hash, no
+boolean, and no hint that a hidden farm exists. Because it filters what comes back rather than
+what the prompt says, a test farm the filter excluded **cannot be named however directly the
+question asks for it**: the model may only select from the retrieved set, and code re-validates
+every identifier against that set. A test asserts exactly this, with a scripted model that names
+the hidden farm anyway and is refused. A prompt instruction to "not mention test farms" would be
+the same guarantee written where a jailbreak can reach it — this is Golden Rule #6's shape applied
+to visibility.
+
 **"Retrieval-first" means retrieval before grounded *fact selection* and factual rendering — not
 before *semantic interpretation*.** The distinction is settled and load-bearing in both directions.
 Interpreting the request must come first, because retrieval needs to know what to look for; letting
