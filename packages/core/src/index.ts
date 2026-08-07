@@ -2,6 +2,7 @@
 
 export * from "./clock";
 export * from "./privacy/phone";
+export * from "./privacy/email";
 export * from "./sms/commands";
 export * from "./sms/consent";
 export * from "./sms/auto-responses";
@@ -24,11 +25,14 @@ export * from "./public/public-string";
 export * from "./auth/farmer-link";
 export * from "./auth/farmer-invite";
 export * from "./auth/session";
+export * from "./auth/email-verification";
+export * from "./email/send";
 export * from "./seed/availability";
 export * from "./seed/farm-links";
 export * from "./seed/stand-description";
 export * from "./seed/weekly-status";
 export * from "./seed/form-responses";
+export * from "./seed/farm-emails";
 export * from "./seed/match-stands";
 export * from "./seed/offering-type";
 export * from "./seed/stand-csv";

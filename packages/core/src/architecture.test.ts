@@ -343,6 +343,57 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
     ).toEqual([]);
   });
 
+  /**
+   * F-078 — the model must never be handed a farmer's email address.
+   *
+   * Golden Rule #5 puts raw personal data out of model context, and email is the second kind
+   * of personal data Farm Friend holds. Today `packages/ai` contains no reference to
+   * `farm_emails` at all, which is the right state — but "no reference today" is a fact about
+   * the current code, and only a tripwire keeps it true. Retrieval and projections are exactly
+   * where a well-meant "so the model can tell them who to contact" change would land.
+   *
+   * Anchored to the TABLE and the COLUMN, on comment-stripped source, so an explanation of the
+   * rule does not satisfy the rule.
+   */
+  it("puts no email table or column anywhere the model can read", () => {
+    const modelSources = productionSources.filter((path) =>
+      path.startsWith("packages/ai/src"),
+    );
+    // The scan must actually cover something; an empty list would pass vacuously.
+    expect(modelSources.length).toBeGreaterThan(0);
+
+    const offenders = modelSources.filter((path) => {
+      const source = codeOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
+      return /\bfarm_emails\b|\bfarmEmails\b|\bemail_hash\b|\bemailHash\b/.test(source);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * The raw address is read by the SEND PATH and nothing else.
+   *
+   * The mirror of `contacts.phone_e164`, whose single reader is the outbound SMS path. A second
+   * reader is how "exactly one column, read by one path" quietly becomes "a column anything can
+   * select", and the leak that follows is invisible until it is on a screen.
+   */
+  const FARM_EMAIL_READER_ALLOWLIST = [
+    // The ingest that writes the roster.
+    "packages/db/src/farm-emails.ts",
+    // The send path: resolves a hash to the one stored address, immediately before sending.
+    "apps/web/lib/email-delivery.ts",
+  ];
+
+  it("reads the raw email column from the send path and the ingest only", () => {
+    const offenders = productionSources.filter((path) => {
+      if (FARM_EMAIL_READER_ALLOWLIST.includes(path)) return false;
+      const source = codeOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
+      // `schema.ts` declares the table; declaring is not reading.
+      if (path === "packages/db/src/schema.ts") return false;
+      return /\bfarm_emails\b|\bfarmEmails\b/.test(source);
+    });
+    expect(offenders).toEqual([]);
+  });
+
   it("declares no MapProvider seam or coordinate-inventing stub anywhere", () => {
     // Unchanged and unnarrowed: the allowlist does NOT apply to these names. A provider seam or
     // a coordinate-inventing stub is forbidden in every file, the allowed one included.
