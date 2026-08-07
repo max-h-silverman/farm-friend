@@ -76,12 +76,43 @@ Built from `~/.claude/plans/woolly-kindling-origami.md`. Five workstreams; **thr
 
 **Not started: F-079** (secret link + emailed code). Depends on the email sending seam below.
 
-**Owed before F-078 can finish:** the Google Workspace SMTP relay is **configured** and max
-**holds the 16-character app password**, but `farm-friend-smtp-password` does not exist in
-Terraform yet, so there is nowhere to put it. Sender is **`board@vigavashon.org`** (max), not a
-dedicated Farm Friend address — so replies reach a mailbox VIGA actually reads. Still owed: the
-Terraform secret, the sending seam, the ingest, a privacy test that no public read path or model
-projection returns an email, and **one real send** to a real inbox.
+**The SMTP CREDENTIAL IS LIVE IN PRODUCTION** (2026-08-06, commit `4ff90a5`). The relay is
+configured, and the app password is now in Secret Manager and mounted. Sender is
+**`board@vigavashon.org`** (max), not a dedicated Farm Friend address — so replies reach a
+mailbox VIGA actually reads.
+
+Landed by the same three-step gate as geocoding, for the same platform reason: `version =
+"latest"` resolves at container start, so an unconditional mount of a versionless secret makes
+Cloud Run refuse the revision and takes the public map down to add an optional feature.
+
+**Verified by effect against the live services, not from the applies' exit status.** Both
+services rolled **00034 → 00037**, so they genuinely restarted and re-read the secret — the
+check that catches B-021's "apply succeeded, nothing picked it up". The live web service holds
+`SMTP_PASSWORD` from Secret Manager plus host/port/username/sender; **the live worker holds no
+`SMTP_*` variable at all**. Health 200 and 34 stands, unchanged. The secret version was checked
+for **shape without printing it**: 16 bytes, no trailing newline, no embedded space — the
+failure that looks correct in every listing and fails every send.
+
+**The sender address is configuration** (`SMTP_FROM_ADDRESS`), so moving to a dedicated address
+is an apply rather than a code change. `smtp_port` refuses **25**, which Google Cloud blocks
+outbound with no way to open it.
+
+Plan assertions **39/39 → 44/44**. Four sabotages, each failing its named check: the password in
+`shared_secret_env` (worker mount), supplied as a literal env value (cleartext in state),
+`SMTP_FROM_ADDRESS` dropped from config, and SMTP config in `common_env` (worker configured for a
+capability it does not have).
+
+**A tripwire had been RED AND SILENT since commit `737b39b`.** `infra/secrets-lifecycle.test.py`
+asserted on the local variable names `initial_secret_changes` / `post_provision_secret_changes`;
+that commit renamed the locals and the test has failed ever since — unnoticed because it is a
+standalone Python file `npm test` never runs. It now anchors to the **addresses** the guard
+allow-lists and **calls** the predicate, asserting a protected survivor can never be deleted.
+Sabotage-verified by making the guard return `True`, which it now catches. **It is still not in
+any npm script**, so it must be run by hand: `python3 infra/secrets-lifecycle.test.py`.
+
+**Still owed for F-078:** the sending seam (no email-sending code exists yet), the ingest, a
+privacy test that no public read path or model projection returns an email, masking in admin, and
+**one real send** to a real inbox.
 Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
 effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
 contacts) was taken before writing, and the pre-change schema was asserted so a pass could not
