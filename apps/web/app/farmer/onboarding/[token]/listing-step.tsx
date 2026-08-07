@@ -11,6 +11,7 @@ import { ISLAND_VIEWBOX, projectToIsland } from "@farm-friend/core/island-projec
 // agreement with what the writer stores, and a second hand-written copy of these twelve
 // fields is how that happens again.
 import type { ListingAvailability } from "@farm-friend/db";
+import { buildKeywordSmsUrl } from "../../../../lib/farmer-invite";
 import { IslandArtwork } from "../../../island-artwork";
 
 /**
@@ -297,6 +298,7 @@ export function ListingStep({
   farmName,
   defaults,
   description: initialDescription,
+  smsNumber,
 }: {
   credential: ListingCredential;
   farmName: string;
@@ -311,6 +313,19 @@ export function ListingStep({
    * field the form would otherwise silently erase. `defaults` wins when both are supplied.
    */
   description?: string;
+  /**
+   * Farm Friend's own SMS number, for the "text START to finish" hand-off.
+   *
+   * **The farmer texts US, and that direction is forced.** `isProactiveSendPermitted` allows a
+   * send to a number with no consent record only for `required_reply` — the carrier-required
+   * answer to that recipient's own message — and `authorizeDispatch` suppresses everything
+   * else. So Farm Friend cannot send the first text, and their inbound message is what serves
+   * as both the possession proof and the opt-in.
+   *
+   * Absent on a door that has no hand-off to announce (the edit form, where the farmer is
+   * already set up).
+   */
+  smsNumber?: string;
 }) {
   // A stored payment method is either one of the offered checkboxes or something the farmer
   // typed. Split on the closed set so an edit shows "Venmo" ticked rather than as free text —
@@ -643,7 +658,9 @@ export function ListingStep({
       because there the next action is on a different device and must be announced rather
       than discovered.
     */
-    const isOnboarding = credential.kind === "invitation";
+    // A door that PUBLISHES a stand rather than editing one: the invited form and F-079's
+    // migration door both put a farm on the map for the first time.
+    const isOnboarding = credential.kind === "invitation" || credential.kind === "grandfathered";
     return (
       <div className="farmer-listing-saved" role="status">
         <p className="farmer-form-published">
@@ -685,11 +702,36 @@ export function ListingStep({
           Change something
         </button>
 
-        <p className="farmer-listing-saved-next">
-          {isOnboarding
-            ? "Next: send one text from the phone you want to use for stand updates. It is the last step."
-            : "You can change any of this later by texting SETTINGS."}
-        </p>
+        {/*
+          THE HAND-OFF, and the step VIGA used to perform by hand. The page this replaces said
+          "contact VIGA and they will finish setting you up" — a coordinator doing what the
+          farmer can do themselves in one text.
+
+          The word is START and never JOIN or CONFIRM. Only START clears the carrier's OWN
+          opt-out list: Telnyx enforces it independently, and a JOIN four minutes after a STOP
+          was still refused 409 (verified live 2026-07-27). A farmer who ever opted out and
+          replied with any other word would be recorded as consenting while every message to
+          them was silently refused. START is also carrier-registered, so it works for a
+          first-timer and a returning farmer alike — one word covers both.
+
+          `sms:` rather than plain text so a farmer reading this on a phone taps once and the
+          message is composed for them. The number is shown as well, because this page is also
+          read on a laptop where the link does nothing.
+        */}
+        {isOnboarding && smsNumber !== undefined ? (
+          <p className="farmer-listing-saved-next">
+            Last step: text <strong>START</strong> to{" "}
+            <a href={buildKeywordSmsUrl(smsNumber, "START")}>{smsNumber}</a> from the phone you
+            want to use for stand updates. That is what turns on texting for you — we cannot
+            text you until you do.
+          </p>
+        ) : (
+          <p className="farmer-listing-saved-next">
+            {isOnboarding
+              ? "Next: send one text from the phone you want to use for stand updates. It is the last step."
+              : "You can change any of this later by texting SETTINGS."}
+          </p>
+        )}
       </div>
     );
   }

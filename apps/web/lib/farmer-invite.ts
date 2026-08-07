@@ -40,5 +40,19 @@ export function buildInviteDeliveryUrl(
  * and leaves the invitation unspent, with nothing to tell the farmer why.
  */
 export function buildInviteSmsUrl(fromNumber: string, invitationToken: string): string {
-  return `sms:${fromNumber}?body=${encodeURIComponent(`JOIN ${invitationToken}`)}`;
+  return buildKeywordSmsUrl(fromNumber, `JOIN ${invitationToken}`);
+}
+
+/**
+ * A tap-to-text link that composes an exact message to Farm Friend's own number.
+ *
+ * One builder rather than a hand-written `sms:` string per surface. The stray `?&body=` that a
+ * hand-rolled version produced is the reason: a malformed link silently opens the composer with
+ * an EMPTY body on some handsets, so the farmer sends a blank message, nothing matches the
+ * deterministic keyword grammar, and there is nothing to tell them why setup did not finish.
+ *
+ * The body must match `parseCommand`'s grammar exactly — anything else is free text.
+ */
+export function buildKeywordSmsUrl(fromNumber: string, message: string): string {
+  return `sms:${fromNumber}?body=${encodeURIComponent(message)}`;
 }

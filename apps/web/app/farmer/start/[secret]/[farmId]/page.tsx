@@ -32,6 +32,16 @@ export default async function SecretFarmerOnboardingPage({
   const { db, clock } = publicReadContext();
   const claim = await claimGrandfatheredFarm(db, { farmId });
 
+  // The hand-off number, read the same way and from the same variable the contact card and the
+  // send path use — one number in configuration, so the word a farmer is told to text can never
+  // drift from the number that receives it.
+  //
+  // A MISSING value degrades to the generic "send one text" line rather than throwing. This
+  // page is the farmer's publishing surface, and F-072 already shipped the other failure once:
+  // binding a farmer page to configuration it does not strictly need turned an unrelated absent
+  // variable into a 500 on the whole form. The listing must publish with or without this.
+  const smsNumber = process.env.TELNYX_FROM_NUMBER?.trim() || undefined;
+
   if (claim.status === "already_onboarded") {
     return (
       <main className="farmer-onboarding">
@@ -104,6 +114,7 @@ export default async function SecretFarmerOnboardingPage({
               description={
                 buildStandDescription({ mapDescription: claim.description ?? undefined }) ?? ""
               }
+              {...(smsNumber === undefined ? {} : { smsNumber })}
             />
           </section>
         </>
@@ -122,11 +133,23 @@ export default async function SecretFarmerOnboardingPage({
         </>
       )}
 
+      {/*
+        NO VIGA STEP. This said "contact VIGA and they will finish setting you up", which asked
+        a farmer to wait for a coordinator to do by hand what one text does — and F-067 already
+        learned that a promised step nobody performs is a silent dead end.
+
+        The farmer texts US, and that direction is not a preference. `isProactiveSendPermitted`
+        permits an un-consented send only for `required_reply` (the carrier-required answer to
+        the recipient's own message), so Farm Friend cannot send the first text at all. Their
+        inbound START is the possession proof and the opt-in in one message, through the same
+        consent writer every other opt-in uses.
+      */}
       <section className="farmer-onboarding-next" aria-labelledby="whats-next-heading">
         <h2 id="whats-next-heading">What happens next</h2>
         <p>
-          Your stand goes on the map as soon as you submit.To update what is in stock <strong>by text</strong>, contact VIGA and
-          they will finish setting you up.
+          Your stand goes on the map as soon as you submit. To update what is in stock{" "}
+          <strong>by text</strong>, send one text from your phone afterwards — we will show you
+          the word to send. No need to contact anyone.
         </p>
       </section>
     </main>

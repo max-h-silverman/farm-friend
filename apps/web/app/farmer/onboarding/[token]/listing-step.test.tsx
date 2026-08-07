@@ -189,6 +189,61 @@ describe("onboarding listing step", () => {
     expect(posted(fetchMock).items).toEqual(["eggs", "rhubarb"]);
   });
 
+  describe("finishing setup by text", () => {
+    // THE STEP VIGA USED TO PERFORM. The migration door's page said "contact VIGA and they
+    // will finish setting you up", which is a coordinator doing by hand what the farmer can
+    // do themselves in one text.
+    //
+    // The direction is forced and is NOT a preference: `isProactiveSendPermitted` allows an
+    // un-consented send only for `required_reply`, the carrier-required answer to the
+    // recipient's OWN message, and `authorizeDispatch` suppresses everything else for a number
+    // with no consent row. So Farm Friend cannot text the farmer first. They text us, and that
+    // inbound message is both the possession proof and the opt-in.
+
+    it("tells a migrating farmer the exact word to text, and to which number", async () => {
+      const user = userEvent.setup();
+      stubFetch({ ok: true });
+      render(
+        <ListingStep
+          credential={{ kind: "grandfathered", farmId: FARM_ID }}
+          farmName="Test Farm"
+          smsNumber="+12065550000"
+        />,
+      );
+
+      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
+
+      const next = await screen.findByRole("status");
+      // START, never JOIN or CONFIRM. Only START clears the carrier's own opt-out list, so a
+      // farmer who ever texted STOP is restored by this word and by no other — verified live
+      // 2026-07-27, when a JOIN four minutes after a STOP was still refused 409.
+      expect(next.textContent).toContain("START");
+      expect(next.textContent).toContain("+12065550000");
+    });
+
+    it("does NOT promise that VIGA will finish setting them up", async () => {
+      // The copy this replaces. A farmer told to wait for a coordinator waits for a step
+      // nobody performs, which is the silent dead end this work exists to close.
+      const user = userEvent.setup();
+      stubFetch({ ok: true });
+      render(
+        <ListingStep
+          credential={{ kind: "grandfathered", farmId: FARM_ID }}
+          farmName="Test Farm"
+          smsNumber="+12065550000"
+        />,
+      );
+
+      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
+
+      const next = await screen.findByRole("status");
+      expect(next.textContent?.toLowerCase()).not.toContain("contact viga");
+      expect(next.textContent?.toLowerCase()).not.toContain("finish setting you up");
+    });
+  });
+
   describe("the farm's own paragraph", () => {
     // `farms.description` renders on the public card under "Additional information" and had NO
     // farmer-facing writer at all, so VIGA's seeded prose stayed welded under every listing a
