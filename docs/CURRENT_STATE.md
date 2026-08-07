@@ -11,9 +11,12 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 `sha256:1ab8293fc5fb5ca169e3ae669bd473c820a0c34c5ec14a7a023fb1da245d6027` (`main` at `127d45a`,
 pushed).
 
-**NOTHING IS MERGED-AND-UNDEPLOYED, AND NO MIGRATION IS OWED** (2026-08-07). The three tranches
-that had been stacked up — the farmer surface, self-onboarding, and F-078 — all shipped in one
-deploy. `main` is what production serves.
+~~**NOTHING IS MERGED-AND-UNDEPLOYED, AND NO MIGRATION IS OWED** (2026-08-07)~~ — **superseded
+the same day.** That was true of `main` at `127d45a`, which is still what production serves. But
+**F-079 is now built on branch `f-079-secret-link-email-code` (`26de296`) and carries migration
+`0025`, which IS OWED to production** and must be applied before the image that reads it. See
+"F-079 — the migration door" below. The three earlier tranches — the farmer surface,
+self-onboarding, and F-078 — all shipped in one deploy and remain deployed.
 
 **Migration `0024` was applied BEFORE the image that reads it**, per the RUNBOOK's ordering rule.
 Production Postgres is `neondb` with **25 migrations** (`0000`-`0024`). Verified by effect, never
@@ -92,8 +95,71 @@ and DEPLOYED, one (F-079) not started.** See Release state for the deploy proof.
   splitter turns one farm's cell into a single malformed address — caught by the corpus test,
   not by the fixtures.
 
-**Not started: F-079** (secret link + emailed code). The sending seam it depended on is now
-**built and proven** — what remains is the farmer-facing page that calls it.
+**F-079 IS BUILT AND MERGED TO THE BRANCH, NOT DEPLOYED** (`26de296`, branch
+`f-079-secret-link-email-code`). It carries **migration `0025`**, which is **OWED TO
+PRODUCTION** and must be applied before the image that reads it.
+
+## F-079 — the migration door, gated by an emailed code (2026-08-07, NOT DEPLOYED)
+
+A farmer already on VIGA's Google form moves themselves across: pick your farm, prove you
+control the address VIGA holds, publish. The bare `/farmer/start` honour-system door is **gone**
+— new farms are invite-only (F-080), and this is the migration path, behind a secret segment.
+
+- **Carries migration `0025`, which the item did not anticipate.** F-078 built the roster, the
+  code and the send path and stored nothing about what was SENT. A code must be checkable on a
+  later request, and Cloud Run scales to zero while a farmer reads their mail — an in-memory
+  code would refuse a farmer who typed exactly the right digits.
+- **The credential is a row, not a signature**, matching every other credential in this schema:
+  hashed at rest, single-use, expiring, attempt-capped. Six digits is a small space, so what
+  makes it safe is that guesses are **counted**, not that the code is long.
+- **Throttled per farm AND per address, counted from stored rows.** The existing client-signal
+  throttle is the coarse cost bucket only — rotating a client signal is free, and would still
+  let someone bury one farmer's inbox.
+- **Verification grants LISTING-PUBLISH RIGHTS ONLY, never farmer authorization.** Updating stock
+  by text still needs an inbound message from a consented handset. The page says so, and
+  `consumeAndGrant` is the only capability the boundary holds, so it is structural.
+- **Two uniform responses.** Requesting a code always answers `sent`; every refusal on submit is
+  one body. The attempt cap is checked FIRST, so a capped record is not a guessing oracle.
+- **The secret is OBSCURITY, not authentication**, and DATA_ARCHITECTURE §privacy now says so:
+  it travels in history, `Referer` headers and access logs, and is neither one-use nor
+  revocable. The emailed code is what actually gates publishing.
+- **A REAL DEFECT WAS FOUND BY RUNNING THE SERVER, not by any test.** The door answered **HTTP
+  200 while rendering 404 markup**: `app/loading.tsx` was a Suspense boundary wrapping every
+  route, and Next commits a 200 as soon as that shell streams, before `notFound()` runs. A 200
+  carrying 404 text is indexable, cached as success, and tells a prober the path is live — the
+  one fact the obscurity hides. Fixed by scoping the map's spinner to a **`(map)` route group**,
+  which is also more correct on its own terms. Four hypotheses were tested and disproved first
+  (force-dynamic, awaiting params, dynamic segments, a `not-found` boundary), and the middleware
+  fix was abandoned because **Next 14 middleware is edge-only and cannot use `timingSafeEqual`**.
+  A build-shape regression test now asserts no root `loading.tsx`, sabotage-verified.
+- **`drizzle-kit` SILENTLY DROPPED ALL SEVEN CHECKS AND ALL FOUR INDEXES** when run against the
+  same `schema.ts` — 0024's finding reproduced first-hand, including the partial unique index
+  that is the entire single-live-code guarantee. Only the meta snapshot was kept.
+- **F-078'S RAW-EMAIL TRIPWIRE COULD NOT FAIL, and that is the finding worth keeping.** It ran
+  its regex over `codeOnly` output, which blanks **template literals** — and every query here is
+  a tagged template, so it detected **no reader of `farm_emails` at all**, not even the two its
+  own allowlist named. Green since it shipped, for a reason unrelated to the property claimed.
+  Now anchored to SQL-preserving source and sabotage-verified, plus two new tripwires for
+  F-079's own credential.
+- **Verified end to end against the running app**, read back from **Postgres and
+  `/api/public/stands`** rather than from a success banner: an address on file resolves, a
+  stranger is refused, a wrong guess is counted, the right code verifies, **a replay returns
+  null**, **a grant for farm A does not open farm B**, and the published stand reaches the
+  public map with address, coordinates, payments and items.
+- **One acceptance criterion is satisfied only GENERICALLY, and it is max's call.** "A farm with
+  no email on file is told to contact VIGA" cannot be done *specifically* without contradicting
+  the uniform-response rule the same item requires — naming that a farm has no address on file
+  discloses roster contents to anyone who asks. Both steps carry a standing "contact VIGA" line
+  instead, which the ~3 affected farms reach the same way everyone else does.
+
+Verified: **1491 unit**, **791 integration**, typecheck, lint, evals 44/44, production build.
+**No `packages/ai` file changed, so no eval or `evals:live` run is owed.** Sixteen sabotages,
+each failing its named test. Integration ran against local Postgres, never Neon.
+
+**Three new environment variables are owed to production** before this works there:
+`FARMER_START_SECRET` (min 32 chars; absent means the door does not exist, which is supported),
+`EMAIL_HASH_SALT` (**must match whatever the roster ingest uses**, or nobody can verify), and
+`VERIFICATION_CODE_SALT`. Deliberately not `PHONE_HASH_SALT` reused. RUNBOOK documents all three.
 
 **The SMTP CREDENTIAL IS LIVE IN PRODUCTION** (2026-08-06, commit `4ff90a5`; the services have since rolled to 00038). The relay is
 configured, and the app password is now in Secret Manager and mounted. Sender is
