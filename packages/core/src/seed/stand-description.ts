@@ -82,7 +82,16 @@ const STRUCTURED_LINE = [
   // Plum Forest's "4/21/2026: Update:" puts a colon after the DATE as well; Northbourne's
   // "7/9/2025 No Update." is a dated NON-answer, which is still a confirmation line and still
   // not a description; and a trailing full stop rather than a separator.
-  /^\s*\d{1,2}\/\d{1,2}\/(?:\d{4}|\d{2})\s*:?\s*(?:no\s+)?update\b\s*[-–—:.]?/i,
+  //
+  // The leading MONTH is optional, which is not defensive coding — the production data has a
+  // row beginning literally "/22/2026 Update:", its month lost upstream in the hand-editing
+  // that produced the sheet. Found by the dry run against real rows, never by a fixture. The
+  // line is recognized by the SHAPE that remains rather than repaired, since supplying a month
+  // nobody wrote would be inventing a confirmation date.
+  //
+  // `update` stays REQUIRED after the date, which is what keeps this narrow: ordinary prose
+  // like "open Tue/Thu" or "salad w/ herbs" carries slashes and must survive.
+  /^\s*(?:\d{1,2})?\/\d{1,2}\/(?:\d{4}|\d{2})\s*:?\s*(?:no\s+)?update\b\s*[-–—:.]?/i,
   // A bare URL or handle on its own line is a link, not a description.
   /^\s*(?:https?:\/\/|www\.)[^\s]+\s*$/i,
   /^\s*@[^\s]+\s*$/,

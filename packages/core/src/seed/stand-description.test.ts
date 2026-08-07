@@ -248,6 +248,27 @@ describe("buildStandDescription", () => {
       ).toBe("Eggs.");
     });
 
+    it("drops a dated update whose MONTH is missing from the stored text", () => {
+      // Found by the production dry run, not by reading: Venison Valley's row literally begins
+      // "/22/2026 Update:" — the month is gone, lost upstream in whatever hand-editing produced
+      // the sheet. The anchored pattern needs a leading month digit, so this one line survived
+      // every rule and printed as prose beneath the card's own "Nothing confirmed recently".
+      //
+      // Matched by the SHAPE that remains — a slash-led partial date followed by "Update" —
+      // rather than by repairing the date, which would be inventing a month nobody wrote.
+      expect(
+        buildStandDescription({ mapDescription: "/22/2026 Update:\nEggs and milk." }),
+      ).toBe("Eggs and milk.");
+    });
+
+    it("does not mistake ordinary prose containing a slash for a dated update", () => {
+      // The guard on the rule above. "open 9/5" or "salad w/ herbs" must survive — the pattern
+      // earns its narrowness by requiring the word "update" after the partial date.
+      expect(
+        buildStandDescription({ mapDescription: "We are open Tue/Thu and sell salad w/ herbs." }),
+      ).toBe("We are open Tue/Thu and sell salad w/ herbs.");
+    });
+
     it("drops an 'Open …' line written without its colon", () => {
       // Green Ears and Plum Forest both write the hours as a bare "Open …" line. The labelled
       // form was covered; the unlabelled one printed beside "Hours not listed".
