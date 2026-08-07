@@ -515,6 +515,22 @@ describe("inbound routing end to end (integration)", () => {
       expect(provider.calls).toBe(0);
     });
 
+    it("offers a joining customer the contact card, so the number is not a stranger", async () => {
+      // F-039 built `/api/public/contact-card` and linked it from the PUBLIC WEB MAP only. A
+      // customer who arrived by text — which is the product — was never told it existed, so
+      // every later message came from an unnamed number. Asserted at the queued body a real
+      // handset receives, not against the copy constant, so a welcome that stopped being sent
+      // fails here too.
+      await deliverInbound({ fromPhone: customerPhone, text: "JOIN" });
+      await runPassWithForbiddenModel();
+
+      const queued = await client()`
+        select body from outbox_work where recipient_hash = ${customerHash}
+      `;
+      const bodies = queued.map((row) => row.body as string);
+      expect(bodies.some((body) => body.includes("/api/public/contact-card"))).toBe(true);
+    });
+
     it("START restores consent with its own distinct capture source", async () => {
       await deliverInbound({ fromPhone: customerPhone, text: "START" });
       await runPassWithForbiddenModel();

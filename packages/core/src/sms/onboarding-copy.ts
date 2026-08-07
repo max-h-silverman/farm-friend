@@ -72,10 +72,31 @@ export const FARMER_AUTHORIZED_NOTIFICATION =
  * cannot carry product guidance without a carrier-console change. This ordinary reply makes
  * the next useful action plain without creating a customer account, asking for private
  * details, or promising future alerts.
+ *
+ * **It now carries the contact card, and that closed a real gap.** F-039 built
+ * `/api/public/contact-card` and linked it from the public web map ONLY, so a customer who
+ * arrived by text — the whole point of an SMS product — was never told the card existed. The
+ * number stayed unnamed in their phone and every later message arrived from a stranger.
+ * Saving it remains a device-local act that records nothing: no consent transition, no
+ * `contacts` row, no send permission. Offering it is not asking for anything.
+ *
+ * A FUNCTION rather than a constant because the base URL is configuration, exactly as the
+ * `MAP` reply's body is. Kept to one GSM-7 segment (160 characters) with the production host,
+ * asserted by test — this rides beside the opt-in receipt, so a second segment here doubles
+ * the cost of every JOIN.
  */
-export const CUSTOMER_SMS_WELCOME =
-  "Welcome to VIGA Farm Friend. Ask what is available, like eggs or kale. Text MAP for the " +
-  "map, HELP for help, or STOP to opt out.";
+export function renderCustomerWelcome(publicBaseUrl: string): string {
+  return (
+    `Welcome to VIGA Farm Friend. Ask what is available, like eggs or kale. ` +
+    `Text MAP for the map, HELP for help, or STOP to opt out. ` +
+    `Save us: ${contactCardUrl(publicBaseUrl)}`
+  );
+}
+
+/** The served contact card's address (F-039), built from the same base every reply uses. */
+export function contactCardUrl(publicBaseUrl: string): string {
+  return `${publicBaseUrl.replace(/\/+$/, "")}/api/public/contact-card`;
+}
 
 /**
  * The message carrying a farmer's standing link.

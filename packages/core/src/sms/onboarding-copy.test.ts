@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  CUSTOMER_SMS_WELCOME,
+  renderCustomerWelcome,
   FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_JOIN_INSTRUCTION,
@@ -24,13 +24,35 @@ const registeredFieldValues = resolve(
 
 describe("farmer onboarding copy", () => {
   it("gives a newly joined customer a usable introduction without exposing farmer controls", () => {
-    expect(CUSTOMER_SMS_WELCOME.toLowerCase()).toContain("ask what is available");
+    const welcome = renderCustomerWelcome("https://farmfriend.example");
+    expect(welcome.toLowerCase()).toContain("ask what is available");
     for (const keyword of ["MAP", "HELP", "STOP"]) {
-      expect(CUSTOMER_SMS_WELCOME).toContain(keyword);
+      expect(welcome).toContain(keyword);
     }
     for (const farmerOnly of ["SIGNUP", "LINK", "STAND", "SETTINGS", "SAME", "YES", "NO"]) {
-      expect(CUSTOMER_SMS_WELCOME).not.toContain(farmerOnly);
+      expect(welcome).not.toContain(farmerOnly);
     }
+  });
+
+  it("offers the contact card, which no SMS path used to mention at all", () => {
+    // F-039 built `/api/public/contact-card` and wired it ONLY to a link on the public web
+    // map. A customer who arrived by text — the whole point of an SMS product — was never
+    // told the card existed, so the number stayed unnamed in their phone and every later
+    // message came from a stranger. Data present with no consumer is invisible.
+    const welcome = renderCustomerWelcome("https://farmfriend.example");
+    expect(welcome).toContain("https://farmfriend.example/api/public/contact-card");
+  });
+
+  it("stays within TWO SMS segments at the real production address", () => {
+    // max chose two segments (2026-08-07) rather than cutting the wording: the card link is 71
+    // characters against production's `https://farm-friend-web-…a.run.app` host, so one segment
+    // was never reachable without gutting the copy or moving the card to a short address.
+    //
+    // The ceiling is still asserted, because the failure this guards against is a THIRD segment
+    // creeping in unnoticed. Concatenated GSM-7 is 153 characters per segment, not 160 — the
+    // header costs 7 — and using 160 here would let a 2.1-segment body read as passing.
+    const welcome = renderCustomerWelcome("https://farm-friend-web-p5mfxfp5za-uw.a.run.app");
+    expect(welcome.length).toBeLessThanOrEqual(153 * 2);
   });
 
   it("acknowledges a request without promising authorization", () => {

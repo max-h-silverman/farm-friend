@@ -2,7 +2,7 @@ import {
   parseCommand,
   consentTransitionFor,
   ALREADY_JOINED_RESPONSE,
-  CUSTOMER_SMS_WELCOME,
+  renderCustomerWelcome,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   REGISTERED_HELP_AUTO_RESPONSE,
   REGISTERED_OPT_IN_AUTO_RESPONSE,
@@ -440,7 +440,7 @@ async function routeCompliance(
   const welcomeReply =
     (keyword === "JOIN" || keyword === "START") && applied.applied
       ? [{
-          body: CUSTOMER_SMS_WELCOME,
+          body: renderCustomerWelcome(deps.publicBaseUrl),
           category: "inquiry_reply" as const,
           logicalKey: `customer-welcome-${input.providerEventId}`,
         }]
