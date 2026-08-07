@@ -31,5 +31,6 @@ mount_smtp_password = true
 # with this false; only then can it flip true, because `version = "latest"` on a versionless
 # secret makes Cloud Run refuse the revision and would take the public map down.
 #
-# `EMAIL_HASH_SALT` must equal whatever the roster ingest used (max, 2026-08-07).
-mount_email_verification = false
+# TRUE since 2026-08-07: all three versions exist, and `EMAIL_HASH_SALT` is the exact value the
+# roster ingest used — verified by effect, by matching stored hashes through the shipped lookup.
+mount_email_verification = true

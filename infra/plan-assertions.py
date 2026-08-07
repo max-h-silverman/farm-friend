@@ -364,12 +364,18 @@ def main() -> int:
     # and sits in the plan — and therefore in state — as cleartext. That is permanent for
     # `EMAIL_HASH_SALT`, which can never be rotated.
     for _name in ("EMAIL_HASH_SALT", "VERIFICATION_CODE_SALT", "FARMER_START_SECRET"):
+        # `if e.get("value")` is load-bearing and was MISSING in the first version of this
+        # check, which therefore failed on the correct configuration: a secret MOUNT appears in
+        # `env` too, with an empty `value` and a real `value_source`. Without the filter this
+        # flagged every properly-mounted secret, exactly as it does for `PHONE_HASH_SALT`.
+        # What must never appear is a LITERAL value, which would sit in state in cleartext —
+        # permanently, for `EMAIL_HASH_SALT`, which can never be rotated.
         check(f"{_name} is never a plain environment value",
               all(
                   _name not in {
                       e.get("name") for e in
                       (((sv.get("template") or [{}])[0].get("containers") or [{}])[0].get("env") or [])
-                      if isinstance(e, dict)
+                      if isinstance(e, dict) and e.get("value")
                   }
                   for sv in (web, worker)
               ))
