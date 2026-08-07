@@ -8,27 +8,29 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00040-v47` and worker revision `farm-friend-worker-00039-zgv`, both at digest
-`sha256:2896814e21914305fb0929768cfb007d4b297b21dbd25ce8e2209c313043a607` (`main` at `68a59e0`).
+`farm-friend-web-00041-r5m` and worker revision `farm-friend-worker-00040-bks`, both at digest
+`sha256:6206537e9464c2fdc936ad3bd902342a6a445e6b7ca49b3386f8faebabaadbec` (`main` at `386c3d2`).
 Production Postgres is `neondb` with **26 migrations** (`0000`–`0025`).
 
-**Merged to `main` and NOT deployed** — max held the deploy:
+**Everything merged is now DEPLOYED** (2026-08-07). The three tranches max had been holding —
+F-081's default reminder schedule, the farmer sign-up wizard plus the integration-suite guard, and
+the self-consent and listing-merge tranche — shipped together at revision 00041/00040.
 
-- **F-081** (2026-08-07) — approved farmers start on a weekly reminder schedule.
-- **The farmer sign-up flow** (`415d913`) and the integration-suite guard (`ef810f2`).
-- **The self-consent and listing-merge tranche** (2026-08-07) — the farmer's own paragraph becomes
-  editable, the migration door's VIGA step is replaced by one text, and the contact card reaches
-  customers who arrive by SMS.
+**No migration was owed and none is**, so production Postgres stays at 26.
 
-**No migration is owed.** None of the undeployed work carries one, so production Postgres stays at
-26 and what production serves is the pre-F-081 image.
+**Verified by effect against the live service**, not from the apply's exit status: `plan-assertions`
+55/55, `deploy_assertions` confirms each serving revision is newer than every secret version it
+consumes, `served_card_assertions` confirms 153 bytes / 6 CRLF / 0 bare LF. New code confirmed
+serving rather than merely restarted — health 200 with **34 stands**, bare `/farmer/start` **404**,
+and a malformed lookup body **400** rather than 500.
 
-**The description cleanup has NOT been run against production data.** `buildStandDescription` has
-been deployed since F-061 and has never touched a row: F-064's ingest never happened, so
-`farms.description` still holds the raw pre-F-061 prose and the public card renders it verbatim.
-`scripts/clean-farm-descriptions.ts` is the runner, dry-run by default; the current dry run against
-`neondb` reports **34 farms with a description, 31 would change, 3 already clean, 5 left with
-none**. Writing is max's call.
+**The description cleanup HAS BEEN RUN** (2026-08-07, max approved). 31 of 34 rows rewritten in one
+transaction and verified by reading them back, then confirmed independently through
+`/api/public/stands` — the surface a customer actually reads. **34 → 29 farms carry a description**;
+the 5 emptied held nothing but structured facts, which still render from their own columns. A
+re-run reports **0 would change**, which is idempotence proven by effect rather than by argument.
+Prior values are backed up at `~/farm-friend-backups/farm-descriptions-backup-2026-08-07T21-53-18-994Z.json`
+— with no `farms.description` history table, that file is the rollback.
 
 **Secrets and mount flags.** Web mounts `GEOCODING_API_KEY`, `SMTP_PASSWORD`, and F-079's three;
 **the worker mounts none of them**, asserted unconditionally so flipping a flag can never hand a
@@ -119,10 +121,10 @@ dropdown widths, the 30rem breakpoint, and the new description box are unverifie
   snapshot *is* the rollback — max's explicit approval for the bulk write, and a render check on a
   real card afterwards. Until it runs, production serves pre-tranche listing **content** through the
   new code.
-  **The description half no longer waits on it.** `scripts/clean-farm-descriptions.ts` applies the
-  shipped cleanup to the stored text with no re-ingest and no CSVs — dry run reviewed, awaiting
-  max's approval to write. It carries its own JSON backup (there is no `farms.description` history
-  table, so that file *is* the rollback) and verifies by reading rows back.
+  **The description half is DONE and no longer part of this item** (2026-08-07):
+  `scripts/clean-farm-descriptions.ts` cleaned all 31 affected rows without a re-ingest or the CSVs.
+  What F-064 still owes is the listing **content** — items, hours, and dated confirmations from the
+  three exports.
 - **B-024** — fixed in code (F-061) and verified on a rehearsal database: a farmer's written refusal
   makes the stand `contact_only` with no address and no pin. **Production still publishes her
   address** until F-064's ingest runs; the approved interim correction remains in place.

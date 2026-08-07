@@ -94,10 +94,22 @@ segment (the URL is 71 characters at production's `run.app` host); max chose the
 cutting the copy. The first version of that test asserted a 160-character ceiling, which is the
 *single*-segment limit — concatenated GSM-7 is 153 — so it would have let a 2.1-segment body pass.
 
-**Committed and merged; nothing deployed.** 1553 unit (131 files), 802 integration (58 files),
-typecheck, lint. No `packages/ai` change and no migration, both checked against the diff.
-`scripts/clean-farm-descriptions.ts` is written, dry-run reviewed, and **not run** — writing to
-production is max's call.
+**Merged, deployed, and the cleanup run** — max approved both at the wrap. 1553 unit (131 files),
+802 integration (58 files), typecheck, lint. No `packages/ai` change and no migration, both checked
+against the diff.
+
+Deployed at web `00041-r5m` / worker `00040-bks`, which also shipped the two tranches max had been
+holding (F-081, and the sign-up wizard plus the integration guard). Verified by effect rather than
+by the apply's status: plan assertions 55/55, `deploy_assertions` confirming each serving revision
+is newer than every secret version it consumes, and new code genuinely serving — 34 stands, bare
+`/farmer/start` 404, malformed body 400 rather than 500.
+
+**The cleanup rewrote 31 of 34 rows** in one transaction, verified by reading them back and then
+independently through `/api/public/stands` — the surface a customer reads, not the script's own
+report. Tian Tian's card went from nine lines of restated facts to one. 34 → 29 farms carry a
+description; the 5 emptied held nothing but structured facts that still render from their own
+columns. A re-run reports **0 would change**: idempotence proven by effect. The two "Stocking"
+lines that survive are the deliberate tail-keeps, which is the design holding on real data.
 
 ---
 
