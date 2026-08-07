@@ -69,6 +69,11 @@ export default async function GrandfatheredOnboardingPage({
 
       <section className="farmer-onboarding-card" aria-labelledby="listing-heading">
         <h2 id="listing-heading">Your stand</h2>
+        {/*
+          NO `defaults`, deliberately — this door CREATES a listing rather than editing one,
+          so there is nothing to prefill and nothing B-037 could erase. Only the edit page
+          passes them.
+        */}
         <ListingStep
           credential={{ kind: "grandfathered", farmId: claim.farmId }}
           farmName={claim.farmName}

@@ -6,6 +6,11 @@ import {
   projectToIsland,
   unprojectFromIsland,
 } from "@farm-friend/core/island-projection";
+// TYPE-ONLY, so nothing in the database package reaches this client bundle. The shape is
+// IMPORTED rather than restated: B-037 was a restated `ListingDefaults` drifting out of
+// agreement with what the writer stores, and a second hand-written copy of these twelve
+// fields is how that happens again.
+import type { ListingAvailability } from "@farm-friend/db";
 import { IslandArtwork } from "../../../island-artwork";
 
 /**
@@ -161,6 +166,13 @@ function credentialBody(credential: ListingCredential): Record<string, string> {
  * replaces everything it is given, which is what lets a farmer drop an item by leaving it out —
  * and would let a farmer who opened the form to change their hours erase their address and
  * payments by omission. Prefilling is therefore load-bearing, not a nicety.
+ *
+ * **Which means PARTIAL prefill is the same defect, only quieter** (B-037). This interface
+ * originally held eight of the listing's fields while the writer set twenty; the four it
+ * omitted were the structured availability, so every edit silently cleared the farmer's
+ * season, open days and restocking. Nothing failed, because the writer was doing exactly what
+ * it says it does. **This type must stay the whole listing** — anything `saveOnboardingListing`
+ * writes and this omits is a field the form deletes on the farmer's behalf.
  */
 export interface ListingDefaults {
   standName: string;
@@ -169,8 +181,39 @@ export interface ListingDefaults {
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
+  /**
+   * B-037 — the structured season / hours / restocking, and the reason this is the WHOLE
+   * listing's shape rather than a chosen subset.
+   *
+   * These were absent, so an edit form initialised them blank while `updateStand` wrote all
+   * twelve columns unconditionally on every save. A farmer who opened this to change their
+   * hours lost their season, open days, restocking cadence and restocking days, with nothing
+   * shown and nothing failing.
+   */
+  availability: ListingAvailability;
   paymentMethods: string[];
   items: string[];
+}
+
+/**
+ * Minutes since midnight rendered back as an `<input type="time">` value — the inverse of
+ * `minutesOfDay`.
+ *
+ * `?? null`, never `|| null`: 0 is MIDNIGHT, a real stated time, and a truthiness check would
+ * render it as "not stated" so the next save dropped it. `minutesOfDay` already takes this care
+ * on the write direction; the read direction needs exactly the same.
+ */
+function clockValue(minutes: number | null | undefined): string {
+  if (minutes === null || minutes === undefined) return "";
+  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1439) return "";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+}
+
+/** A stored month or day rendered back into its picker. Blank when never stated. */
+function numberValue(value: number | null | undefined): string {
+  return value === null || value === undefined ? "" : String(value);
 }
 
 export function ListingStep({
@@ -227,18 +270,26 @@ export function ListingStep({
   );
   const [items, setItems] = useState((defaults?.items ?? []).join(", "));
 
-  const [seasonKind, setSeasonKind] = useState<SeasonKind | "">("");
-  const [seasonStartMonth, setSeasonStartMonth] = useState("");
-  const [seasonStartDay, setSeasonStartDay] = useState("");
-  const [seasonEndMonth, setSeasonEndMonth] = useState("");
-  const [seasonEndDay, setSeasonEndDay] = useState("");
-  const [seasonNames, setSeasonNames] = useState("");
-  const [hoursKind, setHoursKind] = useState<HoursKind | "">("");
-  const [openFrom, setOpenFrom] = useState("");
-  const [openUntil, setOpenUntil] = useState("");
-  const [openDays, setOpenDays] = useState<number[]>([]);
-  const [stockingKind, setStockingKind] = useState<StockingKind | "">("");
-  const [stockingDays, setStockingDays] = useState<number[]>([]);
+  // B-037 — every one of the twelve initialised from `defaults`, because `updateStand` writes
+  // every one of them on every save. A blank initialiser here is not "unset", it is a deletion
+  // the farmer never asked for and never sees.
+  const stated = defaults?.availability;
+  const [seasonKind, setSeasonKind] = useState<SeasonKind | "">(stated?.seasonKind ?? "");
+  const [seasonStartMonth, setSeasonStartMonth] = useState(
+    numberValue(stated?.seasonStartMonth),
+  );
+  const [seasonStartDay, setSeasonStartDay] = useState(numberValue(stated?.seasonStartDay));
+  const [seasonEndMonth, setSeasonEndMonth] = useState(numberValue(stated?.seasonEndMonth));
+  const [seasonEndDay, setSeasonEndDay] = useState(numberValue(stated?.seasonEndDay));
+  const [seasonNames, setSeasonNames] = useState((stated?.seasonNames ?? []).join(", "));
+  const [hoursKind, setHoursKind] = useState<HoursKind | "">(stated?.openHoursKind ?? "");
+  const [openFrom, setOpenFrom] = useState(clockValue(stated?.openFromMinutes));
+  const [openUntil, setOpenUntil] = useState(clockValue(stated?.openUntilMinutes));
+  const [openDays, setOpenDays] = useState<number[]>(stated?.openDays ?? []);
+  const [stockingKind, setStockingKind] = useState<StockingKind | "">(
+    stated?.stockingCadence ?? "",
+  );
+  const [stockingDays, setStockingDays] = useState<number[]>(stated?.stockingDays ?? []);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
