@@ -299,7 +299,8 @@ The scheduled passes are bounded and enumerate their own work:
 
 - **Inbound:** deterministic routing and state transitions.
 - **Scheduled prompts:** creates at most one due prompt per sender in deterministic stand order,
-  using the farmer's explicit per-stand cadence and 10:00 AM stand-local slot. It advances delayed
+  using the stand's per-stand cadence (seeded `weekly` at farmer setup, F-081; farmer-changeable)
+  and the 10:00 AM stand-local slot. It advances delayed
   schedules without catch-up bursts and queues no work while paused or actively closed.
 - **Outbound:** dispatch claim, provider send, and result.
 - **Delivery:** applies stored carrier callbacks; provider acceptance alone is not delivery.

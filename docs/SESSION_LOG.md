@@ -11,6 +11,76 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-07 — F-081's default schedule, and two sabotages that found gaps rather than confirming tests
+
+Built F-081 (approved farmers start on a weekly reminder schedule), closed B-038 by ingesting the
+last three farm emails into production, and filed F-082/F-083 from things max surfaced. The
+durable content is the two escaped sabotages and where the schema said the seed had to live.
+
+**The gap was wider than CURRENT_STATE described, and reading the code is what showed it.** The
+open item named `authorizeFarmer` as the door that writes no `inventory_prompt_preferences` row.
+In fact **no onboarding door wrote one**: the table had exactly one writer,
+`setInventoryPromptPreference`, behind the farmer settings surfaces. A fix touching only
+`authorizeFarmer` would have reached almost nobody, since invite and migration are the live doors.
+F-052's machinery was correct and reached zero farmers because its candidate query selected against
+an empty table.
+
+**The schema chose where the seed lives, not judgment.** A preference row carries composite foreign
+keys to BOTH `sales_locations` and `farmer_authorizations`, so it is structurally impossible before
+a stand exists — and `authorizeFarmer` and the invited redemption both run *before* one does (an
+invited farmer publishes from the web form and is authorized later, when they text `JOIN`). So
+`seedDefaultPromptPreference` is called from `saveOnboardingListing` **and** from both
+authorization writers: the doors reach the pair (stand, live authorization) at different moments,
+and seeding at whichever comes second is the only shape that covers all four.
+
+**Two of four sabotages found real gaps rather than confirming the tests, which is the whole reason
+to run them.**
+
+- A hand-computed `+7 days` **escaped every assertion**. The fixture published at 10:00 local,
+  where "seven days on at the same clock time" and "10:00 local on the seventh day" are the *same
+  instant* — so the schedule rule was never under test at all. The fixture now publishes at 15:30
+  local, and the sabotage fails on `22:30Z` vs `17:00Z`. **A test whose fixture sits exactly on the
+  boundary it is testing cannot see the boundary.**
+- Dropping the authorization validity check **escaped** — nothing exercised a revoked or foreign
+  authorization, so a revoked farmer would have been scheduled for texts. Two tests added; the
+  cross-farm one also proves the composite foreign key refuses it independently, so the check and
+  the constraint are both real barriers rather than one dressed as two.
+
+**The typecheck caught a drift trap the tests could not.** All three listing doors restated
+`saveOnboardingListing`'s input shape inline, so adding one field left three boundaries describing
+a writer that no longer existed. Now stated once as `SaveOnboardingListingInput`; two dead imports
+removed on the way through.
+
+**B-038's three farms were never in the form export at all** — which is why the fix the item
+proposed (re-run the ingest) would have changed nothing on its own. They are seeded farms that
+never filed a response. Ingested from a scratchpad copy of the export with four rows appended;
+VIGA's original file untouched. **Verified through the shipped `findVerifiableFarmByEmail`** with
+the controls that make it evidence: wrong salt matches nothing, unknown address matches nothing,
+and **one farm's address does not verify another farm** — F-079's per-farm scoping, proven rather
+than assumed. `farm_emails` 38 → 42 rows, 32 → 35 farms; every real farm now has an address.
+
+**A parsing trap worth knowing if VIGA's map export is ever reused.** `VIGA Map Stands.csv` writes
+multi-line descriptions **unquoted**, so an ordinary CSV read splits one stand across many rows — a
+naive parse produced **275 phantom farms** with names like `dawn to dusk` and `Zelle`. The real
+count is 31 stands, recoverable only by treating a `POINT` in the first column as the record
+boundary. It was obvious here because the output was nonsense; a quieter version of the same
+mistake would have silently mismatched farms to emails.
+
+**The market is not a farm, and measurement settled it.** max asked for a stand "type"; `kind`
+already exists (`farm_stand` / `farmers_market`), the market row already carries the right value,
+and **nothing reads the column**. Then max supplied the MarketWurks screenshot, which reshaped
+the question: of 19 visible market vendors, **4 are in the farm roster and 15 are not** — bakers,
+soap makers, a kids' booth, co-op tables. That killed my own earlier suggestion in F-082 that a
+vendor list should link to farm rows; F-050's display-string design is right here for a second
+reason it never anticipated. Both notes were corrected in the item rather than left contradicting
+the finding. F-083 files the larger MarketWurks question, with the caveat that "seems pretty
+basic" describes the customer-facing widget and not the unseen operator side.
+
+**Not deployed, by max's choice.** F-081 carries no migration — it is a new writer over the
+existing schema.
+
+---
+
 ## 2026-08-07 — F-079 shipped, and three things that were green for the wrong reason
 
 Built the migration door (F-079), deployed it, ingested the roster, and along the way found a

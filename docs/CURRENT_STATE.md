@@ -11,8 +11,12 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 `sha256:2896814e21914305fb0929768cfb007d4b297b21dbd25ce8e2209c313043a607` (`main` at `68a59e0`,
 pushed). Production Postgres is `neondb` with **26 migrations** (`0000`-`0025`).
 
-**NOTHING IS MERGED-AND-UNDEPLOYED, AND NO MIGRATION IS OWED** (2026-08-07). `main` is what
-production serves.
+**F-081 IS MERGED TO `main` AND NOT DEPLOYED** (2026-08-07) — max chose to hold the deploy. It
+carries **no migration**, so production Postgres stays at 26 and nothing is owed there; what
+production serves is the pre-F-081 image. **NO MIGRATION IS OWED.**
+
+**The production `farm_emails` DATA changed this session and is already live** (B-038): 38 → **42
+rows / 35 farms**. That was a direct data write, not a deploy, so it is in front of farmers now.
 
 **Both optional secrets that were lost to the mount-flag trap are back and pinned.** Web mounts
 `GEOCODING_API_KEY`, `SMTP_PASSWORD`, and F-079's three; **the worker mounts none of them**,
@@ -148,7 +152,12 @@ not create a visitable stand for that window. Restored at 00039.
 
 ## Verification
 
-- **Latest, 2026-08-07 (F-079 tranche, DEPLOYED):** **1495 unit** (127 files), **791
+- **Latest, 2026-08-07 (F-081, MERGED to `main`, NOT deployed):** **1496 unit** (127 files),
+  **796 integration** (58 files), typecheck, lint. Integration ran against **local Postgres**,
+  never Neon. **No `packages/ai` file changed, so no `evals` or `evals:live` run is owed** —
+  checked against the diff rather than assumed. **No migration.** The counts rose 1495 → 1496 on
+  the door-wiring test and 791 → 796 on F-081's five integration tests.
+- **Prior, 2026-08-07 (F-079 tranche, DEPLOYED):** **1495 unit** (127 files), **791
   integration** (58 files), typecheck, lint, `evals` 44/44 (critical 11/11, advisory 4/4,
   adversarial 29/29), and the production build. Integration ran against local Postgres, never
   Neon. **`packages/ai` was untouched across all eight commits, so no `evals:live` was owed** —
@@ -479,9 +488,9 @@ against the real corpus on 2026-08-04 while implementing.
   than a credential — do not post it anywhere indexable. Retrieve with
   `gcloud secrets versions access latest --secret=farm-friend-farmer-start-secret --project farm-friend-vashon`.
   Rotating it is one new version plus an apply, and invalidates links already sent.
-- **F-081 — approved farmers now start on a WEEKLY reminder schedule. BUILT and COMMITTED
-  (`9c7b6f5`, branch `f-081-default-reminder-schedule`), NOT MERGED and NOT DEPLOYED. No
-  migration** — a new writer over the existing schema.
+- **F-081 — approved farmers now start on a WEEKLY reminder schedule. MERGED to `main`, NOT
+  DEPLOYED** (max held the deploy, 2026-08-07). **No migration** — a new writer over the existing
+  schema, so nothing is owed to production Postgres.
   The gap was wider than this file previously stated: `inventory_prompt_preferences` had exactly
   one writer, `setInventoryPromptPreference`, behind the farmer settings surfaces, so **no
   onboarding door wrote a row at all** — not just `authorizeFarmer`.

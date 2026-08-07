@@ -121,10 +121,16 @@ axis of its own. That is sufficient to render an honest "updated X ago".
 - **farmer SMS target context** (F-051) — one selected authorization+owner+location tuple per
   sender, plus at most one 12-hour numbered menu whose options bind exact tuples. Selection is
   convenience, never authority: every use revalidates live authorization and location.
-- **inventory-prompt preferences** (F-052) — at most one explicit farmer-selected cadence and
-  designated authorization per stand: every 2 days, weekly, every 2 weeks, or paused. No historical
-  behavior or migration creates a preference. Version, next due time, and last due slot let code
-  invalidate stale work and advance to one slot without a catch-up burst.
+- **inventory-prompt preferences** (F-052, F-081) — at most one cadence and designated
+  authorization per stand: every 2 days, weekly, every 2 weeks, or paused. A stand **starts at
+  `weekly`** when its farmer is set up (F-081), and the farmer changes or pauses it from settings
+  or by texting `SETTINGS`. Seeding is **first-write only** — `on conflict do nothing` against the
+  per-location unique index — so a farmer's own choice, including `paused`, is never overwritten
+  by a later edit. **No historical behavior, corpus statistic, or migration ever creates or infers
+  a preference**: the default is a stated product decision, never a guess derived from what a
+  farmer did before. A stand with no farmer gets no preference rather than a guessed recipient.
+  Version, next due time, and last due slot let code invalidate stale work and advance to one slot
+  without a catch-up burst.
 - **VIGA approval** — recorded **separately** from onboarding completion; approval is VIGA's act,
   not a side effect of a farmer finishing a form. Approval and revocation both record **which
   administrator acted and when**, and revocation updates the row rather than deleting it: published
