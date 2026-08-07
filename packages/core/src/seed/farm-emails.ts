@@ -85,6 +85,27 @@ export function splitEmailCell(cell: string | null | undefined): string[] {
  * Order is primary-first then listed, de-duplicated, so a farm's roster is stable across runs —
  * which matters because re-running the ingest must be idempotent against the unique index.
  */
+/**
+ * The farm's name as VIGA's form holds it, with a trailing annotation removed.
+ *
+ * **Measured against the real 2026 export.** Four of 32 rows write the name as
+ * `Lavender Hill Farm *does not accept VIGA Bucks*` — a volunteer appended a VIGA Bucks
+ * eligibility note to the name cell. Those farms exist in the database under their clean names,
+ * so exact matching found nothing for them and four real farmers would have been silently
+ * unable to verify, with the ingest reporting success.
+ *
+ * Caught by DRY-RUNNING the ingest against production before writing anything, which is the
+ * whole reason the dry run exists.
+ *
+ * **Deliberately narrow: a TRAILING paired `*…*` only.** Stripping asterisks generally would
+ * silently rename a farm whose name legitimately contains one, which is the same failure in the
+ * opposite direction. Matching is exact everywhere else for the same reason — a wrong match
+ * hands one farmer control of another farm's listing.
+ */
+function stripFormAnnotation(farmName: string): string {
+  return farmName.replace(/\s*\*[^*]*\*\s*$/, "").trim();
+}
+
 export function parseFarmEmails(rows: readonly FarmEmailRow[]): FarmRoster[] {
   return rows.map((row) => {
     const emails: string[] = [];
@@ -97,6 +118,6 @@ export function parseFarmEmails(rows: readonly FarmEmailRow[]): FarmRoster[] {
       seen.add(email);
       emails.push(email);
     }
-    return { farmName: row.farmName, emails };
+    return { farmName: stripFormAnnotation(row.farmName), emails };
   });
 }

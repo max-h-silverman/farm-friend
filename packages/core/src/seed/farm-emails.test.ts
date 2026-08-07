@@ -121,3 +121,52 @@ describe("parsing a farm's roster from both columns", () => {
     expect(parsed[0]?.farmName).toBe("No Email Farm");
   });
 });
+
+describe("farm names carrying VIGA's form annotations", () => {
+  // MEASURED AGAINST THE REAL 2026 EXPORT, not imagined: four of 32 rows write the farm name as
+  // `Lavender Hill Farm *does not accept VIGA Bucks*`. That is a VIGA Bucks eligibility note a
+  // volunteer appended to the name cell, not part of the farm's name — the farms exist in the
+  // database under their clean names.
+  //
+  // Caught by DRY-RUNNING the ingest against production before writing: those four farms would
+  // have matched nothing and four real farmers would have been silently unable to verify, with
+  // the run reporting success. Exact matching was right to refuse them; the annotation is what
+  // needed removing.
+  //
+  // Stripped as a TRAILING `*…*` segment only. Anything looser risks eating a real name.
+  it("strips a trailing *asterisked* annotation from the farm name", () => {
+    const [row] = parseFarmEmails([
+      {
+        farmName: "Lavender Hill Farm *does not accept VIGA Bucks*",
+        primaryEmail: "cathy@example.com",
+        listedEmails: null,
+      },
+    ]);
+    expect(row!.farmName).toBe("Lavender Hill Farm");
+  });
+
+  it("leaves a name with no annotation exactly as written", () => {
+    const [row] = parseFarmEmails([
+      { farmName: "Holmestead", primaryEmail: "a@example.com", listedEmails: null },
+    ]);
+    expect(row!.farmName).toBe("Holmestead");
+  });
+
+  it("does NOT strip an asterisk that is not a trailing paired annotation", () => {
+    // A name genuinely containing an asterisk must survive. Over-stripping silently renames a
+    // farm, which is the same class of failure in the opposite direction.
+    for (const name of ["A*B Farm", "*Star Farm", "Farm * Stand"]) {
+      const [row] = parseFarmEmails([
+        { farmName: name, primaryEmail: "a@example.com", listedEmails: null },
+      ]);
+      expect(row!.farmName, name).toBe(name);
+    }
+  });
+
+  it("trims whitespace left behind by the annotation", () => {
+    const [row] = parseFarmEmails([
+      { farmName: "  Green Ears   *does not accept VIGA Bucks*  ", primaryEmail: "a@example.com", listedEmails: null },
+    ]);
+    expect(row!.farmName).toBe("Green Ears");
+  });
+});
