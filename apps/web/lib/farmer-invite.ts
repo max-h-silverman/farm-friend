@@ -32,6 +32,13 @@ export function buildInviteDeliveryUrl(
   );
 }
 
-export function buildSignupSmsUrl(fromNumber: string, invitationToken: string): string {
-  return `sms:${fromNumber}?body=${encodeURIComponent(`SIGNUP ${invitationToken}`)}`;
+/**
+ * The prepared text that redeems an invitation (F-080 — `JOIN`, replacing `SIGNUP`).
+ *
+ * The body must match `parseCommand`'s `JOIN <64-hex>` grammar exactly. Anything else — a
+ * greeting prepended, the token wrapped in punctuation — is free text that reaches the model
+ * and leaves the invitation unspent, with nothing to tell the farmer why.
+ */
+export function buildInviteSmsUrl(fromNumber: string, invitationToken: string): string {
+  return `sms:${fromNumber}?body=${encodeURIComponent(`JOIN ${invitationToken}`)}`;
 }

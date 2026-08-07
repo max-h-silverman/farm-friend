@@ -1,5 +1,5 @@
 import { loadFarmerInvitation } from "@farm-friend/db";
-import { buildSignupSmsUrl } from "../../../../lib/farmer-invite";
+import { buildInviteSmsUrl } from "../../../../lib/farmer-invite";
 import { publicReadContext } from "../../../../lib/public-context";
 import { AgreementStep } from "./agreement-step";
 import { ListingStep } from "./listing-step";
@@ -28,10 +28,10 @@ export default async function FarmerOnboardingPage({
   }
 
   const fromNumber = process.env.TELNYX_FROM_NUMBER?.trim();
-  const signupUrl =
+  const joinUrl =
     fromNumber === undefined || fromNumber === ""
       ? null
-      : buildSignupSmsUrl(fromNumber, params.token);
+      : buildInviteSmsUrl(fromNumber, params.token);
   return (
     <main className="farmer-onboarding">
       <p className="farmer-eyebrow">VIGA Farm Friend</p>
@@ -51,7 +51,7 @@ export default async function FarmerOnboardingPage({
       {/*
         F-067 — the listing comes FIRST, and the order is deliberate.
 
-        The agreement step ends in a prepared `SIGNUP` text that leaves the page, and the
+        The agreement step ends in a prepared `JOIN` text that leaves the page, and the
         invitation is spent when that text arrives. A farmer who texted first and then met
         the listing form would be finishing their listing on a page whose link no longer
         works if they ever reloaded it. So the listing is written while they are still here.
@@ -76,7 +76,7 @@ export default async function FarmerOnboardingPage({
         <h2 className="sr-only" id="verify-phone-heading">
           Agree to texts and verify your phone
         </h2>
-        <AgreementStep token={params.token} signupUrl={signupUrl} />
+        <AgreementStep token={params.token} joinUrl={joinUrl} />
       </section>
 
       {/*

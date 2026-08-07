@@ -12,7 +12,7 @@ import { publicReadContext } from "../../../../lib/public-context";
 // The farmer authorization surface (F-040) — VIGA's half of onboarding.
 //
 // **VIGA always approves.** A phone number proves possession of a phone, not ownership of a
-// farm, so no automated path anywhere grants a farmer authority: a farmer's SIGNUP text only
+// farm, so no automated path anywhere grants a farmer authority: a farmer's `JOIN <token>` text
 // joins the queue this route reads, and the grant itself happens here, behind the session
 // guard every admin route shares.
 //

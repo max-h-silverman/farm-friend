@@ -309,7 +309,7 @@ export function parseListingSubmission(
  * HTTP boundary for the onboarding listing form.
  *
  * Publishes on submit (max, 2026-08-05): the listing is live when the farmer sends the form
- * rather than waiting for the SIGNUP text.
+ * rather than waiting for the JOIN text.
  *
  * Expired, redeemed, and unknown invitations all get the same uniform refusal the agreement
  * endpoint gives, so neither can be used to learn whether a guessed token names anything. An

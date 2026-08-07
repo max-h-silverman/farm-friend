@@ -13,7 +13,7 @@ import {
 import {
   FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-  FARMER_SIGNUP_JOIN_INSTRUCTION,
+  FARMER_JOIN_INSTRUCTION,
   FixedClock,
   hashPhone,
   REGISTERED_OPT_IN_AUTO_RESPONSE,
@@ -593,7 +593,7 @@ describe("inbound routing end to end (integration)", () => {
     });
   });
 
-  describe("invited SIGNUP establishes consent, end to end", () => {
+  describe("invited JOIN establishes consent, end to end", () => {
     // The launch blocker, driven through the REAL webhook handler against real Postgres.
     //
     // The unit and `packages/db` suites prove the pieces. This proves the composition: a
@@ -632,7 +632,7 @@ describe("inbound routing end to end (integration)", () => {
 
     it("records consent and queues the registered opt-in receipt, with NO model call", async () => {
       const token = await invite(true);
-      await deliverInbound({ fromPhone: farmerPhone, text: `SIGNUP ${token}` });
+      await deliverInbound({ fromPhone: farmerPhone, text: `JOIN ${token}` });
       const provider = await runPassWithForbiddenModel();
 
       const consent = await client()`
@@ -670,7 +670,7 @@ describe("inbound routing end to end (integration)", () => {
 
     it("tells a farmer with no agreement to text JOIN, and records no consent", async () => {
       const token = await invite(false);
-      await deliverInbound({ fromPhone: farmerPhone, text: `SIGNUP ${token}` });
+      await deliverInbound({ fromPhone: farmerPhone, text: `JOIN ${token}` });
       const provider = await runPassWithForbiddenModel();
 
       const consent = await client()`
@@ -684,7 +684,7 @@ describe("inbound routing end to end (integration)", () => {
       `;
       expect(bodies.map((row) => row.body)).toEqual([
         FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-        FARMER_SIGNUP_JOIN_INSTRUCTION,
+        FARMER_JOIN_INSTRUCTION,
       ]);
       expect(provider.calls).toBe(0);
     });
@@ -695,7 +695,7 @@ describe("inbound routing end to end (integration)", () => {
       const token = await invite(true);
       await deliverInbound({
         fromPhone: farmerPhone,
-        text: `SIGNUP ${token}`,
+        text: `JOIN ${token}`,
         occurredAt: at(0),
       });
       await runPassWithForbiddenModel();
@@ -718,7 +718,7 @@ describe("inbound routing end to end (integration)", () => {
       const token = await invite(true);
       await deliverInbound({
         fromPhone: farmerPhone,
-        text: `SIGNUP ${token}`,
+        text: `JOIN ${token}`,
         occurredAt: at(1),
       });
       await runPassWithForbiddenModel();

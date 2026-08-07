@@ -57,9 +57,14 @@ describe("deterministic stand targeting keywords (F-051)", () => {
     for (const token of ["YES", "NO", "Y", "N"]) {
       expect(parseCommand(token).kind, token).toBe("commitment");
     }
-    for (const keyword of ["SIGNUP", "LINK", "STAND", "SETTINGS"]) {
+    for (const keyword of ["LINK", "STAND", "SETTINGS"]) {
       expect(parseCommand(keyword).kind, keyword).toBe("farmer");
     }
+    // F-080 — `JOIN <token>` is a farmer command, and BARE `JOIN` is not. Both directions
+    // belong in this precedence list, because the bare word sits in the compliance tier
+    // above and the argument form in the farmer tier below.
+    expect(parseCommand(`JOIN ${"a".repeat(64)}`).kind).toBe("farmer");
+    expect(parseCommand("JOIN").kind).toBe("compliance");
     for (const keyword of ["MORE", "NEXT"]) {
       expect(parseCommand(keyword).kind, keyword).toBe("paging");
     }

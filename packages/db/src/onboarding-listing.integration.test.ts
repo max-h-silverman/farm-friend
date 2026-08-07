@@ -33,7 +33,7 @@ import type { Db, Sql } from "./index";
 //   4. Re-submitting is idempotent against the stand-item index rather than duplicating.
 //
 // The listing is written against the INVITATION's farm. max chose (2026-08-05) that it
-// publishes on submit rather than waiting for the SIGNUP text.
+// publishes on submit rather than waiting for the JOIN text.
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
 
@@ -120,7 +120,7 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(Number(stand.public_longitude)).toBeCloseTo(-122.4594, 6);
     expect(stand.hours_text).toBe("Daylight hours, most days");
     // max chose publish-on-submit (2026-08-05): the listing is live when the form is sent,
-    // not held until the SIGNUP text arrives.
+    // not held until the JOIN text arrives.
     expect(stand.is_public).toBe(true);
     // The reviewed-zone column the schema refuses to default.
     expect(stand.timezone).toBe("America/Los_Angeles");

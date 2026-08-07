@@ -35,15 +35,19 @@ commit or decline.
 |---|---|
 | `STOP` / `STOPALL` / `UNSUBSCRIBE` / `CANCEL` / `END` / `QUIT` | **Global** opt-out of all SMS — the exact registered opt-out list. Clears launch-program consent immediately. **Can never be reinterpreted by conversation state.** Send the single confirming opt-out reply, then nothing further. |
 | `START` | Establish or restore consent to the one VIGA Farm Friend launch SMS program. |
-| `JOIN` | Establish consent to the one VIGA Farm Friend launch SMS program, **for a first-time sender only** — once a consent record exists, `JOIN` does not restore it and the sender is told to reply `START` (B-011, below). There is no launch `JOIN <program>` grammar. |
+| `JOIN` | Establish consent to the one VIGA Farm Friend launch SMS program, **for a first-time sender only** — once a consent record exists, `JOIN` does not restore it and the sender is told to reply `START` (B-011, below). There is no launch `JOIN <program>` grammar. **`JOIN` with a 64-hex invitation token is a separate, later-matching grammar** (F-080, farmer table below); the bare word is always this compliance keyword and is matched first. |
 | `HELP` / `INFO` | Return help text; never suppressed by state. |
 
-### Farmer product keywords (F-040 — never carrier-registered)
+### Farmer keywords (F-040/F-080)
+
+`LINK`, `STAND` and `SETTINGS` are Farm Friend **product** keywords and are never
+carrier-registered. `JOIN <token>` is the one exception in this table, and the reason is set out
+in its row.
 
 | Keyword | Behavior |
 |---|---|
-| `SIGNUP` / `SIGN UP` | Ask to be set up. A **bare** SIGNUP **grants no authority** — it opens one queue entry a coordinator acts on, and the reply deliberately does not read as a yes. Repeats are answered identically and produce one entry. An **invited** SIGNUP whose invitation carries a web agreement establishes launch consent (see §consent model, farmer onboarding); if that invitation also **names a farm**, redeeming it authorizes the farmer for it in the same transaction — the invitation is the decision, made when VIGA minted it. An invitation naming no farm still waits for a coordinator. |
-| `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets the signup acknowledgement and no link. |
+| `JOIN <64-hex token>` | Redeem an administrator's invitation (F-080, replacing `SIGNUP`). The **invitation** is what grants; the text supplies only the handset, which `farmer_authorizations` requires as `phone_verified_at`. If the invitation carries a web agreement it establishes launch consent (see §consent model, farmer onboarding); if it also **names a farm**, redeeming it authorizes the farmer for it in the same transaction — the invitation is the decision, made when VIGA minted it. An invitation naming no farm, or one whose box was never ticked, still waits for a coordinator.<br><br>**`JOIN` is carrier-registered, so the ordering is load-bearing.** Bare `JOIN` matches in the compliance branch, unchanged and first. This grammar matches in a **separate, later** branch and **requires** the token, so it can never capture the bare word. Two independent properties, each tested; the sabotage that breaks the guarantee is a looser grammar hoisted above the compliance lookup. |
+| `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets an acknowledgement and no link. |
 | `STAND` | Issue a 12-hour numbered menu of the sender's currently editable locations. Each number binds one exact authorization+location pair; the model sees neither menu nor choice. |
 | `SETTINGS` | Send the existing private standing link directly to its settings view. It uses the same token and revocation lifecycle as `LINK`, never a second login. |
 
@@ -212,19 +216,30 @@ carrier-mandated keyword in campaign registration or public compliance copy.
 - **Farmer onboarding** — the invited farmer accepts an SMS agreement on
   `/farmer/onboarding/[token]`, which stamps `farmer_invitations.agreed_to_sms_at`. That stamp is
   **not** consent: a tick on a web page proves nothing about who holds the handset. Consent is
-  established when `SIGNUP <token>` arrives from a phone, which is the evidence tying the person who
+  established when `JOIN <token>` arrives from a phone, which is the evidence tying the person who
   agreed to the number that will be messaged — recorded with capture source `farmer_onboarding`, the
   agreement's own moment as its documented origin. Every proactive farmer send must trace to that
   opt-in or a deterministic `JOIN`/`START`.
 
-  It goes through **the same** `applyConsentTransition` writer as `JOIN`, under
+  **The capture source stays `farmer_onboarding`.** Only the keyword that reaches this path
+  changed (F-080, `SIGNUP` → `JOIN <token>`); the writer, the rules, and the recorded origin are
+  the same, and existing production rows reference that value.
+
+  It goes through **the same** `applyConsentTransition` writer as a bare `JOIN`, under
   `firstTimeOnly`, so it establishes consent **only for a sender with no record**. A farmer who
   already opted in keeps one unchanged record, and a farmer who texted `STOP` is **not** silently
   re-enrolled by filling in a web form — the same B-011 reasoning, since the carrier would refuse
-  the send regardless and only `START` clears its list. A `SIGNUP` that establishes consent is
-  answered with the registered opt-in receipt; a `SIGNUP` with no consent basis (uninvited, or an
-  invitation whose box was never ticked) is told to reply `JOIN`, which is the one place that word
-  belongs in farmer-facing copy.
+  the send regardless and only `START` clears its list.
+
+  **One writer, two branches.** Bare `JOIN` is handled by `routeCompliance`, which owns the
+  `applyConsentTransition` call; `JOIN <token>` is handled by `routeInvitedJoin`, whose consent
+  write happens inside `openFarmerOnboardingRequest`'s transaction. The parser's ordering is what
+  keeps them apart, so neither branch tests for the other and no message can reach both.
+
+  A redemption that establishes consent is answered with the registered opt-in receipt; one with
+  no consent basis — an invitation whose box was never ticked — is told to reply `JOIN`, which is
+  the one place that word belongs in farmer-facing copy. That case survived F-080: requiring a
+  token did **not** eliminate it, because an un-ticked invitation can still be redeemed by text.
 - **Customer-initiated inquiry** — the inbound inquiry permits its relevant direct response but does
   not create durable consent for later proactive notifications. Launch stores no follow-up interest,
   sends no passive customer follow-up, and has no scoped `MUTE` command. `MUTE` and follow-up

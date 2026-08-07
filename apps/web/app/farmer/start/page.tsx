@@ -52,7 +52,7 @@ export default async function FarmerStartPage({
       </section>
 
       <p className="farmer-onboarding-note">
-        Not listed? Text SIGNUP to Farm Friend and VIGA will set you up.
+        Not listed? Contact VIGA and they will set you up.
       </p>
     </main>
   );

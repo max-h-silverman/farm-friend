@@ -237,9 +237,9 @@ export default async function AdminPage() {
   ]);
   const work = [
     // F-067 — approval is now the EXCEPTION, not the routine step. An invited farmer's farm is
-    // approved by their own redemption, so anything landing here arrived by one of the three
-    // paths that still need a person: a bare uninvited SIGNUP, an invitation naming no farm, or
-    // one whose agreement was never ticked.
+    // approved by their own redemption, so anything landing here arrived by one of the two
+    // paths that still need a person: an invitation naming no farm, or one whose agreement was
+    // never ticked. (A bare uninvited SIGNUP was a third until F-080 removed the keyword.)
     { label: "Farm approvals", count: farms.filter((farm) => !farm.approved).length, href: "#farm-approvals", description: "Only farms that signed up without an invitation. Invited farmers are approved automatically." },
     { label: "Farmer access requests", count: farmerRequests.length, href: "/admin/farmers", description: "Give verified farm operators access to update their stands." },
     { label: "Customer reports", count: flags.length + listingQuestions.length, href: "/admin/flags", description: "Review customer FLAG messages and listing questions." },

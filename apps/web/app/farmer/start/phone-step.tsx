@@ -98,7 +98,7 @@ export function PhoneStep({
         {busy ? "Sending…" : "Text me my link"}
       </button>
       <p className="farmer-onboarding-note">
-        Not your farm, or lost the number? Text SIGNUP to Farm Friend and VIGA will help.
+        Not your farm, or lost the number? Contact VIGA and they will help.
       </p>
     </form>
   );

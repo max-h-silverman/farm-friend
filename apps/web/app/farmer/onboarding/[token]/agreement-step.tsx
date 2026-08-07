@@ -5,9 +5,9 @@ import { useState } from "react";
 /**
  * The consent step: what the farmer is agreeing to, the tick, then the prepared text.
  *
- * **The order is the point.** The prepared `SIGNUP` text is not reachable until the server
+ * **The order is the point.** The prepared `JOIN` text is not reachable until the server
  * has recorded the agreement, because that stamp is what turns the inbound message into an
- * informed opt-in. A farmer who could send SIGNUP first would spend the invitation, receive
+ * informed opt-in. A farmer who could send it first would spend the invitation, receive
  * no consent record, and be authorized into permanent silence — the exact dead end this
  * step exists to close.
  *
@@ -18,10 +18,10 @@ import { useState } from "react";
  */
 export function AgreementStep({
   token,
-  signupUrl,
+  joinUrl,
 }: {
   token: string;
-  signupUrl: string | null;
+  joinUrl: string | null;
 }) {
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -100,14 +100,14 @@ export function AgreementStep({
       </div>
 
       {agreed ? (
-        signupUrl === null ? (
+        joinUrl === null ? (
           <p className="farmer-onboarding-instruction">
-            Text <strong>SIGNUP {token}</strong> to the Farm Friend number from your
+            Text <strong>JOIN {token}</strong> to the Farm Friend number from your
             invitation.
           </p>
         ) : (
-          <a className="farmer-primary-link" href={signupUrl}>
-            Text SIGNUP to verify this phone
+          <a className="farmer-primary-link" href={joinUrl}>
+            Text JOIN to verify this phone
           </a>
         )
       ) : null}

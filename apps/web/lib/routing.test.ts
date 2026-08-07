@@ -476,51 +476,77 @@ describe("deterministic routing order (Golden Rule #2)", () => {
     );
   });
 
-  // F-040 — the farmer product keywords. Routed like every other deterministic keyword:
+  // F-040 / F-080 — the farmer keywords. Routed like every other deterministic keyword:
   // upstream of the model, which the throwing seam proves.
-  describe("farmer keywords (F-040)", () => {
-    it("routes SIGNUP to the onboarding queue with NO model call", async () => {
-      const { db, queries } = recordingDb();
-      const result = await routeInboundMessage(deps({ db }), event("SIGNUP"));
+  describe("farmer keywords (F-040, F-080)", () => {
+    const INVITE = "b".repeat(64);
 
-      expect(result.outcome).toMatchObject({ kind: "farmer", keyword: "SIGNUP" });
+    it("SIGNUP is no longer routed at all — it reaches the model as free text", async () => {
+      // F-080's routing half. `SIGNUP` was the sole writer of `farmer_onboarding_requests`,
+      // so this asserts it no longer writes one: the outcome must not be a farmer command,
+      // and nothing may be inserted on its behalf.
+      const { db, queries } = recordingDb();
+      const freeText = vi.fn(async () => ({ replies: [], handled: "none" as const }));
+      const result = await routeInboundMessage(deps({ db, freeText }), event("SIGNUP"));
+
+      expect(result.outcome.kind).not.toBe("farmer");
+      expect(
+        queries.some((q) => q.includes("insert into farmer_onboarding_requests")),
+      ).toBe(false);
+      expect(freeText).toHaveBeenCalled();
+    });
+
+    it("routes the onboarding link's token with JOIN", async () => {
+      const { db, queries } = recordingDb([{ id: "invite-1" }]);
+      const result = await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
+
+      expect(result.outcome).toMatchObject({ kind: "farmer", keyword: "JOIN" });
+      expect(queries.some((q) => q.includes("invitation_id"))).toBe(true);
       expect(
         queries.some((q) => q.includes("insert into farmer_onboarding_requests")),
       ).toBe(true);
     });
 
-    it("routes the onboarding link's token with SIGNUP", async () => {
-      const { db, queries } = recordingDb([{ id: "invite-1" }]);
-      const invitationToken = "b".repeat(64);
-      const result = await routeInboundMessage(
-        deps({ db }),
-        event(`SIGNUP ${invitationToken}`),
-      );
+    it("BARE JOIN still routes to compliance, never to the invitation path", async () => {
+      // The routing half of the safety argument the parser makes. A bare `JOIN` is the
+      // carrier-registered opt-in: it must reach `routeCompliance`, and must NOT open an
+      // onboarding request or touch an invitation.
+      const { db, queries } = recordingDb();
+      const result = await routeInboundMessage(deps({ db }), event("JOIN"));
 
-      expect(result.outcome).toMatchObject({ kind: "farmer", keyword: "SIGNUP" });
-      expect(queries.some((q) => q.includes("invitation_id"))).toBe(true);
+      expect(result.outcome).toMatchObject({ kind: "consent", transition: "start" });
+      expect(
+        queries.some((q) => q.includes("insert into farmer_onboarding_requests")),
+      ).toBe(false);
+      expect(queries.some((q) => q.includes("invitation_id"))).toBe(false);
     });
 
-    it("acknowledges a SIGNUP without claiming the farmer is set up", async () => {
-      // A request grants nothing — VIGA always approves. Copy that read as a yes would
-      // send a farmer to their stand expecting to publish.
-      const { db } = recordingDb();
-      const result = await routeInboundMessage(deps({ db }), event("SIGNUP"));
+    it("acknowledges an invited JOIN without claiming the farmer is set up", async () => {
+      // A request grants nothing on its own. Copy that read as a yes would send a farmer to
+      // their stand expecting to publish.
+      const { db } = recordingDb([{ id: "invite-1", agreed_to_sms_at: null }]);
+      const result = await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
 
-      expect(result.replies).toHaveLength(1);
-      expect(result.replies[0]?.body.toLowerCase()).not.toContain("you're all set");
-      expect(result.replies[0]?.body.toLowerCase()).not.toContain("approved");
+      expect(result.replies.length).toBeGreaterThan(0);
+      for (const reply of result.replies) {
+        expect(reply.body.toLowerCase()).not.toContain("you're all set");
+        expect(reply.body.toLowerCase()).not.toContain("approved");
+      }
     });
 
-    it("establishes consent through the SAME writer JOIN uses, never a second one", async () => {
-      // The launch blocker's fix. An invited SIGNUP whose agreement box was ticked opts the
-      // farmer in — but only through `applyConsentTransition`'s existing rules, inside the
-      // redemption transaction. A second consent writer would be a second set of rules for
-      // one fact, and the first-time/STOP/watermark reasoning lives in exactly one place.
+    it("establishes consent through the SAME writer bare JOIN uses, never a second one", async () => {
+      // The launch blocker's fix, and the property F-080 most had to preserve. An invited
+      // JOIN whose agreement box was ticked opts the farmer in — but only through
+      // `applyConsentTransition`'s existing rules, inside the redemption transaction. A
+      // second consent writer would be a second set of rules for one fact.
+      //
+      // The two JOIN forms reach DIFFERENT handlers (`routeCompliance` for the bare word,
+      // `routeInvitedJoin` for the token form) and that is exactly why this matters: they
+      // must still converge on one writer.
       const { db, queries } = recordingDb([
         { id: "invite-1", agreed_to_sms_at: new Date(T0.getTime() - 60_000) },
       ]);
-      await routeInboundMessage(deps({ db }), event(`SIGNUP ${"b".repeat(64)}`));
+      await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
 
       expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(true);
       expect(
@@ -528,29 +554,46 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       ).toBe(true);
     });
 
-    it("establishes NO consent for a bare SIGNUP with no invitation", async () => {
-      // The uninvited path has no web page to show an agreement on, so there is nothing an
-      // opt-in could be founded on. It must stay as silent about consent as it always was.
-      const { db, queries } = recordingDb();
-      await routeInboundMessage(deps({ db }), event("SIGNUP"));
-
-      expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(false);
-    });
-
     it("establishes NO consent for an invitation whose box was never ticked", async () => {
       // VIGA creating an invitation cannot opt a farmer in. Only the farmer's own tick,
       // followed by their own inbound message, can.
+      //
+      // Still reachable after F-080, contrary to the assumption that requiring a token would
+      // collapse this case: `openFarmerOnboardingRequest` writes no consent when
+      // `agreed_to_sms_at` is null, and a farmer can redeem an un-ticked invitation by text.
       const { db, queries } = recordingDb([{ id: "invite-1", agreed_to_sms_at: null }]);
-      await routeInboundMessage(deps({ db }), event(`SIGNUP ${"b".repeat(64)}`));
+      await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
 
       expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(false);
     });
 
-    it("writes NO authorization for a SIGNUP — the queue is not a grant", async () => {
-      // THE property. If this path could write `farmer_authorizations`, anyone with a phone
-      // could authorize themselves to publish for a farm.
-      const { db, queries } = recordingDb();
-      await routeInboundMessage(deps({ db }), event("SIGNUP"));
+    it("does not re-enroll a number that texted STOP, by redeeming an invitation", async () => {
+      // The property `firstTimeOnly` exists for, re-proved after the rename because a rename
+      // is exactly when a flag gets dropped silently. A person who opted out must not be
+      // opted back in by an administrator minting them an invitation — the consent write
+      // refuses when ANY record exists, stopped ones included.
+      //
+      // Asserted at the CALL: `firstTimeOnly` must be requested. The rule itself is enforced
+      // and tested inside `applyConsentTransitionIn`'s lock.
+      const { db, queries } = recordingDb([
+        { id: "invite-1", agreed_to_sms_at: new Date(T0.getTime() - 60_000) },
+      ]);
+      await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
+
+      // The consent insert is guarded by an existence check rather than being unconditional.
+      const consentWrite = queries.find((q) => q.includes("insert into sms_consents"));
+      expect(consentWrite).toBeDefined();
+      expect(
+        queries.some((q) => q.includes("from sms_consents") || q.includes("for update")),
+      ).toBe(true);
+    });
+
+    it("writes NO authorization for an UN-TICKED invitation — a text is not a grant", async () => {
+      // THE property. An invitation with no agreement authorizes nobody: without the
+      // farmer's own tick there is no informed opt-in, and setting them up here would
+      // grant publishing rights off a message alone.
+      const { db, queries } = recordingDb([{ id: "invite-1", agreed_to_sms_at: null }]);
+      await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
 
       expect(
         queries.some((q) => q.includes("insert into farmer_authorizations")),
@@ -609,12 +652,12 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       expect(result.replies[0]?.category).toBe("inventory_prompt");
     });
 
-    it("never reaches the model for either keyword", async () => {
+    it("never reaches the model for any farmer keyword", async () => {
       // The structural claim, stated once more where it is cheapest to check: the seam in
       // `deps()` throws, so any model call fails these outright rather than being asserted
       // about afterwards.
-      for (const word of ["SIGNUP", "LINK", "sign up", "link"]) {
-        const { db } = recordingDb();
+      for (const word of [`JOIN ${INVITE}`, "LINK", "link", "STAND", "SETTINGS"]) {
+        const { db } = recordingDb([{ id: "invite-1" }]);
         const farmerTarget = vi.fn(async () => ({ status: "menu", replies: [] }));
         await expect(
           routeInboundMessage(deps({ db, farmerTarget }), event(word)),

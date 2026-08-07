@@ -37,10 +37,10 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
   const [success, setSuccess] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   // F-067 — an EMPTY queue is the normal, healthy state rather than an absence of work.
-  // Invited farmers approve themselves by redeeming, so this fills only from the three paths
-  // that still need a person: a bare uninvited SIGNUP, an invitation naming no farm, and one
-  // whose agreement was never ticked. Empty-state copy reading "nothing to do YET" invited an
-  // operator to wonder what had gone wrong.
+  // Invited farmers approve themselves by redeeming, so this fills only from the two paths
+  // that still need a person: an invitation naming no farm, and one whose agreement was never
+  // ticked. (A third, a bare uninvited SIGNUP, went with the keyword in F-080.) Empty-state
+  // copy reading "nothing to do YET" invited an operator to wonder what had gone wrong.
   const waiting = rows.filter((row) => !row.approved);
   const approved = rows.filter((row) => row.approved);
 

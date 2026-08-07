@@ -85,7 +85,7 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   recipient's address. Farm Friend creates a one-use onboarding link and opens your own text or
   email app with the message ready. Send it from there. The link expires after seven days.
   **Sending an invitation that names a farm IS your approval of that farmer for that farm** — when
-  they accept the SMS agreement and send the prepared `SIGNUP <invite>` from their phone, Farm
+  they accept the SMS agreement and send the prepared `JOIN <invite>` from their phone, Farm
   Friend sets them up and approves the farm, and texts them that they are ready. So check the
   person really runs the farm **before you send the link**; nothing asks you again afterwards.
 - **A farmer lost their onboarding link:** `/admin/farmers` lists every farm nobody can update yet
@@ -117,8 +117,9 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   dropdown, which is deliberate: walking a farmer's whole journey is the thing a test farm exists
   for. Name test farms so they read as fake — that name is the only marker anywhere.
 - **Set a farmer up by hand:** open `/admin/farmers`. Anyone whose request needs a person is
-  waiting at the top, shown by the last four digits of their number — someone who texted `SIGNUP`
-  with no invitation, an invitation naming no farm, or one whose agreement was never ticked.
+  waiting at the top, shown by the last four digits of their number — an invitation naming no
+  farm, or one whose agreement was never ticked. (A third source, someone texting with no
+  invitation at all, ended with the `SIGNUP` keyword in F-080.)
   **Check that the person really runs the farm before you authorize them** — a phone number only
   proves someone has that phone. On authorizing, Farm Friend texts them that they are set up and
   how to post their first listing. A farm set up this way still needs approving (below).

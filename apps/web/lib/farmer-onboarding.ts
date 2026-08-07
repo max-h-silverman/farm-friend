@@ -24,7 +24,7 @@ export interface FarmerOnboardingDeps {
  * **This does not establish consent, and must not be changed to.** The link is the whole
  * credential and anyone holding it can reach this route, so a tick here records only that
  * the agreement was shown on this invitation and accepted. Consent is written when
- * `SIGNUP <token>` arrives from a handset — the inbound message is what ties the person who
+ * `JOIN <token>` arrives from a handset — the inbound message is what ties the person who
  * agreed to the number that will be messaged.
  *
  * The time stamped is the SERVER's. A caller-supplied instant would let anyone with the link

@@ -26,7 +26,7 @@ import { parseListingSubmission } from "./farmer-listing";
 //   * The check runs on THIS request, not at page render. A farmer can onboard in the window
 //     between the dropdown loading and this form being sent; the stale page must lose.
 //   * Nothing here grants authority. This writes listing facts only — publishing inventory
-//     still requires a `farmer_authorizations` row, which still requires a handset (SIGNUP).
+//     still requires a `farmer_authorizations` row, which still requires a handset (`JOIN <token>`).
 //     The honour system therefore buys a listing, never the ability to speak as the farm.
 //
 // The field rules are `parseListingSubmission`'s and are SHARED with the invited path rather
