@@ -46,6 +46,10 @@ const expectedTables = [
   "consent_transition_watermarks",
   "contacts",
   "farm_approvals",
+  // F-078 — the email roster VIGA already holds, so a farmer can prove who they are without a
+  // volunteer vouching for them. Raw address in exactly one column read only by the send path;
+  // the hash is the only lookup key. Golden Rule #5, applied to a second kind of personal data.
+  "farm_emails",
   "farm_links",
   "farmer_authorizations",
   "farmer_invitations",

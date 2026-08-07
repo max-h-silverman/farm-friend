@@ -169,6 +169,13 @@
       "when": 1787200000000,
       "tag": "0023_test_farms",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787286400000,
+      "tag": "0024_farm_emails",
+      "breakpoints": true
     }
   ]
 }

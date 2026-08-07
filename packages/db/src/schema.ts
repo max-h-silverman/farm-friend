@@ -533,6 +533,55 @@ export const farms = pgTable(
   }),
 );
 
+/**
+ * F-078 — the email roster VIGA already holds, so a farmer can prove who they are.
+ *
+ * **Golden Rule #5 applied to a second kind of personal data.** These addresses are largely
+ * personal (`dhusch@hotmail.com`), so the shape mirrors `contacts` rather than inventing a
+ * second pattern: `email` is the raw address in EXACTLY ONE column read only by the send path,
+ * and `emailHash` is the only lookup and log key. Nothing here is a display column.
+ *
+ * **Verifying is not publishing** (max, 2026-08-06). Six farms answered "No" to putting contact
+ * email on the printed map and two left it blank; their addresses still authenticate. That no
+ * public read path selects from this table is a query property, proven by test — a schema
+ * cannot enforce it.
+ *
+ * **Several rows per farm is the normal case, not an edge case.** Five of VIGA's 32 farms list
+ * more than one address, and Lavender Hill lists three, spread across two columns of the form.
+ *
+ * The CHECK constraints and the normalized unique index live in `0024_farm_emails.sql` and are
+ * proven to genuinely refuse in `farm-emails-migration.integration.test.ts` — drizzle-kit omits
+ * CHECK constraints when generating SQL, so a constraint declared only here would be enforced
+ * by nothing while this file read as though it were.
+ */
+export const farmEmails = pgTable(
+  "farm_emails",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    farmId: uuid("farm_id")
+      .notNull()
+      .references(() => farms.id, { onDelete: "restrict" }),
+    /** THE ONLY column holding a raw address. Read by the send path and nothing else. */
+    email: text("email").notNull(),
+    /** The lookup and log key. Never a raw address in a log line or in model context. */
+    emailHash: text("email_hash").notNull(),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    // `btrim(text)` strips SPACES ONLY — not tabs, not newlines — so the whitespace class is
+    // named explicitly. Migration 0020 shipped the naive form and a tab-only value passed it.
+    addressNotBlank: check(
+      "farm_emails_address_not_blank",
+      sql`length(btrim(${table.email}, E' \t\r\n')) > 0`,
+    ),
+    // A malformed hash is a row nothing can ever look up, and the miss would be silent.
+    hashIsDigest: check(
+      "farm_emails_hash_is_digest",
+      sql`${table.emailHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+  }),
+);
+
 /** An administrator-created, one-use path into farmer onboarding. */
 export const farmerInvitations = pgTable(
   "farmer_invitations",
