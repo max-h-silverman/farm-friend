@@ -396,6 +396,32 @@ These are **database-level** requirements, not application conventions:
   beside the hash is the **last four digits**, the same lossy fragment the admin surface already
   shows everywhere (`right(phone_e164, 4)` → `maskPhoneSuffix`), so an operator can tell which row
   to remove. Four digits identify a row to a human being; they do not identify a subscriber.
+- **Emails (F-078/F-079):** the same discipline as phones, applied to a second kind of personal
+  data — **one instance of one mechanism, not a second mechanism**. VIGA's roster is largely
+  *personal* addresses (`dhusch@hotmail.com`), so they carry the same weight. Normalized at
+  ingress; the raw address lives in **exactly one column** (`farm_emails.email`), read **only** by
+  the send path and the verification lookup; the **hash is the only lookup and log key**. Raw
+  addresses are **never logged**, **never enter model context**, and are masked in admin
+  (`maskEmail`). `farm_email_verifications` holds the hash and never a second copy of the address.
+
+  Where the two differ, it is because the data differs: a phone has one canonical form derived by
+  discarding punctuation, while an address is canonicalized by **case and whitespace only**. The
+  whitespace class is named explicitly (`E' \t\r\n'`) to match the unique index, because
+  `btrim(text)` strips spaces alone — migration 0020 shipped that naive form.
+
+  **Verifying is not publishing.** Six farms declined to put contact email on the printed map and
+  two left it blank; their addresses are still stored and still authenticate. Nothing in
+  `farm_emails` is a display column, and no public read path selects from it — a query property
+  proven by test against the **served bytes**, since a schema cannot enforce it.
+- **The F-079 farmer-start secret is OBSCURITY, not authentication, and must be documented as
+  such.** `FARMER_START_SECRET` is a path segment, so it lands in browser history, `Referer`
+  headers on any outbound link, access logs, and any proxy in between. Unlike `/stand/[token]` it
+  is **neither one-use nor revocable per farmer** — it is one shared value for everyone VIGA sends
+  it to. It therefore protects nothing on its own: what it buys is that the migration door is not
+  crawled or casually walked into. **The credential that actually gates publishing is the emailed
+  code**, which is per-farm, single-use, expiring, attempt-capped, and rate-limited by farm and by
+  address. A deployment with no secret configured has no door at all, and answers every request
+  under `/farmer/start` with the same 404 it gives a wrong secret.
 - **Raw message context is short-lived** and deleted on expiry. A body is written with a **30-day**
   `body_expires_at` (`DEFAULT_BODY_TTL_MS`); the scheduled retention purge clears it once that
   instant passes. Only the body text goes — the `sms_messages` row, its inbox projection, dispatch

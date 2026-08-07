@@ -72,7 +72,7 @@ function transitivePackageImports(entry: string): {
 /** The two entry points a customer's browser can reach without authentication. */
 const PUBLIC_READ_ENTRIES = [
   "apps/web/app/api/public/stands/route.ts",
-  "apps/web/app/page.tsx",
+  "apps/web/app/(map)/page.tsx",
 ];
 
 describe("the public read surface is model-free (F-019, preserved by F-017)", () => {

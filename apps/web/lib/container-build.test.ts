@@ -140,6 +140,8 @@ describe("every route module IMPORTS with no environment at all", () => {
   // site moving into the handler, which is the whole thing being asserted.
   const routes = [
     "../app/api/farmer/link-request/route",
+    "../app/api/farmer/verify-request/route",
+    "../app/api/farmer/verify-submit/route",
     "../app/api/public/stands/route",
     "../app/api/farmer/address-lookup/route",
     "../app/api/farmer/listing/route",
@@ -160,6 +162,13 @@ describe("every route module IMPORTS with no environment at all", () => {
         "PUBLIC_BASE_URL",
         "TELNYX_API_KEY",
         "DEEPINFRA_API_KEY",
+        // F-079's salts and secret. A route that needs one of these merely to be IMPORTED
+        // cannot be built into the image.
+        "EMAIL_HASH_SALT",
+        "VERIFICATION_CODE_SALT",
+        "FARMER_START_SECRET",
+        "SMTP_HOST",
+        "SMTP_PASSWORD",
       ]) {
         delete process.env[key];
       }

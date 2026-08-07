@@ -26,6 +26,7 @@ export * from "./auth/farmer-link";
 export * from "./auth/farmer-invite";
 export * from "./auth/session";
 export * from "./auth/email-verification";
+export * from "./auth/farm-verification";
 export * from "./email/send";
 export * from "./seed/availability";
 export * from "./seed/farm-links";

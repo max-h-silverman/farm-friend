@@ -23,7 +23,18 @@ export interface PickableFarm {
   onboarded: boolean;
 }
 
-export function FarmPicker({ farms }: { farms: PickableFarm[] }) {
+export function FarmPicker({
+  farms,
+  basePath,
+}: {
+  farms: PickableFarm[];
+  /**
+   * Where a claimable farm's link points. Passed in rather than hard-coded because F-079 puts
+   * this picker behind a secret path segment, and the onward link must carry that segment or
+   * the farmer's next step 404s.
+   */
+  basePath: string;
+}) {
   const [farmId, setFarmId] = useState("");
   const picked = farms.find((farm) => farm.farmId === farmId);
 
@@ -51,7 +62,7 @@ export function FarmPicker({ farms }: { farms: PickableFarm[] }) {
         <p className="farmer-picker-next">
           <a
             className="farmer-primary-action"
-            href={`/farmer/start/${encodeURIComponent(picked.farmId)}`}
+            href={`${basePath}/${encodeURIComponent(picked.farmId)}`}
           >
             Set up {picked.farmName}
           </a>

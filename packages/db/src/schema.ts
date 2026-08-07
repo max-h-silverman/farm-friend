@@ -582,6 +582,89 @@ export const farmEmails = pgTable(
   }),
 );
 
+/**
+ * F-079 — an issued email verification code.
+ *
+ * F-078 built the roster and the send path and stored nothing about what was SENT. A code has
+ * to be checkable on a later request, and on Cloud Run that request routinely lands on a
+ * different container — the service scales to zero while a farmer reads their mail. A code held
+ * in memory would refuse a farmer who typed exactly the right digits.
+ *
+ * **The code is hashed at rest** under the same discipline as `farmerLinks.tokenHash`: a
+ * database read cannot recover a live code. Six digits is a small space, so what makes this
+ * safe is that guesses are COUNTED AND CAPPED (`attemptCount`), not that the code is long.
+ *
+ * **No raw address here** — `emailHash` only. The raw value lives in exactly one column
+ * (`farmEmails.email`) read only by the send path (Golden Rule #5).
+ *
+ * The CHECK constraints and the partial unique index live in
+ * `0025_farm_email_verifications.sql` and are proven to genuinely refuse in
+ * `farm-email-verifications-migration.integration.test.ts` — drizzle-kit omits both when
+ * generating SQL, so rules declared only here would be enforced by nothing.
+ */
+export const farmEmailVerifications = pgTable(
+  "farm_email_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    farmId: uuid("farm_id")
+      .notNull()
+      .references(() => farms.id, { onDelete: "restrict" }),
+    /** Which address on file the code went to. The hash, never the address. */
+    emailHash: text("email_hash").notNull(),
+    /** HMAC of the six-digit code. The code itself exists only in the farmer's inbox. */
+    codeHash: text("code_hash").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /** Set exactly once, on redemption. NULL means still live. */
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    /** Wrong guesses against this code, capped so the digit space cannot be ground down. */
+    attemptCount: integer("attempt_count").notNull().default(0),
+    /**
+     * Hash of the publish grant this code produced. NULL until redeemed.
+     *
+     * Held here rather than in a second table because this row already records which farm and
+     * which instant — one mechanism, not two.
+     */
+    grantHash: text("grant_hash"),
+    grantExpiresAt: timestamp("grant_expires_at", { withTimezone: true }),
+  },
+  (table) => ({
+    emailHashIsDigest: check(
+      "farm_email_verifications_email_hash_is_digest",
+      sql`${table.emailHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    codeHashIsDigest: check(
+      "farm_email_verifications_code_hash_is_digest",
+      sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    // Strict: a row expiring at the instant it was issued is dead on arrival.
+    expiresAfterIssue: check(
+      "farm_email_verifications_expires_after_issue",
+      sql`${table.expiresAt} > ${table.issuedAt}`,
+    ),
+    // Passes on NULL DELIBERATELY — "not yet consumed" must be legal. Called out because the
+    // same NULL semantics silently invert a guard when the intent is the opposite.
+    consumedAfterIssue: check(
+      "farm_email_verifications_consumed_after_issue",
+      sql`${table.consumedAt} is null or ${table.consumedAt} >= ${table.issuedAt}`,
+    ),
+    attemptsNotNegative: check(
+      "farm_email_verifications_attempts_not_negative",
+      sql`${table.attemptCount} >= 0`,
+    ),
+    grantHashIsDigest: check(
+      "farm_email_verifications_grant_hash_is_digest",
+      sql`${table.grantHash} is null or ${table.grantHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    // A COHERENCE PAIR in both directions: the one-directional form passes on NULL and would
+    // enforce nothing (0023's lesson). A grant with no expiry never ages out.
+    grantCoherent: check(
+      "farm_email_verifications_grant_coherent",
+      sql`(${table.grantHash} is null) = (${table.grantExpiresAt} is null)`,
+    ),
+  }),
+);
+
 /** An administrator-created, one-use path into farmer onboarding. */
 export const farmerInvitations = pgTable(
   "farmer_invitations",

@@ -176,6 +176,13 @@
       "when": 1787286400000,
       "tag": "0024_farm_emails",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1787372800000,
+      "tag": "0025_farm_email_verifications",
+      "breakpoints": true
     }
   ]
 }
