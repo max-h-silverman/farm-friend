@@ -305,6 +305,33 @@ through `matchStandName`, reports unknown/already-present tags, and refuses an a
 `offerings:propose` reads only the map export; form-only farms are absent rather than reported as
 rejected. Check the other export when a farm is missing.
 
+### Cleaning stored descriptions
+
+`buildStandDescription` (F-061) strips from a farm's prose every line that restates a fact holding a
+structured column of its own — hours, season, stocking, links, payments, dated updates. It has been
+deployed since it was written and **has never run against the data**, because F-064's ingest never
+happened, so `farms.description` still holds raw prose that the public card renders verbatim.
+
+This applies the shipped rule to the stored text. It needs no re-ingest and no CSVs, and touches no
+other column:
+
+```bash
+DATABASE_URL="<neondb>" npx tsx scripts/clean-farm-descriptions.ts            # dry run, prints every diff
+DATABASE_URL="<neondb>" npx tsx scripts/clean-farm-descriptions.ts --apply    # prompts for a typed confirmation
+```
+
+**Dry run is the default and no single flag writes** — `--apply` additionally requires typing an
+exact confirmation phrase. It fingerprints the target and asserts the database name before reading a
+row, writes a JSON backup of every prior value before opening the transaction (there is no
+`farms.description` history table, so **that file is the rollback**), writes in one transaction, and
+then **verifies by effect** — reading the rows back and comparing them to what was intended rather
+than trusting the absence of an error. It is idempotent: the cleanup is a pure function, so a second
+run changes nothing.
+
+Read the diff before approving. A farm whose every line is structured is left with **no**
+description, which is correct — the card still carries those facts from their own columns — but it
+should be a decision, not a surprise.
+
 ## Start the web app
 
 ```

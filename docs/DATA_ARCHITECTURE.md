@@ -145,9 +145,16 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   email, password, or verifier enters the table. The existing bounded retention pass deletes
   expired rows.
 - **structured public listing facts** — including payment methods and VIGA Farm Bucks acceptance or
-  eligibility as **read-only facts**, plus a sanitized source-listing description, farmer-selected
+  eligibility as **read-only facts**, plus the farm's own prose description, farmer-selected
   web/social links, and an optional photo or short biography. Direct farmer email addresses and
   phone numbers never enter the public description.
+  **`farms.description` is farmer-writable as of 2026-08-07** and was seeded-only before, so VIGA's
+  prose sat under every listing a farmer published with no surface able to change it. Every listing
+  door now carries it, and the writer distinguishes **`undefined`** ("this door states nothing about
+  the prose", leave it) from **`""`** ("the farmer cleared it", erase it) — collapsing the two is
+  B-037's destructive-by-omission failure one column over. A fact that has a **structured column of
+  its own never belongs in this prose**: the two then disagree on the same card, which is what
+  F-061's `buildStandDescription` exists to prevent.
   **Payment methods are canonicalized to a closed set** (F-069, `packages/db/src/payment-methods.ts`)
   so "venmo", "Venmo" and "VENMO" are one filterable value rather than three a filter cannot join.
   Methods outside the set are kept as the farmer's **own words** — a closed set that silently

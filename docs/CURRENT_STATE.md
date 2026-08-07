@@ -16,9 +16,19 @@ Production Postgres is `neondb` with **26 migrations** (`0000`–`0025`).
 
 - **F-081** (2026-08-07) — approved farmers start on a weekly reminder schedule.
 - **The farmer sign-up flow** (`415d913`) and the integration-suite guard (`ef810f2`).
+- **The self-consent and listing-merge tranche** (2026-08-07) — the farmer's own paragraph becomes
+  editable, the migration door's VIGA step is replaced by one text, and the contact card reaches
+  customers who arrive by SMS.
 
 **No migration is owed.** None of the undeployed work carries one, so production Postgres stays at
 26 and what production serves is the pre-F-081 image.
+
+**The description cleanup has NOT been run against production data.** `buildStandDescription` has
+been deployed since F-061 and has never touched a row: F-064's ingest never happened, so
+`farms.description` still holds the raw pre-F-061 prose and the public card renders it verbatim.
+`scripts/clean-farm-descriptions.ts` is the runner, dry-run by default; the current dry run against
+`neondb` reports **34 farms with a description, 31 would change, 3 already clean, 5 left with
+none**. Writing is max's call.
 
 **Secrets and mount flags.** Web mounts `GEOCODING_API_KEY`, `SMTP_PASSWORD`, and F-079's three;
 **the worker mounts none of them**, asserted unconditionally so flipping a flag can never hand a
@@ -38,9 +48,10 @@ already sent.
 
 ## Verification
 
-**Latest, 2026-08-07** (branch `farmer-self-consent-and-listing-merge`, uncommitted work below):
-**1533 unit**, **796 integration** (58 files), typecheck, lint. Integration ran against **local
-Postgres**, never Neon.
+**Latest, 2026-08-07** (the self-consent and listing-merge tranche, merged to `main`): **1553 unit**
+(131 files), **802 integration** (58 files), typecheck, lint. Integration ran against **local
+Postgres**, never Neon. **No `packages/ai` file changed and no migration**, both checked against the
+diff rather than assumed, so no `evals`/`evals:live` run and nothing owed to production Postgres.
 
 **Prior, 2026-08-07** (F-081, merged to `main`): 1496 unit (127 files), 796 integration, typecheck,
 lint. **No `packages/ai` file changed, so no `evals` or `evals:live` run was owed** — checked
@@ -57,39 +68,31 @@ projection, schema, or output contract.
 Standing rules: real-Postgres integration runs from an empty schema against local Postgres, **never**
 production Neon. Never carry an old test count forward as current evidence.
 
-## Uncommitted on this branch (2026-08-07)
+## Standing facts from the newest tranche (2026-08-07)
 
-Branch `farmer-self-consent-and-listing-merge` holds **no commits**; everything here is working-tree
-state. Nothing deployed, no migration — local tooling plus form and styling work.
+Reasoning and the findings behind each: [SESSION_LOG.md](SESSION_LOG.md), 2026-08-07.
 
-- **The integration suite can no longer run DDL against a remote database.** The repo's `.env` held
-  the production Neon string while every integration test creates and drops databases.
-  `packages/db/src/integration-database-guard.ts` fails the run before any DDL unless the host is
-  local or `ALLOW_INTEGRATION_TESTS_AGAINST_REMOTE_DB=1` is set deliberately, wired in at
-  `vitest.integration.setup.ts` — one seam all 58 files pass through. Verified by effect in both
-  directions. `.env`'s `DATABASE_URL` now points at local Postgres.
-- **Email verification is walkable locally.** `EMAIL_PROVIDER=simulator` writes each message to a
-  file under `SIMULATED_MAIL_DIR` (default `.mail/`, git-ignored) instead of sending — a file
-  rather than the console deliberately, since a live code in log output is a credential in a stream
-  that gets shipped. **Three barriers keep it off a deployment**: opt-in, never a default; refuses
-  to construct under `NODE_ENV=production`; refuses to start if `SMTP_*` is also set. All three
-  verified behaviourally.
-- **The two farmer sign-up steps read as one flow**, both drawing from the stylesheet rather than
-  one carrying inline styles. Both URLs were kept: step 2 re-checks eligibility and re-resolves the
-  publish grant from an HttpOnly cookie server-side per request, and a client-side swap would move
-  that decision into the browser.
-- **Nothing in the farmer flow requires typing a date or a time.** Dropdowns throughout; the stored
-  contract is unchanged (same `"HH:MM"` strings), with a test pinning 8:30am → 510 minutes. Changing
-  a month **clears a day that month does not have**.
-- **`daylight_hours` is no longer offered, only stored** — `open-now` answers it and `dawn_to_dusk`
-  identically, so offering both split the data on a distinction no customer can see. **Typecheck
-  caught a real regression**: `HoursKind` was derived from the offered options, so removing one
-  broke *loading* a stored listing that used it — all 31 such farms would have had their hours
-  blanked on opening the edit form. State is now typed from what can be **stored**, not what is
-  **offered**, with a regression test.
+- **Farm Friend cannot send the first SMS to a number that never opted in.**
+  `isProactiveSendPermitted` allows an un-consented send only for `required_reply` — the
+  carrier-required answer to that recipient's *own* message — and `authorizeDispatch` suppresses
+  everything else. So any "type your number and we text you a code" design is unbuildable, and a
+  self-serve opt-in must have the farmer text **us**. The word is **`START`**, never `JOIN` or
+  `CONFIRM`: only `START` clears the carrier's own opt-out list, so any other word would record
+  consent for someone every send is refused for.
+- **`farms.description` now has a farmer-facing writer.** It renders on the public card and had
+  none, so VIGA's seeded prose stayed welded under every listing a farmer published. In the writer,
+  `undefined` means "this door states nothing" and `""` means "the farmer cleared it" — collapsing
+  the two is B-037 one column over.
+- **The migration door prefills the paragraph and nothing else**, deliberately: it replaces VIGA's
+  seeded listing with what the farmer states, but the paragraph is the one field with nothing else
+  to restore it.
+- **The contact card reaches customers who arrive by text.** F-039 built it and linked it from the
+  public web map only, so a customer who texted `JOIN` was never told it existed. It now rides in
+  the welcome, which costs a **second segment** — the URL is 71 characters at the production host
+  (max's call, 2026-08-07).
 
 **Owed:** a human visual pass. The browser extension never connected, so the wizard styling,
-dropdown widths, and the 30rem breakpoint are unverified by eye.
+dropdown widths, the 30rem breakpoint, and the new description box are unverified by eye.
 
 ## What is live
 
@@ -116,6 +119,10 @@ dropdown widths, and the 30rem breakpoint are unverified by eye.
   snapshot *is* the rollback — max's explicit approval for the bulk write, and a render check on a
   real card afterwards. Until it runs, production serves pre-tranche listing **content** through the
   new code.
+  **The description half no longer waits on it.** `scripts/clean-farm-descriptions.ts` applies the
+  shipped cleanup to the stored text with no re-ingest and no CSVs — dry run reviewed, awaiting
+  max's approval to write. It carries its own JSON backup (there is no `farms.description` history
+  table, so that file *is* the rollback) and verifies by reading rows back.
 - **B-024** — fixed in code (F-061) and verified on a rehearsal database: a farmer's written refusal
   makes the stand `contact_only` with no address and no pin. **Production still publishes her
   address** until F-064's ingest runs; the approved interim correction remains in place.
@@ -168,3 +175,9 @@ a farm at all — it is the market itself, not a stand with a farmer to onboard.
   newer. Verify the schema effect, never the exit status.
 - **`printf %s`, never `echo`, when adding a salt to Secret Manager.** A trailing newline produces
   hashes that look right in every listing and match nothing at runtime.
+- **Measuring a parser is not measuring the data.** A "53% of the text is cleaned" figure described
+  `buildStandDescription`'s *output*, not the live cards — the cleanup was deployed and had never
+  run. To say what a card shows, read `farms.description` from production.
+- **The stored prose contains malformed dates.** One row begins literally `/22/2026 Update:`, its
+  month lost upstream. Patterns anchored on a leading month digit miss it. Found by a dry run
+  against real rows; no fixture would have contained it.

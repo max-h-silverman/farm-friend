@@ -244,6 +244,27 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   no consent basis — an invitation whose box was never ticked — is told to reply `JOIN`, which is
   the one place that word belongs in farmer-facing copy. That case survived F-080: requiring a
   token did **not** eliminate it, because an un-ticked invitation can still be redeemed by text.
+- **The migration door's self-serve opt-in (2026-08-07)** — a farmer publishing through
+  `/farmer/start/<secret>` is told to text **`START`** from the handset they want to use, replacing
+  the "contact VIGA and they will finish setting you up" copy. It **adds no consent writer and no
+  new path**: their `START` is an ordinary registered opt-in through `routeCompliance`.
+
+  **The direction is forced, not chosen.** Farm Friend cannot send the first message to a number
+  with no consent record — `isProactiveSendPermitted` permits an un-consented send only for
+  `required_reply`, the carrier-required answer to that recipient's *own* message, and
+  `authorizeDispatch` suppresses everything else. So a web form can never trigger the opening text,
+  and labelling one `required_reply` to get around that would launder a proactive send through a
+  compliance exemption. The farmer's inbound message is both the possession proof and the opt-in.
+
+  **The word must be `START`, never `JOIN` or a product word like `CONFIRM`.** Only `START` clears
+  the carrier's own opt-out list (B-011), so a farmer who ever texted `STOP` and replied with
+  anything else would be recorded `active` while every send to them was refused. `START` also works
+  from any state, so one instruction serves a first-timer and a returning farmer alike.
+
+  **No phone number is stored from the form.** A raw phone lives in exactly one column because the
+  send path needs something to send to; there is no send path here, so a number captured on the web
+  would be personal data with no reader and no way to verify — a typo'd digit is a stranger's
+  number that nothing would catch. The inbound `START` carries the real one.
 - **Customer-initiated inquiry** — the inbound inquiry permits its relevant direct response but does
   not create durable consent for later proactive notifications. Launch stores no follow-up interest,
   sends no passive customer follow-up, and has no scoped `MUTE` command. `MUTE` and follow-up
