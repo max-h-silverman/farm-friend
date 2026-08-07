@@ -457,20 +457,59 @@ against the real corpus on 2026-08-04 while implementing.
 
 ## Open before go-live
 
-- **~3 farms have no email on file and cannot use the migration door** (**B-038**, filed
-  2026-08-07). They reach a standing "contact VIGA" line and stop; the same applies to any farmer
-  whose address changed since VIGA's export. **Not a code defect** — the uniform response is a
-  deliberate privacy property, and revealing which farms lack an address would disclose roster
-  contents. The fix is VIGA collecting the missing addresses and re-running the ingest (it is
-  idempotent), or onboarding those farms by invitation. The ingest names the affected farms on
-  every run.
+- ~~**~3 farms have no email on file and cannot use the migration door**~~ — **CLOSED (B-038,
+  2026-08-07). EVERY REAL FARM NOW HAS AN ADDRESS ON FILE**: `farm_emails` went 38 → **42 rows /
+  35 farms**, and the only farm without one is `Test Farm` (F-074's fixture). The three —
+  3 Brothers Outpost, Breathing Meadows Farm, Vashon Island Farmers Market — **were never in the
+  form export at all**, which is why re-running the ingest alone would have changed nothing; they
+  are seeded farms that never filed a response. Two of the three addresses were independently
+  corroborated by the map export. A fourth row was written in the same run: Twisting Tree Farm now
+  holds a second address alongside its form one, and both verify.
+  **Verified by effect through the shipped `findVerifiableFarmByEmail`**, never from the insert
+  count, with the controls that make it evidence: a wrong salt matches nothing, an unknown address
+  matches nothing, and **one farm's address does not verify another farm** — the per-farm scoping
+  F-079 relies on. Mixed case and surrounding whitespace still verify.
+  **Still VIGA's call, and not a code question**: whether Vashon Island Farmers Market belongs in
+  the roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
+  **A trap for anyone reusing the map export**: `VIGA Map Stands.csv` writes multi-line
+  descriptions **unquoted**, so an ordinary CSV read splits one stand into many rows — a naive
+  parse produced 275 phantom farms named things like `dawn to dusk`. The real count is **31
+  stands**, reassembled by treating a `POINT` in the first column as the only record boundary.
 - **The migration door's secret must be sent to farmers by VIGA**, and it is obscurity rather
   than a credential — do not post it anywhere indexable. Retrieve with
   `gcloud secrets versions access latest --secret=farm-friend-farmer-start-secret --project farm-friend-vashon`.
   Rotating it is one new version plus an apply, and invalidates links already sent.
-- **Approved farmers still start on no reminder schedule.** `authorizeFarmer` writes no
-  `inventory_prompt_preferences` row, so the scheduled-prompt machinery — built and correct —
-  reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
+- **F-081 — approved farmers now start on a WEEKLY reminder schedule. BUILT and COMMITTED
+  (`9c7b6f5`, branch `f-081-default-reminder-schedule`), NOT MERGED and NOT DEPLOYED. No
+  migration** — a new writer over the existing schema.
+  The gap was wider than this file previously stated: `inventory_prompt_preferences` had exactly
+  one writer, `setInventoryPromptPreference`, behind the farmer settings surfaces, so **no
+  onboarding door wrote a row at all** — not just `authorizeFarmer`.
+  **The schema decided where the seed lives.** A preference carries composite foreign keys to
+  BOTH `sales_locations` and `farmer_authorizations`, so the row is structurally impossible
+  before a stand exists — and `authorizeFarmer` and the invited redemption both run before one
+  does. `seedDefaultPromptPreference` is called from `saveOnboardingListing` (the edit door,
+  which resolves a live authorization) and from both authorization writers, because the doors
+  reach the pair (stand, live authorization) at different moments: an invited farmer publishes
+  from the web form and is authorized only when they later text `JOIN`.
+  **First write only** — `on conflict do nothing` against the location unique index, so a farmer
+  who paused their reminders and later edits their hours stays paused. **No authorization means
+  no row, never a guessed one**: the grandfathered door publishes for a farm with no farmer yet,
+  and the listing still publishes.
+  **Consent is untouched**: prompts queue as the proactive `inventory_prompt` category, so
+  `authorizeDispatch` re-reads consent at the claim and suppresses for anyone who never opted in.
+  **Two of four sabotages found real gaps rather than confirming the tests.** A hand-computed
+  "+7 days" ESCAPED because the fixture published at 10:00 local, where "seven days on at the
+  same clock time" and "10:00 local on day seven" are the same instant — the schedule rule was
+  never under test; the fixture now publishes at 15:30 local. Dropping the authorization validity
+  check ESCAPED because nothing exercised a revoked or foreign authorization; two tests added,
+  and the cross-farm case also proves the composite foreign key is a genuine second barrier.
+  **`SaveOnboardingListingInput` is now stated once** — all three doors restated the writer's
+  input shape inline, so adding a field left every boundary describing a writer that no longer
+  existed (the typecheck caught it). Two dead imports removed.
+  Verified 2026-08-07: **1496 unit** (127 files), **796 integration** (58 files) against local
+  Postgres, typecheck, lint. **No `packages/ai` file changed, so no eval or `evals:live` run is
+  owed** — checked against the diff.
 - ~~**Listing facts are frozen for everyone except an ONBOARDING farmer**~~ — **CLOSED by F-073**
   (**deployed** 2026-08-06). An already-onboarded farmer now has an edit surface at
   `/stand/<token>/listing`, under their existing private stand link: `resolveFarmerLink` re-reads
