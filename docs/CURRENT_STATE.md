@@ -7,28 +7,45 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00034-77d` (bumped by the geocoding mount, below) and worker revision
-`farm-friend-worker-00034-4cn`, both at digest
-`sha256:85657998baca6a7416144aff9f990852d429920bc34f4b580ccbffc7fdd2cfff` (`main` at `41412b4`).
+`farm-friend-web-00038-nbz` and worker revision `farm-friend-worker-00038-fp6`, both at digest
+`sha256:1ab8293fc5fb5ca169e3ae669bd473c820a0c34c5ec14a7a023fb1da245d6027` (`main` at `127d45a`,
+pushed).
 
-> **`main` is AHEAD of production.** The farmer-surface tranche (2026-08-06, below) is merged and
-> pushed but **not deployed** — max is running the deploy himself. It carries **no migration**, so
-> the RUNBOOK's migrate-before-promote ordering does not apply and production's migration count
-> stays at 24. Until that deploy runs, no farmer sees the chip interface, the named removals, the
-> farm-name rename, or the "Remove this stand" heading.
->
-> **A SECOND undeployed tranche now sits on top of it** (self-onboarding, 2026-08-06, below):
-> B-037, the architecture-tripwire fix, F-077 and F-080 are merged to `main`. **F-078 is a
-> BRANCH, not merged** — it is now COMPLETE (the real send is done) and carries **migration
-> `0024`**, the first migration owed to production since this record was written.
-> **`0024` must be applied BEFORE the image that reads it.** See §the self-onboarding tranche.
+**NOTHING IS MERGED-AND-UNDEPLOYED, AND NO MIGRATION IS OWED** (2026-08-07). The three tranches
+that had been stacked up — the farmer surface, self-onboarding, and F-078 — all shipped in one
+deploy. `main` is what production serves.
 
-## The self-onboarding tranche (2026-08-06) — merged, undeployed
+**Migration `0024` was applied BEFORE the image that reads it**, per the RUNBOOK's ordering rule.
+Production Postgres is `neondb` with **25 migrations** (`0000`-`0024`). Verified by effect, never
+from the migrate command's exit status: the fingerprint was taken first (`neondb`, 24 migrations,
+36 farms / 36 locations, `farm_emails` absent), and afterwards the table exists with **both CHECK
+constraints and the normalized unique index**, with listing data unchanged at 36/36.
 
-Built from `~/.claude/plans/woolly-kindling-origami.md`. Five workstreams; **three merged to
-`main`, one on a branch, one not started.** Nothing here is deployed.
+**Every constraint was proven to genuinely REFUSE on production**, each attempt rolled back: a
+tab-only address (0020's exact defect), a hash that is not a 64-character digest, and a row
+naming an unknown farm. A **valid row was then accepted** inside a rolled-back transaction - the
+control that stops "it refuses everything" from reading as success. `farm_emails` holds **0 rows**
+afterwards, confirmed.
 
-**Merged to `main`, no migration:**
+**Deploy verified by effect against the live services**, not from the apply's output: both
+services rolled **00037 -> 00038** on the new digest, health 200, **34 stands**, and
+`deploy_assertions.py` confirms each serving revision is newer than every secret version it
+consumes. `SMTP_FROM_NAME=VIGA` is live on web; **the worker holds no `SMTP_*` variable at all**.
+New code confirmed serving rather than merely restarted: `/farmer/start` answers 200 and
+`POST /api/farmer/address-lookup` answers **400** to a malformed body.
+
+**The apply hit a STALE STATE LOCK first**, which is worth recording because it looks alarming and
+is not: a rejected apply died holding the lock, leaving `.terraform.tfstate.lock.info` behind.
+`force-unlock` reported `LocalState not locked` - the lock was already released and only the file
+remained. Confirmed no `tofu` process was running before touching it, then proved the lock was
+usable by re-planning rather than assuming. Same behaviour as the geocoding apply.
+
+## The self-onboarding tranche (2026-08-06) — DEPLOYED 2026-08-07
+
+Built from `~/.claude/plans/woolly-kindling-origami.md`. Five workstreams; **four are now merged
+and DEPLOYED, one (F-079) not started.** See Release state for the deploy proof.
+
+**Deployed, no migration of their own:**
 
 - **B-037 — the listing editor no longer erases a farmer's availability.** A live data-loss
   defect: `readStandListing` returned all twelve season/hours/restocking columns, `updateStand`
@@ -56,7 +73,7 @@ Built from `~/.claude/plans/woolly-kindling-origami.md`. Five workstreams; **thr
   compliance and is handled by `routeCompliance`; `JOIN <token>` parses as `kind: "farmer"` and
   never reaches it, so the two-writer edit the plan anticipated was unnecessary.
 
-**On branch `f-078-email-identity`, NOT merged — COMPLETE, and it carries migration `0024`:**
+**F-078 is COMPLETE, MERGED, and DEPLOYED, and its migration `0024` is applied:**
 
 - **`farm_emails`** — the roster VIGA already holds, so a farmer can prove who they are without
   a volunteer vouching. Raw address in exactly one column read only by the send path; hash the
@@ -78,7 +95,7 @@ Built from `~/.claude/plans/woolly-kindling-origami.md`. Five workstreams; **thr
 **Not started: F-079** (secret link + emailed code). The sending seam it depended on is now
 **built and proven** — what remains is the farmer-facing page that calls it.
 
-**The SMTP CREDENTIAL IS LIVE IN PRODUCTION** (2026-08-06, commit `4ff90a5`). The relay is
+**The SMTP CREDENTIAL IS LIVE IN PRODUCTION** (2026-08-06, commit `4ff90a5`; the services have since rolled to 00038). The relay is
 configured, and the app password is now in Secret Manager and mounted. Sender is
 **`board@vigavashon.org`** (max), not a dedicated Farm Friend address — so replies reach a
 mailbox VIGA actually reads.
@@ -112,7 +129,7 @@ allow-lists and **calls** the predicate, asserting a protected survivor can neve
 Sabotage-verified by making the guard return `True`, which it now catches. **It is still not in
 any npm script**, so it must be run by hand: `python3 infra/secrets-lifecycle.test.py`.
 
-**The F-078 APPLICATION HALF IS BUILT** (commit `fa1bab1`, branch, not merged): the privacy
+**The F-078 APPLICATION HALF IS BUILT AND DEPLOYED** (commit `fa1bab1`): the privacy
 layer, the verification code and email copy, the SMTP seam, the ingest, and the privacy proof.
 
 - **The email copy is written to minimize replies** (max), which is a real cost — replies land
@@ -214,8 +231,8 @@ path** (F-070's exact geometry), and `POST /api/farmer/address-lookup` answers `
 to a malformed token and a uniform `invitation_unavailable` to a well-formed unknown one, leaking
 no key.
 
-**Nothing is merged-and-undeployed, and no migration is owed.** `main` at `41412b4` is what
-production serves.
+~~**Nothing is merged-and-undeployed.** `main` at `41412b4` is what production serves.~~ —
+superseded 2026-08-07; production now serves `127d45a` at revision 00038. See Release state.
 
 **`GEOCODING_API_KEY` IS NOW SET IN PRODUCTION** (2026-08-06), so address lookup is on and the
 onboarding form offers a draft pin the farmer confirms. Its absence remains a supported
