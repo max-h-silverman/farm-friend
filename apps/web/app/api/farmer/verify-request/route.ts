@@ -1,11 +1,11 @@
-import { createPublicActionThrottle, createEmailSender, resolveEmailConfig } from "@farm-friend/core";
+import { createPublicActionThrottle, createEmailSender } from "@farm-friend/core";
 import {
   findVerifiableFarmByEmail,
   issueVerificationCode,
   readFarmName,
 } from "@farm-friend/db";
 import { publicReadContext, sharedClock } from "../../../../lib/public-context";
-import { createSmtpTransport } from "../../../../lib/smtp-transport";
+import { resolveEmailDelivery } from "../../../../lib/email-delivery";
 import {
   handleVerificationRequestPost,
   verificationConfig,
@@ -40,16 +40,17 @@ export async function POST(request: Request): Promise<Response> {
   const context = publicReadContext();
   const config = verificationConfig(process.env);
 
-  const email = resolveEmailConfig(process.env);
-  if (!email.ok) {
+  // SMTP, the local simulator, or nothing — one answer, resolved in one place.
+  const delivery = resolveEmailDelivery(process.env);
+  if (!delivery.available) {
     // Email unconfigured is a supported deployment (F-078), so this is not a crash — but a code
     // cannot be sent, and the answer must still be the UNIFORM one rather than a distinct
     // error that reveals how the deployment is configured.
     return Response.json({ status: "sent" });
   }
   const send = createEmailSender({
-    config: email.config,
-    transport: createSmtpTransport(email.config),
+    config: delivery.config,
+    transport: delivery.transport,
   });
 
   return handleVerificationRequestPost(
@@ -60,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
       emailSalt: config.emailSalt,
       codeSalt: config.codeSalt,
       clientSignalSalt: config.emailSalt,
-      replyToAddress: email.config.fromAddress,
+      replyToAddress: delivery.config.fromAddress,
       findVerifiableFarm: findVerifiableFarmByEmail,
       issueCode: issueVerificationCode,
       readFarmName,

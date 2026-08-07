@@ -1,74 +1,97 @@
-import { hashEmail, type EmailSendInput } from "@farm-friend/core";
-import type { Db } from "@farm-friend/db";
+import { resolveEmailConfig, type EmailConfig, type EmailTransport } from "@farm-friend/core";
 
-// F-078 — the send path, and the ONLY reader of `farm_emails.email`.
+import { createEmailSimulatorTransport } from "./email-simulator-transport";
+import { createSmtpTransport } from "./smtp-transport";
+
+// F-079 — which mail path a deployment gets.
 //
-// The mirror of `packages/sms/src/delivery.ts`: an email cannot be sent to a hash, so exactly
-// one place resolves a hash to the single stored raw address, immediately before the send.
-// Everything else — lookups, logs, audit — stays hash-only (Golden Rule #5).
-
-export interface FarmEmailRecipient {
-  farmId: string;
-  /** The raw address, for dialing only. Never returned to a caller that logs. */
-  email: string;
-  emailHash: string;
-}
-
-/**
- * Resolve every address on file for a farm.
- *
- * Returns the raw address because the send path needs it, and this is the one function
- * permitted to. Several rows per farm is the NORMAL case — five of VIGA's 32 farms list more
- * than one address — so this returns a list rather than a single row.
- */
-export async function resolveFarmEmailsForDelivery(
-  db: Db,
-  farmId: string,
-): Promise<FarmEmailRecipient[]> {
-  const rows = (await db.sql`
-    select farm_id, email, email_hash from farm_emails where farm_id = ${farmId}
-    order by added_at asc
-  `) as unknown as Array<{ farm_id: string; email: string; email_hash: string }>;
-
-  return rows.map((row) => ({
-    farmId: row.farm_id,
-    email: row.email,
-    emailHash: row.email_hash,
-  }));
-}
+// One place answers "how does mail leave", so the route reads a single result instead of
+// branching on provider knobs itself. The shape mirrors `resolveEmailConfig`: unavailable is a
+// SUPPORTED state, not an error, because a deployment without email is legitimate — everything
+// except farmer email verification runs fine.
+//
+// The refusals are the substance. A local mail sink that outranked a configured relay would
+// take farmer verification down while every log line read "accepted", so:
+//   - the simulator is opt-in, never a default;
+//   - it cannot construct under NODE_ENV=production (enforced in the transport itself);
+//   - simulator AND real SMTP together is a startup error, not a silent precedence rule.
+// A typo in the knob is likewise an error rather than a quiet fall back to "no email".
 
 /**
- * Find the farm an address belongs to, BY HASH.
+ * Where the local mail sink writes. Git-ignored; safe to delete at any time.
  *
- * The verification lookup. The submitted address is hashed and the hash is compared — the raw
- * value is never used as a query predicate, so a submitted address never appears in a query
- * log. Measured against the real corpus: no address is shared between two farms, so this is
- * unambiguous.
+ * Overridable because the default is relative to the PROCESS working directory, and that
+ * differs by how the app was started — `next dev` runs from `apps/web`, the test suites from
+ * the repo root. Set `SIMULATED_MAIL_DIR` to an absolute path to pin it.
  */
-export async function findFarmByEmail(
-  db: Db,
-  submittedEmail: string,
-  salt: string,
-): Promise<string | null> {
-  const rows = (await db.sql`
-    select farm_id from farm_emails where email_hash = ${hashEmail(submittedEmail, salt)}
-    limit 1
-  `) as unknown as Array<{ farm_id: string }>;
-
-  return rows[0]?.farm_id ?? null;
+export function simulatedMailDirectory(env: Record<string, string | undefined>): string {
+  const override = env.SIMULATED_MAIL_DIR?.trim();
+  return override !== undefined && override !== "" ? override : ".mail";
 }
 
-/** Build the send input for one recipient, carrying the hash for logs and never the address. */
-export function sendInputFor(
-  recipient: FarmEmailRecipient,
-  message: { subject: string; text: string },
-  idempotencyKey: string,
-): EmailSendInput {
+export type EmailDelivery =
+  | { available: false }
+  | {
+      available: true;
+      kind: "smtp" | "simulator";
+      config: EmailConfig;
+      transport: EmailTransport;
+    };
+
+/**
+ * The From identity the simulator reports. Local-only and obviously fake: it must never be
+ * mistaken for VIGA's real sending address when reading a captured message.
+ */
+const SIMULATED_CONFIG: EmailConfig = {
+  host: "simulator",
+  port: 0,
+  username: "simulator",
+  password: "",
+  fromAddress: "simulator@localhost",
+  fromName: "Farm Friend (local simulator)",
+};
+
+export function resolveEmailDelivery(env: Record<string, string | undefined>): EmailDelivery {
+  const provider = env.EMAIL_PROVIDER?.trim();
+  const smtp = resolveEmailConfig(env);
+
+  if (provider !== undefined && provider !== "") {
+    if (provider !== "simulator") {
+      throw new Error(
+        `EMAIL_PROVIDER="${provider}" is not a known provider (expected "simulator", or unset ` +
+          "to use the SMTP_* configuration).",
+      );
+    }
+
+    // Both configured is ambiguous, and both plausible readings are bad: honouring the
+    // simulator silences a working relay, honouring SMTP makes the opt-in a lie.
+    if (smtp.ok) {
+      throw new Error(
+        "EMAIL_PROVIDER=simulator and the SMTP_* variables are both set. Unset one — the " +
+          "simulator writes mail to a local file and sends nothing, so leaving both configured " +
+          "hides which one is actually delivering.",
+      );
+    }
+
+    return {
+      available: true,
+      kind: "simulator",
+      config: SIMULATED_CONFIG,
+      // Throws under NODE_ENV=production. That refusal is the load-bearing barrier: it holds
+      // even if this whole function is reached with the wrong environment on a server.
+      transport: createEmailSimulatorTransport({
+        directory: simulatedMailDirectory(env),
+        nodeEnv: env.NODE_ENV,
+      }),
+    };
+  }
+
+  if (!smtp.ok) return { available: false };
+
   return {
-    toEmail: recipient.email,
-    recipientHash: recipient.emailHash,
-    subject: message.subject,
-    text: message.text,
-    idempotencyKey,
+    available: true,
+    kind: "smtp",
+    config: smtp.config,
+    transport: createSmtpTransport(smtp.config),
   };
 }
