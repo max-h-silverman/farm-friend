@@ -141,7 +141,7 @@ approval, but there is no farmer-facing onboarding journey.
 - The flow is at least as easy as the current form.
 
 **Partially met (2026-08-04).** The consent half now works end to end: the onboarding page collects
-an SMS agreement, the inbound `SIGNUP <token>` establishes consent through the one existing writer,
+an SMS agreement, the inbound `JOIN <token>` establishes consent through the one existing writer,
 and the "your farm is ready" text is dispatched rather than silently suppressed. Authorization and
 consent stay separate records, and onboarding still grants no approval. **Still open here:** the
 default reminder schedule an approved farmer starts on, and the farmer-editable listing detail

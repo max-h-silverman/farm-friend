@@ -6,7 +6,7 @@ export * from "./sms/commands";
 export * from "./sms/consent";
 export * from "./sms/auto-responses";
 export * from "./sms/onboarding-copy";
-export * from "./sms/signup-reply";
+export * from "./sms/invited-join-reply";
 export * from "./inventory/proposal";
 export * from "./inventory/closure-timing";
 export * from "./inventory/prompt-schedule";

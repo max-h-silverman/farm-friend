@@ -81,7 +81,7 @@ export default async function GrandfatheredOnboardingPage({
       </section>
 
       {/*
-        No SIGNUP step here, and its absence is deliberate. The invited page ends in a text
+        No phone-verification step here, and its absence is deliberate. The invited page ends in a text
         because redeeming an invitation from a handset is what authorizes that farmer. This door
         has no invitation to redeem, so it publishes the LISTING only — updating stock by text
         still needs an authorization, which still needs VIGA. Saying so plainly beats letting a
@@ -91,7 +91,7 @@ export default async function GrandfatheredOnboardingPage({
         <h2 id="whats-next-heading">What happens next</h2>
         <p>
           Your stand goes on the map as soon as you save. To update what is in stock by text,
-          text SIGNUP to Farm Friend and VIGA will finish setting you up.
+          contact VIGA and they will finish setting you up.
         </p>
       </section>
     </main>

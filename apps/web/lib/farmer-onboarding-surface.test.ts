@@ -67,14 +67,32 @@ describe("farmer invitation onboarding surface", () => {
 
   it("routes the whole prepared-text affordance through the agreement step", () => {
     // The launch blocker's structural half. If the page rendered the `sms:` link itself,
-    // a farmer could send SIGNUP without agreeing, spend the one-use invitation, establish
-    // no consent, and be authorized into permanent silence. `AgreementStep` is what gates
-    // it, so the page must own no second path to the same link.
+    // a farmer could send the redemption text without agreeing, spend the one-use
+    // invitation, establish no consent, and be authorized into permanent silence.
+    // `AgreementStep` is what gates it, so the page must own no second path to the link.
     //
     // Anchored to the CALL SITE and the absence of the affordance, not to the import: an
     // import line alone would satisfy a name check while the component went unrendered.
-    expect(page).toContain("<AgreementStep token={params.token} signupUrl={signupUrl} />");
+    expect(page).toContain("<AgreementStep token={params.token} joinUrl={joinUrl} />");
     expect(page).not.toContain("farmer-primary-link");
-    expect(page).not.toContain("Text SIGNUP to verify this phone");
+    // F-080 — this asserted the absence of "Text SIGNUP to verify this phone". Once that
+    // keyword was retired the string existed NOWHERE, so the assertion passed on every
+    // possible page and proved nothing. It now names the string the affordance actually
+    // uses, which is the only form in which "the page does not render it" is a real claim.
+    expect(page).not.toContain("Text JOIN to verify this phone");
+  });
+
+  it("the affordance it must not render is one that genuinely EXISTS", () => {
+    // Guards the failure the assertion above just had. A `not.toContain` is only meaningful
+    // while its subject is a string something really renders — otherwise retiring the copy
+    // silently turns the guard into a tautology.
+    //
+    // So: read the component that owns the affordance and require the exact string there.
+    // If it is reworded, this fails and forces the guard above to be updated with it.
+    const agreementStep = readFileSync(
+      resolve(process.cwd(), "apps/web/app/farmer/onboarding/[token]/agreement-step.tsx"),
+      "utf8",
+    );
+    expect(agreementStep).toContain("Text JOIN to verify this phone");
   });
 });

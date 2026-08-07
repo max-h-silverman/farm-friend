@@ -91,7 +91,7 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   page — **where the agreement was shown, not consent itself**. It is stamped once and keeps the
   first time (a farmer who reloads and re-ticks has not agreed twice), a CHECK constraint forbids it
   predating the invitation, and NULL means the box was never ticked, in which case the resulting
-  `SIGNUP` establishes no consent. Anyone holding the link can set it, which is exactly why it
+  redemption establishes no consent. Anyone holding the link can set it, which is exactly why it
   cannot be the consent write; see §privacy, Consent.
 - **farmer standing links** (F-040, hardened by B-031) — a durable key letting a farmer reach *their own* listing form
   in a browser, with no password and no session. Only the **hash** of the token is stored, as with

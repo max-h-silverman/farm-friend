@@ -1,17 +1,17 @@
 import { REGISTERED_OPT_IN_AUTO_RESPONSE } from "./auto-responses";
 import {
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-  FARMER_SIGNUP_JOIN_INSTRUCTION,
+  FARMER_JOIN_INSTRUCTION,
 } from "./onboarding-copy";
 
-/** What the SIGNUP write actually did to this sender's consent. */
-export interface SignupConsentOutcome {
-  /** This SIGNUP established launch-program consent. */
+/** What the invited-JOIN write actually did to this sender's consent. */
+export interface InvitedJoinConsentOutcome {
+  /** This redemption established launch-program consent. */
   consentEstablished: boolean;
   /** A consent record existed beforehand — active OR stopped. */
   hadConsent: boolean;
   /**
-   * This SIGNUP set the farmer up (F-067) — an agreed invitation naming a farm, redeemed
+   * This redemption set the farmer up (F-067) — an agreed invitation naming a farm, redeemed
    * from the handset. When true there is no VIGA review to wait for, and the same
    * transaction has already queued the "your farm is ready" notification.
    */
@@ -19,7 +19,7 @@ export interface SignupConsentOutcome {
 }
 
 /**
- * The bodies a SIGNUP is answered with, in order.
+ * The bodies an invited `JOIN <token>` is answered with, in order.
  *
  * Pure, and kept out of the router on purpose: `routing.ts` owns the deterministic ORDER —
  * which handler receives a message — and proves it with a throwing model seam. Which words
@@ -40,7 +40,7 @@ export interface SignupConsentOutcome {
  * The receipt and the instruction are mutually exclusive by construction: they contradict
  * each other, one asserting consent exists and the other that it does not.
  */
-export function signupReplyBodies(outcome: SignupConsentOutcome): string[] {
+export function invitedJoinReplyBodies(outcome: InvitedJoinConsentOutcome): string[] {
   // F-067 — a farmer set up on the spot is NOT waiting on VIGA, so the acknowledgement's
   // three claims ("VIGA has your request", "they will review it", "they will text you when
   // your farm is ready") are all false for them. It is dropped rather than reworded: the
@@ -62,5 +62,5 @@ export function signupReplyBodies(outcome: SignupConsentOutcome): string[] {
   if (outcome.hadConsent) {
     return [FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT];
   }
-  return [FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT, FARMER_SIGNUP_JOIN_INSTRUCTION];
+  return [FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT, FARMER_JOIN_INSTRUCTION];
 }

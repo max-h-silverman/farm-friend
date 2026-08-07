@@ -9,7 +9,7 @@ import {
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
   renderClarificationRequest,
   renderPublicStringRefusal,
-  signupReplyBodies,
+  invitedJoinReplyBodies,
   type Clock,
   type ComplianceKeyword,
   type FarmerKeyword,
@@ -36,7 +36,7 @@ import type { PagingStatus } from "./paging";
 //   3. FLAG                  — the human-handoff safety rail, also upstream of the model
 //   4. commitment YES/NO     — context- and version-bound to the sender's ONE open proposal
 //   5. SAME                  — only the exact active scheduled full-snapshot subject
-//   6. farmer keywords       — SIGNUP/LINK/STAND/SETTINGS, upstream of the model
+//   6. farmer keywords       — JOIN <token>/LINK/STAND/SETTINGS, upstream of the model
 //   7. MORE                  — the next page of the sender's pending result list (F-046)
 //   8. stand menu number     — exact server-bound authorization+location selection
 //   9. free text             — only here may a model seam run
@@ -281,11 +281,17 @@ export async function routeInboundMessage(
     };
   }
 
-  // F-040 — the farmer product keywords, still upstream of any model call. Neither grants
-  // anything: SIGNUP opens a queue entry VIGA acts on, and LINK is refused unless the sender
-  // is ALREADY an authorized farmer.
+  // F-040 / F-080 — the farmer keywords, still upstream of any model call. None grants
+  // anything by itself: `JOIN <token>` requires an unspent invitation, and LINK/STAND/SETTINGS
+  // are refused unless the sender is ALREADY an authorized farmer.
+  //
+  // **`JOIN <token>` never reaches `routeCompliance`**, and that is what keeps the invited
+  // path to ONE consent writer. Bare `JOIN` parses as compliance and is handled there by
+  // `applyConsentTransition`; the token form parses as `kind: "farmer"` and is handled here by
+  // `openFarmerOnboardingRequest`, which does its own consent write inside its transaction.
+  // The parser's ordering is what separates them, so neither branch has to test for the other.
   if (command.kind === "farmer") {
-    if (command.keyword !== "SIGNUP") {
+    if (command.keyword !== "JOIN") {
       const targeted = await deps.farmerTarget({
         senderHash: input.senderHash,
         keyword: command.keyword,
@@ -297,7 +303,7 @@ export async function routeInboundMessage(
         replies: targeted.replies,
       };
     }
-    return routeSignup(deps, input, command.invitationToken);
+    return routeInvitedJoin(deps, input, command.invitationToken);
   }
 
   // F-046 — MORE. Ordered AFTER the compliance keywords and the commitment tokens, which is
@@ -463,23 +469,27 @@ async function routeCompliance(
 }
 
 /**
- * The farmer product keywords (F-040), handled deterministically and upstream of the model.
+ * `JOIN <token>` — redeeming an administrator's invitation (F-080, replacing `SIGNUP`).
  *
- * **Neither keyword grants anything**, and that is the property to preserve if this is ever
- * extended:
+ * **The INVITATION is what grants, never the text.** A phone proves possession of a phone,
+ * not ownership of a farm, so this path can only spend an invitation an administrator already
+ * minted and a farmer already agreed to. What the inbound text supplies that nothing else can
+ * is the phone itself: `farmer_authorizations` requires `phone_verified_at`, and the only
+ * honest source of that is a message the farmer sent. That is precisely why `SIGNUP` could not
+ * simply be deleted — it was the sole writer of `farmer_onboarding_requests`, which the admin
+ * fallback `authorizeFarmer` requires, so removing it without a replacement would have left no
+ * path at all by which anyone became an authorized farmer.
  *
- *   - `SIGNUP` writes a row in a table with no grant column. VIGA always approves, because a
- *     phone proves possession of a phone rather than ownership of a farm. The reply says the
- *     ask was passed on, and deliberately does not read as a yes.
- *   - `LINK` mints a standing link ONLY for a sender who is already an authorized farmer.
- *     A stranger texting LINK gets the same nothing they started with — the authorization is
- *     the gate, and this path cannot create one.
+ * **Bare `JOIN` never arrives here.** It parses as compliance and is handled by
+ * `routeCompliance`, which owns the `applyConsentTransition` call. This function's consent
+ * write happens inside `openFarmerOnboardingRequest`'s transaction. Two writers, two branches,
+ * separated by the parser rather than by a check either one performs — which is what stops
+ * them ever running against the same message.
  *
- * The link reply is `inventory_prompt`, a proactive category: Farm Friend is handing over a
- * durable credential, so it rides on the same consent gate as every other proactive message
- * rather than on the inbound message that asked for it.
+ * `LINK`, by contrast, mints a standing link ONLY for a sender who is already an authorized
+ * farmer; a stranger texting LINK gets the same nothing they started with.
  */
-async function routeSignup(
+async function routeInvitedJoin(
   deps: RouteDeps,
   input: RouteInput,
   invitationToken?: string,
@@ -497,13 +507,13 @@ async function routeSignup(
   //
   // What accompanies it depends on what the write did to their consent, which is why the
   // decision is a pure function over the write's own report rather than a re-read here.
-  // A repeat SIGNUP (`already_open`, `invalid_invitation`) established nothing and had no
+  // A repeat JOIN (`already_open`, `invalid_invitation`) established nothing and had no
   // chance to observe a record, so it is answered with the acknowledgement alone: saying
   // "reply JOIN" on the second text when the first already said it adds nothing, and the
   // first text is the one that carried the instruction.
   const bodies =
     opened.status === "opened"
-      ? signupReplyBodies({
+      ? invitedJoinReplyBodies({
           consentEstablished: opened.consentEstablished,
           hadConsent: opened.hadConsentRecord,
           authorized: opened.authorizationId !== null,
@@ -511,21 +521,21 @@ async function routeSignup(
       : [FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT];
 
   return {
-    outcome: { kind: "farmer", keyword: "SIGNUP", status: opened.status },
+    outcome: { kind: "farmer", keyword: "JOIN", status: opened.status },
     replies: bodies.map((body) => ({
       body,
       // `required_reply`: each answers the sender's own inbound message. The opt-in receipt
       // in particular must not be gated on the consent it is confirming.
       category: "required_reply" as const,
       // Keyed by WHICH body this is, never by its position. The acknowledgement is now
-      // conditional, so a positional key would hand `signup-ack-` to the opt-in receipt on
+      // conditional, so a positional key would hand `join-ack-` to the opt-in receipt on
       // exactly the runs that omit the acknowledgement — two different messages sharing one
       // idempotency key across senders, which is how a receipt gets silently dropped as a
       // duplicate of an acknowledgement.
       logicalKey:
         body === FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT
-          ? `signup-ack-${input.providerEventId}`
-          : `signup-consent-${input.providerEventId}`,
+          ? `join-ack-${input.providerEventId}`
+          : `join-consent-${input.providerEventId}`,
     })),
   };
 }

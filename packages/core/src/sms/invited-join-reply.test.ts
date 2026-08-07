@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { REGISTERED_OPT_IN_AUTO_RESPONSE } from "./auto-responses";
 import {
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-  FARMER_SIGNUP_JOIN_INSTRUCTION,
+  FARMER_JOIN_INSTRUCTION,
 } from "./onboarding-copy";
-import { signupReplyBodies } from "./signup-reply";
+import { invitedJoinReplyBodies } from "./invited-join-reply";
 
 // What a SIGNUP is answered with, decided as a pure function of what the write actually did.
 //
@@ -24,7 +24,7 @@ describe("signup reply bodies", () => {
   it("leads with the acknowledgement when the ask still goes to VIGA", () => {
     for (const consentEstablished of [true, false]) {
       for (const hadConsent of [true, false]) {
-        const bodies = signupReplyBodies({ consentEstablished, hadConsent });
+        const bodies = invitedJoinReplyBodies({ consentEstablished, hadConsent });
         expect(bodies[0]).toBe(FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT);
       }
     }
@@ -36,7 +36,7 @@ describe("signup reply bodies", () => {
   // arrives in the same breath as the "Your farm is ready" notification the same transaction
   // queues. A farmer reading both learns that the system contradicts itself.
   it("does NOT promise a VIGA review when the farmer was set up on the spot", () => {
-    const bodies = signupReplyBodies({
+    const bodies = invitedJoinReplyBodies({
       consentEstablished: true,
       hadConsent: false,
       authorized: true,
@@ -51,7 +51,7 @@ describe("signup reply bodies", () => {
   it("still says VIGA will review when nothing was authorized", () => {
     // The uninvited path and the untickd invitation both still need a human, so the promise
     // of a review remains true there and must survive.
-    const bodies = signupReplyBodies({
+    const bodies = invitedJoinReplyBodies({
       consentEstablished: false,
       hadConsent: false,
       authorized: false,
@@ -64,24 +64,24 @@ describe("signup reply bodies", () => {
     // Verbatim from `auto-responses.ts`, which is transcribed from live Telnyx console
     // state and pinned bidirectionally. A paraphrase here would make live traffic differ
     // from what the carrier approved for an opt-in confirmation.
-    const bodies = signupReplyBodies({ consentEstablished: true, hadConsent: false });
+    const bodies = invitedJoinReplyBodies({ consentEstablished: true, hadConsent: false });
 
     expect(bodies).toEqual([
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       REGISTERED_OPT_IN_AUTO_RESPONSE,
     ]);
-    expect(bodies).not.toContain(FARMER_SIGNUP_JOIN_INSTRUCTION);
+    expect(bodies).not.toContain(FARMER_JOIN_INSTRUCTION);
   });
 
   it("tells a farmer with NO consent basis to text JOIN", () => {
     // A bare SIGNUP, or an invited one whose agreement box was never ticked. Without this
     // the farmer is authorized in silence: the "your farm is ready" text is a proactive
     // category and the dispatch claim suppresses it forever.
-    const bodies = signupReplyBodies({ consentEstablished: false, hadConsent: false });
+    const bodies = invitedJoinReplyBodies({ consentEstablished: false, hadConsent: false });
 
     expect(bodies).toEqual([
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-      FARMER_SIGNUP_JOIN_INSTRUCTION,
+      FARMER_JOIN_INSTRUCTION,
     ]);
     expect(bodies).not.toContain(REGISTERED_OPT_IN_AUTO_RESPONSE);
   });
@@ -91,7 +91,7 @@ describe("signup reply bodies", () => {
     // A JOIN instruction would be wrong (they already did), and a second opt-in receipt
     // would claim an agreement that was not made today. Silence on the subject is the only
     // true option.
-    const bodies = signupReplyBodies({ consentEstablished: false, hadConsent: true });
+    const bodies = invitedJoinReplyBodies({ consentEstablished: false, hadConsent: true });
 
     expect(bodies).toEqual([FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT]);
   });
@@ -100,10 +100,10 @@ describe("signup reply bodies", () => {
     // They contradict each other: one says consent exists, the other says it does not.
     for (const consentEstablished of [true, false]) {
       for (const hadConsent of [true, false]) {
-        const bodies = signupReplyBodies({ consentEstablished, hadConsent });
+        const bodies = invitedJoinReplyBodies({ consentEstablished, hadConsent });
         const both =
           bodies.includes(REGISTERED_OPT_IN_AUTO_RESPONSE) &&
-          bodies.includes(FARMER_SIGNUP_JOIN_INSTRUCTION);
+          bodies.includes(FARMER_JOIN_INSTRUCTION);
         expect(both).toBe(false);
       }
     }
@@ -112,7 +112,7 @@ describe("signup reply bodies", () => {
   it("never repeats a body, so no reply is sent twice", () => {
     for (const consentEstablished of [true, false]) {
       for (const hadConsent of [true, false]) {
-        const bodies = signupReplyBodies({ consentEstablished, hadConsent });
+        const bodies = invitedJoinReplyBodies({ consentEstablished, hadConsent });
         expect(new Set(bodies).size).toBe(bodies.length);
       }
     }

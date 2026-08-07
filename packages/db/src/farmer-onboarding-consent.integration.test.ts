@@ -21,13 +21,13 @@ import {
 //
 // Before this, the standard invited path dead-ended in silence: a farmer completed
 // onboarding, VIGA approved, and `FARMER_AUTHORIZED_NOTIFICATION` — a proactive
-// `inventory_prompt` — was correctly SUPPRESSED at the dispatch claim because SIGNUP
+// `inventory_prompt` — was correctly SUPPRESSED at the dispatch claim because a bare request
 // established no consent. The farmer was authorized, never told, and had no reason to
 // believe the system worked. Nothing in the invitation, the page, or the reply asked them
 // to text JOIN; the word appeared only in code comments.
 //
 // The fix is not a new consent writer. The farmer ticks an agreement on the invitation
-// page (that stamps `agreed_to_sms_at`), and the INBOUND `SIGNUP <token>` from their phone
+// page (that stamps `agreed_to_sms_at`), and the INBOUND `JOIN <token>` from their phone
 // is the evidence that turns it into consent — a tick on a web page proves nothing about
 // who holds the handset. `openFarmerOnboardingRequest` applies the transition through the
 // SAME `applyConsentTransition` rules JOIN uses, inside the redemption transaction.
@@ -114,7 +114,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
    * `authorized` when consent permits the send, `suppressed` when it does not.
    *
    * **The question these tests ask is about CONSENT, not about who authorized.** Since F-067
-   * an agreed invited SIGNUP sets the farmer up during redemption, so the notification is
+   * an agreed invited JOIN sets the farmer up during redemption, so the notification is
    * usually already queued by the time this runs; only the paths that still need a human
    * (no tick, no farm named) leave an open request for `authorizeFarmer` to settle. This
    * helper covers whichever happened and then claims, so each test keeps proving the thing it
@@ -259,7 +259,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
     });
   });
 
-  describe("SIGNUP carrying an agreed invitation", () => {
+  describe("an invited JOIN carrying an agreed invitation", () => {
     it("establishes consent, and the 'your farm is ready' text is DISPATCHED", async () => {
       // The whole point. This is the journey that was silently dead.
       const contactHash = await contact("d1");
@@ -446,9 +446,14 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       expect(authorizations.length).toBe(0);
     });
 
-    it("does NOT authorize a bare SIGNUP carrying no invitation", async () => {
-      // A stranger texting the keyword names no farm and carries no decision. This is the
-      // path that must never become self-serve — it is reachable by anyone with the number.
+    it("does NOT authorize a request carrying no invitation", async () => {
+      // A request with no invitation names no farm and carries no decision, so it can never
+      // authorize anyone.
+      //
+      // F-080 removed the SMS route to this branch — there is no bare keyword any more, so
+      // nobody with the number can reach it. It is KEPT because it is the admin path's only
+      // source of `farmer_onboarding_requests` rows, which `authorizeFarmer` requires. The
+      // property is the same either way: no invitation, no authorization.
       const contactHash = await contact("f3");
 
       await openFarmerOnboardingRequest(database(), {
@@ -491,9 +496,10 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       expect(await authorizeAndClaim({ contactHash, farmId })).toBe("suppressed");
     });
 
-    it("establishes no consent for a bare SIGNUP with no invitation", async () => {
-      // The uninvited path has no web page to show an agreement on, so there is nothing to
-      // rely on. It must stay exactly as silent about consent as it always was.
+    it("establishes no consent for a request with no invitation", async () => {
+      // A request with no invitation has no agreement to rest on — no web page showed one —
+      // so it must stay exactly as silent about consent as it always was. Reachable only by
+      // the admin path since F-080; the rule is unchanged.
       const contactHash = await contact("d3");
 
       const opened = await openFarmerOnboardingRequest(database(), {
@@ -613,7 +619,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       expect((watermark[0]?.occurred_at as Date).getTime()).toBe(at(2).getTime());
     });
 
-    it("a repeated SIGNUP creates one request and one consent record", async () => {
+    it("a repeated redemption creates one request and one consent record", async () => {
       // A farmer who texts twice because nothing visibly happened. The second is refused by
       // the redeemed invitation; neither the request nor the consent row duplicates.
       const contactHash = await contact("d7");
