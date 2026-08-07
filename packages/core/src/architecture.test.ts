@@ -93,6 +93,25 @@ function codeOnly(source: string): string {
     .replace(/`(?:[^`\\]|\\.)*`/g, "``");
 }
 
+/**
+ * Source with comments removed but TEMPLATE LITERALS KEPT — for tripwires about SQL.
+ *
+ * `codeOnly` blanks template literals, which is right for tripwires about CALLS and wrong for
+ * tripwires about TABLES: every query in this codebase is a tagged template, so a table name
+ * lives entirely inside a backtick string.
+ *
+ * **This was found by discovering the F-078 raw-email tripwire could not fail.** It ran
+ * `/\bfarm_emails\b/` over `codeOnly` output, so it detected NO reader of the table at all —
+ * not even the two its own allowlist named. It had been green since it shipped, for a reason
+ * entirely unrelated to the property it claimed. Comments are still stripped, so a file that
+ * merely explains the rule does not trip it.
+ */
+function codeAndSqlOnly(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 function workspaceImports(relativeDirectory: string): string[] {
   const importPattern = /(?:from\s+|import\s+)["'](@farm-friend\/[^"']+)["']/g;
 
@@ -363,7 +382,8 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
     expect(modelSources.length).toBeGreaterThan(0);
 
     const offenders = modelSources.filter((path) => {
-      const source = codeOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
+      // SQL-preserving: a table name lives inside a tagged template, which `codeOnly` blanks.
+      const source = codeAndSqlOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
       return /\bfarm_emails\b|\bfarmEmails\b|\bemail_hash\b|\bemailHash\b/.test(source);
     });
     expect(offenders).toEqual([]);
@@ -381,15 +401,63 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
     "packages/db/src/farm-emails.ts",
     // The send path: resolves a hash to the one stored address, immediately before sending.
     "apps/web/lib/email-delivery.ts",
+    // F-079's verification lookup. It reads the table to ask ONE question — "is this address
+    // on file for this farm?" — and selects a literal `1`, never the `email` column, so no raw
+    // address leaves the table on this path.
+    "packages/db/src/farm-verification.ts",
   ];
 
   it("reads the raw email column from the send path and the ingest only", () => {
     const offenders = productionSources.filter((path) => {
       if (FARM_EMAIL_READER_ALLOWLIST.includes(path)) return false;
-      const source = codeOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
+      // SQL-preserving, for the reason `codeAndSqlOnly` records: reading this with `codeOnly`
+      // detected NOTHING, allowlisted files included, and the test passed vacuously.
+      const source = codeAndSqlOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
       // `schema.ts` declares the table; declaring is not reading.
       if (path === "packages/db/src/schema.ts") return false;
       return /\bfarm_emails\b|\bfarmEmails\b/.test(source);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * F-079 — the model must never be handed a verification code, a grant, or the table.
+   *
+   * The same rule as the roster, for the credential rather than the address: a code is what
+   * stands between someone who knows a farm's email and control of that farm's listing, and a
+   * grant is what publishes. Neither may enter model context, and `packages/ai` has no business
+   * naming the table at all. Retrieval and projections are where a "so the model can help them
+   * verify" change would land.
+   */
+  it("puts no verification code, grant, or table anywhere the model can read", () => {
+    const modelSources = productionSources.filter((path) =>
+      path.startsWith("packages/ai/src"),
+    );
+    expect(modelSources.length).toBeGreaterThan(0);
+
+    const offenders = modelSources.filter((path) => {
+      const source = codeAndSqlOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
+      return /\bfarm_email_verifications\b|\bfarmEmailVerifications\b|\bcode_hash\b|\bcodeHash\b|\bgrant_hash\b|\bgrantHash\b/.test(
+        source,
+      );
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * The verification table is read by the verification store and nothing else.
+   *
+   * Same shape as the raw-address allowlist. A second reader is how a credential table quietly
+   * becomes something a page selects from, and the leak is invisible until a code is on screen.
+   */
+  const VERIFICATION_READER_ALLOWLIST = ["packages/db/src/farm-verification.ts"];
+
+  it("reads the verification table from its own store only", () => {
+    const offenders = productionSources.filter((path) => {
+      if (VERIFICATION_READER_ALLOWLIST.includes(path)) return false;
+      if (path === "packages/db/src/schema.ts") return false;
+      const source = codeAndSqlOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
+      return /\bfarm_email_verifications\b/.test(source);
     });
     expect(offenders).toEqual([]);
   });

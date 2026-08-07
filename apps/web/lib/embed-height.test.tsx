@@ -58,7 +58,7 @@ describe("the shared iframe height handshake", () => {
 
   it("is mounted once in the shared layout, not only on the public map", () => {
     const layout = readFileSync(resolve("apps/web/app/layout.tsx"), "utf8");
-    const mapPage = readFileSync(resolve("apps/web/app/page.tsx"), "utf8");
+    const mapPage = readFileSync(resolve("apps/web/app/(map)/page.tsx"), "utf8");
 
     expect(layout).toMatch(/<body>\s*<EmbedHeightReporter\s*\/>\s*\{children\}\s*<\/body>/);
     expect(mapPage).not.toMatch(/<EmbedHeightReporter\s*\/>/);

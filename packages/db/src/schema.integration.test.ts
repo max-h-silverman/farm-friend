@@ -46,6 +46,10 @@ const expectedTables = [
   "consent_transition_watermarks",
   "contacts",
   "farm_approvals",
+  // F-079 — an issued verification code, and the publish grant redeeming it produces. Hashed at
+  // rest like every other credential; the email HASH only, never a second copy of the address.
+  // Its partial unique index is what makes "one live code per farm" a database guarantee.
+  "farm_email_verifications",
   // F-078 — the email roster VIGA already holds, so a farmer can prove who they are without a
   // volunteer vouching for them. Raw address in exactly one column read only by the send path;
   // the hash is the only lookup key. Golden Rule #5, applied to a second kind of personal data.

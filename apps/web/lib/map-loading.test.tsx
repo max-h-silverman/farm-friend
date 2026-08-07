@@ -4,7 +4,7 @@ import React from "react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import MapLoading from "../app/loading";
+import MapLoading from "../app/(map)/loading";
 
 afterEach(cleanup);
 
