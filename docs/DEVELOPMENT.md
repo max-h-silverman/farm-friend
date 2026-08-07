@@ -11,6 +11,12 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
 ## The suites, and what each one actually proves
 
 - **Unit** — `npm test` (vitest). Keep pure core logic free of DB/SMS/LLM by injecting seams + `Clock`.
+  Component tests (`@vitest-environment jsdom`) rely on `vitest.setup.ts` calling Testing Library's
+  `cleanup` after each test. **This project runs without `globals: true`, so Testing Library cannot
+  register that teardown itself** — without the setup file every mounted component stays in the
+  document for the rest of the file, and `getByText` can be satisfied by an *earlier test's* render.
+  A component test then passes while the behaviour it names is broken. Do not remove the setup file;
+  a duplicate-match error is the only symptom that ever surfaces.
 - **Integration** — `npm run test:integration` (vitest, Postgres). Runs migrations **from an empty
   database**, exercises complete use cases with real constraints and transactions, and proves the
   data invariants. Requires `DATABASE_URL`, creates and drops a uniquely named throwaway database,

@@ -6,8 +6,114 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 57. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 58. A log too large to open
 mid-session defeats its own purpose.
+
+---
+
+## 2026-08-06 — the farmer's own surfaces, from max using them
+
+max reported four things from actually working the app: he could not find how to delete a stand,
+could not edit a farm's name, the onboarding save "seemed to take me to a different screen", and
+the update form was "all so janky". Each turned out to be a different kind of defect, and two of
+them were only visible from a browser.
+
+### A removal was expressible but invisible
+
+The sharpest finding, and it came from max asking a question about SMS rather than reporting a bug:
+if a farmer texts "we have eggs and bok choy" when their stand lists eggs and kale, do they mean to
+delete the kale? The architecture already answered correctly — the model returns *edits*
+(`additions`/`changes`/`removals`), and `applyInventoryEdits` **preserves by omission** — so kale
+survives unless the model explicitly removes it.
+
+Two real gaps sat behind that correct architecture. The prompt defined the three arrays and never
+said **when** to emit a removal, so a bare list of items was readable as a whole-listing
+replacement. And `renderProposedSnapshot` showed the complete result while naming nothing as
+leaving — a removal was visible **only as an absence from a list**, which is exactly what nobody
+notices in a text message. An existing test actively enforced that (`not.toMatch(/removed|added|
+changed/i)`), and its reasoning was sound but overshot: confirm the whole result, yes, but a farmer
+must still be able to *see* the deletion they are confirming.
+
+`ProposedSnapshot` now carries `removedItemNames` — **confirmation copy only**, read by no
+consequence, with `entries` remaining the whole authority on what publishes. SMS and web share the
+renderer, so one seam covered both surfaces.
+
+The prompt change is a claim, so it was measured: three new `live-quality` fixtures against the real
+model, all passing. A bare list adds without removing; "kale is all gone" still removes; "all we
+have left today is eggs" still replaces. **The last two are the point** — a prompt that simply never
+removed would satisfy the first fixture alone.
+
+### The chips: max's idea, and why it beat the one it replaced
+
+Asked whether plain text was clearly welcome on the update form, max went further: *"maybe instead
+of a chat input the web update form can just be like adding/removing tags"*. That is right, and it
+follows from the domain rather than from taste — a stand listing **is a set of short strings**, so a
+farmer typing "sold out of kale" was doing manual labour to express *remove one member of a set*,
+for a model to parse back into the removal we could have had directly.
+
+The chat framing was argued against and dropped: there is one round trip, no history, and a chat UI
+would promise a conversation the system does not have. Free-text survives as the escape hatch for
+what chips cannot say — a closure, a price mentioned in passing — which is also what keeps the model
+seam a live path instead of dead code.
+
+**A structured edit skips the MODEL, and nothing else.** `applyInterpretedInventory` now takes
+either `taskText` or an `edit` already in the interpreter's output shape. Everything after
+interpretation was always code and is untouched: the same `validateInterpretation` against the same
+retrieved snapshot, the same composition, the same confirmation gate. Sending chips through English
+so a model could re-derive the shape would have been a lossy step and a model dependency for an edit
+that needs no interpreting.
+
+### The two defects that only a browser could find
+
+Both were invisible to a green suite, and both were found by opening the page.
+
+**The page drew the wrong listing.** Chips send ENTRY IDS. `readCurrentStandEntries` read the
+*published* revision, but composition uses the sender's *open proposal* as its base. A farmer who
+edited once and came back saw chips for items their own pending proposal had already dropped;
+tapping one sent an id absent from the base and was refused — correctly, for a change they had every
+reason to think was on offer. The free-text path never hit this because prose names items, not
+identifiers. The reader now returns the pending base when one is open, scoped to one sender so
+nobody sees another's unconfirmed edit.
+
+**The stylesheet styled the delete control as the publish button.** `.farmer-form
+button:first-of-type` filled the first button green, written when the screen had exactly one button.
+The moment the listing became editable, the first button on the page was a chip's ×. Position is not
+intent; the affirmative action now carries an explicit class, asserted by test.
+
+### Three things that were not what they looked like
+
+- **"I can't delete a farm."** Retirement already existed and already did the right thing —
+  reversible, confirm-gated, nothing published destroyed. It was headed "Take off the map", sat last
+  inside a collapsed panel, and never used the word anyone searches for. A naming fix, not a feature.
+- **"Let me edit the farm name."** The farm name was **immutable everywhere** — written at
+  invitation time, changeable by no farmer and no administrator, while public on the map. It merely
+  *looked* editable because the listing editor passed `listing.standName` into a prop called
+  `farmName`. Two records, one name.
+- **"It took me to a different screen."** It did not navigate at all. The save replaced the entire
+  form with one sentence, so the card collapsed and the phone-verification card that had been below
+  the fold the whole time snapped upward. A collapse plus a scroll jump reads worse than a
+  navigation, because nothing announces it.
+
+### A test-harness gap, found by a duplicate match
+
+Testing Library's `cleanup` was never running: without `globals: true` there is no global
+`afterEach` for it to register against, so every mounted component stayed in the document for the
+rest of the file and `getByText` could satisfy a later test from an **earlier test's render**. A
+component test could pass while the behaviour it named was broken. Adding the setup file exposed no
+existing failures, which is luck rather than vindication.
+
+Related: an admin test written this session **passed on its first version without the code
+changing**, because it asserted on body copy that already contained the word. It was retargeted to
+the section heading — the thing an operator actually scans — and only then failed. Recorded because
+that is the failure mode the project's "a test that cannot fail proves nothing" rule exists for, and
+it still nearly slipped through.
+
+### Naming
+
+"Weekly update form" was **never the product's name** — it entered this session from the assistant
+repeating max's phrasing back at him, and is dropped. VIGA's "weekly form" (the Google form
+volunteers transcribe) and the `weekly` reminder cadence are both real and untouched; no farmer
+surface calls itself that.
 
 ---
 
@@ -709,85 +815,3 @@ changed nothing. All three now catch their defect.
 has not received. F-064's production run is deliberately not done: it is a bulk write to `neondb`
 needing max's explicit approval, a re-export of all three CSVs (the profile form is still open), and
 a `neondb` snapshot — with an insert-only utility and GL-015 open, the snapshot *is* the rollback.
-
----
-
-## 2026-08-04 — the expanded stand detail, and what the description turned out to be
-
-Started as a design pass on one card. Ended by establishing that the seeder's `--form` path reads a
-file VIGA has never produced.
-
-**The layout defect was real but shallow.** `.detail-actions` was a bare `<div>` with no layout, so
-two inline anchors rendered as the single word "WebsiteGet directions" — two destinations reading as
-one. Fixing only that left the actual problem: the expanded row put a narrow left column (actions,
-status, staleness) beside the chip box, and the two never have comparable heights — the aside is a
-fixed three-item stack, the box grows with a farm's tag count. A well-tagged stand left ~180px of
-empty column *distributed between* the left items, which reads as something failing to load. A
-split that is wrong in both directions is the wrong structure, not a spacing bug. It is now three
-stacked full-width bands (act → what's here → supporting detail), which is also the phone
-arrangement, so the two surfaces stop diverging in shape for no reason a customer could name.
-
-**The description was demoted because it was winning an argument it should not have been in.** It
-inherited the 1rem body size, making it the largest type on the card — larger than the stand's own
-name — and it is the one field of unbounded length, so a wordy farm dominated purely by writing
-more.
-
-**A text assertion could not have caught the collision, and nearly shipped as the test.** The first
-version asserted `textContent !== "WebsiteGet directions"`. That reproduced the defect but cannot
-verify the fix: the separation is a flex gap, and `textContent` is byte-identical with and without
-it. The test now asserts list *structure*. Same class of near-miss the project's verification notes
-already name — anchor to the construct, not to nearby vocabulary.
-
-**`extractStockUpdate` parses the dated lines, and deliberately has no consumer.** VIGA's sheet
-carries `"5/26/2026 Update: Salad, spinach, kale"`, which rendered as prose directly beneath the
-card's code-rendered "Nothing confirmed recently" — two statements contradicting each other, the
-dated one looking more specific. The closure form of that shape (`"7/9/2026 Update: Closed"`)
-already had a reader; this one did not. An impossible date is **refused, not rolled forward**
-(`new Date(2026, 1, 31)` is silently 3 March), and a dated closure is excluded rather than published
-as a stand carrying one item called "Closed".
-
-**Where it stopped, and why.** max decided the dated line should count as a confirmation so the card
-can say "Confirmed 26 May 2026" instead of contradicting itself. Storage is unresolved: a published
-confirmation needs `inventory_revisions.proposal_id` and `published_by_authorization_id`, which
-assert *a specific handset was authorized and sent this*. A spreadsheet date has neither, so those
-two keys would be fabricated attestations about identifiable people and the audit trail could no
-longer tell a real confirmation from a typed one. Proposed instead, not yet accepted: a `source`
-column with a CHECK that still requires the full chain when `source = 'sms'`. Also corrected
-mid-session — **`farm_approvals` is per-farm onboarding, not per-update review.** VIGA does not
-approve individual stock updates, and my earlier description implied it did.
-
-**The finding that outgrew the session.** max supplied the two canonical datasets and said the map
-is hand-updated by a volunteer from the form submissions — so the map is a *derivative*, and every
-oddity in the descriptions (`WA, WA 98070`, the en-dash in `5/2/2026 Update –Eggs`) is transcription
-residue from the manual step this product exists to remove. Measured over the 70 form rows dated
-2026: `What do you have available` is filled **70/70**, while address, currencies, and links each
-appear **once** — they sit behind an optional "if this is your first time this season" prompt nobody
-fills in. So the only durable home for profile facts today *is* the volunteer's typed description,
-which is why "Additional information" carries so much.
-
-**`parseFormResponses` describes a source that never existed.** Its `EXPECTED_COLUMNS` name Address,
-Contact Name(s), Social Media, Website, Open Season, Open Hours & Days, Stocking Days as separate
-columns; none exists in either real file. Tracing its own fixtures: `13609 SW 220th St` and
-`Bank Road, East of Town` are in **neither** file, while `23720 Dockton Rd SW` and
-`15624 115th AV SW` appear **only inside map description prose**. max's read is that the schema was
-inferred from the map CSV early on. That makes `form-responses.ts` and its 210-line test file a
-green suite over an invented format — the "test that cannot fail" failure mode at module scale.
-
-**Verified:** 993 unit tests / 102 files, typecheck, lint, production web build. Six sabotages,
-each failing a distinct named test — collapsing the action list to bare anchors, forcing the sheet
-down the directory branch, and three on the parser (impossible-date guard, closure exclusion,
-latest-wins). Wide-screen layout measured in a real browser across 16 stands spanning every shape;
-no band gap exceeds the 12px grid gap, and the action row wraps without overlap down to a 260px
-card.
-
-**Deployed** at max's call during the wrap: web `farm-friend-web-00029-bgf`, worker
-`farm-friend-worker-00030-vzd`, digest `sha256:3a25dd2c…f33977a464`, no migration. Verified by
-effect rather than by the apply's exit status — the served stylesheet resolves `.detail-actions` and
-`.detail-aside` to `display:flex` with their gaps, and `.stand-selected .stand-detail-body` to
-`minmax(0,1fr)`, so the two-column split is gone from production and not merely from the source.
-Plan assertions 37/37; deploy and served-card assertions pass.
-
-**Owed:** the phone-width and dark-appearance look at the expanded card, which `DEVELOPMENT.md`
-requires for the public map. Not done — the browser in this environment reports a successful resize
-while `window.innerWidth` stays 1728, and AppleScript window control times out (-1712). max chose
-to merge and check it himself. The phone sheet's *markup* is covered by a test; its *layout* is not.

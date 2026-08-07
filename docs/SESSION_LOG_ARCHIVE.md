@@ -1,12 +1,94 @@
 # Farm Friend — Session Log Archive (through 2026-08-04)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-06; it now holds 57 entries.
+everything older lives here. Last rotated 2026-08-06; it now holds 58 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
 architecture documents ([README.md](README.md) is the index). Where an entry here disagrees with the
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
+
+---
+
+## 2026-08-04 — the expanded stand detail, and what the description turned out to be
+
+Started as a design pass on one card. Ended by establishing that the seeder's `--form` path reads a
+file VIGA has never produced.
+
+**The layout defect was real but shallow.** `.detail-actions` was a bare `<div>` with no layout, so
+two inline anchors rendered as the single word "WebsiteGet directions" — two destinations reading as
+one. Fixing only that left the actual problem: the expanded row put a narrow left column (actions,
+status, staleness) beside the chip box, and the two never have comparable heights — the aside is a
+fixed three-item stack, the box grows with a farm's tag count. A well-tagged stand left ~180px of
+empty column *distributed between* the left items, which reads as something failing to load. A
+split that is wrong in both directions is the wrong structure, not a spacing bug. It is now three
+stacked full-width bands (act → what's here → supporting detail), which is also the phone
+arrangement, so the two surfaces stop diverging in shape for no reason a customer could name.
+
+**The description was demoted because it was winning an argument it should not have been in.** It
+inherited the 1rem body size, making it the largest type on the card — larger than the stand's own
+name — and it is the one field of unbounded length, so a wordy farm dominated purely by writing
+more.
+
+**A text assertion could not have caught the collision, and nearly shipped as the test.** The first
+version asserted `textContent !== "WebsiteGet directions"`. That reproduced the defect but cannot
+verify the fix: the separation is a flex gap, and `textContent` is byte-identical with and without
+it. The test now asserts list *structure*. Same class of near-miss the project's verification notes
+already name — anchor to the construct, not to nearby vocabulary.
+
+**`extractStockUpdate` parses the dated lines, and deliberately has no consumer.** VIGA's sheet
+carries `"5/26/2026 Update: Salad, spinach, kale"`, which rendered as prose directly beneath the
+card's code-rendered "Nothing confirmed recently" — two statements contradicting each other, the
+dated one looking more specific. The closure form of that shape (`"7/9/2026 Update: Closed"`)
+already had a reader; this one did not. An impossible date is **refused, not rolled forward**
+(`new Date(2026, 1, 31)` is silently 3 March), and a dated closure is excluded rather than published
+as a stand carrying one item called "Closed".
+
+**Where it stopped, and why.** max decided the dated line should count as a confirmation so the card
+can say "Confirmed 26 May 2026" instead of contradicting itself. Storage is unresolved: a published
+confirmation needs `inventory_revisions.proposal_id` and `published_by_authorization_id`, which
+assert *a specific handset was authorized and sent this*. A spreadsheet date has neither, so those
+two keys would be fabricated attestations about identifiable people and the audit trail could no
+longer tell a real confirmation from a typed one. Proposed instead, not yet accepted: a `source`
+column with a CHECK that still requires the full chain when `source = 'sms'`. Also corrected
+mid-session — **`farm_approvals` is per-farm onboarding, not per-update review.** VIGA does not
+approve individual stock updates, and my earlier description implied it did.
+
+**The finding that outgrew the session.** max supplied the two canonical datasets and said the map
+is hand-updated by a volunteer from the form submissions — so the map is a *derivative*, and every
+oddity in the descriptions (`WA, WA 98070`, the en-dash in `5/2/2026 Update –Eggs`) is transcription
+residue from the manual step this product exists to remove. Measured over the 70 form rows dated
+2026: `What do you have available` is filled **70/70**, while address, currencies, and links each
+appear **once** — they sit behind an optional "if this is your first time this season" prompt nobody
+fills in. So the only durable home for profile facts today *is* the volunteer's typed description,
+which is why "Additional information" carries so much.
+
+**`parseFormResponses` describes a source that never existed.** Its `EXPECTED_COLUMNS` name Address,
+Contact Name(s), Social Media, Website, Open Season, Open Hours & Days, Stocking Days as separate
+columns; none exists in either real file. Tracing its own fixtures: `13609 SW 220th St` and
+`Bank Road, East of Town` are in **neither** file, while `23720 Dockton Rd SW` and
+`15624 115th AV SW` appear **only inside map description prose**. max's read is that the schema was
+inferred from the map CSV early on. That makes `form-responses.ts` and its 210-line test file a
+green suite over an invented format — the "test that cannot fail" failure mode at module scale.
+
+**Verified:** 993 unit tests / 102 files, typecheck, lint, production web build. Six sabotages,
+each failing a distinct named test — collapsing the action list to bare anchors, forcing the sheet
+down the directory branch, and three on the parser (impossible-date guard, closure exclusion,
+latest-wins). Wide-screen layout measured in a real browser across 16 stands spanning every shape;
+no band gap exceeds the 12px grid gap, and the action row wraps without overlap down to a 260px
+card.
+
+**Deployed** at max's call during the wrap: web `farm-friend-web-00029-bgf`, worker
+`farm-friend-worker-00030-vzd`, digest `sha256:3a25dd2c…f33977a464`, no migration. Verified by
+effect rather than by the apply's exit status — the served stylesheet resolves `.detail-actions` and
+`.detail-aside` to `display:flex` with their gaps, and `.stand-selected .stand-detail-body` to
+`minmax(0,1fr)`, so the two-column split is gone from production and not merely from the source.
+Plan assertions 37/37; deploy and served-card assertions pass.
+
+**Owed:** the phone-width and dark-appearance look at the expanded card, which `DEVELOPMENT.md`
+requires for the public map. Not done — the browser in this environment reports a successful resize
+while `window.innerWidth` stays 1728, and AppleScript window control times out (-1712). max chose
+to merge and check it himself. The phone sheet's *markup* is covered by a test; its *layout* is not.
 
 ---
 

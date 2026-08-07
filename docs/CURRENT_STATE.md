@@ -10,6 +10,12 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 `farm-friend-web-00034-77d` (bumped by the geocoding mount, below) and worker revision
 `farm-friend-worker-00034-4cn`, both at digest
 `sha256:85657998baca6a7416144aff9f990852d429920bc34f4b580ccbffc7fdd2cfff` (`main` at `41412b4`).
+
+> **`main` is AHEAD of production.** The farmer-surface tranche (2026-08-06, below) is merged and
+> pushed but **not deployed** — max is running the deploy himself. It carries **no migration**, so
+> the RUNBOOK's migrate-before-promote ordering does not apply and production's migration count
+> stays at 24. Until that deploy runs, no farmer sees the chip interface, the named removals, the
+> farm-name rename, or the "Remove this stand" heading.
 Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
 effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
 contacts) was taken before writing, and the pre-change schema was asserted so a pass could not
@@ -182,10 +188,13 @@ public description, which it does.
 
 ## Verification
 
-- **Branch `farmer-ux-pass` (`74a6fcf`), MERGED to nothing yet — NOT deployed.** Four
+- **The farmer-surface tranche is MERGED to `main` and PUSHED — NOT deployed.** Four
   farmer/admin defects max reported from using the app, the chip interface below, plus a
-  test-harness gap found on the way. **1342 unit / 735 integration**, typecheck, lint pass.
-  No migration.
+  test-harness gap found on the way. Verified 2026-08-06: **1342 unit / 735 integration**,
+  typecheck, lint, `evals` 44/44 (critical 11/11, advisory 4/4, adversarial 29/29), and
+  `evals:live` 25/25. **No migration** — production stays at 24 (`0000`–`0023`).
+  **max chose to run the deploy himself**, so production still serves `41412b4`; everything
+  below is live on `main` and not yet in front of farmers.
   - **The stand listing is now DIRECTLY EDITABLE** (max: "maybe instead of a chat input the
     web update form can just be like adding/removing tags"). A listing is a set of short
     strings, so a farmer taking kale off was doing manual labour to express "remove one

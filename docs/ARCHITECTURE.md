@@ -355,6 +355,22 @@ them. Omission preserves an item; it never deletes one. `YES` publishes exactly 
 there is no durable delta, patch log, or replay mechanism, and confirmation always yields one
 complete immutable revision.
 
+**The confirmation names what is LEAVING, after the complete result.** Everything a farmer adds or
+changes is visible in the result they are reading; an item they drop is visible only as a gap, which
+is what nobody notices in a text message. So the rendered confirmation carries a trailing "Taking
+off: …" line. It is confirmation copy — `entries` remains the whole authority on what publishes, and
+no consequence reads the removed names.
+
+**Typed edits may also arrive already structured, skipping the model but nothing else.** The
+farmer's web listing is directly editable, and a removed chip *is* `removals: [{entryId}]` — so that
+surface supplies the interpretation rather than prose for the model to parse back into the shape it
+started as. A structured edit is strictly parsed at the boundary and then meets the same
+`validateInterpretation` against the same retrieved snapshot, the same composition, and the same
+confirmation gate as a model interpretation. It is a way to skip *interpreting*, never a way to skip
+the checks, and it cannot express `clear_all`. Because such an edit names entry IDs, the surface
+offering it must draw the same base composition uses — the sender's open proposal when one exists,
+the published snapshot otherwise — or it offers the farmer identifiers that are no longer in the base.
+
 The confirmation transaction uses one shared lock order: **sender -> location -> participant/access
 grant (when used) -> proposal -> authorizations -> approvals**. A revocation locks the same
 authorization, access, or approval row that confirmation validates; because it needs only that
