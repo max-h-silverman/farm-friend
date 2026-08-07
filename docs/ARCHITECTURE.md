@@ -147,7 +147,29 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   acceptance depends on an eligibility only VIGA grants. It publishes on submit (max, 2026-08-05)
   rather than waiting for the JOIN text, and it writes standing item state only — never a dated
   confirmation.
-- **Farmer address lookup:** `POST /api/farmer/address-lookup` — invitation-gated, throttled,
+- **The migration door** (F-079): `/farmer/start/<secret>` — how a farmer already using VIGA's
+  Google weekly-status form moves themselves onto Farm Friend. Pick your farm, prove you control
+  an address VIGA holds, fill in the same listing form. The **bare `/farmer/start` no longer
+  exists**; new farms are invite-only (F-080), so this is a migration path rather than the front
+  door.
+  **The secret is obscurity, not authentication**, and is documented as such (DATA_ARCHITECTURE
+  §privacy): it travels in browser history, `Referer` headers and access logs, and is neither
+  one-use nor revocable per farmer. Absent, blank, or under 32 characters means the door does not
+  exist — and a wrong secret gets the **same 404** as an unconfigured deployment, so the response
+  never reveals that the door is merely switched off.
+  **The emailed code is what actually gates publishing**: `POST /api/farmer/verify-request` always
+  answers the same `sent` — on file or not, already issued, budget spent, relay refused — or it
+  becomes a service for asking which address VIGA holds for a farm. `POST /api/farmer/verify-submit`
+  answers one identical body for every refusal, and checks the attempt cap **first**, so a capped
+  record is not an oracle for whether a guess was close.
+  **Verification grants listing-publish rights only, never farmer authorization** — updating stock
+  by text still needs an inbound message from a consented handset. The grant is an `HttpOnly`
+  cookie whose hash is re-resolved from the database on every request and checked against **that**
+  farm, so a grant for one farm cannot open another's.
+  Both routes build from `publicReadContext` plus a narrow config read, never the full composition
+  root — the F-073 lesson: `appContext()` validates SMS, model and map configuration, so binding
+  an unauthenticated farmer page to it makes it 500 on an unrelated missing variable.
+- **Farmer address lookup:** `POST /api/farmer/address-lookup` —- **Farmer address lookup:** `POST /api/farmer/address-lookup` — invitation-gated, throttled,
   server-side geocoding that returns a coordinate and writes nothing. Since F-077 it is the
   **only** source of a stand's coordinate.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out

@@ -1,12 +1,128 @@
-# Farm Friend — Session Log Archive (through 2026-08-04)
+# Farm Friend — Session Log Archive (through 2026-08-05)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-06; it now holds 59 entries.
+everything older lives here. Last rotated 2026-08-07; it now holds 60 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
 architecture documents ([README.md](README.md) is the index). Where an entry here disagrees with the
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
+
+---
+
+## 2026-08-05 — self-serve farmer onboarding (F-067), and two UI defects
+
+max: *"I want to eliminate the VIGA farm authorization step. Once a farmer is sent their onboarding
+link and gives consent they should be considered onboarded."*
+
+**The framing that made this small: the invitation IS the authorization decision.** A coordinator
+picks the farm and sends a one-use link to a specific person — the human judgment happens there. The
+queue click that followed re-approved a decision already made, which is why the code it replaced
+could say "VIGA always approves". So this deletes a rubber stamp, not a safety check.
+
+**What could NOT be deleted, and nearly was.** `farmer_authorizations` is not the queue's output —
+it is the record binding *this phone* to *that farm*, read by `resolveFarmerTarget` on every inbound
+message. Remove the row and no farmer can publish at all. What changed is who writes it and when:
+the arriving `SIGNUP` instead of a coordinator's click, in the same transaction as the consent and
+the redemption, for the reason that transaction already existed — the invitation is spent, so a
+crash between the two would leave a farmer consented, unauthorized, and holding a dead token.
+
+**The gate is the evidence the invited path already rests on**, and each part is load-bearing: an
+invitation *naming a farm*, whose agreement was *ticked*, redeemed *from the handset*. The three
+paths that lack one fall through to VIGA's queue rather than failing — a bare uninvited `SIGNUP`
+(reachable by anyone with the number), an invitation naming no farm, an untickd agreement. That
+last one matters most: authorizing without the tick would set someone up for messages they never
+agreed to receive.
+
+`authorizeInvitedFarmerIn` is `authorizeFarmer` minus the administrator and deliberately nothing
+else — same row, same uniqueness rule under lock, same settle, same notification, still an
+`inventory_prompt` so `authorizeDispatch` re-reads consent at the claim. The audit event names the
+**farmer's contact hash** rather than an operator: attributing a self-serve setup to a coordinator
+who never clicked would put a false claim in the audit trail.
+
+**max's scope decisions, asked mid-build.** A new-farm invitation should create the farm at invite
+time (replacing "New farm — assign later"), onboarding should capture full listing details rather
+than a minimal set, and — asked whether a new farm's address should wait for human review —
+*"I'm not worried about mistakes in the farmer onboarding. The admin can fix anything that's
+erroneous."* So farmer input publishes immediately, which leans on F-065.
+
+**Two defects the tests caught, both introduced by this change.** The settlement CHECK encoded "a
+settled request was settled by an administrator"; migration `0021` widens it to "an administrator
+**or** the authorization the redemption granted", stated as a full disjunction because a CHECK
+passes on NULL — relaxing the administrator test alone would admit a settled row recording nobody.
+Sabotaged to confirm it still refuses that. And the SIGNUP reply's logical key was **positional**
+(`index === 0` → `signup-ack-`); with the acknowledgement now conditional, the opt-in receipt would
+inherit the acknowledgement's idempotency key on exactly the runs that omit it — two messages, one
+key, and a receipt silently dropped as a duplicate. Keys are now content-based.
+
+**The copy had become a lie.** The acknowledgement promises "VIGA has your request, they will review
+it and text you when your farm is ready" — three claims false for a self-served farmer, arriving
+beside the "your farm is ready" text the same transaction queues. Dropped for that case rather than
+reworded; the carrier receipt still rides along, since consent was established by that same message.
+
+**A wrong finding worth recording so it isn't re-derived.** Mid-session I reported that nothing in
+the codebase creates contact records and asked max to approve writing a farmer's phone number on an
+invited `SIGNUP`. That was wrong — `apps/web/app/api/sms/webhook/route.ts` already writes the contact
+at ingress on every inbound message, in the single raw-E.164 column, exactly as golden rule 5
+prescribes. My greps had missed the one production insert. The permission was never needed.
+
+**Verification by effect caught what the suites could not.** Running the full chain against the real
+local database surfaced that migration `0021` had never been applied there — the integration suites
+build their own databases, so all 635 passed while the dev database still held the old constraint.
+Confirmed the widened constraint by querying `pg_get_constraintdef`, then ran the chain end to end: a
+coordinator names a new farm, the farmer ticks and redeems, and the farmer can publish for that farm
+with no open request, the audit attributing the act to the farmer, and one non-contradictory text.
+
+**The wrap found the half of the feature that was missing.** Syncing ADMIN_OPERATIONS.md surfaced
+`farm_approvals` — a **second, independent gate**. `confirmProposal` checks
+`farmer_authorizations`, then `farm_approvals`, and returns `not_approved` when the second is
+absent. So the first commits left a self-served farmer authorized, texted "your farm is ready", and
+**refused on their very first update** — the same silent dead end this feature exists to close,
+moved one step later. My mid-session report that the farmer "can publish" was wrong: they could be
+*targeted*; publication was still blocked. Confirmed by querying both gates for the farms the
+verification runs had created (`authorized=true approved=false`), not by reading the code.
+
+max chose to grant both on redemption. The approval names the administrator who **created the
+invitation** — honest rather than convenient, since that is the person who decided this farm
+participates, at the moment they minted a link naming it. Written with `on conflict do nothing`
+against the partial unique index rather than a preceding read: `for update` cannot serialize a row
+that does not exist yet, so two concurrent redemptions for one farm would both see "unapproved" and
+the second would raise. Verified by effect afterwards — both gates open, approver correct.
+
+**Two UI defects max reported, fixed alongside.** The public map's phone view had ~40% of a screen of
+blank panel under the stand list: `.list-column { padding-bottom: 40vh }` existed only to let cards
+scroll clear of the floating detail sheet, but applied unconditionally. Scoped to `.sheet-open`,
+which the page already set and no CSS read. And the admin "Copy link" button failed every time in
+the live embed — the admin surface runs inside VIGA's site as an iframe, where
+`navigator.clipboard.writeText` is gated by the `clipboard-write` permissions policy: unless the
+*embedding* page sets `allow="clipboard-write"`, it rejects with `NotAllowedError` on HTTPS from a
+genuine click. VIGA owns that embed code, so the frame cannot fix it from inside. `copy-text.ts`
+falls back to `document.execCommand`, which works precisely because it predates the policy.
+
+The farmer onboarding page also got a copy pass: ~150 words to ~60, one phone screen with no
+scrolling. "Step 1 of 3" was the real defect — it promised two more screens when the remaining steps
+were VIGA's. The four carrier-registered disclosures (frequency, rates, STOP, HELP) were left
+untouched per SMS_COMPLIANCE.md; only their framing changed, and sabotaging one confirmed the
+compliance test still fails when a required fact goes missing.
+
+**Committed:** `25509a3`, `33a617c`, `34984c8`, `6dc4f41`. **F-066's commits rode on this branch**
+(`2659600`, `8f6e876`, `e2ccc2c`) — built in a concurrent session, logged in the F-066 entry below.
+
+**Merged as PR #80 (`41e6dd0`), squashed.** The merge was held while the second session was still
+running — merging would have moved the base under work branched from where it started — and taken
+once that session finished. The merged base was re-verified rather than inheriting the branch's
+numbers: 1075 unit, 638 integration, typecheck, lint, all green on `main`.
+
+**Sequencing decided with max after the merge:** build the onboarding listing-details form
+*before* deploying and sending any farmer a test link. A link sent today would work — the farmer is
+authorized and their farm approved — but their stand would reach the public map carrying a name and
+nothing else, because the onboarding page still captures only the consent tick. The first farmer to
+use this should get the complete experience, and the same form is the writer F-066's standing item
+state currently lacks, so it closes that item's last acceptance criterion too.
+
+**Owed:** the onboarding listing-details form (F-067's remaining half — nothing in the codebase
+writes listing facts today, they are only ever seeded); then migrations `0019`–`0021` to production
+in order, before the image that reads them; then one real onboarding link to a single farmer.
 
 ---
 

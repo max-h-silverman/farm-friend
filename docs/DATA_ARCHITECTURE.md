@@ -73,6 +73,21 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   ownership of a farm: the only writer is administrator-gated, re-reads the administrator's
   authority inside its own transaction, and records who acted. Revocation updates the row rather
   than deleting it — published revisions reference the authorization they were made under.
+- **farm email roster** (F-078) — the addresses VIGA already holds for each farm, so a farmer can
+  prove who they are without a volunteer vouching. **Answers exactly one question** — "is this
+  address on file for this farm?" — and holds no name, role, or preferences; it must never become
+  a contact list. Several rows per farm is normal (five of VIGA's farms list more than one).
+  **Verifying is not publishing**: farms that declined to put contact email on the printed map
+  still authenticate, and no public read path selects from this table.
+- **farm email verifications** (F-079) — an issued verification code, and the publish grant
+  redeeming it produces. Both are **hashed at rest**; the code itself exists only in the farmer's
+  inbox. Carries the address **hash** and never a second copy of the address. Six digits is a
+  small space, so what makes it safe is that guesses are **counted and capped** — the row holds
+  its own attempt count, and issuance is throttled per farm and per address from these rows,
+  because a coarse client bucket cannot see someone rotating their signal to bury one inbox.
+  **A grant confers listing-publish rights and nothing else** — never farmer authorization, which
+  still requires an inbound text from a consented handset. One live code per farm is a database
+  guarantee (a partial unique index), and redemption commits **exactly once**.
 - **farmer onboarding requests** (F-040) — what a farmer *asked* for, waiting for VIGA. **Grants
   nothing, and is shaped so it cannot**: a plain SMS request has no farm, no grant column, no
   message text, and nothing reads it as authority. An administrator-created invite may attach an
@@ -293,6 +308,23 @@ These are **database-level** requirements, not application conventions:
   authorized but never resolved carries `dispatch_authorized_at`, and past a fixed lease it becomes
   `ambiguous` rather than being retried or left `dispatching` forever. It is never returned to
   `queued`: the provider may already have delivered the message (GL-003).
+- **One address per (farm, normalized address)** (F-078) — the roster ingest is re-run whenever
+  VIGA re-exports, so a duplicate must be impossible rather than merely unlikely. The index
+  normalizes case and the **explicitly named** whitespace class `E' \t\r\n'`, because
+  `btrim(text)` strips spaces alone — migration 0020 shipped that naive form. Scoped to the farm,
+  not global: one couple farming two plots from one inbox is real. What must never happen — one
+  address verifying the **wrong** farm — is enforced by scoping the query, not by this index.
+- **One live verification code per farm** (F-079) — a partial unique index over unconsumed rows.
+  Two live codes would mean the older one still opens the listing while the farmer types the
+  newer, so "one open confirmation" would be a fiction. `select`-then-`insert` cannot serialize a
+  row that does not exist yet, so the **index is the arbiter**: issuance is `on conflict do
+  nothing` and an empty result means someone else won.
+- **A verification code is consumed exactly once** (F-079) — redemption is a conditional UPDATE
+  on `consumed_at is null`, which both commits and decides the race; the grant is minted in the
+  **same statement**, so a spent code can never leave the farmer with nothing.
+- **Every stored hash is a 64-character lowercase hex digest** — asserted by CHECK on the phone,
+  email, code, and grant columns. A malformed hash is a row nothing can ever look up, and the
+  miss would be silent: the farmer's correct value would simply never match.
 - **One open farmer-update confirmation per sender** — a partial uniqueness constraint prevents
   overlapping proposals from making generic `YES`/`NO` ambiguous. `NO` and expiry create no
   revision; `YES` creates every included immutable section or neither only after the transaction

@@ -7,15 +7,17 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00038-nbz` and worker revision `farm-friend-worker-00038-fp6`, both at digest
-`sha256:1ab8293fc5fb5ca169e3ae669bd473c820a0c34c5ec14a7a023fb1da245d6027` (`main` at `127d45a`,
-pushed).
+`farm-friend-web-00040-v47` and worker revision `farm-friend-worker-00039-zgv`, both at digest
+`sha256:2896814e21914305fb0929768cfb007d4b297b21dbd25ce8e2209c313043a607` (`main` at `68a59e0`,
+pushed). Production Postgres is `neondb` with **26 migrations** (`0000`-`0025`).
 
-**NOTHING IS MERGED-AND-UNDEPLOYED, AND NO MIGRATION IS OWED** (2026-08-07, second deploy of the
-day). F-079 is **DEPLOYED**: web `farm-friend-web-00040-v47` and worker `farm-friend-worker-00039-zgv`,
-both on digest `sha256:2896814e21914305fb0929768cfb007d4b297b21dbd25ce8e2209c313043a607`
-(`main` at `0b282b2`). Production Postgres is `neondb` with **26 migrations** (`0000`-`0025`).
-`main` is what production serves.
+**NOTHING IS MERGED-AND-UNDEPLOYED, AND NO MIGRATION IS OWED** (2026-08-07). `main` is what
+production serves.
+
+**Both optional secrets that were lost to the mount-flag trap are back and pinned.** Web mounts
+`GEOCODING_API_KEY`, `SMTP_PASSWORD`, and F-079's three; **the worker mounts none of them**,
+asserted unconditionally so flipping a flag can never hand a salt to a process with no use for
+it. `infra/production.tfvars` is what keeps that true across applies.
 
 **Migration `0024` was applied BEFORE the image that reads it**, per the RUNBOOK's ordering rule.
 Production Postgres is `neondb` with **25 migrations** (`0000`-`0024`). Verified by effect, never
@@ -98,420 +100,60 @@ and DEPLOYED, one (F-079) not started.** See Release state for the deploy proof.
 `f-079-secret-link-email-code`). It carries **migration `0025`**, which is **OWED TO
 PRODUCTION** and must be applied before the image that reads it.
 
-## Infrastructure prepared for F-079, NOT APPLIED (2026-08-07)
+## F-079 — the migration door, gated by an emailed code (DEPLOYED 2026-08-07)
 
-`infra/` declares the three secret containers (`email-hash-salt`, `verification-code-salt`,
-`farmer-start-secret`), their IAM grants, and a `mount_email_verification` flag defaulting to
-**false** — the same three-step gate geocoding and SMTP use, for the same platform reason.
+A farmer already on VIGA's Google form migrates themselves: pick your farm at
+`/farmer/start/<secret>`, prove you control an address VIGA holds, publish. The bare
+`/farmer/start` is **gone** — new farms are invite-only (F-080). Reasoning and the findings
+behind it: [SESSION_LOG.md](SESSION_LOG.md), 2026-08-07.
 
-**Planned and asserted, never applied.** The plan is 6 to add, 2 to change, **0 to destroy**,
-and `plan-assertions.py` passes **55/55**. Nothing has been applied: `max` approves applies.
+**Live and verified in the served bytes**, not from the apply: bare `/farmer/start` **404**, a
+wrong secret the **same 404**, the correct secret 200, and all three farmer routes **400** to a
+malformed body rather than 500.
 
-**Planning this is what exposed the geocoding regression above**, because the first plan showed
-`SMTP_PASSWORD` being REMOVED from the live web service. That is the same defect from the other
-direction, and it would have broken F-078's email sending had it been applied. Three things came
-out of it:
+**Walked end to end against a real farm**, every step read back from Postgres rather than a
+response body: a request for an address on file and one for a stranger returned **identical**
+bodies with **exactly one row written**; a wrong code was **counted**, a malformed one refused
+identically and **not counted**; the right code verified, set the `HttpOnly` grant, and a
+**replay was refused**; the grant opened that farm's form and **not another farm's**. The test
+row was removed; `farm_email_verifications` holds **0 rows**.
 
-- **`infra/production.tfvars`** records the mount flags production actually runs with.
-  `mount_geocoding_key` and `mount_smtp_password` are `true`; `mount_email_verification` is
-  `false` until the versions exist.
-- **A new plan assertion**: neither service may unmount a secret that is currently live. It
-  compares the plan's before against its after, so it catches the real regression rather than a
-  flag's value — **verified by planning without the var-file, which fails it by name**.
-- **The RUNBOOK's deploy command carries `-var-file=production.tfvars`**, and it did not before.
+**Migration `0025` applied BEFORE the image**, verified by effect: fingerprint taken first
+(`neondb`, 25 migrations, table absent), afterwards **7 CHECK constraints and 5 indexes** exist
+— including the partial unique index `drizzle-kit` silently drops. Each proven to genuinely
+**REFUSE** on production, every attempt rolled back, with a **valid row accepted** as the
+control.
 
-**ALL OF IT IS DONE** (2026-08-07): applied (geocoding restored, three containers created) →
-the three secret versions added → the roster ingested under the stored salt → migration `0025`
-applied → `mount_email_verification` flipped and the image deployed. Web now mounts all three
-new values plus geocoding and SMTP; **the worker mounts none of them**, asserted
-unconditionally so flipping the flag can never quietly hand a salt to a process with no use
-for it.
+**The roster is ingested: 38 addresses across 32 farms.** F-078 shipped `ingestFarmEmails` with
+**no caller**; `scripts/ingest-farm-emails.ts` is it. The salt went into Secret Manager
+**before** the ingest used it, so the two cannot drift — verified by matching stored hashes back
+through the shipped `findVerifiableFarmByEmail`, with a wrong salt confirmed to match nothing.
+**`EMAIL_HASH_SALT` can never be rotated** without re-ingesting.
 
-## F-079 — the migration door, gated by an emailed code (2026-08-07, DEPLOYED)
+**Four farms nearly got no address at all.** Flora Hill, Green Ears, Lavender Hill Farm and
+Sweet Alyssum Farm carry a `*does not accept VIGA Bucks*` annotation on the farm-name cell;
+exact matching correctly refused them, and a **dry run caught it before any write**. Fixed in
+the parser. 32/32 farms now match.
 
-**LIVE AND EXERCISED END TO END AGAINST PRODUCTION.** Web rolled 00039 -> 00040 and worker
-00038 -> 00039 on the same digest; health 200, 34 stands, unchanged. Verified in the served
-bytes rather than from the apply: the bare `/farmer/start` answers **404**, a wrong secret
-answers the **same 404**, the correct secret answers 200, and all three farmer routes answer
-**400** to a malformed body rather than 500 — so they are live and not failing on configuration.
+**~3 farms have no email on file and cannot use this door** — they reach a standing "contact
+VIGA" line, which is generic on purpose: naming that a farm has no address would disclose
+roster contents to anyone who asks.
 
-**The whole chain was walked against a real farm with a real address on file** (`Aeggy's Farm`),
-and every step was read back from Postgres rather than from a response body:
-
-- a code request for the address on file and one for a stranger returned **identical**
-  `{"status":"sent"}`, and **exactly one row was written** — the real address got a code, the
-  stranger got nothing;
-- a wrong code was refused and **counted** (`attempt_count` 0 -> 1); a malformed one was refused
-  with the **same body** and **not counted** (still 1);
-- the right code verified, set the `HttpOnly` grant cookie, and a **replay of the same code was
-  refused** — single-use holding in production;
-- the grant opened the listing form for that farm and **did not open another farm's**; without
-  the cookie the page shows the verification step instead.
-
-The test verification row was removed afterwards; `farm_email_verifications` holds **0 rows**.
-Listing data unchanged throughout at **36 farms / 36 locations**.
-
-**Migration `0025` was applied BEFORE the image that reads it**, per the RUNBOOK's ordering rule,
-and verified by effect: the fingerprint was taken first (`neondb`, 25 migrations, table absent),
-and afterwards all **7 CHECK constraints and all 5 indexes** exist — including the partial
-unique index `drizzle-kit` silently drops. **Every constraint was proven to genuinely REFUSE on
-production**, each attempt rolled back, and a **valid row was accepted** as the control that
-stops "it refuses everything" reading as success.
-
-**THE ROSTER IS INGESTED: 38 addresses across 32 farms** (`farm_emails`, was 0). F-078 had built
-`ingestFarmEmails` and shipped **no caller**, so `scripts/ingest-farm-emails.ts` was written for
-this. The salt was stored in Secret Manager **first**, then used for the ingest, so the two
-cannot drift — and that was verified by effect, by matching stored hashes back through the
-shipped `findVerifiableFarmByEmail`, with a wrong salt confirmed to match nothing.
-
-**A DRY RUN AGAINST PRODUCTION CAUGHT A REAL DEFECT BEFORE ANY WRITE.** Four farms — Flora Hill,
-Green Ears, Lavender Hill Farm, Sweet Alyssum Farm — carry a `*does not accept VIGA Bucks*`
-annotation appended to the farm-name cell in VIGA's form. Exact matching correctly refused them,
-so those four farmers would have had **no address stored and no way to verify**, with the ingest
-reporting success. Fixed in the parser (trailing paired `*…*` only, with three tests guarding
-against over-stripping). After the fix: **32 of 32 farms match, zero unmatched**, 31 -> 38
-addresses.
-
-
-
-A farmer already on VIGA's Google form moves themselves across: pick your farm, prove you
-control the address VIGA holds, publish. The bare `/farmer/start` honour-system door is **gone**
-— new farms are invite-only (F-080), and this is the migration path, behind a secret segment.
-
-- **Carries migration `0025`, which the item did not anticipate.** F-078 built the roster, the
-  code and the send path and stored nothing about what was SENT. A code must be checkable on a
-  later request, and Cloud Run scales to zero while a farmer reads their mail — an in-memory
-  code would refuse a farmer who typed exactly the right digits.
-- **The credential is a row, not a signature**, matching every other credential in this schema:
-  hashed at rest, single-use, expiring, attempt-capped. Six digits is a small space, so what
-  makes it safe is that guesses are **counted**, not that the code is long.
-- **Throttled per farm AND per address, counted from stored rows.** The existing client-signal
-  throttle is the coarse cost bucket only — rotating a client signal is free, and would still
-  let someone bury one farmer's inbox.
-- **Verification grants LISTING-PUBLISH RIGHTS ONLY, never farmer authorization.** Updating stock
-  by text still needs an inbound message from a consented handset. The page says so, and
-  `consumeAndGrant` is the only capability the boundary holds, so it is structural.
-- **Two uniform responses.** Requesting a code always answers `sent`; every refusal on submit is
-  one body. The attempt cap is checked FIRST, so a capped record is not a guessing oracle.
-- **The secret is OBSCURITY, not authentication**, and DATA_ARCHITECTURE §privacy now says so:
-  it travels in history, `Referer` headers and access logs, and is neither one-use nor
-  revocable. The emailed code is what actually gates publishing.
-- **A REAL DEFECT WAS FOUND BY RUNNING THE SERVER, not by any test.** The door answered **HTTP
-  200 while rendering 404 markup**: `app/loading.tsx` was a Suspense boundary wrapping every
-  route, and Next commits a 200 as soon as that shell streams, before `notFound()` runs. A 200
-  carrying 404 text is indexable, cached as success, and tells a prober the path is live — the
-  one fact the obscurity hides. Fixed by scoping the map's spinner to a **`(map)` route group**,
-  which is also more correct on its own terms. Four hypotheses were tested and disproved first
-  (force-dynamic, awaiting params, dynamic segments, a `not-found` boundary), and the middleware
-  fix was abandoned because **Next 14 middleware is edge-only and cannot use `timingSafeEqual`**.
-  A build-shape regression test now asserts no root `loading.tsx`, sabotage-verified.
-- **`drizzle-kit` SILENTLY DROPPED ALL SEVEN CHECKS AND ALL FOUR INDEXES** when run against the
-  same `schema.ts` — 0024's finding reproduced first-hand, including the partial unique index
-  that is the entire single-live-code guarantee. Only the meta snapshot was kept.
-- **F-078'S RAW-EMAIL TRIPWIRE COULD NOT FAIL, and that is the finding worth keeping.** It ran
-  its regex over `codeOnly` output, which blanks **template literals** — and every query here is
-  a tagged template, so it detected **no reader of `farm_emails` at all**, not even the two its
-  own allowlist named. Green since it shipped, for a reason unrelated to the property claimed.
-  Now anchored to SQL-preserving source and sabotage-verified, plus two new tripwires for
-  F-079's own credential.
-- **Verified end to end against the running app**, read back from **Postgres and
-  `/api/public/stands`** rather than from a success banner: an address on file resolves, a
-  stranger is refused, a wrong guess is counted, the right code verifies, **a replay returns
-  null**, **a grant for farm A does not open farm B**, and the published stand reaches the
-  public map with address, coordinates, payments and items.
-- **One acceptance criterion is satisfied only GENERICALLY, and it is max's call.** "A farm with
-  no email on file is told to contact VIGA" cannot be done *specifically* without contradicting
-  the uniform-response rule the same item requires — naming that a farm has no address on file
-  discloses roster contents to anyone who asks. Both steps carry a standing "contact VIGA" line
-  instead, which the ~3 affected farms reach the same way everyone else does.
-
-Verified: **1491 unit**, **791 integration**, typecheck, lint, evals 44/44, production build.
-**No `packages/ai` file changed, so no eval or `evals:live` run is owed.** Sixteen sabotages,
-each failing its named test. Integration ran against local Postgres, never Neon.
-
-**Three new environment variables are owed to production** before this works there:
-`FARMER_START_SECRET` (min 32 chars; absent means the door does not exist, which is supported),
-`EMAIL_HASH_SALT` (**must match whatever the roster ingest uses**, or nobody can verify), and
-`VERIFICATION_CODE_SALT`. Deliberately not `PHONE_HASH_SALT` reused. RUNBOOK documents all three.
-
-**The SMTP CREDENTIAL IS LIVE IN PRODUCTION** (2026-08-06, commit `4ff90a5`; the services have since rolled to 00038). The relay is
-configured, and the app password is now in Secret Manager and mounted. Sender is
-**`board@vigavashon.org`** (max), not a dedicated Farm Friend address — so replies reach a
-mailbox VIGA actually reads.
-
-Landed by the same three-step gate as geocoding, for the same platform reason: `version =
-"latest"` resolves at container start, so an unconditional mount of a versionless secret makes
-Cloud Run refuse the revision and takes the public map down to add an optional feature.
-
-**Verified by effect against the live services, not from the applies' exit status.** Both
-services rolled **00034 → 00037**, so they genuinely restarted and re-read the secret — the
-check that catches B-021's "apply succeeded, nothing picked it up". The live web service holds
-`SMTP_PASSWORD` from Secret Manager plus host/port/username/sender; **the live worker holds no
-`SMTP_*` variable at all**. Health 200 and 34 stands, unchanged. The secret version was checked
-for **shape without printing it**: 16 bytes, no trailing newline, no embedded space — the
-failure that looks correct in every listing and fails every send.
-
-**The sender address is configuration** (`SMTP_FROM_ADDRESS`), so moving to a dedicated address
-is an apply rather than a code change. `smtp_port` refuses **25**, which Google Cloud blocks
-outbound with no way to open it.
-
-Plan assertions **39/39 → 44/44**. Four sabotages, each failing its named check: the password in
-`shared_secret_env` (worker mount), supplied as a literal env value (cleartext in state),
-`SMTP_FROM_ADDRESS` dropped from config, and SMTP config in `common_env` (worker configured for a
-capability it does not have).
-
-**A tripwire had been RED AND SILENT since commit `737b39b`.** `infra/secrets-lifecycle.test.py`
-asserted on the local variable names `initial_secret_changes` / `post_provision_secret_changes`;
-that commit renamed the locals and the test has failed ever since — unnoticed because it is a
-standalone Python file `npm test` never runs. It now anchors to the **addresses** the guard
-allow-lists and **calls** the predicate, asserting a protected survivor can never be deleted.
-Sabotage-verified by making the guard return `True`, which it now catches. **It is still not in
-any npm script**, so it must be run by hand: `python3 infra/secrets-lifecycle.test.py`.
-
-**The F-078 APPLICATION HALF IS BUILT AND DEPLOYED** (commit `fa1bab1`): the privacy
-layer, the verification code and email copy, the SMTP seam, the ingest, and the privacy proof.
-
-- **The email copy is written to minimize replies** (max), which is a real cost — replies land
-  in VIGA's board mailbox and a volunteer answers by hand. The code is in the **subject**, so a
-  farmer reading a phone notification never opens the mail; the subject names VIGA so it does
-  not read as spam; the farm is named in the first sentence; the expiry is rendered from
-  `CODE_TTL_MINUTES` so the promise cannot drift from the behavior; a recipient who did not ask
-  is told to ignore it; and there is **no link**, because a code plus a link is the shape of a
-  phishing mail. Replies are still invited and the address given.
-- **Email privacy is a second instance of `phone.ts`, not a second mechanism.** Normalize at
-  ingress, HMAC for lookup, raw address in exactly one column read only by the send path, masked
-  in admin. `normalizeEmail` names its whitespace class explicitly to match the index's
-  `btrim(email, E' \t\r\n')` — `btrim(text)` strips spaces only, which is 0020's defect.
-- **A SABOTAGE CORRECTED THE PRIVACY TEST, and the finding is worth keeping.** The first version
-  asserted on the objects `listPublicStands` returns; selecting the email straight into that
-  query left all four tests **passing**. The escape was not the test failing —
-  `serializePublicStand` is an **explicit allowlist**, so a leaked column cannot reach the wire
-  on its own, which is a real architectural property. What fails the test is a leak carried the
-  whole way (query, mapping, serializer), exactly what a well-meant "contact the farmer" field
-  would look like. The assertion now reads the **served bytes** of `/api/public/stands`, and
-  under that sabotage it fails and names the exposed address.
-- **Two architecture tripwires**: no email table or column anywhere `packages/ai` can read, and
-  the raw column readable only from the send path and the ingest.
-- **The ingest is idempotent** against the normalized unique index (`on conflict do nothing` —
-  select-then-insert cannot serialize a row that does not exist), proven against real Postgres
-  including the case collision only the index can arbitrate. Farms with **no address** and farms
-  matching **no seeded name** are reported, never dropped.
-- `nodemailer` 9.0.4, **zero transitive dependencies**, in `apps/web` only. **STARTTLS is
-  required**, not merely offered, so the app password cannot cross the wire in the clear.
-
-Verified: **1423 unit** (was 1369), **753 integration** (was 744), typecheck, lint, production
-build, evals 44/44. Integration ran against local Postgres, never Neon.
-
-**THE REAL SEND IS DONE** (max, 2026-08-06) — a message rendered by the shipped
-`renderVerificationEmail`, sent through the shipped transport against the real Google relay,
-delivered to a real inbox. That closes F-078's last acceptance criterion. A stubbed mail server
-would have proven nothing about whether a farmer receives anything.
-
-**The sender reads `VIGA`, not `board`** (max, after seeing the delivered mail). The address is
-unchanged — `board@vigavashon.org` still authenticates to the relay and still receives replies —
-so this is only the display name a mail client shows, carried as configuration like the address.
-Quotes, angle brackets, and newlines are **refused**: a display name is folded into the From
-header, so `"VIGA" <someone@else.com>` would make the visible sender differ from the configured
-one, and a newline can append headers outright. The transport also passes name and address as
-**structured fields** rather than a hand-built string, so nodemailer owns the header encoding and
-the two defenses are independent. `SMTP_FROM_NAME` is in Terraform and read back out of a real
-plan; assertions stay 44/44.
-
-~~**Still owed for the email identity feature as a whole:** wiring verification into an actual
-farmer-facing page (**F-079**), and the production ingest of the roster.~~ — **BOTH DONE
-2026-08-07.** F-079 is deployed and the roster holds 38 addresses across 32 farms. See the
-F-079 section above.
-Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
-effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
-contacts) was taken before writing, and the pre-change schema was asserted so a pass could not
-come from an already-migrated database.
-
-**F-071, F-072, F-073, and F-074 are DEPLOYED** (2026-08-06), together with the stand-card
-redesign that had been merged and waiting. Migrations `0022` and `0023` were applied **before**
-the image that reads them, per the RUNBOOK's ordering rule. max chose to apply them **without a
-pre-migration snapshot** when asked. Both are additive and nullable, and listing data was
-unchanged across the migration (36 farms / 35 locations / 2 contacts, before and after).
-
-**Verified by effect in the served bytes, not from the apply's exit status.** Plan assertions
-37/37, deploy and served-card assertions pass. The F-074 filter was proven by **marking a real
-production farm and watching it leave the served JSON**: `/api/public/stands` went 34 → 33 stands
-with `3 Brothers Outpost` absent, `?hidden=true` still served all 34 including it, and unmarking
-restored 34. **Production holds zero test farms** — the check put the farm back and confirmed it.
-Two identical 34-stand responses would have been produced by a filter that did nothing, which is
-why the check marks a farm rather than reading the default twice. The four new CHECK constraints
-were each proven to genuinely **refuse** on production, in both directions of each coherence
-pair, every attempt rolled back.
-
-**A real defect was found by deploying, and only the container build could see it.** F-073's
-`/api/farmer/link-request` built its throttle at **module scope** from `publicReadContext()`,
-which constructs the database pool and demands `DATABASE_URL`. `next build` collects page data by
-importing every route module in a process with **no environment**, so the image build failed with
-"Failed to collect page data" while `npm test`, typecheck, lint, and a local `next build` all
-passed — `.env` exists on a developer machine and not in a build container. The throttle only
-needed a clock. The guard is a **real import with the variables deleted** across eight routes,
-not a source grep, and it reproduces the Cloud Build error locally; sabotage-verified. Fixed in
-`41412b4`. The live route now answers `400` to a malformed body rather than `500`.
-
-**PRODUCTION HOLDS ONE TEST FARM** (2026-08-06): `Test Farm` at `20714 Westside Hwy SW`, farm id
-`c3b47b9e-d1d4-41ab-9fae-1e7bb8c02bc5`. max onboarded it end to end against the freshly deployed
-build — approve → invite → authorize → publish — which is F-074's whole purpose, and it went live
-on the public map because the flag is not set automatically. It is now **marked**, recorded as
-`farm_marked_test` against `board@vigavashon.org`.
-
-**Verified by effect afterwards**: an islander gets **34 stands with `Test Farm` absent**;
-`?hidden=true` serves **35 including it**. So the public count is 34 real stands and the extra one
-is deliberate. A future session reading "35 locations" in the database against "34 stands" on the
-map should look here first rather than treating it as a defect. Marking is reversible from
-`/admin` → **Test farms**.
-
-**F-069 and F-070 are DEPLOYED** (2026-08-06). Neither adds a migration, so none was owed. Plan
-assertions 37/37, deploy and served-card assertions pass. **Verified by effect in the served
-bytes**, not from the green apply: the root page carries **12 secondary road paths and 1 highway
-path** (F-070's exact geometry), and `POST /api/farmer/address-lookup` answers `invalid_request`
-to a malformed token and a uniform `invitation_unavailable` to a well-formed unknown one, leaking
-no key.
-
-~~**Nothing is merged-and-undeployed.** `main` at `41412b4` is what production serves.~~ —
-superseded 2026-08-07; production now serves `127d45a` at revision 00038. See Release state.
-
-**`GEOCODING_API_KEY` IS NOW SET IN PRODUCTION** (2026-08-06), so address lookup is on and the
-onboarding form offers a draft pin the farmer confirms. Its absence remains a supported
-deployment — the form falls back to pin-dropping — and the kill switch is one apply away.
-
-**The production wiring is BUILT and fully applied** (2026-08-06). `infra/secrets.tf` declares
-`farm-friend-geocoding-api-key` and `infra/services.tf` mounts it into the **web service only** —
-the worker never geocodes, and mounting a billed credential there would put spending in a process
-with no throttle in front of it. The IAM accessor grant came free, because `runtime_reads`
-iterates the secrets map.
-
-**The mount is behind `var.mount_geocoding_key`, and that flag is the whole point.**
-`version = "latest"` is resolved when a container STARTS, and a secret with **no versions**
-resolves to nothing — Cloud Run then refuses the revision. An unconditional mount would therefore
-take the public map down in order to add an optional feature, inverting the property geocoding is
-supposed to have. So it is three steps:
-
-1. **DONE** — applied with the flag `false`: the empty secret container and its IAM grant exist,
-   nothing mounts it, and the live service was confirmed healthy afterwards (35 stands, health 200).
-2. **DONE** — max added version 1 out of band, never through Terraform.
-3. **DONE** — applied with `mount_geocoding_key=true`. Plan assertions 39/39.
-
-~~**GEOCODING IS NOW LIVE IN PRODUCTION** (2026-08-06)~~ — **NO LONGER TRUE, AND THIS IS A LIVE
-DEFECT** (found 2026-08-07 while planning F-079's infrastructure, by reading the live service
-rather than this file). `GEOCODING_API_KEY` was mounted on `farm-friend-web-00034-77d` and was
-**stripped at 00035** by the SMTP apply: every `mount_*` flag defaults to `false`, nothing
-recorded which ones production ran with, and that apply passed `mount_smtp_password=true` and
-nothing else. The key has been absent from **00035, 00036, 00037 and the current 00038**,
-confirmed revision by revision against Cloud Run.
-
-**The consequence is not cosmetic.** F-077 made the typed address the only source of a
-coordinate and removed tap-to-place, so with no geocoding key **no visitable stand can be
-created in production at all** — a farmer's address cannot resolve. Every apply in that window
-reported success.
-
-**Fixed but NOT YET APPLIED:** `infra/production.tfvars` now records the flags production
-actually runs with, `plan-assertions.py` fails by name on any plan that would unmount a live
-secret (verified against a plan that omits the var-file), and the RUNBOOK's deploy command
-carries `-var-file=production.tfvars`. The next apply restores the mount. The paragraph below
-describes the 00034 state and is kept for the history:
-
-Web served revision
-`farm-friend-web-00034-77d` with `GEOCODING_API_KEY` mounted; the worker stays on
-`farm-friend-worker-00034-4cn` and **does not mount it**, confirmed against the live service
-rather than from the plan. Health 200, and `POST /api/farmer/address-lookup` answers `400` to a
-malformed body — so the route is live and not failing on configuration. Setting the flag back to
-`false` and applying is the kill switch; it stops lookup without touching the key.
-
-**That apply was INTERRUPTED partway and still landed**, which is worth knowing rather than
-tidying away: the process died holding the state lock, blocking a second terminal with a
-misleading "resource temporarily unavailable". The lock cleared itself when the process exited
-(`force-unlock` reported `LocalState not locked`). Live state was then verified directly —
-revision, mount, worker exclusion, health — instead of inferred from the failed command.
-A re-plan still reports **2 in-place changes**, and they are a provider-level `scaling`
-normalisation (`min_instance_count 0 → null`, semantically identical) present before this work,
-**not** unfinished geocoding.
-
-Plan assertions are **39/39** (was 37): six secrets declared, the geocoding container present, and
-**the worker never mounts `GEOCODING_API_KEY`** — that last one asserted unconditionally, so
-flipping the flag can never quietly hand a spending credential to the worker.
-**Sabotage-verified**: moving the key into `shared_secret_env` fails that named check (38/39).
-
-**The geocoding path HAS now made real billed calls** (2026-08-06, run locally before the key
-reached production; production has since had its own key mounted) — the
-check that was owed since F-069, and it is done. Three calls through the shipped
-`lookupIslandAddress`, not a hand-rolled fetch, so what was exercised is the code production would
-run: the request it builds, the live response shape it parses, and the bounds check on the way
-back. Every test injects `fetch`, so none of that had ever been verified against the real provider.
-  - a real Vashon address → `found`, pinned at **47.4496, -122.4609** (Vashon town — the right
-    place, not merely a well-formed answer);
-  - **`400 Broad St, Seattle` → `off_island`, REFUSED** — the one that matters, since it is a
-    valid geocode the bounds check rejected rather than handing a farmer a pin fifteen miles away;
-  - nonsense → `no_result`, degrading to pin-dropping.
-
-**Deployed twice on 2026-08-05, each verified by effect**: plan assertions 37/37 both times,
-deploy and served-card assertions pass, and the live site serves **34 stands, 33 reading
-`usuallySells` from `stand_items`** — so the promoted image and the migrated schema demonstrably
-agree. `POST /api/farmer/listing` answers `400` to a malformed token before touching the database
-and a uniform `410` to a well-formed unknown one, so it is not an oracle for whether a guessed token
-names anything.
-
-**All 35 seeded farms are now approved** (2026-08-05), recorded against the board account. The
-admin's approval queue had held all 35 while approving them changed nothing a customer sees:
-`listPublicStands` gates on `is_public`, **not** on approval, so those stands were already on the
-map. What approval gates is whether the **farmer may publish an update** — `confirmProposal` and the
-scheduled prompts both re-read it. The bulk write was insert-only, idempotent against the partial
-unique index, fingerprinted before writing, and verified by effect (queue empty, 35 locations
-untouched, a re-run writes zero). `scripts/approve-seeded-farms.ts` is retained and safe to re-run.
-Admin copy in three places was corrected to match: approval is now the **exception**, and an empty
-queue is the normal state rather than a sign something failed.
-
-`0019`, `0020`, and `0021` were applied **before** the code that reads them was promoted, per the
-RUNBOOK's ordering rule. All three are additive and backward-compatible (a column, a table, a
-widened constraint), so the pre-tranche image kept serving correctly in the window between the
-migration and the deploy. **`0020` backfilled 212 `stand_items` rows from real production data**;
-listing data was unchanged (35 farms, 35 locations, 2 contacts, before and after). max declined a
-pre-migration snapshot when asked.
-
-The farmer-consent launch blocker closed in the previous tranche and is deployed; see the
-[session log](SESSION_LOG.md) for its reasoning.
-
-Four tranches have now landed on `main` and are **DEPLOYED**, with all their migrations applied
-ahead of the image that reads them:
-
-- the **listing ingestion work** (F-063, F-061, F-062, and F-064's guard) — migration `0019`
-  (`inventory_revisions.source`);
-- **F-066's one item vocabulary** — migration `0020` (`stand_items`);
-- **F-067's self-serve farmer onboarding** — migration `0021`
-  (`farmer_onboarding_requests_coherent_settlement` widened);
-- **F-067's onboarding listing form** — the first farmer-facing writer of listing facts; no
-  migration of its own.
-
-F-066 and F-067's first half landed together as **PR #80** (`41e6dd0`); the listing form landed as
-**PR #81**. Each merged base was re-verified green rather than assumed from the branch's own run.
-
-**The schema is current; the listing DATA is not.** F-064's production ingest has still not run, so
-production continues to serve the pre-tranche listing content — see "Open before go-live" below.
-
-An earlier tranche produced two findings that outgrew it and drove the ingestion audit:
-
-- **the map CSV is a hand-maintained derivative**, so the oddities in stand descriptions
-  (`WA, WA 98070`, en-dashes in dated lines) are transcription residue from the manual step Farm
-  Friend exists to remove;
-- **`parseFormResponses` was suspected of describing a source VIGA has never produced. That is
-  disproved** (audit 2026-08-04, **B-035 closed wont-fix**). VIGA supplies **three** CSVs, not two:
-  a per-farm **profile form** (`2026 Farm Stand Information (Responses)…`, header matches
-  `EXPECTED_COLUMNS` byte for byte, parses to 31 stands + 1 known refusal, **still open**), the map
-  transcription (31 stands, the only coordinates), and the **weekly stock form** (734 rows, 49 farms
-  — **now parsed and ingested for 2026**, F-062). Both "invented" fixtures are real data. The join
-  is sound: 35 stands, 0 refusals.
-
-`extractStockUpdate` parses VIGA's dated `"5/26/2026 Update: …"` lines. **How such a line is stored
-is now resolved** — F-063's `source = 'viga'` is exactly that record — and the same parser gained
-two fixes found only by measuring the real export: the separator is written as a dash in 5 of 18
-lines, and one line uses a two-digit year. Its remaining job is to keep those lines out of the
-public description, which it does.
+**Mount flags are now configuration, not shell history.** `infra/production.tfvars` records what
+production runs with; a plan assertion fails when a service would unmount a live secret
+(verified by planning without the var-file); the RUNBOOK's deploy command carries
+`-var-file=production.tfvars`, and did not before. **This closed a live regression**:
+`GEOCODING_API_KEY` was stripped at revision 00035 and absent through 00038, so production could
+not create a visitable stand for that window. Restored at 00039.
 
 ## Verification
 
+- **Latest, 2026-08-07 (F-079 tranche, DEPLOYED):** **1495 unit** (127 files), **791
+  integration** (58 files), typecheck, lint, `evals` 44/44 (critical 11/11, advisory 4/4,
+  adversarial 29/29), and the production build. Integration ran against local Postgres, never
+  Neon. **`packages/ai` was untouched across all eight commits, so no `evals:live` was owed** —
+  checked against the diff rather than assumed. Infra: `plan-assertions.py` 55/55,
+  `secrets-lifecycle.test.py` and `test_plan_assertions.py` pass.
 - **The farmer-surface tranche is MERGED to `main` and PUSHED — NOT deployed.** Four
   farmer/admin defects max reported from using the app, the chip interface below, plus a
   test-harness gap found on the way. Verified 2026-08-06: **1342 unit / 735 integration**,
@@ -815,6 +457,17 @@ against the real corpus on 2026-08-04 while implementing.
 
 ## Open before go-live
 
+- **~3 farms have no email on file and cannot use the migration door** (**B-038**, filed
+  2026-08-07). They reach a standing "contact VIGA" line and stop; the same applies to any farmer
+  whose address changed since VIGA's export. **Not a code defect** — the uniform response is a
+  deliberate privacy property, and revealing which farms lack an address would disclose roster
+  contents. The fix is VIGA collecting the missing addresses and re-running the ingest (it is
+  idempotent), or onboarding those farms by invitation. The ingest names the affected farms on
+  every run.
+- **The migration door's secret must be sent to farmers by VIGA**, and it is obscurity rather
+  than a credential — do not post it anywhere indexable. Retrieve with
+  `gcloud secrets versions access latest --secret=farm-friend-farmer-start-secret --project farm-friend-vashon`.
+  Rotating it is one new version plus an apply, and invalidates links already sent.
 - **Approved farmers still start on no reminder schedule.** `authorizeFarmer` writes no
   `inventory_prompt_preferences` row, so the scheduled-prompt machinery — built and correct —
   reaches nobody. Next tranche; see `~/.claude/plans/warm-dazzling-kahn.md` work item 2.
@@ -875,8 +528,10 @@ against the real corpus on 2026-08-04 while implementing.
   **The live geocoding call is DONE** (2026-08-06): three real billed calls through the shipped
   `lookupIslandAddress` against the real provider, including a valid Seattle geocode genuinely
   refused as off-island. Still owed: a real **browser** round trip. `GEOCODING_API_KEY` is
-  **optional and unset in production** — until it is set there (which needs the infra wiring
-  described in Release state), the form asks the farmer to tap the map, the pre-F-069 behaviour.
+  **mounted in production** (restored at web revision 00039 after the mount-flag regression; see
+  Release state). Its absence remains a supported deployment at the config layer, but since
+  F-077 removed tap-to-place there is **no fallback left** — with no key, no visitable stand can
+  be created at all.
 - **F-070 put the island's main roads on the map (deployed 2026-08-06; 12 secondary road paths verified in the served bytes).** F-043 drew one road on
   purpose ("side roads would turn a legible poster into a street map"), which was right while the
   artwork only oriented a customer. **The onboarding form gave it a second job** — it is how a

@@ -155,3 +155,28 @@ with the guard that protects each.
   They assert against source because the property belongs to the platform or the install rather than
   to runtime behavior — which also makes them the easiest tests to write wrongly. Sabotage them
   whenever you change them.
+  **A tripwire about a TABLE cannot use the same source stripper as one about a CALL.** `codeOnly`
+  blanks template literals, which is right for a tripwire hunting a function call and fatal for one
+  hunting a table name: every query here is a tagged template, so the name lives entirely inside
+  backticks. F-078's raw-email tripwire ran `/\bfarm_emails\b/` over `codeOnly` output and
+  therefore matched **no reader of the table at all** — including the two files its own allowlist
+  named. It was green from the day it shipped, for a reason unrelated to the property it claimed,
+  and the allowlist is what made it look verified. Use `codeAndSqlOnly` for SQL identifiers.
+- **A sabotage aimed at the wrong tree is indistinguishable from a test that cannot fail.** A plan
+  JSON carries the same resource twice — under `planned_values` and under `resource_changes` — and
+  `plan-assertions.py` reads `planned_values`. Sabotaging the other one passes, which looks exactly
+  like a vacuous check. When a sabotage does not fail, first confirm you edited what the assertion
+  actually reads.
+- **Every `mount_*` Terraform flag defaults to `false`, so an apply that omits one UNMOUNTS it.**
+  `GEOCODING_API_KEY` was live on web revision 00034 and was stripped at 00035 by an apply that
+  passed only `mount_smtp_password=true`; it stayed gone through 00038 while every apply reported
+  success, and with F-077 in place production could not create a visitable stand for that whole
+  window. **Always pass `-var-file=production.tfvars`.** Guard: a plan assertion fails when either
+  service would unmount a secret that is currently live, and adding a mount flag means adding it to
+  that file in the same change.
+- **A Suspense boundary commits the HTTP status before the page body runs.** `app/loading.tsx` at
+  the app root wrapped every route, so `notFound()` in a page rendered 404 markup under a **200**
+  status — indexable, cacheable as success, and an oracle telling a prober the path exists. Only
+  the real standalone server showed it; `next dev` and unit tests could not. Keep route-scoped
+  fallbacks inside their own route group. Guard:
+  `apps/web/lib/route-group-status.test.ts` asserts no root `loading.tsx`.
