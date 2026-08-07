@@ -45,10 +45,11 @@ describe("farmer invitation onboarding surface", () => {
     expect(page).not.toContain("Nothing is public yet.");
   });
 
-  it("says what actually happens next — the reply, and how to change things later", () => {
-    expect(page).toMatch(/Farm Friend replies/i);
-    expect(page).toMatch(/SETTINGS/);
-  });
+  // The "What happens next" section was REMOVED from this page (max, 2026-08-07), so the test
+  // that asserted its copy is gone with it rather than left failing. The invitation page now
+  // ends at the agreement and the link-expiry note; what happens after the text is explained by
+  // the reply itself. The `/farmer/start` door keeps its own "What happens next" section, which
+  // is a different page describing a different next step.
 
   // The listing form is the whole point of F-067: without it a farm reaches the public map
   // with a name and nothing else. Anchored to the CALL SITE, not the import — an import line

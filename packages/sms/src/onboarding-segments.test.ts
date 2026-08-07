@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  CUSTOMER_SMS_WELCOME,
+  renderCustomerWelcome,
   FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_JOIN_INSTRUCTION,
@@ -22,16 +22,30 @@ import { estimateSmsSegments } from "./segments";
 
 describe("onboarding message segments", () => {
   it("sends each fixed onboarding message as ONE GSM-7 segment", () => {
+    // The customer welcome is NOT here any more. It carries the contact-card link (71
+    // characters at the production host), so one segment stopped being reachable without
+    // gutting the copy — max chose the two segments on 2026-08-07. Its own bound is asserted
+    // below rather than dropped, because the regression to catch is a THIRD segment.
     for (const body of [
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       FARMER_AUTHORIZED_NOTIFICATION,
       FARMER_JOIN_INSTRUCTION,
-      CUSTOMER_SMS_WELCOME,
     ]) {
       const estimate = estimateSmsSegments(body);
       expect(estimate.encoding, body).toBe("GSM-7");
       expect(estimate.segmentCount, body).toBe(1);
     }
+  });
+
+  it("keeps the customer welcome within TWO segments at the real production host", () => {
+    // Measured against the address production actually serves from, not a short fixture: a
+    // test using `https://example.com` would pass while the live message ran to three
+    // segments, which is the failure mode this file exists to prevent.
+    const estimate = estimateSmsSegments(
+      renderCustomerWelcome("https://farm-friend-web-p5mfxfp5za-uw.a.run.app"),
+    );
+    expect(estimate.encoding).toBe("GSM-7");
+    expect(estimate.segmentCount).toBeLessThanOrEqual(2);
   });
 
   it("keeps the link message within two segments even with a full-length token", () => {

@@ -610,6 +610,12 @@ caller, so there is nothing metered to exhaust or enumerate, and the throttle ex
 consequential actions. **Saving a contact is not consent** — it is device-local, records nothing, and
 is emphatically not `JOIN`; the card carries no `NOTE` and the copy names no keyword.
 
+The card is reached from **two** surfaces: a link on the public map, and the SMS welcome that a
+first-time `JOIN` or a restoring `START` queues (`renderCustomerWelcome`). The second was missing
+until 2026-08-07, so a customer who arrived by text — the product's own path — was never told the
+card existed. Because it records nothing, offering it in a reply asks for nothing and changes no
+consent rule.
+
 ## Invariants (must be enforced in code and proven by tests)
 
 1. The farmer owns published state — no customer action mutates published inventory or ranking.

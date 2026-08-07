@@ -39,7 +39,9 @@ export function FarmPicker({
   const picked = farms.find((farm) => farm.farmId === farmId);
 
   return (
-    <div className="farmer-farm-picker">
+    <div className="farmer-picker">
+      <p className="farmer-step-marker">Step 1 of 2</p>
+
       <label className="farmer-field" htmlFor="farm-picker">
         <span className="farmer-field-label">Your farm</span>
         <select
@@ -60,11 +62,16 @@ export function FarmPicker({
         <PhoneStep farmId={picked.farmId} farmName={picked.farmName} />
       ) : (
         <p className="farmer-picker-next">
+          {/*
+            A LINK, not a button that assigns `window.location`. Both navigate, but only this
+            gives the farmer cmd-click, middle-click, and a visible target — and it needs no
+            JavaScript to work at all.
+          */}
           <a
             className="farmer-primary-action"
             href={`${basePath}/${encodeURIComponent(picked.farmId)}`}
           >
-            Set up {picked.farmName}
+            Continue
           </a>
         </p>
       )}

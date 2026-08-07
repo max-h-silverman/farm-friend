@@ -11,6 +11,7 @@ import { ISLAND_VIEWBOX, projectToIsland } from "@farm-friend/core/island-projec
 // agreement with what the writer stores, and a second hand-written copy of these twelve
 // fields is how that happens again.
 import type { ListingAvailability } from "@farm-friend/db";
+import { buildKeywordSmsUrl } from "../../../../lib/farmer-invite";
 import { IslandArtwork } from "../../../island-artwork";
 
 /**
@@ -84,8 +85,12 @@ const WEEKDAYS = [
  * the farmer does not have.
  */
 const HOURS_OPTIONS = [
+  // ONE way to say "while it is light". `daylight_hours` is still a valid enum value and rows
+  // already hold it — `open-now` answers it identically to `dawn_to_dusk` (same verdict, same
+  // sunrise and sunset), which is exactly why offering both was a choice with no meaning. A
+  // farmer picking between two phrasings of one fact splits the data on a distinction no
+  // customer can see. Reading stays unchanged; only the form stops asking.
   { value: "dawn_to_dusk", label: "Dawn to dusk" },
-  { value: "daylight_hours", label: "Daylight hours" },
   { value: "all_day", label: "All day, every day (24 hours)" },
   { value: "clock_range", label: "Set hours…" },
   { value: "until_dusk", label: "From a set time until dusk…" },
@@ -122,8 +127,61 @@ const MONTHS = [
   "December",
 ] as const;
 
+/**
+ * How many days each month offers the day picker.
+ *
+ * **February is 29.** The season is a recurring month/day pair stored with NO year, so a stand
+ * that opens on the 29th in leap years must be stateable; the database allows 1–31 for any
+ * month. This list exists to keep a farmer from choosing something that never occurs at all,
+ * like February 31 — not to resolve a real calendar date.
+ */
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+
+/** The days a month offers. Every day, 1–31, until a month narrows it. */
+function daysForMonth(month: string): number[] {
+  const index = Number(month) - 1;
+  const count = DAYS_IN_MONTH[index] ?? 31;
+  return Array.from({ length: count }, (_, i) => i + 1);
+}
+
+/**
+ * Opening times as half-hour choices across the whole day.
+ *
+ * A `<select>` rather than `<input type="time">`: the native control is a fiddly three-part
+ * field to operate one-handed, and it invites a farmer to type. The option VALUES stay the
+ * same "HH:MM" strings the time input produced, so `minutesOfDay`, `clockValue` and every
+ * stored row are unchanged by the swap.
+ */
+const CLOCK_CHOICES: { value: string; label: string }[] = Array.from(
+  { length: 48 },
+  (_, slot) => {
+    const hours = Math.floor(slot / 2);
+    const minutes = slot % 2 === 0 ? 0 : 30;
+    const value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    // 12-hour with am/pm, which is how a farmer on Vashon states their hours. Midnight and
+    // noon are named rather than shown as "12:00 am", which reads as ambiguous.
+    const suffix = hours < 12 ? "am" : "pm";
+    const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+    const label =
+      slot === 0
+        ? "Midnight"
+        : slot === 24
+          ? "Noon"
+          : `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+    return { value, label };
+  },
+);
+
 type SeasonKind = (typeof SEASON_OPTIONS)[number]["value"];
-type HoursKind = (typeof HOURS_OPTIONS)[number]["value"];
+/**
+ * What the form can HOLD, which is wider than what it offers.
+ *
+ * `daylight_hours` is no longer in `HOURS_OPTIONS` — it and `dawn_to_dusk` were two phrasings
+ * of one fact — but rows already store it. Deriving this from the offered list would make an
+ * edit form unable to carry a retired value, blanking a farmer's stated hours the moment they
+ * opened the form to change something else. That is B-037's failure, and typecheck caught it.
+ */
+type HoursKind = (typeof HOURS_OPTIONS)[number]["value"] | "daylight_hours";
 type StockingKind = (typeof STOCKING_OPTIONS)[number]["value"];
 
 /**
@@ -205,6 +263,13 @@ export interface ListingDefaults {
   availability: ListingAvailability;
   paymentMethods: string[];
   items: string[];
+  /**
+   * The farm's own prose, as it renders on the public card under "Additional information".
+   *
+   * Here for the same B-037 reason as the availability above: `saveOnboardingListing` writes it,
+   * so a form that could not see it would clear a farm's paragraph on the next save.
+   */
+  description: string | null;
 }
 
 /**
@@ -232,11 +297,35 @@ export function ListingStep({
   credential,
   farmName,
   defaults,
+  description: initialDescription,
+  smsNumber,
 }: {
   credential: ListingCredential;
   farmName: string;
   /** Present when EDITING an existing listing (F-073). Absent when creating one. */
   defaults?: ListingDefaults;
+  /**
+   * The farm's stored paragraph, for a door that CREATES a listing over a farm which already
+   * has one — F-079's migration door, where VIGA's prose is on the public card today.
+   *
+   * Separate from `defaults` because those two doors differ: an edit prefills every field, and
+   * the migration door deliberately prefills none of them EXCEPT this one, since it is the only
+   * field the form would otherwise silently erase. `defaults` wins when both are supplied.
+   */
+  description?: string;
+  /**
+   * Farm Friend's own SMS number, for the "text START to finish" hand-off.
+   *
+   * **The farmer texts US, and that direction is forced.** `isProactiveSendPermitted` allows a
+   * send to a number with no consent record only for `required_reply` — the carrier-required
+   * answer to that recipient's own message — and `authorizeDispatch` suppresses everything
+   * else. So Farm Friend cannot send the first text, and their inbound message is what serves
+   * as both the possession proof and the opt-in.
+   *
+   * Absent on a door that has no hand-off to announce (the edit form, where the farmer is
+   * already set up).
+   */
+  smsNumber?: string;
 }) {
   // A stored payment method is either one of the offered checkboxes or something the farmer
   // typed. Split on the closed set so an edit shows "Venmo" ticked rather than as free text —
@@ -282,6 +371,12 @@ export function ListingStep({
     storedPayments.filter((method) => !offered.has(method)).join(", "),
   );
   const [items, setItems] = useState((defaults?.items ?? []).join(", "));
+  // The farm's own paragraph on the public card. Prefilled from what is stored — for a
+  // migrating farm that is VIGA's text with its restated facts already stripped, so the farmer
+  // sees only what has no column of its own and edits from there.
+  const [description, setDescription] = useState(
+    defaults?.description ?? initialDescription ?? "",
+  );
 
   // B-037 — every one of the twelve initialised from `defaults`, because `updateStand` writes
   // every one of them on every save. A blank initialiser here is not "unset", it is a deletion
@@ -402,6 +497,24 @@ export function ListingStep({
     );
   }
 
+  /**
+   * Change a month, and drop the day if that month does not have it.
+   *
+   * Without this, picking March 31 and then switching to April leaves 31 selected in state and
+   * SAVES an April date that does not exist — the picker would show a valid-looking form while
+   * holding a day the farmer can no longer see in the list.
+   */
+  function changeMonth(
+    month: string,
+    day: string,
+    setMonth: (value: string) => void,
+    setDay: (value: string) => void,
+  ): void {
+    setMonth(month);
+    const allowed = daysForMonth(month);
+    if (day !== "" && !allowed.includes(Number(day))) setDay("");
+  }
+
   /** A whole number from a picker, or null. Never coerced — "" must not become 0. */
   function digits(value: string): number | null {
     if (value.trim() === "") return null;
@@ -493,6 +606,9 @@ export function ListingStep({
             : {}),
           paymentMethods: [...payments, ...list(otherPayment)],
           items: list(items),
+          // Always sent, even when blank: an empty box means the farmer CLEARED the paragraph,
+          // which the boundary distinguishes from a door that states nothing about it.
+          description,
         }),
       });
       if (!response.ok) {
@@ -542,7 +658,9 @@ export function ListingStep({
       because there the next action is on a different device and must be announced rather
       than discovered.
     */
-    const isOnboarding = credential.kind === "invitation";
+    // A door that PUBLISHES a stand rather than editing one: the invited form and F-079's
+    // migration door both put a farm on the map for the first time.
+    const isOnboarding = credential.kind === "invitation" || credential.kind === "grandfathered";
     return (
       <div className="farmer-listing-saved" role="status">
         <p className="farmer-form-published">
@@ -584,11 +702,36 @@ export function ListingStep({
           Change something
         </button>
 
-        <p className="farmer-listing-saved-next">
-          {isOnboarding
-            ? "Next: send one text from the phone you want to use for stand updates. It is the last step."
-            : "You can change any of this later by texting SETTINGS."}
-        </p>
+        {/*
+          THE HAND-OFF, and the step VIGA used to perform by hand. The page this replaces said
+          "contact VIGA and they will finish setting you up" — a coordinator doing what the
+          farmer can do themselves in one text.
+
+          The word is START and never JOIN or CONFIRM. Only START clears the carrier's OWN
+          opt-out list: Telnyx enforces it independently, and a JOIN four minutes after a STOP
+          was still refused 409 (verified live 2026-07-27). A farmer who ever opted out and
+          replied with any other word would be recorded as consenting while every message to
+          them was silently refused. START is also carrier-registered, so it works for a
+          first-timer and a returning farmer alike — one word covers both.
+
+          `sms:` rather than plain text so a farmer reading this on a phone taps once and the
+          message is composed for them. The number is shown as well, because this page is also
+          read on a laptop where the link does nothing.
+        */}
+        {isOnboarding && smsNumber !== undefined ? (
+          <p className="farmer-listing-saved-next">
+            Last step: text <strong>START</strong> to{" "}
+            <a href={buildKeywordSmsUrl(smsNumber, "START")}>{smsNumber}</a> from the phone you
+            want to use for stand updates. That is what turns on texting for you — we cannot
+            text you until you do.
+          </p>
+        ) : (
+          <p className="farmer-listing-saved-next">
+            {isOnboarding
+              ? "Next: send one text from the phone you want to use for stand updates. It is the last step."
+              : "You can change any of this later by texting SETTINGS."}
+          </p>
+        )}
       </div>
     );
   }
@@ -744,64 +887,87 @@ export function ListingStep({
       {seasonKind === "date_range" || seasonKind === "open_ended" ? (
         <div className="farmer-listing-row">
           <label htmlFor="season-start-month">Opens</label>
-          <select
-            id="season-start-month"
-            value={seasonStartMonth}
-            onChange={(event) => setSeasonStartMonth(event.target.value)}
-          >
-            <option value="">Month</option>
-            {MONTHS.map((month, index) => (
-              <option key={month} value={index + 1}>
-                {month}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="season-start-day" className="farmer-listing-inline-label">
-            day
-          </label>
-          <input
-            id="season-start-day"
-            type="number"
-            min={1}
-            max={31}
-            value={seasonStartDay}
-            onChange={(event) => setSeasonStartDay(event.target.value)}
-          />
+          <div className="farmer-listing-fields">
+            <select
+              id="season-start-month"
+              value={seasonStartMonth}
+              onChange={(event) =>
+                changeMonth(
+                  event.target.value,
+                  seasonStartDay,
+                  setSeasonStartMonth,
+                  setSeasonStartDay,
+                )
+              }
+            >
+              <option value="">Month</option>
+              {MONTHS.map((month, index) => (
+                <option key={month} value={index + 1}>
+                  {month}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="season-start-day" className="farmer-listing-inline-label">
+              day
+            </label>
+            <select
+              id="season-start-day"
+              className="farmer-listing-daynum"
+              value={seasonStartDay}
+              onChange={(event) => setSeasonStartDay(event.target.value)}
+            >
+              <option value="">Day</option>
+              {daysForMonth(seasonStartMonth).map((day) => (
+                <option key={day} value={day}>
+                  {day}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : null}
 
       {seasonKind === "date_range" ? (
         <div className="farmer-listing-row">
           <label htmlFor="season-end-month">Closes</label>
-          <select
-            id="season-end-month"
-            value={seasonEndMonth}
-            onChange={(event) => setSeasonEndMonth(event.target.value)}
-          >
-            <option value="">Month</option>
-            {MONTHS.map((month, index) => (
-              <option key={month} value={index + 1}>
-                {month}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="season-end-day" className="farmer-listing-inline-label">
-            day
-          </label>
-          <input
-            id="season-end-day"
-            type="number"
-            min={1}
-            max={31}
-            value={seasonEndDay}
-            onChange={(event) => setSeasonEndDay(event.target.value)}
-          />
+          <div className="farmer-listing-fields">
+            <select
+              id="season-end-month"
+              value={seasonEndMonth}
+              onChange={(event) =>
+                changeMonth(event.target.value, seasonEndDay, setSeasonEndMonth, setSeasonEndDay)
+              }
+            >
+              <option value="">Month</option>
+              {MONTHS.map((month, index) => (
+                <option key={month} value={index + 1}>
+                  {month}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="season-end-day" className="farmer-listing-inline-label">
+              day
+            </label>
+            <select
+              id="season-end-day"
+              className="farmer-listing-daynum"
+              value={seasonEndDay}
+              onChange={(event) => setSeasonEndDay(event.target.value)}
+            >
+              <option value="">Day</option>
+              {daysForMonth(seasonEndMonth).map((day) => (
+                <option key={day} value={day}>
+                  {day}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : null}
 
       {seasonKind === "named_season" ? (
         <>
-          <label htmlFor="season-names">Which seasons?</label>
+          <label htmlFor="season-names">Which seasons? (separate with commas)</label>
           <input
             id="season-names"
             type="text"
@@ -831,25 +997,41 @@ export function ListingStep({
       {hoursKind === "clock_range" || hoursKind === "until_dusk" ? (
         <div className="farmer-listing-row">
           <label htmlFor="open-from">Opens at</label>
-          <input
-            id="open-from"
-            type="time"
-            value={openFrom}
-            onChange={(event) => setOpenFrom(event.target.value)}
-          />
-          {hoursKind === "clock_range" ? (
-            <>
-              <label htmlFor="open-until" className="farmer-listing-inline-label">
-                until
-              </label>
-              <input
-                id="open-until"
-                type="time"
-                value={openUntil}
-                onChange={(event) => setOpenUntil(event.target.value)}
-              />
-            </>
-          ) : null}
+          <div className="farmer-listing-fields">
+            <select
+              id="open-from"
+              className="farmer-listing-time"
+              value={openFrom}
+              onChange={(event) => setOpenFrom(event.target.value)}
+            >
+              <option value="">Time</option>
+              {CLOCK_CHOICES.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+            {hoursKind === "clock_range" ? (
+              <>
+                <label htmlFor="open-until" className="farmer-listing-inline-label">
+                  until
+                </label>
+                <select
+                  id="open-until"
+              className="farmer-listing-time"
+                  value={openUntil}
+                  onChange={(event) => setOpenUntil(event.target.value)}
+                >
+                  <option value="">Time</option>
+                  {CLOCK_CHOICES.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -966,6 +1148,28 @@ export function ListingStep({
         actually in stock as it changes.
       </p>
 
+      {/*
+        THE FARM'S OWN PARAGRAPH, and the first farmer-facing surface that can change it.
+        `farms.description` renders on the public card and was seeded from VIGA's forms with no
+        writer anywhere, so a farmer publishing a clean listing kept stale prose underneath it.
+
+        Prefilled with what is STORED rather than blank: the writer replaces it, so an empty box
+        on an edit would erase the paragraph by omission — B-037's failure shape.
+      */}
+      <label htmlFor="stand-description">Anything else people should know?</label>
+      <textarea
+        id="stand-description"
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+        rows={4}
+        placeholder="We put a sign at the bottom of the driveway when the stand is open."
+        maxLength={2000}
+      />
+      <p className="farmer-form-note">
+        This shows on your card. Hours, payments and what you sell are already covered above —
+        this is for anything they do not say.
+      </p>
+
       {error === null ? null : (
         <p className="farmer-form-error" role="alert">
           {error}
@@ -973,7 +1177,7 @@ export function ListingStep({
       )}
 
       <button type="submit" disabled={busy || !ready}>
-        {busy ? "Saving…" : "Put my stand on the map"}
+        {busy ? "Submitting…" : "Submit"}
       </button>
     </form>
   );

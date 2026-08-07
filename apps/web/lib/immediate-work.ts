@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-// The immediate-work seam (docs/GCP_MIGRATION_PLAN.md §"Immediate and scheduled work").
+// The immediate-work seam (docs/archive/GCP_MIGRATION_PLAN.md §"Immediate and scheduled work").
 //
 // This replaces `waitUntil` as the fast path from "a message arrived" to "the reply is
 // sent". The difference is durability, and it is the reason the migration is worth doing

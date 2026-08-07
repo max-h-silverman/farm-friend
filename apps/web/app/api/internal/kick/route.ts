@@ -7,7 +7,7 @@ import {
 import { kickSenderPasses } from "../../../../lib/kick";
 import { runInboundPass, runOutboundPass } from "../../../../lib/workers";
 
-// The Cloud Tasks target (docs/GCP_MIGRATION_PLAN.md §"Immediate and scheduled work").
+// The Cloud Tasks target (docs/archive/GCP_MIGRATION_PLAN.md §"Immediate and scheduled work").
 //
 // This is what replaces `waitUntil`. The webhook commits the inbox event, enqueues a task,
 // and returns 200; the queue then calls THIS route to run that sender's passes. The work

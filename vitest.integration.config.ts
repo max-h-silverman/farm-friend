@@ -13,6 +13,9 @@ export default defineConfig({
     ],
     exclude: ["**/node_modules/**"],
     environment: "node",
+    // Refuses to run when DATABASE_URL points anywhere but a local/opted-in host,
+    // because every test here creates and drops databases on that server.
+    setupFiles: ["./vitest.integration.setup.ts"],
     testTimeout: 30_000,
   },
 });

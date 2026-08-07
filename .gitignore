@@ -18,6 +18,10 @@ android/
 # Agent worktrees — scratch checkouts, never part of the repository.
 .claude/worktrees/
 
+# Mail captured by EMAIL_PROVIDER=simulator during local development. Holds live
+# verification codes and farmer email addresses, so it must never be committed.
+.mail/
+
 # Terraform / OpenTofu working state. Provider plugins are large and machine-specific;
 # state and plan files can contain resource metadata and must never be committed.
 infra/.terraform/

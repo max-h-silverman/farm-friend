@@ -5,7 +5,7 @@ import {
   type DeploymentRole,
 } from "./deployment-role";
 
-// One image, two services (docs/GCP_MIGRATION_PLAN.md §"Containerization and configuration").
+// One image, two services (docs/archive/GCP_MIGRATION_PLAN.md §"Containerization and configuration").
 //
 // The same artifact runs as `farm-friend-web` (public ingress) and `farm-friend-worker`
 // (internal ingress + IAM). `DEPLOYMENT_ROLE` is what tells a revision which surfaces it

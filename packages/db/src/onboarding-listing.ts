@@ -92,6 +92,19 @@ export interface OnboardingListingInput {
   paymentMethods: string[];
   /** What they usually sell, in their own words and their own order. */
   items: string[];
+  /**
+   * The farm's own prose, as it renders on the public card under "Additional information".
+   *
+   * **`undefined` and `""` mean different things, and the difference is load-bearing.**
+   * `undefined` is "this door has nothing to say about the prose" and leaves the stored
+   * paragraph untouched; `""` is "the farmer cleared the box" and erases it. Collapsing the two
+   * reintroduces B-037 one column over — a door that saves hours would silently delete a farm's
+   * land acknowledgement as a side effect.
+   *
+   * It lives on `farms` rather than `sales_locations` because it describes the FARM, which may
+   * have more than one stand. Same record `renameFarm` writes, for the same reason.
+   */
+  description?: string | null;
 }
 
 /**
@@ -251,6 +264,15 @@ export async function saveOnboardingListing(
             hoursText,
             availability,
           });
+
+    // The farm's prose, when this door states one. Omitted → the stored paragraph survives.
+    if (listing.description !== undefined) {
+      const description = listing.description?.trim() ?? "";
+      await tx`
+        update farms set description = ${description === "" ? null : description}
+        where id = ${input.farmId}
+      `;
+    }
 
     await writePaymentMethods(tx, salesLocationId, listing.paymentMethods);
     await writeStandingItems(tx, salesLocationId, listing.items);
@@ -579,6 +601,11 @@ export interface StandListing {
   availability: ListingAvailability;
   paymentMethods: string[];
   items: string[];
+  /**
+   * The farm's own prose. Returned so the edit form can prefill it — a description the reader
+   * could not see would be erased by the next save of an otherwise untouched form.
+   */
+  description: string | null;
 }
 
 export async function readStandListing(
@@ -610,7 +637,7 @@ export async function readStandListing(
         ),
         '{}'
       ) as items
-      , farm.name as farm_name
+      , farm.name as farm_name, farm.description as farm_description
     from sales_locations as location
     join farms as farm on farm.id = location.owner_farm_id
     where location.id = ${input.salesLocationId}
@@ -643,5 +670,6 @@ export async function readStandListing(
     },
     paymentMethods: row.payment_methods as string[],
     items: row.items as string[],
+    description: (row.farm_description as string | null) ?? null,
   };
 }

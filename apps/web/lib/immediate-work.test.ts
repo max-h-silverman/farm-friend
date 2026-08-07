@@ -6,7 +6,7 @@ import {
   type ImmediateWorkQueue,
 } from "./immediate-work";
 
-// The seam that replaces `waitUntil` (docs/GCP_MIGRATION_PLAN.md §"Immediate and scheduled
+// The seam that replaces `waitUntil` (docs/archive/GCP_MIGRATION_PLAN.md §"Immediate and scheduled
 // work").
 //
 // WHAT CHANGES, AND WHAT DELIBERATELY DOES NOT.

@@ -1,4 +1,4 @@
-// One image, two services (docs/GCP_MIGRATION_PLAN.md §"Containerization and configuration").
+// One image, two services (docs/archive/GCP_MIGRATION_PLAN.md §"Containerization and configuration").
 //
 // The same artifact is deployed as `farm-friend-web` (public ingress) and
 // `farm-friend-worker` (internal ingress + IAM), pinned to the same digest so a deploy can

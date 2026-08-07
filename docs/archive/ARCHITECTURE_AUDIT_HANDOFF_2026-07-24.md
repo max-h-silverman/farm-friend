@@ -17,13 +17,13 @@ a fresh session.
 > tests — so the repository it describes no longer exists. Read it as history.
 >
 > Its one enduring contribution, the **spiral-staircase constraint** against over-architecting, now
-> lives in [ARCHITECTURE.md](ARCHITECTURE.md) "Design stance" and CLAUDE.md "Simplicity and
+> lives in [ARCHITECTURE.md](../ARCHITECTURE.md) "Design stance" and CLAUDE.md "Simplicity and
 > elegance — the zen desk", which are current.
 >
-> Current authority: [PRODUCT_BRIEF.md](PRODUCT_BRIEF.md) · [ARCHITECTURE.md](ARCHITECTURE.md) ·
-> [DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md) · [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) ·
-> [SMS_COMPLIANCE.md](SMS_COMPLIANCE.md). Current build state:
-> [CURRENT_STATE.md](CURRENT_STATE.md).
+> Current authority: [PRODUCT_BRIEF.md](../PRODUCT_BRIEF.md) · [ARCHITECTURE.md](../ARCHITECTURE.md) ·
+> [DATA_ARCHITECTURE.md](../DATA_ARCHITECTURE.md) · [AI_ARCHITECTURE.md](../AI_ARCHITECTURE.md) ·
+> [SMS_COMPLIANCE.md](../SMS_COMPLIANCE.md). Current build state:
+> [CURRENT_STATE.md](../CURRENT_STATE.md).
 
 ## Executive verdict
 
@@ -86,8 +86,8 @@ These defaults are audit recommendations, not yet settled design.
 The contract requires code to reject every factual claim that cannot be traced to retrieved
 evidence:
 
-- [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) "Semantic architecture"
-- [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) "Untrusted-output validation"
+- [AI_ARCHITECTURE.md](../AI_ARCHITECTURE.md) "Semantic architecture"
+- [AI_ARCHITECTURE.md](../AI_ARCHITECTURE.md) "Untrusted-output validation"
 
 It never defines the representation of a claim, the granularity of evidence, permitted derived
 claims, or how arbitrary model prose is deterministically decomposed and checked. The current

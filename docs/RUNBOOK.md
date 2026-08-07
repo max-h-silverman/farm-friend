@@ -40,7 +40,35 @@ The web app loads `apps/web/.env.local`, while the root migration command reads 
 `DATABASE_URL`. Keep those targets distinct: use `db:migrate:local` for the local app, and use
 `db:migrate` only after explicitly setting the intended target. The integration suite creates its
 own disposable databases from the configured Postgres connection; it does not use the app's
-working database for test rows.
+working database for test rows. It also **refuses to run against a non-local database host**:
+every test there creates and drops databases, and the repo's own `.env` has held the production
+connection string, so `packages/db/src/integration-database-guard.ts` fails the run before any DDL
+unless the host is local or `ALLOW_INTEGRATION_TESTS_AGAINST_REMOTE_DB=1` is set deliberately.
+
+### Walking the farmer verification flow locally
+
+`apps/web/.env.local` is a fully siloed sandbox: local Postgres, `SMS_PROVIDER=simulator` (no
+texts, no Telnyx spend), `LLM_PROVIDER=stub` (no model spend), throwaway salts, and
+`EMAIL_PROVIDER=simulator`. Nothing leaves the machine and no deployment is required.
+
+Email is the one channel that needs a stand-in to be walkable at all: with mail unconfigured the
+verification route returns the same uniform `{"status":"sent"}` it returns on success — the correct
+behavior, since a distinct error would reveal how the deployment is configured — so the six-digit
+code exists nowhere a developer can read it. The simulator writes the message to a file instead:
+
+```bash
+npm run dev --workspace @farm-friend/web
+# walk to /farmer/start/<FARMER_START_SECRET>, pick a farm, enter an address on file
+ls -t .mail | head -1          # newest captured message
+grep -h Subject .mail/*.txt    # the code is in the subject line, as in the real mail
+```
+
+A farm only appears verifiable if it has a row in `farm_emails` whose `email_hash` was computed
+with the **same `EMAIL_HASH_SALT`** the app is running with; otherwise every address silently fails
+to match. `.mail/` holds live codes and real addresses and is git-ignored — delete it freely.
+
+The simulator cannot reach a deployment: it refuses to construct under `NODE_ENV=production`, and
+refuses to start if `SMTP_*` is also configured.
 
 Typecheck enforces the static model-context and outbound-message provenance barrier; workflow tests
 and hostile evals cover runtime behavior. See [AI_ARCHITECTURE.md](AI_ARCHITECTURE.md) §safety
@@ -88,6 +116,8 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `FARMER_START_SECRET` | **Optional, `web` role only** (F-079). The secret path segment gating the migration door at `/farmer/start/<secret>`. **Minimum 32 characters**, enforced in the resolver — a shorter value is treated as absent. Absent, blank, or too short means the door does not exist and every request under `/farmer/start` 404s, which is a fully supported deployment. **This is OBSCURITY, not authentication**: it travels in browser history, `Referer` headers and access logs, and is neither one-use nor revocable. What actually proves a farmer may publish is the emailed code |
 | `EMAIL_HASH_SALT` | **Required for email verification** (F-079). The lookup-key salt for farmer email addresses. **Must match the salt the roster ingest used**, or every farmer's address silently fails to match and nobody can verify. Deliberately NOT `PHONE_HASH_SALT`: separate hash spaces mean one leaked salt does not compromise the other, and a shared one would let its holder correlate a farmer's address with their phone |
 | `VERIFICATION_CODE_SALT` | **Required for email verification** (F-079). Salt for the stored code hash. Rotating it invalidates every code currently in flight, which is the intended effect — codes live 30 minutes |
+| `EMAIL_PROVIDER` | **Optional, local development only.** Unset (the default) uses the `SMTP_*` configuration. `simulator` writes each message to a file under `SIMULATED_MAIL_DIR` (default `.mail/`, git-ignored) and sends nothing, so the farmer verification flow can be walked without a relay. **Refuses to construct under `NODE_ENV=production`**, and refuses to start if the `SMTP_*` variables are also set — a mail sink that outranked a working relay would stop farmer codes while every log read "accepted". Any other value is a startup error rather than a silent fallback |
+| `SIMULATED_MAIL_DIR` | **Optional, local development only.** Absolute path for captured mail. The default `.mail/` is relative to the process working directory, which differs between `next dev` (`apps/web`) and the test suites (repo root) |
 | `SMTP_PASSWORD` | **Optional, `web` role only.** The 16-character Workspace app password. A **real credential to the board mailbox** — it authenticates as the account, not as a scoped API key. Revoke it from the same Google account page if exposed. Never logged. Absent or blank disables email sending; the worker never receives it |
 
 There is no `CRON_SECRET`; Cloud Scheduler uses OIDC and IAM.
@@ -275,6 +305,33 @@ through `matchStandName`, reports unknown/already-present tags, and refuses an a
 `offerings:propose` reads only the map export; form-only farms are absent rather than reported as
 rejected. Check the other export when a farm is missing.
 
+### Cleaning stored descriptions
+
+`buildStandDescription` (F-061) strips from a farm's prose every line that restates a fact holding a
+structured column of its own — hours, season, stocking, links, payments, dated updates. It has been
+deployed since it was written and **has never run against the data**, because F-064's ingest never
+happened, so `farms.description` still holds raw prose that the public card renders verbatim.
+
+This applies the shipped rule to the stored text. It needs no re-ingest and no CSVs, and touches no
+other column:
+
+```bash
+DATABASE_URL="<neondb>" npx tsx scripts/clean-farm-descriptions.ts            # dry run, prints every diff
+DATABASE_URL="<neondb>" npx tsx scripts/clean-farm-descriptions.ts --apply    # prompts for a typed confirmation
+```
+
+**Dry run is the default and no single flag writes** — `--apply` additionally requires typing an
+exact confirmation phrase. It fingerprints the target and asserts the database name before reading a
+row, writes a JSON backup of every prior value before opening the transaction (there is no
+`farms.description` history table, so **that file is the rollback**), writes in one transaction, and
+then **verifies by effect** — reading the rows back and comparing them to what was intended rather
+than trusting the absence of an error. It is idempotent: the cleanup is a pure function, so a second
+run changes nothing.
+
+Read the diff before approving. A farm whose every line is structured is left with **no**
+description, which is correct — the card still carries those facts from their own columns — but it
+should be a decision, not a surprise.
+
 ## Start the web app
 
 ```
@@ -373,7 +430,7 @@ Saving a contact is **not** `JOIN` and the copy must not imply it is), and
 `POST /api/public/stock-out` (throttled; body carries the QR-bound `salesLocationId` UUID and
 `taskText`). The throttle budget is set in the composition root — 5 model calls per client per 60s,
 deliberately generous so a real reporter never meets it. Adding **any** new public model-backed
-handler means routing it through `context.publicModelThrottle`; adding one that is model-free means
+handler means routing it through `context.publicActionThrottle`; adding one that is model-free means
 leaving it out. Do not add a public route that accepts a free-text *question* — inquiry is SMS-only.
 
 ## How to extend

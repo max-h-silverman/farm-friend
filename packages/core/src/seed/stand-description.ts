@@ -53,7 +53,20 @@ const BARE_ADDRESS =
 const STRUCTURED_LINE = [
   // "Open: Year Round", "Open Hours: 9-5", "Hours: dawn to dusk"
   /^\s*open(?:\s+(?:hours|season|days))?\s*:/i,
-  /^\s*(?:hours|season|stocking(?:\s+days)?|days)\s*:/i,
+  /^\s*(?:hours|season|days)\s*:/i,
+  // NOTE: `Generally Offers`, `Stocking Days` and `Hosting` are deliberately NOT here. They are
+  // handled by `LABELLED_LIST_LINE`, which drops them only when the body reads as a plain list.
+  // 10 lines in the real corpus carry a tail no column holds, and a blanket pattern here would
+  // delete it. One mechanism for those labels, not two.
+  // A bare "Open …" line with no colon — Green Ears' "Open Thursday - Sunday / 9am - Dusk",
+  // Plum Forest's "Open year round, everyday 9am-8pm". Both printed beside "Hours not listed".
+  //
+  // NARROW ON PURPOSE. The line must be ONLY hours: days, clock times, "dawn"/"dusk", and the
+  // punctuation that joins them. Breathing Meadows writes "Open only by appointment – We have a
+  // place for learning about herbs…", where the opening words restate the hours and the rest is
+  // the only thing that farm says about itself. A greedy `^open\b` would delete that farm's
+  // entire voice, so anything containing a word outside this vocabulary survives.
+  /^\s*open\s+(?:(?:year\s*round|all\s*year|daily|everyday|every\s*day|dawn|dusk|to|through|thru|and|until|til|till|am|pm|noon|mon(?:day)?|tues(?:day)?|tue|wed(?:nesday)?|thur(?:sday)?|thurs|thu|fri(?:day)?|sat(?:urday)?|sun(?:day)?|weekends?|weekdays?|spring|summer|fall|autumn|winter)|[\d\s:.,;/&()-]|[–—])+\s*$/i,
   // "Website: …", "Instagram: @x", "Facebook: …"
   /^\s*(?:web\s*site|website|site|instagram|insta|facebook|fb|social(?:\s+media)?|twitter|x)\s*:/i,
   // "Accepts Cash, Check, Venmo, VIGA Farm Bucks"
@@ -64,13 +77,60 @@ const STRUCTURED_LINE = [
   // card's own "Nothing confirmed recently" — the exact contradiction this removes.
   // The year is written both ways — "7/22/2026 Update:" and "7/9/25 update:" — because the
   // sheet is hand-typed.
-  /^\s*\d{1,2}\/\d{1,2}\/(?:\d{4}|\d{2})\s*update\s*[-–—:]/i,
+  //
+  // Three more spellings measured on the real corpus, each of which escaped the pattern above:
+  // Plum Forest's "4/21/2026: Update:" puts a colon after the DATE as well; Northbourne's
+  // "7/9/2025 No Update." is a dated NON-answer, which is still a confirmation line and still
+  // not a description; and a trailing full stop rather than a separator.
+  //
+  // The leading MONTH is optional, which is not defensive coding — the production data has a
+  // row beginning literally "/22/2026 Update:", its month lost upstream in the hand-editing
+  // that produced the sheet. Found by the dry run against real rows, never by a fixture. The
+  // line is recognized by the SHAPE that remains rather than repaired, since supplying a month
+  // nobody wrote would be inventing a confirmation date.
+  //
+  // `update` stays REQUIRED after the date, which is what keeps this narrow: ordinary prose
+  // like "open Tue/Thu" or "salad w/ herbs" carries slashes and must survive.
+  /^\s*(?:\d{1,2})?\/\d{1,2}\/(?:\d{4}|\d{2})\s*:?\s*(?:no\s+)?update\b\s*[-–—:.]?/i,
   // A bare URL or handle on its own line is a link, not a description.
   /^\s*(?:https?:\/\/|www\.)[^\s]+\s*$/i,
   /^\s*@[^\s]+\s*$/,
   // A sentinel non-answer transcribed as description text — Vashon Garlic's row reads "Nope!".
   /^\s*(?:none|nope|no|n\/?a|nil|not applicable)\s*[!.]?\s*$/i,
   BARE_ADDRESS,
+];
+
+/**
+ * A labelled line whose body is a plain LIST — the case where dropping the whole line loses
+ * nothing, because every word of it restates the column.
+ *
+ * Measured on the real corpus: 10 labelled lines carry a genuine TAIL instead, where the label's
+ * own fact is followed by something no column holds — "Stocking Days: Stocking daily. Harvest
+ * days are Tuesday and Friday. Best selection on those days by late afternoon." The first
+ * sentence is the column; the rest is the farm's voice, and no punctuation rule separates them
+ * reliably (Littlest Bird's offerings line ends "…Organic practices and rotational grazing for
+ * chickens, sheep and pigs", which is a farming practice, not an offering).
+ *
+ * So the strip is deliberately CONSERVATIVE: a labelled line is removed only when its body reads
+ * as a list — short, and carrying no sentence break. Anything richer is KEPT WHOLE and reaches
+ * the farmer's own edit box, where the person who wrote it decides what survives. Deleting it
+ * here would be the quieter failure this file was written to avoid: the farm's voice derived
+ * away by a rule that could not tell a list from a sentence.
+ */
+function isPlainList(body: string): boolean {
+  const text = body.trim();
+  if (text === "") return true;
+  // A sentence break followed by more words is the tell: "Stocking daily. Harvest days are…"
+  if (/[.!?]\s+\S/.test(text)) return false;
+  // Long bodies are prose in practice, whatever their punctuation.
+  return text.length <= 60;
+}
+
+/** Labels whose body must be a plain list before the line may be dropped. */
+const LABELLED_LIST_LINE = [
+  /^\s*generally\s+offers?\b\s*[:;]?\s*(.*)$/i,
+  /^\s*stocking(?:\s+days?)?\s*[:;]?\s*(.*)$/i,
+  /^\s*hosting\b\s*:?\s*(.*)$/i,
 ];
 
 /**
@@ -84,6 +144,14 @@ const STRUCTURED_LINE = [
 function restatesStructuredFact(line: string, source: StandDescriptionSource): boolean {
   const text = line.trim();
   if (text === "") return true;
+
+  // A labelled line survives when its body is more than a list — see `isPlainList`. Checked
+  // BEFORE the blanket patterns below, which would otherwise drop it whole.
+  for (const pattern of LABELLED_LIST_LINE) {
+    const match = pattern.exec(text);
+    if (match !== null) return isPlainList(match[1] ?? "");
+  }
+
   if (STRUCTURED_LINE.some((pattern) => pattern.test(text))) return true;
 
   // A line that is exactly the structured answer, give or take punctuation and case.

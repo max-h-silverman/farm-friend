@@ -20,7 +20,9 @@ describe("FarmPicker", () => {
     render(<FarmPicker farms={FARMS} basePath="/farmer/start/the-secret" />);
     await userEvent.selectOptions(screen.getByLabelText("Your farm"), "farm-a");
 
-    const link = screen.getByRole("link", { name: /Lavender Hill Farm/ });
+    // Anchored to the HREF, not the link's wording: carrying the secret is the guarantee,
+    // while the label is copy that is expected to change.
+    const link = screen.getByRole("link");
     expect(link).toHaveAttribute("href", "/farmer/start/the-secret/farm-a");
   });
 
@@ -35,5 +37,27 @@ describe("FarmPicker", () => {
   it("shows nothing onward until a farm is picked", () => {
     render(<FarmPicker farms={FARMS} basePath="/farmer/start/the-secret" />);
     expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  // The onward control is a LINK, not a button calling `window.location`. Both navigate, but
+  // only a link supports cmd-click, middle-click, "open in new tab", and a visible target in
+  // the status bar — and this is a farmer on a phone who may want to keep the list open.
+  it("navigates with a real link so the browser's own affordances work", async () => {
+    render(<FarmPicker farms={FARMS} basePath="/farmer/start/the-secret" />);
+    await userEvent.selectOptions(screen.getByLabelText("Your farm"), "farm-a");
+
+    // The onward control must be the link, and there must be no button standing in for it.
+    expect(screen.getByRole("link")).toHaveAttribute(
+      "href",
+      "/farmer/start/the-secret/farm-a",
+    );
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("tells the farmer where they are in the flow", () => {
+    // The two steps live on different URLs, so without this the second screen reads as an
+    // unrelated page rather than the next step of the same task.
+    render(<FarmPicker farms={FARMS} basePath="/farmer/start/the-secret" />);
+    expect(screen.getByText(/Step 1 of 2/i)).toBeTruthy();
   });
 });

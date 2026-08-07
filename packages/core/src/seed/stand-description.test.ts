@@ -178,6 +178,198 @@ describe("buildStandDescription", () => {
       ).toBe("Cut flowers and dahlia tubers.");
     });
   });
+
+  // Measured against the REAL production corpus on 2026-08-07 — all 34 farms carrying a
+  // description, read from `neondb`. The existing rules removed 53% of the text and left 26
+  // lines that are still pure restatement. Every fixture below is a real line, copied verbatim,
+  // because these labels were invisible to fixtures invented from the doc's description.
+  describe("labels the first pass missed, measured on the real corpus", () => {
+    it("drops a 'Generally Offers:' line, which stand_items now holds", () => {
+      // THE BIGGEST ONE — 13 of 34 farms. It duplicates the exact field the onboarding form
+      // asks a farmer to fill in, so a farmer who types their items sees their own list AND
+      // VIGA's older one on the same card, free to disagree. Tian Tian's live card shows
+      // "Usually sells: gailan, bok choy, perilla, a choy" directly above prose repeating them.
+      expect(
+        buildStandDescription({
+          mapDescription:
+            "Generally Offers: Plant Starts, Vegetables, Fruits, Flowers and Baked Goods\n" +
+            "A small roadside stand.",
+        }),
+      ).toBe("A small roadside stand.");
+    });
+
+    it("drops 'Generally Offers' however the sheet punctuated it", () => {
+      // Hand-typed, so the separator is inconsistent across the corpus: a colon, a semicolon
+      // (Sherman Creek), no colon at all (Useful Bear), and lowercase 'offers' (Littlest Bird,
+      // Peach Tree Hill). Matching only "Generally Offers:" leaves four farms' lines printing.
+      for (const line of [
+        "Generally Offers: Fresh Cut Flowers",
+        "Generally offers: Year round eggs, frozen lamb and pork.",
+        "Generally Offers; Fresh flowers and eggs",
+        "Generally Offers:Advice and services for invasive plant control",
+        "Generally offers Vegetables, fruit, flowers as well as jam, jelly and syrups",
+      ]) {
+        expect(buildStandDescription({ mapDescription: `${line}\nEggs.` })).toBe("Eggs.");
+      }
+    });
+
+    it("drops a 'Hosting' line, with or without its colon", () => {
+      // 7 farms. Who else sells at this stand is a real fact and a genuinely useful one, but it
+      // is a LIST OF OTHER FARMS pasted into one farm's prose — it belongs in a field of its
+      // own, not in the farm's voice. Until it has one, printing it here attributes another
+      // farm's goods to this listing with no way to keep the two in step.
+      expect(
+        buildStandDescription({
+          mapDescription: "Hosting: Fernhorn Bakery, Vashon Island Honey Co.\nPlant starts.",
+        }),
+      ).toBe("Plant starts.");
+      expect(
+        buildStandDescription({ mapDescription: "Hosting Fern Horn Bakery\nPlant starts." }),
+      ).toBe("Plant starts.");
+      // Forest Garden Farm's row carries the bare label with nothing after it.
+      expect(buildStandDescription({ mapDescription: "Hosting:\nPlant starts." })).toBe(
+        "Plant starts.",
+      );
+    });
+
+    it("drops the dated-update spellings the first pattern missed", () => {
+      // Plum Forest writes "4/21/2026: Update:" — a colon after the DATE as well as after the
+      // word, which the anchored pattern refused. Northbourne writes "7/9/2025 No Update.",
+      // which is a dated non-answer: still a confirmation line, still not a description.
+      expect(
+        buildStandDescription({
+          mapDescription: "4/21/2026: Update: eggs, spinach, kale, pac choi\nA small stand.",
+        }),
+      ).toBe("A small stand.");
+      expect(
+        buildStandDescription({
+          mapDescription: "7/9/2025 No Update. (generally has produce and berries.)\nEggs.",
+        }),
+      ).toBe("Eggs.");
+    });
+
+    it("drops a dated update whose MONTH is missing from the stored text", () => {
+      // Found by the production dry run, not by reading: Venison Valley's row literally begins
+      // "/22/2026 Update:" — the month is gone, lost upstream in whatever hand-editing produced
+      // the sheet. The anchored pattern needs a leading month digit, so this one line survived
+      // every rule and printed as prose beneath the card's own "Nothing confirmed recently".
+      //
+      // Matched by the SHAPE that remains — a slash-led partial date followed by "Update" —
+      // rather than by repairing the date, which would be inventing a month nobody wrote.
+      expect(
+        buildStandDescription({ mapDescription: "/22/2026 Update:\nEggs and milk." }),
+      ).toBe("Eggs and milk.");
+    });
+
+    it("does not mistake ordinary prose containing a slash for a dated update", () => {
+      // The guard on the rule above. "open 9/5" or "salad w/ herbs" must survive — the pattern
+      // earns its narrowness by requiring the word "update" after the partial date.
+      expect(
+        buildStandDescription({ mapDescription: "We are open Tue/Thu and sell salad w/ herbs." }),
+      ).toBe("We are open Tue/Thu and sell salad w/ herbs.");
+    });
+
+    it("drops an 'Open …' line written without its colon", () => {
+      // Green Ears and Plum Forest both write the hours as a bare "Open …" line. The labelled
+      // form was covered; the unlabelled one printed beside "Hours not listed".
+      expect(
+        buildStandDescription({ mapDescription: "Open Thursday - Sunday / 9am - Dusk\nEggs." }),
+      ).toBe("Eggs.");
+      expect(
+        buildStandDescription({ mapDescription: "Open year round, everyday 9am-8pm\nEggs." }),
+      ).toBe("Eggs.");
+    });
+
+    it("KEEPS a sentence that opens with 'Open' and then says something real", () => {
+      // The guard on all of the above. Breathing Meadows writes "Open only by appointment – We
+      // have a place for learning about herbs how to use them for food and medicine" — the
+      // opening words restate the hours, the rest is the only thing that farm says about itself.
+      // A pattern that swallowed the whole line would delete a farm's entire voice.
+      expect(
+        buildStandDescription({
+          mapDescription:
+            "Open only by appointment – We have a place for learning about herbs how to " +
+            "use them for food and medicine",
+        }),
+      ).toBe(
+        "Open only by appointment – We have a place for learning about herbs how to " +
+          "use them for food and medicine",
+      );
+    });
+
+    it("KEEPS a labelled line WHOLE when it carries more than a list", () => {
+      // THE CORRECTION THAT MEASUREMENT FORCED. A first attempt dropped every `Generally
+      // Offers`/`Stocking Days`/`Hosting` line outright; re-measured against the real corpus it
+      // emptied NINE farms rather than one, because for those farms every line is labelled —
+      // and 10 lines across the corpus carry a tail no column holds.
+      //
+      // Tian Tian's line is half restatement ("Specializing in Asian vegetables, including
+      // gailan, bok choy") and half real ("Not certified, but following organic practices").
+      // Pacific Crest's stocking line ends "Best selection on those days by late afternoon".
+      // No punctuation rule separates the halves, so the line survives whole and the FARMER
+      // decides — deleting it here is the quieter failure this file exists to avoid.
+      expect(
+        buildStandDescription({
+          mapDescription:
+            "Generally Offers: Specializing in Asian vegetables, including gailan, bok choy, " +
+            "perilla, a choy, and more. Not certified, but following organic practices.",
+        }),
+      ).toBe(
+        "Generally Offers: Specializing in Asian vegetables, including gailan, bok choy, " +
+          "perilla, a choy, and more. Not certified, but following organic practices.",
+      );
+
+      // Pacific Crest Farm, verbatim — the sentence break after the column's own answer.
+      expect(
+        buildStandDescription({
+          mapDescription:
+            "Stocking Days: Stocking daily. Harvest days are Tuesday and Friday. Best " +
+            "selection on those days by late afternoon.",
+        }),
+      ).toBe(
+        "Stocking Days: Stocking daily. Harvest days are Tuesday and Friday. Best " +
+          "selection on those days by late afternoon.",
+      );
+    });
+
+    it("keeps a SHORT labelled line that still carries a second sentence", () => {
+      // ISOLATES THE SENTENCE-BREAK RULE. Both fixtures above are long enough that the length
+      // check alone would keep them, so disabling the sentence-break branch left every test
+      // green — a sabotage proved it. Flora Hill's real line is under the length limit and
+      // survives ONLY because of the break: "Everyday" is the column, "Flavors change on
+      // Friday" is not, and nothing else in the suite would notice it being deleted.
+      expect(
+        buildStandDescription({ mapDescription: "Stocking days: Everyday. Flavors change on Friday" }),
+      ).toBe("Stocking days: Everyday. Flavors change on Friday");
+    });
+
+    it("still drops a SHORT labelled line that is only a list", () => {
+      // The other side of the same rule — without this, "keep anything with a period" would
+      // pass the test above while silently keeping every restatement in the corpus.
+      expect(
+        buildStandDescription({ mapDescription: "Stocking Days: generally daily\nEggs." }),
+      ).toBe("Eggs.");
+      expect(
+        buildStandDescription({ mapDescription: "Hosting: Kareli Farm\nEggs." }),
+      ).toBe("Eggs.");
+    });
+
+    it("returns nothing when EVERY line a farm has is structured", () => {
+      // Twisting Tree Farm, verbatim. Every line it holds has a column of its own, so the
+      // honest result is no description at all — the card still carries hours, stocking,
+      // payments and its dated update from their own fields. Recorded as a deliberate outcome
+      // rather than a surprise, because it is the one farm the cleanup empties completely.
+      expect(
+        buildStandDescription({
+          mapDescription:
+            "Milo\n12919 SW Cemetery Rd \nInstagram: @twistingtreefarm\n\n" +
+            "Open: Summer 11am-6pm\n\nStocking Days: Open on weekends\n\n" +
+            "6/30/2026 Update: Carrots, zucchini, potatoes, beets and birdhouse gourds\n \n" +
+            "Accepts: Cash, checks, and VIGA bucks",
+        }),
+      ).toBeUndefined();
+    });
+  });
 });
 
 describe("refusesPublicAddress (B-024)", () => {

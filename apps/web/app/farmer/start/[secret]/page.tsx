@@ -40,19 +40,15 @@ export default async function SecretFarmerStartPage({
   return (
     <main className="farmer-onboarding">
       <p className="farmer-eyebrow">VIGA Farm Friend</p>
-      <h1>Update your farm stand</h1>
-      <p className="farmer-onboarding-lede">
-        Find your farm to put what you have on the island map. You will confirm it is you with a
-        code emailed to the address VIGA has on file.
-      </p>
+      <h1>Claim your farm stand</h1>
 
       <section className="farmer-onboarding-card" aria-labelledby="pick-farm-heading">
-        <h2 id="pick-farm-heading">Which farm is yours?</h2>
         <FarmPicker farms={farms} basePath={`/farmer/start/${encodeURIComponent(secret)}`} />
       </section>
 
-      <p className="farmer-onboarding-note">
-        Not listed, or no longer have that email address? Contact VIGA and they will help.
+      <p className="farmer-onboarding-note farmer-start-help">
+        If you don&rsquo;t see your farm listed, email{" "}
+        <a href="mailto:board@vigavashon.org">board@vigavashon.org</a> for help.
       </p>
     </main>
   );

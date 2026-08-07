@@ -57,6 +57,7 @@ function claimer(
     status: "claimable",
     farmId: FARM_ID,
     farmName: "Grandfather Farm",
+    description: null,
   },
 ) {
   return vi.fn<Parameters<Claimer>, ReturnType<Claimer>>(async () => result);

@@ -1,7 +1,7 @@
 # Farm Friend — Session Log Archive (through 2026-08-05)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-07; it now holds 60 entries.
+everything older lives here. Last rotated 2026-08-07; it now holds 62 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -10,6 +10,247 @@ current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), tho
 
 ---
 
+
+## 2026-08-05 — structured listing facts, a geocoded draft pin, and roads on the island map
+
+Two asks on the onboarding form (F-069), then the map (F-070). Both merged as PR #82 and **deployed**
+(web `farm-friend-web-00032-msc`, worker `farm-friend-worker-00033-tp9`); no migration was owed.
+
+### The structured fields already existed — nothing wrote them
+
+max asked whether the form's free text should be structured, or passed through a model to
+structure it. Reading the schema dissolved the choice: **F-035 built all of it in migration
+`0005`** — `season_kind`, `open_hours_kind`, `stocking_cadence`, `stocking_days`, five CHECK
+constraints — and the seeder was its only writer. `dawn_to_dusk` and `until_dusk`, which max
+guessed at as options, were *already enum values*. So the onboarding form wrote prose into
+`hours_text` and NULL into every column a filter can use, which is exactly the unfilterable shape
+VIGA's existing map fails at.
+
+**No migration, no model.** The model's real job here is F-064's ingest of the existing 31-farm
+prose corpus — prose that already exists and cannot be re-asked. A farmer sitting in front of a
+form is not that case: structured input is exact and free, and golden rule 3 means the model could
+only propose anyway, so a confirmation step would sit *on top of* the picker rather than replace it.
+
+**`coherentAvailability` mirrors the five constraints in memory.** The constraint is the guarantee;
+the mirror is what turns a contradiction into `incoherent_availability` naming the group to fix
+rather than a 500. It is asserted **directly** rather than only through stored rows, because a
+sabotage proved the two layers can drift while every row assertion stays green — the database
+applies its rule independently. The integration suite catches that drift with the real Postgres
+violation, which is the evidence both layers are real.
+
+**Payments are a closed set with a free-text tail.** "venmo"/"Venmo"/"VENMO" were three unjoinable
+values in an unconstrained `method text` column. Canonicalizing is correct here and forbidden for
+produce for a reason worth keeping straight: payment methods are a small VIGA-known set, so this is
+a **spelling** table — folding "VENMO" decides how a word is written, folding "tomatoes" decides
+something about the world. Unrecognized methods are kept verbatim or the set would silently lose a
+real fact. **VIGA Farm Bucks is not offered**: acceptance is gated on `acceptanceRequiresEligibility`,
+so a farmer ticking a box would be claiming a VIGA decision about themselves.
+
+### The no-geocoder boundary was narrowed, not removed — max's call after pushback
+
+max asked to geocode the typed address instead of dropping a pin. Pushed back first, because this
+was a *decided* boundary with three things holding it: PRODUCT_BRIEF §launch decisions,
+DEVELOPMENT §non-goals, and a tripwire in `architecture.test.ts`. The reason on record is that a
+`StubMapProvider` once invented deterministic pseudo-coordinates near Vashon for **any** address
+string, and a stand at a fabricated point is worse than one with no point — it sends a customer
+somewhere real and wrong. Rural Vashon is where lookup is weakest, and a stand is frequently at the
+road rather than the mailing address, which only the farmer knows.
+
+max reaffirmed, and chose **draft-with-confirmation** over silent use. So the lookup is a
+suggestion: off-island results are refused rather than shown (against `ISLAND_BOUNDS`, the single
+statement of where the island is), the farmer confirms or taps to move it, only a confirmed
+coordinate submits, and **every** failure — no result, no key, provider error, network error —
+degrades to tapping the map, which is the pre-F-069 behaviour. A deployment with no
+`GEOCODING_API_KEY` is fully supported.
+
+**What did not reopen.** No SDK (a `fetch` to a REST endpoint, so the dependency tripwire stays
+armed), no `MapProvider` seam, and one approved call site — `architecture.test.ts` now fails on a
+*second* geocode caller rather than on any at all. The key is server-side, behind the invitation
+token and its **own** throttle bucket, because a farmer refining an address makes several lookups
+in a row and sharing the stock-out bucket would let either surface starve the other.
+
+**Fixing that tripwire exposed a real weakness in it.** It matched raw source, so a comment
+*explaining* why `StubMapProvider` is forbidden satisfied a search for `StubMapProvider` — a file
+could be flagged for documenting the defect it avoids, and worse, a forbidden call hidden in a
+string would have passed. It now strips comments and string literals before matching.
+
+### Roads on the island map (F-070)
+
+F-043 drew one road deliberately: "drawing the side roads would turn a legible poster into a street
+map." That was right when the artwork only oriented a customer. **The onboarding form gave it a
+second job** — it is now how a farmer says where their own stand is — and one spine gives them
+almost nothing to place themselves against. max chose main arteries plus Westside Highway: twelve
+roads, 101 vertices against the coastline's 246, residential grid excluded.
+
+**Traced from OpenStreetMap through the same `projectToIsland` as the pins**, the discipline the
+coastline and woods already follow. Vashon Highway itself was **replaced**: it was 13 hand-chosen
+vertices whose own comment admitted guessing "put the line in the water twice". Westside Highway
+stays **two chains** — OSM records it in pieces that do not share endpoints, and joining them would
+draw pavement across a gap.
+
+**The test that was nearly wrong.** A first version flagged any long span as a splice, which fired
+on the highway's *real* 7km straight run between Vashon town and Burton (45m deviation across 164
+source vertices) — it would have forced bending a straight road to satisfy a test. Replaced with a
+**directness** check: a span longer than the road's own end-to-end distance is incoherent by
+construction. The on-land test now samples by distance (~100m) rather than ten points per segment,
+because the old density checked one point per 700m across that span — wide enough to miss an inlet.
+
+**The render bug no test could catch.** The first rendered preview drew **twelve empty paths** — a
+regex bug in the throwaway render script, not in the data. Every suite passed, because the suite
+checks coordinates and nothing checks that a road reaches the screen. Caught only by looking at the
+picture, which is the argument for looking.
+
+### Verification
+
+**1234 unit, 665 integration, typecheck, lint.** No `packages/ai` file changed, so no evals or
+`evals:live` are owed. **Fourteen sabotages, each caught by a named test** — including the mirror
+drifting from the constraints, an unconfirmed pin publishing, a second geocode caller, a road across
+Quartermaster Harbour, and minor roads raised to highway weight.
+
+**One sabotage escaped and was fixed:** a duplicate-weekday test used eight entries, so the *length
+ceiling* refused it and the dedupe it named was never exercised — deleting the dedupe left it green.
+Rewritten to two entries, which only the dedupe can refuse. Same family as the plural-normalizer
+escape recorded in the entry below.
+
+**Owed before this is trustworthy:** a real browser round trip, and **one live geocoding call
+against the real provider** — every test injects the provider, so the real request/response shape is
+unverified and the path has never made a billed call.
+
+## 2026-08-05 — the onboarding listing form: the first farmer-facing listing writer, and three migrations to production
+
+Closes F-067's remaining half and F-066's last acceptance criterion, then puts migrations
+`0019`–`0021` on production.
+
+**The gap this closed.** Onboarding captured a consent tick and nothing else, so a farm created by
+an invitation reached the public map with a name and no address, hours, or items. The deeper fact:
+**nothing in the codebase wrote listing facts at all.** `public_address`, `hours_text`, payment
+methods and offerings were read everywhere and only ever *seeded* from VIGA's CSV.
+`saveOnboardingListing` is the first non-seeder writer of `sales_locations`.
+
+**The visitability branch is the form's structure, not a field on it.**
+`sales_locations_coherent_visitability` is all-or-nothing in both directions — a visitable stand
+needs an address *and* a complete coordinate pair, a contact-only stand must have none of the three
+(F-038, B-024). So the form has to ASK whether there is a stand to visit before it can know what to
+require. Enforced in the writer *and* by the database: the constraint is the guarantee, the writer's
+check is what turns it into an answer the farmer can act on instead of an opaque 500. A sabotage
+dropping the pin requirement was caught by the integration test *and* by Postgres, which is the
+evidence both layers are real rather than one being decoration.
+
+**The pin is dropped, not looked up — and that was max's call.** `coherentVisitability` demands
+coordinates, and nothing here can turn a typed address into them: a runtime geocoder/map package is
+a named non-goal and `maps/README.md` records that there is deliberately no mapping-provider seam.
+Offered address-lookup (recurring cost, wrong-driveway pins), pin-drop, or publishing without a pin
+(needs a schema change), max chose the farmer taps the island. `unprojectFromIsland` is F-043's
+projection run **backwards** — the same statement about where the island is, read the other way,
+rather than a second one that would drift. Verified in a live browser: a tap beside Vashon town
+stored 47.4497 / -122.4733.
+
+**max chose publish-on-submit over publish-on-SIGNUP.** Flagged first that the onboarding link is
+the whole credential, so anyone holding a forwarded link could then put a stand on VIGA's public map
+without proving they hold the farmer's phone — `listPublicStands` gates on `is_public` alone, with
+no join to `farm_approvals`. max chose it anyway; recorded once, not re-litigated. Mitigations that
+exist: links are one-use, expire in seven days, and an admin can remove a bad listing.
+
+**"VIGA reviews your request" was retired, not reworded.** Redemption now authorizes and approves in
+one transaction, so a promised review is a step nobody performs — a farmer would wait for a text
+that already arrived.
+
+**The boundary treats the token as the only credential.** A `farmId` in the request body is
+*ignored*; sabotaging that to honour it failed a named test. That is the guard stopping any
+onboarding link from overwriting any farm's public listing.
+
+### The sabotage that escaped, and why it matters most
+
+A plural-stripping normalizer (`"tomatoes"` → `"tomatoe"`) **passed all 17 new integration tests.**
+It mangles the item key without *colliding* with anything, and the database index applies the
+correct rule independently — so the stored rows looked right while the in-memory dedupe had
+silently stopped agreeing with the index that arbitrates. Row-count assertions could never see it.
+
+`standItemKey` is now exported and asserted **directly**, including that it returns the word itself
+— the assertion no collision test can make. The escaped sabotage fails 4 named tests.
+
+**The same defect class was already living in an existing test.**
+`farmer-onboarding-surface.test.ts` reads page source as raw text, so the comment *recording that*
+"VIGA reviews your request" was retired satisfied a search for that phrase. It now strips comments
+first, verified by effect (present in the raw file, absent after stripping, markup intact). This
+affected its pre-existing assertions too, not only the new ones — a comment could always have
+satisfied any of them.
+
+**An architecture tripwire fired and was right to.** `architecture.test.ts` forbids branching on
+location type in the publication path (F-038: any farm may publish inventory). `farmer-listing.ts`
+branches on `visitability` to satisfy `coherentVisitability` when writing a *listing* — the same
+display-vs-gate distinction that already excludes the public read path. Rather than add a bare
+exclusion, the exclusion is now **guarded** by a test asserting the file reaches no inventory write,
+so the reason holds rather than being asserted in a comment.
+
+### Migrations `0019`, `0020`, `0021` applied to production
+
+Applied in order against `neondb`, after fingerprinting the target read-only (35 farms, 35
+locations, 2 contacts, 19 migrations — matching the documented state) so a mistyped connection
+string would have been obvious. max declined a pre-migration snapshot when asked.
+
+**Verified by effect, not by the apply's exit status** — `db:migrate` can exit 0 having silently
+skipped a migration whose journal timestamp is not newer:
+
+- `0019` — `source` NOT NULL, **no default**, CHECK requiring the full handset chain for `sms` and
+  none of it for `viga`;
+- `0020` — `stand_items` present with its unique index over `lower(btrim(display_name, ' \t\r\n'))`,
+  and **212 rows backfilled** from real production data;
+- `0021` — settlement CHECK re-read via `pg_get_constraintdef` and confirmed to admit an
+  authorization;
+- listing data unchanged: 35 farms, 35 locations, 2 contacts.
+
+Production went 19 → **22 migrations**. All three are additive and backward-compatible (a column, a
+table, a widened constraint), so the pre-tranche image kept serving correctly in the window between
+the migration and the deploy.
+
+### Deployed
+
+Merged as PR #81 (`7c996a7`), then built and deployed **from the merged base** — production must
+never run code that did not land on `main`. Plan was `0 to add, 2 to change, 0 to destroy` (the two
+Cloud Run services taking the new digest, nothing destroyed), plan assertions 37/37, deploy and
+served-card assertions pass. Serving `farm-friend-web-00030-kx6` /
+`farm-friend-worker-00031-tsm` at digest `sha256:6fed811a…`.
+
+**Verified by effect against the live service**, not by the apply's exit status: `/api/public/stands`
+serves 34 stands with **33 reading `usuallySells` from `stand_items`**, so the promoted image and the
+migrated schema demonstrably agree — the single fact that would have broken had the migration been
+skipped. `POST /api/farmer/listing` answers `400` to a malformed token before touching the database
+and a uniform `410` to a well-formed unknown one, so the new endpoint is not an oracle either.
+
+### The admin surface still described the old world (max, mid-wrap)
+
+max: *"the admin needs updated based on the new no-approval for new farms."* Checked against
+production rather than reasoned from the code, and the finding was sharper than expected: **all 35
+seeded farms sat in the approval queue**, each with a stand already live on the public map.
+
+**Approving them changed nothing a customer sees**, which is the part worth remembering.
+`listPublicStands` gates on `is_public` — **not** on approval — so a seeded stand is visible whether
+or not its farm is approved. What `farm_approvals` actually gates is whether the **farmer may
+publish an update**: `confirmProposal` and the scheduled prompts both re-read it. So the queue was
+presenting 35 items as pending VIGA action, where acting changed only a farmer's ability to correct
+their own listing — and VIGA had already decided those farms participate by putting them on the map.
+
+max chose to approve all 35 and keep the queue. Written insert-only and idempotent against the
+partial unique index (the arbiter, not a preceding read), attributed to the board account,
+fingerprinted before writing, and verified by effect: queue empty, 35 locations untouched, and a
+re-run writes zero. `scripts/approve-seeded-farms.ts` is retained and safe to re-run.
+
+**Copy corrected in three places, each of which had become false rather than merely stale:** the
+dashboard tile (approval is now the exception, reached only by the three uninvited paths), the
+section note (which claimed approval is what lets stands "appear to customers" — it never was), and
+the empty state, which read as "nothing to do *yet*" when an empty queue is now the normal healthy
+outcome. A test pins the empty-state claim; sabotaging the copy fails it. ADMIN_OPERATIONS.md gets
+the same publish-vs-visible distinction.
+
+Deployed as `84c512d` → `farm-friend-web-00031-qn9` / `farm-friend-worker-00032-fbt`, plan
+`0 add / 2 change / 0 destroy`, assertions 37/37, and the public map verified unchanged afterwards
+(34 stands, 33 with items) — the approval write touched publishing rights only, as intended.
+
+**One verification defect worth recording:** the first check invented a constraint name
+(`inventory_revisions_coherent_source`) and reported a FAIL against a migration that was fine. The
+name is now read from the migration file. A verification script that asserts the wrong thing is
+indistinguishable from a broken migration until you look.
 ## 2026-08-05 — self-serve farmer onboarding (F-067), and two UI defects
 
 max: *"I want to eliminate the VIGA farm authorization step. Once a farmer is sent their onboarding
@@ -5064,7 +5305,7 @@ Do not implement F-013 or F-014 or change application code/schema before separat
 
 PR #8 merged the F-011 clean-room baseline reset to `main` (`565187c`). The follow-on independent
 audit is preserved in
-[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md) and indexed
+[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](archive/ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md) and indexed
 from the docs README as **review input, not design authority**. Its spiral-staircase constraint is
 now the review rule: first narrow a marginal promise where that preserves the north star; otherwise
 add only the smallest mechanism that closes a named launch invariant inside the existing
@@ -5110,7 +5351,7 @@ authorized.
 ## 2026-07-24 — Clean-room baseline reset: F-011 (original review-sequence finding 1)
 
 Branch `f-011-baseline-reset`. First finding of the original Phase 4 review sequence defined by
-[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md), which is
+[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](archive/CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md), which is
 now **tracked in the repo and is the design authority** — previously it existed only as an
 untracked working-tree file.
 

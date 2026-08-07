@@ -126,77 +126,43 @@ surface, signing out, and having the copied cookie refused.
 
 ### GL-010 — Build farmer onboarding and number verification
 
-**Confirmed gap**
-
-The schema has contacts, farmer authorization, onboarding consent provenance, and separate VIGA
-approval, but there is no farmer-facing onboarding journey.
-
-**Required outcome**
-
-- Farmer creates or claims the correct farm.
-- Farmer verifies control of the SMS number.
-- The authorization and consent evidence are recorded separately and truthfully.
-- Completing onboarding never grants VIGA approval.
-- VIGA approves publication through the existing admin authority path.
-- The flow is at least as easy as the current form.
-
-**Partially met (2026-08-04).** The consent half now works end to end: the onboarding page collects
-an SMS agreement, the inbound `JOIN <token>` establishes consent through the one existing writer,
-and the "your farm is ready" text is dispatched rather than silently suppressed. Authorization and
-consent stay separate records, and onboarding still grants no approval. **Still open here:** the
-default reminder schedule an approved farmer starts on, and the farmer-editable listing detail
-GL-011 covers.
+**Completed:** 2026-08-07 — three doors exist and are deployed: invited (`JOIN <token>`),
+grandfathered (`/farmer/start`, F-072), and the emailed-code migration door
+(`/farmer/start/<secret>`, F-079). Consent is established by the one existing writer; authorization
+and consent stay separate records; onboarding still grants no approval. F-081 closed the last
+sub-item, the default reminder schedule an approved farmer starts on.
 
 ### GL-011 — Build farmer web profile, listing, preferences, and inventory
 
-**Confirmed gap**
-
-Phase 1 requires web access for broader listing changes, communication preferences, and inventory
-updates. None of those farmer-authenticated surfaces exist.
-
-**Required outcome**
-
-- Farmer web authentication is separate from administrator authority.
-- Farmer can edit only farms and sales locations they currently control.
-- Inventory text uses the same interpretation and confirmation mechanism as SMS.
-- Profile/listing facts include hours, offerings, payment methods, Farm Bucks, links, optional photo,
-  and biography.
-- Consequential changes are audited at an appropriate level without retaining unnecessary raw
-  content.
+**Completed:** 2026-08-07 — `/stand/<token>/listing` (F-073) and `/stand/<token>/settings` are
+live behind the standing farmer link, whose auth shape is separate from administrator authority and
+resolved per request. The listing form is prefilled and writes hours, address, payments, offerings,
+and F-066 standing items; inventory text still goes through the shared interpretation and
+confirmation mechanism. **Farm Bucks and offering type remain editable by nobody** — a VIGA
+eligibility fact with its own admin workflow. Attribution for who wrote a listing change is the one
+piece not built, tracked as F-065 rather than here.
 
 ### GL-012 — Build proactive inventory prompts and preference scheduling
 
-**Confirmed gap**
-
-`inventory_prompt` exists as a consent category, but there is no preference store/flow or scheduler
-that creates prompts.
-
-**Required outcome**
-
-- Store the farmer's chosen cadence and relevant quiet-time/rate preferences.
-- Create unique prompt outbox work on the existing scheduled-work mechanism.
-- Recheck active consent at dispatch.
-- Prevent duplicate prompts under concurrent or delayed schedules.
-- Make a missed schedule recoverable without sending a burst of stale prompts.
+**Completed:** 2026-08-07 — `inventory_prompt_preferences` stores the per-stand cadence;
+`packages/db/src/scheduled-prompts.ts` creates at most one due prompt per sender in deterministic
+stand order on the existing scheduled-work mechanism, at the 10:00 AM stand-local slot. Consent is
+rechecked at dispatch through `authorizeDispatch`, delayed schedules advance without catch-up
+bursts, and no work queues while paused or actively closed. F-081 supplied the missing piece — a
+farmer approved through any onboarding door now starts on a `weekly` schedule, where before the
+candidate query selected against an empty table and the machinery reached nobody.
 
 ### GL-013 — Turn the public stand list into the required discovery product
 
-**Confirmed gap**
+**Completed:** 2026-08-06 — the map is a real geographic view (F-043's drawn island, F-070's twelve
+roads) beside a listing view, with toggle filters over structured facts, stand detail, honest
+recency and stale warnings, closures, participant names, transient browser proximity, and
+destination-only links. Browsing stays model-free and no runtime geocoder was reintroduced: the one
+approved geocode call site is the onboarding address lookup (F-069), and `architecture.test.ts`
+fails on a second caller.
 
-The component named `StandMap` renders cards and directions links, not a geographic map. There is no
-filter/search, stand detail page, or farm-without-stand layer.
-
-**Required outcome**
-
-- Provide a real geographic view and a usable listing view.
-- Keep actionable purchase locations as the default.
-- Make other farm layers prominent and easy to view.
-- Add useful filters over structured facts, not prose.
-- Add stand details with current inventory, recency, hours, offerings, payments, Farm Bucks, and
-  farmer-selected public profile facts.
-- Preserve model-free browsing, transient browser-origin proximity, stale warnings, and
-  destination-only routing links.
-- Do not reintroduce a runtime geocoder or coordinate-inventing stub.
+**Open in a narrower form:** whether `?hidden=true` needs to survive the Squarespace embed (F-044
+owns the embed check).
 
 ### GL-014 — Complete the canonical listing-data pipeline
 
@@ -222,36 +188,29 @@ seed/read paths do not carry them end to end:
 - Add corpus-level tests over the real approved artifact, including the suspicious Venison Valley /
   Aeggy's cross-row-looking text in `maps/offerings-proposals.json`.
 
-**Scope has grown — audit first (2026-08-04).** This item is wider than its bullets above, and a
-scoped audit is queued to supersede it rather than a rival item being opened beside it. See
-[LISTING_INGESTION_AUDIT_PROMPT_2026-08-04.md](LISTING_INGESTION_AUDIT_PROMPT_2026-08-04.md). Three
-findings from this session that the bullets do not anticipate:
+**Code complete (2026-08-06); the production ingest run is what remains.** The F-059 audit
+([archived](archive/LISTING_INGESTION_AUDIT_2026-08-04.md)) superseded this item's bullets and
+produced F-061 → F-064, all merged and deployed. Every bullet above is now met in code: `open_days`
+and stocking qualifiers are written, payment methods and Farm Bucks load, offerings have a public
+reader, and web and SMS read the same canonical facts. The invented `EXPECTED_COLUMNS` parser the
+audit found is gone.
 
-- **the map CSV is a hand-maintained derivative** of the weekly status form, not an independent
-  source — so ingesting it means ingesting a volunteer's transcription of the origin data;
-- **`parseFormResponses` describes an export VIGA has never produced.** None of its
-  `EXPECTED_COLUMNS` exists in either real file, and two of its own fixtures appear in neither. The
-  `--form` path is green over an invented format, so "the current seed path" above is partly a
-  description of code that has never run against real input;
-- **the customer-visible description is itself the gap.** Nearly every line of it restates a fact
-  with a structured home, and two of those restatements visibly contradict their structured twin on
-  the live map.
+**Still owed, and it is a data run rather than a build:** F-064's production ingest — a re-export of
+all three CSVs, a `neondb` snapshot (with an insert-only utility the snapshot *is* the rollback),
+max's explicit approval for the bulk write, and a render check on a real card afterwards. Until it
+runs, production serves the pre-tranche listing content through the new code. Tracked in
+CURRENT_STATE.
 
 ### GL-015 — Provide a real listing-correction path
 
-**Confirmed gap**
+**Largely met (2026-08-07); one half remains.** The correction route now belongs to the **farmer
+surface**: `/stand/<token>/listing` (F-073) lets an onboarded farmer fix address, hours, type,
+payments, and items themselves, and re-running the seed never overwrites a farmer's later
+correction — the batch is skip-only by stand name.
 
-The seed utility is insert-only. Resolving a `stand_data_flag` records the decision but deliberately
-does not apply a correction. Until farmer editing exists, initial address, hours, type, payment, and
-offering errors require direct SQL.
-
-**Required outcome**
-
-- Choose whether each correction belongs to the farmer surface or a narrowly audited VIGA
-  exception path.
-- Applying a stand-data decision must be separate from merely closing the review item, but the
-  operator must have a documented route to finish the correction.
-- Re-running the seed must never overwrite farmer-owned live facts.
+**Still open:** resolving a `stand_data_flag` still records the decision without applying a
+correction, so an operator closing a review item has no documented route to finish the fix for a
+farm with no farmer yet. Attribution for whoever does apply it is F-065.
 
 ---
 
