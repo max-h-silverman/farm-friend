@@ -110,9 +110,46 @@ allow-lists and **calls** the predicate, asserting a protected survivor can neve
 Sabotage-verified by making the guard return `True`, which it now catches. **It is still not in
 any npm script**, so it must be run by hand: `python3 infra/secrets-lifecycle.test.py`.
 
-**Still owed for F-078:** the sending seam (no email-sending code exists yet), the ingest, a
-privacy test that no public read path or model projection returns an email, masking in admin, and
-**one real send** to a real inbox.
+**The F-078 APPLICATION HALF IS BUILT** (commit `fa1bab1`, branch, not merged): the privacy
+layer, the verification code and email copy, the SMTP seam, the ingest, and the privacy proof.
+
+- **The email copy is written to minimize replies** (max), which is a real cost — replies land
+  in VIGA's board mailbox and a volunteer answers by hand. The code is in the **subject**, so a
+  farmer reading a phone notification never opens the mail; the subject names VIGA so it does
+  not read as spam; the farm is named in the first sentence; the expiry is rendered from
+  `CODE_TTL_MINUTES` so the promise cannot drift from the behavior; a recipient who did not ask
+  is told to ignore it; and there is **no link**, because a code plus a link is the shape of a
+  phishing mail. Replies are still invited and the address given.
+- **Email privacy is a second instance of `phone.ts`, not a second mechanism.** Normalize at
+  ingress, HMAC for lookup, raw address in exactly one column read only by the send path, masked
+  in admin. `normalizeEmail` names its whitespace class explicitly to match the index's
+  `btrim(email, E' \t\r\n')` — `btrim(text)` strips spaces only, which is 0020's defect.
+- **A SABOTAGE CORRECTED THE PRIVACY TEST, and the finding is worth keeping.** The first version
+  asserted on the objects `listPublicStands` returns; selecting the email straight into that
+  query left all four tests **passing**. The escape was not the test failing —
+  `serializePublicStand` is an **explicit allowlist**, so a leaked column cannot reach the wire
+  on its own, which is a real architectural property. What fails the test is a leak carried the
+  whole way (query, mapping, serializer), exactly what a well-meant "contact the farmer" field
+  would look like. The assertion now reads the **served bytes** of `/api/public/stands`, and
+  under that sabotage it fails and names the exposed address.
+- **Two architecture tripwires**: no email table or column anywhere `packages/ai` can read, and
+  the raw column readable only from the send path and the ingest.
+- **The ingest is idempotent** against the normalized unique index (`on conflict do nothing` —
+  select-then-insert cannot serialize a row that does not exist), proven against real Postgres
+  including the case collision only the index can arbitrate. Farms with **no address** and farms
+  matching **no seeded name** are reported, never dropped.
+- `nodemailer` 9.0.4, **zero transitive dependencies**, in `apps/web` only. **STARTTLS is
+  required**, not merely offered, so the app password cannot cross the wire in the clear.
+
+Verified: **1423 unit** (was 1369), **753 integration** (was 744), typecheck, lint, production
+build, evals 44/44. Integration ran against local Postgres, never Neon.
+
+**STILL OWED — the one acceptance criterion that cannot be met from here: ONE REAL SEND.** The
+app password lives in production Secret Manager and not on the development machine, so the send
+needs it passed in explicitly. `scripts/send-test-email.ts` runs the **shipped** code — the same
+`resolveEmailConfig`, the same transport, the same rendered message — against the real relay. A
+stubbed mail server proves nothing about whether a farmer receives anything.
+**Also owed:** wiring the verification into an actual farmer-facing page, which is F-079.
 Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
 effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
 contacts) was taken before writing, and the pre-change schema was asserted so a pass could not
