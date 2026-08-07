@@ -58,13 +58,21 @@ function workspaceDependencies(manifest: PackageManifest): string[] {
     .sort();
 }
 
+/**
+ * Every TypeScript source under a directory — **`.tsx` included**.
+ *
+ * The extension list is load-bearing. This collected only `.ts`, so every React component in
+ * the repository sat outside every tripwire built on it: a `geocode()` call and the maps host
+ * could be added to `listing-step.tsx` and the geocode allowlist stayed green. Proven by
+ * sabotage before it was widened, and `covers .tsx components` below is what keeps it that way.
+ */
 function sourceFiles(relativeDirectory: string): string[] {
   return readdirSync(new URL(`${relativeDirectory}/`, repositoryRoot), {
     withFileTypes: true,
   }).flatMap((entry) => {
     const relativePath = `${relativeDirectory}/${entry.name}`;
     if (entry.isDirectory()) return sourceFiles(relativePath);
-    return entry.isFile() && entry.name.endsWith(".ts") ? [relativePath] : [];
+    return entry.isFile() && /\.tsx?$/.test(entry.name) ? [relativePath] : [];
   });
 }
 
@@ -301,7 +309,31 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
     ...sourceFiles("packages/db/src"),
     ...sourceFiles("packages/sms/src"),
     ...sourceFiles("apps/web/lib"),
-  ].filter((path) => !path.endsWith(".test.ts") && !path.endsWith(".type-test.ts"));
+    // `apps/web/app` was ABSENT, so no page, route handler or component was covered by any
+    // tripwire in this block. The onboarding form is the geocoder's only consumer, which made
+    // the one file most likely to grow a second call site the one file nobody was watching.
+    ...sourceFiles("apps/web/app"),
+  ].filter(
+    (path) =>
+      !/\.test\.tsx?$/.test(path) &&
+      !path.endsWith(".type-test.ts") &&
+      !/\.integration\.test\.tsx?$/.test(path),
+  );
+
+  it("covers the app directory and .tsx components, not just packages and lib", () => {
+    // Guards the two gaps that made this block vacuous over the whole UI: `apps/web/app` was
+    // not scanned at all, and `sourceFiles` collected only `.ts`, so a component could not be
+    // reached even once the directory was added. Both are asserted by NAME — a count alone
+    // would survive one of them being dropped again.
+    expect(productionSources).toContain(
+      "apps/web/app/farmer/onboarding/[token]/listing-step.tsx",
+    );
+    expect(productionSources).toContain("apps/web/lib/address-lookup.ts");
+    // And the scan still excludes tests, which would otherwise trip on their own fixtures.
+    expect(
+      productionSources.filter((path) => /\.test\.tsx?$/.test(path)),
+    ).toEqual([]);
+  });
 
   it("declares no MapProvider seam or coordinate-inventing stub anywhere", () => {
     // Unchanged and unnarrowed: the allowlist does NOT apply to these names. A provider seam or
