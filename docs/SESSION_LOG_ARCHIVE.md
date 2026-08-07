@@ -1,7 +1,7 @@
 # Farm Friend — Session Log Archive (through 2026-08-04)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-06; it now holds 58 entries.
+everything older lives here. Last rotated 2026-08-06; it now holds 59 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -9,6 +9,98 @@ architecture documents ([README.md](README.md) is the index). Where an entry her
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
 
 ---
+
+## 2026-08-05 — the listing ingestion tranche: F-063, F-061, F-062, and F-064's guard
+
+Four items built in dependency order. The through-line is that **almost every design decision was
+settled by measuring the real corpus rather than by reasoning about it**, and measuring contradicted
+the audit twice and my own instincts once.
+
+**F-063 — `source`, and the column the spec didn't name.** `inventory_revisions` asserted in every
+row that a specific authorized handset sent a specific message. VIGA's own records have no handset,
+so the spec added `source` with `sms` requiring `proposal_id` + `published_by_authorization_id`.
+Building it surfaced a third NOT NULL key the spec never mentioned — `farm_approval_id`. max's call:
+`viga` carries none of the three, because approval is the *onboarding* step and F-064 runs before any
+farmer onboards, so at import time no farm has an approval row to point at.
+
+The constraint is **one biconditional over all three keys**, not three per-column rules, because a
+CHECK *passes* on NULL — independent rules would each be satisfied by exactly the half-populated rows
+the constraint exists to refuse.
+
+**The backfill would have failed against production, and only a populated-schema test caught it.**
+The first version used `UPDATE … SET source = 'sms'`. `inventory_revisions_guard_history` is a BEFORE
+UPDATE trigger permitting only the supersede shape, so that aborts on any table holding a current
+revision — which is every real database. Against an empty test database it passed cleanly. It now
+backfills via `ADD COLUMN … DEFAULT`, then **drops the default** so a writer that omits `source`
+cannot be silently recorded as a farmer's confirmation.
+
+**max reversed one acceptance criterion.** F-063 called for the card to read "From VIGA's records"
+vs. a farmer confirmation; max chose the *same* "Confirmed X ago" wording for both. The distinction is
+recorded in the data, not shown on the card.
+
+**F-061 — the one-line defect, and what measuring found around it.** `seed-stands.ts:176` stored the
+map transcription as the public description whenever a map row existed (27 of 35 stands), discarding
+the form's clean columns for display while still parsing them for structured fields. That one line
+caused both on-screen contradictions. Rebuilt from the form's own columns; both are gone at the data
+level, verified over the real corpus.
+
+Measuring corrected the audit twice. **Payment methods exist only in the map transcription** — the
+profile form has no payment question at all, so the audit's "22 payment lines" were map lines. And
+the "0/31 empty remainder" figure measured the *map description*, not the form's columns. Measuring
+also found a **wrong-row link**: the map lists `www.handpickedhomestead.com` under Plum Forest Farm.
+max chose to prefer the farmer's own answer, which fixes that and every case like it without naming a
+farm in code. `farm_links` and `sales_location_payment_methods` — schema, no writer, no reader — got
+both: 34 links and 53 payment rows over the real corpus.
+
+**F-062 — where I had the product wrong, and max corrected it.** I proposed the weekly form feed
+"usually sells" rather than confirmations, reasoning that a 34-day-median row would fake an active
+confirmation loop at launch. max pushed back twice, and was right both times: think about the people.
+A farmer has filled in VIGA's weekly form for years and has not heard of Farm Friend — if their
+submission produces nothing, the replacement system is strictly worse for them on day one and
+silently discards work they did. And a customer wants **both** facts in concert: the standing one
+sets expectations, the dated one says how much to trust it today. I had treated "old" as
+"dishonest", when the architecture's premise is that stale information stays visible *with a
+warning*. Past 48 hours the card already shows its stale caution, which is exactly true.
+
+**No model seam was added.** The audit expected one for the open-ended availability prose; measured
+against the real corpus those answers are comma-separated lists a deterministic parser reads cleanly.
+So no eval or `evals:live` run is owed, and there is no model in this path to jailbreak.
+
+Measuring the real file found four defects the tests had not: payment text publishing as produce
+("…and potatoes. Cash, checks, Venmo…"), sentence fragments as items, Green Ears appearing as *both*
+stocked and closed (one latest-wins timeline per farm now), and two rows refused as unreadable that
+were farmers stating a real fact ("We don't have anything available this week").
+
+**F-064 — the guard, the rehearsal, and the three duplicates.** `describeTarget` names a target but
+confirms only the string an operator typed; `requireExpectedDatabase` reports what is *actually*
+there and aborts on anything unexpected. Verified by effect: pointed at a rehearsal database while
+claiming `neondb`, the seeder refused and named what it found.
+
+The three weekly farms matching no stand turned out to be duplicates (max confirmed), and split into
+**two problems, so two mechanisms**. `Venison Valley Farm` and `Ostara` are word-prefixes of their
+seeded keys. `Maggie's Farm` → `Green Ears` is a **rename**, stated in Green Ears' own form row
+("Formerly Maggie's Farm") — the two names share no characters, so no spelling rule could reach it.
+`resolveStandKey` stays an **exact** comparison of whole words anchored at the start, honoring this
+module's standing prohibition on similarity scoring (a Jaccard matcher once ranked Lavender Hill
+against Flora Hill at 0.33). Checked first: no seeded key is a word-prefix of another, so a prefix
+names exactly one farm or none, and an ambiguous prefix resolves to neither. Unknown stands 3 → 0,
+published 13 → 16.
+
+**B-024 is fixed in code.** A farmer's written refusal now makes her stand contact-only — no address,
+no pin — read as a general rule from her own words rather than by naming a farm. Production still
+publishes her address until the ingest runs.
+
+**Seventeen sabotages, and three of them found problems with the tests rather than the code.** Two
+early attempts silently failed to apply and proved nothing (every later one asserts its anchor is
+present before editing). The surviving-DEFAULT case passed every refusal test because the default
+quietly satisfied the NOT NULL. And the name-ambiguity guard was checked with a string that was a
+prefix of *neither* candidate, so the candidate list was empty either way and disabling the guard
+changed nothing. All three now catch their defect.
+
+**Committed and merged; not deployed.** The tranche carries **migration `0019`**, which production
+has not received. F-064's production run is deliberately not done: it is a bulk write to `neondb`
+needing max's explicit approval, a re-export of all three CSVs (the profile form is still open), and
+a `neondb` snapshot — with an insert-only utility and GL-015 open, the snapshot *is* the rollback.
 
 ## 2026-08-04 — the expanded stand detail, and what the description turned out to be
 

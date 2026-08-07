@@ -6,10 +6,84 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 58. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 59. A log too large to open
 mid-session defeats its own purpose.
 
 ---
+
+## 2026-08-06 — self-onboarding: the plan's five workstreams, and where it was wrong
+
+Worked `~/.claude/plans/woolly-kindling-origami.md`. Three workstreams merged, one on a branch,
+one not started. **Nothing deployed.** The interesting content is where the plan and the code
+disagreed, and where sabotage disagreed with both.
+
+**B-037 was a live defect the tests actively concealed.** Editing a listing erased the farmer's
+season, hours and restocking — every one of twelve columns written back NULL, silently. The test
+that should have caught it was named "RESAVES an untouched edit form unchanged, **field for
+field**" over a fixture holding only the eight fields the type knew about. A name asserting
+completeness over an incomplete fixture is worse than no test: it is a claim nobody re-checks.
+Fixed fixture-first so it failed on its own name before anything else changed.
+
+**One of my own tests then passed for the wrong reason, and only sabotage found it.** The
+integration test "an edit preserves restocking" survived deleting `stocking_days` from
+`updateStand` — because omitting a column from a SET clause leaves what the INSERT already
+wrote, so "preserved it" and "never wrote it" are the same observation. The edit now *moves* a
+restocking day, which makes them different.
+
+**The architecture tripwires never covered the web app at all.** `sourceFiles` collected only
+`.ts`; the geocode block scanned `apps/web/lib` and not `apps/web/app`. So every page, route
+handler and React component in the repository sat outside the geocode allowlist and the
+`MapProvider` ban. Proven before fixing: a `geocode()` call plus the Maps host added to
+`listing-step.tsx` passed the suite untouched. **No production source was violating any of it** —
+the suite was green because the code happened to behave, not because anything checked.
+
+**F-077 traded a real capability, deliberately.** Geocode-only means a stand at the road rather
+than the mailing address can no longer be nudged, and rural Vashon is where lookup is weakest.
+What it buys: a published coordinate that always corresponds to the published address. The
+sharp edge it creates — A's coordinate publishing under B's address once the confirm gate is
+gone — is handled in `changeAddress`. Two refusal paths clear a *stored* pin, and each needed
+its own test: sabotaging either alone left the suite green, because `changeAddress` had already
+cleared the pin in every test that existed. The clearing is only reachable on an **edit** form.
+
+`DEVELOPMENT.md`'s geocoder exemption was justified by "every failure degrades to tapping the
+map". F-077 deletes that, so the justification was **replaced rather than quietly dropped**.
+
+**F-080: the plan's decisive sabotage is not decisive, and saying so is the point.** `JOIN` is
+carrier-registered, so giving it an argument grammar inverts the compliance-first ordering. The
+plan said the guarantee is proven by moving the token regex above the compliance lookup. It is
+not: that regex *requires* a token, so it cannot match a bare `JOIN` from any position. And
+loosening the grammar in place also passes, because compliance already consumed the word. **Only
+both at once fails.** Two properties, each making the other non-critical — defence in depth, and
+recorded in the test as such rather than as a single-guard proof.
+
+Two more plan claims that did not survive contact:
+- **`signup-reply.ts` does not collapse.** Requiring a token was said to make the "no consent
+  basis" case unreachable. `openFarmerOnboardingRequest` writes no consent when
+  `agreed_to_sms_at` is null, which an un-ticked invitation reaches *with* a token. Renamed, not
+  deleted.
+- **The two-consent-writer edit was unnecessary.** `JOIN <token>` parses as `kind: "farmer"` and
+  never enters `routeCompliance` at all, so the parser separates the writers structurally.
+
+**F-078: measured the corpus before building, and the plan was imprecise twice.** All three
+headline claims held (32/32 rows carry an email, 5 multi-address farms, zero cross-farm
+collisions). But Lavender Hill's three addresses come from **two columns combined**, not one
+cell — the columns disagree for 5 of 32 farms, so they are unioned. And separators are **mixed**:
+`" and "` as well as commas. A comma-only splitter turns one farm's cell into a single malformed
+address and stores it, since nothing rejects "and" on sight. The corpus test caught that; the
+fixtures alone did not.
+
+**`drizzle-kit generate` silently dropped every constraint.** Run against the same `schema.ts`,
+it emitted the CREATE TABLE and the foreign key and nothing else — both CHECKs and the
+normalized unique index gone, no warning. Its version would have created a table enforcing none
+of the rules `schema.ts` appears to declare. Only the meta snapshot was kept.
+
+**Email provider: the plan said Vercel Marketplace, which is wrong for this repository.** Farm
+Friend deploys to Cloud Run with Terraform-managed secrets and has no Vercel deployment. max
+chose Google — and **Google Cloud has no first-party email service**, its own docs direct you to
+a third party. What exists is VIGA's **Workspace account**, relaying through
+`smtp-relay.gmail.com`. max chose **`board@vigavashon.org`** as the sender rather than a
+dedicated address, because farmers will reply to a verification code and a `farmfriend@` mailbox
+is one nobody watches. The trade — shared sending reputation — is accepted at ~35 messages.
 
 ## 2026-08-06 — the farmer's own surfaces, from max using them
 
@@ -723,95 +797,3 @@ state currently lacks, so it closes that item's last acceptance criterion too.
 **Owed:** the onboarding listing-details form (F-067's remaining half — nothing in the codebase
 writes listing facts today, they are only ever seeded); then migrations `0019`–`0021` to production
 in order, before the image that reads them; then one real onboarding link to a single farmer.
-
-## 2026-08-05 — the listing ingestion tranche: F-063, F-061, F-062, and F-064's guard
-
-Four items built in dependency order. The through-line is that **almost every design decision was
-settled by measuring the real corpus rather than by reasoning about it**, and measuring contradicted
-the audit twice and my own instincts once.
-
-**F-063 — `source`, and the column the spec didn't name.** `inventory_revisions` asserted in every
-row that a specific authorized handset sent a specific message. VIGA's own records have no handset,
-so the spec added `source` with `sms` requiring `proposal_id` + `published_by_authorization_id`.
-Building it surfaced a third NOT NULL key the spec never mentioned — `farm_approval_id`. max's call:
-`viga` carries none of the three, because approval is the *onboarding* step and F-064 runs before any
-farmer onboards, so at import time no farm has an approval row to point at.
-
-The constraint is **one biconditional over all three keys**, not three per-column rules, because a
-CHECK *passes* on NULL — independent rules would each be satisfied by exactly the half-populated rows
-the constraint exists to refuse.
-
-**The backfill would have failed against production, and only a populated-schema test caught it.**
-The first version used `UPDATE … SET source = 'sms'`. `inventory_revisions_guard_history` is a BEFORE
-UPDATE trigger permitting only the supersede shape, so that aborts on any table holding a current
-revision — which is every real database. Against an empty test database it passed cleanly. It now
-backfills via `ADD COLUMN … DEFAULT`, then **drops the default** so a writer that omits `source`
-cannot be silently recorded as a farmer's confirmation.
-
-**max reversed one acceptance criterion.** F-063 called for the card to read "From VIGA's records"
-vs. a farmer confirmation; max chose the *same* "Confirmed X ago" wording for both. The distinction is
-recorded in the data, not shown on the card.
-
-**F-061 — the one-line defect, and what measuring found around it.** `seed-stands.ts:176` stored the
-map transcription as the public description whenever a map row existed (27 of 35 stands), discarding
-the form's clean columns for display while still parsing them for structured fields. That one line
-caused both on-screen contradictions. Rebuilt from the form's own columns; both are gone at the data
-level, verified over the real corpus.
-
-Measuring corrected the audit twice. **Payment methods exist only in the map transcription** — the
-profile form has no payment question at all, so the audit's "22 payment lines" were map lines. And
-the "0/31 empty remainder" figure measured the *map description*, not the form's columns. Measuring
-also found a **wrong-row link**: the map lists `www.handpickedhomestead.com` under Plum Forest Farm.
-max chose to prefer the farmer's own answer, which fixes that and every case like it without naming a
-farm in code. `farm_links` and `sales_location_payment_methods` — schema, no writer, no reader — got
-both: 34 links and 53 payment rows over the real corpus.
-
-**F-062 — where I had the product wrong, and max corrected it.** I proposed the weekly form feed
-"usually sells" rather than confirmations, reasoning that a 34-day-median row would fake an active
-confirmation loop at launch. max pushed back twice, and was right both times: think about the people.
-A farmer has filled in VIGA's weekly form for years and has not heard of Farm Friend — if their
-submission produces nothing, the replacement system is strictly worse for them on day one and
-silently discards work they did. And a customer wants **both** facts in concert: the standing one
-sets expectations, the dated one says how much to trust it today. I had treated "old" as
-"dishonest", when the architecture's premise is that stale information stays visible *with a
-warning*. Past 48 hours the card already shows its stale caution, which is exactly true.
-
-**No model seam was added.** The audit expected one for the open-ended availability prose; measured
-against the real corpus those answers are comma-separated lists a deterministic parser reads cleanly.
-So no eval or `evals:live` run is owed, and there is no model in this path to jailbreak.
-
-Measuring the real file found four defects the tests had not: payment text publishing as produce
-("…and potatoes. Cash, checks, Venmo…"), sentence fragments as items, Green Ears appearing as *both*
-stocked and closed (one latest-wins timeline per farm now), and two rows refused as unreadable that
-were farmers stating a real fact ("We don't have anything available this week").
-
-**F-064 — the guard, the rehearsal, and the three duplicates.** `describeTarget` names a target but
-confirms only the string an operator typed; `requireExpectedDatabase` reports what is *actually*
-there and aborts on anything unexpected. Verified by effect: pointed at a rehearsal database while
-claiming `neondb`, the seeder refused and named what it found.
-
-The three weekly farms matching no stand turned out to be duplicates (max confirmed), and split into
-**two problems, so two mechanisms**. `Venison Valley Farm` and `Ostara` are word-prefixes of their
-seeded keys. `Maggie's Farm` → `Green Ears` is a **rename**, stated in Green Ears' own form row
-("Formerly Maggie's Farm") — the two names share no characters, so no spelling rule could reach it.
-`resolveStandKey` stays an **exact** comparison of whole words anchored at the start, honoring this
-module's standing prohibition on similarity scoring (a Jaccard matcher once ranked Lavender Hill
-against Flora Hill at 0.33). Checked first: no seeded key is a word-prefix of another, so a prefix
-names exactly one farm or none, and an ambiguous prefix resolves to neither. Unknown stands 3 → 0,
-published 13 → 16.
-
-**B-024 is fixed in code.** A farmer's written refusal now makes her stand contact-only — no address,
-no pin — read as a general rule from her own words rather than by naming a farm. Production still
-publishes her address until the ingest runs.
-
-**Seventeen sabotages, and three of them found problems with the tests rather than the code.** Two
-early attempts silently failed to apply and proved nothing (every later one asserts its anchor is
-present before editing). The surviving-DEFAULT case passed every refusal test because the default
-quietly satisfied the NOT NULL. And the name-ambiguity guard was checked with a string that was a
-prefix of *neither* candidate, so the candidate list was empty either way and disabling the guard
-changed nothing. All three now catch their defect.
-
-**Committed and merged; not deployed.** The tranche carries **migration `0019`**, which production
-has not received. F-064's production run is deliberately not done: it is a bulk write to `neondb`
-needing max's explicit approval, a re-export of all three CSVs (the profile form is still open), and
-a `neondb` snapshot — with an insert-only utility and GL-015 open, the snapshot *is* the rollback.

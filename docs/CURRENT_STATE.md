@@ -16,6 +16,72 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 > the RUNBOOK's migrate-before-promote ordering does not apply and production's migration count
 > stays at 24. Until that deploy runs, no farmer sees the chip interface, the named removals, the
 > farm-name rename, or the "Remove this stand" heading.
+>
+> **A SECOND undeployed tranche now sits on top of it** (self-onboarding, 2026-08-06, below):
+> B-037, the architecture-tripwire fix, F-077 and F-080 are merged to `main`. **F-078 is a
+> BRANCH, not merged**, and it carries **migration `0024`** — the first migration owed to
+> production since this record was written. See §the self-onboarding tranche.
+
+## The self-onboarding tranche (2026-08-06) — merged, undeployed
+
+Built from `~/.claude/plans/woolly-kindling-origami.md`. Five workstreams; **three merged to
+`main`, one on a branch, one not started.** Nothing here is deployed.
+
+**Merged to `main`, no migration:**
+
+- **B-037 — the listing editor no longer erases a farmer's availability.** A live data-loss
+  defect: `readStandListing` returned all twelve season/hours/restocking columns, `updateStand`
+  wrote all twelve unconditionally, and `ListingDefaults` had fields for none of them — so a
+  farmer who opened the edit form to change their hours silently lost their season, open days,
+  restocking cadence and restocking days. It shipped because a test named "RESAVES an untouched
+  edit form unchanged, **field for field**" held a fixture with only the eight fields the type
+  knew about. Fixed fixture-first, so that test failed on its own name first. `ListingDefaults`
+  now imports `ListingAvailability` rather than restating it.
+- **The architecture tripwires did not cover the web app at all.** `sourceFiles` collected only
+  `.ts`, and the geocode block scanned `apps/web/lib` but not `apps/web/app` — so every page,
+  route handler and component sat outside the geocode allowlist and the `MapProvider` ban.
+  Proven by sabotage: a `geocode()` call plus the Maps host added to `listing-step.tsx` passed
+  the suite untouched. It now fails. **No production source was violating any of it.**
+- **F-077 — the typed address is the only source of a coordinate.** The tap-to-place picker,
+  `drop()`, the confirm gate and `DraftPin.confirmed` are gone; an address that will not resolve
+  is **refused**. The island map survives read-only so the farmer can check the point. Editing
+  the address **clears** the pin — the sharp edge this creates, since A's coordinate must not
+  publish under B's address. **`GEOCODING_API_KEY`'s absence now means no visitable stand can be
+  created at all**; the prose calling it a fallback to tapping was corrected everywhere.
+- **F-080 — `SIGNUP` is gone; `JOIN <token>` redeems an invitation.** No grace window (max:
+  pre-go-live, no farmer to strand). It could not simply be deleted —
+  `openFarmerOnboardingRequest` was the only writer of `farmer_onboarding_requests`, which the
+  admin fallback requires. **One consent writer, structurally:** bare `JOIN` parses as
+  compliance and is handled by `routeCompliance`; `JOIN <token>` parses as `kind: "farmer"` and
+  never reaches it, so the two-writer edit the plan anticipated was unnecessary.
+
+**On branch `f-078-email-identity`, NOT merged — and it carries migration `0024`:**
+
+- **`farm_emails`** — the roster VIGA already holds, so a farmer can prove who they are without
+  a volunteer vouching. Raw address in exactly one column read only by the send path; hash the
+  only lookup key (Golden Rule #5, second kind of personal data). **Verifying is not
+  publishing:** the 6 farms who declined the printed map still authenticate.
+- **Every constraint proven to genuinely REFUSE** by sabotage: naive `btrim` (0020's exact
+  defect — admits tab-only values), the hex-digest CHECK, the normalized unique index, and
+  `restrict` vs `cascade`.
+- **`drizzle-kit generate` silently dropped both CHECKs and the unique index** when run against
+  the same `schema.ts` — it emitted only the CREATE TABLE and the foreign key. Only its meta
+  snapshot was kept; the SQL is hand-written. Recorded first-hand in the migration.
+- **The parser was measured against the real corpus before building.** All three plan claims
+  held (32/32 rows carry an email, 5 multi-address farms, zero cross-farm collisions), but two
+  details were imprecise and change the parser: Lavender Hill's three addresses come from **two
+  columns combined**, and separators are **mixed** (`" and "` as well as commas). A comma-only
+  splitter turns one farm's cell into a single malformed address — caught by the corpus test,
+  not by the fixtures.
+
+**Not started: F-079** (secret link + emailed code). Depends on the email sending seam below.
+
+**Owed before F-078 can finish:** the Google Workspace SMTP relay is **configured** and max
+**holds the 16-character app password**, but `farm-friend-smtp-password` does not exist in
+Terraform yet, so there is nowhere to put it. Sender is **`board@vigavashon.org`** (max), not a
+dedicated Farm Friend address — so replies reach a mailbox VIGA actually reads. Still owed: the
+Terraform secret, the sending seam, the ingest, a privacy test that no public read path or model
+projection returns an email, and **one real send** to a real inbox.
 Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
 effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
 contacts) was taken before writing, and the pre-change schema was asserted so a pass could not
@@ -466,7 +532,7 @@ public description, which it does.
 
 - **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
   names, transient browser proximity, destination links, and code-bound stock-out reporting.
-- **Farmer workflows:** deterministic `SIGNUP`, `LINK`, `STAND`, `SETTINGS`, and `SAME`; one exact
+- **Farmer workflows:** deterministic `JOIN <token>`, `LINK`, `STAND`, `SETTINGS`, and `SAME`; one exact
   stand per credential; SMS/web proposal and confirmation; closures, participants, and reminders.
   Invited onboarding establishes SMS consent.
 - **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
@@ -654,12 +720,13 @@ against the real corpus on 2026-08-04 while implementing.
   against the partial unique index, since `for update` cannot serialize a row that does not exist
   yet. The invitation is the authorization decision; the queue
   click it replaces re-approved a decision already made. The three paths that still need a human
-  are unchanged and still queue: a bare uninvited `SIGNUP`, an invitation naming no farm, and an
-  invitation whose agreement was never ticked. Migration **`0021`** widens the settlement CHECK from
+  are unchanged and still queue — except that F-080 removed one of them: an invitation naming no
+  farm, and an invitation whose agreement was never ticked. (A bare uninvited `SIGNUP` was the
+  third; there is no bare keyword any more.) Migration **`0021`** widens the settlement CHECK from
   "an administrator settled it" to "an administrator **or** the authorization the redemption
   granted" — a settlement recording neither is still refused. The admin invite now **names a new
   farm at invite time**, which is what makes a brand-new farmer reachable by self-serve at all. The
-  SIGNUP acknowledgement is omitted for a self-served farmer, since "VIGA will review it" is false
+  redemption acknowledgement is omitted for a self-served farmer, since "VIGA will review it" is false
   for someone already set up and arrived beside the "your farm is ready" text.
   **The listing form is now BUILT** (branch `f-067-listing-form`, undeployed).
   `packages/db/src/onboarding-listing.ts` is the **first non-seeder writer of `sales_locations`** —
