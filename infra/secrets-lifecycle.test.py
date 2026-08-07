@@ -1,6 +1,7 @@
 """F-056 source tripwire for protected Secret Manager lifecycle moves."""
 
 from pathlib import Path
+import importlib.util
 import json
 import re
 import subprocess
@@ -46,10 +47,40 @@ class SecretLifecycleSourceTest(unittest.TestCase):
             self.assertNotIn("google_secret_manager_secret.app", source)
             self.assertIn("google_secret_manager_secret.protected", source)
 
-        self.assertIn("initial_secret_changes", plan_assertions)
-        self.assertIn("post_provision_secret_changes", plan_assertions)
+        # Anchored to the ADDRESSES the guard allow-lists, never to the local variable names
+        # holding them. This assertion previously named `initial_secret_changes` and
+        # `post_provision_secret_changes`; commit 737b39b renamed those locals to `initial` and
+        # `post_provision` and this tripwire has been RED ever since — unnoticed because it is a
+        # standalone Python file that `npm test` never runs. A name is not the construct.
         self.assertIn('google_secret_manager_secret.protected["admin-password-hash"]', plan_assertions)
         self.assertIn('google_secret_manager_secret.app["magic-link-secret"]', plan_assertions)
+
+        # The guard itself must still REFUSE. Asserting the source mentions an address proves
+        # only that someone wrote it down; these call the predicate.
+        spec = importlib.util.spec_from_file_location(
+            "plan_assertions_lifecycle", ROOT / "plan-assertions.py"
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        self.assertTrue(
+            module.secret_cutover_changes_are_safe(
+                {
+                    'google_secret_manager_secret.protected["admin-password-hash"]': ["create"],
+                    'google_secret_manager_secret.app["magic-link-secret"]': ["delete"],
+                }
+            )
+        )
+        # Destroying a protected survivor takes every version inside it with it, and
+        # `phone-hash-salt` can never be re-derived.
+        for key in ("database-url", "phone-hash-salt", "telnyx-api-key", "deepinfra-api-key"):
+            self.assertFalse(
+                module.secret_cutover_changes_are_safe(
+                    {f'google_secret_manager_secret.protected["{key}"]': ["delete"]}
+                ),
+                f"deleting {key} must never be an approved secret change",
+            )
 
     def test_bootstrap_plan_uses_only_the_safe_exclusions(self) -> None:
         runbook = (ROOT.parent / "docs" / "RUNBOOK.md").read_text()

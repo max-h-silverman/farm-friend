@@ -60,6 +60,36 @@ So a rotation is always two edits and two checks:
 actually happened. Neither substitutes for the other — a forgotten `rotation_applied_at` bump
 passes the first and fails the second.
 
+## Landing an optional gated credential (geocoding, SMTP)
+
+Two secrets are **gated behind a variable** rather than mounted unconditionally:
+`mount_geocoding_key` (F-069) and `mount_smtp_password` (F-078). The gate is not ceremony. A
+secret with **no versions** resolves to nothing when a container starts, and Cloud Run then
+**refuses the revision** — so an unconditional mount would take the public map down in order to
+add an optional feature, which is precisely backwards.
+
+So landing one is three applies, not one:
+
+    # 1. apply with the flag false — creates the EMPTY container and its IAM grant
+    tofu apply ...
+
+    # 2. add the version OUT OF BAND. Never through Terraform: a value given to Terraform is
+    #    written to state in cleartext.
+    printf %s "<value>" | gcloud secrets versions add farm-friend-smtp-password \
+      --project farm-friend-vashon --data-file=-
+
+    # 3. bump rotation_applied_at, then apply with the flag true
+    tofu apply -var="mount_smtp_password=true" ...
+
+`printf %s`, not `echo`. For the SMTP app password this bites harder than usual: Google displays
+it as **four space-separated groups**, and both the spaces and a trailing newline must be stripped
+— a credential carrying either looks right in every listing and fails SMTP authentication.
+
+Setting the flag back to `false` and applying is the **kill switch** for either feature, and it
+stops the capability without touching the credential. For SMTP the other half is revoking the app
+password in the Google account, which is what to do if it is believed exposed: it authenticates as
+VIGA's board mailbox.
+
 For the administrator password, do not use the generic `printf` command. Run
 `npm run admin:provision-password --workspace @farm-friend/web` from a private terminal; it reads
 without echo and streams only the Argon2id verifier to Secret Manager. After deploying and proving
@@ -67,9 +97,10 @@ the new password, revoke every old administrator session per the main runbook.
 
 ## `terraform.tfvars` is gitignored
 
-It holds non-secret Telnyx identifiers and three deployment inputs. None of it is a credential —
-`TELNYX_API_KEY` lives in Secret Manager — but it is environment-specific, so it is not committed.
-A fresh checkout must recreate it with all six values:
+It holds non-secret Telnyx identifiers, the SMTP sender configuration, and three deployment
+inputs. None of it is a credential — `TELNYX_API_KEY` and the SMTP app password both live in
+Secret Manager — but it is environment-specific, so it is not committed. A fresh checkout must
+recreate it with all eight values:
 
     telnyx_public_key           = "..."   # ed25519 webhook key, base64, MUST decode to 32 bytes
     telnyx_messaging_profile_id = "..."
@@ -77,6 +108,15 @@ A fresh checkout must recreate it with all six values:
     public_map_url              = "https://www.vigavashon.org/farm-stand-map"
     cloud_run_host_suffix       = "..."   # e.g. p5mfxfp5za-uw; see the bootstrapping note below
     rotation_applied_at         = "..."   # e.g. 2026-07-29T17-35; see "Rotating a secret"
+    smtp_username               = "board@vigavashon.org"  # authenticates to the relay
+    smtp_from_address           = "board@vigavashon.org"  # the visible From (F-078)
+
+`smtp_username` and `smtp_from_address` also have **no default**, for a reason specific to mail:
+a wrong sender is not a visible failure. Mail either arrives from the wrong place or is rejected
+by the relay's allowed-senders rule, and neither looks like a misconfiguration from inside the
+app. `smtp_host` and `smtp_port` do carry defaults, because those are properties of the Google
+relay rather than of this deployment — and `smtp_port` refuses 25, which Google Cloud blocks
+outbound with no way to open it.
 
 `public_map_url` and `rotation_applied_at` deliberately have **no default**. A default would be a value that silently
 goes stale, and a stale marker reverts the revision template — un-restarting the containers a

@@ -77,6 +77,70 @@ variable "billing_account_id" {
 }
 
 # ---------------------------------------------------------------------------
+# SMTP non-secret configuration (F-078)
+# ---------------------------------------------------------------------------
+# The relay host, the port, the authenticating account, and the visible sender. None is a
+# credential — only the app password is, and it lives in Secret Manager.
+
+variable "smtp_host" {
+  description = "SMTP relay host. `smtp-relay.gmail.com` for the Google Workspace relay."
+  type        = string
+  default     = "smtp-relay.gmail.com"
+}
+
+variable "smtp_port" {
+  description = <<-EOT
+    SMTP submission port. 587 (STARTTLS) — Google Cloud BLOCKS OUTBOUND PORT 25 with no way to
+    open it, so a relay reached on 25 fails from Cloud Run no matter how it is configured.
+  EOT
+  type        = number
+  default     = 587
+
+  validation {
+    condition     = var.smtp_port != 25
+    error_message = "Port 25 is blocked outbound on Google Cloud and can never work from Cloud Run. Use 587."
+  }
+}
+
+variable "smtp_username" {
+  description = <<-EOT
+    The Workspace account that AUTHENTICATES to the relay — `board@vigavashon.org`.
+
+    Distinct from `smtp_from_address` on purpose, even though they are the same account today.
+    The relay is configured for "only addresses in my domains", under which the authenticating
+    account need not match the visible From. Keeping them separate is what makes moving to a
+    dedicated sending address later a configuration change rather than a code change.
+  EOT
+  type        = string
+
+  validation {
+    condition     = can(regex("^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$", var.smtp_username))
+    error_message = "smtp_username must be a single email address with no whitespace."
+  }
+}
+
+variable "smtp_from_address" {
+  description = <<-EOT
+    The visible From address on every message Farm Friend sends — `board@vigavashon.org`.
+
+    max's call (2026-08-06), and the reason is replies: a farmer who gets a verification code
+    and is confused will reply to it, and a dedicated `farmfriend@` address would be a mailbox
+    nobody watches, so the reply would land nowhere. `board@` is the address VIGA already reads.
+
+    CONFIGURATION, never a hard-coded string — that is what makes moving to a dedicated address
+    a config change. Its absence must fail the deployment plan rather than fall back to a
+    default, because a wrong sender is not a visible failure: mail simply arrives from the wrong
+    place, or is rejected by the relay's allowed-senders rule.
+  EOT
+  type        = string
+
+  validation {
+    condition     = can(regex("^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$", var.smtp_from_address))
+    error_message = "smtp_from_address must be a single email address with no whitespace."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Telnyx non-secret configuration
 # ---------------------------------------------------------------------------
 # Identifiers and a public verification key — NOT secrets, so they are plain variables rather
@@ -177,6 +241,32 @@ variable "mount_geocoding_key" {
 
     Setting it back to false is also the kill switch: apply, and address lookup stops without
     touching the key or the application.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "mount_smtp_password" {
+  description = <<-EOT
+    Whether the WEB service mounts `SMTP_PASSWORD` (F-078).
+
+    Exactly the same three-step gate as `mount_geocoding_key`, and for exactly the same reason:
+    `version = "latest"` is resolved when a container STARTS, and a secret with no versions
+    resolves to nothing — Cloud Run then refuses the revision. Mounting the empty container
+    would take the public map down in order to add email verification.
+
+      1. apply with this false — creates the empty secret container
+      2. printf %s "<16-char app password>" | gcloud secrets versions add farm-friend-smtp-password \
+           --project farm-friend-vashon --data-file=-
+      3. apply with this true — the web service mounts it and a new revision picks it up
+
+    Note `printf %s`, not `echo`: Google displays the app password in four space-separated
+    groups, and a trailing newline (or a retained space) produces a credential that looks right
+    in every listing and fails SMTP authentication.
+
+    Setting it back to false is the kill switch: apply, and email sending stops without touching
+    the credential. Revoking the app password in the Google account is the other half, and is
+    what to do if it is believed exposed — it authenticates as the board mailbox.
   EOT
   type        = bool
   default     = false

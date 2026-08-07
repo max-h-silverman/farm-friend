@@ -66,6 +66,17 @@ locals {
   # Configuration rather than a derived `Host:` header on purpose: farmer links are bearer
   # credentials and must never be built against an attacker-controlled origin.
 
+  # Non-secret SMTP configuration, WEB ONLY — it accompanies a web-only credential, and config
+  # for a capability the worker does not have would be a standing invitation to give it one.
+  # The sender address is here rather than in the application because it must be a deployment
+  # decision: moving to a dedicated `farmfriend@` address is then an apply, not a code change.
+  web_env = {
+    SMTP_HOST         = var.smtp_host
+    SMTP_PORT         = tostring(var.smtp_port)
+    SMTP_USERNAME     = var.smtp_username
+    SMTP_FROM_ADDRESS = var.smtp_from_address
+  }
+
   shared_secret_env = {
     DATABASE_URL      = google_secret_manager_secret.protected["database-url"].secret_id
     PHONE_HASH_SALT   = google_secret_manager_secret.protected["phone-hash-salt"].secret_id
@@ -92,10 +103,17 @@ locals {
   #
   # Order: apply with the flag false (creates the empty container), add the version out of band,
   # then apply with it true. See RUNBOOK.md §Environment.
+  # F-078's SMTP password is web-only on the same reasoning as the two above: the email seam's
+  # only callers are web routes, and the worker sends no email. It matters more here than for
+  # geocoding, because this credential authenticates as VIGA's board mailbox rather than
+  # metering a billed API — so the worker holding it would put full send-as authority in a
+  # process that has no use for it.
   web_secret_env = merge(local.shared_secret_env, {
     ADMIN_PASSWORD_HASH = google_secret_manager_secret.protected["admin-password-hash"].secret_id
     }, var.mount_geocoding_key ? {
     GEOCODING_API_KEY = google_secret_manager_secret.protected["geocoding-api-key"].secret_id
+    } : {}, var.mount_smtp_password ? {
+    SMTP_PASSWORD = google_secret_manager_secret.protected["smtp-password"].secret_id
   } : {})
 }
 
@@ -172,6 +190,14 @@ resource "google_cloud_run_v2_service" "web" {
 
       dynamic "env" {
         for_each = local.common_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.web_env
         content {
           name  = env.key
           value = env.value

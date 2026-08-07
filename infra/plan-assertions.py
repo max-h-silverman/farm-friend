@@ -82,12 +82,22 @@ def secret_cutover_changes_are_safe(secret_changes: dict[str, list[str]]) -> boo
     post_provision = {
         'google_secret_manager_secret.app["magic-link-secret"]': ["delete"],
     }
-    # F-069 — the optional geocoding key. A CREATE only; the container is added empty and its
-    # version goes in out of band, so no value passes through Terraform or its state.
-    geocoding = {
-        'google_secret_manager_secret.protected["geocoding-api-key"]': ["create"],
+    # The optional key containers: F-069's geocoding key and F-078's SMTP password. Each is a
+    # CREATE only — the container is added empty and its version goes in out of band, so no value
+    # passes through Terraform or its state. Any SUBSET may be planned, because a container that
+    # already exists in production plans no change: the SMTP apply follows geocoding's, so it
+    # plans that one alone. `create` is the only approved action for either, so a DELETE — which
+    # destroys every version inside — still fails here and needs its own review.
+    optional_containers = {
+        'google_secret_manager_secret.protected["geocoding-api-key"]',
+        'google_secret_manager_secret.protected["smtp-password"]',
     }
-    return secret_changes in ({}, initial, post_provision, geocoding)
+    if secret_changes and all(
+        address in optional_containers and actions == ["create"]
+        for address, actions in secret_changes.items()
+    ):
+        return True
+    return secret_changes in ({}, initial, post_provision)
 
 
 def main() -> int:
@@ -159,7 +169,7 @@ def main() -> int:
 
     print("\nSecrets")
     secrets = by_type(plan, "google_secret_manager_secret")
-    check("six application secrets are declared", len(secrets) == 6, f"found {len(secrets)}")
+    check("seven application secrets are declared", len(secrets) == 7, f"found {len(secrets)}")
     secret_ids = {value.get("secret_id") for value in secrets.values()}
     check("the admin password verifier container is declared",
           "farm-friend-admin-password-hash" in secret_ids)
@@ -168,6 +178,9 @@ def main() -> int:
     # to nothing and Cloud Run refuses the revision.
     check("the geocoding key container is declared",
           "farm-friend-geocoding-api-key" in secret_ids)
+    # F-078. Same gated mount as geocoding, and declared as a container regardless of the flag.
+    check("the smtp password container is declared",
+          "farm-friend-smtp-password" in secret_ids)
     check("the magic-link secret container is absent",
           "farm-friend-magic-link-secret" not in secret_ids)
 
@@ -276,8 +289,41 @@ def main() -> int:
     # mounts it, so flipping `mount_geocoding_key` can never quietly hand it to the worker.
     check("the worker never mounts GEOCODING_API_KEY",
           "GEOCODING_API_KEY" not in secret_names(worker))
+    # F-078 — the SMTP password authenticates as VIGA's BOARD MAILBOX, so this is a stronger
+    # claim than the geocoding one: the worker holding it would grant send-as authority over a
+    # real mailbox to a process that sends no email. Asserted unconditionally, so flipping
+    # `mount_smtp_password` can never quietly hand it over.
+    check("the worker never mounts SMTP_PASSWORD",
+          "SMTP_PASSWORD" not in secret_names(worker))
+    # The credential must arrive from Secret Manager, never as a plain env value. A password
+    # written into the revision template is readable from the service description by anyone with
+    # Cloud Run view access, and would be in the plan — and therefore in state — as cleartext.
+    check("SMTP_PASSWORD is never a plain environment value",
+          all(
+              "SMTP_PASSWORD" not in {
+                  e.get("name") for e in
+                  (((s.get("template") or [{}])[0].get("containers") or [{}])[0].get("env") or [])
+                  if isinstance(e, dict) and e.get("value")
+              }
+              for s in (web, worker)
+          ),
+          "an SMTP password supplied as a literal env value would sit in state in cleartext")
     check("no service mounts MAGIC_LINK_SECRET",
           all("MAGIC_LINK_SECRET" not in secret_names(service) for service in (web, worker)))
+
+    # The sender address is CONFIGURATION, not a hard-coded string — an F-078 acceptance
+    # criterion, and what makes moving to a dedicated address an apply rather than a code
+    # change. Asserted on the plan because that is the artifact the platform consumes: a
+    # default baked into the application would satisfy any source-level check and still be
+    # invisible here.
+    check("the web service is told its sender address",
+          "@" in (web_env.get("SMTP_FROM_ADDRESS") or ""),
+          f"SMTP_FROM_ADDRESS={web_env.get('SMTP_FROM_ADDRESS')} — the sender must be "
+          "configuration, never a default compiled into the application")
+    check("the worker is given no email configuration",
+          not any(key.startswith("SMTP_") for key in worker_env),
+          f"worker carries {sorted(k for k in worker_env if k.startswith('SMTP_'))} — the worker "
+          "sends no email and must not be configured as though it could")
 
     print("\nSecret rotation reaches containers")
     # B-021. Cloud Run resolves `version = "latest"` at CONTAINER START, so adding a secret

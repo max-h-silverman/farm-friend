@@ -84,8 +84,16 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `LLM_PROVIDER` | Required `stub` or `deepinfra`; no default or environment exception |
 | `DEEPINFRA_API_KEY`, `DEEPINFRA_MODEL` | Required with DeepInfra; `anthropic/` and `google/` models are refused because their terms are not attested |
 | `GEOCODING_API_KEY` | **Optional.** Google Geocoding key for the onboarding draft pin (F-069). Absent or blank disables lookup and the form asks the farmer to tap the map, which is fully supported. **Billed per call** — server-side only, behind the invitation token and its own throttle bucket. Restrict the key to the Geocoding API in the GCP console |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_FROM_ADDRESS` | **Optional, `web` role only** (F-078). The Google Workspace relay: `smtp-relay.gmail.com`, port **587** — Google Cloud blocks outbound **port 25** with no way to open it. `SMTP_FROM_ADDRESS` is the visible sender and is **configuration, never a hard-coded default**, which is what makes moving to a dedicated address a config change |
+| `SMTP_PASSWORD` | **Optional, `web` role only.** The 16-character Workspace app password. A **real credential to the board mailbox** — it authenticates as the account, not as a scoped API key. Revoke it from the same Google account page if exposed. Never logged. Absent or blank disables email sending; the worker never receives it |
 
-There is no mail dependency and no `CRON_SECRET`; Cloud Scheduler uses OIDC and IAM.
+There is no `CRON_SECRET`; Cloud Scheduler uses OIDC and IAM.
+
+**Mail is optional and web-only.** Farm Friend sends email for F-078's farmer identity
+verification through VIGA's own Workspace account, so there is no third-party mail vendor and no
+additional company holding farmer addresses. With `SMTP_PASSWORD` absent the email seam is simply
+unconfigured and email verification is unavailable — the deployment still runs, exactly as it does
+without `GEOCODING_API_KEY`.
 
 ## Migrations
 

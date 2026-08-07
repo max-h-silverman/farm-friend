@@ -33,6 +33,39 @@ class SecretCutoverChangesTest(unittest.TestCase):
             )
         )
 
+    def test_accepts_the_optional_key_containers_added_after_cutover(self) -> None:
+        """F-069's geocoding key and F-078's SMTP password, each a CREATE of a container only.
+
+        Both are added empty and take their version out of band, so neither passes a value
+        through Terraform or its state. They can appear separately or together — the geocoding
+        container already exists in production, so the SMTP apply plans that one alone.
+        """
+        geocoding = {
+            'google_secret_manager_secret.protected["geocoding-api-key"]': ["create"],
+        }
+        smtp = {
+            'google_secret_manager_secret.protected["smtp-password"]': ["create"],
+        }
+        self.assertTrue(PLAN_ASSERTIONS.secret_cutover_changes_are_safe(geocoding))
+        self.assertTrue(PLAN_ASSERTIONS.secret_cutover_changes_are_safe(smtp))
+        self.assertTrue(PLAN_ASSERTIONS.secret_cutover_changes_are_safe({**geocoding, **smtp}))
+
+    def test_rejects_deleting_an_optional_key_container(self) -> None:
+        """A CREATE is cheap to approve; a DELETE destroys every version inside the container.
+
+        The allow-list must not be loosened into "any change to these two secrets".
+        """
+        self.assertFalse(
+            PLAN_ASSERTIONS.secret_cutover_changes_are_safe(
+                {'google_secret_manager_secret.protected["smtp-password"]': ["delete"]}
+            )
+        )
+        self.assertFalse(
+            PLAN_ASSERTIONS.secret_cutover_changes_are_safe(
+                {'google_secret_manager_secret.protected["geocoding-api-key"]': ["delete"]}
+            )
+        )
+
     def test_rejects_every_unrelated_secret_change(self) -> None:
         self.assertFalse(
             PLAN_ASSERTIONS.secret_cutover_changes_are_safe(

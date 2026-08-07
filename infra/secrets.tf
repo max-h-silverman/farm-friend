@@ -34,6 +34,18 @@ locals {
     # key to the Geocoding API in the console; an unrestricted Maps key bills across every Maps
     # product. Rotatable, unlike the salt: a new version and a redeploy is the whole procedure.
     geocoding-api-key = "Google Geocoding key for the onboarding draft pin. Optional; web only; billed per call."
+    # F-078. The 16-character Google Workspace app password for `board@vigavashon.org`, used to
+    # authenticate to `smtp-relay.gmail.com`. Web service only — the worker sends no email.
+    #
+    # This is a REAL CREDENTIAL TO VIGA'S BOARD MAILBOX, not a scoped API key: an app password
+    # authenticates as the account. That is the trade max accepted so replies reach a mailbox
+    # VIGA actually reads. It is revocable from the same Google account page that issued it,
+    # which is the containment — rotation is "revoke, generate, add a version, redeploy".
+    #
+    # Optional at the application layer for the same reason as geocoding: with no version the
+    # email seam is unconfigured and email verification is simply unavailable, rather than the
+    # deployment failing.
+    smtp-password = "Google Workspace app password for the SMTP relay. Optional; web only; authenticates as the board mailbox."
   }
 }
 
