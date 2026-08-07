@@ -571,7 +571,24 @@ revision.
 1. Apply with `mount_email_verification = false` (its committed value). This creates the three
    empty containers and their IAM grants and changes nothing about what the services run.
 2. **Run F-078's roster ingest first** (max, 2026-08-07) — it decides `EMAIL_HASH_SALT`, and
-   whatever salt it used is the value that must be stored. Then add all three versions:
+   whatever salt it used is the value that must be stored.
+
+   ```bash
+   # Dry run first. Writes NOTHING; reports what it would insert, which farm names match no
+   # farm, and which farms have no address on file.
+   EMAIL_HASH_SALT="$(openssl rand -hex 32)" \
+   FARM_STAND_RESPONSES_CSV=/path/to/2026-farm-stand-responses.csv \
+   DATABASE_URL="<neondb>" npx tsx scripts/ingest-farm-emails.ts
+
+   # Same salt, then --commit. Insert-only and idempotent: a re-run writes zero.
+   ```
+
+   The script **pins the expected farm count at 36** (VIGA's 35 real farms plus the marked
+   `Test Farm`) and refuses anything else, so a mistyped connection string fails loudly instead
+   of writing a roster somewhere else. If the count legitimately changes — a farm joins VIGA —
+   pass `EXPECTED_FARMS=<n>`; it failing then is the guard working.
+
+   **Use the same salt for both runs and keep it.** Then add all three versions:
 
    ```bash
    printf %s "<the salt the ingest used>" | gcloud secrets versions add farm-friend-email-hash-salt \
