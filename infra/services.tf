@@ -115,6 +115,17 @@ locals {
     GEOCODING_API_KEY = google_secret_manager_secret.protected["geocoding-api-key"].secret_id
     } : {}, var.mount_smtp_password ? {
     SMTP_PASSWORD = google_secret_manager_secret.protected["smtp-password"].secret_id
+    } : {}, var.mount_email_verification ? {
+    # F-079's three, mounted TOGETHER behind one flag because they are one feature and a
+    # partial mount is a worse state than none: the salts are required by the verify routes, so
+    # a deployment holding the door secret without them serves a door that 500s on first use.
+    #
+    # Web-only, like the two above. The worker never verifies anyone — mounting an unrotatable
+    # lookup-key salt into a process with no use for it widens the blast radius of a compromise
+    # for nothing.
+    EMAIL_HASH_SALT        = google_secret_manager_secret.protected["email-hash-salt"].secret_id
+    VERIFICATION_CODE_SALT = google_secret_manager_secret.protected["verification-code-salt"].secret_id
+    FARMER_START_SECRET    = google_secret_manager_secret.protected["farmer-start-secret"].secret_id
   } : {})
 }
 

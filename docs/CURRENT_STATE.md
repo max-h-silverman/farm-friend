@@ -99,6 +99,32 @@ and DEPLOYED, one (F-079) not started.** See Release state for the deploy proof.
 `f-079-secret-link-email-code`). It carries **migration `0025`**, which is **OWED TO
 PRODUCTION** and must be applied before the image that reads it.
 
+## Infrastructure prepared for F-079, NOT APPLIED (2026-08-07)
+
+`infra/` declares the three secret containers (`email-hash-salt`, `verification-code-salt`,
+`farmer-start-secret`), their IAM grants, and a `mount_email_verification` flag defaulting to
+**false** — the same three-step gate geocoding and SMTP use, for the same platform reason.
+
+**Planned and asserted, never applied.** The plan is 6 to add, 2 to change, **0 to destroy**,
+and `plan-assertions.py` passes **55/55**. Nothing has been applied: `max` approves applies.
+
+**Planning this is what exposed the geocoding regression above**, because the first plan showed
+`SMTP_PASSWORD` being REMOVED from the live web service. That is the same defect from the other
+direction, and it would have broken F-078's email sending had it been applied. Three things came
+out of it:
+
+- **`infra/production.tfvars`** records the mount flags production actually runs with.
+  `mount_geocoding_key` and `mount_smtp_password` are `true`; `mount_email_verification` is
+  `false` until the versions exist.
+- **A new plan assertion**: neither service may unmount a secret that is currently live. It
+  compares the plan's before against its after, so it catches the real regression rather than a
+  flag's value — **verified by planning without the var-file, which fails it by name**.
+- **The RUNBOOK's deploy command carries `-var-file=production.tfvars`**, and it did not before.
+
+**Still owed, in order**: apply (restores geocoding, creates the three containers) → run F-078's
+roster ingest, which decides `EMAIL_HASH_SALT` (max, 2026-08-07) → add the three secret versions
+out of band → apply migration `0025` → flip `mount_email_verification` and deploy the image.
+
 ## F-079 — the migration door, gated by an emailed code (2026-08-07, NOT DEPLOYED)
 
 A farmer already on VIGA's Google form moves themselves across: pick your farm, prove you
@@ -321,7 +347,26 @@ supposed to have. So it is three steps:
 2. **DONE** — max added version 1 out of band, never through Terraform.
 3. **DONE** — applied with `mount_geocoding_key=true`. Plan assertions 39/39.
 
-**GEOCODING IS NOW LIVE IN PRODUCTION** (2026-08-06). Web serves revision
+~~**GEOCODING IS NOW LIVE IN PRODUCTION** (2026-08-06)~~ — **NO LONGER TRUE, AND THIS IS A LIVE
+DEFECT** (found 2026-08-07 while planning F-079's infrastructure, by reading the live service
+rather than this file). `GEOCODING_API_KEY` was mounted on `farm-friend-web-00034-77d` and was
+**stripped at 00035** by the SMTP apply: every `mount_*` flag defaults to `false`, nothing
+recorded which ones production ran with, and that apply passed `mount_smtp_password=true` and
+nothing else. The key has been absent from **00035, 00036, 00037 and the current 00038**,
+confirmed revision by revision against Cloud Run.
+
+**The consequence is not cosmetic.** F-077 made the typed address the only source of a
+coordinate and removed tap-to-place, so with no geocoding key **no visitable stand can be
+created in production at all** — a farmer's address cannot resolve. Every apply in that window
+reported success.
+
+**Fixed but NOT YET APPLIED:** `infra/production.tfvars` now records the flags production
+actually runs with, `plan-assertions.py` fails by name on any plan that would unmount a live
+secret (verified against a plan that omits the var-file), and the RUNBOOK's deploy command
+carries `-var-file=production.tfvars`. The next apply restores the mount. The paragraph below
+describes the 00034 state and is kept for the history:
+
+Web served revision
 `farm-friend-web-00034-77d` with `GEOCODING_API_KEY` mounted; the worker stays on
 `farm-friend-worker-00034-4cn` and **does not mount it**, confirmed against the live service
 rather than from the plan. Health 200, and `POST /api/farmer/address-lookup` answers `400` to a

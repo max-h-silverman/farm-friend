@@ -46,6 +46,42 @@ locals {
     # email seam is unconfigured and email verification is simply unavailable, rather than the
     # deployment failing.
     smtp-password = "Google Workspace app password for the SMTP relay. Optional; web only; authenticates as the board mailbox."
+    # F-079. The lookup-key salt for farmer email addresses.
+    #
+    # **NEVER ROTATE**, for exactly the reason `phone-hash-salt` says so: it is the input to the
+    # only lookup key for every address in `farm_emails`, and changing it orphans every stored
+    # hash with no way back. There is no re-derivation — the raw addresses would have to be
+    # re-ingested from VIGA's export.
+    #
+    # **It must equal whatever the ROSTER INGEST used** (max, 2026-08-07: the ingest runs first
+    # and is the source of truth for this value). A mismatch is the sharpest failure mode in this
+    # feature and the quietest: every farmer's correct address simply fails to match, no error is
+    # raised anywhere, and the door appears to work while verifying nobody.
+    #
+    # Deliberately NOT `phone-hash-salt` reused: separate hash spaces mean one leaked salt does
+    # not compromise the other, and a shared one would let its holder correlate a farmer's email
+    # with their phone across two tables.
+    email-hash-salt = "NEVER ROTATE. Lookup-key salt for farmer email addresses; MUST match the roster ingest."
+    # F-079. Salt for the stored verification-code hash.
+    #
+    # **Rotatable, unlike the two above**, and the difference is worth stating: this salts a
+    # credential that lives 30 minutes, not a lookup key. Rotating it invalidates every code
+    # currently in flight, which is the intended effect and the whole blast radius — a farmer
+    # requests a new code.
+    verification-code-salt = "Salt for the verification-code hash. Rotatable; invalidates in-flight codes only."
+    # F-079. The secret path segment gating the migration door at `/farmer/start/<secret>`.
+    #
+    # **This is OBSCURITY, not authentication**, and the secret store is not a claim otherwise:
+    # the value travels in browser history, `Referer` headers and access logs the moment a
+    # farmer opens the link, and it is neither one-use nor revocable per farmer. It is here
+    # because it should not sit in Terraform state or a repository, not because storing it makes
+    # it a credential. What actually gates publishing is the emailed code.
+    #
+    # OPTIONAL: with no version the door does not exist and every request under `/farmer/start`
+    # 404s, which is a fully supported deployment. Minimum 32 characters, enforced in the app —
+    # a shorter value is treated as absent, so a too-short secret yields a closed door rather
+    # than a weak one.
+    farmer-start-secret = "Secret path segment for the F-079 migration door. Optional; web only; obscurity, not authentication."
   }
 }
 

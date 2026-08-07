@@ -287,3 +287,46 @@ variable "mount_smtp_password" {
   type        = bool
   default     = false
 }
+
+variable "mount_email_verification" {
+  description = <<-EOT
+    Whether the WEB service mounts F-079's three values: `EMAIL_HASH_SALT`,
+    `VERIFICATION_CODE_SALT`, and `FARMER_START_SECRET`.
+
+    Same three-step gate as `mount_geocoding_key` and `mount_smtp_password`, for the same
+    platform reason: `version = "latest"` resolves when a container STARTS, and a secret with no
+    versions resolves to nothing — Cloud Run refuses the revision. Mounting empty containers
+    would take the public map down in order to add the farmer migration door.
+
+      1. apply with this false — creates the three empty containers
+      2. add a version to each, out of band (see below)
+      3. apply with this true — the web service mounts them and a new revision picks them up
+
+    **ALL THREE MOVE TOGETHER, deliberately.** The two salts are REQUIRED by the verify routes,
+    so a deployment holding the door secret without them serves a door that 500s on a farmer's
+    first use. One flag makes that state unrepresentable.
+
+    **`EMAIL_HASH_SALT` MUST EQUAL WHATEVER THE ROSTER INGEST USED** (max, 2026-08-07: the
+    ingest runs first and decides this value). A mismatch is this feature's quietest failure —
+    every farmer's correct address fails to match, nothing raises an error, and the door appears
+    to work while verifying nobody. It can NEVER be rotated afterwards without re-ingesting the
+    roster.
+
+      printf %s "<salt the ingest used>" | gcloud secrets versions add farm-friend-email-hash-salt \
+        --project farm-friend-vashon --data-file=-
+      printf %s "$(openssl rand -hex 32)" | gcloud secrets versions add farm-friend-verification-code-salt \
+        --project farm-friend-vashon --data-file=-
+      printf %s "$(openssl rand -hex 24)" | gcloud secrets versions add farm-friend-farmer-start-secret \
+        --project farm-friend-vashon --data-file=-
+
+    Note `printf %s`, not `echo`: a trailing newline in a salt produces hashes that look right
+    in every listing and match nothing at runtime.
+
+    Setting it back to false is the kill switch: apply, and the migration door closes and
+    verification stops, without touching any stored value. Rotating
+    `farmer-start-secret` alone is safe and cheap — it only invalidates links VIGA has already
+    sent out.
+  EOT
+  type        = bool
+  default     = false
+}

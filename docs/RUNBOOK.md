@@ -544,6 +544,53 @@ The shape, and why:
   band (`gcloud secrets versions add`) because anything passed through Terraform lands in state,
   and state gets copied to buckets and pulled to laptops.
 
+### Mount flags live in `infra/production.tfvars`, not in your shell history
+
+Every `mount_*` variable defaults to **false**, because a secret's container must exist before
+its value does. That default is right exactly once — the apply that creates the container — and
+wrong for every apply afterwards.
+
+Nothing used to record which flags production was running with, so each apply reverted whatever
+the previous one had turned on. **`GEOCODING_API_KEY` was live on web revision 00034 and was
+stripped at 00035** by the SMTP apply, which passed `mount_smtp_password=true` and nothing else.
+It was absent from 00035 through 00038. Since F-077 made the typed address the only source of a
+coordinate, production could not create a visitable stand at all during that window, and every
+apply reported success.
+
+So: **pass `-var-file=production.tfvars` on every plan and apply**, and when you add a mount
+flag, add it to that file in the same change. `plan-assertions.py` fails by name on any plan
+that would unmount a secret currently live on a service, which is the guard rather than the
+reminder.
+
+### Turning on F-079's email verification
+
+The same three-step gate as geocoding and SMTP, for the same platform reason — `version =
+"latest"` resolves at container start, and a versionless secret makes Cloud Run refuse the
+revision.
+
+1. Apply with `mount_email_verification = false` (its committed value). This creates the three
+   empty containers and their IAM grants and changes nothing about what the services run.
+2. **Run F-078's roster ingest first** (max, 2026-08-07) — it decides `EMAIL_HASH_SALT`, and
+   whatever salt it used is the value that must be stored. Then add all three versions:
+
+   ```bash
+   printf %s "<the salt the ingest used>" | gcloud secrets versions add farm-friend-email-hash-salt \
+     --project farm-friend-vashon --data-file=-
+   printf %s "$(openssl rand -hex 32)" | gcloud secrets versions add farm-friend-verification-code-salt \
+     --project farm-friend-vashon --data-file=-
+   printf %s "$(openssl rand -hex 24)" | gcloud secrets versions add farm-friend-farmer-start-secret \
+     --project farm-friend-vashon --data-file=-
+   ```
+
+   `printf %s`, never `echo`: a trailing newline in a salt produces hashes that look right in
+   every listing and match nothing at runtime.
+3. Apply migration `0025` **before** deploying the image that reads it, then flip
+   `mount_email_verification = true` in `production.tfvars` and apply.
+
+**`EMAIL_HASH_SALT` can never be rotated** without re-ingesting the roster, and a mismatch
+between it and the ingest is this feature's quietest failure: every farmer's correct address
+fails to match, nothing errors, and the door verifies nobody.
+
 ```bash
 # 1. Build and publish. SHORT_SHA is required; without it the image reference is invalid.
 gcloud builds submit --config cloudbuild.yaml --project farm-friend-vashon \
@@ -555,8 +602,14 @@ DIGEST=$(gcloud artifacts docker images describe \
   --format='value(image_summary.digest)' --project farm-friend-vashon)
 
 # 3. Plan and assert the planned resources.
+#
+# `-var-file=production.tfvars` IS NOT OPTIONAL. Every mount flag defaults to false, so a plan
+# without it silently UNMOUNTS whatever the last apply enabled. That is not hypothetical:
+# omitting it stripped GEOCODING_API_KEY from web revision 00035 and it stayed gone through
+# 00038, which since F-077 meant no visitable stand could be created at all. The apply reported
+# success. `plan-assertions.py` now fails by name if a plan would unmount a live secret.
 cd infra
-tofu plan -var="image_digest=$DIGEST" -out=/tmp/tf.plan
+tofu plan -var-file=production.tfvars -var="image_digest=$DIGEST" -out=/tmp/tf.plan
 tofu show -json /tmp/tf.plan | python3 plan-assertions.py
 
 # 4. Apply only with approval.

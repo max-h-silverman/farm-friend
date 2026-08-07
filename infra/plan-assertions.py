@@ -67,6 +67,22 @@ def changed_addresses(plan: dict, type_: str) -> dict[str, list[str]]:
     }
 
 
+def _mounted_secret_names(service: dict) -> set[str]:
+    """Env var names on a service that come FROM SECRET MANAGER, not plain values.
+
+    Reads the plan's own before/after shape. A plain env value is not a mount and is not this
+    guard's business; losing a secret mount is what took geocoding down.
+    """
+    if not service:
+        return set()
+    containers = ((service.get("template") or [{}])[0].get("containers") or [{}])
+    names = set()
+    for container in containers:
+        for entry in (container.get("env") or []):
+            if isinstance(entry, dict) and entry.get("value_source"):
+                names.add(entry.get("name"))
+    return names
+
 def secret_cutover_changes_are_safe(secret_changes: dict[str, list[str]]) -> bool:
     """Accept the known cutover phases and the stable state after each is complete.
 
@@ -91,6 +107,12 @@ def secret_cutover_changes_are_safe(secret_changes: dict[str, list[str]]) -> boo
     optional_containers = {
         'google_secret_manager_secret.protected["geocoding-api-key"]',
         'google_secret_manager_secret.protected["smtp-password"]',
+        # F-079's three, on the same terms: created empty, versions added out of band. All three
+        # move together behind one mount flag, but they are three containers and any subset may
+        # be planned depending on what already exists.
+        'google_secret_manager_secret.protected["email-hash-salt"]',
+        'google_secret_manager_secret.protected["verification-code-salt"]',
+        'google_secret_manager_secret.protected["farmer-start-secret"]',
     }
     if secret_changes and all(
         address in optional_containers and actions == ["create"]
@@ -111,6 +133,15 @@ def main() -> int:
 
     worker = services.get("worker", {})
     web = services.get("web", {})
+    # The raw change objects, for the "unmounts nothing live" guard below: `services` holds the
+    # planned AFTER state, and that guard has to compare it against BEFORE.
+    service_changes = {
+        change["address"].rsplit(".", 1)[-1]: change
+        for change in plan.get("resource_changes", [])
+        if change.get("type") == "google_cloud_run_v2_service"
+    }
+    web_change = service_changes.get("web", {})
+    worker_change = service_changes.get("worker", {})
 
     # The single most important line in this file. The worker runs the passes that apply
     # consent transitions and send real SMS; a publicly reachable worker is a remote way to
@@ -169,7 +200,7 @@ def main() -> int:
 
     print("\nSecrets")
     secrets = by_type(plan, "google_secret_manager_secret")
-    check("seven application secrets are declared", len(secrets) == 7, f"found {len(secrets)}")
+    check("ten application secrets are declared", len(secrets) == 10, f"found {len(secrets)}")
     secret_ids = {value.get("secret_id") for value in secrets.values()}
     check("the admin password verifier container is declared",
           "farm-friend-admin-password-hash" in secret_ids)
@@ -181,6 +212,13 @@ def main() -> int:
     # F-078. Same gated mount as geocoding, and declared as a container regardless of the flag.
     check("the smtp password container is declared",
           "farm-friend-smtp-password" in secret_ids)
+    # F-079. Three containers, same gate, declared regardless of the mount flag.
+    check("the email hash salt container is declared",
+          "farm-friend-email-hash-salt" in secret_ids)
+    check("the verification code salt container is declared",
+          "farm-friend-verification-code-salt" in secret_ids)
+    check("the farmer start secret container is declared",
+          "farm-friend-farmer-start-secret" in secret_ids)
     check("the magic-link secret container is absent",
           "farm-friend-magic-link-secret" not in secret_ids)
 
@@ -295,6 +333,46 @@ def main() -> int:
     # `mount_smtp_password` can never quietly hand it over.
     check("the worker never mounts SMTP_PASSWORD",
           "SMTP_PASSWORD" not in secret_names(worker))
+    # NO APPLY MAY SILENTLY UNMOUNT A SECRET THAT IS ALREADY LIVE.
+    #
+    # This exists because it HAPPENED. `GEOCODING_API_KEY` was mounted on web revision 00034 and
+    # was stripped at 00035 by the SMTP apply, which passed `mount_smtp_password=true` and
+    # nothing else — every mount flag defaults to false, and nothing recorded which ones
+    # production was running with. It stayed absent through 00036, 00037 and 00038, and since
+    # F-077 made the typed address the only source of a coordinate, that meant no visitable
+    # stand could be created at all. Every one of those applies reported success.
+    #
+    # `infra/production.tfvars` is the fix; this is the guard that proves the fix was used. It
+    # compares the plan's BEFORE against its AFTER, so it fails on the real regression rather
+    # than on a flag's value.
+    for _svc, _label in ((web_change, "web"), (worker_change, "worker")):
+        _before = _svc.get("change", {}).get("before") or {}
+        _after = _svc.get("change", {}).get("after") or {}
+        _dropped = _mounted_secret_names(_before) - _mounted_secret_names(_after)
+        check(f"the {_label} service unmounts no secret that is currently live",
+              not _dropped,
+              f"would remove {sorted(_dropped)} — pass -var-file=production.tfvars")
+    # F-079 — the worker verifies nobody. `EMAIL_HASH_SALT` is the sharpest of the three: it is
+    # an UNROTATABLE lookup key for every farmer address, so mounting it into a process with no
+    # use for it widens a compromise's blast radius for nothing. Asserted unconditionally, so
+    # flipping `mount_email_verification` can never quietly hand any of them to the worker.
+    for _name in ("EMAIL_HASH_SALT", "VERIFICATION_CODE_SALT", "FARMER_START_SECRET"):
+        check(f"the worker never mounts {_name}",
+              _name not in secret_names(worker))
+    # None of the three may arrive as a plain env value. A salt written into the revision
+    # template is readable from the service description by anyone with Cloud Run view access,
+    # and sits in the plan — and therefore in state — as cleartext. That is permanent for
+    # `EMAIL_HASH_SALT`, which can never be rotated.
+    for _name in ("EMAIL_HASH_SALT", "VERIFICATION_CODE_SALT", "FARMER_START_SECRET"):
+        check(f"{_name} is never a plain environment value",
+              all(
+                  _name not in {
+                      e.get("name") for e in
+                      (((sv.get("template") or [{}])[0].get("containers") or [{}])[0].get("env") or [])
+                      if isinstance(e, dict)
+                  }
+                  for sv in (web, worker)
+              ))
     # The credential must arrive from Secret Manager, never as a plain env value. A password
     # written into the revision template is readable from the service description by anyone with
     # Cloud Run view access, and would be in the plan — and therefore in state — as cleartext.
