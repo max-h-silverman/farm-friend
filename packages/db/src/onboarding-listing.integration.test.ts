@@ -998,4 +998,220 @@ describe("F-067 onboarding listing (integration)", () => {
       expect(result.status).toBe("unknown_farm");
     });
   });
+
+  // F-081 — the default reminder schedule.
+  //
+  // F-052 built the scheduled-prompt machinery and it is correct. It reached NOBODY:
+  // `inventory_prompt_preferences` had exactly one writer, `setInventoryPromptPreference`,
+  // and the only paths to it are the farmer settings surfaces. No onboarding door wrote a
+  // row, so `runScheduledPromptPass` selected against an empty table for every farmer who
+  // never went looking for a setting they had no reason to know existed — the stale-map
+  // failure this product exists to solve, one layer down.
+  //
+  // The seed lives HERE rather than in the authorization doors, and the schema is what
+  // decided that: a preference carries composite foreign keys to BOTH `sales_locations` and
+  // `farmer_authorizations`, so the row is structurally impossible before a stand exists.
+  // `authorizeFarmer` and the invited redemption both run before any stand does. Every
+  // listing door already converges on `saveOnboardingListing`, so one write site covers the
+  // invited, grandfathered, edit, and F-079 migration paths — and a fifth door added later
+  // inherits the default rather than having to remember it.
+  //
+  // max chose WEEKLY (2026-08-07): it matches the rhythm VIGA's farmers already know, since
+  // the Google form this replaces was a weekly status form.
+  describe("F-081 default reminder schedule", () => {
+    let authorizationId = "";
+
+    beforeEach(async () => {
+      // A live farmer for the fresh farm — the preference's designated recipient, and what
+      // the composite foreign key requires be a farmer OF THIS FARM.
+      // A distinct number per test, so one test's contact cannot satisfy another's lookup.
+      const suffix = String(Math.floor(Math.random() * 9000) + 1000);
+      const contacts = await client()`
+        insert into contacts (phone_e164, phone_hash)
+        values (
+          ${`+1206555${suffix}`},
+          ${randomUUID().replaceAll("-", "").repeat(2).slice(0, 64)}
+        )
+        returning id
+      `;
+      const authorizations = await client()`
+        insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+        values (
+          ${farmId}, ${contacts[0]?.id as string},
+          ${new Date("2026-08-07T12:00:00Z")}, ${new Date("2026-08-07T12:00:00Z")}
+        )
+        returning id
+      `;
+      authorizationId = authorizations[0]?.id as string;
+    });
+
+    it("puts a publishing farmer on a WEEKLY schedule without them visiting settings", async () => {
+      // Published at 15:30 PDT — deliberately NOT 10:00 local. A sabotage proved why: with a
+      // 10:00-local publication time, "seven days later at the same clock time" and "10:00
+      // local on the seventh day" are the SAME INSTANT, so a hand-computed date passed this
+      // assertion and the schedule rule was never actually under test. Off-slot publication
+      // is what makes the two disagree.
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Weekly Stand",
+        listing: visitableListing,
+        authorizationId,
+        occurredAt: new Date("2026-08-07T22:30:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`
+        select preference.cadence, preference.version, preference.next_due_at,
+               preference.last_due_slot_at, preference.designated_authorization_id,
+               preference.owner_farm_id
+        from inventory_prompt_preferences as preference
+        join sales_locations as location on location.id = preference.sales_location_id
+        where location.owner_farm_id = ${farmId}
+      `;
+
+      expect(rows).toHaveLength(1);
+      const preference = rows[0]!;
+      expect(preference.cadence).toBe("weekly");
+      expect(preference.version).toBe(1);
+      expect(preference.designated_authorization_id).toBe(authorizationId);
+      expect(preference.owner_farm_id).toBe(farmId);
+      // Nothing has been prompted yet, so there is no previous slot to have ordered against.
+      expect(preference.last_due_slot_at).toBeNull();
+
+      // The due slot is a VALUE, not merely "not null" — 10:00 LOCAL on the seventh day
+      // after publication, which is `nextPromptDueSlot`'s rule. 2026-08-14 10:00 PDT is
+      // 17:00Z. Since publication was at 22:30Z, a hand-rolled "+7 days" would land at
+      // 22:30Z and fail here — which is the whole point of asserting the instant rather
+      // than that the column is populated.
+      expect((preference.next_due_at as Date).toISOString()).toBe("2026-08-14T17:00:00.000Z");
+    });
+
+    it("never overwrites a cadence the farmer already chose", async () => {
+      // The farmer publishes, then deliberately PAUSES — the one choice a default must never
+      // undo. Editing their listing afterwards is the ordinary case, and it must not put them
+      // back on weekly texts they explicitly turned off.
+      await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Paused Stand",
+        listing: visitableListing,
+        authorizationId,
+        occurredAt: new Date("2026-08-07T17:00:00Z"),
+      });
+
+      const locations = await client()`
+        select id from sales_locations where owner_farm_id = ${farmId}
+      `;
+      const salesLocationId = locations[0]?.id as string;
+      await client()`
+        update inventory_prompt_preferences
+        set cadence = 'paused', next_due_at = null, version = version + 1
+        where sales_location_id = ${salesLocationId}
+      `;
+
+      await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Paused Stand Edited",
+        listing: { ...visitableListing, hoursText: "Weekends only" },
+        authorizationId,
+        occurredAt: new Date("2026-08-09T17:00:00Z"),
+      });
+
+      const rows = await client()`
+        select cadence, next_due_at from inventory_prompt_preferences
+        where sales_location_id = ${salesLocationId}
+      `;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.cadence).toBe("paused");
+      expect(rows[0]?.next_due_at).toBeNull();
+    });
+
+    it("seeds nothing for a REVOKED authorization", async () => {
+      // A revoked farmer must not be scheduled for texts. Found by sabotage: deleting the
+      // validity check left every assertion green, because nothing exercised an
+      // authorization that was not live.
+      await client()`
+        update farmer_authorizations
+        set revoked_at = ${new Date("2026-08-07T13:00:00Z")}
+        where id = ${authorizationId}
+      `;
+
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Revoked Stand",
+        listing: visitableListing,
+        authorizationId,
+        occurredAt: new Date("2026-08-07T22:30:00Z"),
+      });
+
+      // The listing still publishes — revocation stops the schedule, not the stand.
+      expect(result.status).toBe("saved");
+      const rows = await client()`
+        select preference.id from inventory_prompt_preferences as preference
+        join sales_locations as location on location.id = preference.sales_location_id
+        where location.owner_farm_id = ${farmId}
+      `;
+      expect(rows).toHaveLength(0);
+    });
+
+    it("seeds nothing for an authorization belonging to ANOTHER farm", async () => {
+      // The cross-farm write vector: a door passing a caller-supplied authorization must not
+      // make a farmer of farm A the prompt recipient for farm B's stand.
+      const otherFarms = await client()`
+        insert into farms (name) values (${`Other Farm ${randomUUID()}`}) returning id
+      `;
+      const otherContacts = await client()`
+        insert into contacts (phone_e164, phone_hash)
+        values (
+          ${`+1206555${String(Math.floor(Math.random() * 9000) + 1000)}`},
+          ${randomUUID().replaceAll("-", "").repeat(2).slice(0, 64)}
+        )
+        returning id
+      `;
+      const foreign = await client()`
+        insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+        values (
+          ${otherFarms[0]?.id as string}, ${otherContacts[0]?.id as string},
+          ${new Date("2026-08-07T12:00:00Z")}, ${new Date("2026-08-07T12:00:00Z")}
+        )
+        returning id
+      `;
+
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Cross Farm Stand",
+        listing: visitableListing,
+        authorizationId: foreign[0]?.id as string,
+        occurredAt: new Date("2026-08-07T22:30:00Z"),
+      });
+
+      expect(result.status).toBe("saved");
+      const rows = await client()`
+        select preference.id from inventory_prompt_preferences as preference
+        join sales_locations as location on location.id = preference.sales_location_id
+        where location.owner_farm_id = ${farmId}
+      `;
+      expect(rows).toHaveLength(0);
+    });
+
+    it("seeds nothing when no authorization is known, rather than guessing one", async () => {
+      // The grandfathered door publishes a listing for a farm that has no farmer yet. A
+      // preference needs a designated recipient, and inventing one would text a farmer who
+      // was never set up. Publishing must still succeed — the listing is the point.
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Unclaimed Stand",
+        listing: visitableListing,
+        authorizationId: null,
+        occurredAt: new Date("2026-08-07T17:00:00Z"),
+      });
+
+      expect(result.status).toBe("saved");
+      const rows = await client()`
+        select preference.id from inventory_prompt_preferences as preference
+        join sales_locations as location on location.id = preference.sales_location_id
+        where location.owner_farm_id = ${farmId}
+      `;
+      expect(rows).toHaveLength(0);
+    });
+  });
 });

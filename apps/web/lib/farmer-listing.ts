@@ -10,6 +10,7 @@ import {
   type ListingAvailability,
   type OnboardingListingInput,
   type OpenHoursKind,
+  type SaveOnboardingListingInput,
   type SaveOnboardingListingResult,
   type SeasonKind,
   type StockingCadence,
@@ -51,12 +52,7 @@ export interface FarmerListingDeps {
   ) => Promise<FarmerInvitationLookup>;
   saveListing: (
     db: Db,
-    input: {
-      farmId: string;
-      standName: string;
-      listing: OnboardingListingInput;
-      occurredAt: Date;
-    },
+    input: SaveOnboardingListingInput,
   ) => Promise<SaveOnboardingListingResult>;
 }
 

@@ -1,4 +1,4 @@
-import { ISLAND_BOUNDS } from "@farm-friend/core";
+import { ISLAND_BOUNDS, nextPromptDueSlot } from "@farm-friend/core";
 import type { Db } from "./index";
 import {
   coherentAvailability,
@@ -94,6 +94,30 @@ export interface OnboardingListingInput {
   items: string[];
 }
 
+/**
+ * What every listing door supplies to publish a listing.
+ *
+ * **Stated once, on purpose.** Each of the three doors (invited, grandfathered, edit) injects
+ * this writer and previously restated its input shape inline, so the same four fields existed
+ * in four places and drifted independently — adding `authorizationId` to the writer left all
+ * three boundaries silently describing a writer that no longer existed. One statement means a
+ * new field reaches every door or none.
+ */
+export interface SaveOnboardingListingInput {
+  farmId: string;
+  /** What the stand is called on the map. Defaults to the farm's name at the boundary. */
+  standName: string;
+  listing: OnboardingListingInput;
+  /**
+   * The publishing farmer's live authorization, when the door knows one (F-081). It becomes
+   * the designated recipient of the default weekly reminder. Absent from a door that has no
+   * farmer yet — the grandfathered claim, and the invited form, which publishes before the
+   * farmer texts JOIN — and those seed no schedule rather than inventing a recipient.
+   */
+  authorizationId?: string | null;
+  occurredAt: Date;
+}
+
 export type SaveOnboardingListingResult =
   | { status: "saved"; salesLocationId: string }
   | { status: "unknown_farm" }
@@ -153,13 +177,7 @@ export async function renameFarm(
  */
 export async function saveOnboardingListing(
   db: Db,
-  input: {
-    farmId: string;
-    /** What the stand is called on the map. Defaults to the farm's name at the boundary. */
-    standName: string;
-    listing: OnboardingListingInput;
-    occurredAt: Date;
-  },
+  input: SaveOnboardingListingInput,
 ): Promise<SaveOnboardingListingResult> {
   const listing = input.listing;
   const standName = input.standName.trim();
@@ -236,9 +254,110 @@ export async function saveOnboardingListing(
 
     await writePaymentMethods(tx, salesLocationId, listing.paymentMethods);
     await writeStandingItems(tx, salesLocationId, listing.items);
+    await seedDefaultPromptPreference(tx, {
+      salesLocationId,
+      farmId: input.farmId,
+      authorizationId: input.authorizationId ?? null,
+      occurredAt: input.occurredAt,
+    });
 
     return { status: "saved" as const, salesLocationId };
   }) as Promise<SaveOnboardingListingResult>;
+}
+
+/** The cadence an approved farmer starts on (F-081, max's choice 2026-08-07). */
+const DEFAULT_PROMPT_CADENCE = "weekly" as const;
+
+/**
+ * Put a newly publishing farmer on the default reminder schedule (F-081).
+ *
+ * F-052 built the scheduled-prompt machinery and it was correct and reached NOBODY:
+ * `inventory_prompt_preferences` had one writer, `setInventoryPromptPreference`, behind the
+ * farmer settings surfaces. A farmer who never went looking for a setting they had no reason
+ * to know existed was never prompted — the stale-map failure this product exists to solve,
+ * reintroduced one layer down.
+ *
+ * **This is the seed's home because the schema put it here.** A preference carries composite
+ * foreign keys to BOTH `sales_locations` and `farmer_authorizations`, so the row is
+ * structurally impossible before a stand exists — and `authorizeFarmer` and the invited
+ * redemption both run before any stand does. Every listing door already converges on
+ * `saveOnboardingListing`, so one write site covers the invited, grandfathered, edit and
+ * F-079 migration paths, and a fifth door inherits the default rather than remembering it.
+ *
+ * **A farmer's own choice is never overwritten.** `on conflict do nothing` against
+ * `inventory_prompt_preferences_location_unique` makes this a FIRST-WRITE ONLY: a farmer who
+ * paused their reminders and later edits their hours stays paused. The index is the arbiter
+ * rather than a preceding read, for the reason F-067 and B-011 both needed — `select … for
+ * update` cannot serialize a row that does not exist yet.
+ *
+ * **No authorization means no row, never a guessed one.** The grandfathered door publishes for
+ * a farm with no farmer yet; a preference needs a designated recipient, and inventing one
+ * would schedule texts to somebody who was never set up. Publishing still succeeds — the
+ * listing is the point, and the farmer gets their schedule when they are authorized and
+ * publish.
+ *
+ * `next_due_at` comes from `nextPromptDueSlot`, never a hand-computed date: it owns the
+ * 10:00-local rule across daylight-saving, and the schema's `due_state_coherent` CHECK pairs
+ * a non-paused cadence with a non-null slot.
+ */
+export async function seedDefaultPromptPreference(
+  tx: Tx,
+  input: {
+    /** The stand to schedule. `null` asks this function to find the farm's own. */
+    salesLocationId: string | null;
+    farmId: string;
+    authorizationId: string | null;
+    occurredAt: Date;
+  },
+): Promise<void> {
+  if (input.authorizationId === null) return;
+
+  // The authorization must be a LIVE farmer OF THIS FARM. The composite foreign key would
+  // refuse a mismatch anyway; checking here means a caller passing a stale or foreign id gets
+  // a listing saved without a schedule, rather than a constraint violation that loses the
+  // whole publication.
+  const authorizations = await tx`
+    select id from farmer_authorizations
+    where id = ${input.authorizationId} and farm_id = ${input.farmId}
+      and revoked_at is null
+  `;
+  if (authorizations.length === 0) return;
+
+  // The authorization doors call this without a stand in hand: an invited farmer publishes
+  // their listing from the web form and is authorized LATER, by texting `JOIN <token>`. So the
+  // stand is resolved from the farm when the caller has no id — and a farm with no stand yet
+  // simply gets no schedule, rather than this inventing one.
+  const locations =
+    input.salesLocationId === null
+      ? await tx`
+          select id, timezone from sales_locations
+          where owner_farm_id = ${input.farmId} and retired_at is null
+          order by created_at asc
+          limit 1
+        `
+      : await tx`
+          select id, timezone from sales_locations where id = ${input.salesLocationId}
+        `;
+  const salesLocationId = locations[0]?.id as string | undefined;
+  const timeZone = locations[0]?.timezone as string | undefined;
+  if (salesLocationId === undefined || timeZone === undefined) return;
+
+  const nextDueAt = nextPromptDueSlot({
+    cadence: DEFAULT_PROMPT_CADENCE,
+    timeZone,
+    laterOf: input.occurredAt,
+  });
+
+  await tx`
+    insert into inventory_prompt_preferences (
+      owner_farm_id, sales_location_id, designated_authorization_id,
+      cadence, version, next_due_at, updated_at
+    ) values (
+      ${input.farmId}, ${salesLocationId}, ${input.authorizationId},
+      ${DEFAULT_PROMPT_CADENCE}, 1, ${nextDueAt}, ${input.occurredAt}
+    )
+    on conflict (sales_location_id) do nothing
+  `;
 }
 
 /**

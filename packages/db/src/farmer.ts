@@ -8,6 +8,7 @@ import {
   maskPhoneSuffix,
 } from "@farm-friend/core";
 import type { Db } from "./index";
+import { seedDefaultPromptPreference } from "./onboarding-listing";
 import type { Sql, Tx } from "./sql";
 import { applyConsentTransitionIn, queueOutbox } from "./transactions";
 import { visibleFarms } from "./test-farms";
@@ -361,6 +362,18 @@ export async function authorizeFarmer(
       values ('farmer_authorized', ${input.administratorId}, 'farmer_authorization',
         ${authorizationId}, ${input.occurredAt.toISOString()})
     `;
+
+    // F-081 — start them on the default reminder schedule. Seeded here as well as at listing
+    // publish because the two doors reach the pair (stand, live authorization) at different
+    // moments: this farmer's farm may already have a seeded VIGA stand, while an invited
+    // farmer publishes a listing first and is authorized only when they text JOIN. First
+    // write only, and a no-op when the farm has no stand yet.
+    await seedDefaultPromptPreference(tx, {
+      salesLocationId: null,
+      farmId: input.farmId,
+      authorizationId,
+      occurredAt: input.occurredAt,
+    });
 
     // Tell the farmer, in the same transaction (max's decision). A farmer authorized on
     // Tuesday otherwise has no idea until they guess, and splitting this out would leave a
@@ -724,6 +737,16 @@ async function authorizeInvitedFarmerIn(
     values ('farmer_authorized', ${input.contactHash}, 'farmer_authorization',
       ${authorizationId}, ${input.occurredAt.toISOString()})
   `;
+
+  // F-081 — the same default schedule the administrator path seeds. This is the moment an
+  // INVITED farmer first has both a stand (published from the web form) and a live
+  // authorization, so it is where their reminders can first be scheduled at all.
+  await seedDefaultPromptPreference(tx, {
+    salesLocationId: null,
+    farmId: input.farmId,
+    authorizationId,
+    occurredAt: input.occurredAt,
+  });
 
   // The same notification VIGA's click used to queue. Still an `inventory_prompt` — a
   // proactive category — so `authorizeDispatch` re-reads consent at the claim and suppresses
