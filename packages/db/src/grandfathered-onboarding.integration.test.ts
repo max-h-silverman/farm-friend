@@ -293,7 +293,32 @@ describe("grandfathered farm claims (integration)", () => {
     it("resolves a claimable farm to itself", async () => {
       const farmId = await farm("Resolvable Farm");
       const result = await claimGrandfatheredFarm(database(), { farmId });
-      expect(result).toEqual({ status: "claimable", farmId, farmName: "Resolvable Farm" });
+      expect(result).toEqual({
+        status: "claimable",
+        farmId,
+        farmName: "Resolvable Farm",
+        description: null,
+      });
+    });
+
+    it("returns the farm's stored paragraph, so the form can offer it back", async () => {
+      // The migration door publishes over a farm that ALREADY has a listing, and its prose is
+      // what the public card is showing today. Without this the form comes up blank and the
+      // farmer's own words are dropped by the save — the one field on that form with nothing
+      // else to restore it.
+      const farmId = await farm("Prose Farm");
+      await sql()`
+        update farms set description = ${"We put a sign at the bottom of the driveway."}
+        where id = ${farmId}
+      `;
+
+      const result = await claimGrandfatheredFarm(database(), { farmId });
+      expect(result).toEqual({
+        status: "claimable",
+        farmId,
+        farmName: "Prose Farm",
+        description: "We put a sign at the bottom of the driveway.",
+      });
     });
 
     it("REFUSES a farm that already has a farmer, even when asked for directly", async () => {

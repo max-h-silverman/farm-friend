@@ -403,7 +403,7 @@ Saving a contact is **not** `JOIN` and the copy must not imply it is), and
 `POST /api/public/stock-out` (throttled; body carries the QR-bound `salesLocationId` UUID and
 `taskText`). The throttle budget is set in the composition root — 5 model calls per client per 60s,
 deliberately generous so a real reporter never meets it. Adding **any** new public model-backed
-handler means routing it through `context.publicModelThrottle`; adding one that is model-free means
+handler means routing it through `context.publicActionThrottle`; adding one that is model-free means
 leaving it out. Do not add a public route that accepts a free-text *question* — inquiry is SMS-only.
 
 ## How to extend

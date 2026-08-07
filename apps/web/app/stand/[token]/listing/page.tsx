@@ -87,6 +87,9 @@ export default async function FarmerListingEditPage({
             availability: listing.availability,
             paymentMethods: listing.paymentMethods,
             items: listing.items,
+            // Same reason as the availability above: the writer replaces the farm's paragraph,
+            // so a form that could not see it would clear it on the next save.
+            description: listing.description,
           }}
         />
       </section>

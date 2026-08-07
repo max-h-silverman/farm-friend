@@ -1,3 +1,4 @@
+import { buildStandDescription } from "@farm-friend/core";
 import { claimGrandfatheredFarm, resolvePublishGrant } from "@farm-friend/db";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
@@ -87,12 +88,22 @@ export default async function SecretFarmerOnboardingPage({
           <section className="farmer-onboarding-card" aria-labelledby="listing-heading">
             <h2 id="listing-heading">Your stand</h2>
             {/*
-              NO `defaults` — this door CREATES a listing rather than editing one, so there is
-              nothing to prefill and nothing B-037 could erase.
+              The listing fields are NOT prefilled — this door replaces VIGA's seeded listing
+              with what the farmer states, which is the point of migrating.
+
+              The farm's PARAGRAPH is the exception, and it has to be. It renders on the public
+              card, VIGA's copy of it is what is showing there today, and no farmer surface
+              could reach it — so a blank box here would publish a listing that silently
+              dropped the farm's own words. It arrives with the lines that restate a structured
+              fact already stripped (`buildStandDescription`), so what the farmer sees is only
+              what no other field on this form covers.
             */}
             <ListingStep
               credential={{ kind: "grandfathered", farmId: claim.farmId }}
               farmName={claim.farmName}
+              description={
+                buildStandDescription({ mapDescription: claim.description ?? undefined }) ?? ""
+              }
             />
           </section>
         </>

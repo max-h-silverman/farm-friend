@@ -59,17 +59,13 @@ Dated records of how decisions were reached. **None is design authority or curre
 none belongs in a startup reading path. Open one when you need to know *why* something was decided,
 not *what* is true now.
 
-- **[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md)** —
-  July 24–25, 2026. The clean-room reset: the approved findings, the product contract as first
-  settled, the Phase 3 repository audit, and the refactor direction. Its enduring contract now
-  lives in the documents above.
-- **[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md)** —
-  independent adversarial review of that reset, with the ranked trust/buildability findings.
-- **[GCP_MIGRATION_PLAN.md](GCP_MIGRATION_PLAN.md)** — July 28–29, 2026 migration rationale,
-  implementation plan, cutover, and retirement record. The live deploy procedure is in RUNBOOK.
 - **[SESSION_LOG.md](SESSION_LOG.md)** / **[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md)** —
   dated build history, newest first. The log keeps the newest eight entries; older ones rotate into
   the archive. Forensic detail on defects and their fixes.
+- **[archive/](archive/)** — frozen documents that were once authority and no longer are:
+  the July 2026 clean-room reset and its adversarial review, the completed GCP migration plan
+  (still cited by source comments in `apps/web/lib/`), and the F-059 listing-ingestion audit,
+  which is the only record of what was *measured* against the real farm CSVs.
 
 ## Building X → read these
 

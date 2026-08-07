@@ -10,7 +10,7 @@
 
 ## The headline: the audit's founding premise was wrong
 
-The prompt ([LISTING_INGESTION_AUDIT_PROMPT_2026-08-04.md](LISTING_INGESTION_AUDIT_PROMPT_2026-08-04.md))
+The audit prompt for this session
 instructed that step one was to confirm B-035 — that `parseFormResponses` "describes a source VIGA has
 never produced" — and warned that everything else depended on it being true.
 

@@ -114,8 +114,8 @@ confirm it can fail.
 | [ADMIN_OPERATIONS](docs/ADMIN_OPERATIONS.md) | the VIGA operator guide |
 
 **Historical records — do NOT load these to orient.** Dated, frozen, not authority:
-`CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md` and `ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md` (the July
-2026 reset and its adversarial review; retired as authority 2026-07-28), and
+everything in [docs/archive/](docs/archive/) (the July 2026 clean-room reset and its adversarial
+review, the completed GCP migration, the F-059 ingestion audit) and
 [SESSION_LOG.md](docs/SESSION_LOG.md) + its [archive](docs/SESSION_LOG_ARCHIVE.md). Open one
 deliberately, to answer "why was this decided" or dig into a past defect — never as startup context.
 

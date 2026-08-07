@@ -1275,7 +1275,20 @@ export async function listFarmsForSelfService(
 }
 
 export type ClaimGrandfatheredFarmResult =
-  | { status: "claimable"; farmId: string; farmName: string }
+  | {
+      status: "claimable";
+      farmId: string;
+      farmName: string;
+      /**
+       * The farm's stored paragraph, so the migration form can offer it back for editing.
+       *
+       * VIGA's copy is what the public card is showing today and no farmer surface could reach
+       * it, so a form that did not carry it would publish a listing that silently dropped the
+       * farm's own words. Returned RAW — stripping the lines that restate a structured fact is
+       * the page's job, through `buildStandDescription`, which is where that rule already lives.
+       */
+      description: string | null;
+    }
   | { status: "already_onboarded" }
   | { status: "unknown_farm" };
 
@@ -1309,7 +1322,7 @@ export async function claimGrandfatheredFarm(
 
   const rows = await driver(db).unsafe(
     `
-      select farm.id, farm.name, ${NO_LIVE_FARMER("farm")} as claimable
+      select farm.id, farm.name, farm.description, ${NO_LIVE_FARMER("farm")} as claimable
       from farms as farm
       where farm.id = $1
     `,
@@ -1322,6 +1335,7 @@ export async function claimGrandfatheredFarm(
     status: "claimable",
     farmId: row.id as string,
     farmName: row.name as string,
+    description: (row.description as string | null) ?? null,
   };
 }
 

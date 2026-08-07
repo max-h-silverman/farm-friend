@@ -5064,7 +5064,7 @@ Do not implement F-013 or F-014 or change application code/schema before separat
 
 PR #8 merged the F-011 clean-room baseline reset to `main` (`565187c`). The follow-on independent
 audit is preserved in
-[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md) and indexed
+[ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md](archive/ARCHITECTURE_AUDIT_HANDOFF_2026-07-24.md) and indexed
 from the docs README as **review input, not design authority**. Its spiral-staircase constraint is
 now the review rule: first narrow a marginal promise where that preserves the north star; otherwise
 add only the smallest mechanism that closes a named launch invariant inside the existing
@@ -5110,7 +5110,7 @@ authorized.
 ## 2026-07-24 — Clean-room baseline reset: F-011 (original review-sequence finding 1)
 
 Branch `f-011-baseline-reset`. First finding of the original Phase 4 review sequence defined by
-[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md), which is
+[CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md](archive/CLEAN_ROOM_PRODUCT_ARCHITECTURE_HANDOFF.md), which is
 now **tracked in the repo and is the design authority** — previously it existed only as an
 untracked working-tree file.
 

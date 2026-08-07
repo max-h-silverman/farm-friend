@@ -5,7 +5,7 @@ import {
 } from "./immediate-work-cloud-tasks";
 import { enqueueSenderWork, taskNameFor } from "./immediate-work";
 
-// The Cloud Tasks adapter (docs/GCP_MIGRATION_PLAN.md §"Immediate and scheduled work").
+// The Cloud Tasks adapter (docs/archive/GCP_MIGRATION_PLAN.md §"Immediate and scheduled work").
 //
 // WHY REST AND NOT `@google-cloud/tasks`. The official client is 11.6 MB unpacked and pulls
 // in `google-gax` — gRPC plus protobuf runtimes, tens of megabytes more. All of that lands

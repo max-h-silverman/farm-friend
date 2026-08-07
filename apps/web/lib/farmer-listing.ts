@@ -39,6 +39,14 @@ const INVITE_TOKEN_RE = /^[0-9a-f]{64}$/;
  */
 const MAX_TEXT = 500;
 const MAX_ADDRESS = 300;
+/**
+ * The farm's own paragraph, which is the one field carrying whole sentences.
+ *
+ * 2000 rather than `MAX_TEXT`, measured against the real corpus: the longest stored description
+ * in production is 1144 characters. A 500-character ceiling would refuse a farmer who opened
+ * their own listing and saved it back untouched.
+ */
+const MAX_DESCRIPTION = 2000;
 const MAX_LIST_ENTRIES = 100;
 
 export interface FarmerListingDeps {
@@ -260,6 +268,10 @@ export function parseListingSubmission(
   const standName = optionalText(body.standName, MAX_TEXT);
   const address = optionalText(body.publicAddress, MAX_ADDRESS);
   const hoursText = optionalText(body.hoursText, MAX_TEXT);
+  // The farm's own paragraph. A LONGER ceiling than the other free text, because it is the one
+  // field holding whole sentences — VIGA's stored prose reaches 1144 characters on the real
+  // corpus, and a limit under that would silently refuse a farmer re-saving their own listing.
+  const description = optionalText(body.description, MAX_DESCRIPTION);
   const paymentMethods = stringList(body.paymentMethods);
   const items = stringList(body.items);
   const latitude = optionalCoordinate(body.latitude);
@@ -270,6 +282,7 @@ export function parseListingSubmission(
     standName === undefined ||
     address === undefined ||
     hoursText === undefined ||
+    description === undefined ||
     paymentMethods === undefined ||
     items === undefined ||
     latitude === undefined ||
@@ -297,6 +310,10 @@ export function parseListingSubmission(
       availability,
       paymentMethods,
       items,
+      // An absent field parses as `null`, which the writer stores as "no paragraph". That is
+      // the right reading HERE because every door sends this field on every save — the writer
+      // replaces the whole listing, so silence has to mean cleared rather than unchanged.
+      description,
     },
   };
 }

@@ -1214,4 +1214,115 @@ describe("F-067 onboarding listing (integration)", () => {
       expect(rows).toHaveLength(0);
     });
   });
+
+  describe("the farm's own prose", () => {
+    // `farms.description` renders on the public stand card under "Additional information", is
+    // seeded from VIGA's forms, and — until now — had NO farmer-facing writer at all. The
+    // consequence measured on production: a farmer publishes a clean listing through this form
+    // and VIGA's older prose stays welded to their card underneath it, sometimes contradicting
+    // what they just typed, with no surface anywhere that can change it.
+    //
+    // It is the FARM's record, not the stand's, which is why it sits beside `renameFarm` in
+    // shape: a farm may have more than one stand, and the prose describes the farm.
+
+    it("writes the description the farmer typed", async () => {
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Prose Stand",
+        listing: {
+          ...visitableListing,
+          description: "We place a sign at the bottom of the driveway when the stand is open.",
+        },
+        occurredAt: new Date("2026-08-07T17:00:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`select description from farms where id = ${farmId}`;
+      expect(rows[0]?.description).toBe(
+        "We place a sign at the bottom of the driveway when the stand is open.",
+      );
+    });
+
+    it("CLEARS the description when the farmer empties the box", async () => {
+      // The farmer owns published state (Golden Rule #1). Someone who deletes VIGA's stale
+      // paragraph and publishes must end up with no paragraph — an empty box that silently
+      // kept the old text would make the form lie about what it publishes.
+      await client()`
+        update farms set description = ${"Stale VIGA prose about this farm."} where id = ${farmId}
+      `;
+
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Prose Stand",
+        listing: { ...visitableListing, description: "   " },
+        occurredAt: new Date("2026-08-07T17:00:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`select description from farms where id = ${farmId}`;
+      expect(rows[0]?.description).toBeNull();
+    });
+
+    it("LEAVES an existing description alone when the door states none", async () => {
+      // The distinction the whole write turns on: `undefined` means "this door has nothing to
+      // say about the prose", `""` means "the farmer cleared it". A door that omits the field
+      // must not erase a farm's paragraph as a side effect of saving its hours — that is
+      // B-037's exact failure shape, one column over.
+      await client()`
+        update farms set description = ${"A land acknowledgement and a note about the goats."}
+        where id = ${farmId}
+      `;
+
+      const result = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Prose Stand",
+        listing: visitableListing,
+        occurredAt: new Date("2026-08-07T17:00:00Z"),
+      });
+      expect(result.status).toBe("saved");
+
+      const rows = await client()`select description from farms where id = ${farmId}`;
+      expect(rows[0]?.description).toBe("A land acknowledgement and a note about the goats.");
+    });
+
+    it("round-trips through readStandListing unchanged", async () => {
+      // The property that makes the edit form safe to prefill. `saveOnboardingListing` replaces
+      // the whole listing, so the read and the write must be the same shape — a description the
+      // reader could not see would be erased by the next save of an untouched form.
+      const saved = await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Prose Stand",
+        listing: { ...visitableListing, description: "Certified organic. Goats on site." },
+        occurredAt: new Date("2026-08-07T17:00:00Z"),
+      });
+      expect(saved.status).toBe("saved");
+      const salesLocationId = (saved as { salesLocationId: string }).salesLocationId;
+
+      const listing = await readStandListing(database(), { salesLocationId });
+      expect(listing?.description).toBe("Certified organic. Goats on site.");
+
+      // Save it straight back, field for field, and nothing may change.
+      const again = await saveOnboardingListing(database(), {
+        farmId,
+        standName: listing!.standName,
+        listing: {
+          visitability: listing!.visitability,
+          offeringType: listing!.offeringType,
+          publicAddress: listing!.publicAddress,
+          latitude: listing!.latitude,
+          longitude: listing!.longitude,
+          hoursText: listing!.hoursText,
+          availability: listing!.availability,
+          paymentMethods: listing!.paymentMethods,
+          items: listing!.items,
+          description: listing!.description,
+        },
+        occurredAt: new Date("2026-08-07T18:00:00Z"),
+      });
+      expect(again.status).toBe("saved");
+
+      const rows = await client()`select description from farms where id = ${farmId}`;
+      expect(rows[0]?.description).toBe("Certified organic. Goats on site.");
+    });
+  });
 });

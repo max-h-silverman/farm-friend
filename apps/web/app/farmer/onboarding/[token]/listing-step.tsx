@@ -262,6 +262,13 @@ export interface ListingDefaults {
   availability: ListingAvailability;
   paymentMethods: string[];
   items: string[];
+  /**
+   * The farm's own prose, as it renders on the public card under "Additional information".
+   *
+   * Here for the same B-037 reason as the availability above: `saveOnboardingListing` writes it,
+   * so a form that could not see it would clear a farm's paragraph on the next save.
+   */
+  description: string | null;
 }
 
 /**
@@ -289,11 +296,21 @@ export function ListingStep({
   credential,
   farmName,
   defaults,
+  description: initialDescription,
 }: {
   credential: ListingCredential;
   farmName: string;
   /** Present when EDITING an existing listing (F-073). Absent when creating one. */
   defaults?: ListingDefaults;
+  /**
+   * The farm's stored paragraph, for a door that CREATES a listing over a farm which already
+   * has one — F-079's migration door, where VIGA's prose is on the public card today.
+   *
+   * Separate from `defaults` because those two doors differ: an edit prefills every field, and
+   * the migration door deliberately prefills none of them EXCEPT this one, since it is the only
+   * field the form would otherwise silently erase. `defaults` wins when both are supplied.
+   */
+  description?: string;
 }) {
   // A stored payment method is either one of the offered checkboxes or something the farmer
   // typed. Split on the closed set so an edit shows "Venmo" ticked rather than as free text —
@@ -339,6 +356,12 @@ export function ListingStep({
     storedPayments.filter((method) => !offered.has(method)).join(", "),
   );
   const [items, setItems] = useState((defaults?.items ?? []).join(", "));
+  // The farm's own paragraph on the public card. Prefilled from what is stored — for a
+  // migrating farm that is VIGA's text with its restated facts already stripped, so the farmer
+  // sees only what has no column of its own and edits from there.
+  const [description, setDescription] = useState(
+    defaults?.description ?? initialDescription ?? "",
+  );
 
   // B-037 — every one of the twelve initialised from `defaults`, because `updateStand` writes
   // every one of them on every save. A blank initialiser here is not "unset", it is a deletion
@@ -568,6 +591,9 @@ export function ListingStep({
             : {}),
           paymentMethods: [...payments, ...list(otherPayment)],
           items: list(items),
+          // Always sent, even when blank: an empty box means the farmer CLEARED the paragraph,
+          // which the boundary distinguishes from a door that states nothing about it.
+          description,
         }),
       });
       if (!response.ok) {
@@ -1078,6 +1104,28 @@ export function ListingStep({
       <p className="farmer-form-note">
         Separate them with commas. This is what you usually have — you will text what is
         actually in stock as it changes.
+      </p>
+
+      {/*
+        THE FARM'S OWN PARAGRAPH, and the first farmer-facing surface that can change it.
+        `farms.description` renders on the public card and was seeded from VIGA's forms with no
+        writer anywhere, so a farmer publishing a clean listing kept stale prose underneath it.
+
+        Prefilled with what is STORED rather than blank: the writer replaces it, so an empty box
+        on an edit would erase the paragraph by omission — B-037's failure shape.
+      */}
+      <label htmlFor="stand-description">Anything else people should know?</label>
+      <textarea
+        id="stand-description"
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+        rows={4}
+        placeholder="We put a sign at the bottom of the driveway when the stand is open."
+        maxLength={2000}
+      />
+      <p className="farmer-form-note">
+        This shows on your card. Hours, payments and what you sell are already covered above —
+        this is for anything they do not say.
       </p>
 
       {error === null ? null : (

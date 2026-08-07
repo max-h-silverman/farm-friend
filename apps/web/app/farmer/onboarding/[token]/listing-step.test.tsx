@@ -63,6 +63,7 @@ const EDIT_DEFAULTS = {
   },
   paymentMethods: [],
   items: [],
+  description: null,
 };
 
 /** The body the form posted, parsed. */
@@ -186,6 +187,66 @@ describe("onboarding listing step", () => {
     await user.click(screen.getByRole("button", { name: /submit/i }));
 
     expect(posted(fetchMock).items).toEqual(["eggs", "rhubarb"]);
+  });
+
+  describe("the farm's own paragraph", () => {
+    // `farms.description` renders on the public card under "Additional information" and had NO
+    // farmer-facing writer at all, so VIGA's seeded prose stayed welded under every listing a
+    // farmer published — contradicting the fields above it and editable by nobody.
+
+    it("offers the stored paragraph for editing rather than a blank box", async () => {
+      // THE MIGRATION CASE. A farm arriving through F-079's door already has prose on its card.
+      // A blank box here publishes a listing that silently drops the farm's own words.
+      render(
+        <ListingStep
+          credential={{ kind: "grandfathered", farmId: FARM_ID }}
+          farmName="Test Farm"
+          description={"We put a sign at the bottom of the driveway."}
+        />,
+      );
+
+      expect(screen.getByLabelText(/anything else people should know/i)).toHaveValue(
+        "We put a sign at the bottom of the driveway.",
+      );
+    });
+
+    it("posts the paragraph the farmer typed", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.type(
+        screen.getByLabelText(/anything else people should know/i),
+        "Certified organic. Goats on site.",
+      );
+      await user.click(screen.getByRole("button", { name: /submit/i }));
+
+      expect(posted(fetchMock).description).toBe("Certified organic. Goats on site.");
+    });
+
+    it("posts an EMPTY paragraph when the farmer clears the box", async () => {
+      // The farmer owns published state. Someone who deletes VIGA's stale paragraph must end up
+      // with no paragraph — a form that omitted the field when blank would leave the old text
+      // in place and lie about what it published.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(
+        <ListingStep
+          credential={{ kind: "grandfathered", farmId: FARM_ID }}
+          farmName="Test Farm"
+          description={"Stale VIGA prose."}
+        />,
+      );
+
+      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.clear(screen.getByLabelText(/anything else people should know/i));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
+
+      const body = posted(fetchMock);
+      expect(body).toHaveProperty("description");
+      expect(body.description).toBe("");
+    });
   });
 
   it("defaults the stand's name to the farm the invitation named", () => {
@@ -1249,6 +1310,7 @@ describe("onboarding listing step", () => {
         stockingCadence: "specific_days" as const,
         stockingDays: [2, 5],
       },
+      description: null,
     };
 
     function renderEdit() {
