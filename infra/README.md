@@ -110,6 +110,7 @@ recreate it with all eight values:
     rotation_applied_at         = "..."   # e.g. 2026-07-29T17-35; see "Rotating a secret"
     smtp_username               = "board@vigavashon.org"  # authenticates to the relay
     smtp_from_address           = "board@vigavashon.org"  # the visible From (F-078)
+    smtp_from_name              = "VIGA"                  # display name; optional
 
 `smtp_username` and `smtp_from_address` also have **no default**, for a reason specific to mail:
 a wrong sender is not a visible failure. Mail either arrives from the wrong place or is rejected

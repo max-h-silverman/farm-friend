@@ -119,6 +119,22 @@ variable "smtp_username" {
   }
 }
 
+variable "smtp_from_name" {
+  description = <<-EOT
+    The display name recipients see in their mail client — `VIGA` (max, 2026-08-06).
+
+    Without it a farmer sees the bare mailbox, "board", which says nothing about who is
+    writing and is exactly the kind of unfamiliar sender that gets a reply asking what it is.
+
+    OPTIONAL, unlike the address: only the address is load-bearing, since it is what the relay
+    authorizes and where replies return. `resolveEmailConfig` refuses quotes, angle brackets,
+    and line breaks here, because a display name is folded into the From header and those
+    characters can restructure it.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "smtp_from_address" {
   description = <<-EOT
     The visible From address on every message Farm Friend sends — `board@vigavashon.org`.

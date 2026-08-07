@@ -18,6 +18,14 @@ export interface EmailConfig {
   password: string;
   /** The visible From. Configuration, never a hard-coded string. */
   fromAddress: string;
+  /**
+   * The display name a recipient's mail client shows — "VIGA" (max, 2026-08-06).
+   *
+   * OPTIONAL, unlike the address. Only the address is load-bearing: it is what the relay
+   * authorizes and where replies return. Without a name a recipient sees the bare mailbox
+   * ("board"), which says nothing about who is writing; with one, the sender reads as VIGA.
+   */
+  fromName?: string;
 }
 
 export type EmailConfigResult =
@@ -29,7 +37,8 @@ export type EmailConfigResult =
         | "incomplete"
         | "invalid_port"
         | "blocked_port"
-        | "invalid_sender";
+        | "invalid_sender"
+        | "invalid_sender_name";
       missing: string[];
     };
 
@@ -91,6 +100,16 @@ export function resolveEmailConfig(
     return { ok: false, reason: "invalid_sender", missing: ["SMTP_FROM_ADDRESS"] };
   }
 
+  // The display name is folded into a header, so a value carrying quotes, angle brackets, or a
+  // line break can RESTRUCTURE that header — `"VIGA" <someone@else.com>` makes the sender a
+  // recipient sees differ from the one configured, and a newline can append headers outright
+  // (a Bcc, for instance). Refused rather than escaped: this is deployment configuration with
+  // a handful of legitimate values, and a strict allowlist is the honest tool.
+  const rawName = env.SMTP_FROM_NAME?.trim();
+  if (rawName !== undefined && rawName !== "" && !/^[A-Za-z0-9 .,'&()-]{1,64}$/.test(rawName)) {
+    return { ok: false, reason: "invalid_sender_name", missing: ["SMTP_FROM_NAME"] };
+  }
+
   return {
     ok: true,
     config: {
@@ -99,6 +118,7 @@ export function resolveEmailConfig(
       username: (env.SMTP_USERNAME as string).trim(),
       password: env.SMTP_PASSWORD as string,
       fromAddress,
+      ...(rawName !== undefined && rawName !== "" ? { fromName: rawName } : {}),
     },
   };
 }
@@ -107,6 +127,8 @@ export function resolveEmailConfig(
 export type EmailTransport = (request: {
   toEmail: string;
   fromAddress: string;
+  /** Absent when unconfigured; the transport then sends the bare address. */
+  fromName?: string;
   subject: string;
   text: string;
   idempotencyKey: string;
@@ -205,6 +227,9 @@ export function createEmailSender(options: EmailSenderOptions) {
       const { providerMessageId } = await options.transport({
         toEmail,
         fromAddress: options.config.fromAddress,
+        ...(options.config.fromName !== undefined
+          ? { fromName: options.config.fromName }
+          : {}),
         subject: input.subject,
         text: input.text,
         idempotencyKey: input.idempotencyKey,

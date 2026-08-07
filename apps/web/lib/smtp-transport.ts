@@ -37,7 +37,14 @@ export function createSmtpTransport(config: EmailConfig): EmailTransport {
 
   return async function send(request) {
     const info = await transporter.sendMail({
-      from: request.fromAddress,
+      // A display name plus the address, so a recipient's client shows "VIGA" rather than the
+      // bare mailbox "board". Passed as STRUCTURED FIELDS rather than a hand-built
+      // `"Name" <addr>` string: nodemailer does the header encoding, so the name cannot
+      // restructure the header even though `resolveEmailConfig` already refuses the characters
+      // that would let it.
+      from: request.fromName
+        ? { name: request.fromName, address: request.fromAddress }
+        : request.fromAddress,
       to: request.toEmail,
       subject: request.subject,
       text: request.text,

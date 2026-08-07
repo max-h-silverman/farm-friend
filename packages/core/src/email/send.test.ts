@@ -19,6 +19,48 @@ describe("resolveEmailConfig", () => {
     SMTP_FROM_ADDRESS: "board@vigavashon.org",
   };
 
+  it("carries a DISPLAY NAME when one is configured", () => {
+    // What a recipient's mail client shows in the sender column. Without it they see the bare
+    // mailbox — "board" — which says nothing about who is writing.
+    const result = resolveEmailConfig({
+      ...complete,
+      SMTP_FROM_NAME: "VIGA",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.config.fromName).toBe("VIGA");
+  });
+
+  it("treats the display name as OPTIONAL, unlike the address", () => {
+    // Absent is a working deployment: the address alone is a valid sender. Only the address is
+    // load-bearing, because it is what the relay authorizes and what replies return to.
+    const result = resolveEmailConfig(complete);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.config.fromName).toBeUndefined();
+  });
+
+  it("refuses a display name that could forge a second address", () => {
+    // A name containing quotes, angle brackets, or a newline can restructure the From header —
+    // `"VIGA" <someone@else.com>` — so the sender a recipient sees is not the one configured.
+    // Header injection via a newline is the sharper case: it can append entirely new headers.
+    for (const bad of [
+      'VIGA" <evil@example.com',
+      "VIGA <evil@example.com>",
+      "VIGA\nBcc: evil@example.com",
+      "VIGA\r\nBcc: evil@example.com",
+    ]) {
+      const result = resolveEmailConfig({ ...complete, SMTP_FROM_NAME: bad });
+      expect(result.ok, bad).toBe(false);
+      if (!result.ok) expect(result.reason).toBe("invalid_sender_name");
+    }
+  });
+
+  it("accepts the ordinary names VIGA would actually use", () => {
+    for (const good of ["VIGA", "VIGA Farm Stand Map", "VIGA - Farm Stands"]) {
+      const result = resolveEmailConfig({ ...complete, SMTP_FROM_NAME: good });
+      expect(result.ok, good).toBe(true);
+    }
+  });
+
   it("reads a complete configuration", () => {
     const result = resolveEmailConfig(complete);
     expect(result.ok).toBe(true);
@@ -96,6 +138,28 @@ describe("createEmailSender", () => {
       expect.objectContaining({
         toEmail: "cathy@example.com",
         fromAddress: "board@vigavashon.org",
+      }),
+    );
+  });
+
+  it("passes the display name through to the transport when configured", async () => {
+    const transport = vi.fn().mockResolvedValue({ providerMessageId: "m1" });
+    const send = createEmailSender({
+      config: { ...CONFIG, fromName: "VIGA" },
+      transport,
+    });
+
+    await send({
+      toEmail: "cathy@example.com",
+      subject: "s",
+      text: "t",
+      idempotencyKey: "k",
+    });
+
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fromAddress: "board@vigavashon.org",
+        fromName: "VIGA",
       }),
     );
   });

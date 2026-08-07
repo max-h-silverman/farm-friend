@@ -75,6 +75,7 @@ locals {
     SMTP_PORT         = tostring(var.smtp_port)
     SMTP_USERNAME     = var.smtp_username
     SMTP_FROM_ADDRESS = var.smtp_from_address
+    SMTP_FROM_NAME    = var.smtp_from_name
   }
 
   shared_secret_env = {
