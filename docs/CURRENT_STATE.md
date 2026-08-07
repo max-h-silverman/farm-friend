@@ -11,12 +11,11 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 `sha256:1ab8293fc5fb5ca169e3ae669bd473c820a0c34c5ec14a7a023fb1da245d6027` (`main` at `127d45a`,
 pushed).
 
-~~**NOTHING IS MERGED-AND-UNDEPLOYED, AND NO MIGRATION IS OWED** (2026-08-07)~~ — **superseded
-the same day.** That was true of `main` at `127d45a`, which is still what production serves. But
-**F-079 is now built on branch `f-079-secret-link-email-code` (`26de296`) and carries migration
-`0025`, which IS OWED to production** and must be applied before the image that reads it. See
-"F-079 — the migration door" below. The three earlier tranches — the farmer surface,
-self-onboarding, and F-078 — all shipped in one deploy and remain deployed.
+**NOTHING IS MERGED-AND-UNDEPLOYED, AND NO MIGRATION IS OWED** (2026-08-07, second deploy of the
+day). F-079 is **DEPLOYED**: web `farm-friend-web-00040-v47` and worker `farm-friend-worker-00039-zgv`,
+both on digest `sha256:2896814e21914305fb0929768cfb007d4b297b21dbd25ce8e2209c313043a607`
+(`main` at `0b282b2`). Production Postgres is `neondb` with **26 migrations** (`0000`-`0025`).
+`main` is what production serves.
 
 **Migration `0024` was applied BEFORE the image that reads it**, per the RUNBOOK's ordering rule.
 Production Postgres is `neondb` with **25 migrations** (`0000`-`0024`). Verified by effect, never
@@ -121,11 +120,59 @@ out of it:
   flag's value — **verified by planning without the var-file, which fails it by name**.
 - **The RUNBOOK's deploy command carries `-var-file=production.tfvars`**, and it did not before.
 
-**Still owed, in order**: apply (restores geocoding, creates the three containers) → run F-078's
-roster ingest, which decides `EMAIL_HASH_SALT` (max, 2026-08-07) → add the three secret versions
-out of band → apply migration `0025` → flip `mount_email_verification` and deploy the image.
+**ALL OF IT IS DONE** (2026-08-07): applied (geocoding restored, three containers created) →
+the three secret versions added → the roster ingested under the stored salt → migration `0025`
+applied → `mount_email_verification` flipped and the image deployed. Web now mounts all three
+new values plus geocoding and SMTP; **the worker mounts none of them**, asserted
+unconditionally so flipping the flag can never quietly hand a salt to a process with no use
+for it.
 
-## F-079 — the migration door, gated by an emailed code (2026-08-07, NOT DEPLOYED)
+## F-079 — the migration door, gated by an emailed code (2026-08-07, DEPLOYED)
+
+**LIVE AND EXERCISED END TO END AGAINST PRODUCTION.** Web rolled 00039 -> 00040 and worker
+00038 -> 00039 on the same digest; health 200, 34 stands, unchanged. Verified in the served
+bytes rather than from the apply: the bare `/farmer/start` answers **404**, a wrong secret
+answers the **same 404**, the correct secret answers 200, and all three farmer routes answer
+**400** to a malformed body rather than 500 — so they are live and not failing on configuration.
+
+**The whole chain was walked against a real farm with a real address on file** (`Aeggy's Farm`),
+and every step was read back from Postgres rather than from a response body:
+
+- a code request for the address on file and one for a stranger returned **identical**
+  `{"status":"sent"}`, and **exactly one row was written** — the real address got a code, the
+  stranger got nothing;
+- a wrong code was refused and **counted** (`attempt_count` 0 -> 1); a malformed one was refused
+  with the **same body** and **not counted** (still 1);
+- the right code verified, set the `HttpOnly` grant cookie, and a **replay of the same code was
+  refused** — single-use holding in production;
+- the grant opened the listing form for that farm and **did not open another farm's**; without
+  the cookie the page shows the verification step instead.
+
+The test verification row was removed afterwards; `farm_email_verifications` holds **0 rows**.
+Listing data unchanged throughout at **36 farms / 36 locations**.
+
+**Migration `0025` was applied BEFORE the image that reads it**, per the RUNBOOK's ordering rule,
+and verified by effect: the fingerprint was taken first (`neondb`, 25 migrations, table absent),
+and afterwards all **7 CHECK constraints and all 5 indexes** exist — including the partial
+unique index `drizzle-kit` silently drops. **Every constraint was proven to genuinely REFUSE on
+production**, each attempt rolled back, and a **valid row was accepted** as the control that
+stops "it refuses everything" reading as success.
+
+**THE ROSTER IS INGESTED: 38 addresses across 32 farms** (`farm_emails`, was 0). F-078 had built
+`ingestFarmEmails` and shipped **no caller**, so `scripts/ingest-farm-emails.ts` was written for
+this. The salt was stored in Secret Manager **first**, then used for the ingest, so the two
+cannot drift — and that was verified by effect, by matching stored hashes back through the
+shipped `findVerifiableFarmByEmail`, with a wrong salt confirmed to match nothing.
+
+**A DRY RUN AGAINST PRODUCTION CAUGHT A REAL DEFECT BEFORE ANY WRITE.** Four farms — Flora Hill,
+Green Ears, Lavender Hill Farm, Sweet Alyssum Farm — carry a `*does not accept VIGA Bucks*`
+annotation appended to the farm-name cell in VIGA's form. Exact matching correctly refused them,
+so those four farmers would have had **no address stored and no way to verify**, with the ingest
+reporting success. Fixed in the parser (trailing paired `*…*` only, with three tests guarding
+against over-stripping). After the fix: **32 of 32 farms match, zero unmatched**, 31 -> 38
+addresses.
+
+
 
 A farmer already on VIGA's Google form moves themselves across: pick your farm, prove you
 control the address VIGA holds, publish. The bare `/farmer/start` honour-system door is **gone**
@@ -270,9 +317,10 @@ one, and a newline can append headers outright. The transport also passes name a
 the two defenses are independent. `SMTP_FROM_NAME` is in Terraform and read back out of a real
 plan; assertions stay 44/44.
 
-**Still owed for the email identity feature as a whole:** wiring verification into an actual
-farmer-facing page (**F-079**), and the production ingest of the roster. The machinery is built
-and proven; nothing calls it yet.
+~~**Still owed for the email identity feature as a whole:** wiring verification into an actual
+farmer-facing page (**F-079**), and the production ingest of the roster.~~ — **BOTH DONE
+2026-08-07.** F-079 is deployed and the roster holds 38 addresses across 32 farms. See the
+F-079 section above.
 Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
 effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
 contacts) was taken before writing, and the pre-change schema was asserted so a pass could not
