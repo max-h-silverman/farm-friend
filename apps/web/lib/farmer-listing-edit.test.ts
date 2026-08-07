@@ -105,6 +105,24 @@ describe("farmer listing edit endpoint", () => {
     );
   });
 
+  it("passes the LINK's authorization to the writer, so the farmer gets a schedule", async () => {
+    // F-081 — the writer seeds the default weekly reminder only when a door tells it who the
+    // farmer is. The writer's own tests cannot see whether this door actually passes it, so a
+    // door that quietly stopped would leave every editing farmer unscheduled with the writer
+    // suite still green.
+    const save = saver();
+    await handleFarmerListingEditPost(
+      deps(resolver(), save),
+      post({ token: TOKEN, ...LISTING }),
+    );
+
+    expect(save).toHaveBeenCalledWith(
+      {},
+      // From the LINK's resolved authorization, never the request body.
+      expect.objectContaining({ authorizationId: "auth-1" }),
+    );
+  });
+
   it("IGNORES a farm id in the request body", async () => {
     // The attack the invited path also refuses: a caller-supplied farm would let any farmer's
     // link overwrite any other farm's public listing.

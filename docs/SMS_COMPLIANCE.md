@@ -170,7 +170,11 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   with no record; `START` establishes **or restores** it from any state. `STOP` clears it and
   applies across all Farm Friend messaging. No **proactive non-required** SMS is sent without active
   launch consent. Inventory reminders use the same consent; choosing or pausing a cadence does not
-  establish, restore, or revoke it.
+  establish, restore, or revoke it. **A stand's cadence starts at `weekly` when its farmer is set
+  up (F-081), and that is not consent and cannot substitute for it**: the seeded preference only
+  makes a prompt *due*, and every prompt queues as the proactive `inventory_prompt` category, so
+  `authorizeDispatch` re-reads consent at the claim and **suppresses** it for a sender who never
+  texted `JOIN`/`START`. Queuing is unconditional; sending is not.
 
   A successful first-time `JOIN` or restoring `START` queues two distinct, deduplicated replies:
   the carrier-registered consent receipt as `required_reply`, then a product welcome explaining

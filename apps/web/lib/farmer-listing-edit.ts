@@ -4,9 +4,9 @@ import {
   resolveFarmerLink,
   saveOnboardingListing,
   type Db,
-  type OnboardingListingInput,
   type RenameFarmResult,
   type ResolvedFarmerLink,
+  type SaveOnboardingListingInput,
   type SaveOnboardingListingResult,
 } from "@farm-friend/db";
 import { parseListingSubmission } from "./farmer-listing";
@@ -45,12 +45,7 @@ export interface FarmerListingEditDeps {
   ) => Promise<ResolvedFarmerLink | null>;
   saveListing: (
     db: Db,
-    input: {
-      farmId: string;
-      standName: string;
-      listing: OnboardingListingInput;
-      occurredAt: Date;
-    },
+    input: SaveOnboardingListingInput,
   ) => Promise<SaveOnboardingListingResult>;
   renameFarm: (
     db: Db,
@@ -135,6 +130,9 @@ export async function handleFarmerListingEditPost(
     farmId: link.farmId,
     standName: submission.standName,
     listing: submission.listing,
+    // F-081 — the link resolves a LIVE authorization, so this farmer is the honest recipient
+    // of their stand's default reminder. First write only: a farmer who paused stays paused.
+    authorizationId: link.authorizationId,
     occurredAt: deps.clock.now(),
   });
 

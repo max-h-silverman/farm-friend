@@ -121,7 +121,8 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   `apps/web/lib/farmer-stand.integration.test.ts` asserts and sabotages each bound.
   `/stand/<token>/settings` reuses that same standing credential and revocation lifecycle. It
   exposes only the authorization's editable locations, stores one default SMS target, and lets the
-  farmer explicitly choose or pause one inventory-reminder cadence per stand. It also owns the
+  farmer change or pause the one inventory-reminder cadence per stand — which starts at `weekly`
+  when they are set up (F-081) rather than at nothing. It also owns the
   structured one-name-per-line participant save for the currently selected stand. That save is its
   own confirmation and audit event: it is routed through db + clock before full model composition,
   re-resolves the link, and cannot grant access or attach names to profiles. The settings page has

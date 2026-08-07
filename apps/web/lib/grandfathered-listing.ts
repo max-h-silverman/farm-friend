@@ -4,7 +4,7 @@ import {
   saveOnboardingListing,
   type ClaimGrandfatheredFarmResult,
   type Db,
-  type OnboardingListingInput,
+  type SaveOnboardingListingInput,
   type SaveOnboardingListingResult,
 } from "@farm-friend/db";
 import { parseListingSubmission } from "./farmer-listing";
@@ -45,12 +45,7 @@ export interface GrandfatheredListingDeps {
   ) => Promise<ClaimGrandfatheredFarmResult>;
   saveListing: (
     db: Db,
-    input: {
-      farmId: string;
-      standName: string;
-      listing: OnboardingListingInput;
-      occurredAt: Date;
-    },
+    input: SaveOnboardingListingInput,
   ) => Promise<SaveOnboardingListingResult>;
 }
 
