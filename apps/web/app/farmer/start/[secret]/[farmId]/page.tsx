@@ -98,21 +98,23 @@ export default async function SecretFarmerOnboardingPage({
         </>
       ) : (
         <>
-          <p className="farmer-onboarding-lede">
-            First, let us check it is really you.
-          </p>
           <section className="farmer-onboarding-card" aria-labelledby="verify-heading">
+            <p className="farmer-step-marker">Step 2 of 2</p>
             <h2 id="verify-heading">Confirm it is you</h2>
             <VerifyGate farmId={claim.farmId} farmName={claim.farmName} />
           </section>
+          {/* The way back to the list, so a farmer who picked the wrong farm is not stuck
+              reaching for the browser's back button. */}
+          <p className="farmer-step-back">
+            <a href={`/farmer/start/${encodeURIComponent(secret)}`}>← Choose a different farm</a>
+          </p>
         </>
       )}
 
       <section className="farmer-onboarding-next" aria-labelledby="whats-next-heading">
         <h2 id="whats-next-heading">What happens next</h2>
         <p>
-          Your stand goes on the map as soon as you save. Confirming your email lets you publish
-          your listing — to update what is in stock <strong>by text</strong>, contact VIGA and
+          Your stand goes on the map as soon as you submit.To update what is in stock <strong>by text</strong>, contact VIGA and
           they will finish setting you up.
         </p>
       </section>

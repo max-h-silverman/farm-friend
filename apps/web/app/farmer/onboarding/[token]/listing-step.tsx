@@ -84,8 +84,12 @@ const WEEKDAYS = [
  * the farmer does not have.
  */
 const HOURS_OPTIONS = [
+  // ONE way to say "while it is light". `daylight_hours` is still a valid enum value and rows
+  // already hold it — `open-now` answers it identically to `dawn_to_dusk` (same verdict, same
+  // sunrise and sunset), which is exactly why offering both was a choice with no meaning. A
+  // farmer picking between two phrasings of one fact splits the data on a distinction no
+  // customer can see. Reading stays unchanged; only the form stops asking.
   { value: "dawn_to_dusk", label: "Dawn to dusk" },
-  { value: "daylight_hours", label: "Daylight hours" },
   { value: "all_day", label: "All day, every day (24 hours)" },
   { value: "clock_range", label: "Set hours…" },
   { value: "until_dusk", label: "From a set time until dusk…" },
@@ -122,8 +126,61 @@ const MONTHS = [
   "December",
 ] as const;
 
+/**
+ * How many days each month offers the day picker.
+ *
+ * **February is 29.** The season is a recurring month/day pair stored with NO year, so a stand
+ * that opens on the 29th in leap years must be stateable; the database allows 1–31 for any
+ * month. This list exists to keep a farmer from choosing something that never occurs at all,
+ * like February 31 — not to resolve a real calendar date.
+ */
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const;
+
+/** The days a month offers. Every day, 1–31, until a month narrows it. */
+function daysForMonth(month: string): number[] {
+  const index = Number(month) - 1;
+  const count = DAYS_IN_MONTH[index] ?? 31;
+  return Array.from({ length: count }, (_, i) => i + 1);
+}
+
+/**
+ * Opening times as half-hour choices across the whole day.
+ *
+ * A `<select>` rather than `<input type="time">`: the native control is a fiddly three-part
+ * field to operate one-handed, and it invites a farmer to type. The option VALUES stay the
+ * same "HH:MM" strings the time input produced, so `minutesOfDay`, `clockValue` and every
+ * stored row are unchanged by the swap.
+ */
+const CLOCK_CHOICES: { value: string; label: string }[] = Array.from(
+  { length: 48 },
+  (_, slot) => {
+    const hours = Math.floor(slot / 2);
+    const minutes = slot % 2 === 0 ? 0 : 30;
+    const value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    // 12-hour with am/pm, which is how a farmer on Vashon states their hours. Midnight and
+    // noon are named rather than shown as "12:00 am", which reads as ambiguous.
+    const suffix = hours < 12 ? "am" : "pm";
+    const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+    const label =
+      slot === 0
+        ? "Midnight"
+        : slot === 24
+          ? "Noon"
+          : `${hour12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+    return { value, label };
+  },
+);
+
 type SeasonKind = (typeof SEASON_OPTIONS)[number]["value"];
-type HoursKind = (typeof HOURS_OPTIONS)[number]["value"];
+/**
+ * What the form can HOLD, which is wider than what it offers.
+ *
+ * `daylight_hours` is no longer in `HOURS_OPTIONS` — it and `dawn_to_dusk` were two phrasings
+ * of one fact — but rows already store it. Deriving this from the offered list would make an
+ * edit form unable to carry a retired value, blanking a farmer's stated hours the moment they
+ * opened the form to change something else. That is B-037's failure, and typecheck caught it.
+ */
+type HoursKind = (typeof HOURS_OPTIONS)[number]["value"] | "daylight_hours";
 type StockingKind = (typeof STOCKING_OPTIONS)[number]["value"];
 
 /**
@@ -400,6 +457,24 @@ export function ListingStep({
         ? days.filter((entry) => entry !== day)
         : [...days, day].sort((a, b) => a - b),
     );
+  }
+
+  /**
+   * Change a month, and drop the day if that month does not have it.
+   *
+   * Without this, picking March 31 and then switching to April leaves 31 selected in state and
+   * SAVES an April date that does not exist — the picker would show a valid-looking form while
+   * holding a day the farmer can no longer see in the list.
+   */
+  function changeMonth(
+    month: string,
+    day: string,
+    setMonth: (value: string) => void,
+    setDay: (value: string) => void,
+  ): void {
+    setMonth(month);
+    const allowed = daysForMonth(month);
+    if (day !== "" && !allowed.includes(Number(day))) setDay("");
   }
 
   /** A whole number from a picker, or null. Never coerced — "" must not become 0. */
@@ -744,64 +819,87 @@ export function ListingStep({
       {seasonKind === "date_range" || seasonKind === "open_ended" ? (
         <div className="farmer-listing-row">
           <label htmlFor="season-start-month">Opens</label>
-          <select
-            id="season-start-month"
-            value={seasonStartMonth}
-            onChange={(event) => setSeasonStartMonth(event.target.value)}
-          >
-            <option value="">Month</option>
-            {MONTHS.map((month, index) => (
-              <option key={month} value={index + 1}>
-                {month}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="season-start-day" className="farmer-listing-inline-label">
-            day
-          </label>
-          <input
-            id="season-start-day"
-            type="number"
-            min={1}
-            max={31}
-            value={seasonStartDay}
-            onChange={(event) => setSeasonStartDay(event.target.value)}
-          />
+          <div className="farmer-listing-fields">
+            <select
+              id="season-start-month"
+              value={seasonStartMonth}
+              onChange={(event) =>
+                changeMonth(
+                  event.target.value,
+                  seasonStartDay,
+                  setSeasonStartMonth,
+                  setSeasonStartDay,
+                )
+              }
+            >
+              <option value="">Month</option>
+              {MONTHS.map((month, index) => (
+                <option key={month} value={index + 1}>
+                  {month}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="season-start-day" className="farmer-listing-inline-label">
+              day
+            </label>
+            <select
+              id="season-start-day"
+              className="farmer-listing-daynum"
+              value={seasonStartDay}
+              onChange={(event) => setSeasonStartDay(event.target.value)}
+            >
+              <option value="">Day</option>
+              {daysForMonth(seasonStartMonth).map((day) => (
+                <option key={day} value={day}>
+                  {day}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : null}
 
       {seasonKind === "date_range" ? (
         <div className="farmer-listing-row">
           <label htmlFor="season-end-month">Closes</label>
-          <select
-            id="season-end-month"
-            value={seasonEndMonth}
-            onChange={(event) => setSeasonEndMonth(event.target.value)}
-          >
-            <option value="">Month</option>
-            {MONTHS.map((month, index) => (
-              <option key={month} value={index + 1}>
-                {month}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="season-end-day" className="farmer-listing-inline-label">
-            day
-          </label>
-          <input
-            id="season-end-day"
-            type="number"
-            min={1}
-            max={31}
-            value={seasonEndDay}
-            onChange={(event) => setSeasonEndDay(event.target.value)}
-          />
+          <div className="farmer-listing-fields">
+            <select
+              id="season-end-month"
+              value={seasonEndMonth}
+              onChange={(event) =>
+                changeMonth(event.target.value, seasonEndDay, setSeasonEndMonth, setSeasonEndDay)
+              }
+            >
+              <option value="">Month</option>
+              {MONTHS.map((month, index) => (
+                <option key={month} value={index + 1}>
+                  {month}
+                </option>
+              ))}
+            </select>
+            <label htmlFor="season-end-day" className="farmer-listing-inline-label">
+              day
+            </label>
+            <select
+              id="season-end-day"
+              className="farmer-listing-daynum"
+              value={seasonEndDay}
+              onChange={(event) => setSeasonEndDay(event.target.value)}
+            >
+              <option value="">Day</option>
+              {daysForMonth(seasonEndMonth).map((day) => (
+                <option key={day} value={day}>
+                  {day}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : null}
 
       {seasonKind === "named_season" ? (
         <>
-          <label htmlFor="season-names">Which seasons?</label>
+          <label htmlFor="season-names">Which seasons? (separate with commas)</label>
           <input
             id="season-names"
             type="text"
@@ -831,25 +929,41 @@ export function ListingStep({
       {hoursKind === "clock_range" || hoursKind === "until_dusk" ? (
         <div className="farmer-listing-row">
           <label htmlFor="open-from">Opens at</label>
-          <input
-            id="open-from"
-            type="time"
-            value={openFrom}
-            onChange={(event) => setOpenFrom(event.target.value)}
-          />
-          {hoursKind === "clock_range" ? (
-            <>
-              <label htmlFor="open-until" className="farmer-listing-inline-label">
-                until
-              </label>
-              <input
-                id="open-until"
-                type="time"
-                value={openUntil}
-                onChange={(event) => setOpenUntil(event.target.value)}
-              />
-            </>
-          ) : null}
+          <div className="farmer-listing-fields">
+            <select
+              id="open-from"
+              className="farmer-listing-time"
+              value={openFrom}
+              onChange={(event) => setOpenFrom(event.target.value)}
+            >
+              <option value="">Time</option>
+              {CLOCK_CHOICES.map((choice) => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+            {hoursKind === "clock_range" ? (
+              <>
+                <label htmlFor="open-until" className="farmer-listing-inline-label">
+                  until
+                </label>
+                <select
+                  id="open-until"
+              className="farmer-listing-time"
+                  value={openUntil}
+                  onChange={(event) => setOpenUntil(event.target.value)}
+                >
+                  <option value="">Time</option>
+                  {CLOCK_CHOICES.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
+              </>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
@@ -973,7 +1087,7 @@ export function ListingStep({
       )}
 
       <button type="submit" disabled={busy || !ready}>
-        {busy ? "Saving…" : "Put my stand on the map"}
+        {busy ? "Submitting…" : "Submit"}
       </button>
     </form>
   );

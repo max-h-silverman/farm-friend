@@ -120,7 +120,7 @@ export function EmailStep({
           type="submit"
           disabled={busy || code.trim() === ""}
         >
-          {busy ? "Checking…" : "Confirm it is me"}
+          {busy ? "Checking…" : "Continue"}
         </button>
         <p className="farmer-onboarding-note">
           No code? Check your spam folder, or contact VIGA and they will help.
@@ -132,8 +132,8 @@ export function EmailStep({
   return (
     <form className="farmer-picker-next" onSubmit={requestCode}>
       <p>
-        To make sure it is you, enter the email address VIGA has on file for {farmName}. We will
-        send you a code.
+        Enter the email address VIGA has on file for {farmName}. We will send you a
+        verification code.
       </p>
       <label className="farmer-field" htmlFor="farmer-email">
         <span className="farmer-field-label">Your email address</span>
@@ -157,7 +157,7 @@ export function EmailStep({
         type="submit"
         disabled={busy || email.trim() === ""}
       >
-        {busy ? "Sending…" : "Email me a code"}
+        {busy ? "Sending…" : "Send code"}
       </button>
     </form>
   );

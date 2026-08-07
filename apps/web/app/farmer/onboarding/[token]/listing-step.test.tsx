@@ -110,7 +110,7 @@ describe("onboarding listing step", () => {
   it("cannot be submitted until the visit question is answered", async () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    expect(screen.getByRole("button", { name: /put my stand on the map/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
   });
 
   it("cannot publish a visitable stand whose address was never looked up", async () => {
@@ -123,7 +123,7 @@ describe("onboarding listing step", () => {
     await user.click(screen.getByLabelText(/there is a stand to visit/i));
     await user.type(screen.getByLabelText(/where is it/i), "12345 Vashon Highway SW");
 
-    expect(screen.getByRole("button", { name: /put my stand on the map/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
   });
 
   it("sends NO address or pin for a farmer with nowhere to visit", async () => {
@@ -134,7 +134,7 @@ describe("onboarding listing step", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     const body = posted(fetchMock);
     expect(body.visitability).toBe("contact_only");
@@ -150,7 +150,7 @@ describe("onboarding listing step", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     const call = fetchMock.mock.calls[0] as [string, unknown];
     expect(call[0]).toBe("/api/farmer/listing");
@@ -171,7 +171,7 @@ describe("onboarding listing step", () => {
       screen.getByLabelText(/what do you usually sell/i),
       "tomato, tomatoes , love apple",
     );
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     expect(posted(fetchMock).items).toEqual(["tomato", "tomatoes", "love apple"]);
   });
@@ -183,7 +183,7 @@ describe("onboarding listing step", () => {
 
     await user.click(screen.getByLabelText(/I deliver/i));
     await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs, , rhubarb,");
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     expect(posted(fetchMock).items).toEqual(["eggs", "rhubarb"]);
   });
@@ -202,7 +202,7 @@ describe("onboarding listing step", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(/on the map/i);
     // "How do I change this later?" is answered by SETTINGS — but during ONBOARDING the
@@ -221,7 +221,7 @@ describe("onboarding listing step", () => {
     );
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     const status = await screen.findByRole("status");
     expect(status).toHaveTextContent(/SETTINGS/);
@@ -240,7 +240,7 @@ describe("onboarding listing step", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(/on the map/i);
     // The farmer's own answer is still on screen, not swapped for a receipt.
@@ -257,7 +257,7 @@ describe("onboarding listing step", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     // Anchored to the hand-off sentence itself, not the word "text" — "texting SETTINGS"
     // appears in the non-onboarding copy and would satisfy a looser match forever.
@@ -270,7 +270,7 @@ describe("onboarding listing step", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
     await user.click(await screen.findByRole("button", { name: /change/i }));
 
     // Reopening is not a fresh form: a farmer correcting one field must not retype the rest.
@@ -318,7 +318,7 @@ describe("onboarding listing step", () => {
       const farmField = screen.getByLabelText(/farm.*called|name of your farm/i);
       await user.clear(farmField);
       await user.type(farmField, "Misty Hollow Farm");
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = posted(fetchMock);
       expect(body.farmName).toBe("Misty Hollow Farm");
@@ -332,7 +332,7 @@ describe("onboarding listing step", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/off the island/i);
   });
@@ -347,7 +347,7 @@ describe("onboarding listing step", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/I deliver/i));
-    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(screen.getByRole("button", { name: /submit/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/no longer available/i);
   });
@@ -380,7 +380,7 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByLabelText(/I deliver/i));
       await user.click(screen.getByRole("checkbox", { name: "Cash" }));
       await user.click(screen.getByRole("checkbox", { name: "Venmo" }));
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       expect(posted(fetchMock).paymentMethods).toEqual(["Cash", "Venmo"]);
     });
@@ -394,7 +394,7 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByRole("checkbox", { name: "Cash" }));
       await user.click(screen.getByRole("checkbox", { name: "Venmo" }));
       await user.click(screen.getByRole("checkbox", { name: "Cash" }));
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       expect(posted(fetchMock).paymentMethods).toEqual(["Venmo"]);
     });
@@ -408,7 +408,7 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByLabelText(/I deliver/i));
       await user.click(screen.getByRole("checkbox", { name: "Cash" }));
       await user.type(screen.getByLabelText(/anything else you take/i), "trade for eggs");
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       expect(posted(fetchMock).paymentMethods).toEqual(["Cash", "trade for eggs"]);
     });
@@ -423,7 +423,7 @@ describe("onboarding listing step", () => {
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       await user.click(screen.getByLabelText(/I deliver/i));
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = posted(fetchMock);
       expect(body.seasonKind).toBeNull();
@@ -440,7 +440,42 @@ describe("onboarding listing step", () => {
       const select = screen.getByLabelText(/when are you usually open/i);
       expect(select).toHaveTextContent(/dawn to dusk/i);
       expect(select).toHaveTextContent(/until dusk/i);
-      expect(select).toHaveTextContent(/daylight hours/i);
+    });
+
+    it("keeps a stored 'daylight_hours' on an edit rather than silently dropping it", async () => {
+      // The form no longer OFFERS `daylight_hours`, but 31 seeded farms already store it. An
+      // edit form that could not hold a retired value would blank a farmer's stated hours the
+      // moment they opened it to change something else — B-037's failure exactly.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...EDIT_DEFAULTS,
+            availability: { ...EDIT_DEFAULTS.availability, openHoursKind: "daylight_hours" as const },
+          }}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+      expect(posted(fetchMock).openHoursKind).toBe("daylight_hours");
+    });
+
+    it("offers ONE way to say 'while it is light', not two", async () => {
+      // `dawn_to_dusk` and `daylight_hours` are answered identically by `open-now` — same
+      // open/closed verdict, same sunrise and sunset. Offering both asks a farmer to choose
+      // between two phrasings of one fact, and splits the stored data on a distinction no
+      // customer can see. The ENUM keeps both, because rows already hold `daylight_hours`;
+      // only the form stops offering the second.
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      const select = screen.getByLabelText(/when are you usually open/i);
+      expect(select).not.toHaveTextContent(/daylight hours/i);
+      expect(
+        within(select as HTMLElement).queryByRole("option", { name: /daylight hours/i }),
+      ).toBeNull();
     });
 
     it("sends a clockless hours kind with NO clock times", async () => {
@@ -453,7 +488,7 @@ describe("onboarding listing step", () => {
         screen.getByLabelText(/when are you usually open/i),
         "dawn_to_dusk",
       );
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = posted(fetchMock);
       expect(body.openHoursKind).toBe("dawn_to_dusk");
@@ -484,9 +519,9 @@ describe("onboarding listing step", () => {
         screen.getByLabelText(/when are you usually open/i),
         "clock_range",
       );
-      await user.type(screen.getByLabelText(/opens at/i), "08:30");
-      await user.type(screen.getByLabelText(/until/i), "18:00");
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.selectOptions(screen.getByLabelText(/opens at/i), "08:30");
+      await user.selectOptions(screen.getByLabelText(/until/i), "18:00");
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = posted(fetchMock);
       expect(body.openFromMinutes).toBe(510);
@@ -504,9 +539,9 @@ describe("onboarding listing step", () => {
         screen.getByLabelText(/when are you usually open/i),
         "clock_range",
       );
-      await user.type(screen.getByLabelText(/opens at/i), "00:00");
-      await user.type(screen.getByLabelText(/until/i), "12:00");
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.selectOptions(screen.getByLabelText(/opens at/i), "00:00");
+      await user.selectOptions(screen.getByLabelText(/until/i), "12:00");
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       expect(posted(fetchMock).openFromMinutes).toBe(0);
     });
@@ -523,10 +558,10 @@ describe("onboarding listing step", () => {
       );
       // Targeted by id: both date rows have a "day" field, so the label alone is ambiguous.
       await user.selectOptions(document.querySelector("#season-start-month")!, "3");
-      await user.type(document.querySelector("#season-start-day")!, "1");
+      await user.selectOptions(document.querySelector("#season-start-day")!, "1");
       await user.selectOptions(document.querySelector("#season-end-month")!, "11");
-      await user.type(document.querySelector("#season-end-day")!, "30");
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.selectOptions(document.querySelector("#season-end-day")!, "30");
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = posted(fetchMock);
       expect(body.seasonKind).toBe("date_range");
@@ -534,6 +569,130 @@ describe("onboarding listing step", () => {
       expect(body.seasonStartDay).toBe(1);
       expect(body.seasonEndMonth).toBe(11);
       expect(body.seasonEndDay).toBe(30);
+    });
+
+    /**
+     * Nothing here should require typing. A farmer stands at their stand on a phone: a number
+     * box invites "31st", "1 " and a stray keystroke, and a native time input is a fiddly
+     * three-part control. Both are now dropdowns, and these assert the LISTS — the values a
+     * farmer can actually reach — not merely that a select exists.
+     */
+    it("offers the day of the month as choices rather than a number to type", async () => {
+      const user = userEvent.setup();
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+      await user.selectOptions(
+        screen.getByLabelText(/when is your stand open in the year/i),
+        "date_range",
+      );
+
+      const day = document.querySelector("#season-start-day") as HTMLSelectElement;
+      expect(day.tagName).toBe("SELECT");
+      // A blank placeholder plus 31 days, before a month narrows it.
+      expect(day.querySelectorAll("option")).toHaveLength(32);
+    });
+
+    it("offers only the days the chosen month actually has", async () => {
+      // February must still reach 29: the season is a recurring month/day with NO year, so a
+      // stand opening on the 29th in leap years has to be stateable.
+      const user = userEvent.setup();
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+      await user.selectOptions(
+        screen.getByLabelText(/when is your stand open in the year/i),
+        "date_range",
+      );
+
+      await user.selectOptions(document.querySelector("#season-start-month")!, "2");
+      const feb = document.querySelector("#season-start-day") as HTMLSelectElement;
+      expect(feb.querySelectorAll("option")).toHaveLength(30);
+
+      await user.selectOptions(document.querySelector("#season-start-month")!, "4");
+      const april = document.querySelector("#season-start-day") as HTMLSelectElement;
+      expect(april.querySelectorAll("option")).toHaveLength(31);
+    });
+
+    it("drops a day the newly chosen month does not have", async () => {
+      // The trap this closes: pick March 31, switch to April, and 31 would otherwise stay
+      // selected in state and be SAVED as an April date that does not exist.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.selectOptions(
+        screen.getByLabelText(/when is your stand open in the year/i),
+        "date_range",
+      );
+      await user.selectOptions(document.querySelector("#season-start-month")!, "3");
+      await user.selectOptions(document.querySelector("#season-start-day")!, "31");
+      await user.selectOptions(document.querySelector("#season-start-month")!, "4");
+
+      expect((document.querySelector("#season-start-day") as HTMLSelectElement).value).toBe("");
+
+      await user.click(screen.getByRole("button", { name: /submit/i }));
+      const body = posted(fetchMock);
+      expect(body.seasonStartMonth).toBe(4);
+      // Explicitly null — "no day stated" — rather than the stale 31, which would have been
+      // saved as an April date that does not exist.
+      expect(body.seasonStartDay).toBeNull();
+    });
+
+    it("keeps a day the newly chosen month still has", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.selectOptions(
+        screen.getByLabelText(/when is your stand open in the year/i),
+        "date_range",
+      );
+      await user.selectOptions(document.querySelector("#season-start-month")!, "3");
+      await user.selectOptions(document.querySelector("#season-start-day")!, "15");
+      await user.selectOptions(document.querySelector("#season-start-month")!, "4");
+
+      await user.click(screen.getByRole("button", { name: /submit/i }));
+      const body = posted(fetchMock);
+      expect(body.seasonStartDay).toBe(15);
+    });
+
+    it("offers opening and closing times as half-hour choices, midnight to midnight", async () => {
+      const user = userEvent.setup();
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+      await user.selectOptions(
+        screen.getByLabelText(/when are you usually open/i),
+        "clock_range",
+      );
+
+      const from = document.querySelector("#open-from") as HTMLSelectElement;
+      expect(from.tagName).toBe("SELECT");
+      // 48 half-hour slots across the day, plus the blank placeholder.
+      expect(from.querySelectorAll("option")).toHaveLength(49);
+
+      const values = [...from.querySelectorAll("option")].map((o) => o.value);
+      expect(values).toContain("00:00");
+      expect(values).toContain("08:30");
+      expect(values).toContain("23:30");
+    });
+
+    it("still sends times as minutes since midnight", async () => {
+      // The stored contract is unchanged by the control swap: the option VALUES are the same
+      // "HH:MM" strings the time input produced, so `minutesOfDay` keeps working.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.selectOptions(
+        screen.getByLabelText(/when are you usually open/i),
+        "clock_range",
+      );
+      await user.selectOptions(document.querySelector("#open-from")!, "08:30");
+      await user.selectOptions(document.querySelector("#open-until")!, "17:00");
+      await user.click(screen.getByRole("button", { name: /submit/i }));
+
+      const body = posted(fetchMock);
+      expect(body.openFromMinutes).toBe(510);
+      expect(body.openUntilMinutes).toBe(1020);
     });
 
     it("STOPS sending season dates when the farmer switches to year-round", async () => {
@@ -547,9 +706,9 @@ describe("onboarding listing step", () => {
       const season = screen.getByLabelText(/when is your stand open in the year/i);
       await user.selectOptions(season, "date_range");
       await user.selectOptions(document.querySelector("#season-start-month")!, "3");
-      await user.type(document.querySelector("#season-start-day")!, "1");
+      await user.selectOptions(document.querySelector("#season-start-day")!, "1");
       await user.selectOptions(season, "year_round");
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = posted(fetchMock);
       expect(body.seasonKind).toBe("year_round");
@@ -567,7 +726,7 @@ describe("onboarding listing step", () => {
       // order — the column is a set, and a reader showing "Sat, Wed" would read as wrong.
       await user.click(screen.getByRole("checkbox", { name: "Sat" }));
       await user.click(screen.getByRole("checkbox", { name: "Wed" }));
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       expect(posted(fetchMock).openDays).toEqual([3, 6]);
     });
@@ -595,7 +754,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/I deliver/i));
       await user.selectOptions(screen.getByLabelText(/how often do you restock/i), "variable");
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = posted(fetchMock);
       expect(body.stockingCadence).toBe("variable");
@@ -618,7 +777,7 @@ describe("onboarding listing step", () => {
         screen.getByLabelText(/anything else about your hours/i),
         "Weekends when available",
       );
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = posted(fetchMock);
       expect(body.openHoursKind).toBe("dawn_to_dusk");
@@ -635,7 +794,7 @@ describe("onboarding listing step", () => {
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       await user.click(screen.getByLabelText(/I deliver/i));
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       expect(await screen.findByRole("alert")).toHaveTextContent(/season, hours, or restocking/i);
     });
@@ -720,7 +879,7 @@ describe("onboarding listing step", () => {
         screen.queryByRole("button", { name: /that spot looks right/i }),
       ).not.toBeInTheDocument();
 
-      const publish = screen.getByRole("button", { name: /put my stand on the map/i });
+      const publish = screen.getByRole("button", { name: /submit/i });
       expect(publish).toBeEnabled();
       await user.click(publish);
 
@@ -743,7 +902,7 @@ describe("onboarding listing step", () => {
 
       await screen.findByRole("status");
       expect(
-        screen.getByRole("button", { name: /put my stand on the map/i }),
+        screen.getByRole("button", { name: /submit/i }),
       ).toBeDisabled();
     });
 
@@ -768,7 +927,7 @@ describe("onboarding listing step", () => {
         // the old sentence forever.
         expect(note).not.toHaveTextContent(/tap the map/i);
         expect(
-          screen.getByRole("button", { name: /put my stand on the map/i }),
+          screen.getByRole("button", { name: /submit/i }),
         ).toBeDisabled();
         document.body.innerHTML = "";
       }
@@ -797,7 +956,7 @@ describe("onboarding listing step", () => {
       expect(note).not.toHaveTextContent(/check the address/i);
       expect(note).not.toHaveTextContent(/tap the map/i);
       expect(
-        screen.getByRole("button", { name: /put my stand on the map/i }),
+        screen.getByRole("button", { name: /submit/i }),
       ).toBeDisabled();
     });
 
@@ -818,7 +977,7 @@ describe("onboarding listing step", () => {
 
       expect(await screen.findByRole("status")).toHaveTextContent(/check the address|correct/i);
       expect(
-        screen.getByRole("button", { name: /put my stand on the map/i }),
+        screen.getByRole("button", { name: /submit/i }),
       ).toBeDisabled();
     });
 
@@ -851,14 +1010,14 @@ describe("onboarding listing step", () => {
       );
 
       expect(
-        screen.getByRole("button", { name: /save|publish|put my stand/i }),
+        screen.getByRole("button", { name: /submit|save changes/i }),
       ).toBeEnabled();
 
       await user.click(screen.getByRole("button", { name: /find this address/i }));
       await screen.findByRole("status");
 
       expect(
-        screen.getByRole("button", { name: /save|publish|put my stand/i }),
+        screen.getByRole("button", { name: /submit|save changes/i }),
       ).toBeDisabled();
     });
 
@@ -877,13 +1036,13 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByRole("button", { name: /find this address/i }));
 
       await screen.findByText(/found it/i);
-      expect(screen.getByRole("button", { name: /put my stand on the map/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
 
       // The farmer changes their mind about the address.
       await user.type(addressField, " Unit B");
 
       expect(
-        screen.getByRole("button", { name: /put my stand on the map/i }),
+        screen.getByRole("button", { name: /submit/i }),
       ).toBeDisabled();
       expect(screen.queryByText(/found it/i)).not.toBeInTheDocument();
     });
@@ -924,7 +1083,7 @@ describe("onboarding listing step", () => {
 
       // Arrives publishable, on the stored coordinate.
       expect(
-        screen.getByRole("button", { name: /save|publish|put my stand/i }),
+        screen.getByRole("button", { name: /submit|save changes/i }),
       ).toBeEnabled();
 
       // The farmer re-runs the lookup without editing anything, and it fails.
@@ -932,7 +1091,7 @@ describe("onboarding listing step", () => {
       await screen.findByRole("status");
 
       expect(
-        screen.getByRole("button", { name: /save|publish|put my stand/i }),
+        screen.getByRole("button", { name: /submit|save changes/i }),
       ).toBeDisabled();
       expect(screen.queryByText(/found it/i)).not.toBeInTheDocument();
     });
@@ -967,7 +1126,7 @@ describe("onboarding listing step", () => {
       map.getBoundingClientRect = () =>
         ({ left: 0, top: 0, width: 400, height: 600 }) as DOMRect;
       await user.click(map);
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+      await user.click(screen.getByRole("button", { name: /submit/i }));
 
       const body = bodyFor(fetchMock, "/api/farmer/listing");
       expect(body.latitude).toBeCloseTo(47.4471, 6);
@@ -1016,7 +1175,7 @@ describe("onboarding listing step", () => {
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       await user.click(screen.getByLabelText(/I deliver, or people arrange/i));
-      await user.click(screen.getByRole("button", { name: /save|publish|put my stand/i }));
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       const call = fetchMock.mock.calls[0] as [string, { body: string }];
       expect(call[0]).toBe("/api/farmer/listing");
@@ -1034,7 +1193,7 @@ describe("onboarding listing step", () => {
       );
 
       await user.click(screen.getByLabelText(/I deliver, or people arrange/i));
-      await user.click(screen.getByRole("button", { name: /save|publish|put my stand/i }));
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       const call = fetchMock.mock.calls[0] as [string, { body: string }];
       expect(call[0]).toBe("/api/farmer/grandfathered-listing");
@@ -1054,7 +1213,7 @@ describe("onboarding listing step", () => {
         />,
       );
 
-      await user.click(screen.getByRole("button", { name: /save|publish|put my stand/i }));
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       const call = fetchMock.mock.calls[0] as [string, { body: string }];
       expect(call[0]).toBe("/api/farmer/listing-edit");
@@ -1132,7 +1291,7 @@ describe("onboarding listing step", () => {
       const user = userEvent.setup();
       renderEdit();
 
-      const publish = screen.getByRole("button", { name: /save|publish|put my stand/i });
+      const publish = screen.getByRole("button", { name: /submit|save changes/i });
       expect(publish).toBeEnabled();
       await user.click(publish);
 
@@ -1149,7 +1308,7 @@ describe("onboarding listing step", () => {
       const user = userEvent.setup();
       renderEdit();
 
-      await user.click(screen.getByRole("button", { name: /save|publish|put my stand/i }));
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       const body = posted(fetchMock);
       expect(body.standName).toBe("Existing Stand");
@@ -1248,21 +1407,19 @@ describe("onboarding listing step", () => {
               seasonStartDay: null,
               seasonEndMonth: null,
               seasonEndDay: null,
-              seasonNames: ["berry season", "pumpkin season"],
+              seasonNames: ["summer", "apple season"],
             },
           }}
         />,
       );
 
-      expect(screen.getByLabelText(/which seasons/i)).toHaveValue(
-        "berry season, pumpkin season",
-      );
+      expect(screen.getByLabelText(/which seasons/i)).toHaveValue("summer, apple season");
 
-      await user.click(screen.getByRole("button", { name: /save|publish|put my stand/i }));
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       const body = posted(fetchMock);
       expect(body.seasonKind).toBe("named_season");
-      expect(body.seasonNames).toEqual(["berry season", "pumpkin season"]);
+      expect(body.seasonNames).toEqual(["summer", "apple season"]);
       expect(body.seasonStartMonth).toBeUndefined();
       expect(body.seasonEndMonth).toBeUndefined();
     });

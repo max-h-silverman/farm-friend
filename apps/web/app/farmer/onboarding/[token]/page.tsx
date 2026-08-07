@@ -89,13 +89,6 @@ export default async function FarmerOnboardingPage({
         with no administrator acting — so a review the farmer waits for would be a promise
         nobody keeps.
       */}
-      <section className="farmer-onboarding-next" aria-labelledby="whats-next-heading">
-        <h2 id="whats-next-heading">What happens next</h2>
-        <p>
-          Once you send the text, Farm Friend replies with how to update your stand. You can
-          change anything here later by texting SETTINGS.
-        </p>
-      </section>
 
       <p className="farmer-onboarding-note">
         This link expires after seven days and works once.

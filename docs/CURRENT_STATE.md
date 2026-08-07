@@ -24,7 +24,8 @@ asserted unconditionally so flipping a flag can never hand a salt to a process w
 it. `infra/production.tfvars` is what keeps that true across applies.
 
 **Migration `0024` was applied BEFORE the image that reads it**, per the RUNBOOK's ordering rule.
-Production Postgres is `neondb` with **25 migrations** (`0000`-`0024`). Verified by effect, never
+(Production has since taken `0025` as well; the current count is the **26** stated above. This
+paragraph records the `0024` apply as it happened.) Verified by effect, never
 from the migrate command's exit status: the fingerprint was taken first (`neondb`, 24 migrations,
 36 farms / 36 locations, `farm_emails` absent), and afterwards the table exists with **both CHECK
 constraints and the normalized unique index**, with listing data unchanged at 36/36.
@@ -436,6 +437,80 @@ not create a visitable stand for that window. Restored at 00039.
   deploy and served-card assertions pass.
 - Production build warnings remain unchanged: Next does not recognize `outputFileTracingRoot`, and
   the Next ESLint plugin is not installed. B-008 owns the lint configuration gap.
+
+## Local development and the farmer flow's front end (2026-08-07) — UNCOMMITTED
+
+Working-tree state on branch `farmer-self-consent-and-listing-merge`, which holds **no commits**:
+every change below is uncommitted. All suites green — 1533 unit, 796 integration (58 files),
+typecheck, lint. **Nothing deployed and no migration**; this is local tooling plus form and
+styling work.
+
+**The integration suite can no longer run DDL against a remote database.** The repo's `.env` held
+the production Neon connection string while every integration test creates and drops databases,
+so a stray `--env-file=.env` was one keystroke from creating throwaway databases on the production
+account. `packages/db/src/integration-database-guard.ts` now fails the run before any DDL unless
+the host is local or `ALLOW_INTEGRATION_TESTS_AGAINST_REMOTE_DB=1` is set deliberately, wired in
+at `vitest.integration.setup.ts` — one seam all 58 files pass through, rather than 58 patched
+files. **Verified by effect in both directions**: with the real production URL loaded the suite
+refuses and runs zero tests; the local path still passes. `.env`'s `DATABASE_URL` now points at
+local Postgres, with the production string preserved commented out beside it.
+The blast radius was narrower than "DDL against production" — each test creates a *new* database
+and drops only that one — and `npm run test:integration` reads no env file at all, so the trap was
+latent rather than armed. Guarded anyway.
+
+**Email verification is now walkable locally.** It was a dead end: with no SMTP configured,
+`resolveEmailConfig` returns `not_configured` and the route returns the same uniform
+`{"status":"sent"}` it returns on success — correct, since a distinct error would reveal how the
+deployment is configured — so the six-digit code existed nowhere a developer could read it.
+`EMAIL_PROVIDER=simulator` writes each message to a file under `SIMULATED_MAIL_DIR` (default
+`.mail/`, git-ignored) instead of sending. A file rather than the console deliberately: a live
+verification code in log output is a credential in a stream that gets shipped and retained.
+**Three barriers keep it off a deployment**, which is GL-019's lesson with a worse failure mode
+since a mail sink reports success while farmers stop receiving codes: it is opt-in and never a
+default; it **refuses to construct under `NODE_ENV=production`**; and it **refuses to start if the
+`SMTP_*` variables are also set**, because ambiguous configuration must fail loudly rather than
+silently pick one. All three verified behaviourally, and the real SMTP path confirmed unchanged.
+Walked end to end: requested a code, read it from `.mail/`, submitted it, got `verified`.
+
+**The two farmer sign-up steps now read as one flow.** The cause was not routing: the picker
+carried hand-written inline styles while the verify step used the stylesheet, and
+`farmer-primary-action` had **no rule at all**, so the same control looked like two different
+products across two steps. The picker's simpler shape moved into the stylesheet and both steps now
+draw from it, plus "Step 1 of 2" / "Step 2 of 2" markers and a back link. **The two URLs were
+kept**: step 2 re-checks farm eligibility and re-resolves the publish grant from an HttpOnly
+cookie server-side per request, and a client-side step swap would move that decision into the
+browser. Zero inline styles remain in the flow.
+
+**Nothing in the farmer flow requires typing a date or a time.** Day of month and both clock
+fields are dropdowns; times are half-hour choices across the day, labelled as a farmer would say
+them. **The stored contract is unchanged** — the option values are the same `"HH:MM"` strings the
+time input produced, so `minutesOfDay`, `clockValue`, and every existing row work untouched, with
+a test pinning 8:30am → 510 minutes. Changing a month **clears a day that month does not have**,
+closing a trap where March 31 → April would have saved a nonexistent date. February offers 29:
+the season is a recurring month/day with no year.
+
+**`daylight_hours` is no longer OFFERED, only stored.** `open-now` answers it and `dawn_to_dusk`
+in the same switch branch — same verdict, same sunrise and sunset — so offering both asked a
+farmer to choose between two phrasings of one fact and split the data on a distinction no customer
+can see. The enum keeps the value because rows hold it (31 locally). **Typecheck caught a real
+regression here**: `HoursKind` was derived from the offered options, so removing one broke
+*loading* a stored listing that used it — all 31 of those farms would have had their hours blanked
+on opening the edit form, B-037's exact failure. State is now typed from what can be **stored**,
+not what is **offered**, with a regression test.
+
+**Two stale tests corrected**, both failing before this session's work: one asserted the "What
+happens next" copy that was deliberately removed from the invitation page (test removed, not copy
+restored — reversible if that deletion was accidental), and one asserted season names the fixture
+never contained.
+
+**Not attempted: "other sellers at this stand" on the onboarding form.** The field exists (F-050
+participants) but on the stand settings page, and `saveSalesLocationParticipants` requires a
+`senderHash` — the farmer's verified **phone**. The onboarding form holds an invitation token or a
+farm ID and no phone at all, so this is not a UI addition; it needs a way to attribute the write.
+Own item, own session.
+
+**Owed:** a human visual pass. The browser extension never connected this session, so the wizard
+styling, dropdown widths, and the 30rem breakpoint are unverified by eye.
 
 ## What is live
 

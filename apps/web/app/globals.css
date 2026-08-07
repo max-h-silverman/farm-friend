@@ -1788,6 +1788,170 @@ button.admin-action-danger:disabled {
   color: var(--ink-soft);
 }
 
+/* THE FARMER SIGN-UP CONTROLS — the farm dropdown, the email box, the code box.
+ *
+ * One rule for all three rather than a rule per screen: they are the same control in the same
+ * flow, seen back to back, and a farmer who picks their farm and then types an email should not
+ * watch the box change shape between steps. These matched the admin fields' shape already, so
+ * this reuses that shape (48px target, --card on --line, 10px, green focus ring) instead of
+ * introducing a second one.
+ *
+ * `min-height: 48px` is the touch target, not decoration — this flow is used one-handed on a
+ * phone, often outdoors.
+ *
+ * `font: inherit` on the select is what stops iOS Safari shrinking the farm list to ~13px, and
+ * `max-width: 100%` keeps the longest farm name from widening the card on a narrow screen.
+ */
+.farmer-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.farmer-field-label {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.farmer-field > input,
+.farmer-field > select {
+  width: 100%;
+  max-width: 100%;
+  min-height: 48px;
+  padding: 0 0.75rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+/* The dropdown keeps its own arrow (no `appearance: none`) — a custom arrow would mean
+   redrawing the native control on every platform to gain nothing a farmer can see. Padding
+   on the end side only makes room for the arrow the browser draws. */
+.farmer-field > select {
+  padding-inline-end: 2rem;
+}
+
+.farmer-field > input:focus-visible,
+.farmer-field > select:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 28%, transparent);
+  outline-offset: 1px;
+  border-color: var(--green);
+}
+
+/* The placeholder must not read as a filled-in value — a farmer scanning the form should see
+   the box as empty and awaiting them. */
+.farmer-field > input::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.7;
+}
+
+/* "Choose your farm…" is the empty state, so it is dimmed while it is what is selected; the
+   real farm names below it are not. */
+.farmer-field > select:has(option[value=""]:checked) {
+  color: var(--ink-soft);
+}
+
+.farmer-farm-picker,
+.farmer-picker {
+  display: grid;
+  gap: 0.75rem;
+}
+
+/* THE WIZARD SEAM. The two steps are separate URLs — the second one re-checks the farm and
+ * re-resolves the publish grant server-side, which a client-side step swap could not do
+ * honestly. So they are made to READ as one flow instead: same card, same field, same button,
+ * plus a marker saying where you are and a way back.
+ *
+ * Small and quiet deliberately: it orients without competing with the heading, which is the
+ * farm's own name on step 2. */
+.farmer-step-marker {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.farmer-step-back {
+  margin: 0.9rem 0 0;
+}
+
+.farmer-step-back a {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+
+.farmer-step-back a:hover,
+.farmer-step-back a:focus-visible {
+  color: var(--green);
+  text-decoration: underline;
+}
+
+/* The one button in the farmer flow. It had NO rule at all, which is why the picker carried a
+ * hand-painted `#2f6f4e` inline and the email step's button rendered as a bare browser button —
+ * the same control looking like two different products across two steps.
+ *
+ * `a` and `button` both get it: step 1 navigates (a link, so cmd-click works) and step 2 submits
+ * a form, but to a farmer they are the same "go on" control and must look identical. */
+.farmer-primary-action {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.25rem;
+  color: var(--card);
+  background: var(--green);
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.farmer-primary-action:disabled {
+  background: var(--ink-soft);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.farmer-primary-action:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 28%, transparent);
+  outline-offset: 2px;
+}
+
+/* The fallback for a farmer whose farm is not in the list — the one dead end this flow has,
+   so the address is a real mailto rather than text to copy out by hand. */
+.farmer-start-help {
+  padding-top: 1rem;
+  text-align: center;
+}
+
+.farmer-start-help a {
+  color: var(--green);
+  font-weight: 600;
+}
+
+/* The onward control sits at the end of its step, where a thumb reaches it. */
+.farmer-picker-next {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.25rem 0 0;
+}
+
+/* Both steps' forms stack the same way, so the email step's spacing matches the picker's
+   rather than being whatever the browser defaults to. */
+form.farmer-picker-next {
+  display: grid;
+  justify-content: stretch;
+  gap: 0.75rem;
+}
+
 /* The one-line statement of the task, directly under the farm name. Larger than body copy
    because on this page it IS the instruction — everything else is terms or reassurance. */
 .farmer-onboarding-lede {
@@ -2083,25 +2247,81 @@ button.admin-action-danger:disabled {
   border-radius: 10px;
 }
 
-/* A date or time pair on one line, wrapping on a narrow phone rather than overflowing. */
+/* SEASON DATES AND DAILY HOURS — "Opens", "Closes", "Opens at".
+ *
+ * A farmer reads these three rows as one group, so they have to line up as one. Two things
+ * stopped them.
+ *
+ * Every control carried `flex: 1 1 8rem`, which told a two-digit day box to claim the same
+ * width as a month name: the day field grew as wide as "September", and the time inputs
+ * stretched far past the `--:-- --` they contain. And the leading label was `flex: none`, so
+ * "Opens", "Closes" and "Opens at" — three different widths — each pushed their own row's
+ * controls to a different starting position.
+ *
+ * Now: a fixed label column shared by every row, then controls sized to their own content.
+ * The rows align because they share one column definition instead of each computing its own. */
 .farmer-listing-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  display: grid;
+  /* Sized to "Opens at", the longest label. Stated once so the columns cannot drift apart
+     when a label is reworded. */
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.5rem 0.6rem;
   align-items: center;
   margin-top: 0.2rem;
 }
 
-.farmer-listing-row select,
-.farmer-listing-row input {
-  flex: 1 1 8rem;
-  width: auto;
+/* The row's own label — the only direct-child label, now that the controls live in a wrapper. */
+.farmer-listing-row > label {
+  margin-top: 0;
+  justify-self: start;
 }
 
-.farmer-listing-row label,
+/* Column two holds the controls and their joining words on ONE line, each at its natural
+   width: month + "day" + number, or time + "until" + time. */
+.farmer-listing-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Every control here is a dropdown — a farmer at their stand should be choosing, never typing
+   a day number or operating a native time field one-handed. They are sized by what they hold:
+   a month name needs room, a day number needs almost none. Sizing them identically was the
+   original defect. */
+.farmer-listing-fields select {
+  flex: 1 1 9rem;
+  width: auto;
+  max-width: 11rem;
+}
+
+/* Two digits. Wide enough to tap comfortably, not a hair wider. */
+.farmer-listing-fields select.farmer-listing-daynum {
+  flex: 0 0 5.5rem;
+  max-width: 5.5rem;
+}
+
+/* "10:30 am" — narrower than a month, wider than a day. */
+.farmer-listing-fields select.farmer-listing-time {
+  flex: 0 1 8.5rem;
+  max-width: 8.5rem;
+}
+
 .farmer-listing-inline-label {
-  flex: none;
   margin-top: 0;
+  color: var(--ink-soft);
+}
+
+/* Phones: the label sits ABOVE its controls instead of taking a fifth of a narrow row, which
+   would leave the month dropdown too cramped to read. */
+@media (max-width: 30rem) {
+  .farmer-listing-row {
+    grid-template-columns: 1fr;
+  }
+
+  .farmer-listing-fields select {
+    max-width: none;
+  }
 }
 
 /* The weekday pickers. Seven targets that must stay tappable on the narrowest phone, so they
