@@ -19,8 +19,9 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 >
 > **A SECOND undeployed tranche now sits on top of it** (self-onboarding, 2026-08-06, below):
 > B-037, the architecture-tripwire fix, F-077 and F-080 are merged to `main`. **F-078 is a
-> BRANCH, not merged**, and it carries **migration `0024`** — the first migration owed to
-> production since this record was written. See §the self-onboarding tranche.
+> BRANCH, not merged** — it is now COMPLETE (the real send is done) and carries **migration
+> `0024`**, the first migration owed to production since this record was written.
+> **`0024` must be applied BEFORE the image that reads it.** See §the self-onboarding tranche.
 
 ## The self-onboarding tranche (2026-08-06) — merged, undeployed
 
@@ -55,7 +56,7 @@ Built from `~/.claude/plans/woolly-kindling-origami.md`. Five workstreams; **thr
   compliance and is handled by `routeCompliance`; `JOIN <token>` parses as `kind: "farmer"` and
   never reaches it, so the two-writer edit the plan anticipated was unnecessary.
 
-**On branch `f-078-email-identity`, NOT merged — and it carries migration `0024`:**
+**On branch `f-078-email-identity`, NOT merged — COMPLETE, and it carries migration `0024`:**
 
 - **`farm_emails`** — the roster VIGA already holds, so a farmer can prove who they are without
   a volunteer vouching. Raw address in exactly one column read only by the send path; hash the
@@ -74,7 +75,8 @@ Built from `~/.claude/plans/woolly-kindling-origami.md`. Five workstreams; **thr
   splitter turns one farm's cell into a single malformed address — caught by the corpus test,
   not by the fixtures.
 
-**Not started: F-079** (secret link + emailed code). Depends on the email sending seam below.
+**Not started: F-079** (secret link + emailed code). The sending seam it depended on is now
+**built and proven** — what remains is the farmer-facing page that calls it.
 
 **The SMTP CREDENTIAL IS LIVE IN PRODUCTION** (2026-08-06, commit `4ff90a5`). The relay is
 configured, and the app password is now in Secret Manager and mounted. Sender is
@@ -144,12 +146,24 @@ layer, the verification code and email copy, the SMTP seam, the ingest, and the 
 Verified: **1423 unit** (was 1369), **753 integration** (was 744), typecheck, lint, production
 build, evals 44/44. Integration ran against local Postgres, never Neon.
 
-**STILL OWED — the one acceptance criterion that cannot be met from here: ONE REAL SEND.** The
-app password lives in production Secret Manager and not on the development machine, so the send
-needs it passed in explicitly. `scripts/send-test-email.ts` runs the **shipped** code — the same
-`resolveEmailConfig`, the same transport, the same rendered message — against the real relay. A
-stubbed mail server proves nothing about whether a farmer receives anything.
-**Also owed:** wiring the verification into an actual farmer-facing page, which is F-079.
+**THE REAL SEND IS DONE** (max, 2026-08-06) — a message rendered by the shipped
+`renderVerificationEmail`, sent through the shipped transport against the real Google relay,
+delivered to a real inbox. That closes F-078's last acceptance criterion. A stubbed mail server
+would have proven nothing about whether a farmer receives anything.
+
+**The sender reads `VIGA`, not `board`** (max, after seeing the delivered mail). The address is
+unchanged — `board@vigavashon.org` still authenticates to the relay and still receives replies —
+so this is only the display name a mail client shows, carried as configuration like the address.
+Quotes, angle brackets, and newlines are **refused**: a display name is folded into the From
+header, so `"VIGA" <someone@else.com>` would make the visible sender differ from the configured
+one, and a newline can append headers outright. The transport also passes name and address as
+**structured fields** rather than a hand-built string, so nodemailer owns the header encoding and
+the two defenses are independent. `SMTP_FROM_NAME` is in Terraform and read back out of a real
+plan; assertions stay 44/44.
+
+**Still owed for the email identity feature as a whole:** wiring verification into an actual
+farmer-facing page (**F-079**), and the production ingest of the roster. The machinery is built
+and proven; nothing calls it yet.
 Production Postgres is `neondb` with **all 24 migrations applied (`0000`–`0023`)**, verified by
 effect on 2026-08-06 — the fingerprint (`neondb`, 22 migrations, 36 farms / 35 locations / 2
 contacts) was taken before writing, and the pre-change schema was asserted so a pass could not
