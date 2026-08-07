@@ -80,6 +80,11 @@ export default async function FarmerListingEditPage({
             latitude: listing.latitude,
             longitude: listing.longitude,
             hoursText: listing.hoursText,
+            // B-037 — the twelve structured season / hours / restocking columns. They were
+            // absent here while `updateStand` wrote all twelve on every save, so a farmer
+            // who came to change one field silently lost the rest. `readStandListing`
+            // already returned them; only this line was missing.
+            availability: listing.availability,
             paymentMethods: listing.paymentMethods,
             items: listing.items,
           }}

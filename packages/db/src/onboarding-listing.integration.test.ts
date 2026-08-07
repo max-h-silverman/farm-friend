@@ -499,6 +499,99 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
 
+  it("B-037 — an edit that changes only hoursText preserves season, open days and restocking", async () => {
+    // THE data-loss property, proved at the DB layer independently of React.
+    //
+    // `updateStand` names all twelve availability columns in one statement — correct, and what
+    // lets a farmer move from "March-November" to "year-round" without leaving orphan dates.
+    // The same property makes any caller that omits them a silent eraser. So the round trip a
+    // farmer's edit actually performs is asserted here directly: READ the listing, change one
+    // unrelated field, WRITE it back, and read again.
+    //
+    // A form that dropped availability would still produce `status: "saved"` and a correct
+    // `hours_text`. Only comparing the availability across the round trip catches it.
+    const stated = {
+      seasonKind: "date_range" as const,
+      seasonStartMonth: 3,
+      seasonStartDay: 1,
+      seasonEndMonth: 11,
+      seasonEndDay: 30,
+      seasonNames: null,
+      openHoursKind: "clock_range" as const,
+      // Midnight, deliberately: 0 is a real stated time, and a `|| null` anywhere on the read
+      // path would turn it into "not stated" and drop it on the next save.
+      openFromMinutes: 0,
+      openUntilMinutes: 1080,
+      openDays: [0, 6],
+      stockingCadence: "specific_days" as const,
+      stockingDays: [2, 5],
+    };
+
+    const created = await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Seasonal Stand",
+      listing: { ...visitableListing, availability: stated },
+      occurredAt: new Date("2026-08-05T17:00:00Z"),
+    });
+    expect(created.status).toBe("saved");
+    const salesLocationId = (created as { salesLocationId: string }).salesLocationId;
+
+    // What the edit form is prefilled from.
+    const before = await readStandListing(database(), { salesLocationId });
+    expect(before?.availability).toEqual(stated);
+
+    // The edit: the farmer changes their hours text, writing back for everything else exactly
+    // what the read gave them — except ONE restocking day, deliberately.
+    //
+    // Without that one change this test passes for the wrong reason. Omitting `stocking_days`
+    // from `updateStand`'s SET clause leaves the column holding what the INSERT already put
+    // there, so "the update preserved it" and "the update never wrote it" are the same
+    // observation. Moving a day makes them different: a write that skips the column now leaves
+    // the OLD set behind, and this fails. Confirmed by sabotage.
+    const editedAvailability = { ...before!.availability, stockingDays: [2, 4] };
+    const edited = await saveOnboardingListing(database(), {
+      farmId,
+      standName: before!.standName,
+      listing: {
+        visitability: before!.visitability,
+        offeringType: before!.offeringType,
+        publicAddress: before!.publicAddress,
+        latitude: before!.latitude,
+        longitude: before!.longitude,
+        hoursText: "Weekends when available",
+        availability: editedAvailability,
+        paymentMethods: before!.paymentMethods,
+        items: before!.items,
+      },
+      occurredAt: new Date("2026-08-05T18:00:00Z"),
+    });
+    expect(edited.status).toBe("saved");
+
+    // Read from the COLUMNS, not from the reader, so a reader that lied in both directions
+    // could not make this pass.
+    const rows = await client()`
+      select hours_text, season_kind, season_start_month, season_start_day,
+             season_end_month, season_end_day, season_names,
+             open_hours_kind, open_from_minutes, open_until_minutes, open_days,
+             stocking_cadence, stocking_days
+      from sales_locations where id = ${salesLocationId}
+    `;
+    const stand = rows[0]!;
+    expect(stand.hours_text).toBe("Weekends when available");
+    expect(stand.season_kind).toBe("date_range");
+    expect(stand.season_start_month).toBe(3);
+    expect(stand.season_start_day).toBe(1);
+    expect(stand.season_end_month).toBe(11);
+    expect(stand.season_end_day).toBe(30);
+    expect(stand.open_hours_kind).toBe("clock_range");
+    expect(stand.open_from_minutes).toBe(0);
+    expect(stand.open_until_minutes).toBe(1080);
+    expect(stand.open_days).toEqual([0, 6]);
+    expect(stand.stocking_cadence).toBe("specific_days");
+    // The one field the edit CHANGED — see the note above on why it has to change.
+    expect(stand.stocking_days).toEqual([2, 4]);
+  });
+
   it("refuses an unknown farm rather than creating an orphan stand", async () => {
     const result = await saveOnboardingListing(database(), {
       farmId: randomUUID(),

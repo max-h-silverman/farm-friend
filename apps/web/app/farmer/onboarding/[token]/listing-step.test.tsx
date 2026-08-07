@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ListingStep } from "./listing-step";
@@ -45,6 +45,22 @@ const EDIT_DEFAULTS = {
   latitude: null,
   longitude: null,
   hoursText: null,
+  // A farmer who stated nothing about their season, hours or restocking. Every column is
+  // nullable because "not stated" is a real and common answer, distinct from any value.
+  availability: {
+    seasonKind: null,
+    seasonStartMonth: null,
+    seasonStartDay: null,
+    seasonEndMonth: null,
+    seasonEndDay: null,
+    seasonNames: null,
+    openHoursKind: null,
+    openFromMinutes: null,
+    openUntilMinutes: null,
+    openDays: null,
+    stockingCadence: null,
+    stockingDays: null,
+  },
   paymentMethods: [],
   items: [],
 };
@@ -887,16 +903,7 @@ describe("onboarding listing step", () => {
         <ListingStep
           credential={{ kind: "stand_link", token: TOKEN }}
           farmName="Test Farm"
-          defaults={{
-            standName: "Existing Stand",
-            visitability: "contact_only",
-            publicAddress: null,
-            latitude: null,
-            longitude: null,
-            hoursText: null,
-            paymentMethods: [],
-            items: [],
-          }}
+          defaults={EDIT_DEFAULTS}
         />,
       );
 
@@ -909,6 +916,10 @@ describe("onboarding listing step", () => {
   });
 
   describe("an edit form arrives holding the current listing", () => {
+    // B-037 — this fixture carried only the eight fields `ListingDefaults` happened to have,
+    // so "field for field" below proved the round trip for what it knew about and was SILENT
+    // on the twelve availability columns the writer sets unconditionally. Widening it is what
+    // makes the existing test fail on its own name.
     const DEFAULTS = {
       standName: "Existing Stand",
       visitability: "visitable" as const,
@@ -918,6 +929,20 @@ describe("onboarding listing step", () => {
       hoursText: "Dawn to dusk",
       paymentMethods: ["Cash", "Goats"],
       items: ["Eggs", "Flowers"],
+      availability: {
+        seasonKind: "date_range" as const,
+        seasonStartMonth: 3,
+        seasonStartDay: 1,
+        seasonEndMonth: 11,
+        seasonEndDay: 30,
+        seasonNames: null,
+        openHoursKind: "clock_range" as const,
+        openFromMinutes: 510,
+        openUntilMinutes: 1080,
+        openDays: [0, 6],
+        stockingCadence: "specific_days" as const,
+        stockingDays: [2, 5],
+      },
     };
 
     function renderEdit() {
@@ -976,6 +1001,111 @@ describe("onboarding listing step", () => {
       expect(body.hoursText).toBe("Dawn to dusk");
       expect(body.paymentMethods).toEqual(["Cash", "Goats"]);
       expect(body.items).toEqual(["Eggs", "Flowers"]);
+      // B-037 — the twelve the writer sets unconditionally. `updateStand` names every
+      // availability column in one statement, so anything absent here is written NULL: a
+      // farmer who came to change their hours loses their season and restocking silently.
+      expect(body.seasonKind).toBe("date_range");
+      expect(body.seasonStartMonth).toBe(3);
+      expect(body.seasonStartDay).toBe(1);
+      expect(body.seasonEndMonth).toBe(11);
+      expect(body.seasonEndDay).toBe(30);
+      expect(body.openHoursKind).toBe("clock_range");
+      expect(body.openFromMinutes).toBe(510);
+      expect(body.openUntilMinutes).toBe(1080);
+      expect(body.openDays).toEqual([0, 6]);
+      expect(body.stockingCadence).toBe("specific_days");
+      expect(body.stockingDays).toEqual([2, 5]);
+    });
+
+    it("shows the stand's current season, hours and restocking rather than blank selects", () => {
+      // The visible half of B-037. A farmer looking at blank selects reads them as facts
+      // Farm Friend never had, and has no way to know a save is about to erase them.
+      renderEdit();
+
+      expect(screen.getByLabelText(/when is your stand open in the year/i)).toHaveValue(
+        "date_range",
+      );
+      expect(screen.getByLabelText(/when are you usually open/i)).toHaveValue("clock_range");
+      expect(screen.getByLabelText(/how often do you restock/i)).toHaveValue("specific_days");
+
+      // The date fields the chosen season kind reveals. Blank ones here would be sent as
+      // NULL under `date_range`, which `sales_locations_coherent_season` refuses outright —
+      // so the farmer's own save would start failing on a form they had not touched.
+      expect(screen.getByLabelText(/^opens$/i)).toHaveValue("3");
+      expect(screen.getByLabelText(/^closes$/i)).toHaveValue("11");
+
+      // Scoped by fieldset. The two day-sets are independent facts with the same seven
+      // labels, and asserting "Sun" globally would let a restocking day satisfy an
+      // assertion about opening days.
+      const openDays = screen.getByRole("group", { name: /which days are you open/i });
+      const restockDays = screen.getByRole("group", { name: /which days do you restock/i });
+      expect(within(openDays).getByLabelText("Sun")).toBeChecked();
+      expect(within(openDays).getByLabelText("Sat")).toBeChecked();
+      expect(within(openDays).getByLabelText("Mon")).not.toBeChecked();
+      expect(within(restockDays).getByLabelText("Tue")).toBeChecked();
+      expect(within(restockDays).getByLabelText("Fri")).toBeChecked();
+      expect(within(restockDays).getByLabelText("Sun")).not.toBeChecked();
+    });
+
+    it("renders minutes-since-midnight back as a clock value, MIDNIGHT INCLUDED", () => {
+      // The read direction needs the same care `minutesOfDay` already takes on the write
+      // direction. 0 is midnight — a real, stated time — so a truthiness check would render
+      // it as "not stated" and the next save would drop it.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...DEFAULTS,
+            availability: {
+              ...DEFAULTS.availability,
+              openFromMinutes: 0,
+              openUntilMinutes: 510,
+            },
+          }}
+        />,
+      );
+
+      expect(screen.getByLabelText(/opens at/i)).toHaveValue("00:00");
+      expect(screen.getByLabelText(/until/i)).toHaveValue("08:30");
+    });
+
+    it("carries a NAMED season back rather than the date fields", async () => {
+      // The season kinds are mutually exclusive in the database
+      // (`sales_locations_coherent_season`), so prefilling has to restore the right ONE. A
+      // form that restored dates under `named_season` would be refused by the constraint.
+      const fetchMock = stubFetch({ ok: true });
+      const user = userEvent.setup();
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...DEFAULTS,
+            availability: {
+              ...DEFAULTS.availability,
+              seasonKind: "named_season" as const,
+              seasonStartMonth: null,
+              seasonStartDay: null,
+              seasonEndMonth: null,
+              seasonEndDay: null,
+              seasonNames: ["berry season", "pumpkin season"],
+            },
+          }}
+        />,
+      );
+
+      expect(screen.getByLabelText(/which seasons/i)).toHaveValue(
+        "berry season, pumpkin season",
+      );
+
+      await user.click(screen.getByRole("button", { name: /save|publish|put my stand/i }));
+
+      const body = posted(fetchMock);
+      expect(body.seasonKind).toBe("named_season");
+      expect(body.seasonNames).toEqual(["berry season", "pumpkin season"]);
+      expect(body.seasonStartMonth).toBeUndefined();
+      expect(body.seasonEndMonth).toBeUndefined();
     });
   });
 });

@@ -61,6 +61,11 @@ export default async function FarmerOnboardingPage({
       */}
       <section className="farmer-onboarding-card" aria-labelledby="listing-heading">
         <h2 id="listing-heading">Your stand</h2>
+        {/*
+          NO `defaults`, deliberately — an invitation CREATES a listing rather than editing
+          one, so there is nothing to prefill and nothing B-037 could erase. Only the edit
+          page passes them.
+        */}
         <ListingStep
           credential={{ kind: "invitation", token: params.token }}
           farmName={invitation.farmName ?? ""}
