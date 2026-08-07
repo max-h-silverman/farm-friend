@@ -136,16 +136,20 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   `sales_locations` had exactly one non-test writer, the seeder. It asks whether there is a stand
   to visit before it can know whether an address is required, because
   `sales_locations_coherent_visitability` is all-or-nothing in both directions (F-038, B-024); the
-  coordinate comes from the farmer dropping a pin on the drawn island through F-043's projection
-  run backwards, optionally **pre-positioned by an address lookup the farmer must confirm**
-  (F-069 — see §provider seams; there is still no mapping-provider seam). It also collects
+  coordinate comes **only from geocoding the typed address** (F-077 — see §provider seams; there
+  is still no mapping-provider seam), and an address that will not resolve is **refused** rather
+  than approximated. The tap-to-place pin picker and its confirmation gate were retired with
+  F-077; the drawn island survives as a **read-only display** of the resolved point, so the
+  farmer can check it before publishing. Editing the address **clears** the coordinate, which is
+  what stops one address publishing under another. It also collects
   **structured season, hours, weekday and restocking facts** into F-035's filterable columns, and
   payment methods as a **closed set** plus a free-text tail — VIGA Farm Bucks excluded, since
   acceptance depends on an eligibility only VIGA grants. It publishes on submit (max, 2026-08-05)
   rather than waiting for the SIGNUP text, and it writes standing item state only — never a dated
   confirmation.
 - **Farmer address lookup:** `POST /api/farmer/address-lookup` — invitation-gated, throttled,
-  server-side geocoding that returns a **draft** coordinate and writes nothing.
+  server-side geocoding that returns a coordinate and writes nothing. Since F-077 it is the
+  **only** source of a stand's coordinate.
 - **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
   reports, and exceptions the system cannot safely handle.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
@@ -483,20 +487,32 @@ pseudo-coordinates near Vashon for **any** address string, which is exactly the 
 unresolved location must never receive. `packages/core/src/architecture.test.ts` fails if either name
 or a mapping/geocoding/routing dependency reappears in any workspace.
 
-**One narrowing, for farm stand onboarding only** (max, 2026-08-05). `apps/web/lib/address-lookup.ts`
-may call the Google Geocoding REST endpoint to offer a **draft pin**, behind
-`POST /api/farmer/address-lookup`. What did *not* change is what makes it safe:
+**One narrowing, for farm stand onboarding only** (max, 2026-08-05; **re-scoped 2026-08-06**).
+`apps/web/lib/address-lookup.ts` may call the Google Geocoding REST endpoint behind
+`POST /api/farmer/address-lookup`.
 
-- **It is a suggestion, not an answer.** The farmer confirms the spot or taps the map to move it,
-  and `listing-step.tsx` submits only a confirmed coordinate. A stand is frequently at the road
-  rather than at its mailing address, which only the farmer knows.
+It was reopened as a **draft pin the farmer confirmed** by tapping the drawn island. **F-077
+removed that tap**, so the lookup is now the sole source of a stand's coordinate and an address
+that will not resolve is **refused**. That is a deliberate trade: a stand at the road rather than
+at its mailing address can no longer be nudged, in exchange for a published point that always
+corresponds to the published address.
+
+What makes it safe:
+
 - **Off-island results are refused, never shown**, against `ISLAND_BOUNDS` — the single statement of
   where the island is, not a second envelope that could drift from it.
-- **Every failure degrades to tapping the map**, the pre-existing behaviour. No result, a malformed
-  body, a provider error, or an absent key are one answer with no coordinate; a deployment without
-  `GEOCODING_API_KEY` is fully supported.
+- **No failure yields a coordinate.** No result, a malformed body, a provider error, a thrown
+  request, or an absent key are one answer with nothing placed. The module has no path that
+  constructs a coordinate from anything but a provider number that passed the bounds check.
+- **The farmer sees the point before publishing.** The drawn island survives as a **read-only**
+  display, so a geocoder placing a Vashon Highway address at the wrong end of the island is
+  something a glance catches. Editing the address **clears** the coordinate.
+- **A deployment without `GEOCODING_API_KEY` still boots, but cannot create visitable stands.**
+  This changed with F-077 — absence used to mean "fall back to tapping". The form now says lookup
+  is unavailable and points the farmer at VIGA; contact-only listings are unaffected.
 - **No SDK and no second call site.** It is a `fetch` to a REST endpoint, so the dependency tripwire
-  stays armed; the allowlist is one file, so a second caller fails the architecture suite.
+  stays armed; the allowlist is one file, so a second caller fails the architecture suite — which
+  since F-077 covers `apps/web/app` and `.tsx` components too, where it previously did not.
 - **The key is server-side.** The route reads it from the composition root and returns a coordinate
   and status only. It sits behind the invitation token *and* its own abuse/cost throttle bucket,
   because the call is billed.

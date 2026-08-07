@@ -11,22 +11,29 @@ import { ISLAND_BOUNDS } from "@farm-friend/core";
 //
 // The original reason is still true: a `StubMapProvider` once invented deterministic
 // pseudo-coordinates near Vashon for ANY address string, and a stand at a fabricated point is
-// worse than a stand with no point — it sends a customer somewhere real and wrong. Rural Vashon
-// is where geocoders are weakest, and a farm stand is frequently at the road rather than at the
-// mailing address. Only the farmer knows that.
+// worse than a stand with no point — it sends a customer somewhere real and wrong.
 //
-// So this is a DRAFT, never an answer. Three properties keep the farmer the authority:
+// ## F-077 made this module the ONLY source of a coordinate
+//
+// F-069 treated the result as a draft the farmer confirmed by tapping the island map. max
+// retired that (2026-08-06): the typed address decides the coordinate, and an address that will
+// not resolve is refused rather than approximated. Rural Vashon is still where geocoders are
+// weakest, and a stand is still often at the road rather than the mailing address — that cost
+// was accepted in exchange for a published point that always corresponds to the published
+// address.
+//
+// **This module's own guarantees did not change, and matter more now that nothing sits
+// downstream of them:**
 //
 //   1. **Off-island results are refused, never shown.** Farm Friend is one island, and
 //      `ISLAND_BOUNDS` is the single statement of where it is — this module does not carry a
 //      second envelope of its own, because two would drift and a farm on the wrong side of the
 //      drift is a pin in Puget Sound.
-//   2. **Every failure is "the farmer taps the map"** — the pre-F-069 behaviour. No result, a
-//      malformed body, a provider error, a thrown request, an unset key: one answer, no
-//      coordinate. This module cannot invent one, which is why there is no code path that
+//   2. **Every failure yields NO COORDINATE.** No result, a malformed body, a provider error, a
+//      thrown request, an unset key: one answer, nothing placed. There is no code path that
 //      constructs a coordinate from anything but a provider number that passed the bounds check.
-//   3. **The confirmation lives in the form.** `listing-step.tsx` commits only the pin the
-//      farmer confirmed. This module hands over a suggestion.
+//      What the FORM does with a failure changed — it now refuses to publish rather than
+//      offering a tap — but that is `listing-step.tsx`'s decision, not this module's.
 //
 // ## No SDK, deliberately
 //

@@ -2017,8 +2017,10 @@ button.admin-action-danger:disabled {
   height: 1.25rem;
 }
 
-/* The pin-drop map. Full width and tappable — there is no geocoder, so this IS how a stand
-   gets its coordinates, and it has to work with a thumb. */
+/* The map, now a READ-ONLY display of where the address resolved (F-077). It was a tappable
+   input until the pin picker was retired; `cursor: crosshair` and `touch-action` went with the
+   tap, because a crosshair over something that cannot be clicked invites a tap that does
+   nothing. It stays full width so the farmer can actually check the point at phone size. */
 .farmer-listing-map {
   width: 100%;
   height: auto;
@@ -2026,8 +2028,6 @@ button.admin-action-danger:disabled {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
-  cursor: crosshair;
-  touch-action: manipulation;
 }
 
 .farmer-listing-map-label {
@@ -2036,28 +2036,22 @@ button.admin-action-danger:disabled {
   font-size: 0.98rem;
 }
 
-/* The dropped pin. Amber rather than green: it is the farmer's own unsaved choice, not a
-   published stand, and the map's green markers already mean "a listing that exists". */
+/* The geocoded point. Amber rather than green: it is the farmer's unsaved draft listing, not a
+   published stand, and the map's green markers already mean "a listing that exists".
+
+   There is no longer a second, dashed `-pin-draft` variant. It distinguished an unconfirmed
+   suggestion from a confirmed choice, and F-077 collapsed those two states into one — a pin
+   exists exactly when the current address resolved. */
 .farmer-listing-pin {
   fill: var(--amber);
   stroke: var(--card);
   stroke-width: 3;
 }
 
-/* An UNCONFIRMED suggestion from the address lookup (F-069). Hollow and dashed, so it does not
-   read as a decision the farmer has made — the whole point is that they look at it and say
-   whether it is right. A solid pin means "chosen"; this one means "is this you?". */
-.farmer-listing-pin-draft {
-  fill: none;
-  stroke: var(--amber);
-  stroke-width: 4;
-  stroke-dasharray: 6 5;
-}
-
-/* The lookup and confirm buttons. Secondary to the submit button: they refine an answer rather
-   than publishing anything. */
-.farmer-listing-lookup,
-.farmer-listing-confirm {
+/* The lookup button. Secondary to the submit button: it resolves an answer rather than
+   publishing anything. The `-confirm` button it used to share these rules with was the "that
+   spot looks right" gate, deleted with the pin picker. */
+.farmer-listing-lookup {
   min-height: 48px;
   margin-top: 0.4rem;
   padding: 0.6rem 0.9rem;

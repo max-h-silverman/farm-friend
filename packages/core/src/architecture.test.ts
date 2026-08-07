@@ -277,9 +277,15 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
   // mapping platform, routing engine, or travel-time estimator", and this is the tripwire that
   // makes reintroducing one fail rather than merely being noticed in review.
   //
-  // ## What max reopened, and what did NOT reopen (2026-08-05)
+  // ## What max reopened, and what did NOT reopen (2026-08-05, narrowed again 2026-08-06)
   //
-  // Address lookup is permitted for FARM STAND ONBOARDING ONLY, as a DRAFT the farmer confirms.
+  // Address lookup is permitted for FARM STAND ONBOARDING ONLY. It was reopened as a DRAFT the
+  // farmer confirmed by tapping the island map; F-077 removed that tap, so the looked-up
+  // coordinate is now the only one a stand can have, and an address that will not resolve is
+  // REFUSED rather than approximated.
+  //
+  // That makes the allowlist tighter in effect, not looser: there is no longer any other way to
+  // obtain a coordinate, so a second call site would be the only route to an unchecked one.
   // One file — `apps/web/lib/address-lookup.ts` — may call the geocoding endpoint. Everything
   // else this describe block guards stayed shut:
   //
@@ -293,8 +299,10 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
   //   * No second geocode call site. The allowlist is one file, so a future caller fails here.
   //
   // The properties that make the narrowing safe live in `apps/web/lib/address-lookup.ts` and are
-  // asserted in its own suite: an off-island result is refused rather than shown, every failure
-  // degrades to the farmer tapping the map, and only a confirmed pin is ever committed.
+  // asserted in its own suite: an off-island result is refused rather than shown, and every
+  // failure yields NO coordinate — the module has no path that constructs one from anything but
+  // a provider number that passed the bounds check. What the form does with a failure is
+  // `listing-step.tsx`'s decision, and since F-077 it refuses to publish.
 
   /**
    * The ONE file permitted to call a geocoding endpoint. Adding a second entry here is a

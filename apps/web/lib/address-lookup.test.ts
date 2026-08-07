@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { lookupIslandAddress, type AddressLookupDeps } from "./address-lookup";
 
-// F-069 — turning a typed address into a DRAFT pin the farmer confirms.
+// F-069 / F-077 — turning a typed address into the coordinate a stand publishes at.
 //
 // ## The boundary this narrows, and why it is still narrow
 //
@@ -16,18 +16,23 @@ import { lookupIslandAddress, type AddressLookupDeps } from "./address-lookup";
 // unnumbered roads, a stand at the road rather than at the mailing address), and a geocoder
 // always returns SOMETHING that looks right.
 //
-// So what max approved is a DRAFT, not an answer:
+// **F-069 answered that with a draft the farmer confirmed by tapping the island map. F-077
+// (max, 2026-08-06) removed the tap.** The lookup is now the only source of a coordinate, and an
+// address that will not resolve is REFUSED — the farmer corrects the address rather than
+// placing a point by hand. The trade was made deliberately: no nudging a stand to the road, in
+// exchange for a published point that always corresponds to the published address.
+//
+// **What did NOT change is everything this module guarantees**, and it carries more weight now
+// that nothing sits downstream of it:
 //
 //   1. A result outside `ISLAND_BOUNDS` is REFUSED, never shown. Farm Friend is one island; a
 //      coordinate off it is a wrong answer regardless of the provider's confidence.
-//   2. The farmer sees the pin and confirms or moves it. Only the confirmed coordinate is
-//      committed — enforced in `listing-step.tsx`, asserted in its own suite.
-//   3. This module NEVER invents a coordinate. No result, an unusable result, a provider error,
-//      or a missing key all produce the SAME "no draft" answer, and the farmer places the pin
-//      themselves exactly as before.
+//   2. This module NEVER invents a coordinate. No result, an unusable result, a provider error,
+//      or a missing key all produce the SAME "nothing found" answer. There is no code path that
+//      constructs a coordinate from anything but a provider number that passed the bounds check.
 //
-// Every failure path is therefore "the farmer taps the map", which is the pre-F-069 behaviour.
-// The geocoder can only ever save them work; it can never be the authority.
+// What the FORM does with a failure is `listing-step.tsx`'s decision, asserted in its own
+// suite: it used to offer a tap, and since F-077 it refuses to publish.
 
 const KEY = "test-geocoding-key";
 
@@ -118,8 +123,9 @@ describe("lookupIslandAddress", () => {
   });
 
   it("asks for no draft on a provider error, inventing nothing", async () => {
-    // The failure mode that matters: a broken or throttled provider must degrade to "tap the
-    // map", never to a guessed coordinate.
+    // The failure mode that matters: a broken or throttled provider must yield NO coordinate,
+    // never a guessed one. Since F-077 that means the stand cannot be published until the
+    // lookup succeeds, which is a refusal the farmer can see — not a silent approximation.
     const errored = await lookupIslandAddress(
       deps(googleResponse([], "OVER_QUERY_LIMIT")),
       "12345 Vashon Highway SW",

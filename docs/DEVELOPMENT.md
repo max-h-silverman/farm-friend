@@ -96,12 +96,33 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   natural-language web inquiry, or generated recipe/food-safety content. Public proximity uses
   transient browser geolocation against seeded public coordinates; recipe requests receive grounded
   ingredient availability plus a code-rendered scope response.
-  **One narrow exception** (max, 2026-08-05): `apps/web/lib/address-lookup.ts` may call a geocoding
-  REST endpoint to offer a **draft pin the farmer confirms** during farm stand onboarding. It is
-  the only permitted call site — `architecture.test.ts` fails on a second one — and it earns the
-  exemption by refusing off-island results and degrading every failure to "tap the map". A
-  `MapProvider` seam, a coordinate-inventing stub, and a mapping/geocoding **dependency** remain
-  forbidden everywhere, that file included.
+  **One narrow exception** (max, 2026-08-05; **narrowed further 2026-08-06**):
+  `apps/web/lib/address-lookup.ts` may call a geocoding REST endpoint during farm stand
+  onboarding. It is the only permitted call site — `architecture.test.ts` fails on a second one.
+
+  The exemption was originally justified by the lookup being a **draft the farmer confirmed by
+  tapping the island map**, with every failure degrading to that tap. **F-077 removed the tap**,
+  so that justification no longer holds and is replaced rather than quietly dropped: the typed
+  address is now the **sole** source of a coordinate, and an address that will not resolve is
+  **refused** — the farmer corrects the address, and a visitable stand cannot be published
+  without one. What the exemption rests on now:
+
+  - **Off-island results are refused, never shown**, against the single `ISLAND_BOUNDS`
+    statement.
+  - **No failure yields a coordinate.** No result, an unusable result, a provider error, a
+    thrown request, an unset key: one answer, nothing placed. The module has no path that
+    constructs a coordinate from anything but a provider number that passed the bounds check.
+  - **The farmer can see the point before publishing.** The island map survives as a read-only
+    display, so a geocoder putting a Vashon Highway address at the wrong end of the island is
+    something a glance catches.
+
+  **The cost of this narrowing, stated plainly:** a stand at the road rather than at the mailing
+  address can no longer be nudged, and rural Vashon is where lookup is weakest. With no
+  `GEOCODING_API_KEY` configured, **no visitable stand can be created at all** — the form says
+  lookup is unavailable and points the farmer at VIGA.
+
+  A `MapProvider` seam, a coordinate-inventing stub, and a mapping/geocoding **dependency**
+  remain forbidden everywhere, that file included.
 - **An import-provenance model.** This is a greenfield build; existing map content is
   **reference input** that gets **seeded**, with no non-destructive migration requirement.
 - **Farm names, food vocabulary, produce taxonomy, or a fixed strategy catalog in behavioral
