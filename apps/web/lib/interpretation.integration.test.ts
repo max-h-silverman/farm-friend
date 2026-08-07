@@ -24,6 +24,7 @@ import {
 } from "@farm-friend/db";
 import { containsRawPhone } from "@farm-friend/sms";
 import { applyInterpretedInventory } from "./interpretation";
+import { readCurrentStandEntries } from "./farmer-stand";
 
 // The workflow between the interpreter seam and the one pending proposal.
 //
@@ -356,7 +357,10 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     );
     expect(third.outcome).toBe("proposed");
     if (third.outcome !== "proposed") return;
-    expect(third.confirmationText).not.toContain("Winter squash");
+    // Gone from the listing, and named as leaving — see the omission-preserving test below
+    // for why a removal must be stated rather than shown only as an absence.
+    expect(third.confirmationText.split("Taking off")[0]).not.toContain("Winter squash");
+    expect(third.confirmationText).toMatch(/Taking off.*Winter squash/s);
     expect(third.confirmationText).toContain("Pears");
 
     const afterThird = await client()`
@@ -495,7 +499,11 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     expect(result.outcome).toBe("proposed");
     if (result.outcome !== "proposed") return;
     expect(result.confirmationText).toContain("Potatoes");
-    expect(result.confirmationText).not.toContain("Bok choy");
+    // Gone from the LISTING, and named as leaving. The confirmation used to say nothing
+    // about a removal at all, so a farmer could only detect one as a gap in a list — the
+    // one edit that is invisible precisely when it matters.
+    expect(result.confirmationText.split("Taking off")[0]).not.toContain("Bok choy");
+    expect(result.confirmationText).toMatch(/Taking off.*Bok choy/s);
 
     const pending = await client()`
       select payload from inventory_publication_proposals
@@ -725,5 +733,203 @@ describe("interpreted inventory → pending proposal (integration)", () => {
       select count(*)::integer as count from inventory_entries
     `;
     expect(entries[0]?.count).toBe(0);
+  });
+
+  // The web form's chips express edits STRUCTURALLY — removing a chip already IS
+  // `removals: [{entryId}]`. Rendering that back into English for a model to parse into the
+  // shape we started with would add an interpretation step that can only lose information,
+  // and would make the model a dependency of an edit that needs no interpreting.
+  //
+  // What must NOT change is everything after interpretation: the same snapshot validation,
+  // the same proposal composition, the same confirmation gate. A structured edit is a way to
+  // skip the MODEL, never a way to skip the checks.
+  describe("a structured edit, with no model call", () => {
+    async function publishTwoItems() {
+      const revision = await client()`
+        insert into inventory_revisions
+          (farm_id, sales_location_id, published_at, is_current, source)
+        values (${ids.farm}, ${ids.location}, ${T0}, true, 'viga')
+        returning id
+      `;
+      return client()`
+        insert into inventory_entries (
+          inventory_revision_id, sales_location_id, item_name, sort_order
+        )
+        values
+          (${revision[0]?.id as string}, ${ids.location}, 'Eggs', 0),
+          (${revision[0]?.id as string}, ${ids.location}, 'Kale', 1)
+        returning id, item_name
+      `;
+    }
+
+    it("composes a proposal from a structured removal without calling the model", async () => {
+      const entries = await publishTwoItems();
+      const kaleId = entries.find((e) => e.item_name === "Kale")?.id as string;
+
+      let called = false;
+      const interpreter: InventoryInterpreter = {
+        async interpret() {
+          called = true;
+          throw new Error("the model must not be called for a structured edit");
+        },
+      };
+
+      const result = await applyInterpretedInventory(
+        { db: db as Db, interpreter, clock: new FixedClock(T0) },
+        {
+          senderHash: farmerHash,
+          salesLocationId: ids.location as string,
+          edit: { kind: "edits", additions: [], changes: [], removals: [{ entryId: kaleId }] },
+        },
+      );
+
+      expect(called).toBe(false);
+      expect(result.outcome).toBe("proposed");
+      if (result.outcome !== "proposed") return;
+      // The SAME confirmation the typed path produces, naming the loss.
+      expect(result.confirmationText).toContain("Eggs");
+      expect(result.confirmationText).toMatch(/Taking off.*Kale/s);
+    });
+
+    it("validates a structured edit against the snapshot, exactly like a model one", async () => {
+      await publishTwoItems();
+
+      const result = await applyInterpretedInventory(
+        {
+          db: db as Db,
+          interpreter: fakeInterpreter({
+            kind: "edits",
+            additions: [],
+            changes: [],
+            removals: [],
+          }),
+          clock: new FixedClock(T0),
+        },
+        {
+          senderHash: farmerHash,
+          salesLocationId: ids.location as string,
+          // An entry that belongs to no snapshot. Reaching the composition step with this
+          // would let a crafted request edit another stand's listing.
+          edit: {
+            kind: "edits",
+            additions: [],
+            changes: [],
+            removals: [{ entryId: randomUUID() }],
+          },
+        },
+      );
+
+      expect(result.outcome).toBe("rejected");
+    });
+
+    // The chips send ENTRY IDS, so what the page draws and what the server composes against
+    // must be the same snapshot. They were not: the page read the published revision while
+    // composition uses the sender's open proposal as the base. A farmer who edited once and
+    // came back saw chips for items their pending proposal had already dropped, and tapping
+    // one sent an id that is not in the base — refused, correctly, but for a change they had
+    // every reason to think was available. Free text never hit this because it names items
+    // rather than identifiers.
+    it("shows the pending proposal's items once one is open, not the published ones", async () => {
+      const entries = await publishTwoItems();
+      const kaleId = entries.find((e) => e.item_name === "Kale")?.id as string;
+
+      await applyInterpretedInventory(
+        {
+          db: db as Db,
+          interpreter: fakeInterpreter({
+            kind: "edits",
+            additions: [],
+            changes: [],
+            removals: [],
+          }),
+          clock: new FixedClock(T0),
+        },
+        {
+          senderHash: farmerHash,
+          salesLocationId: ids.location as string,
+          edit: { kind: "edits", additions: [], changes: [], removals: [{ entryId: kaleId }] },
+        },
+      );
+
+      const shown = await readCurrentStandEntries(db as Db, ids.location as string, farmerHash);
+
+      // Kale is gone from what the farmer is offered, because it is gone from the base their
+      // next edit will be composed against.
+      expect(shown.map((entry) => entry.itemName)).toEqual(["Eggs"]);
+    });
+
+    it("shows the published listing when the sender has no proposal open", async () => {
+      await publishTwoItems();
+
+      const shown = await readCurrentStandEntries(db as Db, ids.location as string, farmerHash);
+
+      expect(shown.map((entry) => entry.itemName)).toEqual(["Eggs", "Kale"]);
+    });
+
+    it("does not show one sender's pending proposal to another", async () => {
+      const entries = await publishTwoItems();
+      const kaleId = entries.find((e) => e.item_name === "Kale")?.id as string;
+
+      await applyInterpretedInventory(
+        {
+          db: db as Db,
+          interpreter: fakeInterpreter({
+            kind: "edits",
+            additions: [],
+            changes: [],
+            removals: [],
+          }),
+          clock: new FixedClock(T0),
+        },
+        {
+          senderHash: farmerHash,
+          salesLocationId: ids.location as string,
+          edit: { kind: "edits", additions: [], changes: [], removals: [{ entryId: kaleId }] },
+        },
+      );
+
+      // A different authorized sender at the same stand composes against what is PUBLISHED —
+      // proposals are per-sender, and showing one person's unconfirmed edit to another would
+      // leak it and compose their next edit against a base that is not theirs.
+      const other = await readCurrentStandEntries(
+        db as Db,
+        ids.location as string,
+        "other-sender-hash",
+      );
+      expect(other.map((entry) => entry.itemName)).toEqual(["Eggs", "Kale"]);
+    });
+
+    it("still writes nothing until the farmer confirms", async () => {
+      const entries = await publishTwoItems();
+      const kaleId = entries.find((e) => e.item_name === "Kale")?.id as string;
+
+      await applyInterpretedInventory(
+        {
+          db: db as Db,
+          interpreter: fakeInterpreter({
+            kind: "edits",
+            additions: [],
+            changes: [],
+            removals: [],
+          }),
+          clock: new FixedClock(T0),
+        },
+        {
+          senderHash: farmerHash,
+          salesLocationId: ids.location as string,
+          edit: { kind: "edits", additions: [], changes: [], removals: [{ entryId: kaleId }] },
+        },
+      );
+
+      // The PUBLISHED listing is untouched: a chip tap opens a proposal, it does not publish.
+      const published = await client()`
+        select entry.item_name
+        from inventory_entries entry
+        join inventory_revisions revision on revision.id = entry.inventory_revision_id
+        where revision.sales_location_id = ${ids.location} and revision.is_current
+        order by entry.sort_order
+      `;
+      expect(published.map((row) => row.item_name)).toEqual(["Eggs", "Kale"]);
+    });
   });
 });

@@ -3,6 +3,7 @@ import {
   renderPublicStringRefusal,
   renderProposedSnapshot,
   type Clock,
+  type InventoryInterpretation,
   type InventoryInterpreter,
 } from "@farm-friend/core";
 import {
@@ -75,6 +76,76 @@ export async function resolveStandFromToken(
   return resolveFarmerLink(db, { tokenHash: hashFarmerLinkToken(token) });
 }
 
+/** One item as the farmer's own page shows it. Display shape, not a durable record. */
+export interface StandEntryView {
+  entryId: string;
+  itemName: string;
+  quantity?: number;
+  unit?: string;
+  priceText?: string;
+  approximation?: "some" | "limited" | "plentiful";
+}
+
+/**
+ * Read the entries the farmer's NEXT edit will be composed against, to show them.
+ *
+ * **The sender's open proposal wins over the published revision**, because that is the base
+ * `applyInterpretedInventory` composes from. Showing the published listing instead was a real
+ * defect once the listing became editable: the chips send ENTRY IDS, so a farmer who edited
+ * once and came back saw chips for items their own pending proposal had already dropped, and
+ * tapping one sent an id absent from the base — refused, correctly, for a change they had
+ * every reason to believe was on offer. The typed path never hit it because free text names
+ * items rather than identifiers.
+ *
+ * Scoped to ONE sender: proposals are per-sender, so a second authorized farmer at the same
+ * stand composes against what is published, and never sees the other's unconfirmed edit.
+ *
+ * Display only, and deliberately narrow: the location comes from the caller's already-resolved
+ * link, never an identifier from the request, so it cannot be pointed at another farm's stand.
+ * Nothing here publishes — the proposal is still composed and confirmed server-side.
+ */
+export async function readCurrentStandEntries(
+  db: Db,
+  salesLocationId: string,
+  senderHash: string,
+): Promise<StandEntryView[]> {
+  const pending = await db.sql`
+    select payload from inventory_publication_proposals
+    where sender_hash = ${senderHash}
+      and sales_location_id = ${salesLocationId}
+      and state = 'open'
+      and has_inventory
+  `;
+  const payload = pending[0]?.payload as { entries?: unknown } | undefined;
+  if (payload !== undefined && Array.isArray(payload.entries)) {
+    // Already the snapshot shape the proposal stores, so it is returned as-is rather than
+    // re-derived: re-deriving would be a second statement of what an entry looks like.
+    return payload.entries as StandEntryView[];
+  }
+
+  const rows = await db.sql`
+    select entry.id, entry.item_name, entry.quantity, entry.unit,
+      entry.price_text, entry.approximation
+    from inventory_entries entry
+    join inventory_revisions revision on revision.id = entry.inventory_revision_id
+    where revision.sales_location_id = ${salesLocationId} and revision.is_current
+    order by entry.sort_order asc
+  `;
+  return rows.map((row) => {
+    const record = row as Record<string, unknown>;
+    return {
+      entryId: record.id as string,
+      itemName: record.item_name as string,
+      ...(record.quantity !== null ? { quantity: Number(record.quantity) } : {}),
+      ...(record.unit !== null ? { unit: record.unit as string } : {}),
+      ...(record.price_text !== null ? { priceText: record.price_text as string } : {}),
+      ...(record.approximation !== null
+        ? { approximation: record.approximation as "some" | "limited" | "plentiful" }
+        : {}),
+    };
+  });
+}
+
 export type FarmerStandProposal =
   | {
       outcome: "proposed";
@@ -103,7 +174,14 @@ export type FarmerStandProposal =
  */
 export async function proposeFromLink(
   deps: FarmerStandDeps,
-  input: { token: string; taskText: string },
+  input:
+    | { token: string; taskText: string; edit?: undefined }
+    | {
+        token: string;
+        /** A structured edit from the form's chips — no model call, same checks. */
+        edit: Extract<InventoryInterpretation, { kind: "edits" | "clear_all" }>;
+        taskText?: undefined;
+      },
 ): Promise<FarmerStandProposal> {
   const stand = await resolveStandFromToken(deps.db, input.token);
   if (stand === null) return { outcome: "not_authorized" };
@@ -115,7 +193,9 @@ export async function proposeFromLink(
       // cannot propose as somebody else by naming them.
       senderHash: stand.senderHash,
       salesLocationId: stand.salesLocationId,
-      taskText: input.taskText,
+      ...(input.edit !== undefined
+        ? { edit: input.edit }
+        : { taskText: input.taskText }),
     },
   );
 

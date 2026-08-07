@@ -37,6 +37,18 @@ function stubFetch(response: { ok: boolean; status?: number; body?: unknown }) {
   return fetchMock as unknown as ReturnType<typeof vi.fn>;
 }
 
+/** A saved listing, as an already-onboarded farmer's editor is prefilled from. */
+const EDIT_DEFAULTS = {
+  standName: "Existing Stand",
+  visitability: "contact_only" as const,
+  publicAddress: null,
+  latitude: null,
+  longitude: null,
+  hoursText: null,
+  paymentMethods: [],
+  items: [],
+};
+
 /** The body the form posted, parsed. */
 function posted(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
   const call = fetchMock.mock.calls[0] as [string, { body: string }];
@@ -175,7 +187,125 @@ describe("onboarding listing step", () => {
     await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(/on the map/i);
-    expect(screen.getByRole("status")).toHaveTextContent(/SETTINGS/);
+    // "How do I change this later?" is answered by SETTINGS — but during ONBOARDING the
+    // farmer still has one action left, and a later-editing instruction competes with it.
+    // The page states SETTINGS under "What happens next"; the confirmation points at the
+    // text message instead. An already-onboarded farmer editing their listing, who has no
+    // next step, does get SETTINGS here — asserted below.
+    expect(screen.getByRole("status")).toHaveTextContent(/last step/i);
+  });
+
+  it("tells an already-onboarded farmer how to change things later, with no text to send", async () => {
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(
+      <ListingStep credential={{ kind: "stand_link", token: TOKEN }} farmName="Test Farm" />,
+    );
+
+    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent(/SETTINGS/);
+    // No SIGNUP hand-off exists on this path; promising a "last step" would be a lie.
+    expect(status).not.toHaveTextContent(/last step/i);
+  });
+
+  // The save used to REPLACE the whole form with a single sentence. Everything the farmer
+  // had typed vanished, the page reflowed, and the phone-verification card below jumped up
+  // into view — which reads as being thrown onto a different screen. It is not a navigation
+  // and must not feel like one: what was saved stays readable, and the farmer keeps a way
+  // back into it.
+  it("keeps what was saved visible and correctable instead of collapsing the form", async () => {
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/on the map/i);
+    // The farmer's own answer is still on screen, not swapped for a receipt.
+    expect(screen.getByText("Test Farm")).toBeInTheDocument();
+    // And there is a way back in — a saved listing is not a locked one.
+    expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
+  });
+
+  it("names the next step rather than leaving the farmer to find it", async () => {
+    // The SIGNUP card was always below the fold; the collapse merely scrolled it into view
+    // unannounced. Saving must SAY that a text is next, so the hand-off is expected.
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+    // Anchored to the hand-off sentence itself, not the word "text" — "texting SETTINGS"
+    // appears in the non-onboarding copy and would satisfy a looser match forever.
+    expect(await screen.findByRole("status")).toHaveTextContent(/last step/i);
+  });
+
+  it("reopens the form with the farmer's answers intact", async () => {
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+    await user.click(await screen.findByRole("button", { name: /change/i }));
+
+    // Reopening is not a fresh form: a farmer correcting one field must not retype the rest.
+    expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("Test Farm");
+  });
+
+  // The farm name is public on the map beside the stand and was previously unchangeable by
+  // anyone. An editing farmer gets a field for it; an onboarding farmer does not, because
+  // the invitation just named their farm and a second name box beside the stand-name box is
+  // the confusion, not the fix.
+  describe("the farm's name", () => {
+    it("offers an editing farmer a field for their farm's name", () => {
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Two Sisters Farm"
+          defaults={{ ...EDIT_DEFAULTS, standName: "The Red Shed" }}
+        />,
+      );
+
+      // Prefilled from the FARM, not from the stand — they are different records.
+      expect(screen.getByLabelText(/farm.*called|name of your farm/i)).toHaveValue(
+        "Two Sisters Farm",
+      );
+      expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("The Red Shed");
+    });
+
+    it("does not ask an onboarding farmer to name their farm twice", () => {
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      expect(screen.queryByLabelText(/farm.*called|name of your farm/i)).not.toBeInTheDocument();
+    });
+
+    it("sends the farm name with the listing when it is edited", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Two Sisters Farm"
+          defaults={{ ...EDIT_DEFAULTS, standName: "The Red Shed" }}
+        />,
+      );
+
+      const farmField = screen.getByLabelText(/farm.*called|name of your farm/i);
+      await user.clear(farmField);
+      await user.type(farmField, "Misty Hollow Farm");
+      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+      const body = posted(fetchMock);
+      expect(body.farmName).toBe("Misty Hollow Farm");
+      expect(body.standName).toBe("The Red Shed");
+    });
   });
 
   it("explains an off-island pin in words the farmer can act on", async () => {

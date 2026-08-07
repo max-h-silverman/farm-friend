@@ -183,7 +183,14 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
                 className="admin-stand-detail-section admin-stand-retirement"
                 aria-labelledby={`stand-${stand.standId}-retirement`}
               >
-                <h3 id={`stand-${stand.standId}-retirement`}>Take off the map</h3>
+                {/*
+                  Named for what an operator ARRIVES looking for. "Take off the map" describes
+                  the effect accurately but is not the word anyone searches with, so operators
+                  concluded a stand could not be removed at all. The heading says "remove"; the
+                  copy and the button still say what actually happens, because this is
+                  reversible and calling it "delete" would overstate it.
+                */}
+                <h3 id={`stand-${stand.standId}-retirement`}>Remove this stand</h3>
                 <p className="admin-note">
                   {stand.retired
                     ? "Customers cannot see this stand, and the farmer cannot publish updates to it. Everything it published before is kept."

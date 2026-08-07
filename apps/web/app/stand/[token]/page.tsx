@@ -1,4 +1,4 @@
-import { resolveStandFromToken } from "../../../lib/farmer-stand";
+import { readCurrentStandEntries, resolveStandFromToken } from "../../../lib/farmer-stand";
 import Link from "next/link";
 import { publicReadContext } from "../../../lib/public-context";
 import { StandForm } from "./stand-form";
@@ -45,6 +45,14 @@ export default async function StandPage({
   const locations = await db.sql`
     select name from sales_locations where id = ${stand.salesLocationId}
   `;
+  // Scoped to the location AND sender the TOKEN resolved to, never ones named by the
+  // request. The sender matters: the chips must show the base this farmer's next edit will
+  // be composed against, which is their own open proposal when they have one.
+  const currentEntries = await readCurrentStandEntries(
+    db,
+    stand.salesLocationId,
+    stand.senderHash,
+  );
   return (
     <main className="farmer-form">
       <header>
@@ -54,25 +62,39 @@ export default async function StandPage({
         </p>
       </header>
 
+      {/*
+        Says what the screen now IS. It used to promise "update in your own words", which
+        described the text box back when that was the only way in — with the listing directly
+        editable, leading with prose would point a farmer at the slower path.
+      */}
       <p className="farmer-form-note">
-        Update what changed today in your own words. We&apos;ll show you exactly what people will
-        see, and <strong>nothing changes until you confirm it</strong>.
+        Take things off, add what you have, or write it out. We&apos;ll show you exactly what
+        people will see, and <strong>nothing changes until you confirm it</strong>.
       </p>
 
-      <StandForm token={params.token} />
+      <StandForm token={params.token} currentEntries={currentEntries} />
 
       {/*
         F-073 — the listing facts, kept clearly separate from the stock update above. "What I
         usually sell" and "what is on the table today" are two different claims (F-066), and the
         wording says which is which so a farmer does not come here to report today's eggs.
-      */}
-      <Link className="farmer-settings-back" href={`/stand/${params.token}/listing`}>
-        Stand details: address, hours, payment, and what you usually sell
-      </Link>
 
-      <Link className="farmer-settings-back" href={`/stand/${params.token}/settings`}>
-        Stand settings: reminders, default stand, and other sellers
-      </Link>
+        Grouped under a heading rather than left as two bare links directly beneath the submit
+        button, where they read as continuations of the update the farmer was mid-way through —
+        a farmer reporting today's eggs should not find "what you usually sell" as the next
+        thing after the button they just pressed. These are somewhere ELSE to go, and the
+        heading says so before either link is read.
+      */}
+      <nav className="farmer-stand-elsewhere" aria-labelledby="stand-elsewhere-heading">
+        <h2 id="stand-elsewhere-heading">Change your stand&apos;s details</h2>
+        <Link className="farmer-settings-back" href={`/stand/${params.token}/listing`}>
+          Stand details: address, hours, payment, and what you usually sell
+        </Link>
+
+        <Link className="farmer-settings-back" href={`/stand/${params.token}/settings`}>
+          Stand settings: reminders, default stand, and other sellers
+        </Link>
+      </nav>
 
       <p id="new-link-help" className="farmer-form-note">
         This link is private — anyone with it can update this stand. If it stops working, text

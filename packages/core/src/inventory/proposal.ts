@@ -103,6 +103,15 @@ export interface ProposedSnapshot {
   entries: SnapshotEntry[];
   baseRevisionId: string | null;
   isFirstPublication: boolean;
+  /**
+   * Names of base items this proposal drops, for confirmation only.
+   *
+   * `entries` remains the whole authority on what publishes — nothing reads this to decide
+   * a consequence, and `confirmInventoryPublication` never consults it. It exists because a
+   * removal is otherwise expressed purely as ABSENCE from the result, and absence is what a
+   * farmer skimming a text does not see. Names, not IDs: this is confirmation copy.
+   */
+  removedItemNames: string[];
 }
 
 /** Published state or the sender's complete pending result, used as the next edit base. */
@@ -338,7 +347,12 @@ export function applyInventoryEdits(
         : false;
 
   if (interpretation.kind === "clear_all") {
-    return { entries: [], baseRevisionId, isFirstPublication };
+    return {
+      entries: [],
+      baseRevisionId,
+      isFirstPublication,
+      removedItemNames: (base?.entries ?? []).map((entry) => entry.itemName),
+    };
   }
 
   const known = new Set((base?.entries ?? []).map((entry) => entry.entryId));
@@ -357,8 +371,12 @@ export function applyInventoryEdits(
 
   // Every surviving base entry stays, in its published order — omission preserves.
   const entries: SnapshotEntry[] = [];
+  const removedItemNames: string[] = [];
   for (const entry of base?.entries ?? []) {
-    if (removed.has(entry.entryId)) continue;
+    if (removed.has(entry.entryId)) {
+      removedItemNames.push(entry.itemName);
+      continue;
+    }
     const change = changeById.get(entry.entryId);
     entries.push(change ? withoutUndefined({ ...entry, ...change }) : entry);
   }
@@ -374,16 +392,30 @@ export function applyInventoryEdits(
     );
   }
 
-  return { entries, baseRevisionId, isFirstPublication };
+  return { entries, baseRevisionId, isFirstPublication, removedItemNames };
 }
 
 /**
  * Render the complete resulting inventory for confirmation. The farmer confirms exactly
  * what will publish, so this lists every surviving item rather than describing a change.
+ *
+ * **Removals are the one exception, and they earn it.** Everything a farmer ADDS or CHANGES
+ * is visible in the result they are reading; an item they drop is visible only as a gap,
+ * which is precisely what nobody notices in a text message. "we have eggs and bok choy"
+ * against a stand listing eggs and kale is a deletion, and the farmer must be able to catch
+ * it before confirming — so the loss is named after the result, never instead of it.
  */
 export function renderProposedSnapshot(proposed: ProposedSnapshot): string {
+  const removalLine =
+    proposed.removedItemNames.length > 0
+      ? `Taking off: ${proposed.removedItemNames.join(", ")}.`
+      : null;
+
   if (proposed.entries.length === 0) {
-    return "Your stand will show no items currently available.";
+    return [
+      "Your stand will show no items currently available.",
+      ...(removalLine === null ? [] : [removalLine]),
+    ].join("\n");
   }
 
   const lines = proposed.entries.map((entry) => {
@@ -401,7 +433,11 @@ export function renderProposedSnapshot(proposed: ProposedSnapshot): string {
       : `- ${entry.itemName}`;
   });
 
-  return [`Your stand will show:`, ...lines].join("\n");
+  return [
+    `Your stand will show:`,
+    ...lines,
+    ...(removalLine === null ? [] : [removalLine]),
+  ].join("\n");
 }
 
 /** Render every section this single confirmation will publish. */

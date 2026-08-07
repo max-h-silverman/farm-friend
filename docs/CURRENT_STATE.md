@@ -182,6 +182,93 @@ public description, which it does.
 
 ## Verification
 
+- **Branch `farmer-ux-pass` (`74a6fcf`), MERGED to nothing yet — NOT deployed.** Four
+  farmer/admin defects max reported from using the app, the chip interface below, plus a
+  test-harness gap found on the way. **1342 unit / 735 integration**, typecheck, lint pass.
+  No migration.
+  - **The stand listing is now DIRECTLY EDITABLE** (max: "maybe instead of a chat input the
+    web update form can just be like adding/removing tags"). A listing is a set of short
+    strings, so a farmer taking kale off was doing manual labour to express "remove one
+    member of a set". Chips are primary; free text remains as the escape hatch for what chips
+    cannot say (a closure, a price mentioned in passing), which is also what keeps the model
+    seam a live path rather than dead code.
+  - **A structured edit skips the MODEL, and nothing else.** `applyInterpretedInventory`
+    takes either `taskText` or an `edit` already in the interpreter's output shape; every
+    step after interpretation was always code and is unchanged — same
+    `validateInterpretation` against the same snapshot, same composition, same confirmation
+    gate. **Sabotaged**: bypassing validation for structured edits is caught by a test
+    sending an entry id belonging to no snapshot. A strict boundary parser
+    (`farmer-stand-edit.ts`) refuses unknown keys rather than stripping them, rejects
+    non-finite quantities, and cannot express `clear_all`; two sabotages confirmed those.
+  - **A defect only the browser found.** Chips send ENTRY IDS, and the page drew the
+    PUBLISHED revision while composition uses the sender's OPEN PROPOSAL as its base. A
+    farmer who edited once and returned saw chips for items their own pending proposal had
+    dropped; tapping one sent an id absent from the base and was refused — correctly, for a
+    change they had every reason to think was available. The free-text path never hit it
+    because prose names items, not identifiers. `readCurrentStandEntries` now returns the
+    pending base when one is open, scoped to one sender. **Sabotaged and confirmed.**
+  - **`button:first-of-type` styled the wrong control.** Written when the screen had one
+    button; once the listing became editable the first button was a chip's ×, so the control
+    that TAKES AN ITEM OFF rendered as the one that publishes. The affirmative action now
+    carries an explicit class, asserted by test. Position is not intent.
+  - **Verified in the running app, by effect.** Published via chips with no model call and
+    checked against the row: a new current revision carrying the composed items and prices.
+    The gate refused twice first (`not_approved` — the local seed farm had no
+    `farm_approvals` row), which is the gate working, not a defect.
+  - **"Weekly update form" was never the product's name** — it was mine in conversation and
+    is dropped. VIGA's "weekly form" (the Google form volunteers transcribe) and the
+    `weekly` reminder cadence are real and unchanged; no farmer surface calls itself that.
+  - ~~**An `evals:live` run IS OWED**~~ — **DONE 2026-08-06, 25/25 pass** against
+    `mistralai/Mistral-Small-24B-Instruct-2501` (containment 4/4, closure 7/7, quality 9/9,
+    recall 5/5). `packages/ai/src/projections.ts` changed: the inventory-extraction prompt never
+    said *when* to emit a removal, so a bare list of items ("we have eggs and bok choy") could be
+    read as a whole-listing replacement and silently delete the kale the farmer never mentioned.
+    It now states that omission is not removal, names what does justify one, and requires a
+    clarification over a guessed deletion. **Three new `live-quality` fixtures measured exactly
+    this against the real model**, and all three passed on the recorded output:
+    - "we have eggs and bok choy" → `additions: [eggs, bok choy]`, **`removals: []`** — the
+      unmentioned kale survives.
+    - "kale is all gone" → `removals: [e2]` — an explicit sold-out still removes.
+    - "all we have left today is eggs" → `removals: [e1, e2]` — an explicit replacement replaces.
+
+    The second and third are the mirror cases and are why this is evidence rather than a
+    tautology: a prompt that simply never removed would satisfy the first fixture alone.
+    **This measures the CURRENT brain, not the harness.** The model is swappable and is never
+    vouched for, so the fixtures stay in the suite — a weaker or hostile model must be re-measured,
+    and the properties that must survive regardless live in code (`entries` is the sole authority
+    on what publishes; `removedItemNames` is confirmation copy no consequence reads).
+  - **`ProposedSnapshot` gained `removedItemNames`** — confirmation copy only, never consulted
+    by `confirmInventoryPublication`; `entries` remains the whole authority on what publishes.
+    A removal was previously visible ONLY as an absence from the rendered result, which is what
+    nobody notices in a text message. Both new renderer tests were **sabotaged and confirmed to
+    fail**. SMS and web share the renderer, so one seam covered both surfaces. Two integration
+    assertions that required a removed item's name be absent from the *whole* confirmation were
+    corrected — the real property is that it is gone from the LISTING.
+  - **A farm's name was immutable and public.** Written at invitation time (`farmer.ts:95`) and
+    changeable by nobody — no farmer path, no admin path, no writer anywhere — while shown to
+    customers on the map. It also *looked* editable: the farmer's listing editor passed
+    `listing.standName` into a prop named `farmName`, so a field named for the farm held the
+    stand's name. `readStandListing` now returns both and the editor prefills each from its own
+    source. `renameFarm` reports `unknown_farm` via `returning` rather than treating a zero-row
+    update as success — **sabotaged and confirmed to fail**. Verified by effect: the renamed row
+    read back from the database, not from the success banner.
+  - **Admin stand removal already existed and worked** (retire: leaves the map and text answers,
+    stops farmer publishing, keeps everything published, reversible, confirm-gated). It was named
+    "Take off the map", sat last inside a collapsed panel, and never used the word anyone searches
+    for — so operators concluded stands could not be removed. Heading only. The first version of
+    that test **passed against existing body copy** without the heading changing and was tightened
+    to anchor on the heading.
+  - **Testing Library's `cleanup` never ran.** Without `globals: true` there is no global
+    `afterEach` for it to register against, so every mounted component stayed in the document for
+    the rest of the file and `getByText` could satisfy a later test from an earlier test's render
+    — a component test could pass while the behavior it named was broken. A setup file now runs it.
+    Adding it exposed no existing failures.
+  - **Exercised in the running app** against local Postgres, not only in tests: current stock
+    renders on the update form, the save confirms instead of collapsing, "Change something"
+    reopens with answers intact, and the rename landed in the row. **The local `LLM_PROVIDER` is
+    `stub`, so the interpretation path returns a clarification and the confirmation screen could
+    not be reached in the browser** — the removal copy above was verified through the real shared
+    renderer directly. A cooperative stub cannot stand in for the model here.
 - **`main` at `41412b4`, MERGED and DEPLOYED** (F-072, F-073, F-074, plus the build fix):
   **115 unit files / 1301 tests**, **53 integration files / 724 tests**, typecheck, lint, and the
   production build pass — **re-run on the merged base**, not carried over from either branch.

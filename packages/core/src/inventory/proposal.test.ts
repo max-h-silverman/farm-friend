@@ -139,8 +139,57 @@ describe("inventory proposal — patch-like edits over a complete snapshot", () 
     expect(rendered).toContain("Bok choy");
     expect(rendered).toContain("Strawberry preserves");
     expect(rendered).toContain("Green beans");
-    expect(rendered).not.toContain("Potatoes");
-    expect(rendered).not.toMatch(/removed|added|changed/i);
+    // The result is the authority: a dropped item never appears in the listing itself.
+    expect(rendered.split("Taking off")[0]).not.toContain("Potatoes");
+    // Still never a delta description of what was ADDED or CHANGED — those items are
+    // already visible in the result, so naming them would restate the same fact twice.
+    expect(rendered).not.toMatch(/\badded\b|\bchanged\b/i);
+  });
+
+  // A farmer who texts "we have eggs and bok choy" when the stand lists eggs and kale is
+  // dropping kale. The complete-result rendering is honest but easy to skim: the kale is
+  // gone by ABSENCE, and absence is exactly what a person scanning an SMS does not notice.
+  // Naming the loss is the difference between a farmer confirming a deletion and a farmer
+  // confirming a list that happens to be missing something.
+  it("names what is leaving the stand, so a removal is never silent", () => {
+    const proposed = applyInventoryEdits(
+      published,
+      {
+        kind: "edits",
+        additions: [],
+        changes: [],
+        removals: [{ entryId: "e-potato" }, { entryId: "e-jam" }],
+      },
+      issueDraftId,
+    );
+
+    const rendered = renderProposedSnapshot(proposed);
+
+    expect(rendered).toContain("Bok choy");
+    expect(rendered).toMatch(/Taking off.*Potatoes/s);
+    expect(rendered).toContain("Strawberry preserves");
+  });
+
+  it("says nothing about removals when nothing is being removed", () => {
+    const proposed = applyInventoryEdits(
+      published,
+      { kind: "edits", additions: [{ itemName: "Green beans" }], changes: [], removals: [] },
+      issueDraftId,
+    );
+
+    expect(renderProposedSnapshot(proposed)).not.toMatch(/taking off/i);
+  });
+
+  // Clearing everything is the largest possible removal and the one most worth stating
+  // plainly. The empty-stand sentence already says the result, so the items are named
+  // rather than left to "no items currently available".
+  it("names the items when a clear-all empties the stand", () => {
+    const proposed = applyInventoryEdits(published, { kind: "clear_all" }, issueDraftId);
+
+    const rendered = renderProposedSnapshot(proposed);
+
+    expect(rendered).toMatch(/no items/i);
+    expect(rendered).toMatch(/Taking off.*Bok choy/s);
   });
 });
 

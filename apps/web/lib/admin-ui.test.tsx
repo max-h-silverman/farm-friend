@@ -202,6 +202,36 @@ describe("the stand list", () => {
     expect(screen.queryByRole("button", { name: "Save Farm Bucks decision" })).toBeNull();
   });
 
+  // An operator looking to DELETE a farm could not find this. The control does exactly what
+  // deleting should do — the stand leaves the map and all farmer surfaces, nothing published
+  // is destroyed, and it can be put back — but it is named "Take off the map", sits last
+  // inside a collapsed panel, and never says the word. So the capability existed and read as
+  // missing. The section states what it is in the vocabulary an operator arrives with.
+  it("names removing a stand in the words an operator looks for", () => {
+    render(
+      <StandList
+        stands={[{
+          standId: "stand-vocab",
+          name: "North Stand",
+          farmName: "Example Farm",
+          status: "Visible to customers",
+          openState: "Open now",
+          approved: true,
+          retired: false,
+          farmBucksStatus: "not_eligible",
+          sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
+        }]}
+      />,
+    );
+
+    // Anchored to the SECTION HEADING, which is what someone scanning for "delete" reads —
+    // the body copy already contained "Removes this stand", and asserting on that passed
+    // while the heading still said only "Take off the map".
+    expect(
+      screen.getByRole("heading", { name: /remove|delete/i }),
+    ).toBeTruthy();
+  });
+
   it("takes a stand off the map only after the operator confirms it (F-071)", async () => {
     const user = userEvent.setup();
     const fetcher = vi.fn(async () => response(200, { status: "retired" }));
@@ -1130,16 +1160,16 @@ describe("the farmer stand form", () => {
       .mockResolvedValueOnce(response(200, { outcome: "published" }));
     vi.stubGlobal("fetch", fetcher);
 
-    render(<StandForm token="private-token" />);
-    const input = screen.getByRole("textbox", { name: "What changed at your stand today?" });
+    render(<StandForm token="private-token" currentEntries={[]} />);
+    const input = screen.getByRole("textbox", { name: "Or write it in your own words" });
     await user.type(input, "squash");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Which kind of squash?");
     expect(input).toHaveFocus();
 
     await user.clear(input);
     await user.type(input, "three winter squash at $4");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
     expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
       "Winter squash — 3 at $4",
     );
@@ -1149,11 +1179,11 @@ describe("the farmer stand form", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Nothing changed");
 
     const returnedInput = screen.getByRole("textbox", {
-      name: "What changed at your stand today?",
+      name: "Or write it in your own words",
     });
     await user.clear(returnedInput);
     await user.type(returnedInput, "kale $3 a bunch");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
     await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
 
@@ -1169,13 +1199,13 @@ describe("the farmer stand form", () => {
   it("keeps a failed request unchanged and gives a revoked link a recovery action", async () => {
     const user = userEvent.setup();
     vi.stubGlobal("fetch", vi.fn(async () => response(403)));
-    render(<StandForm token="private-token" />);
+    render(<StandForm token="private-token" currentEntries={[]} />);
 
     await user.type(
-      screen.getByRole("textbox", { name: "What changed at your stand today?" }),
+      screen.getByRole("textbox", { name: "Or write it in your own words" }),
       "eggs",
     );
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/listing is unchanged/i);
     expect(screen.getByRole("link", { name: "How to get a new link" })).toHaveAttribute(
@@ -1200,21 +1230,21 @@ describe("the farmer stand form", () => {
         .mockResolvedValueOnce(response(200, { outcome: "published" }))
         .mockResolvedValueOnce(response(500, { message: "Could not save the proposal." })),
     );
-    render(<StandForm token="private-token" />);
+    render(<StandForm token="private-token" currentEntries={[]} />);
 
     const input = screen.getByRole("textbox", {
-      name: "What changed at your stand today?",
+      name: "Or write it in your own words",
     });
     await user.type(input, "kale $3 a bunch");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
     await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
 
     const nextInput = screen.getByRole("textbox", {
-      name: "What changed at your stand today?",
+      name: "Or write it in your own words",
     });
     await user.type(nextInput, "eggs");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save the proposal.");
     expect(screen.queryByText("Your stand is updated. Customers can now see this listing.")).toBeNull();

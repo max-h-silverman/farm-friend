@@ -190,6 +190,20 @@ export function ListingStep({
   const storedPayments = defaults?.paymentMethods ?? [];
 
   const [standName, setStandName] = useState(defaults?.standName ?? farmName);
+  /*
+    The FARM's name, offered only when EDITING.
+
+    It is public on the map beside the stand and, until now, could be changed by nobody —
+    not the farmer, not an administrator — because it was written once when the invitation
+    was created. A farm named with a typo carried that typo in front of the island forever.
+
+    Not offered during onboarding: the invitation just named the farm, and a second name box
+    beside the stand-name box would ask a farmer to distinguish two records they have no
+    reason to think of as separate yet. Editing is where the distinction is already visible,
+    because both names are already on screen and already differ.
+  */
+  const [editedFarmName, setEditedFarmName] = useState(farmName);
+  const canRenameFarm = credential.kind === "stand_link";
   const [visitability, setVisitability] = useState<
     "visitable" | "contact_only" | null
   >(defaults?.visitability ?? null);
@@ -366,6 +380,9 @@ export function ListingStep({
         body: JSON.stringify({
           ...credentialBody(credential),
           standName,
+          // Sent only when this door offers renaming. Omitted means "leave the farm's name
+          // alone" at the boundary — never "set it to empty".
+          ...(canRenameFarm ? { farmName: editedFarmName } : {}),
           visitability,
           // Everything a farmer might sell is `produce` unless they say otherwise. The other
           // two values describe stands VIGA seeded (a service business, an order-only farm)
@@ -447,10 +464,68 @@ export function ListingStep({
   }
 
   if (saved) {
+    /*
+      A CONFIRMATION, not a replacement.
+
+      This used to return one sentence in place of the entire form. Everything the farmer had
+      just typed disappeared, the card collapsed from a full screen to a single line, and the
+      phone-verification card that had been below the fold the whole time snapped upward — so
+      a save that changed no page read as being thrown onto a different screen, with no way
+      to check or fix what had been sent.
+
+      What replaces it says three things in the order a farmer asks them: what happened, what
+      was recorded, and what to do next. Onboarding adds the hand-off to the text message,
+      because there the next action is on a different device and must be announced rather
+      than discovered.
+    */
+    const isOnboarding = credential.kind === "invitation";
     return (
-      <p className="farmer-form-published" role="status">
-        Your stand is on the map. You can change any of this later by texting SETTINGS.
-      </p>
+      <div className="farmer-listing-saved" role="status">
+        <p className="farmer-form-published">
+          {isOnboarding ? "Your stand is on the map." : "Your changes are saved."}
+        </p>
+
+        <dl className="farmer-listing-summary">
+          <div>
+            <dt>Stand</dt>
+            <dd>{standName.trim() === "" ? farmName : standName}</dd>
+          </div>
+          <div>
+            <dt>Visitors</dt>
+            <dd>
+              {visitability === "visitable"
+                ? "People can come to the stand"
+                : "No stand to visit — you deliver or sell elsewhere"}
+            </dd>
+          </div>
+          {address.trim() === "" ? null : (
+            <div>
+              <dt>Address</dt>
+              <dd>{address}</dd>
+            </div>
+          )}
+          {items.trim() === "" ? null : (
+            <div>
+              <dt>Usually sells</dt>
+              <dd>{items}</dd>
+            </div>
+          )}
+        </dl>
+
+        <button
+          className="farmer-listing-change"
+          type="button"
+          onClick={() => setSaved(false)}
+        >
+          Change something
+        </button>
+
+        <p className="farmer-listing-saved-next">
+          {isOnboarding
+            ? "Next: send one text from the phone you want to use for stand updates. It is the last step."
+            : "You can change any of this later by texting SETTINGS."}
+        </p>
+      </div>
     );
   }
 
@@ -459,6 +534,22 @@ export function ListingStep({
 
   return (
     <form className="farmer-listing" onSubmit={(event) => void submit(event)}>
+      {canRenameFarm && (
+        <>
+          <label htmlFor="farm-name">What is your farm called?</label>
+          <input
+            id="farm-name"
+            type="text"
+            value={editedFarmName}
+            onChange={(event) => setEditedFarmName(event.target.value)}
+            maxLength={120}
+          />
+          <p className="farmer-form-note">
+            Your farm&apos;s name, shown on the map next to your stand.
+          </p>
+        </>
+      )}
+
       <label htmlFor="stand-name">What is your stand called?</label>
       <input
         id="stand-name"

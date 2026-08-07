@@ -70,7 +70,9 @@ export default async function FarmerListingEditPage({
         <h2 id="listing-heading">Your stand</h2>
         <ListingStep
           credential={{ kind: "stand_link", token: params.token }}
-          farmName={listing.standName}
+          // The FARM's name — this passed `listing.standName` and so filled a field named
+          // for the farm with the stand's name. The two are different records.
+          farmName={listing.farmName}
           defaults={{
             standName: listing.standName,
             visitability: listing.visitability,
