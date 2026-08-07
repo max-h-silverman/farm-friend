@@ -58,13 +58,21 @@ function workspaceDependencies(manifest: PackageManifest): string[] {
     .sort();
 }
 
+/**
+ * Every TypeScript source under a directory — **`.tsx` included**.
+ *
+ * The extension list is load-bearing. This collected only `.ts`, so every React component in
+ * the repository sat outside every tripwire built on it: a `geocode()` call and the maps host
+ * could be added to `listing-step.tsx` and the geocode allowlist stayed green. Proven by
+ * sabotage before it was widened, and `covers .tsx components` below is what keeps it that way.
+ */
 function sourceFiles(relativeDirectory: string): string[] {
   return readdirSync(new URL(`${relativeDirectory}/`, repositoryRoot), {
     withFileTypes: true,
   }).flatMap((entry) => {
     const relativePath = `${relativeDirectory}/${entry.name}`;
     if (entry.isDirectory()) return sourceFiles(relativePath);
-    return entry.isFile() && entry.name.endsWith(".ts") ? [relativePath] : [];
+    return entry.isFile() && /\.tsx?$/.test(entry.name) ? [relativePath] : [];
   });
 }
 
@@ -269,9 +277,15 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
   // mapping platform, routing engine, or travel-time estimator", and this is the tripwire that
   // makes reintroducing one fail rather than merely being noticed in review.
   //
-  // ## What max reopened, and what did NOT reopen (2026-08-05)
+  // ## What max reopened, and what did NOT reopen (2026-08-05, narrowed again 2026-08-06)
   //
-  // Address lookup is permitted for FARM STAND ONBOARDING ONLY, as a DRAFT the farmer confirms.
+  // Address lookup is permitted for FARM STAND ONBOARDING ONLY. It was reopened as a DRAFT the
+  // farmer confirmed by tapping the island map; F-077 removed that tap, so the looked-up
+  // coordinate is now the only one a stand can have, and an address that will not resolve is
+  // REFUSED rather than approximated.
+  //
+  // That makes the allowlist tighter in effect, not looser: there is no longer any other way to
+  // obtain a coordinate, so a second call site would be the only route to an unchecked one.
   // One file — `apps/web/lib/address-lookup.ts` — may call the geocoding endpoint. Everything
   // else this describe block guards stayed shut:
   //
@@ -285,8 +299,10 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
   //   * No second geocode call site. The allowlist is one file, so a future caller fails here.
   //
   // The properties that make the narrowing safe live in `apps/web/lib/address-lookup.ts` and are
-  // asserted in its own suite: an off-island result is refused rather than shown, every failure
-  // degrades to the farmer tapping the map, and only a confirmed pin is ever committed.
+  // asserted in its own suite: an off-island result is refused rather than shown, and every
+  // failure yields NO coordinate — the module has no path that constructs one from anything but
+  // a provider number that passed the bounds check. What the form does with a failure is
+  // `listing-step.tsx`'s decision, and since F-077 it refuses to publish.
 
   /**
    * The ONE file permitted to call a geocoding endpoint. Adding a second entry here is a
@@ -301,7 +317,31 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
     ...sourceFiles("packages/db/src"),
     ...sourceFiles("packages/sms/src"),
     ...sourceFiles("apps/web/lib"),
-  ].filter((path) => !path.endsWith(".test.ts") && !path.endsWith(".type-test.ts"));
+    // `apps/web/app` was ABSENT, so no page, route handler or component was covered by any
+    // tripwire in this block. The onboarding form is the geocoder's only consumer, which made
+    // the one file most likely to grow a second call site the one file nobody was watching.
+    ...sourceFiles("apps/web/app"),
+  ].filter(
+    (path) =>
+      !/\.test\.tsx?$/.test(path) &&
+      !path.endsWith(".type-test.ts") &&
+      !/\.integration\.test\.tsx?$/.test(path),
+  );
+
+  it("covers the app directory and .tsx components, not just packages and lib", () => {
+    // Guards the two gaps that made this block vacuous over the whole UI: `apps/web/app` was
+    // not scanned at all, and `sourceFiles` collected only `.ts`, so a component could not be
+    // reached even once the directory was added. Both are asserted by NAME — a count alone
+    // would survive one of them being dropped again.
+    expect(productionSources).toContain(
+      "apps/web/app/farmer/onboarding/[token]/listing-step.tsx",
+    );
+    expect(productionSources).toContain("apps/web/lib/address-lookup.ts");
+    // And the scan still excludes tests, which would otherwise trip on their own fixtures.
+    expect(
+      productionSources.filter((path) => /\.test\.tsx?$/.test(path)),
+    ).toEqual([]);
+  });
 
   it("declares no MapProvider seam or coordinate-inventing stub anywhere", () => {
     // Unchanged and unnarrowed: the allowlist does NOT apply to these names. A provider seam or

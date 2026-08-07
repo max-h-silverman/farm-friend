@@ -82,14 +82,14 @@ describe("onboarding listing step", () => {
     expect(screen.queryByLabelText(/where is it/i)).not.toBeInTheDocument();
   });
 
-  it("asks for an address and a pin once the farmer says people can visit", async () => {
+  it("asks for an address and offers to look it up once the farmer says people can visit", async () => {
     const user = userEvent.setup();
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
     await user.click(screen.getByLabelText(/there is a stand to visit/i));
 
     expect(screen.getByLabelText(/where is it/i)).toBeInTheDocument();
-    expect(screen.getByText(/tap the map/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /find this address/i })).toBeInTheDocument();
   });
 
   it("asks for NEITHER when the farmer says there is nowhere to visit", async () => {
@@ -102,7 +102,9 @@ describe("onboarding listing step", () => {
     await user.click(screen.getByLabelText(/I deliver/i));
 
     expect(screen.queryByLabelText(/where is it/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/tap the map/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /find this address/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("cannot be submitted until the visit question is answered", async () => {
@@ -111,10 +113,10 @@ describe("onboarding listing step", () => {
     expect(screen.getByRole("button", { name: /put my stand on the map/i })).toBeDisabled();
   });
 
-  it("cannot publish a visitable stand with no pin dropped", async () => {
-    // The pin is the half a farmer is most likely to skip, because the address feels like
-    // enough. Without it the stand cannot be placed on the map, so "visitable" would be a
-    // promise the system cannot keep — and the write would be refused by the database.
+  it("cannot publish a visitable stand whose address was never looked up", async () => {
+    // A typed address alone is not a location. Without a coordinate the stand cannot be
+    // placed on the map, so "visitable" would be a promise the system cannot keep — and the
+    // write would be refused by the database.
     const user = userEvent.setup();
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
@@ -639,12 +641,19 @@ describe("onboarding listing step", () => {
     });
   });
 
-  // ── F-069: the geocoded DRAFT pin ─────────────────────────────────────────────────────
+  // ── F-077: the geocoded address is the ONLY coordinate source ──────────────────────────
   //
-  // The property under test is that a LOOKUP IS A SUGGESTION. max approved reopening the
-  // no-geocoder boundary on the condition that the farmer confirms the spot, because a farm
-  // stand is often at the road rather than the mailing address and only the farmer knows.
-  describe("F-069 geocoded draft pin", () => {
+  // F-069 made the lookup a suggestion the farmer confirmed by tapping the island map. max
+  // retired that (2026-08-06): the typed address is now the sole source of a coordinate, and
+  // an address that will not resolve is REFUSED rather than fudged onto a tapped point.
+  //
+  // What that trades away, deliberately: a stand at the road rather than at the mailing
+  // address can no longer be nudged. What it buys is that no published coordinate is ever
+  // something other than the address printed beside it.
+  //
+  // The map SURVIVES as a read-only display of the geocoded point. Removing it entirely would
+  // publish a coordinate the farmer can neither see nor sanity-check.
+  describe("F-077 geocode-only placement", () => {
     /** A fetch stub that answers the lookup and the listing POST differently. */
     function stubRoutes(lookupBody: unknown, lookupOk = true) {
       const fetchMock = vi.fn(async (url: string) => {
@@ -691,26 +700,9 @@ describe("onboarding listing step", () => {
       expect(body.address).toBe("12345 Vashon Highway SW");
     });
 
-    it("does NOT let a looked-up pin publish until the farmer confirms it", async () => {
-      // THE CONDITION max APPROVED. A suggestion the farmer never looked at must not reach the
-      // map: the geocoder can save them work, never decide where their stand is.
-      const user = userEvent.setup();
-      stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
-      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
-
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
-      await user.type(screen.getByLabelText(/where is it/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /find this address/i }));
-
-      expect(
-        await screen.findByRole("button", { name: /that spot looks right/i }),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByRole("button", { name: /put my stand on the map/i }),
-      ).toBeDisabled();
-    });
-
-    it("publishes the confirmed coordinate once the farmer accepts it", async () => {
+    it("publishes the geocoded coordinate with NO confirmation step", async () => {
+      // F-077 — the lookup is now the answer, not a suggestion. A found address is
+      // immediately publishable; there is no second click between looking up and saving.
       const user = userEvent.setup();
       const fetchMock = stubRoutes({
         status: "found",
@@ -722,43 +714,59 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByLabelText(/there is a stand to visit/i));
       await user.type(screen.getByLabelText(/where is it/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /find this address/i }));
-      await user.click(
-        await screen.findByRole("button", { name: /that spot looks right/i }),
-      );
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
+
+      await screen.findByText(/found it/i);
+      expect(
+        screen.queryByRole("button", { name: /that spot looks right/i }),
+      ).not.toBeInTheDocument();
+
+      const publish = screen.getByRole("button", { name: /put my stand on the map/i });
+      expect(publish).toBeEnabled();
+      await user.click(publish);
 
       const body = bodyFor(fetchMock, "/api/farmer/listing");
       expect(body.latitude).toBeCloseTo(47.4471, 6);
       expect(body.longitude).toBeCloseTo(-122.4594, 6);
     });
 
-    it("asks the farmer to tap the map when the address is off the island", async () => {
+    it("REFUSES to publish a visitable stand whose address never resolved", async () => {
+      // The core of F-077. Before this, every lookup failure degraded to tapping the map, so
+      // a stand always reached the map somehow. Now an unresolvable address stops the
+      // publication instead of being approximated.
       const user = userEvent.setup();
-      stubRoutes({ status: "off_island" });
+      stubRoutes({ status: "no_result" });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       await user.click(screen.getByLabelText(/there is a stand to visit/i));
-      await user.type(screen.getByLabelText(/where is it/i), "1234 Pike Street");
+      await user.type(screen.getByLabelText(/where is it/i), "nowhere at all");
       await user.click(screen.getByRole("button", { name: /find this address/i }));
 
-      expect(await screen.findByRole("status")).toHaveTextContent(/not on the island|tap the map/i);
-      // No pin was offered, so the form still cannot publish.
+      await screen.findByRole("status");
       expect(
         screen.getByRole("button", { name: /put my stand on the map/i }),
       ).toBeDisabled();
     });
 
-    it("falls back to tapping the map on any lookup failure", async () => {
-      for (const body of [{ status: "no_result" }, { status: "not_configured" }]) {
+    it("asks the farmer to correct the address when the ADDRESS is the problem", async () => {
+      // The two failures the farmer can actually act on: the geocoder found nothing, or found
+      // something off the island. Both mean the typed address needs fixing.
+      for (const body of [{ status: "no_result" }, { status: "off_island" }]) {
         const user = userEvent.setup();
         stubRoutes(body);
-        render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+        render(
+          <ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />,
+        );
 
         await user.click(screen.getByLabelText(/there is a stand to visit/i));
         await user.type(screen.getByLabelText(/where is it/i), "somewhere");
         await user.click(screen.getByRole("button", { name: /find this address/i }));
 
-        expect(await screen.findByRole("status")).toHaveTextContent(/tap the map/i);
+        const note = await screen.findByRole("status");
+        expect(note).toHaveTextContent(/check the address/i);
+        // The retired copy offered "tap the map to show where your stand is", which now
+        // describes an interaction that does not exist. Asserted absent, or this passes on
+        // the old sentence forever.
+        expect(note).not.toHaveTextContent(/tap the map/i);
         expect(
           screen.getByRole("button", { name: /put my stand on the map/i }),
         ).toBeDisabled();
@@ -766,38 +774,173 @@ describe("onboarding listing step", () => {
       }
     });
 
-    it("a TAP is its own confirmation, needing no second click", async () => {
-      // The farmer touching the map is them stating where the stand is. Requiring a further
-      // confirmation of their own tap would be friction with no safety value.
+    it("does NOT blame the farmer's address when the GEOCODER is unconfigured", async () => {
+      // A different failure with a different owner. `not_configured` is Farm Friend unable to
+      // look anything up — telling the farmer to check an address that may be perfectly
+      // correct sends them editing a field that was never the problem, and they would never
+      // succeed however many times they tried.
+      //
+      // This is the case DEVELOPMENT.md's geocoder exemption used to cover by degrading to a
+      // tap. With no tap left, an unconfigured geocoder genuinely means no visitable stand can
+      // be created, so the form has to say so plainly rather than imply a fixable mistake.
       const user = userEvent.setup();
-      const fetchMock = stubRoutes({ status: "no_result" });
+      stubRoutes({ status: "not_configured" });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       await user.click(screen.getByLabelText(/there is a stand to visit/i));
       await user.type(screen.getByLabelText(/where is it/i), "12345 Vashon Highway SW");
+      await user.click(screen.getByRole("button", { name: /find this address/i }));
 
-      const map = screen.getByRole("img", { name: /map of vashon/i });
-      // jsdom gives every element a zero-size rect, so the component's guard would reject the
-      // tap. Stubbed to a real size, which is what a browser reports.
-      map.getBoundingClientRect = () =>
-        ({ left: 0, top: 0, width: 400, height: 600 }) as DOMRect;
-      await user.click(map);
+      const note = await screen.findByRole("status");
+      expect(note).toHaveTextContent(/unavailable/i);
+      expect(note).toHaveTextContent(/VIGA/);
+      expect(note).not.toHaveTextContent(/check the address/i);
+      expect(note).not.toHaveTextContent(/tap the map/i);
+      expect(
+        screen.getByRole("button", { name: /put my stand on the map/i }),
+      ).toBeDisabled();
+    });
+
+    it("refuses when the lookup itself throws, rather than publishing unplaced", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (String(url).includes("address-lookup")) throw new Error("network down");
+          return { ok: true, status: 200, json: async () => ({ status: "saved" }) };
+        }) as unknown as typeof fetch,
+      );
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.type(screen.getByLabelText(/where is it/i), "12345 Vashon Highway SW");
+      await user.click(screen.getByRole("button", { name: /find this address/i }));
+
+      expect(await screen.findByRole("status")).toHaveTextContent(/check the address|correct/i);
+      expect(
+        screen.getByRole("button", { name: /put my stand on the map/i }),
+      ).toBeDisabled();
+    });
+
+    it("a THROWN lookup discards a stored coordinate too, on an edit form", async () => {
+      // The network-failure twin of the test below. The two refusal paths — a status the
+      // geocoder returned, and the fetch throwing — clear the pin independently, so each
+      // needs its own proof: a sabotage removing `setPin(null)` from the catch branch alone
+      // left every other test in this file green.
+      const user = userEvent.setup();
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) => {
+          if (String(url).includes("address-lookup")) throw new Error("network down");
+          return { ok: true, status: 200, json: async () => ({ status: "saved" }) };
+        }) as unknown as typeof fetch,
+      );
+
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...EDIT_DEFAULTS,
+            visitability: "visitable" as const,
+            publicAddress: "12345 Vashon Highway SW",
+            latitude: 47.4471,
+            longitude: -122.4594,
+          }}
+        />,
+      );
+
+      expect(
+        screen.getByRole("button", { name: /save|publish|put my stand/i }),
+      ).toBeEnabled();
+
+      await user.click(screen.getByRole("button", { name: /find this address/i }));
+      await screen.findByRole("status");
+
+      expect(
+        screen.getByRole("button", { name: /save|publish|put my stand/i }),
+      ).toBeDisabled();
+    });
+
+    it("EDITING THE ADDRESS CLEARS THE PIN, so A's coordinate cannot publish under B", async () => {
+      // The sharp edge F-077 creates. With no tap and no confirm gate, a farmer who looks up
+      // address A and then edits the text to address B would otherwise publish A's coordinate
+      // labelled as B — a customer sent to the wrong place with nothing to show anything was
+      // wrong. This bug did not exist under F-069, because a tap re-confirmed.
+      const user = userEvent.setup();
+      stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      const addressField = screen.getByLabelText(/where is it/i);
+      await user.type(addressField, "12345 Vashon Highway SW");
+      await user.click(screen.getByRole("button", { name: /find this address/i }));
+
+      await screen.findByText(/found it/i);
+      expect(screen.getByRole("button", { name: /put my stand on the map/i })).toBeEnabled();
+
+      // The farmer changes their mind about the address.
+      await user.type(addressField, " Unit B");
 
       expect(
         screen.getByRole("button", { name: /put my stand on the map/i }),
-      ).toBeEnabled();
-      expect(
-        screen.queryByRole("button", { name: /that spot looks right/i }),
-      ).not.toBeInTheDocument();
-
-      await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
-      const body = bodyFor(fetchMock, "/api/farmer/listing");
-      expect(typeof body.latitude).toBe("number");
-      expect(typeof body.longitude).toBe("number");
+      ).toBeDisabled();
+      expect(screen.queryByText(/found it/i)).not.toBeInTheDocument();
     });
 
-    it("a tap REPLACES an unconfirmed suggestion", async () => {
-      // The farmer disagreeing with the lookup is the case this whole design exists for.
+    it("a FAILED lookup discards a STORED coordinate, on an edit form", async () => {
+      // The one path where the refusal branch's own pin-clearing is load-bearing.
+      //
+      // `changeAddress` covers the farmer who retypes: the pin is gone before the second
+      // lookup runs. It does NOT cover an EDIT form, where the pin arrives from the saved
+      // listing and the address is never touched. A returning farmer who presses "find this
+      // address" and gets a failure would otherwise keep a coordinate the geocoder has just
+      // said it cannot confirm, and publish it as though it had.
+      //
+      // Verified reachable by sabotage: removing `setPin(null)` from the refusal branch
+      // leaves every other test in this file green.
+      const user = userEvent.setup();
+      const fetchMock = vi.fn(async (url: string) => {
+        if (String(url).includes("address-lookup")) {
+          return { ok: true, status: 200, json: async () => ({ status: "no_result" }) };
+        }
+        return { ok: true, status: 200, json: async () => ({ status: "saved" }) };
+      }) as unknown as typeof fetch;
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...EDIT_DEFAULTS,
+            visitability: "visitable" as const,
+            publicAddress: "12345 Vashon Highway SW",
+            latitude: 47.4471,
+            longitude: -122.4594,
+          }}
+        />,
+      );
+
+      // Arrives publishable, on the stored coordinate.
+      expect(
+        screen.getByRole("button", { name: /save|publish|put my stand/i }),
+      ).toBeEnabled();
+
+      // The farmer re-runs the lookup without editing anything, and it fails.
+      await user.click(screen.getByRole("button", { name: /find this address/i }));
+      await screen.findByRole("status");
+
+      expect(
+        screen.getByRole("button", { name: /save|publish|put my stand/i }),
+      ).toBeDisabled();
+      expect(screen.queryByText(/found it/i)).not.toBeInTheDocument();
+    });
+
+    it("shows the geocoded point on a map the farmer cannot tap", async () => {
+      // The map stays as a read-only DISPLAY. Publishing a coordinate the farmer can neither
+      // see nor sanity-check would be worse than the lookup being wrong, because nothing on
+      // screen would show it. But it is no longer an input: there is no placement to make.
       const user = userEvent.setup();
       const fetchMock = stubRoutes({
         status: "found",
@@ -809,22 +952,26 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByLabelText(/there is a stand to visit/i));
       await user.type(screen.getByLabelText(/where is it/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /find this address/i }));
-      await screen.findByRole("button", { name: /that spot looks right/i });
+      await screen.findByText(/found it/i);
 
       const map = screen.getByRole("img", { name: /map of vashon/i });
+      expect(map).toBeInTheDocument();
+      // No instruction to tap, and nothing telling the farmer one would do anything.
+      expect(map.getAttribute("aria-label") ?? "").not.toMatch(/tap/i);
+      expect(screen.queryByText(/tap the map/i)).not.toBeInTheDocument();
+
+      // A tap MOVES NOTHING. Asserted against the published coordinate rather than against a
+      // call count, because the geocoded value is the thing that must survive: a tap handler
+      // that overwrote the pin would reintroduce exactly the coordinate-vs-address divergence
+      // F-077 removes, and would do it without any extra fetch to count.
       map.getBoundingClientRect = () =>
         ({ left: 0, top: 0, width: 400, height: 600 }) as DOMRect;
       await user.click(map);
-
-      // The confirmation prompt is gone, because the tap already settled it.
-      expect(
-        screen.queryByRole("button", { name: /that spot looks right/i }),
-      ).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /put my stand on the map/i }));
 
       const body = bodyFor(fetchMock, "/api/farmer/listing");
-      // Not the looked-up coordinate: the farmer's own tap won.
-      expect(body.latitude).not.toBeCloseTo(47.4471, 6);
+      expect(body.latitude).toBeCloseTo(47.4471, 6);
+      expect(body.longitude).toBeCloseTo(-122.4594, 6);
     });
 
     it("does not look up a blank address", async () => {
@@ -974,12 +1121,24 @@ describe("onboarding listing step", () => {
       expect(screen.getByLabelText("Anything else you take?")).toHaveValue("Goats");
     });
 
-    it("keeps the existing pin CONFIRMED, so an edit is not a re-placement", () => {
-      // The pin the farmer placed is already their own answer. Treating it as an unconfirmed
-      // draft would make every edit require re-tapping the map.
+    it("arrives PUBLISHABLE, so an edit is not a forced re-lookup", async () => {
+      // A stand already on the map has a coordinate, and it is already the farmer's answer.
+      // Requiring a fresh lookup before they could save an unrelated change would make every
+      // edit a re-placement — and would strand any farmer whose address no longer resolves.
+      //
+      // The old assertion here checked for the ABSENCE of "tap the map to place", copy that
+      // F-077 deleted everywhere. It would have passed forever while proving nothing.
+      const fetchMock = stubFetch({ ok: true });
+      const user = userEvent.setup();
       renderEdit();
 
-      expect(screen.queryByText(/tap the map to place/i)).not.toBeInTheDocument();
+      const publish = screen.getByRole("button", { name: /save|publish|put my stand/i });
+      expect(publish).toBeEnabled();
+      await user.click(publish);
+
+      const body = posted(fetchMock);
+      expect(body.latitude).toBe(47.4471);
+      expect(body.longitude).toBe(-122.4594);
     });
 
     it("RESAVES an untouched edit form unchanged, field for field", async () => {

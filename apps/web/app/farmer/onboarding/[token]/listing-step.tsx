@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import {
-  ISLAND_VIEWBOX,
-  projectToIsland,
-  unprojectFromIsland,
-} from "@farm-friend/core/island-projection";
+// `unprojectFromIsland` is NO LONGER imported: F-077 removed the tap that needed it. It is
+// deliberately still exported from the projection module — its own tests use it to prove the
+// projection round-trips, which is load-bearing evidence for the FORWARD projection the public
+// map depends on.
+import { ISLAND_VIEWBOX, projectToIsland } from "@farm-friend/core/island-projection";
 // TYPE-ONLY, so nothing in the database package reaches this client bundle. The shape is
 // IMPORTED rather than restated: B-037 was a restated `ListingDefaults` drifting out of
 // agreement with what the writer stores, and a second hand-written copy of these twelve
@@ -23,12 +23,20 @@ import { IslandArtwork } from "../../../island-artwork";
  * sends a customer driving to a place with nothing to buy. So the form ASKS first, and the
  * address and pin only exist once the farmer says there is somewhere to go.
  *
- * **The pin is a DRAFT the farmer confirms, never a lookup's answer** (F-069, max reopened the
- * no-geocoder boundary for onboarding on 2026-08-05). Typing an address offers a suggested spot;
- * the farmer confirms it or taps to move it, and only the confirmed coordinate is submitted. The
- * geocoder cannot be the authority: rural Vashon is where address lookup is weakest, and a farm
- * stand is often at the road rather than at the mailing address — which only the farmer knows.
- * Every lookup failure falls back to tapping the map, which is how this worked before F-069.
+ * **The typed address is the ONLY source of a coordinate** (F-077, max 2026-08-06). F-069 made
+ * the lookup a draft the farmer confirmed by tapping the island; that tap, that confirm gate,
+ * and the whole pin-picker interaction are gone. An address that will not resolve is REFUSED
+ * and the farmer is asked to correct it — no approximation, no fallback.
+ *
+ * What that trades away is real and was chosen deliberately: a stand at the road rather than at
+ * the mailing address can no longer be nudged, and rural Vashon is where lookup is weakest. What
+ * it buys is that a published coordinate is never something other than the address printed
+ * beside it. The map SURVIVES as a read-only display, because a coordinate the farmer never sees
+ * is one they cannot sanity-check.
+ *
+ * The sharp edge this creates, and where it is handled: with no tap and no confirmation,
+ * editing the address after a successful lookup must DISCARD the coordinate, or address A's
+ * point publishes under address B. See `changeAddress`.
  *
  * **Payment methods are a closed set with a free-text tail** (F-069). They were one comma box
  * into an unconstrained column, so "venmo" and "Venmo" became two values no filter could join —
@@ -118,12 +126,16 @@ type SeasonKind = (typeof SEASON_OPTIONS)[number]["value"];
 type HoursKind = (typeof HOURS_OPTIONS)[number]["value"];
 type StockingKind = (typeof STOCKING_OPTIONS)[number]["value"];
 
-/** A pin, and whether the farmer has accepted it. A suggestion is not an answer. */
-interface DraftPin {
+/**
+ * Where the stand is, as resolved from the typed address (F-077).
+ *
+ * There is no `confirmed` flag any more. A pin exists exactly when the CURRENT address text
+ * resolved to a point — editing the address clears it — so "present" and "accepted" collapse
+ * into one state rather than two that can disagree.
+ */
+interface GeocodedPin {
   latitude: number;
   longitude: number;
-  /** `false` while it is a lookup's suggestion awaiting the farmer's confirmation. */
-  confirmed: boolean;
 }
 
 /**
@@ -251,12 +263,13 @@ export function ListingStep({
     "visitable" | "contact_only" | null
   >(defaults?.visitability ?? null);
   const [address, setAddress] = useState(defaults?.publicAddress ?? "");
-  const [pin, setPin] = useState<DraftPin | null>(
+  const [pin, setPin] = useState<GeocodedPin | null>(
     defaults?.latitude != null && defaults.longitude != null
-      ? // Already the farmer's own confirmed coordinate, so it is not a draft awaiting
-        // confirmation — requiring them to re-confirm a pin they placed earlier would make
-        // every edit a re-placement.
-        { latitude: defaults.latitude, longitude: defaults.longitude, confirmed: true }
+      ? // A stand already on the map has a coordinate, and it belongs to the address stored
+        // beside it. Requiring a fresh lookup before an unrelated edit could be saved would
+        // make every edit a re-placement — and would strand a farmer whose address has since
+        // stopped resolving.
+        { latitude: defaults.latitude, longitude: defaults.longitude }
       : null,
   );
   const [lookingUp, setLookingUp] = useState(false);
@@ -296,32 +309,29 @@ export function ListingStep({
   const [saved, setSaved] = useState(false);
 
   /**
-   * Read a tap as a coordinate.
+   * Change the address, and DISCARD any coordinate the old text resolved to (F-077).
    *
-   * The SVG's own user-space is the artwork's viewBox, so a click's `offsetX`/`offsetY` would
-   * be in CSS pixels and wrong at every size but one. `getBoundingClientRect` plus the
-   * viewBox ratio converts once, here, rather than assuming the drawing is displayed at its
-   * intrinsic size — it never is, since it scales to the phone.
-   *
-   * A tap always CONFIRMS: the farmer touching the map is them stating where their stand is,
-   * whether or not a lookup suggested something first.
+   * This is the sharp edge geocode-only placement creates. With no tap and no confirmation
+   * gate, a farmer who looks up address A and then edits the text to address B would publish
+   * A's coordinate labelled as B — a customer driven to the wrong place, with nothing on
+   * screen indicating anything was wrong. Under F-069 a tap re-confirmed and the two could
+   * not drift; now the only thing keeping the address and the point in agreement is that
+   * ONE of them is derived from the other, and this is where that is enforced.
    */
-  function drop(event: React.MouseEvent<SVGSVGElement>): void {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    if (bounds.width === 0 || bounds.height === 0) return;
-    const x = ((event.clientX - bounds.left) / bounds.width) * ISLAND_VIEWBOX.width;
-    const y = ((event.clientY - bounds.top) / bounds.height) * ISLAND_VIEWBOX.height;
-    const point = unprojectFromIsland({ x, y });
-    setPin({ ...point, confirmed: true });
+  function changeAddress(next: string): void {
+    setAddress(next);
+    setPin(null);
     setLookupNote(null);
   }
 
   /**
-   * Offer a spot for the typed address, as an UNCONFIRMED draft.
+   * Resolve the typed address to the coordinate the stand publishes at (F-077).
    *
-   * Every failure — no result, off the island, no geocoder configured, a network error — leaves
-   * the farmer tapping the map, which is the behaviour that predates this lookup. The suggestion
-   * can only save work; it can never place a stand on its own.
+   * **The lookup is now the ONLY source of a coordinate**, where F-069 made it a suggestion
+   * the farmer confirmed by tapping the island. Every failure — no result, off the island, no
+   * geocoder configured, a network error — REFUSES, and asks the farmer to correct the
+   * address. There is no fallback, deliberately: the alternative was a coordinate that did not
+   * come from the address printed next to it.
    */
   async function findAddress(): Promise<void> {
     if (lookingUp || address.trim() === "") return;
@@ -344,26 +354,28 @@ export function ListingStep({
         typeof body.latitude === "number" &&
         typeof body.longitude === "number"
       ) {
-        // UNCONFIRMED. The farmer has to say this is right before it can be submitted.
-        setPin({
-          latitude: body.latitude,
-          longitude: body.longitude,
-          confirmed: false,
-        });
-        setLookupNote(
-          "Is this the right spot? Tap the map to move it, or say it looks right.",
-        );
+        setPin({ latitude: body.latitude, longitude: body.longitude });
+        setLookupNote(null);
         return;
       }
+      // Refusals. Each says what to do — correct the address — because that is now the only
+      // thing that CAN be done. A failure leaves the stand unpublishable rather than placed
+      // approximately, which is the whole of max's call on this.
+      setPin(null);
       setLookupNote(
         body.status === "off_island"
-          ? "That address does not look like it is on the island. Tap the map to show " +
-              "where your stand is."
-          : "We could not find that address. Tap the map to show where your stand is.",
+          ? "That address does not look like it is on Vashon or Maury. Check the address " +
+              "and try again."
+          : body.status === "not_configured"
+            ? "Address lookup is unavailable right now, so a stand people can visit cannot " +
+                "be put on the map yet. Contact VIGA and they will sort it out."
+            : "We could not find that address. Check the address and try again — a house " +
+                "number and street name usually works best.",
       );
     } catch {
+      setPin(null);
       setLookupNote(
-        "We could not look that up. Tap the map to show where your stand is.",
+        "We could not look that up. Check the address and your connection, then try again.",
       );
     } finally {
       setLookingUp(false);
@@ -412,12 +424,13 @@ export function ListingStep({
   }
 
   const visitable = visitability === "visitable";
-  // A pin the farmer has not confirmed does not count. This is what makes the lookup a draft.
-  const placed = pin !== null && pin.confirmed;
+  // F-077 — a visitable stand needs an address that RESOLVED. The pin is cleared whenever the
+  // address text changes, so `pin !== null` means "this address, as currently typed, has a
+  // coordinate" rather than merely "a coordinate was found at some point".
   const ready =
     standName.trim() !== "" &&
     visitability !== null &&
-    (!visitable || (address.trim() !== "" && placed));
+    (!visitable || (address.trim() !== "" && pin !== null));
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -645,13 +658,16 @@ export function ListingStep({
             id="stand-address"
             type="text"
             value={address}
-            onChange={(event) => setAddress(event.target.value)}
+            // Editing DISCARDS the coordinate the previous text resolved to — see
+            // `changeAddress`. This is what stops one address publishing under another.
+            onChange={(event) => changeAddress(event.target.value)}
             placeholder="12345 Vashon Highway SW"
             maxLength={300}
           />
           {/*
-            The lookup OFFERS a spot; it never sets one. `type="button"` matters — inside a form
-            a bare button submits, which would try to publish the listing on a lookup.
+            `type="button"` matters — inside a form a bare button submits, which would try to
+            publish the listing on a lookup, with no coordinate and a refusal the farmer did
+            not ask for.
           */}
           <button
             type="button"
@@ -663,61 +679,48 @@ export function ListingStep({
           </button>
 
           {/*
-            The pin. A lookup can suggest it, but only the farmer's confirmation commits it —
-            they know whether the stand is at the house or down at the road.
+            The map is a READ-ONLY DISPLAY of where the address resolved (F-077). It carries no
+            click handler: there is no placement for a farmer to make, because the address is
+            the only thing that decides the coordinate.
+
+            It is not merely decoration, though, which is why it survived the pin picker. A
+            coordinate published without ever being shown is one the farmer cannot sanity-check
+            — and a geocoder putting a Vashon Highway address at the wrong end of the island is
+            exactly the mistake a glance catches and no validation can.
           */}
-          <p className="farmer-listing-map-label" id="pin-instruction">
-            Tap the map to show where your stand is.
-          </p>
-          <svg
-            className="farmer-listing-map"
-            viewBox={`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`}
-            role="img"
-            aria-describedby="pin-instruction"
-            aria-label="Map of Vashon and Maury Island. Tap to place your stand."
-            onClick={drop}
-          >
-            <IslandArtwork />
-            {pinPoint === null ? null : (
-              <g>
-                <circle
-                  cx={pinPoint.x}
-                  cy={pinPoint.y}
-                  r={14}
-                  className={
-                    placed ? "farmer-listing-pin" : "farmer-listing-pin-draft"
-                  }
-                />
-              </g>
-            )}
-          </svg>
+          {pinPoint === null ? null : (
+            <>
+              <p className="farmer-listing-map-label" id="pin-instruction">
+                Found it. This is where people will be sent — check it looks right.
+              </p>
+              <svg
+                className="farmer-listing-map"
+                viewBox={`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`}
+                role="img"
+                aria-describedby="pin-instruction"
+                aria-label="Map of Vashon and Maury Island, showing your stand's location."
+              >
+                <IslandArtwork />
+                <g>
+                  <circle
+                    cx={pinPoint.x}
+                    cy={pinPoint.y}
+                    r={14}
+                    className="farmer-listing-pin"
+                  />
+                </g>
+              </svg>
+            </>
+          )}
           {lookupNote === null ? null : (
             <p className="farmer-form-note" role="status">
               {lookupNote}
             </p>
           )}
-          {/*
-            The confirmation. Present ONLY while a suggested pin is unconfirmed, so the farmer
-            cannot publish a looked-up coordinate they never looked at.
-          */}
-          {pin !== null && !pin.confirmed ? (
-            <button
-              type="button"
-              className="farmer-listing-confirm"
-              onClick={() => {
-                setPin({ ...pin, confirmed: true });
-                setLookupNote(null);
-              }}
-            >
-              That spot looks right
-            </button>
-          ) : null}
-          {placed ? (
-            <p className="farmer-form-note" role="status">
-              Spot chosen. Tap again to move it.
+          {pin === null && lookupNote === null ? (
+            <p className="farmer-form-note">
+              Type your address and look it up, so people can find your stand.
             </p>
-          ) : pin === null ? (
-            <p className="farmer-form-note">No spot chosen yet.</p>
           ) : null}
         </>
       ) : null}

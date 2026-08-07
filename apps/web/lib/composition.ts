@@ -83,9 +83,15 @@ export interface AppConfig {
   /**
    * F-069 — the Google Geocoding key for the onboarding DRAFT pin lookup.
    *
-   * OPTIONAL, and absent is a supported state: with no key the onboarding form falls back to
-   * pin-dropping, which was the only behaviour before F-069 and is still the authority. The
-   * farmer's tap decides where the stand is; the geocoder only saves them the work of finding it.
+   * OPTIONAL — but F-077 changed what absence COSTS, and this comment used to describe a
+   * fallback that no longer exists. There is no pin-dropping any more: the typed address is
+   * the only source of a coordinate, so **with no key configured, no visitable stand can be
+   * created at all.** A contact-only listing still works, because it carries no coordinate.
+   *
+   * Left optional rather than made required, deliberately: the key bills per call, and a
+   * deployment that cannot geocode should degrade to refusing visitable stands with an honest
+   * message rather than failing to boot. The form says lookup is unavailable and points the
+   * farmer at VIGA.
    *
    * Read server-side only. A geocoding key in client JavaScript is a published key, and this one
    * bills per call.
@@ -283,9 +289,9 @@ export function resolveConfig(env: EnvVars = process.env): AppConfig {
     phoneSalt: required(env, "PHONE_HASH_SALT"),
     publicBaseUrl: resolvePublicBaseUrl(env),
     publicMapUrl: resolvePublicMapUrl(env),
-    // Optional by design: absent means the onboarding form asks the farmer to tap the map,
-    // exactly as it did before F-069. An empty string is treated as absent so a blank
-    // deployment variable does not become a key that fails on every call.
+    // Optional by design, but NOT free: absent means no visitable stand can be created
+    // (F-077 removed the tap-the-map fallback). An empty string is treated as absent so a
+    // blank deployment variable does not become a key that fails on every call.
     geocodingApiKey: env.GEOCODING_API_KEY || undefined,
     sms: sms.config,
     model,
