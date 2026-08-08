@@ -11,136 +11,113 @@ Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **30 migrat
 (`0000`–`0029`). Cloud Run web is revision `farm-friend-web-00043-bn7`; worker is
 `farm-friend-worker-00041-g59`.
 
+**The DATA is current; the CODE is several releases behind.** Revision `00043` runs the image built
+from `main` at `6ab087e`, started only to pick up a rotated secret. Everything merged since is
+undeployed. **A deploy is owed and is the next release step.**
+
 **Two migrations are written and unapplied in production**: `0030_stand_item_price` and
-`0031_invitation_pending_stock` (F-090). Both are verified by effect against a fresh local
-database and applied to local dev. `0031` **recreates the `inventory_revision_source` enum** to
-add `web` — a plain `ALTER TYPE … ADD VALUE` cannot work here, because the migrator runs every
-pending migration in one transaction and Postgres refuses to use a new value in the transaction
-that added it.
+`0031_invitation_pending_stock` (F-090). Both verified by effect against a fresh database and
+applied to local dev. `0031` **recreates the `inventory_revision_source` enum** to add `web`.
 
-**The DATA is current; the CODE is one release behind.** Revision `00043` runs the image built from
-`main` at `6ab087e` — it was started only to pick up a rotated secret, not to ship code. Everything
-merged after that (the weekly-ingest fixes, host participants, GL-015 backfill, the geocoding status
-fix, the map cleanup, B-039's day parsing) is **on `main` and not yet deployed**. A deploy is owed
-and is the next release step.
+**Production data was rebuilt from the CSVs on 2026-08-08.** Verified counts after the final
+re-seed: 35 farms / 35 sales locations / 35 live approvals; 35 `farm_links`, 53 payment methods, 10
+participants; 15 dated confirmations, all `source = 'viga'`; `open_days` on 24 of 35; 38 farm emails
+across 32 farms; 1 administrator; **0 consents and 0 farmer authorizations**.
 
-**Production data was rebuilt from scratch on 2026-08-08** (max: "nuke the entire production db,
-re-ingest and start fresh"), then rebuilt a second time after B-039 so the day data landed. Current
-verified state, queried after the final re-seed:
+The rebuild **deleted 3 real SMS consent records** (max's explicit call). Those numbers must each
+text `START` again before Farm Friend can message them — we cannot text first. The pre-wipe dump is
+at `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`, verified restorable; it is the only
+copy of that evidence.
 
-| | |
-|---|---|
-| Farms / sales locations | 35 / 35 |
-| Farm approvals (live) | 35, attributed to `board@vigavashon.org` |
-| `farm_links` / payment methods / participants | 35 / 53 / 10 |
-| Dated confirmations | 15, all `source = 'viga'`, no handset keys |
-| `open_days` populated | 24 of 35 |
-| Farm email roster | 38 emails across 32 farms |
-| Administrators | 1 |
-| Consents / farmer authorizations | 0 / 0 |
-
-The wipe **deleted 3 real SMS consent records** (max chose this explicitly over preserving them).
-Those numbers must each text `START` again before Farm Friend can message them — we cannot text
-first. The pre-wipe database is at `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`,
-verified restorable with all three consent rows intact; it is the only copy of that evidence.
-
-**Two restore steps the seeders do NOT cover**, both learned by hitting them: the fixed
-administrator (`bootstrap-administrator.ts`) and the farm email roster
-(`ingest-farm-emails.ts`, which must reuse the stored `EMAIL_HASH_SALT` or no farmer can verify).
-Neither is in the CSVs. The salt survived the wipe and was reused; verified behaviourally by hashing
-a known farm email through the shipped `hashEmail` and resolving the row back to that farm.
+**Two restore steps the seeders do NOT cover**: the fixed administrator
+(`bootstrap-administrator.ts`) and the farm email roster (`ingest-farm-emails.ts`, which must reuse
+the stored `EMAIL_HASH_SALT` or no farmer can verify). Neither is in the CSVs.
 
 **Nothing has been exercised against Telnyx or in a browser on production.** The `START` onboarding
-path is proven through the real webhook handler against real Postgres only. No SMS has completed
-onboarding on the deployed code, and no farmer has filled in the form on production.
+path is proven through the real webhook handler against real Postgres only.
 
-**Secrets and mount flags.** Web mounts `GEOCODING_API_KEY`, `SMTP_PASSWORD`, and F-079's three;
-**the worker mounts none of them**, asserted unconditionally so flipping a flag can never hand a
-salt to a process with no use for it. `infra/production.tfvars` is what keeps that true across
-applies — every `mount_*` variable defaults to false, so a plan without `-var-file` silently
-unmounts whatever the last apply enabled. `plan-assertions.py` fails by name on any plan that would
-unmount a live secret.
+### Secrets
 
-**`EMAIL_HASH_SALT` can never be rotated** without re-ingesting the roster. A mismatch between it
-and the ingest is this feature's quietest failure: every farmer's correct address fails to match,
-nothing errors, and the door verifies nobody.
-
-**The migration door's secret is obscurity, not a credential** — do not post it anywhere indexable.
-Retrieve with `gcloud secrets versions access latest --secret=farm-friend-farmer-start-secret
---project farm-friend-vashon`. Rotating it is one new version plus an apply, and invalidates links
-already sent.
+- **Web mounts** `GEOCODING_API_KEY`, `SMTP_PASSWORD`, and F-079's three; **the worker mounts
+  none**, asserted unconditionally. `infra/production.tfvars` keeps that true across applies — every
+  `mount_*` defaults to false, so a plan without `-var-file` silently unmounts whatever the last
+  apply enabled. `plan-assertions.py` fails by name on any plan that would unmount a live secret.
+- **`EMAIL_HASH_SALT` can never be rotated** without re-ingesting the roster. A mismatch is this
+  feature's quietest failure: every correct address fails to match, nothing errors, nobody verifies.
+- **The migration door's secret is obscurity, not a credential** — never post it anywhere indexable.
+  `gcloud secrets versions access latest --secret=farm-friend-farmer-start-secret --project
+  farm-friend-vashon`. Rotating it invalidates links already sent.
 
 ## Verification
 
-**Latest, 2026-08-08** (F-090 — onboarding wizard, tabbed edit view, item prices, held stock):
-**1646 unit** (133 files), **840 integration** (59 files), typecheck, lint. Integration ran against
-**local Postgres**, never Neon. No `packages/ai` file changed, so no `evals`/`evals:live` run was
-owed — the SMS answer renders location names and addresses only, never item text, so prices reach
-no model seam.
-
-Both F-090 pages were also exercised against the **running app**, which caught what no suite could:
-the local dev database had never had `0030`/`0031` applied, so every page reading the new columns
-returned 500 while every test stayed green (each builds its own database). The served stylesheet was
-checked for the new class names by fetching its bytes, not by reading the source.
+**Latest, 2026-08-08** (F-090 + admin sign-in): **1652 unit** (134 files), **840 integration** (59
+files), typecheck, lint. Integration ran against **local Postgres**, never Neon. No `packages/ai`
+file changed and prices reach no model seam, so no `evals`/`evals:live` was owed.
 
 **Last `evals:live`: 2026-08-06, 25/25** against `mistralai/Mistral-Small-24B-Instruct-2501`
 (containment 4/4, closure 7/7, quality 9/9, recall 5/5). Owed again on any change to a seam's
 projection, schema, or output contract.
 
 Standing rules: real-Postgres integration runs from an empty schema against local Postgres, **never**
-production Neon. Never carry an old test count forward as current evidence. Per-tranche verification
-narratives live in [SESSION_LOG.md](SESSION_LOG.md).
+production Neon. Never carry an old test count forward as current evidence. **Tests each build their
+own database, so a green suite says nothing about the local dev database** — a missing migration
+there 500s every page while all 1652 pass. Per-tranche narratives live in
+[SESSION_LOG.md](SESSION_LOG.md).
 
 ## Standing facts a cold start needs
 
 Reasoning, the defects found on the way, and the sabotage lists: [SESSION_LOG.md](SESSION_LOG.md).
 
-**Onboarding completes by a bare `START`, matched by phone.** `JOIN <token>` is gone — a farmer
-hand-copying 64 hex characters failed silently on any slip. The farmer states a phone on the
+**Onboarding completes by a bare `START`, matched by phone.** The farmer states a phone on the
 onboarding form (`farmer_invitations.pending_phone_*`); an inbound bare `START` matches it against
-unredeemed invitations and runs the redemption. `JOIN` remains a registered compliance opt-in, and
-`JOIN` followed by anything is ordinary free text.
+unredeemed invitations and runs the redemption. `JOIN <token>` is gone; `JOIN` remains a registered
+compliance opt-in, and `JOIN` followed by anything is ordinary free text.
 
 - **The consent rule differs by credential, and inverting it is the trap.** The phone path must NOT
   pass `firstTimeOnly` — `START` is the carrier's own keyword and the only word that clears its
-  opt-out list, so it is exactly what a *returning* farmer sends. Refusing an existing record would
-  spend their invitation and leave consent `stopped` with nothing reporting it. The token path kept
-  the flag (B-011). A web form still cannot re-enroll an opted-out person, because a tick writes no
-  consent at all.
+  opt-out list, so it is exactly what a *returning* farmer sends. The token path kept the flag
+  (B-011). A web form still cannot re-enroll an opted-out person: a tick writes no consent at all.
 - **Only `START` may complete onboarding, never bare `JOIN`** — `JOIN` cannot lift a carrier block.
-- **The carrier transition runs first, the redemption second.** `START` enrolls unconditionally
-  whether or not an invitation is waiting.
+- **The carrier transition runs first, the redemption second.**
 - **The SMS agreement is a field on the listing form, above Submit, and gates it.** Without
-  `agreed_to_sms_at` the redemption authorizes nobody. `AgreementStep` is deleted.
-- **A mistyped phone has no other signal**, which is why the confirm dialog blocks: ten valid digits
-  are indistinguishable from the right ten. A wrong number grants nothing and leaves the invitation
-  unredeemed and retryable.
+  `agreed_to_sms_at` the redemption authorizes nobody.
+- **A mistyped phone has no other signal**, which is why the confirm dialog blocks.
+
+**A dated stock claim declares one of three provenances** (F-063, F-090), and a CHECK makes them
+mutually exclusive: `sms` names a proposal + authorization + approval; `web` names an authorization
++ approval and **no proposal** (stated on the onboarding form, published when `START` proved the
+handset); `viga` names none. Stock stated at onboarding is held on the invitation and publishes
+inside the redemption transaction — never before, because a dated claim needs someone to stand
+behind it. **Adding an enum value means recreating the type**, never `ALTER TYPE … ADD VALUE`.
 
 **Every farm is placed; `visitability` decides what the map INVITES, not what it stores.** A
-`contact_only` farm may carry a full address and coordinates. F-038's protection moved from a database
-constraint into `buildMapView` — a farm with no stand gets a pin and a `contact-only` marker but **no
-directions link** — so it is now a conditional with a test behind it rather than an unbypassable
-constraint. max accepted that trade knowingly.
+`contact_only` farm may carry a full address and coordinates. F-038's protection lives in
+`buildMapView` — a farm with no stand gets a pin and a `contact-only` marker but **no directions
+link** — a conditional with a test behind it rather than an unbypassable constraint.
 
 - **`address_public` is display-only, and the directions link needs separate suppression**, because
-  the route is built from the coordinate rather than the address string. Admin deliberately shows the
-  address, marked "hidden from customers", because support work needs it.
+  the route is built from the coordinate rather than the address string.
 - **The whole-listing writer makes every new column a B-037 risk.** `saveOnboardingListing` writes
   every column on every save, so any door or reader that cannot see a column silently reverts it.
+  **A reader that resolves a farm's stand must use the writer's exact query** — including its lack
+  of a `retired_at` filter — or a form prefills from one stand and the save replaces another.
 
 ## What is live
 
 - **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
-  names, transient browser proximity, destination links, and code-bound stock-out reporting.
-- **Farmer workflows:** deterministic bare `START` onboarding, `LINK`, `STAND`, `SETTINGS`, and
-  `SAME`; one exact stand per credential; SMS/web proposal and confirmation; closures, participants, reminders.
-  Three onboarding doors — invited, grandfathered (`/farmer/start`), and the emailed-code migration
-  door (`/farmer/start/<secret>`).
+  names, transient browser proximity, destination links, code-bound stock-out reporting, and
+  farmer-stated item prices.
+- **Farmer workflows:** deterministic bare `START` onboarding, `LINK`, `STAND`, `SETTINGS`, `SAME`;
+  one exact stand per credential; SMS/web proposal and confirmation; closures, participants,
+  reminders. Three onboarding doors — invited, grandfathered (`/farmer/start`), and the emailed-code
+  migration door (`/farmer/start/<secret>`). Onboarding is a **four-step wizard** that prefills what
+  VIGA already holds; the farmer's own stand page is **two tabs** (status/stock, details+settings).
 - **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.
-- **Administration:** fixed-account password sign-in and server-rendered farm approval, farmer
-  access, flag, stock-report, and stand-data workflows. Phones are masked at the query boundary.
+- **Administration:** fixed-account password sign-in (the signed-out screen renders the fields
+  directly) and server-rendered farm approval, farmer access, flag, stock-report, and stand-data
+  workflows. Phones are masked at the query boundary.
 - **Scheduled work:** Cloud Tasks handles immediate sender work; one Cloud Scheduler route runs
   recovery, prompts, delivery, callbacks, and retention.
 
@@ -148,12 +125,9 @@ constraint. max accepted that trade knowingly.
 
 **Owed data runs and live checks**
 
-- **A deploy is owed.** Production data is current; production *code* is the `6ab087e` image. Six
-  merged changes are undeployed, including the geocoding status fix and B-039's day badge — the
-  card still renders "Hours not listed" for stands whose `open_days` are now populated, because the
-  reading code has not shipped.
-- **F-029:** finish live carrier launch verification — the `START` onboarding path has never
-  been exercised against Telnyx from a real handset.
+- **A deploy is owed**, including migrations `0030`/`0031`.
+- **F-029:** finish live carrier launch verification — the `START` onboarding path has never been
+  exercised against Telnyx from a real handset.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.
 - **F-044:** verify public-map and authenticated-admin embeds on VIGA's actual Squarespace pages.
@@ -166,29 +140,25 @@ constraint. max accepted that trade knowingly.
 **Open build items**
 
 - **F-065 — attribution for a listing change.** A revision row carries no `admin_actor_id` and there
-  is no general admin audit log. There are now **three writers of public listing state** (invited,
-  grandfathered, edit) and none records who wrote. The edit path is the one holding an authorization
-  to attribute to.
-- **F-084 participants on the onboarding form — still not attempted**, and deliberately left out of
-  F-090. `saveSalesLocationParticipants` requires a `senderHash` (the farmer's verified phone); the
-  onboarding form holds an invitation token or a farm ID and no phone at all, so this needs a way to
-  attribute the write. F-084's own analysis allows "the field stays post-authorization" as a
-  possible right answer. Own item, own session.
-- **B-008:** replace the incomplete deployed-build lint gate. Production build warnings are
-  unchanged: Next does not recognize `outputFileTracingRoot`, and the Next ESLint plugin is not
-  installed.
+  is no general admin audit log. Three writers of public listing state, none recording who wrote.
+- **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a
+  verified `senderHash`; the onboarding form has no phone, so this needs an attribution decision
+  first. Its own analysis allows "stays post-authorization" as a possible right answer.
+- **F-076 — quantity/price editing on the today's-stock chips.** Adjacent to F-090's prices on the
+  *usual* mix; different surface, same vocabulary.
+- **B-008:** replace the incomplete deployed-build lint gate. Next does not recognize
+  `outputFileTracingRoot`, and the Next ESLint plugin is not installed.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
 - **B-036:** the "North ferry" label is clipped at the island map's top edge (cosmetic).
-- Remaining go-live work is tracked in [GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md): **GL-007** (stock-out →
-  farmer alert), **GL-008** (customer stock-out surface), **GL-015** (only its *stand-data flag*
-  half — resolving a flag still records the decision without applying a correction; the seed
-  utility's insert-only limit closed 2026-08-08), plus the P2 resilience band and P3 decisions.
+- Remaining go-live work is in [GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md): **GL-007** (stock-out → farmer
+  alert), **GL-008** (customer stock-out surface), **GL-015** (its *stand-data flag* half), plus the
+  P2 resilience band and P3 decisions.
 
-**Unverified at phone width** — jsdom reports every element as zero-sized, so these surfaces are
-covered by tests but not by eye: the farmer agreement step, the expanded stand detail, F-067's
-onboarding listing form including its map, and **F-090's four-step wizard, two-tab stand page, and
-wrapping priced item rows** — the newest and the most layout-dependent of them. Per-tranche browser
-checks are **not tracked here** (max, 2026-08-05): he runs a browser pass himself before go-live.
+**Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
+tests but not by eye: the farmer agreement step, the expanded stand detail, F-067's onboarding
+listing form and its map, and **F-090's four-step wizard, two-tab stand page, and wrapping priced
+item rows** — the newest and most layout-dependent. Per-tranche browser checks are **not tracked
+here** (max, 2026-08-05): he runs a browser pass himself before go-live.
 
 **VIGA's call, not a code question:** whether Vashon Island Farmers Market belongs in the roster as
 a farm at all — it is the market itself, not a stand with a farmer to onboard.
@@ -196,18 +166,17 @@ a farm at all — it is the market itself, not a stand with a farmer to onboard.
 ## Traps worth not rediscovering
 
 - **`VIGA Map Stands.csv` writes multi-line descriptions unquoted**, so an ordinary CSV read splits
-  one stand into many rows — a naive parse produced 275 phantom farms named things like
-  `dawn to dusk`. The real count is **31 stands**, reassembled by treating a `POINT` in the first
-  column as the only record boundary.
+  one stand into many rows — a naive parse produced 275 phantom farms. The real count is **31
+  stands**, reassembled by treating a `POINT` in the first column as the only record boundary.
 - **`drizzle-kit generate` silently drops CHECK constraints and partial unique indexes.** Hand-write
   the SQL and keep only its meta snapshot; verify by effect that each constraint genuinely refuses.
 - **A migration command can exit 0 having skipped a migration** whose journal timestamp is not
   newer. Verify the schema effect, never the exit status.
+- **A backtick inside a SQL comment ends the JS template literal.** It fails as a TypeScript syntax
+  error pointing at the query, not at the comment.
 - **`printf %s`, never `echo`, when adding a salt to Secret Manager.** A trailing newline produces
   hashes that look right in every listing and match nothing at runtime.
-- **Measuring a parser is not measuring the data.** A "53% of the text is cleaned" figure described
-  `buildStandDescription`'s *output*, not the live cards — the cleanup was deployed and had never
-  run. To say what a card shows, read `farms.description` from production.
-- **The stored prose contains malformed dates.** One row begins literally `/22/2026 Update:`, its
-  month lost upstream. Patterns anchored on a leading month digit miss it. Found by a dry run
-  against real rows; no fixture would have contained it.
+- **Measuring a parser is not measuring the data.** To say what a card shows, read
+  `farms.description` from production.
+- **The stored prose contains malformed dates.** One row begins literally `/22/2026 Update:`.
+  Patterns anchored on a leading month digit miss it.

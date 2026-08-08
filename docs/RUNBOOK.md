@@ -301,9 +301,10 @@ Corpus-specific operating facts:
 - It seeds neither inventory nor phone authorization. Inventory requires farmer confirmation;
   phones require captured consent.
 - Unresolvable coordinates become operator refusals, never fabricated points. **The seeder does no
-  geocoding.** Since F-069 the onboarding form may look an address up to offer a **draft pin the
-  farmer confirms** (`GEOCODING_API_KEY`, optional) — off-island results are refused and every
-  failure falls back to the farmer tapping the map. Nothing else in the product geocodes.
+  geocoding.** The onboarding form looks the typed address up (`GEOCODING_API_KEY`), and since F-077
+  that lookup is the **only** source of a coordinate — there is no pin picker and no fallback. Every
+  failure, including an off-island result, **refuses** and asks the farmer to correct the address;
+  editing the address afterwards discards the coordinate it resolved to. Nothing else geocodes.
 - `offering_type` and visitability are independent and classification uses the farmer's words, not
   the farm name.
 
