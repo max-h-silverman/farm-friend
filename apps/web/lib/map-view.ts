@@ -227,8 +227,6 @@ export interface MapView {
   stands: MapViewStand[];
   /** True when the list is ordered nearest-first, so the UI can say so honestly. */
   sortedByDistance: boolean;
-  /** How many listings carry a staleness warning, for the one up-front notice. */
-  staleCount: number;
 }
 
 /**
@@ -395,7 +393,6 @@ export function buildMapView(
 
   return {
     sortedByDistance: isPlausibleOrigin(origin) && stands.length > 0,
-    staleCount: stands.filter((stand) => stand.stale).length,
     stands: located.map(({ factId: _factId, ...stand }) => ({
       ...stand,
       // F-038 — no coordinates means no route. `destinationRoutingLink` already refuses an

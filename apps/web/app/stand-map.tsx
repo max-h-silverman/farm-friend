@@ -385,10 +385,6 @@ function StandSummaryMeta({ stand }: { stand: FilteredStand & MapViewStand }) {
            ? "See the map pin — no street address listed"
            : "No farm stand to visit")}
      </p>
-
-     {stand.stale === true ? (
-       <span className="stand-summary-freshness">Needs confirmation</span>
-     ) : null}
    </div>
  );
 }
@@ -1080,15 +1076,6 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           }
           ref={listColumnRef}
         >
-          {view.staleCount > 0 ? (
-            <p className="stale-summary" role="note">
-              {view.staleCount === 1
-                ? "1 listing needs a recent confirmation."
-                : `${view.staleCount} listings need a recent confirmation.`}{" "}
-              They remain visible and are labeled below.
-            </p>
-          ) : null}
-
           <div className="farm-map-key" aria-label="Farm map key">
             <span className="poster-indicator poster-indicator-no-viga-bucks">
               <span className="poster-dot" aria-hidden="true" />
@@ -1125,7 +1112,6 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                   }}
                   className={[
                     "stand",
-                    stand.stale === true ? "stand-stale" : "",
                     stand.id === selectedId ? "stand-selected" : "",
                   ]
                     .filter(Boolean)

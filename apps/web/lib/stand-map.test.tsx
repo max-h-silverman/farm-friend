@@ -711,7 +711,12 @@ describe("farm-map poster treatment", () => {
     with no test is a guarantee that leaves silently.
 
     Asserted as TEXT a customer can read, deliberately — not as a class name or an element. A
-    version of this that queried `.stand-summary-freshness` would pass against an empty span.
+    version of this that queried a class would pass against an empty span.
+
+    NARROWED (max, 2026-08-08): the "Needs confirmation" label, the amber left border, and the
+    "N listings need a recent confirmation" summary were all removed. The dated line is now the
+    whole of the word signal, which makes this test's job larger rather than smaller — it is the
+    only thing left standing between a stale stand and a card that looks fresh.
   */
   it("says staleness in words, not only in colour", async () => {
     const user = userEvent.setup();
@@ -737,18 +742,22 @@ describe("farm-map poster treatment", () => {
     const { container } = render(<StandMap stands={[stand]} />);
     await user.click(screen.getByRole("button", { name: "Wordy Stand" }));
 
-    // Signal one: the summary label, beside the address.
-    expect(container.querySelector(".stands .stand")).toHaveTextContent("Needs confirmation");
-    // Signal two: the dated label above the items, which states the age in words.
+    // The dated label above the items: the age stated in words, which is now the only
+    // non-colour signal a stale stand carries.
     expect(container.querySelector(".listing-label-confirmed")).toHaveTextContent(
       "Confirmed 6 days ago",
     );
 
-    // A fresh stand claims neither.
+    // The removed signals must stay removed: each was the same fact told a second time, and a
+    // reader reinstating one would be re-adding the noise this deletion set out to remove.
+    expect(container.textContent).not.toContain("Needs confirmation");
+    expect(container.textContent).not.toContain("need a recent confirmation");
+    expect(container.querySelector(".stale-summary")).toBeNull();
+    expect(container.querySelector(".stand-stale")).toBeNull();
+
+    // A fresh stand states its own date rather than a warning.
     const fresh = render(<StandMap stands={[{ ...stand, id: "fresh", stale: false }]} />);
-    expect(fresh.container.querySelector(".stands .stand")).not.toHaveTextContent(
-      "Needs confirmation",
-    );
+    expect(fresh.container.textContent).not.toContain("Needs confirmation");
   });
 
   /*
@@ -924,18 +933,17 @@ describe("wide-screen map follow", () => {
     );
 
     // The map is the FIRST child of its column, so the two columns' tops are the same y. The
-    // stand list is not first in its own column — a stale summary and the marker key sit above
-    // it — so a hoisted card lands that far below the map's top edge. Demoting both blocks
-    // below the list puts the card at the column's top, level with the map.
+    // stand list is not first in its own column — the marker key sits above it — so a hoisted
+    // card lands that far below the map's top edge. Demoting the key below the list puts the
+    // card at the column's top, level with the map.
     //
     // Done in CSS rather than by measuring: the columns are grid siblings, so this is a layout
     // fact and needs no geometry. That is what makes it survive inside VIGA's iframe, where
     // there is no viewport to measure against.
     expect(column).toHaveClass("list-column-hoisted");
 
-    // The preamble is REORDERED, never removed — the stale warning is a standing obligation of
-    // the product and must not disappear because a customer tapped a pin.
-    expect(within(column).getByRole("note")).toBeTruthy();
+    // The preamble is REORDERED, never removed: a customer tapping a pin must not lose the key
+    // that explains what the map's own markers mean.
     expect(within(column).getByLabelText("Farm map key")).toBeTruthy();
   });
 
