@@ -2667,6 +2667,86 @@ describe("onboarding listing step", () => {
     });
   });
 
+  describe("select all, on the days-open field (max 2026-08-08)", () => {
+    it("ticks every weekday in one tap, and sends all seven", async () => {
+      // Most stands on the island are open every day it is light, so "all seven" is the
+      // common answer and was seven taps.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
+      await placeStand(user);
+      await user.click(await revealField(user, /open every day/i));
+      await submitListing(user);
+
+      // The VALUE, in weekday order — a control that ticked the boxes without the state
+      // following would pass any assertion made on the checkboxes alone.
+      expect(posted(fetchMock).openDays).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    });
+
+    it("clears them all when tapped again, so it is a toggle and not a trap", async () => {
+      // A farmer who taps it by accident must be able to undo it in the same place. Without
+      // this they would have to untick seven boxes to get back.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
+      await placeStand(user);
+      const all = await revealField(user, /open every day/i);
+      await user.click(all);
+      await user.click(all);
+      await submitListing(user);
+
+      // `null`, not `[]` — "stated no days" is how this form has always sent an empty set,
+      // and the boundary distinguishes it from a farmer who never answered.
+      expect(posted(fetchMock).openDays).toBeNull();
+    });
+
+    it("reflects days ticked one at a time, without needing the toggle", () => {
+      // The control must describe the state rather than own it: a farmer who ticks all seven
+      // individually has said the same thing, and the toggle should show that.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...EDIT_DEFAULTS,
+            availability: {
+              ...EDIT_DEFAULTS.availability,
+              openDays: [0, 1, 2, 3, 4, 5, 6],
+            },
+          }}
+        />,
+      );
+
+      expect(screen.getByLabelText(/open every day/i)).toBeChecked();
+    });
+
+    it("is NOT offered on the restocking days, which is a different question", async () => {
+      // Restocking every day is rare — the common answers there are "it varies" and a couple
+      // of days. A select-all would be a control nobody taps, and the cadence dropdown above
+      // already offers "Every day" as its own choice.
+      const user = userEvent.setup();
+      // The address lookup is stubbed because `placeStand` performs one; this test does not
+      // submit, so nothing asserts on the listing response.
+      stubFetch({ ok: true });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
+      await placeStand(user);
+      // Reveal the step the day pickers live on. Anchored to the select-all checkbox rather
+      // than the fieldset's legend, which is not a label and which `getByLabelText` will not
+      // find.
+      await revealField(user, /open every day/i);
+      await user.selectOptions(screen.getByLabelText(/how often do you restock/i), "specific_days");
+
+      // One select-all on the page, and it belongs to the open days.
+      expect(screen.getAllByLabelText(/open every day/i)).toHaveLength(1);
+    });
+  });
+
   describe("prefilling what VIGA already holds (F-090)", () => {
     it("shows an invited farmer their farm's seeded listing rather than a blank form", async () => {
       /*

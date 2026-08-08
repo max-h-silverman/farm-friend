@@ -1654,6 +1654,35 @@ export function ListingStep({
 
       <fieldset className="farmer-listing-days">
         <legend>Which days are you open?</legend>
+        {/*
+          SELECT ALL (max 2026-08-08). Most stands on the island are open whenever it is
+          light, so "all seven" is the common answer and it was seven taps.
+
+          **It DESCRIBES the state rather than owning it.** `checked` is derived from the days
+          themselves, so a farmer who ticks all seven one at a time sees this fill in too, and
+          there is no second piece of state that can disagree with the boxes. That is also why
+          it toggles off: tapping it again clears them, so a mistap is undone where it was
+          made rather than by unticking seven boxes.
+
+          Placed FIRST, ahead of the days: it is the shortcut past them, and a shortcut found
+          after the work is done is not one. Its label says "open" because the hours dropdown
+          above already offers "All day, every day" — a bare "every day" beside it would read
+          as the same answer asked twice.
+        */}
+        <label className="farmer-listing-day farmer-listing-day-all">
+          <input
+            type="checkbox"
+            checked={openDays.length === WEEKDAYS.length}
+            onChange={() =>
+              setOpenDays(
+                openDays.length === WEEKDAYS.length
+                  ? []
+                  : WEEKDAYS.map((day) => day.value),
+              )
+            }
+          />
+          <span>Open every day</span>
+        </label>
         {WEEKDAYS.map((day) => (
           <label key={day.value} className="farmer-listing-day">
             <input

@@ -762,8 +762,7 @@ body {
   letter-spacing: -0.02em;
 }
 
-.admin-nav-sign-out,
-.admin-primary-link {
+.admin-nav-sign-out {
   display: inline-flex;
   min-height: 48px;
   align-items: center;
@@ -787,11 +786,6 @@ body {
 
 .admin-signed-out {
   max-width: 34rem;
-}
-
-.admin-signed-out p {
-  margin: 0.65rem 0 1.25rem;
-  color: var(--ink-soft);
 }
 
 .admin-content > .admin-note:first-child {
@@ -3621,7 +3615,6 @@ form.farmer-picker-next {
 .admin-farm input,
 .admin-stand-edit-field select,
 .admin-nav-sign-out,
-.admin-primary-link,
 button.admin-action-primary,
 a.admin-action-primary,
 button.admin-action-secondary,
@@ -5241,4 +5234,15 @@ button.admin-action-danger,
 .farmer-stand-panel {
   display: grid;
   gap: 0.7rem;
+}
+
+/* Select-all for the open days (max 2026-08-08). Takes the whole row and sits above the
+   weekdays with a rule under it, so it reads as a control OVER the set rather than an
+   eighth member of it — which is what it would look like sharing their wrapping line. */
+.farmer-listing-day-all {
+  flex: 1 1 100%;
+  margin-bottom: 0.15rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
 }
