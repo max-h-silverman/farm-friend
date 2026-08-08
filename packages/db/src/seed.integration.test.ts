@@ -63,6 +63,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       season: { kind: "date_range", startMonth: 3, startDay: 1, endMonth: 12, endDay: 31 },
       openHours: { kind: "dawn_to_dusk" },
       stocking: { cadence: "daily" },
+      participants: ["Kareli Farm", "Neighbor Eggs"],
       flags: [],
     },
     {
@@ -362,6 +363,59 @@ describe("seeding VIGA's stands (B-002)", () => {
     expect(rows[0]!.revisions).toBe(0);
   });
 
+  // F-064 — host farms from VIGA's records, the third table that had a schema, a reader, and
+  // no writer. The public card's "Also selling here" section and the admin table's "Other
+  // sellers here" row have both existed since F-050 and both rendered nothing.
+  describe("seeding hosted participants", () => {
+    it("writes host names as VIGA-sourced, with NO fabricated confirmation", async () => {
+      const rows = await client`
+        select p.display_name, p.source, p.confirmed_by_authorization_id
+        from sales_location_participants p
+        join sales_locations l on l.id = p.sales_location_id
+        where l.name = 'Alpha Farm'
+        order by p.display_name
+      `;
+      expect(rows.map((row) => row.display_name)).toEqual(["Kareli Farm", "Neighbor Eggs"]);
+      // The whole point of the migration: VIGA's spreadsheet is not a farmer's confirmation,
+      // and the row says so rather than pointing at an invented authorization.
+      expect(rows.every((row) => row.source === "viga")).toBe(true);
+      expect(rows.every((row) => row.confirmed_by_authorization_id === null)).toBe(true);
+    });
+
+    it("REFUSES a row claiming a farmer confirmed it with no authorization", async () => {
+      // The guarantee is the database's, not the loader's. A CHECK passes on NULL, so this
+      // asserts the biconditional actually refuses the half-populated row rather than
+      // admitting it — the failure mode a per-column rule would have shipped.
+      const location = await client`
+        select id, owner_farm_id from sales_locations where name = 'Alpha Farm'
+      `;
+      await expect(
+        client`
+          insert into sales_location_participants (
+            owner_farm_id, sales_location_id, display_name, source, confirmed_at
+          )
+          values (
+            ${location[0]!.owner_farm_id as string}, ${location[0]!.id as string},
+            'Fabricated Farm', 'sms', now()
+          )
+        `,
+      ).rejects.toThrow(/source_keys_coherent/);
+    });
+
+    it("is idempotent — re-running adds no duplicate host", async () => {
+      // Re-seeding is routine (a corrected row, a new stand), and a duplicate would render the
+      // same seller twice under "Also selling here".
+      await seedStands(client, sample());
+      const rows = await client`
+        select count(*)::integer as count
+        from sales_location_participants p
+        join sales_locations l on l.id = p.sales_location_id
+        where l.name = 'Alpha Farm'
+      `;
+      expect(rows[0]!.count).toBe(2);
+    });
+  });
+
   // F-024/F-036 — committing HUMAN-APPROVED offering tags. The model only ever proposed
   // them; this loader is the "code commits what was approved" half, and it writes
   // specialties, never inventory — the same structural separation the stand seeder proves.
@@ -523,14 +577,18 @@ describe("seeding VIGA's stands (B-002)", () => {
       // Two seeded stands reducing to one key make the choice arbitrary and order-dependent.
       // Committing either one silently files a farm's tags under a stranger's listing, so the
       // whole batch is refused — the same stance the join takes on a duplicate export name.
+      // `participants` is dropped deliberately: this pair is deleted at the end of the test, and
+      // a participant row references the location, so an inherited host would block that cleanup
+      // behind a foreign key — leaking the ambiguity the cleanup exists to remove.
+      const { participants: _participants, ...twinnable } = sample()[0]!;
       await seedStands(client, [
         {
-          ...sample()[0]!,
+          ...twinnable,
           name: "Twinned Stand",
           place: { address: "21 Example Rd SW", longitude: -122.45, latitude: 47.46 },
         },
         {
-          ...sample()[0]!,
+          ...twinnable,
           name: "The Twinned Farm",
           place: { address: "22 Example Rd SW", longitude: -122.45, latitude: 47.46 },
         },

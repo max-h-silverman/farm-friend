@@ -90,6 +90,18 @@ export interface SeedStandInput {
    * recording it twice would let the two disagree.
    */
   paymentMethods?: string[];
+
+  /**
+   * Other sellers the stand states it hosts, as display strings (F-064).
+   *
+   * Written with `source = 'viga'` and no confirming authorization: VIGA's map and weekly form
+   * are not a farmer's confirmation, and a database CHECK enforces that split. A farmer takes
+   * ownership by editing the list through their own settings page, which writes `'sms'`.
+   *
+   * Display text only. Deliberately NOT matched against seeded farms — F-050 has no confirmed
+   * linking flow, so resolving a name to an account would fabricate a relationship.
+   */
+  participants?: string[];
 }
 
 export interface SeedResult {
@@ -436,6 +448,22 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
         await tx`
           insert into sales_location_payment_methods (sales_location_id, method)
           values (${locationId}, ${method})
+          on conflict do nothing
+        `;
+      }
+
+      // F-064 — host farms, written as VIGA's statement rather than the farmer's.
+      //
+      // `on conflict do nothing` against the partial unique index on the normalized name where
+      // `retired_at is null`, so a re-run adds no duplicate. That index is also why a retired
+      // name can be re-seeded later: retirement is the farmer's decision, and this loader is
+      // insert-only, so it never resurrects one that is still active.
+      for (const participant of stand.participants ?? []) {
+        await tx`
+          insert into sales_location_participants (
+            owner_farm_id, sales_location_id, display_name, source, confirmed_at
+          )
+          values (${farmId}, ${locationId}, ${participant}, 'viga', now())
           on conflict do nothing
         `;
       }

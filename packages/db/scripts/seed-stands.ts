@@ -27,6 +27,7 @@ import {
   matchStandName,
   parseFarmLinks,
   parseFormResponses,
+  parseHostedParticipants,
   parseFarmBucksPolicy,
   parseOpenHours,
   parsePaymentMethods,
@@ -223,6 +224,21 @@ function toSeedInput(stand: JoinedStand): {
   });
   const paymentMethods = [...new Set(mapLines.flatMap((line) => parsePaymentMethods(line)))];
 
+  // F-064 — host farms, from the map's `Hosting:` prose. The profile form has no hosting
+  // question (measured against the real header, 2026-08-07), so the map is the only source
+  // here. The weekly form asks it as its own column and is a separate, later feed.
+  //
+  // Only lines that ANNOUNCE hosting are offered to the parser. It reads a bare list too,
+  // because the weekly form's column has no label — so handing it every description line would
+  // read a farm's address or its produce sentence as a roster of sellers.
+  const participants = [
+    ...new Set(
+      mapLines
+        .filter((line) => /^\s*hosting\b/i.test(line))
+        .flatMap((line) => parseHostedParticipants(line)),
+    ),
+  ];
+
   const parsedSeason = parseSeason(seasonText || mapDescription);
   const parsedHours = parseOpenHours(hoursText || mapDescription);
   const parsedStocking = parseStocking(stockingText || mapDescription);
@@ -272,6 +288,7 @@ function toSeedInput(stand: JoinedStand): {
     ...(publicDescription !== undefined ? { description: publicDescription } : {}),
     ...(links.length > 0 ? { links } : {}),
     ...(paymentMethods.length > 0 ? { paymentMethods } : {}),
+    ...(participants.length > 0 ? { participants } : {}),
     kind: /farmers\s*market/i.test(stand.name)
       ? ("farmers_market" as const)
       : ("farm_stand" as const),
