@@ -6,7 +6,10 @@ import { useEffect, useRef, useState } from "react";
 // projection round-trips, which is load-bearing evidence for the FORWARD projection the public
 // map depends on.
 import { ISLAND_VIEWBOX, projectToIsland } from "@farm-friend/core/island-projection";
-import { renderStandItemPrice } from "@farm-friend/core/item-price";
+import {
+  renderStandItemPrice,
+  standItemPriceNeedsUnit,
+} from "@farm-friend/core/item-price";
 // TYPE-ONLY, so nothing in the database package reaches this client bundle. The shape is
 // IMPORTED rather than restated: B-037 was a restated `ListingDefaults` drifting out of
 // agreement with what the writer stores, and a second hand-written copy of these twelve
@@ -31,6 +34,17 @@ interface ItemRow {
   priceQuantity: string;
   priceUnit: string;
   priceBasis: "per" | "for";
+  /**
+   * WHICH UNIT CONTROL this row is showing — the farmer's choice, held rather than inferred
+   * (B-040).
+   *
+   * It used to be derived by asking whether `priceUnit` was one of `SUGGESTED_UNITS`, and
+   * choosing "other" stored a single space so that the answer would be no. Nothing ever cleared
+   * the space and nothing the farmer typed was in the list either, so the box never gave the
+   * menu back. Any state a control can enter has to be one it can leave, and a value is the
+   * wrong place to record a choice about a control.
+   */
+  unitMode: "menu" | "custom";
   inStock: boolean;
 }
 
@@ -57,6 +71,20 @@ const SUGGESTED_UNITS = [
 /** The menu value that swaps the picker for a free-text box. Not a unit; a control. */
 const OTHER_UNIT = "__other__";
 
+/**
+ * Which control a STORED unit should open in (B-040).
+ *
+ * The list is consulted exactly once, when a row is built from what the database holds — a
+ * farmer's own word like "cord" has to arrive in the box that can show it. After that the row's
+ * `unitMode` is the answer, so the farmer can move between the two controls freely.
+ */
+function initialUnitMode(unit: string | null | undefined): "menu" | "custom" {
+  if (typeof unit !== "string" || unit.trim() === "") return "menu";
+  return SUGGESTED_UNITS.includes(unit as (typeof SUGGESTED_UNITS)[number])
+    ? "menu"
+    : "custom";
+}
+
 /** A select's value is a bare string; this is the narrowing, in one place. */
 function asBasis(value: string): "per" | "for" {
   return value === "for" ? "for" : "per";
@@ -76,14 +104,20 @@ function asBasis(value: string): "per" | "for" {
 function rowPrice(
   row: ItemRow,
   pricesPublic: boolean,
-): { amount: string; quantity: string; unit: string; basis: "per" | "for" } | null {
+): { amount: string; quantity: string; unit: string | null; basis: "per" | "for" } | null {
   if (!pricesPublic) return null;
 
   const amount = row.priceAmount.trim();
-  const unit = row.priceUnit.trim();
+  // Trimmed to null, which is what the column holds and what keeps "other" with nothing typed
+  // from submitting — the property the sentinel space used to carry (B-040).
+  const typed = row.priceUnit.trim();
+  const unit = typed === "" ? null : typed;
   // A quantity the farmer emptied means one, which is what the `per` sentence says anyway.
   const quantity = row.priceQuantity.trim() === "" ? "1" : row.priceQuantity.trim();
-  if (amount === "" || unit === "") return null;
+  if (amount === "") return null;
+  // B-041 — a bundle needs no unit ("$5 for 3"); a unit price does ("$6 / " is not a sentence).
+  // The rule is imported rather than restated: four copies of it is how three come to disagree.
+  if (unit === null && standItemPriceNeedsUnit(row.priceBasis)) return null;
 
   // `Number("")` is 0 — already excluded above, but the finiteness check is what stops a stray
   // "." (which `sanitizeMoney` permits mid-typing) arriving as NaN.
@@ -687,6 +721,9 @@ export function ListingStep({
       priceQuantity: item.price?.quantity ?? "1",
       priceUnit: item.price?.unit ?? "",
       priceBasis: item.price?.basis ?? "per",
+      // The ONE place the suggestion list decides a control (B-040). A farmer's own word — "cord",
+      // "half-flat" — has to arrive in the box that can show it; after that the row holds the mode.
+      unitMode: initialUnitMode(item.price?.unit),
       // An edit door never asks about today's stock, so this is always false there and is
       // never sent. Onboarding is the only door that can state it.
       inStock: false,
@@ -727,6 +764,7 @@ export function ListingStep({
           priceQuantity: "1",
           priceUnit: "",
           priceBasis: "per",
+          unitMode: "menu",
           inStock: false,
         },
       ]);
@@ -751,6 +789,22 @@ export function ListingStep({
         at === index
           ? { ...row, [field]: field === "priceBasis" ? asBasis(value) : value }
           : row,
+      ),
+    );
+  }
+
+  /**
+   * Move one row between the unit menu and its own free-text box (B-040).
+   *
+   * **The unit is cleared on the way**, in both directions. Carrying a typed "half-flat" back to
+   * a menu that has no such option would leave a select showing something it cannot represent,
+   * and carrying "dozen" into the box would put a word there the farmer did not type. Either
+   * way the mode change is a fresh start on the unit and nothing else on the row moves.
+   */
+  function setItemUnitMode(index: number, mode: "menu" | "custom"): void {
+    setItemRows((rows) =>
+      rows.map((row, at) =>
+        at === index ? { ...row, unitMode: mode, priceUnit: "" } : row,
       ),
     );
   }
@@ -2224,40 +2278,49 @@ export function ListingStep({
                       last entry swaps in a free-text box, because `price_unit` is free text
                       precisely so a stand selling by the half-flat or the cord can say so.
 
-                      A unit the farmer typed that is not in the list keeps the box open on an
-                      edit, which is why the picker's value is derived rather than stored: the
-                      row holds the unit, and the control shows whichever shape fits it.
+                      WHICH control shows is `row.unitMode`, never a question about the value
+                      (B-040). Inferring it from whether the value was in the suggestion list
+                      made "other" a state with no exit: nothing the farmer typed was ever in
+                      the list either. The box therefore comes with its own way back.
                     */}
-                    {row.priceUnit !== "" &&
-                    !SUGGESTED_UNITS.includes(
-                      row.priceUnit as (typeof SUGGESTED_UNITS)[number],
-                    ) ? (
-                      <input
-                        id={`item-unit-${index}`}
-                        className="farmer-listing-item-unit-other"
-                        type="text"
-                        value={row.priceUnit}
-                        onChange={(event) =>
-                          setItemPriceField(index, "priceUnit", event.target.value)
-                        }
-                        placeholder="unit"
-                        maxLength={40}
-                      />
+                    {row.unitMode === "custom" ? (
+                      <>
+                        <input
+                          id={`item-unit-${index}`}
+                          className="farmer-listing-item-unit-other"
+                          type="text"
+                          value={row.priceUnit}
+                          onChange={(event) =>
+                            setItemPriceField(index, "priceUnit", event.target.value)
+                          }
+                          placeholder="unit"
+                          maxLength={40}
+                        />
+                        <button
+                          type="button"
+                          className="farmer-listing-item-unit-back"
+                          onClick={() => setItemUnitMode(index, "menu")}
+                        >
+                          {/* Named per item like every other control on this line, so a screen
+                              reader user knows which row they are leaving. */}
+                          <span className="sr-only">{`Use the unit menu for ${row.name}`}</span>
+                          <span aria-hidden="true">↺</span>
+                        </button>
+                      </>
                     ) : (
                       <select
                         id={`item-unit-${index}`}
                         className="farmer-listing-item-unit"
                         value={row.priceUnit}
-                        onChange={(event) =>
-                          setItemPriceField(
-                            index,
-                            "priceUnit",
-                            // "Other" clears the unit rather than storing the sentinel, which
-                            // is what swaps this control for the box above: the row never holds
-                            // a value that is not a real unit.
-                            event.target.value === OTHER_UNIT ? " " : event.target.value,
-                          )
-                        }
+                        onChange={(event) => {
+                          // "Other" is a CONTROL choice, so it moves the mode and never lands
+                          // in `priceUnit` — the row holds only units a farmer actually stated.
+                          if (event.target.value === OTHER_UNIT) {
+                            setItemUnitMode(index, "custom");
+                            return;
+                          }
+                          setItemPriceField(index, "priceUnit", event.target.value);
+                        }}
                       >
                         <option value="">unit</option>
                         {SUGGESTED_UNITS.map((unit) => (

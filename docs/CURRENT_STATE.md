@@ -15,12 +15,15 @@ Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **30 migrat
 from `main` at `6ab087e`, started only to pick up a rotated secret. Everything merged since is
 undeployed. **A deploy is owed and is the next release step.**
 
-**Three migrations are written and unapplied in production**: `0030_stand_item_price`,
-`0031_invitation_pending_stock` (F-090) and `0032_structured_item_price` (F-092). All verified by
-effect against a fresh database and applied to local dev. `0031` **recreates the
-`inventory_revision_source` enum** to add `web`. `0032` **drops `stand_items.price_text`** — safe
-because no row anywhere has ever carried a price (285 CSV stands, one dollar sign, and it is a
-delivery threshold; 37 local stand items, none priced).
+**Four migrations are written and unapplied in production**: `0030_stand_item_price`,
+`0031_invitation_pending_stock` (F-090), `0032_structured_item_price` (F-092) and
+`0033_price_basis_unit` (B-041). All verified by effect against a fresh database and applied to
+local dev. `0031` **recreates the `inventory_revision_source` enum** to add `web`. `0032` **drops
+`stand_items.price_text`** — safe because no row anywhere has ever carried a price (285 CSV stands,
+one dollar sign, and it is a delivery threshold; 37 local stand items, none priced). `0033`
+rewrites `stand_items_price_complete` and adds `stand_items_price_basis_unit`. It changes no
+column — only which shapes the price columns admit — and it depends on `0032` having run first,
+which the journal order guarantees.
 
 **Production data was rebuilt from the CSVs on 2026-08-08.** Verified counts after the final
 re-seed: 35 farms / 35 sales locations / 35 live approvals; 35 `farm_links`, 53 payment methods, 10
@@ -53,9 +56,13 @@ path is proven through the real webhook handler against real Postgres only.
 
 ## Verification
 
-**Latest, 2026-08-08** (F-092 structured prices): **1681 unit** (134 files), **847 integration** (59
-files), typecheck, lint. Integration ran against **local Postgres**, never Neon. No `packages/ai`
-file changed and prices reach no model seam, so no `evals`/`evals:live` was owed.
+**Latest, 2026-08-08** (B-040 / B-041, the price control): **1691 unit** (134 files), **849
+integration** (59 files), typecheck, lint. Integration ran against **local Postgres**, never Neon.
+No `packages/ai` file changed and prices reach no model seam, so no `evals`/`evals:live` was owed.
+Sabotaged before believing: inverting `standItemPriceNeedsUnit` fails 5 renderer tests; restoring
+the value-sniffing control choice fails the B-040 test; replacing the new CHECK with `CHECK (true)`
+fails the constraint test. Both constraint halves were also proven by direct insert against local
+dev — a unitless bundle accepted, a unitless `per` refused by name.
 
 **Last `evals:live`: 2026-08-06, 25/25** against `mistralai/Mistral-Small-24B-Instruct-2501`
 (containment 4/4, closure 7/7, quality 9/9, recall 5/5). Owed again on any change to a seam's
@@ -110,8 +117,10 @@ link** — a conditional with a test behind it rather than an unbypassable const
 - **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
   names, transient browser proximity, destination links, code-bound stock-out reporting, and
   farmer-stated item prices — **structured** as amount/quantity/unit/basis (F-092), rendered to one
-  sentence by core's `renderStandItemPrice` and gated per stand by `sales_locations.prices_public`.
-  The gate is **in the SQL**, so a withheld price never leaves the database.
+  sentence by core's `renderStandItemPrice` and gated per stand by `sales_locations.prices_public`,
+  which is **off by default** at the column, the migration and the form. The gate is **in the SQL**,
+  so a withheld price never leaves the database. The unit is optional for a bundle and required for
+  a unit price (B-041) — one rule, `standItemPriceNeedsUnit`, imported by every layer.
 - **Farmer workflows:** deterministic bare `START` onboarding, `LINK`, `STAND`, `SETTINGS`, `SAME`;
   one exact stand per credential; SMS/web proposal and confirmation; closures, participants,
   reminders. Three onboarding doors — invited, grandfathered (`/farmer/start`), and the emailed-code
@@ -130,7 +139,7 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Owed data runs and live checks**
 
-- **A deploy is owed**, including migrations `0030`/`0031`/`0032`.
+- **A deploy is owed**, including migrations `0030`/`0031`/`0032`/`0033`.
 - **F-029:** finish live carrier launch verification — the `START` onboarding path has never been
   exercised against Telnyx from a real handset.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
@@ -153,14 +162,6 @@ link** — a conditional with a test behind it rather than an unbypassable const
   price shapes meet: `stand_items` is structured (F-092) while `inventory_entries.price_text` is
   still free text, and onboarding writes today's stock by rendering the structured price into it.
   Whether that column follows is the open question.
-- **B-040 / B-041 — the price control, found by max reviewing F-092 and worth doing together.**
-  B-040: choosing "other" for a unit stores a sentinel space, and the control is chosen by asking
-  whether the value is in the suggestion list — so the free-text box never gives the menu back. The
-  row needs to carry *which control the farmer chose* rather than inferring it. B-041: a bundle
-  should not require a unit — "$5 for 3" is complete, the unit being the item itself — but
-  `stand_items_price_complete`, both boundary parsers and the renderer all demand four parts, so the
-  price is dropped silently. `for` may omit the unit; `per` cannot, and that asymmetry belongs in
-  one place.
 - **B-008:** replace the incomplete deployed-build lint gate. Next does not recognize
   `outputFileTracingRoot`, and the Next ESLint plugin is not installed.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.

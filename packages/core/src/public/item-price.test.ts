@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { renderStandItemPrice, type StandItemPrice } from "./item-price.js";
+import {
+  renderStandItemPrice,
+  standItemPriceNeedsUnit,
+  type StandItemPrice,
+} from "./item-price.js";
 
 /**
  * F-092 — the ONE place a structured price becomes a sentence.
@@ -90,18 +94,72 @@ describe("rendering a stand item's price", () => {
     expect(renderStandItemPrice(undefined)).toBeNull();
   });
 
-  it("returns null when any part is missing, rather than printing half a price", () => {
+  it("returns null when any REQUIRED part is missing, rather than printing half a price", () => {
     // The database refuses this shape (`stand_items_price_complete`), so reaching here means a
     // caller built the object by hand. Printing "$6 /" would be worse than printing nothing.
-    for (const missing of ["amount", "quantity", "unit", "basis"] as const) {
+    // The unit is absent from this list deliberately — see the bundle cases below (B-041).
+    for (const missing of ["amount", "quantity", "basis"] as const) {
       const partial = { ...per(), [missing]: null };
       expect(renderStandItemPrice(partial as unknown as StandItemPrice)).toBeNull();
     }
   });
 
-  it("refuses a blank or whitespace unit, which would render as a dangling slash", () => {
+  // ── B-041: a bundle does not need a unit; a unit price does ─────────────────────────────
+  //
+  // "$5 for 3" is the whole price a corn stand letters on its sign — the unit is the cob, and
+  // inventing a word for it reads worse than saying nothing. "$6 / " is not a sentence, so the
+  // two bases genuinely differ. `standItemPriceNeedsUnit` is that rule, stated once.
+
+  it("states the unit rule for each basis in ONE place", () => {
+    // The predicate every other layer imports: the database CHECK, both boundary parsers and
+    // this renderer. Four copies of an asymmetry is how three of them come to disagree.
+    expect(standItemPriceNeedsUnit("per")).toBe(true);
+    expect(standItemPriceNeedsUnit("for")).toBe(false);
+  });
+
+  it("renders a bundle with no unit as the count and the amount", () => {
+    for (const unit of ["", "  \t ", null, undefined] as const) {
+      expect(
+        renderStandItemPrice({
+          amount: "5.00",
+          quantity: "3.00",
+          unit,
+          basis: "for",
+        } as unknown as StandItemPrice),
+      ).toBe("$5 for 3");
+    }
+  });
+
+  it("renders a unitless bundle of one as EACH", () => {
+    // max's call (2026-08-08). "$5" alone leaves the reader asking "for what?"; the item's own
+    // name is right beside it, so "each" is the word that finishes the sentence.
+    expect(
+      renderStandItemPrice({
+        amount: "5.00",
+        quantity: "1.00",
+        unit: "",
+        basis: "for",
+      } as unknown as StandItemPrice),
+    ).toBe("$5 each");
+  });
+
+  it("still refuses a unit price with no unit, which would render as a dangling slash", () => {
     expect(renderStandItemPrice(per({ unit: "" }))).toBeNull();
     expect(renderStandItemPrice(per({ unit: "  \t " }))).toBeNull();
+    expect(
+      renderStandItemPrice({ ...per(), unit: null } as unknown as StandItemPrice),
+    ).toBeNull();
+  });
+
+  it("keeps FREE ahead of the unit rule, so a free bundle needs no unit either", () => {
+    expect(
+      renderStandItemPrice({
+        amount: "0",
+        quantity: "3.00",
+        unit: "",
+        basis: "for",
+      } as unknown as StandItemPrice),
+    ).toBe("Free");
   });
 
   it("refuses an unparseable amount rather than printing NaN", () => {

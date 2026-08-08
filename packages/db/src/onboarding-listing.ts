@@ -1,4 +1,8 @@
-import { ISLAND_BOUNDS, nextPromptDueSlot } from "@farm-friend/core";
+import {
+  ISLAND_BOUNDS,
+  nextPromptDueSlot,
+  standItemPriceNeedsUnit,
+} from "@farm-friend/core";
 import type { Db } from "./index";
 import {
   coherentAvailability,
@@ -87,7 +91,8 @@ function trimItem(name: string): string {
 export interface StandingItemPrice {
   amount: string;
   quantity: string;
-  unit: string;
+  /** Optional, and only for a bundle — see `standItemPriceNeedsUnit` (B-041). */
+  unit: string | null;
   basis: "per" | "for";
 }
 
@@ -603,8 +608,11 @@ function normalizePrice(
   if (price === null || price === undefined) return null;
 
   const unit = typeof price.unit === "string" ? trimItem(price.unit) : "";
-  if (unit === "") return null;
   if (price.basis !== "per" && price.basis !== "for") return null;
+  // B-041 — a bundle carries its own count, so "$5 for 3" is complete with no unit; a unit price
+  // is not. `standItemPriceNeedsUnit` is that asymmetry for the whole system, imported rather
+  // than restated, and the CHECK says the same thing one layer further out.
+  if (unit === "" && standItemPriceNeedsUnit(price.basis)) return null;
 
   const amount = Number(
     typeof price.amount === "string" ? price.amount.trim() : NaN,
@@ -622,7 +630,9 @@ function normalizePrice(
   return {
     amount: amount.toFixed(2),
     quantity: quantity.toFixed(2),
-    unit,
+    // `null`, never "": the column refuses a blank unit, and the two would render identically
+    // while only one of them is a fact the farmer stated.
+    unit: unit === "" ? null : unit,
     basis: price.basis,
   };
 }

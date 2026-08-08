@@ -5379,6 +5379,33 @@ button.admin-action-danger,
   color: var(--ink-soft);
 }
 
+/* The way back to the unit menu (B-040), sized as a thumb target rather than as a glyph — it sits
+   between two 36px controls on a line a farmer works through on a phone. Quiet by default because
+   it is an escape hatch, not a step: it should be findable without competing with the price. */
+.farmer-form button.farmer-listing-item-unit-back,
+.farmer-listing-item-unit-back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.farmer-listing-item-unit-back:hover {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
 /* TODAY'S STOCK, as a switch. It answers a different question from the price — "is this out
    today?" rather than "what does it cost" — and the toggle's own shape is what says so without
    the sentence that used to.

@@ -1,4 +1,9 @@
-import { hashPhone, normalizePhone, type Clock } from "@farm-friend/core";
+import {
+  hashPhone,
+  normalizePhone,
+  standItemPriceNeedsUnit,
+  type Clock,
+} from "@farm-friend/core";
 import {
   loadFarmerInvitation,
   recordFarmerInvitationPendingPhone,
@@ -174,10 +179,16 @@ function itemPrice(value: unknown): StandingItemPrice | null {
     basis?: unknown;
   };
   if (typeof amount !== "string" || typeof quantity !== "string") return null;
-  if (typeof unit !== "string" || unit.trim() === "" || unit.length > MAX_TEXT) {
-    return null;
-  }
   if (basis !== "per" && basis !== "for") return null;
+
+  // B-041 — the unit is OPTIONAL for a bundle and required for a unit price, and
+  // `standItemPriceNeedsUnit` is that rule for the whole system rather than a copy of it here.
+  // Absent, null and blank all mean the same thing and all normalize to `null`, which is what
+  // the column holds; "" would render identically while only one of them is a fact.
+  if (unit !== undefined && unit !== null && typeof unit !== "string") return null;
+  if (typeof unit === "string" && unit.length > MAX_TEXT) return null;
+  const statedUnit = typeof unit === "string" && unit.trim() !== "" ? unit : null;
+  if (statedUnit === null && standItemPriceNeedsUnit(basis)) return null;
 
   // Numeric content, checked without coercing the value that gets stored. `Number("")` is `0`,
   // so a blank amount would otherwise arrive as FREE — a price the farmer never stated.
@@ -187,7 +198,7 @@ function itemPrice(value: unknown): StandingItemPrice | null {
   if (!Number.isFinite(amountValue) || !Number.isFinite(quantityValue)) return null;
   if (amountValue < 0 || quantityValue <= 0) return null;
 
-  return { amount, quantity, unit, basis };
+  return { amount, quantity, unit: statedUnit, basis };
 }
 
 /**

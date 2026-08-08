@@ -425,7 +425,8 @@ describe("farmer onboarding listing endpoint", () => {
       { amount: "six", quantity: "1.00", unit: "dozen", basis: "per" }, // not a number
       { amount: "-1", quantity: "1.00", unit: "dozen", basis: "per" }, // below the column floor
       { amount: "6.00", quantity: "0", unit: "dozen", basis: "for" }, // "0 for $5" is not a price
-      { amount: "6.00", quantity: "1.00", unit: "   ", basis: "per" }, // blank unit
+      { amount: "6.00", quantity: "1.00", unit: "   ", basis: "per" }, // blank unit, and `per`
+      { amount: "6.00", quantity: "1.00", basis: "per" }, // absent unit, and `per` (B-041)
     ]) {
       const save = saver();
       const response = await handleFarmerListingPost(
@@ -436,6 +437,30 @@ describe("farmer onboarding listing endpoint", () => {
       expect(response.status).toBe(200);
       expect(save.mock.calls[0]![1].listing.items).toEqual([
         { name: "Eggs", price: null },
+      ]);
+    }
+  });
+
+  it("keeps a BUNDLE with no unit, which is a complete price (B-041)", async () => {
+    // "$5 for 3" is what a corn stand letters on its sign — the unit is the cob. The unit
+    // arrives absent, blank or null depending on which control the farmer left alone, and all
+    // three mean the same thing, so all three normalize to `null` rather than to "no price".
+    for (const unit of [undefined, "", "   ", null]) {
+      const save = saver();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save),
+        post({
+          token: TOKEN,
+          ...LISTING,
+          items: [
+            { name: "Corn", price: { amount: "5.00", quantity: "3.00", unit, basis: "for" } },
+          ],
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(save.mock.calls[0]![1].listing.items).toEqual([
+        { name: "Corn", price: { amount: "5.00", quantity: "3.00", unit: null, basis: "for" } },
       ]);
     }
   });

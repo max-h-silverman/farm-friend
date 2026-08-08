@@ -1694,12 +1694,16 @@ export const standItems = pgTable(
     /** The standing state. Never a date — see the note above. */
     usuallyCarried: boolean("usually_carried").notNull().default(false),
     /**
-     * F-092 — what this usually costs, as FOUR PARTS that render as one sentence. All optional,
-     * and all-or-nothing: `stand_items_price_complete` refuses a half-stated price.
+     * F-092 — what this usually costs, as FOUR PARTS that render as one sentence. All optional
+     * as a group: `stand_items_price_complete` refuses a half-stated price.
      *
      *     amount  quantity  unit     basis     renders as
      *     6       1         dozen    per       $6 / dozen
      *     5       3         lb       for       3 lb for $5
+     *     5       3         —        for       $5 for 3
+     *
+     * **The unit is the one part a stated price may omit, and only for `for`** (B-041) — the
+     * item is its own unit in a bundle. `stand_items_price_basis_unit` is that rule.
      *
      * `per` is the bundle with an implied count of one, which is why these are one mechanism and
      * not two — the renderer is a single function, and a third kind of price would be a third
@@ -1742,9 +1746,13 @@ export const standItems = pgTable(
       sql`${table.sortOrder} >= 0`,
     ),
     /**
-     * F-092 — a price is ALL FOUR PARTS OR NONE. Half a price renders as garbage ("$6 /" or
-     * "/ dozen"), and this is the only thing that can stop a writer omitting one field. All-NULL
-     * stays legal and is what "not stated" means.
+     * F-092 — a price is STATED OR NOT, and a stated one carries amount, quantity and basis.
+     * Half a price renders as garbage ("/ dozen"), and this is the only thing that can stop a
+     * writer omitting a field. All-NULL stays legal and is what "not stated" means.
+     *
+     * **The unit is deliberately absent from both halves** (B-041): whether it is owed depends on
+     * the basis, which `stand_items_price_basis_unit` below states on its own. A unit with no
+     * amount is still refused here, because the unit must be NULL when nothing else is stated.
      */
     priceComplete: check(
       "stand_items_price_complete",
@@ -1758,10 +1766,23 @@ export const standItems = pgTable(
         or (
           ${table.priceAmount} is not null
           and ${table.priceQuantity} is not null
-          and ${table.priceUnit} is not null
           and ${table.priceBasis} is not null
         )
       `,
+    ),
+    /**
+     * B-041 — the unit is required by `per` and optional for `for`, which is the one asymmetry
+     * in this shape. A bundle carries its own count, so "$5 for 3" is a complete price with the
+     * item itself as the unit — exactly what a corn stand letters on its sign. A unit price has
+     * no count to lean on: "$6 / " is not a sentence.
+     *
+     * This is the copy of the rule that CODE CANNOT IMPORT. Every other layer imports
+     * `standItemPriceNeedsUnit` from core; this CHECK is written to match it, and the integration
+     * suite asserts both halves against the live constraint rather than against the parser.
+     */
+    priceBasisUnit: check(
+      "stand_items_price_basis_unit",
+      sql`${table.priceBasis} is distinct from 'per' or ${table.priceUnit} is not null`,
     ),
     /**
      * Zero is FREE and is a real answer, so the amount floor is `>= 0` — where the quantity floor

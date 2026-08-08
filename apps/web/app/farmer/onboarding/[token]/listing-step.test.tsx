@@ -2903,6 +2903,143 @@ describe("onboarding listing step", () => {
       expect(posted(fetchMock).items).toEqual([{ name: "eggs", price: null }]);
     });
 
+    // ── B-040: "other" is a choice about this unit, not a mode the row cannot leave ──────────
+
+    it("gives the unit MENU back after choosing other, which is what B-040 could not do", async () => {
+      // The defect: the control was picked by asking whether the row's value was in the
+      // suggestion list, and "other" stored a sentinel space so the answer stayed no forever.
+      // Nothing the farmer typed could be in the list either, so the box never closed.
+      const user = userEvent.setup();
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      // Into the box: the menu is replaced, as intended.
+      await user.selectOptions(screen.getByLabelText(/unit for eggs/i), "__other__");
+      expect(screen.getByLabelText(/unit for eggs/i).tagName).toBe("INPUT");
+      await user.type(screen.getByLabelText(/unit for eggs/i), "half-flat");
+
+      // And back out again. This is the assertion the bug failed.
+      await user.click(screen.getByRole("button", { name: /use the unit menu for eggs/i }));
+      expect(screen.getByLabelText(/unit for eggs/i).tagName).toBe("SELECT");
+    });
+
+    it("keeps a farmer's OWN unit in the box on an edit, not a menu that cannot show it", async () => {
+      // The property the old value-sniffing achieved and which the mode must not lose: a stored
+      // unit that is not one of the suggestions has to arrive in the free-text control.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...PLACED,
+            pricesPublic: true,
+            items: [
+              {
+                name: "Firewood",
+                price: { amount: "300", quantity: "1.00", unit: "cord", basis: "per" },
+              },
+            ],
+          }}
+        />,
+      );
+
+      const unit = screen.getByLabelText(/unit for Firewood/i);
+      expect(unit.tagName).toBe("INPUT");
+      expect(unit).toHaveValue("cord");
+    });
+
+    it("still refuses to submit a half-chosen unit, which the sentinel used to guarantee", async () => {
+      // The sentinel space was load-bearing: `rowPrice` trimmed it back to "" so choosing
+      // "other" and typing nothing could not submit. Whatever replaces it must keep that, and
+      // `per` is the basis that requires a unit at all (B-041).
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      await user.type(screen.getByLabelText(/^price for eggs$/i), "6");
+      await user.selectOptions(screen.getByLabelText(/unit for eggs/i), "__other__");
+      // Typed nothing, and typing only spaces must be the same fact.
+      await user.type(screen.getByLabelText(/unit for eggs/i), "   ");
+
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+      expect(posted(fetchMock).items).toEqual([{ name: "eggs", price: null }]);
+    });
+
+    // ── B-041: a bundle needs no unit ────────────────────────────────────────────────────────
+
+    it("submits a bundle with NO unit, which is a complete price for corn", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "corn");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      await user.type(screen.getByLabelText(/^price for corn$/i), "5");
+      await user.selectOptions(screen.getByLabelText(/price basis for corn/i), "for");
+      await user.clear(screen.getByLabelText(/how many corn/i));
+      await user.type(screen.getByLabelText(/how many corn/i), "3");
+      // The unit is left alone entirely — the whole point.
+
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+      expect(posted(fetchMock).items).toEqual([
+        { name: "corn", price: { amount: "5", quantity: "3", unit: null, basis: "for" } },
+      ]);
+    });
+
+    it("prefills a stored unitless bundle back into its controls", async () => {
+      // The B-037 shape for the new price form: a price the form cannot show is a price the
+      // next save deletes, and a unitless bundle is exactly the shape the old code could not
+      // hold. The unit control comes back as the MENU, empty — there is no word to show.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...PLACED,
+            pricesPublic: true,
+            items: [
+              {
+                name: "Corn",
+                price: { amount: "5.00", quantity: "3.00", unit: null, basis: "for" },
+              },
+            ],
+          }}
+        />,
+      );
+
+      expect(screen.getByLabelText(/^price for Corn$/i)).toHaveValue("5.00");
+      expect(screen.getByLabelText(/price basis for Corn/i)).toHaveValue("for");
+      expect(screen.getByLabelText(/how many Corn/i)).toHaveValue("3.00");
+      const unit = screen.getByLabelText(/unit for Corn/i);
+      expect(unit.tagName).toBe("SELECT");
+      expect(unit).toHaveValue("");
+    });
+
     it("prefills a stored price, so an edit cannot silently drop it", async () => {
       // B-037 in the UI. `saveOnboardingListing` writes every item row on every save, so a
       // price the form could not show is a price the next save deletes.

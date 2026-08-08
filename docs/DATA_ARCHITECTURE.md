@@ -226,10 +226,18 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   rather than a fifth column. `renderStandItemPrice` in core is the **only** thing that turns parts
   into words; every surface calls it.
 
-  All four are present or all four are NULL — `stand_items_price_complete` refuses anything between,
-  because half a price renders as garbage. NULL across all four is *not stated*; **an amount of `0`
-  is FREE**, which is a claim rather than its absence. A price is a standing claim exactly like the
+  A price is stated or it is not — `stand_items_price_complete` refuses anything between, because
+  half a price renders as garbage. NULL across all four is *not stated*; **an amount of `0` is
+  FREE**, which is a claim rather than its absence. A price is a standing claim exactly like the
   item it belongs to and carries no date.
+
+  **The unit is the one part a stated price may omit, and only for `for`** (B-041). A bundle carries
+  its own count, so "$5 for 3" is complete with the item itself as the unit — what a corn stand
+  letters on its sign. A unit price has no count to lean on: "$6 / " is not a sentence, so `per`
+  must name what the amount is per. `stand_items_price_basis_unit` (migration `0033`) is that
+  asymmetry at the database; `standItemPriceNeedsUnit` in core is the copy every other layer —
+  the renderer and both boundary parsers — imports rather than restates. A unitless bundle of one
+  reads **"$5 each"** (max's call, 2026-08-08).
 
   This **replaced** a free-text `price_text` (F-090, migration `0030`) whose own reasoning argued for
   free text and was right about roadside signs. The corpus settled it: 285 stands in VIGA's export

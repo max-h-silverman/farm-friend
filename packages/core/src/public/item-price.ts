@@ -7,6 +7,9 @@
  *
  * It never throws and never prints half a price: every malformed shape returns `null`, and the
  * caller decides what an unpriced item looks like in its own layout.
+ *
+ * The unit is the one OPTIONAL part, and only for a bundle — `standItemPriceNeedsUnit` below is
+ * that rule for the whole system (B-041).
  */
 
 /** The `basis` column — the word that joins the parts. See `standItemPriceBasis`. */
@@ -22,8 +25,26 @@ export type StandItemPriceBasis = "per" | "for";
 export interface StandItemPrice {
   amount: string;
   quantity: string;
-  unit: string;
+  /** Optional, and only for `for` — see `standItemPriceNeedsUnit`. `null` is a real column value. */
+  unit: string | null;
   basis: StandItemPriceBasis;
+}
+
+/**
+ * Whether a basis REQUIRES a unit — the B-041 asymmetry, stated once for the whole system.
+ *
+ * A bundle carries its own count, so "$5 for 3" is a complete price with the item itself as the
+ * unit; that is exactly what a corn stand letters on its sign, and inventing a word for a cob
+ * reads worse than saying nothing. A unit price has no such count: "$6 / " is not a sentence, so
+ * `per` must name what the amount is per.
+ *
+ * **Every layer that decides whether a price is complete imports THIS**: the two boundary parsers
+ * (`itemPrice`, `normalizePrice`) and this renderer. The database states the same rule as a CHECK
+ * — the one copy code cannot import — and `stand_items_price_basis_unit` is written to match it
+ * line for line. Four hand-written copies of one asymmetry is how three of them come to disagree.
+ */
+export function standItemPriceNeedsUnit(basis: StandItemPriceBasis): boolean {
+  return basis === "per";
 }
 
 /** A finite number, or null. `Number("")` is 0, which is why this cannot be a bare `Number`. */
@@ -67,8 +88,10 @@ export function renderStandItemPrice(
   // Guarded field by field rather than trusting the CHECK constraint: this function is also
   // reachable from objects built in code, and half a price on the public map is worse than none.
   const unit = typeof price.unit === "string" ? price.unit.trim() : "";
-  if (unit === "") return null;
   if (price.basis !== "per" && price.basis !== "for") return null;
+  // The BASIS decides whether the unit was owed (B-041), which is why this test comes after the
+  // basis is known and asks the shared predicate rather than restating the rule.
+  if (unit === "" && standItemPriceNeedsUnit(price.basis)) return null;
 
   const amount = parseDecimal(price.amount);
   const quantity = parseDecimal(price.quantity);
@@ -79,6 +102,15 @@ export function renderStandItemPrice(
   // an amount of zero, and it reads the same however the farmer reached it, so this precedes the
   // basis branch rather than sitting inside one of them.
   if (amount === 0) return "Free";
+
+  // A bundle with NO unit is the corn case (B-041): the item's own name sits beside this on the
+  // card, so the count and the amount are the whole sentence. A bundle of one has no count worth
+  // printing either, and "$5" alone leaves the reader asking "for what?" — so it reads "each"
+  // (max's call, 2026-08-08), the word that finishes the sentence without inventing a unit.
+  if (unit === "") {
+    if (quantity === 1) return `${renderAmount(amount)} each`;
+    return `${renderAmount(amount)} for ${renderQuantity(quantity)}`;
+  }
 
   // A bundle of one is a unit price wearing the wrong word. Collapsing it here is what stops
   // "1 lb for $5" and "$5 / lb" being two renderings of one fact, decided by which control the

@@ -339,6 +339,63 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(items[0]!.price_unit).toBe("lb");
   });
 
+  it("stores a BUNDLE with no unit, which is a complete price (B-041)", async () => {
+    // "$5 for 3" is the whole price a corn stand letters on its sign — the unit is the cob.
+    // This is the assertion that the CHECK and the writer agree: a rejected row would throw
+    // here rather than quietly storing nothing.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Corn Stand",
+      listing: {
+        ...visitableListing,
+        items: [
+          {
+            name: "Corn",
+            price: { amount: "5.00", quantity: "3.00", unit: null, basis: "for" },
+          },
+        ],
+      },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+
+    const items = await client()`
+      select item.price_amount, item.price_quantity, item.price_unit, item.price_basis
+      from stand_items item
+      join sales_locations l on l.id = item.sales_location_id
+      where l.owner_farm_id = ${farmId}
+    `;
+    expect(items[0]!.price_amount).toBe("5.00");
+    expect(items[0]!.price_quantity).toBe("3.00");
+    expect(items[0]!.price_basis).toBe("for");
+    expect(items[0]!.price_unit).toBeNull();
+  });
+
+  it("refuses a UNIT PRICE with no unit at the database, not merely in the parser", async () => {
+    // The asymmetry's other half, asserted against the constraint itself. `per` with no unit
+    // renders "$6 / " — not a sentence — so the row must never exist. Written with a direct
+    // insert because the parser upstream already drops it, and this is the claim that the
+    // database would still refuse it if a future writer did not.
+    // A stand to insert into. The writer is the only thing that creates one, so the row this
+    // test needs comes from a normal save rather than from a hand-built fixture.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Constraint Stand",
+      listing: { ...visitableListing, items: [] },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+    const location = await client()`
+      select l.id from sales_locations l where l.owner_farm_id = ${farmId} limit 1
+    `;
+    expect(location[0]?.id, "no stand to insert into").toBeDefined();
+    await expect(
+      client()`
+        insert into stand_items (sales_location_id, display_name, usually_carried,
+          price_amount, price_quantity, price_unit, price_basis)
+        values (${location[0]!.id}, 'Bad Eggs', true, 6.00, 1.00, null, 'per')
+      `,
+    ).rejects.toThrow(/stand_items_price_basis_unit/);
+  });
+
   it("stores FREE as an amount of zero, which is a fact rather than an absence", async () => {
     // max's call (2026-08-08). Zero is a real answer a farmer may state, and the column floor is
     // `>= 0` for exactly this. It must not arrive as NULL, which is what "not stated" means —
