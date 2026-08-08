@@ -2,6 +2,8 @@ import {
   ADMIN_SESSION_TTL_MS,
   isSessionLive,
   maskPhoneSuffix,
+  renderStandItemPrice,
+  type StandItemPrice,
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
@@ -656,18 +658,33 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       closure.closed_through::text as closure_closed_through,
       -- F-066 — the standing state of a stand item. Only usually_carried rows are a claim
       -- that the stand usually has the thing.
-      -- F-090 — the price is rendered INTO the display string here, unlike the public reader
-      -- which carries it as its own field. This row is read-only support copy: an operator
-      -- looking at "eggs $6/dozen" wants the farmer's claim as the farmer stated it, and a
-      -- structured pair would only be flattened again by the one table that renders it.
+      --
+      -- F-092 — the price travels as ITS PARTS and is rendered in TypeScript by
+      -- renderStandItemPrice, the same function every other surface calls. It used to be
+      -- concatenated here in SQL, which was fine for a free-text column and would now be a
+      -- SECOND renderer: the moment two places turn parts into a sentence they start to
+      -- disagree, and an operator reading support copy that differs from the farmer's own
+      -- screen is exactly the confusion this avoids.
+      --
+      -- NOT gated on prices_public, deliberately, and for the same reason the address is not:
+      -- VIGA support needs to see what the farmer entered even when it is hidden from
+      -- customers. The gate belongs on customer surfaces, and this is not one.
       coalesce(
-        (select array_agg(
-           case when offering.price_text is null then offering.display_name
-                else offering.display_name || ' ' || offering.price_text end
-           order by offering.sort_order, offering.display_name)
+        (select jsonb_agg(jsonb_build_object(
+           'name', offering.display_name,
+           'price', case
+             when offering.price_amount is null then null
+             else jsonb_build_object(
+               'amount', offering.price_amount::text,
+               'quantity', offering.price_quantity::text,
+               'unit', offering.price_unit,
+               'basis', offering.price_basis
+             )
+           end
+         ) order by offering.sort_order, offering.display_name)
          from stand_items offering
          where offering.sales_location_id = location.id and offering.usually_carried),
-        array[]::text[]
+        '[]'::jsonb
       ) as usual_offerings,
       coalesce(
         (select array_agg(participant.display_name order by lower(participant.display_name),
@@ -743,7 +760,16 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     closureKind: (row.closure_kind as AdminStandRow["closureKind"]) ?? null,
     closureStartsOn: (row.closure_starts_on as string | null) ?? null,
     closureClosedThrough: (row.closure_closed_through as string | null) ?? null,
-    usualOfferings: (row.usual_offerings as string[] | null) ?? [],
+    // F-092 — rendered HERE, through the one renderer, rather than concatenated in SQL. An
+    // unpriced item is its bare name; a priced one carries the same sentence a customer sees.
+    usualOfferings: (
+      (row.usual_offerings as
+        | { name: string; price: StandItemPrice | null }[]
+        | null) ?? []
+    ).map((offering) => {
+      const price = renderStandItemPrice(offering.price);
+      return price === null ? offering.name : `${offering.name} ${price}`;
+    }),
     participantNames: (row.participant_names as string[] | null) ?? [],
     currentItems: (row.current_items as AdminStandRow["currentItems"]) ?? [],
   }));

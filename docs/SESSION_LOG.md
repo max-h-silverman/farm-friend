@@ -6,8 +6,90 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 66. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 67. A log too large to open
 mid-session defeats its own purpose.
+
+---
+
+## 2026-08-08 — F-092: prices become structured, and two silent traps in the migration path
+
+Started as UI polish on the inventory builder and ended with a schema change, because measuring the
+data answered a question that had been decided in the abstract two weeks earlier.
+
+**The corpus overruled the design doc.** `0030` made `stand_items.price_text` free text and argued
+it well: a roadside sign says "$6/dozen" or "2 for $5", not a decimal with a currency code, and a
+numeric column would force a shape the sign does not have. max asked for number + unit anyway, so
+the free-text argument was worth checking rather than repeating. The VIGA export — 285 stands, every
+description VIGA has ever collected — contains **exactly one dollar sign**, and it belongs to a
+delivery threshold ("orders over $50"), not to an item. The local database agreed: 37 stand items,
+zero priced. There was no vocabulary to honour and nothing to migrate, so the free-text case was
+defending a corpus that turned out to be empty. max chose the structured shape on that evidence, and
+the feature became greenfield rather than a migration.
+
+**Four columns, one mechanism.** `amount / quantity / unit / basis`, where `basis` is `per` or
+`for`: "$6 / dozen" and "3 lb for $5" are the same four facts with a different joining word, and
+`per` is the bundle with an implied count of one. Storing it as one shape keeps the renderer a
+single function rather than a branch per sentence, and means a third kind of price would be a third
+`basis` value rather than a fifth column. `numeric`, never `double precision` — money in binary
+floating point is how `5.10` becomes `5.0999999999999996`. `renderStandItemPrice` in core is the
+only place parts become words; the map, admin, SMS and the form's own confirmation screen all call
+it, because two renderers is how two stands come to print one fact differently.
+
+Zero is **free** and renders as the word; NULL across all four is "not stated". `unit` is free text
+(a stand may sell by the half-flat or the cord) with a menu of eight suggestions plus "other" — the
+list is a shortcut, never a vocabulary business code may branch on.
+
+**`prices_public` is opt-in, opposite to `address_public`.** An address on a public listing form is
+information a farmer already supplied for publication; a price is a thing this system never asked
+for, and no existing stand has consented to showing one. max's call: hidden means hidden — the
+prices stay stored when the switch is off, so turning it back on restores the work, but no customer
+surface may render one. The gate is **in the SQL**, so a withheld price never leaves the database
+rather than being filtered by a renderer a future reader could bypass.
+
+**The privacy gate had no test, and a sabotage is what found that.** Deleting the `prices_public`
+branch from the public query left all 843 integration tests green — the load-bearing guarantee of
+the whole feature was uncovered. Four tests now cover it, including the pair that makes the
+withholding assertion mean something: identical row, identical query, one boolean different. Without
+that second test, a reader that returned no price at all would pass the first perfectly.
+
+**A live column was one `generate` away from being dropped.** `farmer_invitations.pending_stock` was
+added by a hand-written `0031` and never mirrored into `schema.ts`. `drizzle-kit generate` diffs the
+database against that file, so this session's unrelated migration proposed
+`DROP COLUMN pending_stock` — F-090's held stock, live in `farmer.ts`. Caught by reading the
+generated SQL line by line. The lesson is in RUNBOOK now: a hand-written migration is only half the
+change, and an unexpected `DROP` is a schema-file omission rather than a drizzle bug.
+
+**"migrations applied" lied twice.** `npm run db:migrate:local` printed success while doing nothing
+— first because the hand-written file had no journal entry, then because journal `when` values in
+this repo are future-dated, so a freshly generated migration sorted *earlier* than the newest applied
+record and was treated as already run. Both caught only by querying `information_schema` afterward.
+Also documented in RUNBOOK; the production section already warned about the timestamp case, and it
+bites locally the same way.
+
+**The UI split rather than shrank.** The row is two lines now — name and in-stock above, the price
+sentence below — because four price controls do not fit beside a name and a toggle at phone width.
+One "Add prices" switch governs the whole section rather than one per row: a farmer either prices
+their goods or does not, and pricing is the exception at an honor-system stand, so the default row
+stays the compact single line. The quantity box appears only with `for`.
+
+**max found two defects in the built form, both filed rather than fixed here.** B-040: the unit
+control is chosen by asking whether the row's value is in the suggestion list, and "other" stores a
+sentinel space — so once the free-text box opens, nothing can put the menu back. Inferring a control
+from its value was the mistake; the row should carry which one the farmer picked. B-041 is a
+modelling error in this tranche's own design: a bundle does not need a unit. "$5 for 3" is a complete
+price for corn — the unit is the cob, and naming it would be worse than silence — but the CHECK, both
+boundary parsers and the renderer all require four parts, so the form drops such a price silently.
+The two bases are not symmetric (`per` genuinely needs a unit; `for` does not), and that asymmetry
+now has to be stated once rather than four times.
+
+Earlier in the same session: the address Save button took the submit button's style with a real
+disabled state, and the inventory builder became one self-contained section with single-line rows.
+A specificity bug there is worth remembering — `.farmer-listing input[type="text"]` is (0,2,1) and
+beat a two-class rule no matter where it sat in the file, rendering the price box at full row width
+and squeezing the item name to zero. Four wrong theories (stale build, uncompiled CSS, wrong
+component, cached payload) were each built on a failed grep; one `getComputedStyle` call found it.
+The constitution now carries that: when what renders contradicts source that reads correctly, stop
+reading source and measure the running thing.
 
 ---
 
@@ -652,79 +734,3 @@ indexes all present, each proven to genuinely refuse, with a valid row accepted 
 
 Verified: **1495 unit**, **791 integration**, typecheck, lint, evals 44/44, production build.
 `packages/ai` untouched across all eight commits, so no `evals:live` was owed.
-
----
-
-## 2026-08-06 — self-onboarding: the plan's five workstreams, and where it was wrong
-
-Worked `~/.claude/plans/woolly-kindling-origami.md`. Three workstreams merged, one on a branch,
-one not started. **Nothing deployed.** The interesting content is where the plan and the code
-disagreed, and where sabotage disagreed with both.
-
-**B-037 was a live defect the tests actively concealed.** Editing a listing erased the farmer's
-season, hours and restocking — every one of twelve columns written back NULL, silently. The test
-that should have caught it was named "RESAVES an untouched edit form unchanged, **field for
-field**" over a fixture holding only the eight fields the type knew about. A name asserting
-completeness over an incomplete fixture is worse than no test: it is a claim nobody re-checks.
-Fixed fixture-first so it failed on its own name before anything else changed.
-
-**One of my own tests then passed for the wrong reason, and only sabotage found it.** The
-integration test "an edit preserves restocking" survived deleting `stocking_days` from
-`updateStand` — because omitting a column from a SET clause leaves what the INSERT already
-wrote, so "preserved it" and "never wrote it" are the same observation. The edit now *moves* a
-restocking day, which makes them different.
-
-**The architecture tripwires never covered the web app at all.** `sourceFiles` collected only
-`.ts`; the geocode block scanned `apps/web/lib` and not `apps/web/app`. So every page, route
-handler and React component in the repository sat outside the geocode allowlist and the
-`MapProvider` ban. Proven before fixing: a `geocode()` call plus the Maps host added to
-`listing-step.tsx` passed the suite untouched. **No production source was violating any of it** —
-the suite was green because the code happened to behave, not because anything checked.
-
-**F-077 traded a real capability, deliberately.** Geocode-only means a stand at the road rather
-than the mailing address can no longer be nudged, and rural Vashon is where lookup is weakest.
-What it buys: a published coordinate that always corresponds to the published address. The
-sharp edge it creates — A's coordinate publishing under B's address once the confirm gate is
-gone — is handled in `changeAddress`. Two refusal paths clear a *stored* pin, and each needed
-its own test: sabotaging either alone left the suite green, because `changeAddress` had already
-cleared the pin in every test that existed. The clearing is only reachable on an **edit** form.
-
-`DEVELOPMENT.md`'s geocoder exemption was justified by "every failure degrades to tapping the
-map". F-077 deletes that, so the justification was **replaced rather than quietly dropped**.
-
-**F-080: the plan's decisive sabotage is not decisive, and saying so is the point.** `JOIN` is
-carrier-registered, so giving it an argument grammar inverts the compliance-first ordering. The
-plan said the guarantee is proven by moving the token regex above the compliance lookup. It is
-not: that regex *requires* a token, so it cannot match a bare `JOIN` from any position. And
-loosening the grammar in place also passes, because compliance already consumed the word. **Only
-both at once fails.** Two properties, each making the other non-critical — defence in depth, and
-recorded in the test as such rather than as a single-guard proof.
-
-Two more plan claims that did not survive contact:
-- **`signup-reply.ts` does not collapse.** Requiring a token was said to make the "no consent
-  basis" case unreachable. `openFarmerOnboardingRequest` writes no consent when
-  `agreed_to_sms_at` is null, which an un-ticked invitation reaches *with* a token. Renamed, not
-  deleted.
-- **The two-consent-writer edit was unnecessary.** `JOIN <token>` parses as `kind: "farmer"` and
-  never enters `routeCompliance` at all, so the parser separates the writers structurally.
-
-**F-078: measured the corpus before building, and the plan was imprecise twice.** All three
-headline claims held (32/32 rows carry an email, 5 multi-address farms, zero cross-farm
-collisions). But Lavender Hill's three addresses come from **two columns combined**, not one
-cell — the columns disagree for 5 of 32 farms, so they are unioned. And separators are **mixed**:
-`" and "` as well as commas. A comma-only splitter turns one farm's cell into a single malformed
-address and stores it, since nothing rejects "and" on sight. The corpus test caught that; the
-fixtures alone did not.
-
-**`drizzle-kit generate` silently dropped every constraint.** Run against the same `schema.ts`,
-it emitted the CREATE TABLE and the foreign key and nothing else — both CHECKs and the
-normalized unique index gone, no warning. Its version would have created a table enforcing none
-of the rules `schema.ts` appears to declare. Only the meta snapshot was kept.
-
-**Email provider: the plan said Vercel Marketplace, which is wrong for this repository.** Farm
-Friend deploys to Cloud Run with Terraform-managed secrets and has no Vercel deployment. max
-chose Google — and **Google Cloud has no first-party email service**, its own docs direct you to
-a third party. What exists is VIGA's **Workspace account**, relaying through
-`smtp-relay.gmail.com`. max chose **`board@vigavashon.org`** as the sender rather than a
-dedicated address, because farmers will reply to a verification code and a `farmfriend@` mailbox
-is one nobody watches. The trade — shared sending reputation — is accepted at ~35 messages.

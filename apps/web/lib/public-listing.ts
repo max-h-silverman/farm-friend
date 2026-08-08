@@ -1,4 +1,11 @@
-import { isStale, renderElapsed, renderRecency, type Clock } from "@farm-friend/core";
+import {
+  isStale,
+  renderElapsed,
+  renderRecency,
+  renderStandItemPrice,
+  type Clock,
+  type StandItemPrice,
+} from "@farm-friend/core";
 import { visibleFarms, type Db } from "@farm-friend/db";
 // A TYPE-ONLY import of the browser view model's input shape. It adds no runtime edge (and
 // `map-view.ts` is already inside the public read graph, model-free and asserted so), and it
@@ -63,7 +70,14 @@ export interface PublicStandItem {
  * has. One type serving both would invite a renderer to read "12 dozen" off a fact that never
  * counted anything.
  *
- * `priceText` absent means the farmer stated no price — never "free".
+ * `priceText` absent means NO PRICE IS SHOWN — either the farmer stated none, or they have
+ * prices switched off for this stand. Never "free", which is a stated amount of zero and
+ * renders as the word.
+ *
+ * It is the RENDERED SENTENCE, not the four parts, and that is deliberate for a public type:
+ * the parts are turned into words once, at this boundary, by the single renderer every surface
+ * shares. A component holding `amount` and `basis` would be a second place that decides how a
+ * price reads, and the two would drift.
  */
 export interface UsualOffering {
   itemName: string;
@@ -342,10 +356,31 @@ export async function listPublicStands(
       -- named it is vocabulary, not something the stand says it usually has.
       -- F-090 — the item AND its optional price, as objects. Two parallel arrays would have to
       -- be zipped by index downstream, which is how a price ends up beside the wrong item.
+      --
+      -- F-092 — THE PRICE IS GATED ON l.prices_public, HERE IN THE QUERY. This is a customer
+      -- surface, and max's call was that hidden means hidden (2026-08-08): a farmer who turns
+      -- prices off must not find them on the map. Gating in SQL rather than in the renderer
+      -- means the value never leaves the database at all, so no later reader can leak what a
+      -- farmer chose to withhold — the same reasoning the privacy rules apply to phone numbers.
+      --
+      -- The item itself is NEVER gated. "This stand sells eggs" is the listing; only what they
+      -- cost is the farmer's to hide.
       coalesce(
         (
           select jsonb_agg(
-            jsonb_build_object('itemName', o.display_name, 'priceText', o.price_text)
+            jsonb_build_object(
+              'itemName', o.display_name,
+              'price', case
+                when not l.prices_public then null
+                when o.price_amount is null then null
+                else jsonb_build_object(
+                  'amount', o.price_amount::text,
+                  'quantity', o.price_quantity::text,
+                  'unit', o.price_unit,
+                  'basis', o.price_basis
+                )
+              end
+            )
             order by o.sort_order asc, o.display_name asc
           )
           from stand_items o
@@ -515,15 +550,24 @@ export async function listPublicStands(
           : {}),
         // F-042 — spread flat rather than conditionally: an empty list is the honest answer
         // for an untagged stand, and there is no second fact for absence to distinguish.
-        // F-090 — `priceText` is dropped when NULL rather than carried as null, so the type's
-        // optionality means what it says and no renderer has to distinguish two spellings of
+        // F-090 / F-092 — the price is RENDERED HERE, once, from the parts the query returned,
+        // and dropped when there is none rather than carried as null. The optionality then
+        // means what it says and no renderer downstream has to distinguish two spellings of
         // "not stated".
+        //
+        // The query has already withheld the parts for a stand with prices switched off, so a
+        // hidden price arrives as null and simply never becomes a field.
         usualOfferings: (
-          (row.usual_offerings as { itemName: string; priceText: string | null }[] | null) ?? []
-        ).map((offering) => ({
-          itemName: offering.itemName,
-          ...(offering.priceText === null ? {} : { priceText: offering.priceText }),
-        })),
+          (row.usual_offerings as
+            | { itemName: string; price: StandItemPrice | null }[]
+            | null) ?? []
+        ).map((offering) => {
+          const priceText = renderStandItemPrice(offering.price);
+          return {
+            itemName: offering.itemName,
+            ...(priceText === null ? {} : { priceText }),
+          };
+        }),
         // F-043 — always present, `{}` when the stand stated nothing. The inner fields carry
         // the stated/unstated distinction; see `readAvailability`.
         availability: readAvailability(row),

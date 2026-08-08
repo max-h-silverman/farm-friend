@@ -90,11 +90,12 @@ describe("F-067 onboarding listing (integration)", () => {
     offeringType: "produce" as const,
     publicAddress: "12345 Vashon Highway SW",
     addressPublic: true,
+    pricesPublic: false,
     latitude: 47.4471,
     longitude: -122.4594,
     hoursText: "Daylight hours, most days",
     paymentMethods: ["cash", "Venmo"],
-    items: [{ name: "Eggs", priceText: null }, { name: "plant starts", priceText: null }],
+    items: [{ name: "Eggs", price: null }, { name: "plant starts", price: null }],
   };
 
   it("creates the stand a new farm reaches the map with", async () => {
@@ -140,11 +141,12 @@ describe("F-067 onboarding listing (integration)", () => {
         offeringType: "by_order",
         publicAddress: null,
         addressPublic: true,
+        pricesPublic: false,
         latitude: null,
         longitude: null,
         hoursText: "By arrangement",
         paymentMethods: ["cash"],
-        items: [{ name: "lamb", priceText: null }],
+        items: [{ name: "lamb", price: null }],
       },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
@@ -209,6 +211,7 @@ describe("F-067 onboarding listing (integration)", () => {
         offeringType: "produce",
         publicAddress: "12345 Vashon Highway SW",
         addressPublic: true,
+        pricesPublic: false,
         latitude: 47.4471,
         longitude: -122.4594,
         hoursText: null,
@@ -258,12 +261,11 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(revisions).toHaveLength(0);
   });
 
-  it("stores an OPTIONAL price beside a standing item, in the farmer's own words", async () => {
-    // F-090 — prices on the usual mix. Free text, exactly like `inventory_entries.price_text`:
-    // a farmer writes what their sign says ("$6", "$4/dozen", "2 for $5"), and nothing here
-    // parses it into a number. A currency type would force a shape the sign does not have and
-    // would invite arithmetic across items, which is the commercial read max explicitly did
-    // not want.
+  it("stores an OPTIONAL price beside a standing item, as its four parts", async () => {
+    // F-092 — prices on the usual mix, structured. This replaced a free-text column (F-090)
+    // whose own migration argued for free text; what settled it was the corpus, which turned
+    // out to hold no per-item price at all, so there was nothing to migrate and no established
+    // vocabulary to honour.
     //
     // Optional per item, never per stand: a farmer who prices eggs and not flowers is stating
     // exactly that, and a missing price is "not stated" rather than "free".
@@ -273,26 +275,131 @@ describe("F-067 onboarding listing (integration)", () => {
       listing: {
         ...visitableListing,
         items: [
-          { name: "Eggs", priceText: "$6/dozen" },
-          { name: "plant starts", priceText: null },
+          {
+            name: "Eggs",
+            price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" },
+          },
+          { name: "plant starts", price: null },
         ],
       },
       occurredAt: new Date("2026-08-08T17:00:00Z"),
     });
 
     const items = await client()`
-      select item.display_name, item.price_text
+      select item.display_name, item.price_amount, item.price_quantity,
+             item.price_unit, item.price_basis
       from stand_items item
       join sales_locations l on l.id = item.sales_location_id
       where l.owner_farm_id = ${farmId}
       order by item.sort_order asc
     `;
     expect(items.map((row) => row.display_name)).toEqual(["Eggs", "plant starts"]);
-    // The VALUE, not merely that a column exists — verbatim, with its slash and its units.
-    expect(items[0]!.price_text).toBe("$6/dozen");
-    // Not stated is NULL, never "" — the two would read identically on a card and only one
-    // of them is a fact the farmer asserted.
-    expect(items[1]!.price_text).toBeNull();
+    // The VALUES, each one — a price that landed with three of four columns set would pass a
+    // "did anything store" check and is exactly what the CHECK constraint exists to refuse.
+    expect(items[0]!.price_amount).toBe("6.00");
+    expect(items[0]!.price_quantity).toBe("1.00");
+    expect(items[0]!.price_unit).toBe("dozen");
+    expect(items[0]!.price_basis).toBe("per");
+    // Not stated is NULL across all four, never "" and never a zero — "free" is an amount of
+    // zero, and conflating it with silence would put a price on an item nobody priced.
+    expect(items[1]!.price_amount).toBeNull();
+    expect(items[1]!.price_quantity).toBeNull();
+    expect(items[1]!.price_unit).toBeNull();
+    expect(items[1]!.price_basis).toBeNull();
+  });
+
+  it("stores a BUNDLE price, which is the same four columns with a different joining word", async () => {
+    // "3 lb for $5" and "$6 / dozen" are one mechanism, not two. If `for` needed its own column
+    // or its own table this design would have failed — the assertion is that the same four
+    // fields carry it.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Bundle Stand",
+      listing: {
+        ...visitableListing,
+        items: [
+          {
+            name: "Tomatoes",
+            price: { amount: "5.00", quantity: "3.00", unit: "lb", basis: "for" },
+          },
+        ],
+      },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+
+    const items = await client()`
+      select item.price_amount, item.price_quantity, item.price_unit, item.price_basis
+      from stand_items item
+      join sales_locations l on l.id = item.sales_location_id
+      where l.owner_farm_id = ${farmId}
+    `;
+    expect(items[0]!.price_basis).toBe("for");
+    expect(items[0]!.price_quantity).toBe("3.00");
+    expect(items[0]!.price_amount).toBe("5.00");
+    expect(items[0]!.price_unit).toBe("lb");
+  });
+
+  it("stores FREE as an amount of zero, which is a fact rather than an absence", async () => {
+    // max's call (2026-08-08). Zero is a real answer a farmer may state, and the column floor is
+    // `>= 0` for exactly this. It must not arrive as NULL, which is what "not stated" means —
+    // the two render differently and only one of them is a claim.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Free Stand",
+      listing: {
+        ...visitableListing,
+        items: [
+          {
+            name: "Windfall apples",
+            price: { amount: "0.00", quantity: "1.00", unit: "bag", basis: "per" },
+          },
+        ],
+      },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+
+    const items = await client()`
+      select item.price_amount, item.price_unit
+      from stand_items item
+      join sales_locations l on l.id = item.sales_location_id
+      where l.owner_farm_id = ${farmId}
+    `;
+    expect(items[0]!.price_amount).toBe("0.00");
+    expect(items[0]!.price_amount).not.toBeNull();
+    expect(items[0]!.price_unit).toBe("bag");
+  });
+
+  it("stores a HALF-STATED price as no price, rather than being refused by the database", async () => {
+    // A farmer who picked a unit and typed no number has said "no price". The CHECK exists to
+    // catch a writer's bug, not to reject a half-filled form — so `normalizePrice` resolves this
+    // to NULL and the save succeeds.
+    //
+    // `Number("")` is 0, so a blank amount reaching the column would store FREE. That is the
+    // specific mistake this asserts against: the row must be unpriced, not zero-priced.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Half Stand",
+      listing: {
+        ...visitableListing,
+        items: [
+          {
+            name: "Kale",
+            price: { amount: "", quantity: "1.00", unit: "bunch", basis: "per" },
+          },
+        ],
+      },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+
+    const items = await client()`
+      select item.price_amount, item.price_unit
+      from stand_items item
+      join sales_locations l on l.id = item.sales_location_id
+      where l.owner_farm_id = ${farmId}
+    `;
+    expect(items).toHaveLength(1);
+    expect(items[0]!.price_amount).toBeNull();
+    expect(items[0]!.price_unit).toBeNull();
   });
 
   it("CLEARS a price the farmer removed, rather than leaving the old one standing", async () => {
@@ -305,7 +412,12 @@ describe("F-067 onboarding listing (integration)", () => {
       standName: "Repricing Stand",
       listing: {
         ...visitableListing,
-        items: [{ name: "Eggs", priceText: "$6/dozen" }],
+        items: [
+          {
+            name: "Eggs",
+            price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" },
+          },
+        ],
       },
       occurredAt: new Date("2026-08-08T17:00:00Z"),
     });
@@ -315,18 +427,24 @@ describe("F-067 onboarding listing (integration)", () => {
       standName: "Repricing Stand",
       listing: {
         ...visitableListing,
-        items: [{ name: "Eggs", priceText: null }],
+        items: [{ name: "Eggs", price: null }],
       },
       occurredAt: new Date("2026-08-08T18:00:00Z"),
     });
 
     const items = await client()`
-      select item.price_text from stand_items item
+      select item.price_amount, item.price_quantity, item.price_unit, item.price_basis
+      from stand_items item
       join sales_locations l on l.id = item.sales_location_id
       where l.owner_farm_id = ${farmId}
     `;
     expect(items).toHaveLength(1);
-    expect(items[0]!.price_text).toBeNull();
+    // ALL FOUR cleared. A `do update` that reset three and forgot one would leave a row the
+    // CHECK refuses — so this asserts each column rather than trusting one to speak for the set.
+    expect(items[0]!.price_amount).toBeNull();
+    expect(items[0]!.price_quantity).toBeNull();
+    expect(items[0]!.price_unit).toBeNull();
+    expect(items[0]!.price_basis).toBeNull();
   });
 
   it("round-trips a price through readStandListing, so an edit cannot erase it", async () => {
@@ -341,8 +459,11 @@ describe("F-067 onboarding listing (integration)", () => {
       listing: {
         ...visitableListing,
         items: [
-          { name: "Eggs", priceText: "$6/dozen" },
-          { name: "plant starts", priceText: null },
+          {
+            name: "Eggs",
+            price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" },
+          },
+          { name: "plant starts", price: null },
         ],
       },
       occurredAt: new Date("2026-08-08T17:00:00Z"),
@@ -354,9 +475,15 @@ describe("F-067 onboarding listing (integration)", () => {
     const salesLocationId = locations[0]!.id as string;
 
     const before = await readStandListing(database(), { salesLocationId });
+    // The price comes back as a NESTED OBJECT, and an unpriced item as `null` rather than an
+    // object of four nulls — the form has to be able to tell "no price" from "a price whose
+    // fields are all empty", because only the second would light up its controls.
     expect(before!.items).toEqual([
-      { name: "Eggs", priceText: "$6/dozen" },
-      { name: "plant starts", priceText: null },
+      {
+        name: "Eggs",
+        price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" },
+      },
+      { name: "plant starts", price: null },
     ]);
 
     // Save it straight back, untouched — the exact move a farmer makes when they open the form
@@ -463,7 +590,7 @@ describe("F-067 onboarding listing (integration)", () => {
       standName: "Vocabulary Stand",
       listing: {
         ...visitableListing,
-        items: [{ name: "tomato", priceText: null }, { name: "tomatoes", priceText: null }, { name: "love apple", priceText: null }],
+        items: [{ name: "tomato", price: null }, { name: "tomatoes", price: null }, { name: "love apple", price: null }],
       },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
@@ -487,7 +614,7 @@ describe("F-067 onboarding listing (integration)", () => {
     await saveOnboardingListing(database(), {
       farmId,
       standName: "Folding Stand",
-      listing: { ...visitableListing, items: [{ name: "Eggs", priceText: null }, { name: "eggs", priceText: null }, { name: "  EGGS ", priceText: null }] },
+      listing: { ...visitableListing, items: [{ name: "Eggs", price: null }, { name: "eggs", price: null }, { name: "  EGGS ", price: null }] },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
 
@@ -572,7 +699,7 @@ describe("F-067 onboarding listing (integration)", () => {
       listing: {
         ...visitableListing,
         paymentMethods: ["cash", "   ", ""],
-        items: [{ name: "Eggs", priceText: null }, { name: "  ", priceText: null }, { name: "", priceText: null }],
+        items: [{ name: "Eggs", price: null }, { name: "  ", price: null }, { name: "", price: null }],
       },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
@@ -657,7 +784,7 @@ describe("F-067 onboarding listing (integration)", () => {
       listing: {
         ...visitableListing,
         hoursText: "Weekends only",
-        items: [{ name: "Eggs", priceText: null }, { name: "rhubarb", priceText: null }],
+        items: [{ name: "Eggs", price: null }, { name: "rhubarb", price: null }],
         paymentMethods: ["cash"],
       },
       occurredAt: new Date("2026-08-05T18:00:00Z"),
@@ -754,6 +881,7 @@ describe("F-067 onboarding listing (integration)", () => {
         offeringType: before!.offeringType,
         publicAddress: before!.publicAddress,
         addressPublic: true,
+        pricesPublic: false,
         latitude: before!.latitude,
         longitude: before!.longitude,
         hoursText: "Weekends when available",
@@ -1508,6 +1636,7 @@ describe("F-067 onboarding listing (integration)", () => {
           offeringType: listing!.offeringType,
           publicAddress: listing!.publicAddress,
           addressPublic: true,
+          pricesPublic: false,
           latitude: listing!.latitude,
           longitude: listing!.longitude,
           hoursText: listing!.hoursText,

@@ -20,6 +20,7 @@ export * from "./public/daylight";
 export * from "./public/open-now";
 export * from "./public/closure";
 export * from "./public/island-projection";
+export * from "./public/item-price";
 export * from "./public/vcard";
 export * from "./public/public-string";
 export * from "./auth/farmer-link";

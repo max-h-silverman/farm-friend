@@ -74,18 +74,33 @@ function trimItem(name: string): string {
 }
 
 /**
- * One thing a stand usually sells, and optionally what it costs (F-090).
+ * What one item costs, as the four parts that render as one sentence (F-092).
+ *
+ * **All four or none** — `stand_items_price_complete` refuses anything between, because half a
+ * price renders as garbage on a public card. `null` on `StandingItem.price` is "not stated";
+ * an `amount` of `0` is FREE, which is a fact rather than its absence.
+ *
+ * `amount` and `quantity` are strings, matching what the driver hands back for `numeric` and
+ * keeping money out of binary floating point end to end. `renderStandItemPrice` in
+ * `@farm-friend/core` is the only thing that turns these into words.
+ */
+export interface StandingItemPrice {
+  amount: string;
+  quantity: string;
+  unit: string;
+  basis: "per" | "for";
+}
+
+/**
+ * One thing a stand usually sells, and optionally what it costs (F-090, F-092).
  *
  * **A pair rather than two parallel arrays**, so a price cannot drift onto the wrong item — the
  * failure a `prices: string[]` beside `items: string[]` invites the first time one list is
  * filtered and the other is not.
- *
- * `priceText` is the farmer's own words and NULL when unstated. See the column comment: nothing
- * parses it, nothing sums it, and NULL is not "free".
  */
 export interface StandingItem {
   name: string;
-  priceText: string | null;
+  price: StandingItemPrice | null;
 }
 
 /** What the farmer stated about their listing. */
@@ -103,6 +118,18 @@ export interface OnboardingListingInput {
    * deliberately hidden.
    */
   addressPublic: boolean;
+  /**
+   * F-092 — whether this stand shows PRICES at all. The prices themselves are unaffected.
+   *
+   * Written on every save for the same B-037 reason as `addressPublic` above: a field this
+   * writer did not set would reset to the column default on every edit, so a farmer who turned
+   * prices on would find them off again after changing their hours.
+   *
+   * max's call (2026-08-08): hidden means hidden. The four price columns keep their values when
+   * this is false — so switching it back on restores what the farmer typed — but no customer
+   * surface may render a price while it is false.
+   */
+  pricesPublic: boolean;
   /** From the farmer's pin drop on the drawn island — there is no geocoder (a non-goal). */
   latitude: number | null;
   longitude: number | null;
@@ -430,7 +457,8 @@ async function insertStand(
   const rows = await tx`
     insert into sales_locations (
       owner_farm_id, kind, name, timezone, visitability, offering_type,
-      public_address, address_public, public_latitude, public_longitude, hours_text,
+      public_address, address_public, prices_public,
+      public_latitude, public_longitude, hours_text,
       season_kind, season_start_month, season_start_day,
       season_end_month, season_end_day, season_names,
       open_hours_kind, open_from_minutes, open_until_minutes, open_days,
@@ -440,7 +468,7 @@ async function insertStand(
     ) values (
       ${input.farmId}, 'farm_stand', ${input.standName}, 'America/Los_Angeles',
       ${input.listing.visitability}, ${input.listing.offeringType},
-      ${input.address}, ${input.listing.addressPublic},
+      ${input.address}, ${input.listing.addressPublic}, ${input.listing.pricesPublic},
       ${input.listing.latitude}, ${input.listing.longitude},
       ${input.hoursText},
       ${available.seasonKind}, ${available.seasonStartMonth}, ${available.seasonStartDay},
@@ -489,6 +517,7 @@ async function updateStand(
         offering_type = ${input.listing.offeringType},
         public_address = ${input.address},
         address_public = ${input.listing.addressPublic},
+        prices_public = ${input.listing.pricesPublic},
         public_latitude = ${input.listing.latitude},
         public_longitude = ${input.listing.longitude},
         hours_text = ${input.hoursText},
@@ -556,6 +585,48 @@ async function writePaymentMethods(
  * apple" stay three items. Folding them is a produce taxonomy, which no business code may
  * hard-code — a test asserts this and must be deleted before anyone can loosen it.
  */
+/**
+ * A price the database will accept, or NULL (F-092).
+ *
+ * **Incomplete means UNSTATED, never a refusal.** A farmer who cleared the amount, or picked a
+ * unit and typed no number, has said "no price" — and asking the database to refuse their whole
+ * listing over it would be this writer inviting a rejection it can resolve itself. The CHECK
+ * exists to catch a WRITER's bug, not to police a half-filled form.
+ *
+ * Everything the CHECK would reject is turned into NULL here: a missing part, a blank unit, an
+ * unparseable or negative amount, a quantity of zero. `Number("")` is `0`, so the amount is
+ * tested for finiteness rather than truthiness — a blank box must not become "free".
+ */
+function normalizePrice(
+  price: StandingItemPrice | null | undefined,
+): StandingItemPrice | null {
+  if (price === null || price === undefined) return null;
+
+  const unit = typeof price.unit === "string" ? trimItem(price.unit) : "";
+  if (unit === "") return null;
+  if (price.basis !== "per" && price.basis !== "for") return null;
+
+  const amount = Number(
+    typeof price.amount === "string" ? price.amount.trim() : NaN,
+  );
+  const quantity = Number(
+    typeof price.quantity === "string" ? price.quantity.trim() : NaN,
+  );
+  if (!Number.isFinite(amount) || !Number.isFinite(quantity)) return null;
+  if (String(price.amount).trim() === "" || String(price.quantity).trim() === "") {
+    return null;
+  }
+  if (amount < 0 || quantity <= 0) return null;
+
+  // Stored to the scale the column carries, so what comes back out reads the way it went in.
+  return {
+    amount: amount.toFixed(2),
+    quantity: quantity.toFixed(2),
+    unit,
+    basis: price.basis,
+  };
+}
+
 async function writeStandingItems(
   tx: Tx,
   salesLocationId: string,
@@ -569,11 +640,7 @@ async function writeStandingItems(
     const key = standItemKey(trimmed);
     if (seen.has(key)) continue;
     seen.add(key);
-    // Blank and whitespace-only prices become NULL rather than reaching the CHECK. A farmer
-    // who cleared the box means "not stated", and refusing the whole submission over a stray
-    // space would be this writer asking to be refused for a thing it can resolve.
-    const price = item.priceText === null ? "" : trimItem(item.priceText);
-    stated.push({ name: trimmed, priceText: price === "" ? null : price });
+    stated.push({ name: trimmed, price: normalizePrice(item.price) });
   }
 
   // Clear the standing claim across the whole stand FIRST, so an item the farmer dropped stops
@@ -594,17 +661,33 @@ async function writeStandingItems(
     // The display name is NOT overwritten on conflict: the farmer's first spelling is the
     // item's words, and F-066 has no rename operation by design.
     //
-    // **The price IS overwritten, including back to NULL** (F-090). This writer replaces the
-    // whole listing, so a price left out of the `do update` would survive every save that
-    // dropped it — a farmer who removed their price would keep publishing it with nothing on
-    // screen saying so. That is B-037's shape, and the integration suite asserts the clear.
+    // **THE PRICE IS OVERWRITTEN, INCLUDING BACK TO NULL** (F-090, F-092). This writer replaces
+    // the whole listing, so a price column left out of the `do update` would survive every save
+    // that dropped it — a farmer who removed their price would keep publishing it with nothing
+    // on screen saying so. That is B-037's shape, and the integration suite asserts the clear.
+    //
+    // ALL FOUR COLUMNS MOVE TOGETHER, which is the same rule one table further out: writing
+    // three of them and forgetting the fourth is exactly what `stand_items_price_complete`
+    // refuses, so a partial `do update` here fails loudly rather than storing half a price.
+    const price = item.price;
     await tx`
       insert into stand_items (
-        sales_location_id, display_name, usually_carried, price_text, sort_order
+        sales_location_id, display_name, usually_carried,
+        price_amount, price_quantity, price_unit, price_basis, sort_order
       )
-      values (${salesLocationId}, ${item.name}, true, ${item.priceText}, ${index})
+      values (
+        ${salesLocationId}, ${item.name}, true,
+        ${price?.amount ?? null}, ${price?.quantity ?? null},
+        ${price?.unit ?? null}, ${price?.basis ?? null}, ${index}
+      )
       on conflict (sales_location_id, lower(btrim(display_name, E' \t\r\n')))
-      do update set usually_carried = true, price_text = ${item.priceText}, sort_order = ${index}
+      do update set
+        usually_carried = true,
+        price_amount = ${price?.amount ?? null},
+        price_quantity = ${price?.quantity ?? null},
+        price_unit = ${price?.unit ?? null},
+        price_basis = ${price?.basis ?? null},
+        sort_order = ${index}
     `;
   }
 }
@@ -639,6 +722,13 @@ export interface StandListing {
    * and nothing failing.
    */
   addressPublic: boolean;
+  /**
+   * F-092 — whether this stand shows prices, read for the same B-037 reason as `addressPublic`
+   * above: the writer sets this column on every save, so a flag the reader could not see would
+   * be reset to the column default by the next otherwise-untouched edit — silently switching a
+   * farmer's prices back off.
+   */
+  pricesPublic: boolean;
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
@@ -705,7 +795,7 @@ export async function readStandListing(
   const rows = await driver(db)`
     select
       location.name, location.visitability, location.offering_type,
-      location.public_address, location.address_public,
+      location.public_address, location.address_public, location.prices_public,
       location.public_latitude, location.public_longitude,
       location.hours_text,
       location.season_kind, location.season_start_month, location.season_start_day,
@@ -723,10 +813,28 @@ export async function readStandListing(
       -- F-090 — name AND price together, as objects rather than two arrays. Two separate
       -- aggregates would be two independently ordered lists that a reader has to zip by index,
       -- which is exactly how a price lands on the wrong item.
+      --
+      -- F-092 — the price is now its own nested object, or NULL. Built with a CASE on the
+      -- amount rather than always emitting an object of four nulls: "not stated" has to arrive
+      -- at the form as an absent price, not as a price whose every field happens to be empty.
+      -- price_amount is the witness because stand_items_price_complete makes all four
+      -- present or all four absent together. (No backticks in here: this is a JS template
+      -- literal, and one would end the string mid-query.)
       coalesce(
         (
           select jsonb_agg(
-            jsonb_build_object('name', item.display_name, 'priceText', item.price_text)
+            jsonb_build_object(
+              'name', item.display_name,
+              'price', case
+                when item.price_amount is null then null
+                else jsonb_build_object(
+                  'amount', item.price_amount::text,
+                  'quantity', item.price_quantity::text,
+                  'unit', item.price_unit,
+                  'basis', item.price_basis
+                )
+              end
+            )
             order by item.sort_order, item.display_name
           )
           from stand_items as item
@@ -749,6 +857,9 @@ export async function readStandListing(
     offeringType: row.offering_type as "produce" | "services" | "by_order",
     publicAddress: (row.public_address as string | null) ?? null,
     addressPublic: row.address_public !== false,
+    // `=== true` rather than `!== false`, mirroring the column's own opposite default: a stand
+    // that predates this column shows no prices until its farmer says otherwise.
+    pricesPublic: row.prices_public === true,
     latitude: (row.public_latitude as number | null) ?? null,
     longitude: (row.public_longitude as number | null) ?? null,
     hoursText: (row.hours_text as string | null) ?? null,

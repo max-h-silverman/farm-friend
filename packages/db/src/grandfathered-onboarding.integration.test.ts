@@ -208,11 +208,12 @@ describe("grandfathered farm claims (integration)", () => {
           offeringType: "produce",
           publicAddress: "12345 Vashon Highway SW",
           addressPublic: true,
+          pricesPublic: false,
           latitude: 47.4471,
           longitude: -122.4594,
           hoursText: "Dawn to dusk",
           paymentMethods: ["Cash", "Venmo"],
-          items: [{ name: "Eggs", priceText: null }, { name: "Flowers", priceText: null }],
+          items: [{ name: "Eggs", price: null }, { name: "Flowers", price: null }],
         },
         occurredAt: now,
       });
@@ -240,8 +241,8 @@ describe("grandfathered farm claims (integration)", () => {
       expect(
         [...(listing?.items ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
       ).toEqual([
-        { name: "Eggs", priceText: null },
-        { name: "Flowers", priceText: null },
+        { name: "Eggs", price: null },
+        { name: "Flowers", price: null },
       ]);
     });
 

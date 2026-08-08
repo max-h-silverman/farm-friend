@@ -358,13 +358,16 @@ describe("farmer onboarding listing endpoint", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  // ── F-090: an optional price on each standing item ────────────────────────────────────
+  // ── F-092: a structured price on each standing item ───────────────────────────────────
   //
-  // The item shape is now `{ name, priceText }` rather than a bare string. This is untrusted
-  // public input reaching a column with a not-blank CHECK, so the boundary refuses malformed
-  // shapes rather than coercing them into something storable.
+  // The item shape is `{ name, price }`, where `price` is the four parts or null. This is
+  // untrusted public input reaching columns with CHECK constraints — but a MALFORMED PRICE IS
+  // NOT A 400. A price is optional, so a body whose price object is the wrong shape has still
+  // stated an item, and refusing the whole listing would lose the farmer's other answers to a
+  // field they were free to omit. Malformed resolves to "not stated"; only a malformed ITEM
+  // (no name) is refused.
 
-  it("accepts an item with a price, and passes the farmer's own words through", async () => {
+  it("accepts an item with a price, and passes all four parts through", async () => {
     const save = saver();
     const response = await handleFarmerListingPost(
       deps(loader(), save),
@@ -372,18 +375,25 @@ describe("farmer onboarding listing endpoint", () => {
         token: TOKEN,
         ...LISTING,
         items: [
-          { name: "Eggs", priceText: "$6/dozen" },
-          { name: "Flowers", priceText: null },
+          {
+            name: "Eggs",
+            price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" },
+          },
+          { name: "Flowers", price: null },
         ],
       }),
     );
 
     expect(response.status).toBe(200);
-    // The VALUE that reached the writer, not merely that it was called — a parser that dropped
-    // the price would satisfy a call-count assertion perfectly.
+    // The VALUES that reached the writer, not merely that it was called — a parser that dropped
+    // the unit would satisfy a call-count assertion perfectly, and store a price the database
+    // then refuses.
     expect(save.mock.calls[0]![1].listing.items).toEqual([
-      { name: "Eggs", priceText: "$6/dozen" },
-      { name: "Flowers", priceText: null },
+      {
+        name: "Eggs",
+        price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" },
+      },
+      { name: "Flowers", price: null },
     ]);
   });
 
@@ -399,23 +409,35 @@ describe("farmer onboarding listing endpoint", () => {
 
     expect(response.status).toBe(200);
     expect(save.mock.calls[0]![1].listing.items).toEqual([
-      { name: "Eggs", priceText: null },
+      { name: "Eggs", price: null },
     ]);
   });
 
-  it("refuses an item whose price is not a string", async () => {
-    const save = saver();
-    const response = await handleFarmerListingPost(
-      deps(loader(), save),
-      post({
-        token: TOKEN,
-        ...LISTING,
-        items: [{ name: "Eggs", priceText: 6 }],
-      }),
-    );
+  it("stores a malformed price as NO price, rather than refusing the listing", async () => {
+    // Each of these is a different way to be wrong, and every one has to reach the writer as
+    // `null` — a half-price would be refused by the CHECK, and a 400 would throw away the
+    // farmer's items, hours and address over an optional field.
+    for (const price of [
+      6, // not an object
+      { amount: "6.00" }, // missing three parts
+      { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "each" }, // basis not in enum
+      { amount: "", quantity: "1.00", unit: "dozen", basis: "per" }, // blank: `Number("")` is 0
+      { amount: "six", quantity: "1.00", unit: "dozen", basis: "per" }, // not a number
+      { amount: "-1", quantity: "1.00", unit: "dozen", basis: "per" }, // below the column floor
+      { amount: "6.00", quantity: "0", unit: "dozen", basis: "for" }, // "0 for $5" is not a price
+      { amount: "6.00", quantity: "1.00", unit: "   ", basis: "per" }, // blank unit
+    ]) {
+      const save = saver();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save),
+        post({ token: TOKEN, ...LISTING, items: [{ name: "Eggs", price }] }),
+      );
 
-    expect(response.status).toBe(400);
-    expect(save).not.toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      expect(save.mock.calls[0]![1].listing.items).toEqual([
+        { name: "Eggs", price: null },
+      ]);
+    }
   });
 
   it("refuses an item with no name at all", async () => {
@@ -425,7 +447,7 @@ describe("farmer onboarding listing endpoint", () => {
       post({
         token: TOKEN,
         ...LISTING,
-        items: [{ priceText: "$6" }],
+        items: [{ price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" } }],
       }),
     );
 
@@ -433,21 +455,34 @@ describe("farmer onboarding listing endpoint", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it("caps the LENGTH of a price, like every other public string", async () => {
-    // The same defacement reasoning as `hoursText`: this renders on VIGA's public map, and a
-    // price is a short phrase in every real case.
+  it("caps the LENGTH of a unit, like every other public string", async () => {
+    // The same defacement reasoning as `hoursText`: this renders on VIGA's public map, and the
+    // unit is the one part of a price that is free text a stranger could fill with prose.
+    // Dropped to "no price" rather than refused, like every other malformed price above.
     const save = saver();
     const response = await handleFarmerListingPost(
       deps(loader(), save),
       post({
         token: TOKEN,
         ...LISTING,
-        items: [{ name: "Eggs", priceText: "x".repeat(5_000) }],
+        items: [
+          {
+            name: "Eggs",
+            price: {
+              amount: "6.00",
+              quantity: "1.00",
+              unit: "x".repeat(5_000),
+              basis: "per",
+            },
+          },
+        ],
       }),
     );
 
-    expect(response.status).toBe(400);
-    expect(save).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(save.mock.calls[0]![1].listing.items).toEqual([
+      { name: "Eggs", price: null },
+    ]);
   });
 
   // ── F-090: today's stock, held until START ────────────────────────────────────────────

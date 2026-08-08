@@ -2186,17 +2186,21 @@ form.farmer-picker-next {
   text-align: center;
 }
 
-/* The submit control. This form had NO button rule at all, so the one control that
-   publishes a farmer's stand rendered at the browser's default size — a ~20px target at
-   the bottom of a long mobile form. It uses the same filled-green primary as every other
-   committing action so "this is the button that does it" needs no learning. */
-.farmer-listing button[type="submit"] {
-  width: 100%;
-  min-height: 52px;
-  margin-top: 0.75rem;
-  padding: 0 1.1rem;
+/* THE COMMITTING LOOK, shared by every button on this form that writes something down: the
+   submit control that publishes the stand, and the address Save beside the field.
+
+   One rule rather than two lookalikes (max 2026-08-08). The address button used to carry its
+   own quieter style, so two controls that both say "this commits what you typed" were drawn as
+   different kinds of thing. Size is deliberately NOT in here — submit is a full-width bar and
+   Save is an inset control on one line — because size is the only thing they legitimately
+   differ on. Everything that carries the MEANING is here and stated once.
+
+   This form had no button rule at all before F-069, so the one control that publishes a
+   farmer's stand rendered at the browser's default size — a ~20px target at the bottom of a
+   long mobile form. */
+.farmer-listing button[type="submit"],
+.farmer-listing .farmer-listing-primary {
   font: inherit;
-  font-size: 1.05rem;
   font-weight: 700;
   color: var(--card);
   background: var(--green);
@@ -2205,8 +2209,29 @@ form.farmer-picker-next {
   cursor: pointer;
 }
 
-.farmer-listing button[type="submit"]:disabled {
-  opacity: 0.55;
+.farmer-listing button[type="submit"] {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 0.75rem;
+  padding: 0 1.1rem;
+  font-size: 1.05rem;
+}
+
+/* THE DISABLED LOOK, and it is a real state rather than a faded copy of the live one.
+
+   Both buttons used to be plain `opacity`, which keeps a saturated green underneath and reads
+   at a glance as "green button, slightly dim" — a farmer taps it and nothing happens. Draining
+   the fill to the page's own greys instead says "not now" in the first place a button is read,
+   which is its colour. The dashed-off `cursor` and the removed hover complete it: nothing about
+   the control invites the press.
+
+   Contrast is deliberately kept legible rather than ghosted away — a disabled Save still has to
+   be readable, because its label is what tells the farmer what the enabled one would do. */
+.farmer-listing button[type="submit"]:disabled,
+.farmer-listing .farmer-listing-primary:disabled {
+  color: var(--ink-faint);
+  background: var(--paper);
+  border-color: var(--line);
   cursor: default;
 }
 
@@ -2332,49 +2357,66 @@ form.farmer-picker-next {
   stroke-width: 3;
 }
 
-/* The lookup button, INSIDE the address field. Secondary to the submit button: it resolves an
-   answer rather than publishing anything. The `-confirm` button it used to share these rules
-   with was the "that spot looks right" gate, deleted with the pin picker.
+/* The lookup button, INSIDE the address field. Only its GEOMETRY lives here — the colours,
+   the border and the disabled state come from `.farmer-listing-primary` above, which it now
+   shares with the submit button (max 2026-08-08). It used to be styled as a secondary control;
+   it says "Save" and it commits the address, so it is dressed as what it does.
 
    **It reads "Save" in words** (max 2026-08-07), where it was a bare map-pin glyph that asked
    a sighted farmer to infer what a screen reader was told outright. So it is sized to its text
-   rather than as a 44px square, while keeping the 44px HEIGHT — a one-handed tap outdoors is
-   the real use, and that is the dimension a thumb misses.
+   rather than as a square, and `min-width` keeps it a comfortable target across the width.
 
    Absolutely positioned over the input's trailing edge rather than sharing a flex row, so the
-   field keeps its full width for a long address. Visibly a button now that it carries a word:
-   a bare label floating inside a text field reads as placeholder text, not as something to
-   press. */
+   field keeps its full width for a long address.
+
+   IT SITS OFF THE FIELD'S EDGES (max 2026-08-08) — the green box used to run to within a
+   hairline of the border above and below it, which read as the button bursting out of the
+   field rather than sitting in it.
+
+   The button SHRINKS and the field does not. 36px is the painted box, centred in the 48px
+   field by the row's own `align-items: center`, which leaves a 6px breath above and below.
+
+   That is under the 44px a thumb wants, and it is a deliberate trade rather than an oversight:
+   the alternative was a transparent-border trick that keeps a 44px target while painting 36px,
+   and it breaks the disabled state — the border there is `--line` against `--paper`, a real
+   visible outline, and replacing the top and bottom with transparent bands leaves it drawn on
+   the sides only. A button with two edges missing is a worse defect than a slightly smaller
+   one. The field around it is 48px and also tappable — a miss lands in the input, not on
+   nothing — and this is the one control on the form with a full-width sibling reachable by
+   `Enter` from the same field. */
 .farmer-listing-lookup {
   position: absolute;
   right: 0.35rem;
+  /* Centred EXPLICITLY rather than by the row's `align-items`. An absolutely positioned box
+     with no vertical anchor falls at its static position, which the flex parent does happen to
+     centre — but that is the parent's alignment reaching a child it no longer lays out, and it
+     would stop holding the moment the row gained a second line or changed alignment. Anchoring
+     to the row's own middle keeps the breath above and below equal on its own terms. */
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   min-width: 44px;
-  height: 44px;
+  height: 36px;
   padding: 0 0.85rem;
-  font: inherit;
-  font-weight: 600;
-  color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--line);
+  /* Slightly tighter than the full-width submit bar, which is a 52px block of its own. */
   border-radius: 8px;
-  cursor: pointer;
-}
-
-.farmer-listing-lookup:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* The looking-up state. A spinner rather than the word "Looking…", which no longer fits in a
-   44px square — the control is momentary and the map below carries the result. */
+   44px square — the control is momentary and the map below carries the result.
+
+   Drawn in the BUTTON'S OWN FOREGROUND, not in the page's ink. The button is filled green
+   while a lookup runs, and the dark ink this used to spin in all but disappeared against it —
+   a control that looks like it is doing nothing for exactly as long as it is doing something.
+   `currentColor` also means it follows the disabled palette for free if the two ever meet. */
 .farmer-listing-lookup-busy {
   width: 18px;
   height: 18px;
-  border: 2px solid var(--line);
-  border-top-color: var(--ink);
+  border: 2px solid rgb(255 255 255 / 0.4);
+  border-top-color: currentColor;
   border-radius: 50%;
   animation: farmer-listing-spin 700ms linear infinite;
 }
@@ -5095,6 +5137,106 @@ button.admin-action-danger,
 
 /* ── Items, one row each, with an optional price ─────────────────────────────────────── */
 
+/* THE SECTION AROUND THE WHOLE QUESTION (max 2026-08-08). The question, the add box and the
+   rows used to be loose siblings in the form's flow, so the list ran straight into the next
+   question with nothing marking where "what you sell" stopped.
+
+   Boxed on `--paper` rather than the `--card` white the rows sit on: the rows are objects ON a
+   surface, and giving the container the same white as its contents would flatten the two into
+   one field. Same construction as `-branch` above, which boxes the other question on this form
+   that owns more than a single control. */
+.farmer-listing-inventory {
+  display: grid;
+  gap: 0.5rem;
+  /* A grid item's `min-width` defaults to `min-content`, which means this box refuses to shrink
+     below its widest row — and one long item name would then push the whole form wider than the
+     phone, scrolling the PAGE sideways. `0` lets the section take the width it is given and hand
+     the squeeze down to the name, which is the only thing in the row that may absorb it. The
+     card outside this form sets the same for the same reason. */
+  min-width: 0;
+  margin: 0.6rem 0 0.2rem;
+  padding: 0.8rem 0.9rem 0.9rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+/* The list, and the rows in it, for the same reason — the constraint has to reach the whole way
+   down or the innermost grid re-introduces the floor its parent just removed. */
+.farmer-listing-items,
+.farmer-listing-item {
+  min-width: 0;
+}
+
+/* The legend carries the question at the same weight as every other field label on the form,
+   so boxing the section does not promote it into a heading. */
+.farmer-listing-inventory legend {
+  padding: 0 0.3rem;
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+/* THE SECTION'S PRICE SWITCH and the line that explains what it did. One decision for the whole
+   section rather than one per row (max 2026-08-08) — a farmer either prices their goods or does
+   not, and pricing is the exception at an honor-system stand.
+
+   Sits directly under the legend, above the add box, because it changes the SHAPE of every row
+   below it: a farmer should meet the switch before the rows it governs. */
+.farmer-listing-inventory-prices {
+  display: grid;
+  gap: 0.15rem;
+  padding-bottom: 0.15rem;
+}
+
+.farmer-form button.farmer-listing-prices-switch,
+.farmer-listing-prices-switch {
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  justify-self: start;
+  min-height: 36px;
+  padding: 0 0.15rem;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+/* On is green, like the per-row stock switch it shares a track with — one visual language for
+   "this is on", wherever a switch appears on this form. */
+.farmer-listing-prices-switch[aria-checked="true"] {
+  color: var(--green);
+}
+
+.farmer-listing-prices-switch[aria-checked="true"] .farmer-listing-item-stock-track {
+  background: var(--green);
+}
+
+.farmer-listing-prices-switch[aria-checked="true"] .farmer-listing-item-stock-track::after {
+  transform: translateX(14px);
+}
+
+/* States what the switch DID rather than what it is — "prices show on your listing" is the
+   consequence a farmer needs, where "prices: on" would only restate the control. */
+.farmer-listing-inventory-subtitle {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-faint);
+}
+
+/* Says what to do, in the space the rows will occupy. Centred and quiet: it is a placeholder
+   for content, not an instruction competing with the add box above it. */
+.farmer-listing-inventory-empty {
+  margin: 0;
+  padding: 0.35rem 0 0.15rem;
+  font-size: 0.92rem;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
 .farmer-listing-item-add {
   display: flex;
   gap: 0.5rem;
@@ -5121,74 +5263,225 @@ button.admin-action-danger,
   list-style: none;
 }
 
-/* Wraps rather than scrolls: at phone width the name, the price and the stock tick cannot
-   share a line, and a row that scrolls sideways hides the very control it exists to offer. */
+/* TWO LINES, SPLIT BY MEANING (max 2026-08-08): what the item IS on the first, what it COSTS on
+   the second. The price is four controls — amount, per/for, an optional count, a unit — and no
+   arrangement puts those beside a name and a stock toggle at phone width.
+
+   The second line only exists when the section's price switch is on, so a farmer who prices
+   nothing still gets the compact one-line row this had before. */
 .farmer-listing-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.4rem 0.5rem 0.85rem;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.45rem 0.4rem 0.45rem 0.75rem;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
 }
 
-.farmer-listing-item-name {
-  flex: 1 1 8rem;
-  min-width: 0;
-  font-weight: 600;
-}
-
-/* Narrow, because a price is short — and narrow is what tells the farmer so before they
-   type. It sits beside its item rather than in a column, so there is never a question of
-   which row a price belongs to. */
-.farmer-listing-item .farmer-listing-item-price {
-  flex: 0 1 8rem;
-  min-width: 6rem;
-  min-height: 40px;
-  margin: 0;
-}
-
-/* The stock tick takes its own full line on a narrow screen: it is a different question
-   from the price ("is this out today?"), and crowding them reads as one control. */
-.farmer-listing-item-stock {
+/* LINE ONE. `min-width: 0` on the flex children rather than `flex-wrap` is what keeps it
+   honest: the NAME absorbs the squeeze and ellipsises, while the controls hold their size. A
+   row that scrolls sideways would hide the very controls it exists to offer. */
+.farmer-listing-item-identity {
   display: flex;
-  flex: 1 1 100%;
-  gap: 0.5rem;
   align-items: center;
-  min-height: 44px;
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 400;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+/* LINE TWO — the price sentence, reading left to right exactly as it will render: $ 6 per dozen.
+   It wraps, unlike the identity line: four controls plus a currency mark genuinely do not fit a
+   narrow phone, and wrapping the tail of a sentence is far better than truncating a control the
+   farmer has to reach. */
+.farmer-listing-item-pricing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  /* Indented to the name above it, so the price reads as belonging to that item rather than as
+     a new row of its own. */
+  padding-left: 0.1rem;
+}
+
+/* The currency mark, which STAYS PUT while the farmer types (max 2026-08-08) — it is page
+   furniture beside the box, not a placeholder inside it that vanishes at the first keystroke. */
+.farmer-listing-price-mark {
+  font-weight: 700;
   color: var(--ink-soft);
+}
+
+/* The name takes what is left and truncates rather than pushing the controls off the row. A
+   farmer's own words can be long ("Rainbow chard, big bunches") and the controls are what the
+   row is FOR — the full name is still in the field they typed it into. */
+.farmer-listing-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The price controls, each sized to what it holds — an amount is short, a unit is a word.
+   Narrow is what tells the farmer the shape of the answer before they type it.
+
+   THE ATTRIBUTE SELECTOR IS LOAD-BEARING, not decoration. Every text input on this form is
+   `width: 100%` via `.farmer-listing input[type="text"]` — one class, one attribute and one
+   type, so (0,2,1). A two-class selector here is (0,2,0) and LOSES no matter where it sits in
+   the file, which is what once rendered the price box at full row width and squeezed the item
+   name to zero. Matching the attribute takes these to (0,3,1). */
+.farmer-listing-item input[type="text"].farmer-listing-item-amount,
+.farmer-listing-item input[type="text"].farmer-listing-item-quantity,
+.farmer-listing-item input[type="text"].farmer-listing-item-unit-other {
+  flex: none;
+  min-width: 0;
+  min-height: 36px;
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.92rem;
+}
+
+/* Right-aligned, because money reads from the decimal point — and because it sits immediately
+   after the `$` mark, which makes the two read as one field. */
+.farmer-listing-item input[type="text"].farmer-listing-item-amount {
+  width: 4.5rem;
+  text-align: right;
+}
+
+/* A count is one or two digits. Narrower than the amount so the two are never confused for each
+   other at a glance. */
+.farmer-listing-item input[type="text"].farmer-listing-item-quantity {
+  width: 3.2rem;
+  text-align: right;
+}
+
+/* The farmer's own unit, when the menu's "other" opened this box. Wider than the pickers: it
+   holds a word rather than a choice. */
+.farmer-listing-item input[type="text"].farmer-listing-item-unit-other {
+  width: 6rem;
+}
+
+/* The two pickers. `width: auto` matters — the form's global `select` rule is `width: 100%`,
+   which would give each of these the whole line and stack the sentence vertically. */
+.farmer-listing .farmer-listing-item-basis,
+.farmer-listing .farmer-listing-item-unit {
+  flex: none;
+  width: auto;
+  min-width: 0;
+  min-height: 36px;
+  margin: 0;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.92rem;
+}
+
+/* "per" and "for" are two short words; the box should not be wider than they are. */
+.farmer-listing .farmer-listing-item-basis {
+  color: var(--ink-soft);
+}
+
+/* TODAY'S STOCK, as a switch. It answers a different question from the price — "is this out
+   today?" rather than "what does it cost" — and the toggle's own shape is what says so without
+   the sentence that used to.
+
+   A `button[role="switch"]`, so the on/off state is announced rather than inferred from
+   colour. The label beside it stays visible: a bare toggle in a row of items is exactly the
+   colour-only signal the accessibility baseline refuses. */
+.farmer-form button.farmer-listing-item-stock,
+.farmer-listing-item-stock {
+  display: inline-flex;
+  flex: none;
+  gap: 0.3rem;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 0.15rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 0;
   cursor: pointer;
 }
 
-.farmer-listing-item-stock input {
+/* The track, drawn as a pill whose knob slides. `::after` is the knob rather than a third
+   element: it is decoration on a control whose real state lives in `aria-checked`. */
+.farmer-listing-item-stock-track {
+  position: relative;
+  display: block;
   flex: none;
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 32px;
+  height: 18px;
+  background: var(--line);
+  border-radius: 999px;
+  transition:
+    background-color 140ms ease;
 }
 
-/* Quiet, like the chip remove it mirrors: dropping an item is small and reversible, and
-   must never out-shout the control that publishes. */
+.farmer-listing-item-stock-track::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  content: "";
+  background: var(--card);
+  border-radius: 50%;
+  transition: transform 140ms ease;
+}
+
+/* ON is green and the knob is at the far end — two signals for one state, so the toggle does
+   not depend on colour alone. The text darkens with it. */
+.farmer-listing-item-stock[aria-checked="true"] {
+  color: var(--green);
+}
+
+.farmer-listing-item-stock[aria-checked="true"] .farmer-listing-item-stock-track {
+  background: var(--green);
+}
+
+.farmer-listing-item-stock[aria-checked="true"] .farmer-listing-item-stock-track::after {
+  transform: translateX(14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .farmer-listing-item-stock-track,
+  .farmer-listing-item-stock-track::after {
+    transition: none;
+  }
+}
+
+/* Quiet, like the chip remove it mirrors: dropping an item is small and reversible, and must
+   never out-shout the control that publishes.
+
+   32px rather than the form's usual 44px floor, because it now shares one line with three
+   other controls (max 2026-08-08) — a 44px square here is what would push the name off the
+   row. It is the row's most destructive control and its quietest, which is the right order:
+   `--ink-faint` and no border until it is reached for. */
 .farmer-form button.farmer-listing-item-remove,
 .farmer-listing-item-remove {
   display: inline-flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 32px;
+  min-height: 32px;
   padding: 0;
   font-size: 1.05rem;
   font-weight: 600;
-  color: var(--ink-soft);
+  color: var(--ink-faint);
   background: transparent;
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
+}
+
+/* Reached for: the target gains an outline, so a farmer about to delete an item sees the
+   control resolve before they commit to it. */
+.farmer-form button.farmer-listing-item-remove:hover,
+.farmer-listing-item-remove:hover,
+.farmer-listing-item-remove:focus-visible {
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 /* ── The stand page's two tabs ───────────────────────────────────────────────────────── */

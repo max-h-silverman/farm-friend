@@ -932,6 +932,7 @@ describe("public web surface boundary (integration)", () => {
           offeringType: "produce",
           publicAddress: "123 Vashon Hwy",
           addressPublic: true,
+          pricesPublic: false,
           latitude: 47.4471,
           longitude: -122.4594,
           hoursText: "Daily, dawn to dusk",
@@ -1050,6 +1051,129 @@ describe("public web surface boundary (integration)", () => {
     it("returns an empty tag list for a stand with no tags, never a fabricated one", async () => {
       const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
       expect(stands[0]!.usualOfferings.map((o) => o.itemName)).toEqual([]);
+    });
+
+    /**
+     * F-092 — the price PRIVACY GATE, which is the load-bearing guarantee of the whole feature.
+     *
+     * max's call (2026-08-08): hidden means hidden. A farmer who switches prices off must not
+     * find them on the public map, and this is the only place that can be proved — the gate is
+     * in the SQL, so the value never leaves the database rather than being filtered later by a
+     * renderer some future reader might bypass.
+     *
+     * Written after a sabotage found NOTHING covering it: deleting the `prices_public` branch
+     * from the query left all 843 integration tests green.
+     */
+    async function priceTag(
+      item: string,
+      price: { amount: string; quantity: string; unit: string; basis: "per" | "for" },
+    ): Promise<void> {
+      await client()`
+        insert into stand_items (
+          sales_location_id, display_name, usually_carried, sort_order,
+          price_amount, price_quantity, price_unit, price_basis
+        )
+        values (
+          ${ids.location}, ${item}, true, 0,
+          ${price.amount}, ${price.quantity}, ${price.unit}, ${price.basis}
+        )
+        on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+        do update set
+          usually_carried = true,
+          price_amount = excluded.price_amount,
+          price_quantity = excluded.price_quantity,
+          price_unit = excluded.price_unit,
+          price_basis = excluded.price_basis
+      `;
+    }
+
+    /** Turn this stand's price switch on or off. */
+    async function showPrices(shown: boolean): Promise<void> {
+      await client()`
+        update sales_locations set prices_public = ${shown} where id = ${ids.location}
+      `;
+    }
+
+    it("WITHHOLDS a stored price while the stand's price switch is off", async () => {
+      // The guarantee itself. The price is really in the database — the next test proves the
+      // same row renders when the switch is on — so this is the gate working, not an absence
+      // of data.
+      await priceTag("eggs", {
+        amount: "6.00",
+        quantity: "1.00",
+        unit: "dozen",
+        basis: "per",
+      });
+      await showPrices(false);
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const eggs = stands[0]!.usualOfferings.find((o) => o.itemName === "eggs");
+
+      // The ITEM still shows. "This stand sells eggs" is the listing; only what they cost is
+      // the farmer's to hide, and hiding the item would be the switch doing far more than asked.
+      expect(eggs).toBeDefined();
+      expect(eggs!.priceText).toBeUndefined();
+    });
+
+    it("shows the SAME stored price once the switch is on", async () => {
+      // The other half, and what makes the test above mean something: identical row, identical
+      // query, one boolean different. Without this pair, a reader that never returned a price
+      // at all would pass the withholding test perfectly.
+      await priceTag("eggs", {
+        amount: "6.00",
+        quantity: "1.00",
+        unit: "dozen",
+        basis: "per",
+      });
+      await showPrices(true);
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const eggs = stands[0]!.usualOfferings.find((o) => o.itemName === "eggs");
+
+      // The rendered SENTENCE, through the one renderer every surface shares — not the parts.
+      expect(eggs!.priceText).toBe("$6 / dozen");
+    });
+
+    it("renders a BUNDLE and a FREE price the way the farmer meant them", async () => {
+      // The two sentences the same four columns make, checked at the surface a customer sees
+      // rather than only in the renderer's own unit tests — this is where a mis-mapped column
+      // would show up as "$3 / 5" or a silent "Free" on a priced item.
+      await showPrices(true);
+      await priceTag("tomatoes", {
+        amount: "5.00",
+        quantity: "3.00",
+        unit: "lb",
+        basis: "for",
+      });
+      await priceTag("windfall apples", {
+        amount: "0.00",
+        quantity: "1.00",
+        unit: "bag",
+        basis: "per",
+      });
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const offerings = stands[0]!.usualOfferings;
+
+      expect(offerings.find((o) => o.itemName === "tomatoes")!.priceText).toBe("3 lb for $5");
+      // Zero is a stated amount, and it reads as the word rather than as "$0".
+      expect(
+        offerings.find((o) => o.itemName === "windfall apples")!.priceText,
+      ).toBe("Free");
+    });
+
+    it("omits the price key entirely for an unpriced item, rather than sending an empty one", async () => {
+      // `priceText` is absent-when-unstated so the type's optionality means what it says. An
+      // empty string would render as a blank price on the card — a stand appearing to charge
+      // nothing for something nobody priced.
+      await showPrices(true);
+      await tag(["flowers"]);
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const flowers = stands[0]!.usualOfferings.find((o) => o.itemName === "flowers");
+
+      expect(flowers).toBeDefined();
+      expect("priceText" in flowers!).toBe(false);
     });
 
     it("SERIALIZES the empty list rather than omitting the key", async () => {

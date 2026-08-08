@@ -218,6 +218,7 @@ const EDIT_DEFAULTS = {
   visitability: "contact_only" as const,
   publicAddress: null,
   addressPublic: true,
+  pricesPublic: false,
   latitude: null,
   longitude: null,
   hoursText: null,
@@ -361,9 +362,9 @@ describe("onboarding listing step", () => {
     await submitListing(user);
 
     expect(posted(fetchMock).items).toEqual([
-      { name: "tomato", priceText: null },
-      { name: "tomatoes", priceText: null },
-      { name: "love apple", priceText: null },
+      { name: "tomato", price: null },
+      { name: "tomatoes", price: null },
+      { name: "love apple", price: null },
     ]);
   });
 
@@ -393,8 +394,8 @@ describe("onboarding listing step", () => {
     await submitListing(user);
 
     expect(posted(fetchMock).items).toEqual([
-      { name: "eggs", priceText: null },
-      { name: "rhubarb", priceText: null },
+      { name: "eggs", price: null },
+      { name: "rhubarb", price: null },
     ]);
   });
 
@@ -1347,11 +1348,17 @@ describe("onboarding listing step", () => {
       ).toBeDisabled();
     });
 
-    it("a THROWN lookup discards a stored coordinate too, on an edit form", async () => {
-      // The network-failure twin of the test below. The two refusal paths — a status the
-      // geocoder returned, and the fetch throwing — clear the pin independently, so each
-      // needs its own proof: a sabotage removing `setPin(null)` from the catch branch alone
-      // left every other test in this file green.
+    it("a THROWN lookup leaves an EDITED address unpublishable, on an edit form", async () => {
+      // The network-failure twin of the test below, and the edit door's version of it: a
+      // returning farmer changes their address, the network is down, and the stand must not
+      // publish on the coordinate the OLD address resolved to.
+      //
+      // It used to press Save on the UNTOUCHED form to reach the same refusal, and to credit
+      // the catch branch's own `setPin(null)` for the result. Neither survives max's 2026-08-08
+      // call: Save is off while the field still holds the saved address, so the only route to a
+      // lookup is through an edit — and an edit has already cleared the pin by the time the
+      // failure lands. That clearing is now `changeAddress`'s alone, and the branch's
+      // defensive copy of it is gone rather than left as a second mechanism for one fact.
       const user = userEvent.setup();
       vi.stubGlobal(
         "fetch",
@@ -1370,6 +1377,7 @@ describe("onboarding listing step", () => {
             visitability: "visitable" as const,
             publicAddress: "12345 Vashon Highway SW",
             addressPublic: true,
+            pricesPublic: false,
             latitude: 47.4471,
             longitude: -122.4594,
           }}
@@ -1380,6 +1388,7 @@ describe("onboarding listing step", () => {
         screen.getByRole("button", { name: /submit|save changes/i }),
       ).toBeEnabled();
 
+      await user.type(screen.getByLabelText(/your farm address/i), " Suite 2");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
       await screen.findByRole("status");
 
@@ -1421,17 +1430,14 @@ describe("onboarding listing step", () => {
       expect(screen.queryByText(/found it/i)).not.toBeInTheDocument();
     });
 
-    it("a FAILED lookup discards a STORED coordinate, on an edit form", async () => {
-      // The one path where the refusal branch's own pin-clearing is load-bearing.
+    it("a FAILED lookup leaves an EDITED address unpublishable, on an edit form", async () => {
+      // The geocoder-refusal twin of the test above, on the edit door: the farmer corrects
+      // their address, the geocoder cannot find the correction, and the stand must not publish
+      // on the coordinate the previous address resolved to.
       //
-      // `changeAddress` covers the farmer who retypes: the pin is gone before the second
-      // lookup runs. It does NOT cover an EDIT form, where the pin arrives from the saved
-      // listing and the address is never touched. A returning farmer who presses "find this
-      // address" and gets a failure would otherwise keep a coordinate the geocoder has just
-      // said it cannot confirm, and publish it as though it had.
-      //
-      // Verified reachable by sabotage: removing `setPin(null)` from the refusal branch
-      // leaves every other test in this file green.
+      // This test used to be the proof that the refusal branch cleared the pin ITSELF, reached
+      // by pressing Save on an untouched form. That press is now impossible and that clearing
+      // is now redundant — see the sibling above for the whole of it.
       const user = userEvent.setup();
       const fetchMock = vi.fn(async (url: string) => {
         if (String(url).includes("address-lookup")) {
@@ -1450,6 +1456,7 @@ describe("onboarding listing step", () => {
             visitability: "visitable" as const,
             publicAddress: "12345 Vashon Highway SW",
             addressPublic: true,
+            pricesPublic: false,
             latitude: 47.4471,
             longitude: -122.4594,
           }}
@@ -1461,7 +1468,8 @@ describe("onboarding listing step", () => {
         screen.getByRole("button", { name: /submit|save changes/i }),
       ).toBeEnabled();
 
-      // The farmer re-runs the lookup without editing anything, and it fails.
+      // The farmer CORRECTS the address, and the lookup of the correction fails.
+      await user.type(screen.getByLabelText(/your farm address/i), " Suite 2");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
       await screen.findByRole("status");
 
@@ -1517,6 +1525,114 @@ describe("onboarding listing step", () => {
 
       expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("does not look up an address that is only whitespace", async () => {
+      // The guard is on the TRIMMED value, so spaces are as blank as nothing typed. Without
+      // this, a stray space would light the button up and spend a geocoder call on it.
+      const user = userEvent.setup();
+      const fetchMock = stubRoutes({ status: "no_result" });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
+      await user.type(screen.getByLabelText(/your farm address/i), "   ");
+
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("turns Save OFF once the typed address has been saved, and back ON when it is edited", async () => {
+      // Save means "there is something here that is not saved yet". After a successful lookup
+      // the text on screen IS the saved address — the coordinate beside it was derived from
+      // exactly these characters — so pressing it again would re-spend a geocoder call to
+      // arrive at the state already on screen.
+      //
+      // It re-enables on the first keystroke because that keystroke is what makes the two
+      // disagree: `changeAddress` discards the coordinate, so from that moment the field holds
+      // an address nothing has resolved.
+      const user = userEvent.setup();
+      stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
+      const field = screen.getByLabelText(/your farm address/i);
+      await user.type(field, "12345 Vashon Highway SW");
+
+      // Typed and unsaved: the one state the button is for.
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+
+      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await screen.findByText(/found it/i);
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+      });
+
+      // One more character, and there is again something unsaved to save.
+      await user.type(field, "X");
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+    });
+
+    it("arrives with Save OFF on an edit form, whose address is already saved", async () => {
+      // Same rule, reached from the other door. A stand already on the map holds a coordinate
+      // that belongs to the address printed beside it, so the form opens in the saved state —
+      // nothing to save until the farmer changes something. max confirmed this trade
+      // (2026-08-08): a returning farmer cannot re-run the lookup on an address they never
+      // touched, which is the price of the button meaning one thing.
+      stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...EDIT_DEFAULTS,
+            visitability: "visitable" as const,
+            publicAddress: "12345 Vashon Highway SW",
+            addressPublic: true,
+            pricesPublic: false,
+            latitude: 47.4471,
+            longitude: -122.4594,
+          }}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+    });
+
+    it("re-enables Save when a lookup FAILS, so the farmer can try again", async () => {
+      // A refusal leaves the address unsaved, and the farmer's next move is to correct it and
+      // press Save again. Keying the button off the coordinate rather than off "a lookup ran"
+      // is what makes this fall out: the refusal branch clears the pin, so the button is live
+      // again the moment the failure lands — with the text unchanged.
+      const user = userEvent.setup();
+      stubRoutes({ status: "no_result" });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
+      await user.type(screen.getByLabelText(/your farm address/i), "nowhere at all");
+      await user.click(screen.getByRole("button", { name: /^save$/i }));
+
+      await screen.findByRole("status");
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+    });
+
+    it("styles Save as the form's primary action, with its own disabled look", async () => {
+      // It carries the same class the submit button's rules key off, so the two committing
+      // controls are one style rather than two that drift apart. Asserted through the
+      // ELEMENT's own classes rather than computed colour: jsdom does not load the stylesheet,
+      // so a colour assertion here would pass against no styles at all.
+      const user = userEvent.setup();
+      stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
+      render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
+      const save = screen.getByRole("button", { name: /^save$/i });
+      expect(save).toHaveClass("farmer-listing-primary");
+
+      // And the disabled state is addressable as a state rather than as a second class the
+      // component has to remember to add and remove.
+      expect(save).toBeDisabled();
+      await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
+      expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
     });
 
     it("the lookup button does NOT submit the form", async () => {
@@ -1610,6 +1726,7 @@ describe("onboarding listing step", () => {
             visitability: "visitable",
             publicAddress: "12345 Vashon Highway SW",
             addressPublic: false,
+            pricesPublic: false,
             latitude: 47.4471,
             longitude: -122.4594,
           }}
@@ -2295,11 +2412,12 @@ describe("onboarding listing step", () => {
       visitability: "visitable" as const,
       publicAddress: "12345 Vashon Highway SW",
       addressPublic: true,
+      pricesPublic: false,
       latitude: 47.4471,
       longitude: -122.4594,
       hoursText: "Dawn to dusk",
       paymentMethods: ["Cash", "Goats"],
-      items: [{ name: "Eggs", priceText: null }, { name: "Flowers", priceText: null }],
+      items: [{ name: "Eggs", price: null }, { name: "Flowers", price: null }],
       availability: {
         seasonKind: "date_range" as const,
         seasonStartMonth: 3,
@@ -2387,8 +2505,8 @@ describe("onboarding listing step", () => {
       // F-090 — items round-trip as name/price pairs. Still the same B-037 guarantee this
       // test was written for: what the form was given is exactly what it sends back.
       expect(body.items).toEqual([
-        { name: "Eggs", priceText: null },
-        { name: "Flowers", priceText: null },
+        { name: "Eggs", price: null },
+        { name: "Flowers", price: null },
       ]);
       // B-037 — the twelve the writer sets unconditionally. `updateStand` names every
       // availability column in one statement, so anything absent here is written NULL: a
@@ -2612,36 +2730,213 @@ describe("onboarding listing step", () => {
 
       await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs");
       await user.click(screen.getByRole("button", { name: /add item/i }));
-      await user.type(screen.getByLabelText(/price for eggs/i), "$6/dozen");
+
+      // F-092 — the price line only exists once the section's switch is on. That switch is the
+      // farmer's decision to price anything at all, so it comes before any per-item amount.
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      await user.type(screen.getByLabelText(/^price for eggs$/i), "6");
+      await user.selectOptions(screen.getByLabelText(/unit for eggs/i), "dozen");
 
       await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       // The PAIR, not merely that a price was sent — a form that attached the price to the
-      // wrong item would satisfy any assertion that only checked presence.
+      // wrong item would satisfy any assertion that only checked presence. And all four parts,
+      // because three of four is the shape the database refuses.
       expect(posted(fetchMock).items).toEqual([
-        { name: "eggs", priceText: "$6/dozen" },
+        {
+          name: "eggs",
+          price: { amount: "6", quantity: "1", unit: "dozen", basis: "per" },
+        },
       ]);
+    });
+
+    it("sends a BUNDLE price when the farmer says 'for' rather than 'per'", async () => {
+      // The other sentence the same four controls make. The quantity box appears only with
+      // `for`, because a unit price's count is always one — asking every farmer for a number
+      // they will leave at 1 is a control earning nothing.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "tomatoes");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      // No quantity box until the basis says there is a bundle to count.
+      expect(screen.queryByLabelText(/how many tomatoes/i)).not.toBeInTheDocument();
+      await user.selectOptions(screen.getByLabelText(/price basis for tomatoes/i), "for");
+
+      await user.type(screen.getByLabelText(/^price for tomatoes$/i), "5");
+      const quantity = screen.getByLabelText(/how many tomatoes/i);
+      await user.clear(quantity);
+      await user.type(quantity, "3");
+      await user.selectOptions(screen.getByLabelText(/unit for tomatoes/i), "lb");
+
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+
+      expect(posted(fetchMock).items).toEqual([
+        {
+          name: "tomatoes",
+          price: { amount: "5", quantity: "3", unit: "lb", basis: "for" },
+        },
+      ]);
+    });
+
+    it("sends NO price while the section's switch is off, however filled the boxes were", async () => {
+      // max's call (2026-08-08): hidden means hidden. A farmer who set prices and then switched
+      // the feature off has said "do not show these" — so they must not reach the database, and
+      // therefore cannot reach a customer. The values stay on screen, which is what makes the
+      // switch reversible rather than destructive.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      await user.type(screen.getByLabelText(/^price for eggs$/i), "6");
+      await user.selectOptions(screen.getByLabelText(/unit for eggs/i), "dozen");
+
+      // The farmer changes their mind about showing prices at all.
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+
+      const body = posted(fetchMock);
+      expect(body.items).toEqual([{ name: "eggs", price: null }]);
+      // And the stand itself records the choice, so the next edit does not switch it back on.
+      expect(body.pricesPublic).toBe(false);
+    });
+
+    it("KEEPS what was typed when the switch goes off and on again", async () => {
+      // The switch disables a feature; it does not clear a farmer's work. Retyping four fields
+      // per item because they toggled something to see what it did would be a punishment for
+      // exploring the form.
+      const user = userEvent.setup();
+      stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      await user.type(screen.getByLabelText(/^price for eggs$/i), "6");
+      await user.selectOptions(screen.getByLabelText(/unit for eggs/i), "dozen");
+
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      expect(screen.queryByLabelText(/^price for eggs$/i)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      expect(screen.getByLabelText(/^price for eggs$/i)).toHaveValue("6");
+      expect(screen.getByLabelText(/unit for eggs/i)).toHaveValue("dozen");
+    });
+
+    it("refuses letters in the money box rather than sending them", async () => {
+      // Filtered on the way IN, so the box cannot hold something it will not submit. A farmer
+      // who types a letter sees it not appear, which is quieter than an error under the field.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      const amount = screen.getByLabelText(/^price for eggs$/i);
+      await user.type(amount, "6a.5x0");
+      expect(amount).toHaveValue("6.50");
+
+      // And the decimal keypad is what a phone should raise for it.
+      expect(amount).toHaveAttribute("inputmode", "decimal");
+
+      await user.selectOptions(screen.getByLabelText(/unit for eggs/i), "lb");
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+      expect(posted(fetchMock).items).toEqual([
+        {
+          name: "eggs",
+          price: { amount: "6.50", quantity: "1", unit: "lb", basis: "per" },
+        },
+      ]);
+    });
+
+    it("sends no price for an amount with no unit, rather than half of one", async () => {
+      // Half a price is not a price. The database refuses the shape outright, so the form must
+      // resolve it to "not stated" rather than posting something that will be rejected.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+      await user.type(screen.getByLabelText(/^price for eggs$/i), "6");
+
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+      expect(posted(fetchMock).items).toEqual([{ name: "eggs", price: null }]);
     });
 
     it("prefills a stored price, so an edit cannot silently drop it", async () => {
       // B-037 in the UI. `saveOnboardingListing` writes every item row on every save, so a
       // price the form could not show is a price the next save deletes.
+      //
+      // A stand that HAS prices arrives with the switch already on — otherwise the line holding
+      // them would be hidden, and the farmer would have to rediscover a feature they already
+      // turned on to see the values they already set.
       render(
         <ListingStep
           credential={{ kind: "stand_link", token: TOKEN }}
           farmName="Test Farm"
           defaults={{
             ...PLACED,
+            pricesPublic: true,
             items: [
-              { name: "Eggs", priceText: "$6/dozen" },
-              { name: "Flowers", priceText: null },
+              {
+                name: "Eggs",
+                price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" },
+              },
+              { name: "Flowers", price: null },
             ],
           }}
         />,
       );
 
-      expect(screen.getByLabelText(/price for Eggs/i)).toHaveValue("$6/dozen");
-      expect(screen.getByLabelText(/price for Flowers/i)).toHaveValue("");
+      expect(screen.getByRole("switch", { name: /add prices/i })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      // Each part on its own control, so a prefill that dropped the unit but kept the number
+      // fails here rather than passing on the amount alone.
+      expect(screen.getByLabelText(/^price for Eggs$/i)).toHaveValue("6.00");
+      expect(screen.getByLabelText(/unit for Eggs/i)).toHaveValue("dozen");
+      expect(screen.getByLabelText(/^price for Flowers$/i)).toHaveValue("");
     });
 
     it("round-trips an untouched priced listing unchanged", async () => {
@@ -2650,20 +2945,27 @@ describe("onboarding listing step", () => {
       const user = userEvent.setup();
       const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
       const items = [
-        { name: "Eggs", priceText: "$6/dozen" },
-        { name: "Flowers", priceText: null },
+        {
+          name: "Eggs",
+          price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" as const },
+        },
+        { name: "Flowers", price: null },
       ];
       render(
         <ListingStep
           credential={{ kind: "stand_link", token: TOKEN }}
           farmName="Test Farm"
-          defaults={{ ...PLACED, items }}
+          defaults={{ ...PLACED, pricesPublic: true, items }}
         />,
       );
 
       await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
-      expect(posted(fetchMock).items).toEqual(items);
+      const body = posted(fetchMock);
+      expect(body.items).toEqual(items);
+      // The switch itself round-trips too. Sending `false` from a form that showed prices would
+      // be B-037's shape one level up: the stand's own flag reset by an untouched save.
+      expect(body.pricesPublic).toBe(true);
     });
   });
 
@@ -2770,7 +3072,13 @@ describe("onboarding listing step", () => {
             latitude: 47.4471,
             longitude: -122.4594,
             hoursText: "Dawn to dusk",
-            items: [{ name: "Eggs", priceText: "$6/dozen" }],
+            pricesPublic: true,
+            items: [
+              {
+                name: "Eggs",
+                price: { amount: "6.00", quantity: "1.00", unit: "dozen", basis: "per" },
+              },
+            ],
           }}
         />,
       );
@@ -2781,7 +3089,8 @@ describe("onboarding listing step", () => {
       expect(screen.getByLabelText(/anything else about your hours/i)).toHaveValue(
         "Dawn to dusk",
       );
-      expect(screen.getByLabelText(/price for Eggs/i)).toHaveValue("$6/dozen");
+      expect(screen.getByLabelText(/^price for Eggs$/i)).toHaveValue("6.00");
+      expect(screen.getByLabelText(/unit for Eggs/i)).toHaveValue("dozen");
     });
 
     it("still starts a genuinely new farm blank", async () => {
@@ -2799,44 +3108,208 @@ describe("onboarding listing step", () => {
     });
   });
 
-  describe("today's stock during onboarding (F-090)", () => {
-    it("sends what is in the stand now, separately from the usual mix", async () => {
-      // F-066's split, carried onto the form. "We usually sell eggs" and "eggs are on the
-      // table today" are different claims and travel in different fields — collapsing them
-      // is what would manufacture the certainty an honor-system stand refuses to fake.
+  describe("the inventory builder is one self-contained section", () => {
+    /** Onboarding, on the step that asks what the stand sells, with `count` items added. */
+    async function withItems(user: ReturnType<typeof userEvent.setup>, ...names: string[]) {
+      render(
+        <ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />,
+      );
+      const box = await revealField(user, /what do you usually sell/i);
+      for (const name of names) {
+        await user.clear(box);
+        await user.type(box, name);
+        await user.click(screen.getByRole("button", { name: /add item/i }));
+      }
+    }
+
+    it("wraps the question, the add box and the rows in ONE region", async () => {
+      // max's ask (2026-08-08): the section should feel self-contained. It used to be four
+      // siblings loose among the form's other fields — a label, an add row, a list and two
+      // notes — so nothing said where "what you sell" started or stopped, and the rows read
+      // as belonging to the paragraph box that follows them.
+      //
+      // A real `group` with an accessible name, not a styled `div`: the boundary has to exist
+      // for a screen reader too, which is the whole difference between structure and a border.
+      const user = userEvent.setup();
+      await withItems(user, "eggs");
+
+      const section = screen.getByRole("group", { name: /what do you usually sell/i });
+      // The question, the way in, and what has been added so far — all inside it.
+      expect(section).toContainElement(screen.getByLabelText(/what do you usually sell/i));
+      expect(section).toContainElement(screen.getByRole("button", { name: /add item/i }));
+      expect(section).toContainElement(screen.getByText("eggs"));
+
+      // And the NEXT question is outside it, which is what makes it a boundary rather than a
+      // wrapper that happens to start in the right place.
+      expect(section).not.toContainElement(
+        screen.getByLabelText(/anything else people should know/i),
+      );
+    });
+
+    it("drops the trailing explanation of what the list means", async () => {
+      // Deleted outright (max 2026-08-08) rather than reworded. It explained the F-066 split
+      // — standing mix versus today's stock — to a farmer who has not yet been asked about
+      // today's stock, and it sat below the rows where it read as a footnote to the last item.
+      // The per-row toggle now carries that distinction where it can be acted on.
+      const user = userEvent.setup();
+      await withItems(user, "eggs");
+
+      expect(
+        screen.queryByText(/you will text what is actually in stock/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it("gives each item ONE row, split into identity and price", async () => {
+      // The row is the unit of meaning: everything about one item lives in one `<li>`, and two
+      // items are two rows however many lines each takes. What line a control sits on is
+      // max's 2026-08-08 split — name and stock above, price below — but the containment is
+      // the property that must not break, because a control landing in the wrong row would
+      // still look right and edit somebody else's item.
+      const user = userEvent.setup();
+      await withItems(user, "eggs", "kale");
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      const rows = screen.getAllByRole("listitem");
+      expect(rows).toHaveLength(2);
+
+      // Each row holds its OWN controls, anchored per item rather than counted globally: a
+      // price landing on the wrong row would pass a count and fail this.
+      for (const name of ["eggs", "kale"]) {
+        const row = rows.find((entry) => entry.textContent?.includes(name));
+        if (row === undefined) throw new Error(`no row for ${name}`);
+        expect(row).toContainElement(
+          screen.getByLabelText(new RegExp(`^price for ${name}$`, "i")),
+        );
+        expect(row).toContainElement(
+          screen.getByLabelText(new RegExp(`unit for ${name}`, "i")),
+        );
+        expect(row).toContainElement(screen.getByRole("switch", { name: `${name} in stock` }));
+        expect(row).toContainElement(screen.getByRole("button", { name: `Remove ${name}` }));
+      }
+    });
+
+    it("shows NO price controls until the section's switch is on", async () => {
+      // max's call (2026-08-08): one switch for the section rather than a control on every row.
+      // Pricing is the exception at an honor-system stand, so the default row stays the compact
+      // single line — a farmer who prices nothing never meets four controls they do not want.
+      const user = userEvent.setup();
+      await withItems(user, "eggs");
+
+      expect(screen.queryByLabelText(/^price for eggs$/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/unit for eggs/i)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      expect(screen.getByLabelText(/^price for eggs$/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/unit for eggs/i)).toBeInTheDocument();
+    });
+
+    it("governs EVERY row with the one switch, not the row it was clicked beside", async () => {
+      // The whole point of hoisting it to the section. A switch that only opened one row's
+      // price would be a per-row control wearing a section's clothes.
+      const user = userEvent.setup();
+      await withItems(user, "eggs", "kale");
+
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      for (const name of ["eggs", "kale"]) {
+        expect(screen.getByLabelText(new RegExp(`^price for ${name}$`, "i"))).toBeInTheDocument();
+      }
+    });
+
+    it("keeps the currency mark in view while the farmer types", async () => {
+      // max's ask (2026-08-08): the kind of hint that STAYS, not a placeholder that vanishes at
+      // the first keystroke. So it is page furniture beside the box rather than text inside it,
+      // and it is still there with a value typed.
+      const user = userEvent.setup();
+      await withItems(user, "eggs");
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      const section = screen.getByRole("group", { name: /what do you usually sell/i });
+      expect(within(section).getByText("$")).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText(/^price for eggs$/i), "6");
+      expect(within(section).getByText("$")).toBeInTheDocument();
+    });
+
+    it("says prices are optional once for the section, not once per row", async () => {
+      // The fact is the same on every row, so stating it per row would repeat it as many times
+      // as the farmer has items. The switch's own explanatory line carries it for all of them.
+      const user = userEvent.setup();
+      await withItems(user, "eggs", "kale");
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      const section = screen.getByRole("group", { name: /what do you usually sell/i });
+      expect(within(section).getAllByText(/leave any of them blank/i)).toHaveLength(1);
+    });
+
+    it("states today's stock as a TOGGLE rather than a sentence to read", async () => {
+      // Was a checkbox labelled "eggs are on the table right now" — a full sentence per item,
+      // which is what forced the second line. A switch says the same thing in the control's
+      // own shape, and `role="switch"` is what carries on/off to a screen reader; a checkbox
+      // styled to look like a toggle would announce the wrong thing.
+      const user = userEvent.setup();
+      await withItems(user, "eggs");
+
+      const toggle = screen.getByRole("switch", { name: /eggs in stock/i });
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+
+      // The prose it replaced is gone, not merely restyled.
+      expect(screen.queryByText(/on the table right now/i)).not.toBeInTheDocument();
+    });
+
+    it("still sends the standing mix and today's stock as SEPARATE facts", async () => {
+      // The redesign is presentation. F-066's split is the thing underneath it, and a toggle
+      // that wrote into `items` instead of `currentStock` would look identical on screen while
+      // publishing "we always have eggs" from a farmer who said "today".
       const user = userEvent.setup();
       const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
       render(
-        <ListingStep
-          credential={{ kind: "invitation", token: TOKEN }}
-          farmName="Test Farm"
-        />,
+        <ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />,
       );
 
       await placeStand(user);
       await user.click(screen.getByLabelText(/yes — there is a stand/i));
       await user.type(await revealField(user, /what do you usually sell/i), "eggs");
       await user.click(screen.getByRole("button", { name: /add item/i }));
-      await user.click(screen.getByLabelText(/eggs are on the table right now/i));
+      await user.click(screen.getByRole("switch", { name: /eggs in stock/i }));
       await submitListing(user);
 
       const body = posted(fetchMock);
-      expect(body.items).toEqual([{ name: "eggs", priceText: null }]);
+      expect(body.items).toEqual([{ name: "eggs", price: null }]);
       expect(body.currentStock).toEqual([{ itemName: "eggs" }]);
     });
 
-    it("is NOT asked on the edit door, which has its own stock update", async () => {
-      // An onboarded farmer reports today's stock on the status tab, through the
-      // confirmation gate. Asking again here would be two ways to do one thing.
+    it("offers no per-item stock toggle on the edit door, which has its own stock update", async () => {
+      // An onboarded farmer reports today's stock on the status tab, through the confirmation
+      // gate. Two ways to do one thing is what the zen desk refuses.
       render(
         <ListingStep
           credential={{ kind: "stand_link", token: TOKEN }}
           farmName="Test Farm"
-          defaults={EDIT_DEFAULTS}
+          // Carries an item deliberately: `EDIT_DEFAULTS` has none, and an empty list would
+          // satisfy "no stock toggle" by having no rows at all.
+          defaults={{
+            ...EDIT_DEFAULTS,
+            pricesPublic: true,
+            items: [{ name: "Eggs", price: null }],
+          }}
         />,
       );
 
-      expect(screen.queryByLabelText(/on the table right now/i)).toBeNull();
+      // Named rather than counted: the SECTION's price switch is also a `switch`, and this door
+      // does have that one. A bare `queryAllByRole("switch")` count would fail for the wrong
+      // reason and hide the thing being asserted.
+      expect(screen.queryByRole("switch", { name: /eggs in stock/i })).toBeNull();
+      expect(screen.getByRole("switch", { name: /add prices/i })).toBeInTheDocument();
+      // The rest of the row survives, so this is a control that is absent rather than a row
+      // that failed to render.
+      expect(screen.getByLabelText(/^price for Eggs$/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove Eggs" })).toBeInTheDocument();
     });
   });
+
 });

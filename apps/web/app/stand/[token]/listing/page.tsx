@@ -80,6 +80,9 @@ export default async function FarmerListingEditPage({
             // F-088 — B-037's rule for the newest column: the writer sets it on every save, so
             // an edit form that did not carry it would republish a hidden address.
             addressPublic: listing.addressPublic,
+            // F-092 — the same rule for the price switch: a form that could not see it would
+            // reset it to off on the next otherwise-untouched save.
+            pricesPublic: listing.pricesPublic,
             latitude: listing.latitude,
             longitude: listing.longitude,
             hoursText: listing.hoursText,

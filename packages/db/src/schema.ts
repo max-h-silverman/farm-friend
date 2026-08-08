@@ -9,6 +9,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -64,6 +65,16 @@ export const inventoryApproximation = pgEnum("inventory_approximation", [
   "limited",
   "plentiful",
 ]);
+/**
+ * F-092 — the word that joins a price's parts. `per` is a unit price ("$6 / dozen"); `for` is a
+ * bundle ("3 lb for $5"). Two values, because these are one mechanism with a different joining
+ * word rather than two kinds of price — see `standItems.priceAmount`.
+ */
+export const standItemPriceBasis = pgEnum("stand_item_price_basis", [
+  "per",
+  "for",
+]);
+
 export const closureResult = pgEnum("closure_result", ["close", "reopen"]);
 export const closureKind = pgEnum("closure_kind", ["temporary", "seasonal"]);
 
@@ -730,6 +741,21 @@ export const farmerInvitations = pgTable(
      */
     pendingPhoneE164: text("pending_phone_e164"),
     pendingPhoneHash: text("pending_phone_hash"),
+    /**
+     * F-090 — what the farmer said was on the table today, HELD until their `START` proves the
+     * handset. A dated claim needs someone to stand behind it, and a web form alone is not that.
+     *
+     * A non-empty array of `{ itemName, priceText? }`, or NULL for "said nothing about today" —
+     * the difference is load-bearing and `farmer_invitations_pending_stock_shape` enforces it,
+     * because an empty array would publish a revision claiming the stand was confirmed EMPTY.
+     *
+     * **This column was missing from this file until 2026-08-08**, having been added by
+     * `0031_invitation_pending_stock.sql` and never mirrored here. `drizzle-kit generate` diffs
+     * the DATABASE against THIS FILE, so the next generated migration proposed dropping it —
+     * live data behind `recordFarmerInvitationPendingStock`. Caught by that DROP appearing in an
+     * unrelated migration; the lesson is that a hand-written migration is only half the change.
+     */
+    pendingStock: jsonb("pending_stock"),
   },
   (table) => ({
     tokenHashUnique: unique("farmer_invitations_token_hash_unique").on(table.tokenHash),
@@ -1078,6 +1104,21 @@ export const salesLocations = pgTable(
      * they say otherwise, and every row that existed before this column was exactly that.
      */
     addressPublic: boolean("address_public").notNull().default(true),
+    /**
+     * F-092 — whether this stand shows PRICES at all. The farmer's own switch, and the same shape
+     * as `addressPublic` above: the fact is always stored, and one boolean decides whether it is
+     * rendered.
+     *
+     * max's call (2026-08-08): hidden means hidden. Prices stay STORED when this is false, so
+     * switching it back on restores what the farmer typed rather than making them retype it — but
+     * NO CUSTOMER SURFACE MAY RENDER A PRICE while it is false. A reader that forgets this is the
+     * failure mode; the projection that feeds the map is where it is enforced.
+     *
+     * `false` by default, unlike `addressPublic`, and deliberately. An address is information a
+     * farmer supplied to a public listing; a price is a thing this system never asked for
+     * before, and no existing stand has consented to showing one. Opting in is the farmer's act.
+     */
+    pricesPublic: boolean("prices_public").notNull().default(false),
     /**
      * The farmer's own words about when they are open, preserved verbatim.
      *
@@ -1653,15 +1694,31 @@ export const standItems = pgTable(
     /** The standing state. Never a date — see the note above. */
     usuallyCarried: boolean("usually_carried").notNull().default(false),
     /**
-     * F-090 — what this usually costs, in the farmer's own words. Optional.
+     * F-092 — what this usually costs, as FOUR PARTS that render as one sentence. All optional,
+     * and all-or-nothing: `stand_items_price_complete` refuses a half-stated price.
      *
-     * Free text for the same reason `inventory_entries.price_text` is: a roadside sign says
-     * "$6/dozen" or "2 for $5", not a decimal with a currency code. Nothing parses or sums it.
+     *     amount  quantity  unit     basis     renders as
+     *     6       1         dozen    per       $6 / dozen
+     *     5       3         lb       for       3 lb for $5
      *
-     * NULL is "not stated" — never "free" and never "ask". Blank strings are refused by
-     * `stand_items_price_text_not_blank` so the two cannot render identically.
+     * `per` is the bundle with an implied count of one, which is why these are one mechanism and
+     * not two — the renderer is a single function, and a third kind of price would be a third
+     * value of `basis` rather than a fifth column.
+     *
+     * This REPLACED a free-text `price_text` (0030). That column argued, correctly for what it
+     * knew, that a roadside sign says "$6/dozen" and not a decimal — but the VIGA corpus turned
+     * out to contain no per-item price at all, so there was no vocabulary to honour and nothing
+     * to migrate. See `0032_structured_item_price.sql`.
+     *
+     * NULL across all four is "not stated" — never "free" and never "ask". FREE IS `0`: a farmer
+     * giving something away states an amount of zero, which is a fact, where NULL is its absence.
+     *
+     * Whether any of this REACHES a customer is `salesLocations.pricesPublic`, not these columns.
      */
-    priceText: text("price_text"),
+    priceAmount: numeric("price_amount", { precision: 10, scale: 2 }),
+    priceQuantity: numeric("price_quantity", { precision: 10, scale: 2 }),
+    priceUnit: text("price_unit"),
+    priceBasis: standItemPriceBasis("price_basis"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => ({
@@ -1685,12 +1742,44 @@ export const standItems = pgTable(
       sql`${table.sortOrder} >= 0`,
     ),
     /**
-     * F-090 — a stated price is a real one. NULL stays legal (a CHECK passes on NULL, which is
-     * what makes the bare condition safe), so "not stated" and "" cannot both reach a card.
+     * F-092 — a price is ALL FOUR PARTS OR NONE. Half a price renders as garbage ("$6 /" or
+     * "/ dozen"), and this is the only thing that can stop a writer omitting one field. All-NULL
+     * stays legal and is what "not stated" means.
      */
-    priceTextNotBlank: check(
-      "stand_items_price_text_not_blank",
-      sql`${table.priceText} is null or length(btrim(${table.priceText}, E' \t\r\n')) > 0`,
+    priceComplete: check(
+      "stand_items_price_complete",
+      sql`
+        (
+          ${table.priceAmount} is null
+          and ${table.priceQuantity} is null
+          and ${table.priceUnit} is null
+          and ${table.priceBasis} is null
+        )
+        or (
+          ${table.priceAmount} is not null
+          and ${table.priceQuantity} is not null
+          and ${table.priceUnit} is not null
+          and ${table.priceBasis} is not null
+        )
+      `,
+    ),
+    /**
+     * Zero is FREE and is a real answer, so the amount floor is `>= 0` — where the quantity floor
+     * is `> 0`, because "0 for $5" is not a sentence. Both say `is null or` explicitly: a CHECK
+     * passes on NULL, and leaving that implicit is how a guard admits the case it meant to skip.
+     */
+    priceAmountNonnegative: check(
+      "stand_items_price_amount_nonnegative",
+      sql`${table.priceAmount} is null or ${table.priceAmount} >= 0`,
+    ),
+    priceQuantityPositive: check(
+      "stand_items_price_quantity_positive",
+      sql`${table.priceQuantity} is null or ${table.priceQuantity} > 0`,
+    ),
+    /** The farmer's own word, so free text — but "" and NULL must not render identically. */
+    priceUnitNotBlank: check(
+      "stand_items_price_unit_not_blank",
+      sql`${table.priceUnit} is null or length(btrim(${table.priceUnit}, E' \t\r\n')) > 0`,
     ),
     /**
      * One item per stand per name, and the first-insert arbiter for concurrent writers.
