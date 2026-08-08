@@ -211,6 +211,13 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   takes no timestamp — the "no confirmation time" property has to survive all the way to the screen
   to mean anything.
 
+  **A standing item may carry an optional `price_text`** (F-090) — the farmer's own words
+  ("$6/dozen", "2 for $5"), never parsed and never summed, matching the column
+  `inventory_entries` has always had. NULL is *not stated*, never "free", and a not-blank CHECK
+  keeps `""` from rendering as the same thing. It is a standing claim exactly like the item it
+  belongs to and carries no date; a price on today's confirmed stock is the entries column and a
+  different fact.
+
   **Item names are the farmer's own words** ("plant starts", "Gailan"), per-stand and
   farmer-authored. There is no shared produce taxonomy, no global food ontology, and no vocabulary
   any behavioral branch may reason about. Two stands that both sell eggs share nothing.
@@ -250,12 +257,26 @@ axis of its own. That is sufficient to render an honest "updated X ago".
 - **inventory revisions and inventory entries** — a revision is an immutable published version of a
   location's inventory; entries are the items in it, with quantity/unit/price text or an
   approximate label. Revisions have no draft state. Every revision declares its **`source`**
-  (F-063), and a database CHECK makes the two shapes mutually exclusive: `sms` requires the full
-  handset chain — `proposal_id`, `published_by_authorization_id`, `farm_approval_id` — so what was
-  previously convention is now enforced; `viga` requires all three to be **NULL**, which is how
-  VIGA's own records (the launch import, the weekly stock form, a later admin edit) are recorded
-  without fabricating an attestation about an identifiable person. Written as one biconditional over
-  all three keys rather than three per-column rules, because a CHECK *passes* on NULL.
+  (F-063, F-090), and a database CHECK makes the three shapes mutually exclusive:
+
+  - **`sms`** requires the full handset chain — `proposal_id`,
+    `published_by_authorization_id`, `farm_approval_id` — so what was previously convention is
+    now enforced. The proposal carries the token the farmer texted back.
+  - **`web`** (F-090) requires an authorization and an approval and **no proposal**. This is
+    stock a farmer stated on the onboarding form, published when their `START` proved the
+    handset. As strong as `sms` on who stands behind the claim; it lacks only the confirmation
+    exchange, which genuinely never happened. Recording it as `sms` would have required
+    inventing a consumed token and a consumption event naming a message nobody sent — the exact
+    fabrication this constraint exists to refuse.
+  - **`viga`** requires all three to be **NULL**, which is how VIGA's own records (the launch
+    import, the weekly stock form, a later admin edit) are recorded without fabricating an
+    attestation about an identifiable person.
+
+  Written as one biconditional over all four columns rather than per-column rules, because a
+  CHECK *passes* on NULL. **The enum is recreated rather than extended** when a value is added:
+  PostgreSQL cannot use a newly added enum value in the transaction that added it, and the
+  migrator runs every pending migration in one — `ALTER TYPE … ADD VALUE` applies cleanly and
+  then fails on first use, on a fresh database (0001 records the same lesson).
 
   An entry **resolves to its stand item by the normalized name it already carries** (F-066), and
   the entries table is **not modified at all**. There is deliberately no `stand_item_id` column:

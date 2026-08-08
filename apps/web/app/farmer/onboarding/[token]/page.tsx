@@ -1,4 +1,7 @@
-import { loadFarmerInvitation } from "@farm-friend/db";
+import {
+  loadFarmerInvitation,
+  readFarmListingForOnboarding,
+} from "@farm-friend/db";
 import { publicReadContext } from "../../../../lib/public-context";
 import { ListingStep } from "./listing-step";
 
@@ -24,6 +27,27 @@ export default async function FarmerOnboardingPage({
       </main>
     );
   }
+
+  /*
+    F-090 — WHAT VIGA ALREADY HOLDS, prefilled (max's point 3, 2026-08-08).
+
+    Nearly every invited farm is one VIGA already seeded. Measured against the real corpus
+    rather than assumed: 47 of 48 stands carry an address, 48 carry hours, 37 a season, and
+    36 items are standing claims. This page passed no `defaults`, so those farmers met a
+    blank form and were asked to retype all of it.
+
+    **And that was a live defect, not merely a chore.** `saveOnboardingListing` replaces the
+    WHOLE listing, so submitting the blank form they were shown would have overwritten VIGA's
+    seeded address, hours, season and items with nothing — B-037's failure on the door where
+    it costs the most, with nothing on screen and nothing failing.
+
+    `null` for a farm VIGA has nothing on, which is a genuinely new farm: the form then starts
+    empty, exactly as it always did. Prefilling must never invent a value.
+  */
+  const existing =
+    invitation.farmId === null
+      ? null
+      : await readFarmListingForOnboarding(db, { farmId: invitation.farmId });
 
   const fromNumber = process.env.TELNYX_FROM_NUMBER?.trim();
   return (
@@ -66,11 +90,12 @@ export default async function FarmerOnboardingPage({
           Your stand
         </h2>
         {/*
-          NO `defaults`, deliberately — an invitation CREATES a listing rather than editing
-          one, so there is nothing to prefill and nothing B-037 could erase. Only the edit
-          page passes them.
-        */}
-        {/*
+          `defaults` when VIGA already holds a listing for this farm (F-090). It used to be
+          omitted on the reasoning that an invitation CREATES rather than edits — true of the
+          RECORD, and wrong about the DATA: almost every invited farm was seeded from VIGA's
+          forms, so "creating" meant replacing what was already there with a blank form's
+          emptiness. See the read above.
+
           `smsNumber` is what lets the form name the number the farmer will text START to, both
           beside the phone field and in the confirmation. Absent when `TELNYX_FROM_NUMBER` is
           unset, and the form falls back to copy that names the word without the number rather
@@ -79,6 +104,7 @@ export default async function FarmerOnboardingPage({
         <ListingStep
           credential={{ kind: "invitation", token: params.token }}
           farmName={invitation.farmName ?? ""}
+          {...(existing === null ? {} : { defaults: existing })}
           {...(fromNumber === undefined || fromNumber === "" ? {} : { smsNumber: fromNumber })}
         />
       </section>

@@ -1,12 +1,211 @@
-# Farm Friend — Session Log Archive (through 2026-08-05)
+# Farm Friend — Session Log Archive (through 2026-08-06)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-07; it now holds 62 entries.
+everything older lives here. Last rotated 2026-08-08; it now holds 66 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
 architecture documents ([README.md](README.md) is the index). Where an entry here disagrees with the
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
+
+---
+
+## 2026-08-06 — the farmer's own surfaces, from max using them
+
+max reported four things from actually working the app: he could not find how to delete a stand,
+could not edit a farm's name, the onboarding save "seemed to take me to a different screen", and
+the update form was "all so janky". Each turned out to be a different kind of defect, and two of
+them were only visible from a browser.
+
+### A removal was expressible but invisible
+
+The sharpest finding, and it came from max asking a question about SMS rather than reporting a bug:
+if a farmer texts "we have eggs and bok choy" when their stand lists eggs and kale, do they mean to
+delete the kale? The architecture already answered correctly — the model returns *edits*
+(`additions`/`changes`/`removals`), and `applyInventoryEdits` **preserves by omission** — so kale
+survives unless the model explicitly removes it.
+
+Two real gaps sat behind that correct architecture. The prompt defined the three arrays and never
+said **when** to emit a removal, so a bare list of items was readable as a whole-listing
+replacement. And `renderProposedSnapshot` showed the complete result while naming nothing as
+leaving — a removal was visible **only as an absence from a list**, which is exactly what nobody
+notices in a text message. An existing test actively enforced that (`not.toMatch(/removed|added|
+changed/i)`), and its reasoning was sound but overshot: confirm the whole result, yes, but a farmer
+must still be able to *see* the deletion they are confirming.
+
+`ProposedSnapshot` now carries `removedItemNames` — **confirmation copy only**, read by no
+consequence, with `entries` remaining the whole authority on what publishes. SMS and web share the
+renderer, so one seam covered both surfaces.
+
+The prompt change is a claim, so it was measured: three new `live-quality` fixtures against the real
+model, all passing. A bare list adds without removing; "kale is all gone" still removes; "all we
+have left today is eggs" still replaces. **The last two are the point** — a prompt that simply never
+removed would satisfy the first fixture alone.
+
+### The chips: max's idea, and why it beat the one it replaced
+
+Asked whether plain text was clearly welcome on the update form, max went further: *"maybe instead
+of a chat input the web update form can just be like adding/removing tags"*. That is right, and it
+follows from the domain rather than from taste — a stand listing **is a set of short strings**, so a
+farmer typing "sold out of kale" was doing manual labour to express *remove one member of a set*,
+for a model to parse back into the removal we could have had directly.
+
+The chat framing was argued against and dropped: there is one round trip, no history, and a chat UI
+would promise a conversation the system does not have. Free-text survives as the escape hatch for
+what chips cannot say — a closure, a price mentioned in passing — which is also what keeps the model
+seam a live path instead of dead code.
+
+**A structured edit skips the MODEL, and nothing else.** `applyInterpretedInventory` now takes
+either `taskText` or an `edit` already in the interpreter's output shape. Everything after
+interpretation was always code and is untouched: the same `validateInterpretation` against the same
+retrieved snapshot, the same composition, the same confirmation gate. Sending chips through English
+so a model could re-derive the shape would have been a lossy step and a model dependency for an edit
+that needs no interpreting.
+
+### The two defects that only a browser could find
+
+Both were invisible to a green suite, and both were found by opening the page.
+
+**The page drew the wrong listing.** Chips send ENTRY IDS. `readCurrentStandEntries` read the
+*published* revision, but composition uses the sender's *open proposal* as its base. A farmer who
+edited once and came back saw chips for items their own pending proposal had already dropped;
+tapping one sent an id absent from the base and was refused — correctly, for a change they had every
+reason to think was on offer. The free-text path never hit this because prose names items, not
+identifiers. The reader now returns the pending base when one is open, scoped to one sender so
+nobody sees another's unconfirmed edit.
+
+**The stylesheet styled the delete control as the publish button.** `.farmer-form
+button:first-of-type` filled the first button green, written when the screen had exactly one button.
+The moment the listing became editable, the first button on the page was a chip's ×. Position is not
+intent; the affirmative action now carries an explicit class, asserted by test.
+
+### Three things that were not what they looked like
+
+- **"I can't delete a farm."** Retirement already existed and already did the right thing —
+  reversible, confirm-gated, nothing published destroyed. It was headed "Take off the map", sat last
+  inside a collapsed panel, and never used the word anyone searches for. A naming fix, not a feature.
+- **"Let me edit the farm name."** The farm name was **immutable everywhere** — written at
+  invitation time, changeable by no farmer and no administrator, while public on the map. It merely
+  *looked* editable because the listing editor passed `listing.standName` into a prop called
+  `farmName`. Two records, one name.
+- **"It took me to a different screen."** It did not navigate at all. The save replaced the entire
+  form with one sentence, so the card collapsed and the phone-verification card that had been below
+  the fold the whole time snapped upward. A collapse plus a scroll jump reads worse than a
+  navigation, because nothing announces it.
+
+### A test-harness gap, found by a duplicate match
+
+Testing Library's `cleanup` was never running: without `globals: true` there is no global
+`afterEach` for it to register against, so every mounted component stayed in the document for the
+rest of the file and `getByText` could satisfy a later test from an **earlier test's render**. A
+component test could pass while the behaviour it named was broken. Adding the setup file exposed no
+existing failures, which is luck rather than vindication.
+
+Related: an admin test written this session **passed on its first version without the code
+changing**, because it asserted on body copy that already contained the word. It was retargeted to
+the section heading — the thing an operator actually scans — and only then failed. Recorded because
+that is the failure mode the project's "a test that cannot fail proves nothing" rule exists for, and
+it still nearly slipped through.
+
+### Naming
+
+"Weekly update form" was **never the product's name** — it entered this session from the assistant
+repeating max's phrasing back at him, and is dropped. VIGA's "weekly form" (the Google form
+volunteers transcribe) and the `weekly` reminder cadence are both real and untouched; no farmer
+surface calls itself that.
+
+---
+
+## 2026-08-06 — the weekly form switchover: a self-serve farm door (F-072 / F-073)
+
+max's last piece of go-live planning: VIGA's Google "Farm Stand Weekly Status" form is replaced by
+one global Farm Friend link. Two cases he named — a farm not yet on Farm Friend needs to onboard
+itself, and a farm already on Farm Friend that follows the old link should be sent to *update*
+rather than set up again.
+
+### The suggestion that was wrong, and what it changed
+
+The first proposal back to max was to keep a possession check: farmer picks their farm, Farm Friend
+texts a one-use link to the number VIGA has on file. He answered that **there are no farm phone
+numbers** — and he was right. `contacts` holds people who have texted Farm Friend, not a roster of
+who owns which farm; VIGA never supplied one. There is therefore no possession check available to
+build, and the honour system is not a shortcut but the only design the data supports. Recorded
+because the instinct to "just verify the phone" will recur and the answer will still be no.
+
+### What actually keeps the door narrow
+
+Not the dropdown. Anyone can post a farm id to the endpoint behind it, so omission from a list
+protects nothing. The guarantee is `claimGrandfatheredFarm` **re-resolving on submit**, and the
+predicate it uses is F-071's — **the absence of a live farmer authorization**, never an unredeemed
+invitation. That definition was already reasoned through once and comes apart in both directions
+(VIGA can authorize straight from the queue with no invitation; a revoked farmer's farm belongs
+back on the list). It is now stated **once** as a shared SQL fragment and used by both the public
+list and the resolver, because two copies is exactly how a farm ends up hidden from the dropdown
+and still claimable.
+
+### An acceptance criterion deliberately not met
+
+F-072's filed item asked that redemption leave a live `farmer_authorizations` row, matching F-067's
+self-serve chain. It does not, and should not: naming a farm on an unauthenticated form is evidence
+of nothing, so granting publish-by-SMS authority from it would hand the SMS surface to anyone with
+the link. **The honour system buys a LISTING; speaking as the farm still needs a handset.** The
+page says so rather than letting a farmer discover it when their first text is refused.
+
+### One form, three credentials — the alternative was three forms
+
+`ListingStep` and `parseListingSubmission` are parameterized by credential rather than forked. The
+failure being avoided is drift: three doors publishing three different shapes onto one map. The
+same reasoning extended to the billed address-lookup endpoint, which now accepts an invitation
+token, a claimable farm id, or a stand link — and **refuses a request carrying two**, since
+honouring either would let one credential launder the other.
+
+**The geocoding gate got weaker on the grandfathered path, and that is written down rather than
+glossed.** A farm id is not secret, so the throttle rather than the credential is the real cost
+defense there. What the claim check still buys is that the lookup closes for a farm the moment it
+has a farmer.
+
+### F-073's third half was the real work
+
+Recognition and routing are small. The gap was that **listing facts were frozen for everyone except
+a farmer mid-onboarding** — the form is welded to a one-use invitation token, so an onboarded farmer
+could change nothing. The edit surface lives under the existing `/stand/<token>` credential, so
+revocation is inherited rather than reimplemented.
+
+**Prefill is load-bearing, not polish.** `saveOnboardingListing` replaces the whole listing — that
+is what lets a farmer drop an item by leaving it out — so a blank edit form would erase a farmer's
+address and payments when they came only to change their hours. Two sabotages target exactly this:
+the reader returning empty payments/items, and the form failing to prefill `hoursText`. Both fail
+named tests.
+
+### The defect only running it could find
+
+`/api/farmer/link-request` was first bound to `appContext()`, which validates SMS, model, and map
+configuration — so an unauthenticated farmer page returned **500** on an unrelated missing variable.
+**No test could see it**: every test injects these dependencies, so the composition itself is
+invisible to the suite. It now builds from `publicReadContext` plus the two values it needs. This is
+the second time the full composition root has leaked into a public surface; `public-context.ts`
+exists because of the first.
+
+### A fixture that looked like a bug
+
+The first live link-request check queued nothing for a matching farmer. The cause was a seeded
+contact carrying a **placeholder hash** (`aaaa…`) rather than one under the real salt — fake data,
+correct code. Recorded because the shape of that failure (verified behaviour, silent zero result)
+is one that invites blaming the code.
+
+### Verified, and how
+
+Every claim read back from Postgres or `/api/public/stands`, never from a success message: a
+grandfathered listing reaches the public map; posting an **already-onboarded** farm's id is refused
+`409` with that farm's row confirmed unchanged; a matching phone queues exactly one text whose token
+**hashes to a live `farmer_links` row** while a wrong number, a cross-farm farmer, and a revoked
+authorization each queue **zero** — with all three HTTP responses byte-identical; and the edit writes
+listing facts with **zero inventory revisions**, so F-066's separation survives a new writer.
+
+1293 unit / 710 integration tests, typecheck, lint, production build. No migration, no model seam.
+**Merged nowhere and deployed nowhere** — branch `f-072-grandfathered-onboarding`, commit `5e1c596`.
+
+---
 
 ---
 

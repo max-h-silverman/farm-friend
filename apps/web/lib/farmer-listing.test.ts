@@ -84,6 +84,15 @@ function phoneRecorder(
   return vi.fn<Parameters<PhoneRecorder>, ReturnType<PhoneRecorder>>(async () => result);
 }
 
+type StockRecorder = NonNullable<FarmerListingDeps["recordPendingStock"]>;
+
+/** The held-stock writer, stubbed like its two neighbours (F-090). */
+function stockRecorder(
+  result: Awaited<ReturnType<StockRecorder>> = { status: "recorded" },
+) {
+  return vi.fn<Parameters<StockRecorder>, ReturnType<StockRecorder>>(async () => result);
+}
+
 function deps(
   loadInvitation = loader(),
   saveListing = saver(),
@@ -347,6 +356,155 @@ describe("farmer onboarding listing endpoint", () => {
 
     expect(response.status).toBe(400);
     expect(save).not.toHaveBeenCalled();
+  });
+
+  // ── F-090: an optional price on each standing item ────────────────────────────────────
+  //
+  // The item shape is now `{ name, priceText }` rather than a bare string. This is untrusted
+  // public input reaching a column with a not-blank CHECK, so the boundary refuses malformed
+  // shapes rather than coercing them into something storable.
+
+  it("accepts an item with a price, and passes the farmer's own words through", async () => {
+    const save = saver();
+    const response = await handleFarmerListingPost(
+      deps(loader(), save),
+      post({
+        token: TOKEN,
+        ...LISTING,
+        items: [
+          { name: "Eggs", priceText: "$6/dozen" },
+          { name: "Flowers", priceText: null },
+        ],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    // The VALUE that reached the writer, not merely that it was called — a parser that dropped
+    // the price would satisfy a call-count assertion perfectly.
+    expect(save.mock.calls[0]![1].listing.items).toEqual([
+      { name: "Eggs", priceText: "$6/dozen" },
+      { name: "Flowers", priceText: null },
+    ]);
+  });
+
+  it("treats a bare string item as priceless rather than refusing it", async () => {
+    // Three doors post this body and a farmer may have a stale tab open through a deploy. A
+    // string is unambiguous — it is an item with no price — so reading it is strictly better
+    // than a 400 the farmer cannot act on.
+    const save = saver();
+    const response = await handleFarmerListingPost(
+      deps(loader(), save),
+      post({ token: TOKEN, ...LISTING, items: ["Eggs"] }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(save.mock.calls[0]![1].listing.items).toEqual([
+      { name: "Eggs", priceText: null },
+    ]);
+  });
+
+  it("refuses an item whose price is not a string", async () => {
+    const save = saver();
+    const response = await handleFarmerListingPost(
+      deps(loader(), save),
+      post({
+        token: TOKEN,
+        ...LISTING,
+        items: [{ name: "Eggs", priceText: 6 }],
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("refuses an item with no name at all", async () => {
+    const save = saver();
+    const response = await handleFarmerListingPost(
+      deps(loader(), save),
+      post({
+        token: TOKEN,
+        ...LISTING,
+        items: [{ priceText: "$6" }],
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("caps the LENGTH of a price, like every other public string", async () => {
+    // The same defacement reasoning as `hoursText`: this renders on VIGA's public map, and a
+    // price is a short phrase in every real case.
+    const save = saver();
+    const response = await handleFarmerListingPost(
+      deps(loader(), save),
+      post({
+        token: TOKEN,
+        ...LISTING,
+        items: [{ name: "Eggs", priceText: "x".repeat(5_000) }],
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  // ── F-090: today's stock, held until START ────────────────────────────────────────────
+  //
+  // The form may state what is on the table right now. It is NOT published here — it is
+  // recorded against the invitation and published only when the inbound START proves the
+  // handset, because a dated public claim needs somebody to stand behind it.
+
+  it("records today's stock against the invitation, and publishes nothing", async () => {
+    const save = saver();
+    const stock = stockRecorder();
+    const response = await handleFarmerListingPost(
+      { ...deps(loader(), save), recordPendingStock: stock },
+      post({
+        token: TOKEN,
+        ...LISTING,
+        currentStock: [{ itemName: "eggs", priceText: "$6/dozen" }],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(stock).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        token: TOKEN,
+        entries: [{ itemName: "eggs", priceText: "$6/dozen" }],
+      }),
+    );
+    // The LISTING save carries no stock: a standing claim and a dated one are different
+    // facts and travel by different routes (F-066).
+    expect(save.mock.calls[0]![1].listing).not.toHaveProperty("currentStock");
+  });
+
+  it("records NO stock when the farmer said nothing about today", async () => {
+    // Silence is the common answer. An empty call would be the farmer stating their stand is
+    // empty, which is the opposite fact — the writer and the column both refuse it.
+    const stock = stockRecorder();
+    const response = await handleFarmerListingPost(
+      { ...deps(), recordPendingStock: stock },
+      post({ token: TOKEN, ...LISTING }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(stock).not.toHaveBeenCalled();
+  });
+
+  it("refuses malformed stock rather than dropping it silently", async () => {
+    const save = saver();
+    const stock = stockRecorder();
+    const response = await handleFarmerListingPost(
+      { ...deps(loader(), save), recordPendingStock: stock },
+      post({ token: TOKEN, ...LISTING, currentStock: [{ priceText: "$6" }] }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(save).not.toHaveBeenCalled();
+    expect(stock).not.toHaveBeenCalled();
   });
 
   it("caps how MANY items one submission can write", async () => {

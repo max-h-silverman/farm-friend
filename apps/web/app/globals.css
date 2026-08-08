@@ -762,8 +762,7 @@ body {
   letter-spacing: -0.02em;
 }
 
-.admin-nav-sign-out,
-.admin-primary-link {
+.admin-nav-sign-out {
   display: inline-flex;
   min-height: 48px;
   align-items: center;
@@ -787,11 +786,6 @@ body {
 
 .admin-signed-out {
   max-width: 34rem;
-}
-
-.admin-signed-out p {
-  margin: 0.65rem 0 1.25rem;
-  color: var(--ink-soft);
 }
 
 .admin-content > .admin-note:first-child {
@@ -3621,7 +3615,6 @@ form.farmer-picker-next {
 .admin-farm input,
 .admin-stand-edit-field select,
 .admin-nav-sign-out,
-.admin-primary-link,
 button.admin-action-primary,
 a.admin-action-primary,
 button.admin-action-secondary,
@@ -5037,4 +5030,219 @@ button.admin-action-danger,
   .stand-summary-address {
     line-height: 1.1;
   }
+}
+
+/* ── F-090: the onboarding wizard, the stand tabs, and priced items ──────────────────────
+   Onboarding steps through four screens and the edit door stays flat, wrapped in tabs by
+   the stand page. Both presentations render ONE form, so everything below is about what is
+   VISIBLE rather than what exists — see `listing-step.tsx`. */
+
+/* Where the farmer is, stated in words. A bar of segments answers "how far in am I" and
+   not "how much is left", and it degrades badly at phone width where this is mostly read. */
+.farmer-listing-progress {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin: 0 0 0.25rem;
+}
+
+.farmer-listing-step-count {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+}
+
+.farmer-listing-step-heading {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+/* A step carries no border or padding of its own: it is a grouping of fields the farmer
+   should read as one continuous form, not as a card inside a card. `display: contents`
+   would drop it from the layout entirely — but `hidden` must keep working, so the grid is
+   restated here and the hidden case is left to the browser's own `display: none`. */
+.farmer-listing-step {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.farmer-listing-nav {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+}
+
+.farmer-listing-nav button {
+  flex: 1;
+  /* The same 44px floor every other control here keeps, so Back and Next are thumb-sized
+     on the phone this is filled in on. */
+  min-height: 44px;
+}
+
+/* Back is the quiet one. Advancing is the expected act and carries the primary weight;
+   an equally loud Back invites a farmer to retreat from a form they are progressing. */
+.farmer-form button.farmer-listing-back,
+.farmer-listing-back {
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+/* ── Items, one row each, with an optional price ─────────────────────────────────────── */
+
+.farmer-listing-item-add {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.farmer-listing-item-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+.farmer-form button.farmer-listing-item-add-button,
+.farmer-listing-item-add-button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 0.9rem;
+  white-space: nowrap;
+}
+
+.farmer-listing-items {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Wraps rather than scrolls: at phone width the name, the price and the stock tick cannot
+   share a line, and a row that scrolls sideways hides the very control it exists to offer. */
+.farmer-listing-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.4rem 0.5rem 0.85rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.farmer-listing-item-name {
+  flex: 1 1 8rem;
+  min-width: 0;
+  font-weight: 600;
+}
+
+/* Narrow, because a price is short — and narrow is what tells the farmer so before they
+   type. It sits beside its item rather than in a column, so there is never a question of
+   which row a price belongs to. */
+.farmer-listing-item .farmer-listing-item-price {
+  flex: 0 1 8rem;
+  min-width: 6rem;
+  min-height: 40px;
+  margin: 0;
+}
+
+/* The stock tick takes its own full line on a narrow screen: it is a different question
+   from the price ("is this out today?"), and crowding them reads as one control. */
+.farmer-listing-item-stock {
+  display: flex;
+  flex: 1 1 100%;
+  gap: 0.5rem;
+  align-items: center;
+  min-height: 44px;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.farmer-listing-item-stock input {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+/* Quiet, like the chip remove it mirrors: dropping an item is small and reversible, and
+   must never out-shout the control that publishes. */
+.farmer-form button.farmer-listing-item-remove,
+.farmer-listing-item-remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* ── The stand page's two tabs ───────────────────────────────────────────────────────── */
+
+.farmer-stand-tabs {
+  display: grid;
+  gap: 0.9rem;
+}
+
+/* Two equal tabs sharing the width, so neither reads as the "real" one and both are wide
+   enough to hit. They sit on a shared baseline rule, which is what makes the selected one
+   look attached to the panel below it. */
+.farmer-stand-tablist {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.farmer-form button.farmer-stand-tab,
+.farmer-stand-tab {
+  flex: 1;
+  min-height: 44px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-align: center;
+  background: transparent;
+  border: 0;
+  /* Reserved on BOTH states so selecting a tab cannot shift the row by two pixels. */
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.farmer-form button.farmer-stand-tab--current,
+.farmer-stand-tab--current {
+  color: var(--green);
+  border-bottom-color: var(--green);
+}
+
+.farmer-stand-panel {
+  display: grid;
+  gap: 0.7rem;
+}
+
+/* Select-all for the open days (max 2026-08-08). Takes the whole row and sits above the
+   weekdays with a rule under it, so it reads as a control OVER the set rather than an
+   eighth member of it — which is what it would look like sharing their wrapping line. */
+.farmer-listing-day-all {
+  flex: 1 1 100%;
+  margin-bottom: 0.15rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
 }

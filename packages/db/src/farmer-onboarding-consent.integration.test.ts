@@ -13,6 +13,7 @@ import {
   createFarmerInvitation,
   openFarmerOnboardingRequest,
   recordFarmerInvitationPendingPhone,
+  recordFarmerInvitationPendingStock,
   recordFarmerInvitationSmsAgreement,
   type Db,
   type Sql,
@@ -928,6 +929,303 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         where token_hash = ${hashFarmerInviteToken(token)}
       `;
       expect(rows[0]?.pending_phone_e164).toBeNull();
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────────────
+  // F-090 — today's stock, stated on the onboarding form and HELD until START.
+  //
+  // max's call (2026-08-08), after being shown what publishing at submit would mean: a
+  // dated public claim standing behind a phone nobody has proved yet. The farmer types
+  // today's stock during onboarding; it becomes a real, attributed confirmation only when
+  // the inbound START proves who holds the handset.
+  //
+  // The two halves are asserted separately and both matter. "It publishes eventually" is
+  // worthless if it was already public; "it is not public yet" is worthless if it never
+  // lands. Each test below owns one of those.
+  describe("stock stated at onboarding publishes on START, never before", () => {
+    /** An invitation with an agreement, a stated phone, and today's stock held on it. */
+    async function invitationHoldingStock(input: {
+      farmId: string;
+      senderHash: string;
+      phoneE164: string;
+      stock: { itemName: string; priceText?: string }[];
+    }): Promise<string> {
+      const token = await invitation(input.farmId);
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: input.phoneE164,
+        phoneHash: input.senderHash,
+        occurredAt: at(1),
+      });
+      const recorded = await recordFarmerInvitationPendingStock(database(), {
+        token,
+        entries: input.stock,
+        occurredAt: at(1),
+      });
+      expect(recorded.status).toBe("recorded");
+      return token;
+    }
+
+    /** The stand's CURRENT published revision, as a customer would read it. */
+    async function publishedEntries(
+      farmId: string,
+    ): Promise<{ item_name: string; price_text: string | null }[]> {
+      return (await sql()`
+        select entry.item_name, entry.price_text
+        from inventory_entries entry
+        join inventory_revisions revision on revision.id = entry.inventory_revision_id
+        join sales_locations location on location.id = revision.sales_location_id
+        where location.owner_farm_id = ${farmId} and revision.is_current
+        order by entry.sort_order asc
+      `) as unknown as { item_name: string; price_text: string | null }[];
+    }
+
+    it("publishes NOTHING while the invitation is unredeemed", async () => {
+      // The half max chose. Before START there is a farm, a listing, and a stated phone —
+      // and no dated claim anywhere, because nobody has proved they hold that phone.
+      const senderHash = await contact("f1");
+      const farmId = await farmWithStand(`Held ${randomUUID()}`);
+      await invitationHoldingStock({
+        farmId,
+        senderHash,
+        phoneE164: "+12065551101",
+        stock: [{ itemName: "eggs" }],
+      });
+
+      expect(await publishedEntries(farmId)).toEqual([]);
+      // Not merely "no entries" — no revision at all. A revision with no entries is the
+      // stand publicly confirming it is EMPTY, which is the opposite claim.
+      const revisions = await sql()`
+        select revision.id from inventory_revisions revision
+        join sales_locations location on location.id = revision.sales_location_id
+        where location.owner_farm_id = ${farmId}
+      `;
+      expect(revisions).toHaveLength(0);
+    });
+
+    it("publishes it as a dated confirmation when START arrives", async () => {
+      const senderHash = await contact("f2");
+      const farmId = await farmWithStand(`Publish ${randomUUID()}`);
+      await invitationHoldingStock({
+        farmId,
+        senderHash,
+        phoneE164: "+12065551102",
+        stock: [{ itemName: "eggs", priceText: "$6/dozen" }, { itemName: "kale" }],
+      });
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      expect(opened.status).toBe("opened");
+
+      // The VALUES, in the farmer's order, with the price they stated.
+      expect(await publishedEntries(farmId)).toEqual([
+        { item_name: "eggs", price_text: "$6/dozen" },
+        { item_name: "kale", price_text: null },
+      ]);
+    });
+
+    it("attributes the revision to the farmer the START just authorized", async () => {
+      // The whole reason it waits. A dated claim names who stands behind it, and this one
+      // names the authorization minted by the message that proved the handset — not the
+      // invitation, and not VIGA.
+      const senderHash = await contact("f3");
+      const farmId = await farmWithStand(`Attribute ${randomUUID()}`);
+      await invitationHoldingStock({
+        farmId,
+        senderHash,
+        phoneE164: "+12065551103",
+        stock: [{ itemName: "eggs" }],
+      });
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      expect(opened.status).toBe("opened");
+      if (opened.status !== "opened") return;
+
+      const revisions = await sql()`
+        select revision.source, revision.published_by_authorization_id,
+               revision.proposal_id, revision.farm_approval_id
+        from inventory_revisions revision
+        join sales_locations location on location.id = revision.sales_location_id
+        where location.owner_farm_id = ${farmId} and revision.is_current
+      `;
+      expect(revisions).toHaveLength(1);
+      /*
+        `web` — the third provenance, and each of these three assertions is the reason it
+        exists rather than a reuse of one of the other two.
+
+        NOT `viga`: a farmer stated this and their START proved the handset, so crediting
+        VIGA would misattribute a farmer's own claim.
+
+        NOT `sms`: no prompt went out and no YES came back, so there is no proposal — and
+        `proposal_id` being NULL is asserted rather than left unmentioned, because that
+        absence IS the honest difference. Recording this as `sms` would have required
+        inventing a consumed token and a consumption event for a message nobody sent.
+
+        As strong as `sms` on the two keys that answer "who stands behind this": a real
+        authorization, and a farm VIGA approved.
+      */
+      expect(revisions[0]!.source).toBe("web");
+      expect(revisions[0]!.proposal_id).toBeNull();
+      expect(revisions[0]!.published_by_authorization_id).toBe(opened.authorizationId);
+      expect(revisions[0]!.farm_approval_id).not.toBeNull();
+    });
+
+    it("spends the held stock exactly once, so a second START cannot republish it", async () => {
+      // The invitation is spent by the first redemption, so this is really asserting that
+      // the stock rides the invitation rather than living somewhere a retry could re-read.
+      const senderHash = await contact("f4");
+      const farmId = await farmWithStand(`Once ${randomUUID()}`);
+      await invitationHoldingStock({
+        farmId,
+        senderHash,
+        phoneE164: "+12065551104",
+        stock: [{ itemName: "eggs" }],
+      });
+
+      await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(3),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      const revisions = await sql()`
+        select revision.id from inventory_revisions revision
+        join sales_locations location on location.id = revision.sales_location_id
+        where location.owner_farm_id = ${farmId}
+      `;
+      expect(revisions).toHaveLength(1);
+    });
+
+    it("redeems normally when the farmer stated no stock at all", async () => {
+      // Skipping the question is a real and common answer, and must not cost the farmer
+      // their redemption. No stock, no revision, still authorized.
+      const senderHash = await contact("f5");
+      const farmId = await farmWithStand(`Silent ${randomUUID()}`);
+      const token = await invitation(farmId);
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551105",
+        phoneHash: senderHash,
+        occurredAt: at(1),
+      });
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      expect(opened.status).toBe("opened");
+      if (opened.status !== "opened") return;
+      expect(opened.authorizationId).not.toBeNull();
+      expect(await publishedEntries(farmId)).toEqual([]);
+    });
+
+    it("REFUSES a 'web' revision that names a proposal or no authorization", async () => {
+      // The constraint, tested as a constraint rather than through the writer that respects
+      // it. `web` means "the farmer stated it, no confirmation exchange happened" — so a row
+      // carrying a proposal is claiming an exchange that did not occur, and one with no
+      // authorization is a dated public claim signed by nobody. Both must be structurally
+      // impossible, not merely absent from the current writer.
+      const senderHash = await contact("f7");
+      const farmId = await farmWithStand(`Constraint ${randomUUID()}`);
+      await invitationHoldingStock({
+        farmId,
+        senderHash,
+        phoneE164: "+12065551107",
+        stock: [{ itemName: "eggs" }],
+      });
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      if (opened.status !== "opened") throw new Error(opened.status);
+
+      const locations = await sql()`
+        select id from sales_locations where owner_farm_id = ${farmId}
+      `;
+      const salesLocationId = locations[0]!.id as string;
+      const approvals = await sql()`
+        select id from farm_approvals where farm_id = ${farmId} and revoked_at is null
+      `;
+      const farmApprovalId = approvals[0]!.id as string;
+
+      // No authorization: a claim nobody stands behind.
+      await expect(
+        sql()`
+          insert into inventory_revisions (
+            farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+            farm_approval_id, source, published_at
+          )
+          values (
+            ${farmId}, ${salesLocationId}, null, null,
+            ${farmApprovalId}, 'web', ${at(3)}
+          )
+        `,
+      ).rejects.toThrow(/inventory_revisions_source_keys_coherent/);
+
+      // No approval: published for a farm VIGA never approved.
+      await expect(
+        sql()`
+          insert into inventory_revisions (
+            farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+            farm_approval_id, source, published_at
+          )
+          values (
+            ${farmId}, ${salesLocationId}, null, ${opened.authorizationId},
+            null, 'web', ${at(3)}
+          )
+        `,
+      ).rejects.toThrow(/inventory_revisions_source_keys_coherent/);
+    });
+
+    it("REFUSES to hold an empty list rather than storing a claim of emptiness", async () => {
+      // "The farmer said nothing" and "the farmer said the stand is empty" are opposite
+      // facts, and an empty array would publish the second. The column's CHECK refuses it;
+      // the writer refuses it first, so the caller gets an answer rather than a violation.
+      const senderHash = await contact("f6");
+      const token = await invitation(await farmWithStand(`Empty ${randomUUID()}`));
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551106",
+        phoneHash: senderHash,
+        occurredAt: at(1),
+      });
+
+      const recorded = await recordFarmerInvitationPendingStock(database(), {
+        token,
+        entries: [],
+        occurredAt: at(1),
+      });
+
+      expect(recorded.status).toBe("invalid");
+      const rows = await sql()`
+        select pending_stock from farmer_invitations
+        where token_hash = ${hashFarmerInviteToken(token)}
+      `;
+      expect(rows[0]?.pending_stock).toBeNull();
     });
   });
 });

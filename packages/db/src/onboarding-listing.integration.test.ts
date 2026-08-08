@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NO_AVAILABILITY_STATED } from "./listing-availability";
 import {
+  readFarmListingForOnboarding,
   readStandListing,
   renameFarm,
   saveOnboardingListing,
@@ -93,7 +94,7 @@ describe("F-067 onboarding listing (integration)", () => {
     longitude: -122.4594,
     hoursText: "Daylight hours, most days",
     paymentMethods: ["cash", "Venmo"],
-    items: ["Eggs", "plant starts"],
+    items: [{ name: "Eggs", priceText: null }, { name: "plant starts", priceText: null }],
   };
 
   it("creates the stand a new farm reaches the map with", async () => {
@@ -143,7 +144,7 @@ describe("F-067 onboarding listing (integration)", () => {
         longitude: null,
         hoursText: "By arrangement",
         paymentMethods: ["cash"],
-        items: ["lamb"],
+        items: [{ name: "lamb", priceText: null }],
       },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
@@ -257,6 +258,199 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(revisions).toHaveLength(0);
   });
 
+  it("stores an OPTIONAL price beside a standing item, in the farmer's own words", async () => {
+    // F-090 — prices on the usual mix. Free text, exactly like `inventory_entries.price_text`:
+    // a farmer writes what their sign says ("$6", "$4/dozen", "2 for $5"), and nothing here
+    // parses it into a number. A currency type would force a shape the sign does not have and
+    // would invite arithmetic across items, which is the commercial read max explicitly did
+    // not want.
+    //
+    // Optional per item, never per stand: a farmer who prices eggs and not flowers is stating
+    // exactly that, and a missing price is "not stated" rather than "free".
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Priced Stand",
+      listing: {
+        ...visitableListing,
+        items: [
+          { name: "Eggs", priceText: "$6/dozen" },
+          { name: "plant starts", priceText: null },
+        ],
+      },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+
+    const items = await client()`
+      select item.display_name, item.price_text
+      from stand_items item
+      join sales_locations l on l.id = item.sales_location_id
+      where l.owner_farm_id = ${farmId}
+      order by item.sort_order asc
+    `;
+    expect(items.map((row) => row.display_name)).toEqual(["Eggs", "plant starts"]);
+    // The VALUE, not merely that a column exists — verbatim, with its slash and its units.
+    expect(items[0]!.price_text).toBe("$6/dozen");
+    // Not stated is NULL, never "" — the two would read identically on a card and only one
+    // of them is a fact the farmer asserted.
+    expect(items[1]!.price_text).toBeNull();
+  });
+
+  it("CLEARS a price the farmer removed, rather than leaving the old one standing", async () => {
+    // The whole-listing writer's rule applied to the newest column. `writeStandingItems`
+    // upserts on the name index, so an item that already exists takes `do update` — and a
+    // price omitted from that update would keep the stored one forever. A farmer who dropped
+    // their price would keep publishing it with nothing on screen saying so.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Repricing Stand",
+      listing: {
+        ...visitableListing,
+        items: [{ name: "Eggs", priceText: "$6/dozen" }],
+      },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Repricing Stand",
+      listing: {
+        ...visitableListing,
+        items: [{ name: "Eggs", priceText: null }],
+      },
+      occurredAt: new Date("2026-08-08T18:00:00Z"),
+    });
+
+    const items = await client()`
+      select item.price_text from stand_items item
+      join sales_locations l on l.id = item.sales_location_id
+      where l.owner_farm_id = ${farmId}
+    `;
+    expect(items).toHaveLength(1);
+    expect(items[0]!.price_text).toBeNull();
+  });
+
+  it("round-trips a price through readStandListing, so an edit cannot erase it", async () => {
+    // B-037's shape, one column newer. The edit form prefills from this reader and the writer
+    // replaces every column on every save — so a price the reader cannot see is a price the
+    // next otherwise-untouched save deletes, silently, with the writer doing exactly what it
+    // says it does. That failure has now happened twice in this file's history; this is the
+    // assertion that catches the third.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Round Trip Stand",
+      listing: {
+        ...visitableListing,
+        items: [
+          { name: "Eggs", priceText: "$6/dozen" },
+          { name: "plant starts", priceText: null },
+        ],
+      },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+
+    const locations = await client()`
+      select id from sales_locations where owner_farm_id = ${farmId}
+    `;
+    const salesLocationId = locations[0]!.id as string;
+
+    const before = await readStandListing(database(), { salesLocationId });
+    expect(before!.items).toEqual([
+      { name: "Eggs", priceText: "$6/dozen" },
+      { name: "plant starts", priceText: null },
+    ]);
+
+    // Save it straight back, untouched — the exact move a farmer makes when they open the form
+    // to change their hours and submit.
+    await saveOnboardingListing(database(), {
+      farmId,
+      standName: before!.standName,
+      listing: { ...visitableListing, items: before!.items },
+      occurredAt: new Date("2026-08-08T18:00:00Z"),
+    });
+
+    const after = await readStandListing(database(), { salesLocationId });
+    expect(after!.items).toEqual(before!.items);
+  });
+
+  it("prefills an onboarding form from the SAME stand the save will replace", async () => {
+    /*
+      F-090 — the reader and the writer must agree about which stand a farm IS.
+
+      `readFarmListingForOnboarding` resolves a farm to a stand so the invited and
+      grandfathered doors can prefill; `saveOnboardingListing` resolves it again to decide
+      what to overwrite. If they disagree, the farmer edits one stand's values and saves them
+      over another's — silently, with nothing failing.
+
+      The trap is specific and was nearly shipped: adding `and retired_at is null` to the read
+      looks obviously right, and the writer has no such filter. This asserts the pair against a
+      farm whose OLDEST stand is retired, which is the only shape that can tell them apart.
+    */
+    // `sales_locations_coherent_retirement` pairs the timestamp with the administrator who
+    // retired it — a retirement nobody performed is refused, which is the constraint doing
+    // exactly its job.
+    // The ONE administrator identity the schema permits — `administrators_fixed_identity`
+    // pins the address, so this is VIGA's board account rather than a fixture-shaped one.
+    const administrators = await client()`
+      insert into administrators (email, authorized_at)
+      values ('board@vigavashon.org', now())
+      on conflict do nothing
+      returning id
+    `;
+    const administratorId =
+      (administrators[0]?.id as string | undefined) ??
+      ((
+        await client()`select id from administrators where email = 'board@vigavashon.org'`
+      )[0]!.id as string);
+
+    const first = await client()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude, hours_text,
+        farm_bucks_accepted, farm_bucks_eligible, retired_at, retired_by_administrator_id
+      )
+      values (
+        ${farmId}, 'farm_stand', 'Retired Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Old Road', 47.44, -122.45, 'Old hours', false, false,
+        now(), ${administratorId}
+      )
+      returning id
+    `;
+    const retiredId = first[0]!.id as string;
+
+    await client()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude, hours_text,
+        farm_bucks_accepted, farm_bucks_eligible
+      )
+      values (
+        ${farmId}, 'farm_stand', 'Live Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '2 New Road', 47.45, -122.46, 'New hours', false, false
+      )
+    `;
+
+    const prefill = await readFarmListingForOnboarding(database(), { farmId });
+
+    // The retired one, because it is the oldest — matching the writer, not intuition.
+    expect(prefill!.standName).toBe("Retired Stand");
+
+    // And the save lands on that same row, which is the property that actually matters.
+    const saved = await saveOnboardingListing(database(), {
+      farmId,
+      standName: prefill!.standName,
+      listing: { ...visitableListing, hoursText: "Corrected hours" },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+    expect(saved.status).toBe("saved");
+    if (saved.status !== "saved") return;
+    expect(saved.salesLocationId).toBe(retiredId);
+  });
+
+  it("prefills NOTHING for a farm that has no stand yet", async () => {
+    // A genuinely new farm. Prefilling must never invent a value, so the form starts blank.
+    expect(await readFarmListingForOnboarding(database(), { farmId })).toBeNull();
+  });
+
   it("keeps the farmer's OWN WORDS — no singular/plural or synonym folding", async () => {
     // The line most likely to be argued past later, so it is asserted rather than trusted.
     // "tomato", "tomatoes" and "love apple" are three things a farmer might genuinely stock
@@ -269,7 +463,7 @@ describe("F-067 onboarding listing (integration)", () => {
       standName: "Vocabulary Stand",
       listing: {
         ...visitableListing,
-        items: ["tomato", "tomatoes", "love apple"],
+        items: [{ name: "tomato", priceText: null }, { name: "tomatoes", priceText: null }, { name: "love apple", priceText: null }],
       },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
@@ -293,7 +487,7 @@ describe("F-067 onboarding listing (integration)", () => {
     await saveOnboardingListing(database(), {
       farmId,
       standName: "Folding Stand",
-      listing: { ...visitableListing, items: ["Eggs", "eggs", "  EGGS "] },
+      listing: { ...visitableListing, items: [{ name: "Eggs", priceText: null }, { name: "eggs", priceText: null }, { name: "  EGGS ", priceText: null }] },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
 
@@ -378,7 +572,7 @@ describe("F-067 onboarding listing (integration)", () => {
       listing: {
         ...visitableListing,
         paymentMethods: ["cash", "   ", ""],
-        items: ["Eggs", "  ", ""],
+        items: [{ name: "Eggs", priceText: null }, { name: "  ", priceText: null }, { name: "", priceText: null }],
       },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
@@ -463,7 +657,7 @@ describe("F-067 onboarding listing (integration)", () => {
       listing: {
         ...visitableListing,
         hoursText: "Weekends only",
-        items: ["Eggs", "rhubarb"],
+        items: [{ name: "Eggs", priceText: null }, { name: "rhubarb", priceText: null }],
         paymentMethods: ["cash"],
       },
       occurredAt: new Date("2026-08-05T18:00:00Z"),

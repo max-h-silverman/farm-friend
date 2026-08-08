@@ -1004,7 +1004,7 @@ describe("public web surface boundary (integration)", () => {
       // The assertion that fails against the reader this item was filed for: the tags are
       // PRESENT. And they are in `usualOfferings`, not folded into `items` — a customer must
       // be able to tell what a farmer confirmed from what a form once said.
-      expect(stands[0]!.usualOfferings).toEqual(["salad greens", "tomatoes", "flowers"]);
+      expect(stands[0]!.usualOfferings.map((o) => o.itemName)).toEqual(["salad greens", "tomatoes", "flowers"]);
       expect(stands[0]!.items.map((i) => i.itemName)).toEqual(["kale"]);
     });
 
@@ -1022,7 +1022,7 @@ describe("public web surface boundary (integration)", () => {
 
       // The entry says "kale"; the stand item says "Kale"; the card shows the item's words.
       expect(stands[0]!.items.map((i) => i.itemName)).toEqual(["Kale"]);
-      expect(stands[0]!.usualOfferings).toEqual(["Kale", "tomatoes"]);
+      expect(stands[0]!.usualOfferings.map((o) => o.itemName)).toEqual(["Kale", "tomatoes"]);
 
       // And therefore the subtraction actually subtracts. Without the resolution this asserts,
       // `usually` would still contain "Kale" beside a confirmed "kale".
@@ -1040,7 +1040,7 @@ describe("public web surface boundary (integration)", () => {
 
       const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
 
-      expect(stands[0]!.usualOfferings).toEqual(["eggs", "lamb"]);
+      expect(stands[0]!.usualOfferings.map((o) => o.itemName)).toEqual(["eggs", "lamb"]);
       expect(stands[0]!.asOf).toBeUndefined();
       expect(stands[0]!.recencyLabel).toBeUndefined();
       expect(stands[0]!.confirmedElapsed).toBeUndefined();
@@ -1049,7 +1049,7 @@ describe("public web surface boundary (integration)", () => {
 
     it("returns an empty tag list for a stand with no tags, never a fabricated one", async () => {
       const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
-      expect(stands[0]!.usualOfferings).toEqual([]);
+      expect(stands[0]!.usualOfferings.map((o) => o.itemName)).toEqual([]);
     });
 
     it("SERIALIZES the empty list rather than omitting the key", async () => {
@@ -1084,7 +1084,7 @@ describe("public web surface boundary (integration)", () => {
 
       expect(stands).toHaveLength(1);
       expect(stands[0]!.items.map((i) => i.itemName)).toEqual(["kale", "chard"]);
-      expect(stands[0]!.usualOfferings).toEqual(["eggs", "flowers", "lamb"]);
+      expect(stands[0]!.usualOfferings.map((o) => o.itemName)).toEqual(["eggs", "flowers", "lamb"]);
     });
 
     it("serves the tags over HTTP, still without dating them", async () => {
@@ -1094,7 +1094,7 @@ describe("public web surface boundary (integration)", () => {
       const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
       const body = (await response.json()) as {
         stands: {
-          usuallySells?: unknown;
+          usuallySells?: { itemName: string; priceText?: string }[];
           updated?: unknown;
           confirmedElapsed?: unknown;
           stale?: unknown;
@@ -1103,7 +1103,7 @@ describe("public web surface boundary (integration)", () => {
       };
 
       expect(response.status).toBe(200);
-      expect(body.stands[0]!.usuallySells).toEqual(["salad greens", "tomatoes"]);
+      expect(body.stands[0]!.usuallySells!.map((o) => o.itemName)).toEqual(["salad greens", "tomatoes"]);
       expect(body.stands[0]!.items).toEqual([]);
 
       // Absent, not null: the three recency keys are omitted TOGETHER for an unconfirmed
@@ -1122,13 +1122,17 @@ describe("public web surface boundary (integration)", () => {
 
       const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
       const body = (await response.json()) as {
-        stands: { updated?: string; confirmedElapsed?: string; usuallySells?: string[] }[];
+        stands: {
+          updated?: string;
+          confirmedElapsed?: string;
+          usuallySells?: { itemName: string; priceText?: string }[];
+        }[];
       };
 
       // Both facts on the wire, separately: the confirmation is dated, the tags are not.
       expect(body.stands[0]!.updated).toBe("updated 3 hours ago");
       expect(body.stands[0]!.confirmedElapsed).toBe("3 hours ago");
-      expect(body.stands[0]!.usuallySells).toEqual([
+      expect(body.stands[0]!.usuallySells!.map((o) => o.itemName)).toEqual([
         "salad greens",
         "tomatoes",
         "flowers",
@@ -1154,7 +1158,7 @@ describe("public web surface boundary (integration)", () => {
 
       const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
 
-      expect(stands[0]!.usualOfferings).toEqual(["eggs"]);
+      expect(stands[0]!.usualOfferings.map((o) => o.itemName)).toEqual(["eggs"]);
     });
 
     it("omits the tags of a location the farmer has not made public", async () => {

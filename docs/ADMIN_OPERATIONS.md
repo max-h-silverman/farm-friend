@@ -33,9 +33,11 @@ which is why revoking an administrator or a session takes effect on their **next
 than whenever a self-contained token would have expired. Sessions expire in 12 hours; signing out
 revokes the record server-side, not just the cookie.
 
-**How you actually sign in.** Go to `/admin/login`, keep the fixed email shown there, enter the
-administrator password, and choose **Sign in**. The page works without JavaScript. Every refusal has
-the same wording, whether the email, password, authority row, configuration, or throttle caused it.
+**How you actually sign in.** Open any admin page — the sign-in fields are shown there directly when
+you are signed out, so `/admin` works as well as `/admin/login`. Keep the fixed email shown, enter
+the administrator password, and choose **Sign in**. The page works without JavaScript. Every refusal
+has the same wording, whether the email, password, authority row, configuration, or throttle caused
+it.
 Failed attempts are limited by both a coarse client network and an account-wide durable budget.
 
 **An administrator is never a farmer.** A live administrator session resolves directly to its

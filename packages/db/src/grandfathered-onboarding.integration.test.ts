@@ -212,7 +212,7 @@ describe("grandfathered farm claims (integration)", () => {
           longitude: -122.4594,
           hoursText: "Dawn to dusk",
           paymentMethods: ["Cash", "Venmo"],
-          items: ["Eggs", "Flowers"],
+          items: [{ name: "Eggs", priceText: null }, { name: "Flowers", priceText: null }],
         },
         occurredAt: now,
       });
@@ -235,7 +235,14 @@ describe("grandfathered farm claims (integration)", () => {
         hoursText: "Dawn to dusk",
       });
       expect(listing?.paymentMethods.sort()).toEqual(["Cash", "Venmo"]);
-      expect(listing?.items.sort()).toEqual(["Eggs", "Flowers"]);
+      // F-090 — items read back as name/price pairs. Sorted by NAME rather than by `.sort()`
+      // over objects, which orders by "[object Object]" and would pass for any two items.
+      expect(
+        [...(listing?.items ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+      ).toEqual([
+        { name: "Eggs", priceText: null },
+        { name: "Flowers", priceText: null },
+      ]);
     });
 
     it("returns null for a stand that does not exist", async () => {

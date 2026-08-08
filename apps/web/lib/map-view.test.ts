@@ -314,15 +314,22 @@ describe("buildMapView", () => {
     it("carries the usual offerings through for the listing to render", () => {
       const tagged: PublicStandPayload = {
         ...stands[0]!,
-        usuallySells: ["salad greens", "tomatoes", "flowers"],
+        usuallySells: [
+          { itemName: "salad greens" },
+          // F-090 — a priced item travels whole. The price reaches the wire format as its own
+          // field and is joined onto the item only in `standListingLines`, so a client that
+          // wants to render it differently still can.
+          { itemName: "tomatoes", priceText: "$4/lb" },
+          { itemName: "flowers" },
+        ],
       };
 
       const view = buildMapView([tagged], null);
 
       expect(view.stands[0]!.usuallySells).toEqual([
-        "salad greens",
-        "tomatoes",
-        "flowers",
+        { itemName: "salad greens" },
+        { itemName: "tomatoes", priceText: "$4/lb" },
+        { itemName: "flowers" },
       ]);
     });
 
@@ -339,7 +346,7 @@ describe("buildMapView", () => {
         address: "3 East Road",
         latitude: 47.5,
         longitude: -122.46,
-        usuallySells: ["eggs"],
+        usuallySells: [{ itemName: "eggs" }],
         availability: {},
         alsoSellingHere: [],
     links: [],
@@ -358,7 +365,7 @@ describe("buildMapView", () => {
 describe("map marker language", () => {
   const stand = (overrides: Partial<PublicStandPayload> = {}): PublicStandPayload => ({
     ...stands[0]!,
-    usuallySells: ["vegetables"],
+    usuallySells: [{ itemName: "vegetables" }],
     ...overrides,
   });
 
@@ -371,7 +378,7 @@ describe("map marker language", () => {
       mapMarkerKind(
         stand({
           farmBucksAccepted: false,
-          usuallySells: ["fresh flowers", "lavender"],
+          usuallySells: [{ itemName: "fresh flowers" }, { itemName: "lavender" }],
         }),
       ),
     ).toBe("flower-only");
@@ -379,7 +386,7 @@ describe("map marker language", () => {
       mapMarkerKind(
         stand({
           farmBucksAccepted: false,
-          usuallySells: ["lavender", "wreaths", "essential oil"],
+          usuallySells: [{ itemName: "lavender" }, { itemName: "wreaths" }, { itemName: "essential oil" }],
         }),
       ),
     ).toBe("flower-only");
@@ -396,14 +403,14 @@ describe("map marker language", () => {
       mapMarkerKind(
         stand({
           farmBucksAccepted: false,
-          usuallySells: ["flowers", "vegetables"],
+          usuallySells: [{ itemName: "flowers" }, { itemName: "vegetables" }],
         }),
       ),
     ).toBe("seasonal");
     expect(
       mapMarkerKind(
         stand({
-          usuallySells: ["flowers"],
+          usuallySells: [{ itemName: "flowers" }],
         }),
       ),
     ).toBe("seasonal");
@@ -451,7 +458,7 @@ describe("standListingLines (F-042)", () => {
   describe("tags, and nobody has confirmed anything (all 33 tagged stands today)", () => {
     const tagged: PublicStandPayload = {
       ...base,
-      usuallySells: ["salad greens", "tomatoes", "flowers"],
+      usuallySells: [{ itemName: "salad greens" }, { itemName: "tomatoes" }, { itemName: "flowers" }],
     };
 
     it("renders the approved 'Usually sells' line, with the tags in order", () => {
@@ -461,6 +468,38 @@ describe("standListingLines (F-042)", () => {
       expect(usual).toBeDefined();
       expect(usual!.label).toBe("Usually sells:");
       expect(usual!.items).toEqual(["salad greens", "tomatoes", "flowers"]);
+    });
+
+    it("renders a stated price beside its own item, and nothing beside the others", () => {
+      // F-090. Anchored to the whole `items` array, so an implementation that appended every
+      // price to every item — or to the label — fails rather than passing on a substring.
+      const priced = standListingLines({
+        ...base,
+        usuallySells: [
+          { itemName: "eggs", priceText: "$6/dozen" },
+          { itemName: "tomatoes" },
+          { itemName: "flowers", priceText: "$5 a bunch" },
+        ],
+      });
+
+      const usual = lineOfKind(priced, "usual")!;
+      expect(usual.items).toEqual(["eggs $6/dozen", "tomatoes", "flowers $5 a bunch"]);
+    });
+
+    it("keeps a price OFF the usual line's label and detail", () => {
+      // The same load-bearing rule the timestamp test guards, one field over: the heading is
+      // constant copy, and a price leaking into it would read as VIGA's claim rather than the
+      // farmer's. `detail` stays absent because a price is not a confirmation.
+      const usual = lineOfKind(
+        standListingLines({
+          ...base,
+          usuallySells: [{ itemName: "eggs", priceText: "$6/dozen" }],
+        }),
+        "usual",
+      )!;
+
+      expect(usual.label).toBe("Usually sells:");
+      expect(usual.detail).toBeUndefined();
     });
 
     it("NEVER puts a timestamp on the usual line — the load-bearing rule", () => {
@@ -502,7 +541,7 @@ describe("standListingLines (F-042)", () => {
   describe("a farmer has confirmed, and the stand also has tags", () => {
     const both: PublicStandPayload = {
       ...base,
-      usuallySells: ["salad greens", "tomatoes", "flowers", "eggs"],
+      usuallySells: [{ itemName: "salad greens" }, { itemName: "tomatoes" }, { itemName: "flowers" }, { itemName: "eggs" }],
       updated: "updated 4 hours ago",
       confirmedElapsed: "4 hours ago",
       stale: false,
@@ -548,7 +587,7 @@ describe("standListingLines (F-042)", () => {
       // empty list is how that ships.
       const covered = standListingLines({
         ...both,
-        usuallySells: ["salad greens", "tomatoes"],
+        usuallySells: [{ itemName: "salad greens" }, { itemName: "tomatoes" }],
       });
 
       expect(lineOfKind(covered, "usual")).toBeUndefined();
@@ -574,7 +613,7 @@ describe("standListingLines (F-042)", () => {
       const usual = lineOfKind(
         standListingLines({
           ...both,
-          usuallySells: ["Salad Greens", "TOMATOES", "flowers"],
+          usuallySells: [{ itemName: "Salad Greens" }, { itemName: "TOMATOES" }, { itemName: "flowers" }],
         }),
         "usual",
       )!;
@@ -588,7 +627,7 @@ describe("standListingLines (F-042)", () => {
       const usual = lineOfKind(
         standListingLines({
           ...both,
-          usuallySells: ["salad greens", "tomatoes", "flowers"],
+          usuallySells: [{ itemName: "salad greens" }, { itemName: "tomatoes" }, { itemName: "flowers" }],
         }),
         "usual",
       )!;
@@ -710,7 +749,7 @@ describe("standListingLines (F-042)", () => {
         address: undefined,
         latitude: undefined,
         longitude: undefined,
-        usuallySells: ["lamb shares"],
+        usuallySells: [{ itemName: "lamb shares" }],
       });
 
       expect(lineOfKind(lines, "usual")!.items).toEqual(["lamb shares"]);
@@ -909,8 +948,8 @@ describe("applyStandFilters (F-043)", () => {
       // The 212 tags F-042 made visible are the main thing there is to filter on — only one
       // stand in production has ever had a confirmation.
       const all = [
-        stand("tagged", { usuallySells: ["duck eggs", "flowers"] }),
-        stand("other", { usuallySells: ["lamb"] }),
+        stand("tagged", { usuallySells: [{ itemName: "duck eggs" }, { itemName: "flowers" }] }),
+        stand("other", { usuallySells: [{ itemName: "lamb" }] }),
       ];
 
       const result = ask(all, { sells: "eggs" });
@@ -930,7 +969,7 @@ describe("applyStandFilters (F-043)", () => {
     it("is case-insensitive and matches partial words", () => {
       // Tags come from VIGA's form text and confirmations from a farmer's own SMS; nothing
       // normalizes casing between them, and a customer types "egg" not "duck eggs".
-      const all = [stand("a", { usuallySells: ["Duck Eggs"] })];
+      const all = [stand("a", { usuallySells: [{ itemName: "Duck Eggs" }] })];
 
       expect(ask(all, { sells: "EGG" }).map((s) => s.id)).toEqual(["a"]);
       expect(ask(all, { sells: "duck" }).map((s) => s.id)).toEqual(["a"]);
@@ -959,8 +998,8 @@ describe("applyStandFilters (F-043)", () => {
 
     it("identifies flower-only stands from their published usual offerings", () => {
       const all = [
-        stand("flowers", { usuallySells: ["fresh flowers", "lavender"] }),
-        stand("mixed", { usuallySells: ["flowers", "vegetables"] }),
+        stand("flowers", { usuallySells: [{ itemName: "fresh flowers" }, { itemName: "lavender" }] }),
+        stand("mixed", { usuallySells: [{ itemName: "flowers" }, { itemName: "vegetables" }] }),
         stand("unknown"),
       ];
 
@@ -973,11 +1012,11 @@ describe("applyStandFilters (F-043)", () => {
       const all = [
         stand("eligible", {
           farmBucksAccepted: true,
-          usuallySells: ["cut flowers", "wreaths"],
+          usuallySells: [{ itemName: "cut flowers" }, { itemName: "wreaths" }],
         }),
         stand("no-bucks", {
           farmBucksAccepted: false,
-          usuallySells: ["cut flowers"],
+          usuallySells: [{ itemName: "cut flowers" }],
         }),
       ];
 
@@ -1040,12 +1079,12 @@ describe("applyStandFilters (F-043)", () => {
     const all = [
       stand("both", {
         availability: openAllDay,
-        usuallySells: ["eggs"],
+        usuallySells: [{ itemName: "eggs" }],
       }),
-      stand("open-only", { availability: openAllDay, usuallySells: ["lamb"] }),
+      stand("open-only", { availability: openAllDay, usuallySells: [{ itemName: "lamb" }] }),
       stand("sells-only", {
         availability: closedForTheYear,
-        usuallySells: ["eggs"],
+        usuallySells: [{ itemName: "eggs" }],
       }),
     ];
 

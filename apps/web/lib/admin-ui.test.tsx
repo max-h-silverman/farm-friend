@@ -99,14 +99,35 @@ describe("the shared administrator shell", () => {
   it("renders one generic signed-out recovery state with no membership clue", () => {
     render(<SignedOutAdmin />);
 
-    expect(screen.getByRole("heading", { name: "Sign in required" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Go to sign in" })).toHaveAttribute(
-      "href",
-      "/admin/login",
-    );
+    expect(screen.getByRole("heading", { name: "Farm Friend admin" })).toBeTruthy();
     expect(screen.queryByText(/session may have expired/i)).toBeNull();
     expect(screen.queryByText("VIGA operations")).toBeNull();
     expect(document.body.textContent).not.toMatch(/recognized|provisioned|authorized address/i);
+  });
+
+  it("shows the sign-in FIELDS rather than a link to them (max 2026-08-08)", () => {
+    // An operator hitting a protected page while signed out met "Sign in required" and a link
+    // — one click before the only thing they could do. The password box is the whole screen's
+    // purpose, so it is what the screen shows.
+    render(<SignedOutAdmin />);
+
+    expect(screen.getByLabelText(/password/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /sign in/i })).toBeTruthy();
+    // And no interstitial left behind — a link beside the form would be two ways to do one
+    // thing, with the slower one first.
+    expect(screen.queryByRole("link", { name: /go to sign in/i })).toBeNull();
+  });
+
+  it("posts natively, so the recovery path survives without JavaScript", () => {
+    // The signed-out screen is now the sign-in screen, and it inherits that property rather
+    // than being a JS-only copy of it: an operator locked out with a broken bundle can still
+    // get in. Anchored to the form's own attributes, which is what the browser acts on.
+    const { container } = render(<SignedOutAdmin />);
+
+    const form = container.querySelector("form.admin-login");
+    expect(form).not.toBeNull();
+    expect(form).toHaveAttribute("method", "post");
+    expect(form).toHaveAttribute("action", "/api/auth/login");
   });
 });
 

@@ -10,7 +10,7 @@ import { ISLAND_VIEWBOX, projectToIsland } from "@farm-friend/core/island-projec
 // IMPORTED rather than restated: B-037 was a restated `ListingDefaults` drifting out of
 // agreement with what the writer stores, and a second hand-written copy of these twelve
 // fields is how that happens again.
-import type { ListingAvailability } from "@farm-friend/db";
+import type { ListingAvailability, StandingItem } from "@farm-friend/db";
 import {
   buildKeywordSmsUrl,
   formatSmsNumberForDisplay,
@@ -180,6 +180,28 @@ const CLOCK_CHOICES: { value: string; label: string }[] = Array.from(
     return { value, label };
   },
 );
+
+/**
+ * The wizard's steps, in the order a farmer answers them (F-090).
+ *
+ * The order is the farmer's, not the schema's: where the farm is, when it is open, what it
+ * sells, and how to reach you. Each step is a question someone would actually ask in that
+ * sequence, which is why the phone and the SMS agreement sit together at the end — they are
+ * both about staying in touch, and the agreement gates Submit.
+ *
+ * A step is a VIEW over one always-mounted form (see `onStep`), so adding one here changes
+ * what is on screen and never what is sent.
+ */
+const WIZARD_STEPS = ["farm", "open", "sell", "contact"] as const;
+type WizardStep = (typeof WIZARD_STEPS)[number];
+
+/** What each step calls itself at the top of the card, so a farmer knows where they are. */
+const STEP_HEADINGS: Record<WizardStep, string> = {
+  farm: "Your farm",
+  open: "When you are open",
+  sell: "What you sell",
+  contact: "Staying in touch",
+};
 
 type SeasonKind = (typeof SEASON_OPTIONS)[number]["value"];
 /**
@@ -415,7 +437,14 @@ export interface ListingDefaults {
    */
   availability: ListingAvailability;
   paymentMethods: string[];
-  items: string[];
+  /**
+   * What the stand usually sells, each with its optional price (F-090).
+   *
+   * B-037's rule for the newest field: `saveOnboardingListing` rewrites every item row on
+   * every save, so a price this form could not see would be deleted by the next edit — with
+   * nothing failing, because the writer would be doing exactly what it says it does.
+   */
+  items: StandingItem[];
   /**
    * The farm's own prose, as it renders on the public card under "Additional information".
    *
@@ -527,7 +556,63 @@ export function ListingStep({
   const [otherPayment, setOtherPayment] = useState(
     storedPayments.filter((method) => !offered.has(method)).join(", "),
   );
-  const [items, setItems] = useState((defaults?.items ?? []).join(", "));
+  /*
+    WHAT THE STAND USUALLY SELLS, one row per item (F-090).
+
+    Was a single comma-separated string. Each item now carries an optional price and, during
+    onboarding, whether it is on the table today — neither of which fits in a comma list
+    without inventing a syntax the farmer has to learn.
+
+    `inStock` lives here rather than in its own parallel array for the same reason the price
+    does: two lists indexed against each other drift the moment one is filtered.
+  */
+  const [itemRows, setItemRows] = useState<
+    { name: string; priceText: string; inStock: boolean }[]
+  >(
+    (defaults?.items ?? []).map((item) => ({
+      name: item.name,
+      // "" rather than null in the FIELD, because an input's value must be a string; it is
+      // mapped back to null on submit. The stored null and a farmer's cleared box are the
+      // same fact — not stated — so collapsing them here is right.
+      priceText: item.priceText ?? "",
+      // An edit door never asks about today's stock, so this is always false there and is
+      // never sent. Onboarding is the only door that can state it.
+      inStock: false,
+    })),
+  );
+  const [draftItem, setDraftItem] = useState("");
+
+  /** Add whatever is in the draft box, ignoring blanks and exact repeats. */
+  function addItem(): void {
+    const name = draftItem.trim();
+    if (name === "") return;
+    // Case-insensitively already present is a no-op rather than a second row: the database's
+    // unique index folds case and surrounding whitespace, so two rows differing only in case
+    // would silently collapse on save and lose one farmer's price.
+    const already = itemRows.some(
+      (row) => row.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (!already) {
+      setItemRows((rows) => [...rows, { name, priceText: "", inStock: false }]);
+    }
+    setDraftItem("");
+  }
+
+  function setItemPrice(index: number, priceText: string): void {
+    setItemRows((rows) =>
+      rows.map((row, at) => (at === index ? { ...row, priceText } : row)),
+    );
+  }
+
+  function toggleItemStock(index: number): void {
+    setItemRows((rows) =>
+      rows.map((row, at) => (at === index ? { ...row, inStock: !row.inStock } : row)),
+    );
+  }
+
+  function removeItem(index: number): void {
+    setItemRows((rows) => rows.filter((_, at) => at !== index));
+  }
   // The farm's own paragraph on the public card. Prefilled from what is stored — for a
   // migrating farm that is VIGA's text with its restated facts already stripped, so the farmer
   // sees only what has no column of its own and edits from there.
@@ -578,7 +663,35 @@ export function ListingStep({
     nothing, and waits, with nothing on screen wrong. Reading it back is the only check
     available before the message is sent.
   */
+  /*
+    THE TWO PRESENTATIONS, and the single fact that chooses between them (F-090, max
+    2026-08-08).
+
+    Onboarding is a WIZARD: one thing at a time, in order, because a farmer setting up is
+    doing it once and should not face every field at once. Editing is FLAT — the caller
+    wraps it in tabs — because a farmer who came back for one field must not be marched
+    through five screens to reach it.
+
+    **Both render the same fields from the same state, and every field stays MOUNTED.** The
+    step only decides what is VISIBLE. Unmounting would drop the farmer's answers on every
+    Back, and `saveOnboardingListing` replaces the whole listing — so a field the form could
+    not see would be a field the save deletes (B-037's shape, which this codebase has now
+    hit twice).
+  */
+  const steps = credential.kind === "stand_link" ? null : WIZARD_STEPS;
+  const [step, setStep] = useState(0);
+  const onStep = (which: WizardStep): boolean =>
+    steps === null || steps[step] === which;
+
   const asksForPhone = credential.kind === "invitation";
+  /*
+    Whether this door may state what is on the table TODAY.
+
+    Onboarding only. An already-onboarded farmer reports today's stock on their status tab,
+    through the proposal-and-confirmation gate — offering it here as well would be two ways
+    to make one claim, by two different routes, with two different provenances.
+  */
+  const asksForCurrentStock = credential.kind === "invitation";
   const [phone, setPhone] = useState("");
   const [confirming, setConfirming] = useState(false);
 
@@ -911,7 +1024,36 @@ export function ListingStep({
             ? { stockingDays: stockingDays.length > 0 ? stockingDays : null }
             : {}),
           paymentMethods: [...payments, ...list(otherPayment)],
-          items: list(items),
+          // F-090 — name and price as one pair per item. A blank price is `null`, never "":
+          // the column refuses a blank string, and "not stated" is a different fact from a
+          // price of nothing.
+          items: itemRows.map((row) => ({
+            name: row.name,
+            priceText: row.priceText.trim() === "" ? null : row.priceText.trim(),
+          })),
+          /*
+            TODAY'S STOCK, sent only by a door that asked (F-090).
+
+            Omitted entirely rather than sent empty, and the difference is load-bearing: an
+            empty array would be the farmer stating their stand is EMPTY today, which the
+            boundary and the column both refuse. Absent means they said nothing about today.
+
+            This does NOT publish here. It is held on the invitation until the farmer's
+            START proves the handset, because a dated claim needs someone to stand behind
+            it — see `recordFarmerInvitationPendingStock`.
+          */
+          ...(asksForCurrentStock && itemRows.some((row) => row.inStock)
+            ? {
+                currentStock: itemRows
+                  .filter((row) => row.inStock)
+                  .map((row) => ({
+                    itemName: row.name,
+                    ...(row.priceText.trim() === ""
+                      ? {}
+                      : { priceText: row.priceText.trim() }),
+                  })),
+              }
+            : {}),
           // Always sent, even when blank: an empty box means the farmer CLEARED the paragraph,
           // which the boundary distinguishes from a door that states nothing about it.
           description,
@@ -997,12 +1139,38 @@ export function ListingStep({
               <dd>{addressPublic ? address : `${address} — hidden from customers`}</dd>
             </div>
           )}
-          {items.trim() === "" ? null : (
+          {itemRows.length === 0 ? null : (
             <div>
               <dt>Usually sells</dt>
-              <dd>{items}</dd>
+              {/* Priced items read back with their price, so a farmer can check both. */}
+              <dd>
+                {itemRows
+                  .map((row) =>
+                    row.priceText.trim() === ""
+                      ? row.name
+                      : `${row.name} ${row.priceText.trim()}`,
+                  )
+                  .join(", ")}
+              </dd>
             </div>
           )}
+          {itemRows.some((row) => row.inStock) ? (
+            <div>
+              <dt>On the table now</dt>
+              {/*
+                Says what will happen rather than claiming it already has. This is held
+                until the farmer's START arrives, and a summary implying it is already
+                public would be the form making a claim the system has not made.
+              */}
+              <dd>
+                {itemRows
+                  .filter((row) => row.inStock)
+                  .map((row) => row.name)
+                  .join(", ")}{" "}
+                — goes live when you text START
+              </dd>
+            </div>
+          ) : null}
         </dl>
 
         <button
@@ -1056,6 +1224,28 @@ export function ListingStep({
 
   return (
     <form className="farmer-listing" onSubmit={submit}>
+      {/*
+        WHERE THE FARMER IS, when there are steps to be at.
+
+        Stated as text rather than as a progress bar: "Step 2 of 4" answers both "how far in
+        am I" and "how much is left", which is the whole question, and it survives at phone
+        width where a bar of segments does not.
+      */}
+      {steps !== null && (
+        <div className="farmer-listing-progress">
+          <p className="farmer-listing-step-count">{`Step ${step + 1} of ${steps.length}`}</p>
+          <h3 className="farmer-listing-step-heading">
+            {STEP_HEADINGS[steps[step]!]}
+          </h3>
+        </div>
+      )}
+
+      {/*
+        Each step is a `hidden` FIELDSET over one always-mounted form, never a branch that
+        unmounts. `hidden` is what makes `toBeVisible` false for a field the farmer cannot
+        currently see while its state — and its value on submit — survives untouched.
+      */}
+      <fieldset className="farmer-listing-step" hidden={!onStep("farm")}>
       {canRenameFarm && (
         <>
           <label htmlFor="farm-name">What is your farm called?</label>
@@ -1292,6 +1482,9 @@ export function ListingStep({
         </label>
       </fieldset>
 
+      </fieldset>
+
+      <fieldset className="farmer-listing-step" hidden={!onStep("open")}>
       {/* ── Season ─────────────────────────────────────────────────────────────────────── */}
       <label htmlFor="season-kind">When is your stand open in the year?</label>
       <select
@@ -1461,6 +1654,35 @@ export function ListingStep({
 
       <fieldset className="farmer-listing-days">
         <legend>Which days are you open?</legend>
+        {/*
+          SELECT ALL (max 2026-08-08). Most stands on the island are open whenever it is
+          light, so "all seven" is the common answer and it was seven taps.
+
+          **It DESCRIBES the state rather than owning it.** `checked` is derived from the days
+          themselves, so a farmer who ticks all seven one at a time sees this fill in too, and
+          there is no second piece of state that can disagree with the boxes. That is also why
+          it toggles off: tapping it again clears them, so a mistap is undone where it was
+          made rather than by unticking seven boxes.
+
+          Placed FIRST, ahead of the days: it is the shortcut past them, and a shortcut found
+          after the work is done is not one. Its label says "open" because the hours dropdown
+          above already offers "All day, every day" — a bare "every day" beside it would read
+          as the same answer asked twice.
+        */}
+        <label className="farmer-listing-day farmer-listing-day-all">
+          <input
+            type="checkbox"
+            checked={openDays.length === WEEKDAYS.length}
+            onChange={() =>
+              setOpenDays(
+                openDays.length === WEEKDAYS.length
+                  ? []
+                  : WEEKDAYS.map((day) => day.value),
+              )
+            }
+          />
+          <span>Open every day</span>
+        </label>
         {WEEKDAYS.map((day) => (
           <label key={day.value} className="farmer-listing-day">
             <input
@@ -1517,6 +1739,9 @@ export function ListingStep({
         </fieldset>
       ) : null}
 
+      </fieldset>
+
+      <fieldset className="farmer-listing-step" hidden={!onStep("sell")}>
       {/* ── Payment ────────────────────────────────────────────────────────────────────── */}
       {/*
         Checkboxes over the closed set, so "venmo" and "Venmo" cannot become two values a
@@ -1554,22 +1779,110 @@ export function ListingStep({
       />
 
       {/*
+        WHAT THE STAND USUALLY SELLS — one ROW per item since F-090, where it was a single
+        comma-separated box.
+
+        The rows exist because each item now carries its own optional price, and a price
+        cannot ride in a comma list without inventing a syntax the farmer has to learn
+        ("eggs $6, kale"). A row per item is also what lets the stock tick below sit beside
+        the thing it is about.
+
         The farmer's OWN WORDS, and they stay that way. "tomato", "tomatoes" and "love apple"
         remain three items — folding them would be a produce taxonomy, which no business code
         may hard-code.
       */}
       <label htmlFor="stand-items">What do you usually sell?</label>
-      <input
-        id="stand-items"
-        type="text"
-        value={items}
-        onChange={(event) => setItems(event.target.value)}
-        placeholder="e.g. eggs, plant starts, flowers"
-        maxLength={500}
-      />
+      <div className="farmer-listing-item-add">
+        <input
+          id="stand-items"
+          type="text"
+          value={draftItem}
+          onChange={(event) => setDraftItem(event.target.value)}
+          onKeyDown={(event) => {
+            // Enter adds the item rather than submitting a form the farmer is still
+            // building — the same accident `type="button"` prevents on the button.
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            addItem();
+          }}
+          placeholder="e.g. eggs"
+          maxLength={120}
+        />
+        <button
+          type="button"
+          className="farmer-listing-item-add-button"
+          onClick={addItem}
+          disabled={draftItem.trim() === ""}
+        >
+          Add item
+        </button>
+      </div>
+
+      {itemRows.length === 0 ? (
+        <p className="farmer-form-note">
+          Add the things you usually have. You can put a price on any of them, or leave it
+          off.
+        </p>
+      ) : (
+        <ul className="farmer-listing-items">
+          {itemRows.map((row, index) => (
+            <li key={`${row.name}-${index}`} className="farmer-listing-item">
+              <span className="farmer-listing-item-name">{row.name}</span>
+              {/*
+                The price, labelled with ITS OWN ITEM's name. A shared label ("Price") would
+                leave a screen reader user with a column of identical fields and no way to
+                tell which belongs to what — and it is what the tests anchor on, so a price
+                landing on the wrong row fails rather than passing on presence alone.
+              */}
+              <label
+                className="sr-only"
+                htmlFor={`item-price-${index}`}
+              >{`Price for ${row.name}`}</label>
+              <input
+                id={`item-price-${index}`}
+                className="farmer-listing-item-price"
+                type="text"
+                value={row.priceText}
+                onChange={(event) => setItemPrice(index, event.target.value)}
+                placeholder="price (optional)"
+                maxLength={120}
+              />
+              {/*
+                TODAY'S STOCK, ticked per item and asked only where it can be acted on.
+
+                F-066's split, on the form: "we usually sell eggs" is a standing claim and
+                "eggs are on the table right now" is a dated confirmation. They are different
+                fields here because they are different facts, and only the second one waits
+                for the farmer's START to prove the handset before it publishes.
+
+                Not offered on the edit door: an onboarded farmer reports today's stock on
+                their status tab, through the confirmation gate. Two ways to do one thing is
+                exactly what the zen desk refuses.
+              */}
+              {asksForCurrentStock && (
+                <label className="farmer-listing-item-stock">
+                  <input
+                    type="checkbox"
+                    checked={row.inStock}
+                    onChange={() => toggleItemStock(index)}
+                  />
+                  <span>{`${row.name} are on the table right now`}</span>
+                </label>
+              )}
+              <button
+                type="button"
+                className="farmer-listing-item-remove"
+                aria-label={`Remove ${row.name}`}
+                onClick={() => removeItem(index)}
+              >
+                <span aria-hidden="true">×</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="farmer-form-note">
-        Separate them with commas. This is what you usually have — you will text what is
-        actually in stock as it changes.
+        This is what you usually have. You will text what is actually in stock as it changes.
       </p>
 
       {/*
@@ -1606,6 +1919,9 @@ export function ListingStep({
         numeric keypad and lets a phone offer its own number, which is the difference between
         one tap and typing ten digits outdoors.
       */}
+      </fieldset>
+
+      <fieldset className="farmer-listing-step" hidden={!onStep("contact")}>
       {asksForPhone && (
         <>
           <label htmlFor="farmer-phone">Your phone number</label>
@@ -1678,15 +1994,54 @@ export function ListingStep({
         </div>
       )}
 
+      </fieldset>
+
       {error === null ? null : (
         <p className="farmer-form-error" role="alert">
           {error}
         </p>
       )}
 
-      <button type="submit" disabled={busy || !ready}>
-        {busy ? "Submitting…" : "Submit"}
-      </button>
+      {/*
+        NAVIGATION, and why Submit exists only on the last step.
+
+        A Submit button visible on step one would let a farmer publish a listing they have
+        not finished describing — and because the writer replaces the WHOLE listing, the
+        fields they never reached would be written as empty rather than left alone. The flat
+        door has no steps and shows Submit throughout, which is what it has always done.
+
+        Both nav buttons are `type="button"`: inside a form a bare button submits, which
+        would publish the listing on a Next.
+      */}
+      {steps !== null && (
+        <div className="farmer-listing-nav">
+          {step > 0 && (
+            <button
+              type="button"
+              className="farmer-listing-back"
+              onClick={() => setStep((at) => at - 1)}
+              disabled={busy}
+            >
+              Back
+            </button>
+          )}
+          {step < steps.length - 1 && (
+            <button
+              type="button"
+              className="farmer-primary-action"
+              onClick={() => setStep((at) => at + 1)}
+            >
+              Next
+            </button>
+          )}
+        </div>
+      )}
+
+      {(steps === null || step === steps.length - 1) && (
+        <button type="submit" disabled={busy || !ready}>
+          {busy ? "Submitting…" : "Submit"}
+        </button>
+      )}
 
       {/*
         THE CONFIRMATION, and why a modal rather than a note beside the field.

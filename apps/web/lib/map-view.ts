@@ -74,13 +74,18 @@ export interface PublicStandPayload {
    */
   confirmedElapsed?: string;
   /**
-   * What this stand USUALLY sells — its seeded specialties, NOT current stock (F-042).
+   * What this stand USUALLY sells — its standing claim, NOT current stock (F-042).
    *
-   * A different fact from `items` and kept in a different field for that reason. These come
-   * from VIGA's 2026 form; nobody confirmed them today, and no timestamp anywhere may attach
-   * to them. Absent when the stand has no tags at all.
+   * A different fact from `items` and kept in a different field for that reason. Nobody
+   * confirmed these today, and no timestamp anywhere may attach to them. Absent when the stand
+   * has no tags at all.
+   *
+   * **F-090 — each carries the farmer's OPTIONAL price**, and they are objects rather than bare
+   * strings so every consumer must state whether it wants the name or the whole fact. That is
+   * the point: coercion would have let a price silently enter a regex test, a dedupe key, and a
+   * search haystack as "[object Object]", matching nothing and failing no test.
    */
-  usuallySells?: string[];
+  usuallySells?: { itemName: string; priceText?: string }[];
   /**
    * When this stand says it is open (F-043) — season, time of day, weekdays.
    *
@@ -145,7 +150,9 @@ export function isFlowerOnlyStand(stand: PublicStandPayload): boolean {
   return (
     usualOfferings.length > 0 &&
     usualOfferings.every((item) =>
-      /\b(?:flower(?:s|ing)?|lavender|wreaths?|essential oils?)\b/i.test(item),
+      // The NAME, never the whole fact — a price of "$5 a bunch" must not decide whether a
+      // stand is flowers-only.
+      /\b(?:flower(?:s|ing)?|lavender|wreaths?|essential oils?)\b/i.test(item.itemName),
     )
   );
 }
@@ -311,7 +318,7 @@ export function standListingLines(
   // a broken join — a fallback here would make that failure invisible for as long as it lasted.
   const confirmedKeys = new Set(confirmedItems);
   const remainingTags = (stand.usuallySells ?? []).filter(
-    (tag) => !confirmedKeys.has(tag),
+    (tag) => !confirmedKeys.has(tag.itemName),
   );
 
   const lines: StandListingLine[] = [];
@@ -342,7 +349,20 @@ export function standListingLines(
     lines.push({
       kind: "usual",
       label: hasConfirmation ? "Also usually sells:" : "Usually sells:",
-      items: remainingTags,
+      /*
+        F-090 — the price rides IN the item string rather than in a field of its own.
+
+        The line already reads "eggs, kale, jam"; with prices it reads "eggs $6/dozen, kale,
+        jam". That is one rendering rule, not a second line kind and not a branch in every
+        renderer — and it keeps a priced item and an unpriced one in one list, which is what
+        makes the result read like a farm sign rather than a price table.
+
+        Still code-rendered from stored facts, and still carrying NO date: a price is a
+        standing claim exactly like the item it belongs to.
+      */
+      items: remainingTags.map((tag) =>
+        tag.priceText === undefined ? tag.itemName : `${tag.itemName} ${tag.priceText}`,
+      ),
     });
   }
 
@@ -571,7 +591,9 @@ function sellsMatch(stand: PublicStandPayload, query: string): boolean {
   // nothing normalizes casing between the two.
   const haystack = [
     ...stand.items.map((item) => item.itemName),
-    ...(stand.usuallySells ?? []),
+    // Names only. A customer searching "6" must not match every stand whose eggs cost $6 —
+    // price is not something anyone searches produce by.
+    ...(stand.usuallySells ?? []).map((offering) => offering.itemName),
   ];
   return haystack.some((entry) => entry.toLowerCase().includes(needle));
 }
