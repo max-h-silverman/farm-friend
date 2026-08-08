@@ -463,6 +463,8 @@ async function main(): Promise<void> {
     const result = await seedStands(sql, inputs);
     console.log(
       `\nseeded ${result.seeded}, skipped ${result.skipped} (already present), ` +
+        `backfilled ${result.backfilled} (links/payments/hosts added to an existing stand), ` +
+        `refused ${result.backfillRefused} (farmer owns the listing), ` +
         `flags raised ${result.flagsRaised}`,
     );
   } finally {

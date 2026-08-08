@@ -363,6 +363,130 @@ describe("seeding VIGA's stands (B-002)", () => {
     expect(rows[0]!.revisions).toBe(0);
   });
 
+  // GL-015 — backfilling VIGA's side facts onto a stand that already exists.
+  //
+  // The gap this closes, found by running F-064's ingest against production (2026-08-07):
+  // every stand already existed, so the loader skipped all 35 and wrote nothing. Links, hosts
+  // and most payment methods stayed empty, and an insert-only loader had no way to add them —
+  // it can create a stand or leave it alone, and nothing in between.
+  //
+  // The rehearsal did not catch it because it ran from an EMPTY schema, where every stand is
+  // an insert. Same code, same CSVs, opposite outcome.
+  describe("backfilling side facts onto an existing stand (GL-015)", () => {
+    it("adds links, payments and hosts to a stand it did not create", async () => {
+      // The stand exists with none of them; a re-run supplies what VIGA now states.
+      const before = await client`
+        select
+          (select count(*)::integer from farm_links) as links,
+          (select count(*)::integer from sales_location_payment_methods) as payments
+      `;
+      expect(before[0]!.links).toBe(0);
+
+      const [alpha] = sample();
+      await seedStands(client, [
+        {
+          ...alpha!,
+          links: [{ label: "Website", url: "https://alpha.example" }],
+          paymentMethods: ["Cash", "Venmo"],
+          participants: ["Kareli Farm", "Neighbor Eggs"],
+        },
+      ]);
+
+      const rows = await client`
+        select
+          (select count(*)::integer from farm_links) as links,
+          (select count(*)::integer from sales_location_payment_methods) as payments,
+          (select count(*)::integer from sales_location_participants) as hosts
+      `;
+      expect(rows[0]!.links).toBe(1);
+      expect(rows[0]!.payments).toBe(2);
+      expect(rows[0]!.hosts).toBe(2);
+    });
+
+    it("NEVER touches the stand's own listing fields, only the empty side tables", async () => {
+      // The reason the loader was insert-only in the first place, and it still holds: a
+      // farmer's corrected hours must survive a re-run of VIGA's older export. Backfill adds
+      // facts to empty side tables; it does not restate the listing.
+      const original = await client`
+        select public_address, season_kind, open_hours_kind, stocking_cadence
+        from sales_locations where name = 'Alpha Farm'
+      `;
+
+      await seedStands(client, [
+        {
+          ...sample()[0]!,
+          place: { address: "999 Rewritten Rd SW", longitude: -122.44, latitude: 47.47 },
+          season: { kind: "not_stated" },
+          openHours: { kind: "by_appointment" },
+          stocking: { cadence: "as_needed" },
+          links: [{ label: "Website", url: "https://alpha.example" }],
+        },
+      ]);
+
+      const after = await client`
+        select public_address, season_kind, open_hours_kind, stocking_cadence
+        from sales_locations where name = 'Alpha Farm'
+      `;
+      expect(after[0]).toEqual(original[0]);
+    });
+
+    it("REFUSES to backfill a stand whose farmer holds a live authorization", async () => {
+      // The safety property. Once a farmer is authorized they own the listing (golden rule #1),
+      // and VIGA's spreadsheet must not add to it behind their back — they may have deliberately
+      // removed a payment method or a host that the older export still names.
+      const location = await client`
+        select l.id, l.owner_farm_id from sales_locations l where l.name = 'Beta Farm'
+      `;
+      const contact = await client`
+        insert into contacts (phone_e164, phone_hash)
+        values ('+12065550111', ${`hash-${randomUUID()}`})
+        returning id
+      `;
+      await client`
+        insert into farmer_authorizations (
+          farm_id, contact_id, phone_verified_at, authorized_at
+        )
+        values (
+          ${location[0]!.owner_farm_id as string}, ${contact[0]!.id as string}, now(), now()
+        )
+      `;
+
+      const result = await seedStands(client, [
+        {
+          ...sample()[1]!,
+          links: [{ label: "Website", url: "https://beta.example" }],
+          paymentMethods: ["Cash"],
+        },
+      ]);
+
+      expect(result.backfillRefused).toBe(1);
+      const rows = await client`
+        select count(*)::integer as count from farm_links
+        where farm_id = ${location[0]!.owner_farm_id as string}
+      `;
+      expect(rows[0]!.count).toBe(0);
+    });
+
+    it("adds only what is MISSING, leaving an existing value alone", async () => {
+      // Idempotent and additive: a second run must not duplicate a link or resurrect a payment
+      // method someone removed. `on conflict do nothing` is the arbiter, per row.
+      await seedStands(client, [
+        {
+          ...sample()[0]!,
+          links: [{ label: "Website", url: "https://alpha.example" }],
+          paymentMethods: ["Cash", "Venmo"],
+        },
+      ]);
+      const rows = await client`
+        select
+          (select count(*)::integer from farm_links) as links,
+          (select count(*)::integer from sales_location_payment_methods) as payments
+      `;
+      expect(rows[0]!.links).toBe(1);
+      expect(rows[0]!.payments).toBe(2);
+    });
+  });
+
   // F-064 — host farms from VIGA's records, the third table that had a schema, a reader, and
   // no writer. The public card's "Also selling here" section and the admin table's "Other
   // sellers here" row have both existed since F-050 and both rendered nothing.

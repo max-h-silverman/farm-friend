@@ -108,6 +108,15 @@ export interface SeedResult {
   seeded: number;
   skipped: number;
   flagsRaised: number;
+  /**
+   * Existing stands that gained a link, payment method or host they were missing (GL-015).
+   *
+   * Counted separately from `seeded` because nothing was created: the stand was already there
+   * and only its empty side tables were filled.
+   */
+  backfilled: number;
+  /** Existing stands left untouched because their farmer holds a live authorization. */
+  backfillRefused: number;
 }
 
 /** Season columns, or nulls. Shaped to satisfy `sales_locations_coherent_season`. */
@@ -386,17 +395,51 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
   let seeded = 0;
   let skipped = 0;
   let flagsRaised = 0;
+  let backfilled = 0;
+  let backfillRefused = 0;
 
   await sql.begin(async (tx) => {
     for (const stand of stands) {
-      // Idempotency by natural key. Existing rows are left ALONE rather than updated: a
-      // farmer may have corrected their listing since the export, and a re-run must not
-      // revert their change to VIGA's older text.
+      // Idempotency by natural key. The stand's OWN listing fields are left alone rather than
+      // updated: a farmer may have corrected their listing since the export, and a re-run must
+      // not revert their change to VIGA's older text.
       const existing = await tx`
-        select id from sales_locations where name = ${stand.name} limit 1
+        select l.id, l.owner_farm_id from sales_locations l
+        where l.name = ${stand.name} limit 1
       `;
       if (existing.length > 0) {
         skipped++;
+
+        // GL-015 — but its EMPTY side tables are still fillable.
+        //
+        // Insert-only meant "create the stand or do nothing", and running F-064's ingest against
+        // production proved how sharp that edge is: all 35 stands already existed, so the batch
+        // wrote nothing and links, hosts and most payment methods stayed empty with no way to
+        // supply them. The rehearsal missed it by running from an empty schema, where every
+        // stand is an insert.
+        //
+        // These three tables are ADDITIVE and carry no farmer-authored state of their own: every
+        // write below is `on conflict do nothing`, so this fills gaps and never overwrites,
+        // reorders, or removes. The listing itself — address, season, hours, stocking,
+        // description — is still never touched here.
+        const locationId = existing[0]?.id as string;
+        const ownerFarmId = existing[0]?.owner_farm_id as string;
+
+        // Once a farmer holds a live authorization they own the listing (golden rule #1), and
+        // VIGA's older spreadsheet must not add to it behind their back — a payment method or a
+        // host they deliberately removed would silently come back on the next run.
+        const authorized = await tx`
+          select 1 from farmer_authorizations
+          where farm_id = ${ownerFarmId} and revoked_at is null
+          limit 1
+        `;
+        if (authorized.length > 0) {
+          backfillRefused++;
+          continue;
+        }
+
+        const added = await writeSideFacts(tx, stand, ownerFarmId, locationId);
+        if (added) backfilled++;
         continue;
       }
 
@@ -434,39 +477,7 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
       `;
       const locationId = locationRows[0]!.id as string;
 
-      // F-061 — links and payment methods, the two tables that had a schema and no writer.
-      // Keyed differently on purpose: links belong to the FARM (one website, however many
-      // stands), payment methods to the LOCATION (what this stand takes at this table).
-      for (const [index, link] of (stand.links ?? []).entries()) {
-        await tx`
-          insert into farm_links (farm_id, label, url, sort_order)
-          values (${farmId}, ${link.label}, ${link.url}, ${index})
-          on conflict do nothing
-        `;
-      }
-      for (const method of stand.paymentMethods ?? []) {
-        await tx`
-          insert into sales_location_payment_methods (sales_location_id, method)
-          values (${locationId}, ${method})
-          on conflict do nothing
-        `;
-      }
-
-      // F-064 — host farms, written as VIGA's statement rather than the farmer's.
-      //
-      // `on conflict do nothing` against the partial unique index on the normalized name where
-      // `retired_at is null`, so a re-run adds no duplicate. That index is also why a retired
-      // name can be re-seeded later: retirement is the farmer's decision, and this loader is
-      // insert-only, so it never resurrects one that is still active.
-      for (const participant of stand.participants ?? []) {
-        await tx`
-          insert into sales_location_participants (
-            owner_farm_id, sales_location_id, display_name, source, confirmed_at
-          )
-          values (${farmId}, ${locationId}, ${participant}, 'viga', now())
-          on conflict do nothing
-        `;
-      }
+      await writeSideFacts(tx, stand, farmId, locationId);
 
       for (const flag of stand.flags) {
         // `on conflict do nothing` against the partial unique index on
@@ -485,7 +496,72 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
     }
   });
 
-  return { seeded, skipped, flagsRaised };
+  return { seeded, skipped, flagsRaised, backfilled, backfillRefused };
+}
+
+/**
+ * VIGA's side facts for one stand: links, payment methods, hosted participants.
+ *
+ * ONE writer for both paths — a freshly inserted stand and an existing one being backfilled
+ * (GL-015). Two copies would drift, and the copy that drifted would be the rarely-exercised
+ * backfill, which is exactly the one that runs against production with real data.
+ *
+ * Every statement is `on conflict do nothing`, which is what makes it safe to re-run over a
+ * populated stand: it fills gaps and never overwrites, reorders, or removes. Nothing here
+ * touches the listing itself.
+ *
+ * Returns whether anything was actually added, so the caller can report backfilled stands
+ * rather than counting every skipped stand as one.
+ */
+async function writeSideFacts(
+  tx: Tx,
+  stand: SeedStandInput,
+  farmId: string,
+  locationId: string,
+): Promise<boolean> {
+  let added = false;
+
+  // F-061 — links and payment methods, two tables that had a schema and no writer. Keyed
+  // differently on purpose: links belong to the FARM (one website, however many stands),
+  // payment methods to the LOCATION (what this stand takes at this table).
+  for (const [index, link] of (stand.links ?? []).entries()) {
+    const rows = await tx`
+      insert into farm_links (farm_id, label, url, sort_order)
+      values (${farmId}, ${link.label}, ${link.url}, ${index})
+      on conflict do nothing
+      returning id
+    `;
+    if (rows.length > 0) added = true;
+  }
+  for (const method of stand.paymentMethods ?? []) {
+    const rows = await tx`
+      insert into sales_location_payment_methods (sales_location_id, method)
+      values (${locationId}, ${method})
+      on conflict do nothing
+      returning sales_location_id
+    `;
+    if (rows.length > 0) added = true;
+  }
+
+  // F-064 — host farms, written as VIGA's statement rather than the farmer's.
+  //
+  // `on conflict do nothing` against the partial unique index on the normalized name where
+  // `retired_at is null`, so a re-run adds no duplicate. That index is also why this never
+  // resurrects a host a farmer retired: the retired row does not occupy the index, but the
+  // farmer-authorization check upstream refuses the whole backfill for that farm anyway.
+  for (const participant of stand.participants ?? []) {
+    const rows = await tx`
+      insert into sales_location_participants (
+        owner_farm_id, sales_location_id, display_name, source, confirmed_at
+      )
+      values (${farmId}, ${locationId}, ${participant}, 'viga', now())
+      on conflict do nothing
+      returning id
+    `;
+    if (rows.length > 0) added = true;
+  }
+
+  return added;
 }
 
 /** One farm's weekly statement, already parsed and joined by name (F-062). */
