@@ -51,6 +51,13 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   work needs the address — and the SMS answer path suppresses it in SQL so a hidden address never
   leaves the database on that path.
 
+  **`prices_public` is the same shape for item prices, defaulting the other way** (F-092). `NOT NULL
+  DEFAULT false`: an address is information a farmer already supplied for publication, but a price is
+  something this system never asked for and no existing stand consented to showing, so opting in is
+  the farmer's act. Prices stay stored when it is false — the switch is reversible, not destructive —
+  and the public query withholds them in SQL for the same reason the address path does. Admin reads
+  them regardless.
+
   **`retired_at` is VIGA taking a stand down, and it is the only "delete" there is** (F-071). A
   retired location leaves every public surface and refuses publication, but keeps every revision it
   published — the answer to "what did this stand say it had, and when" is exactly what the record
@@ -211,12 +218,32 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   takes no timestamp — the "no confirmation time" property has to survive all the way to the screen
   to mean anything.
 
-  **A standing item may carry an optional `price_text`** (F-090) — the farmer's own words
-  ("$6/dozen", "2 for $5"), never parsed and never summed, matching the column
-  `inventory_entries` has always had. NULL is *not stated*, never "free", and a not-blank CHECK
-  keeps `""` from rendering as the same thing. It is a standing claim exactly like the item it
-  belongs to and carries no date; a price on today's confirmed stock is the entries column and a
-  different fact.
+  **A standing item may carry an optional STRUCTURED price** (F-092) — four columns that render as
+  one sentence: `price_amount` and `price_quantity` (`numeric(10,2)`, never floating point),
+  `price_unit` (the farmer's own word, free text), and `price_basis` (`per` | `for`). "$6 / dozen"
+  and "3 lb for $5" are the same four facts with a different joining word, and `per` is the bundle
+  with an implied count of one — one mechanism, so a third kind of price is a third `basis` value
+  rather than a fifth column. `renderStandItemPrice` in core is the **only** thing that turns parts
+  into words; every surface calls it.
+
+  All four are present or all four are NULL — `stand_items_price_complete` refuses anything between,
+  because half a price renders as garbage. NULL across all four is *not stated*; **an amount of `0`
+  is FREE**, which is a claim rather than its absence. A price is a standing claim exactly like the
+  item it belongs to and carries no date.
+
+  This **replaced** a free-text `price_text` (F-090, migration `0030`) whose own reasoning argued for
+  free text and was right about roadside signs. The corpus settled it: 285 stands in VIGA's export
+  hold one dollar sign, and it is a delivery threshold. Nothing was migrated because nothing existed.
+
+  **`inventory_entries.price_text` is still free text** and is a different fact — a price on today's
+  confirmed stock, dated, belonging to the statement rather than to the item. Onboarding writes it by
+  rendering the structured price into that column.
+
+  **Whether any price REACHES a customer is `sales_locations.prices_public`**, not these columns —
+  the same display-only shape as `address_public`, and `false` by default because a price is
+  something this system never asked for before. Hidden means hidden: the values stay stored so the
+  switch is reversible, and the public query withholds them **in SQL**, so a withheld price never
+  leaves the database for a later reader to leak.
 
   **Item names are the farmer's own words** ("plant starts", "Gailan"), per-stand and
   farmer-authored. There is no shared produce taxonomy, no global food ontology, and no vocabulary

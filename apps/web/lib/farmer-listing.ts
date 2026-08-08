@@ -16,6 +16,7 @@ import {
   type SaveOnboardingListingResult,
   type SeasonKind,
   type StandingItem,
+  type StandingItemPrice,
   type StockingCadence,
 } from "@farm-friend/db";
 
@@ -151,7 +152,46 @@ function currentStockList(
 }
 
 /**
- * The standing items a farmer stated, each with its optional price (F-090).
+ * One item's price, as the four parts the writer stores (F-092).
+ *
+ * **Malformed is UNPRICED, never a 400.** A price is optional, so a body whose price object is
+ * the wrong shape has still stated an item — refusing the whole listing over it would lose the
+ * farmer's other answers to a field they were free to omit. The writer's `normalizePrice` makes
+ * the same call for the same reason.
+ *
+ * Amount and quantity arrive as STRINGS and stay strings: they are `numeric` columns, and
+ * routing money through a JS number is how `5.10` becomes `5.0999999999999996`. They are checked
+ * for numeric CONTENT here without being converted.
+ */
+function itemPrice(value: unknown): StandingItemPrice | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const { amount, quantity, unit, basis } = value as {
+    amount?: unknown;
+    quantity?: unknown;
+    unit?: unknown;
+    basis?: unknown;
+  };
+  if (typeof amount !== "string" || typeof quantity !== "string") return null;
+  if (typeof unit !== "string" || unit.trim() === "" || unit.length > MAX_TEXT) {
+    return null;
+  }
+  if (basis !== "per" && basis !== "for") return null;
+
+  // Numeric content, checked without coercing the value that gets stored. `Number("")` is `0`,
+  // so a blank amount would otherwise arrive as FREE — a price the farmer never stated.
+  if (amount.trim() === "" || quantity.trim() === "") return null;
+  const amountValue = Number(amount);
+  const quantityValue = Number(quantity);
+  if (!Number.isFinite(amountValue) || !Number.isFinite(quantityValue)) return null;
+  if (amountValue < 0 || quantityValue <= 0) return null;
+
+  return { amount, quantity, unit, basis };
+}
+
+/**
+ * The standing items a farmer stated, each with its optional price (F-090, F-092).
  *
  * **A bare string is still accepted, and means "no price".** Three doors post this body, and a
  * farmer with a tab open across a deploy would otherwise get a 400 they cannot act on for a
@@ -172,20 +212,15 @@ function itemList(value: unknown): StandingItem[] | undefined {
   for (const entry of value) {
     if (typeof entry === "string") {
       if (entry.length > MAX_TEXT) return undefined;
-      items.push({ name: entry, priceText: null });
+      items.push({ name: entry, price: null });
       continue;
     }
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
       return undefined;
     }
-    const { name, priceText } = entry as { name?: unknown; priceText?: unknown };
+    const { name, price } = entry as { name?: unknown; price?: unknown };
     if (typeof name !== "string" || name.length > MAX_TEXT) return undefined;
-    if (priceText === undefined || priceText === null) {
-      items.push({ name, priceText: null });
-      continue;
-    }
-    if (typeof priceText !== "string" || priceText.length > MAX_TEXT) return undefined;
-    items.push({ name, priceText });
+    items.push({ name, price: itemPrice(price) });
   }
   return items;
 }
@@ -433,6 +468,16 @@ export function parseListingSubmission(
         unsafe direction, hiding on a value nobody chose, would silently blank the map.
       */
       addressPublic: body.addressPublic !== false,
+      /*
+        F-092 — showing prices is OPT-IN, so this is the mirror image of the line above: only an
+        explicit `true` turns it on, where the address needs an explicit `false` to turn off.
+
+        The safe direction is reversed because the defaults are. An address on a public listing
+        form is already public information, so silence means "published". A price is a thing this
+        system never asked for before and no stand has consented to showing, so silence has to
+        mean "not shown" — a malformed body must not put a farmer's prices on the map.
+      */
+      pricesPublic: body.pricesPublic === true,
       // F-088 — kept for every farm too. The location travels whole or not at all, which is
       // what the database still enforces; `visitability` decides what the map does with it.
       latitude,

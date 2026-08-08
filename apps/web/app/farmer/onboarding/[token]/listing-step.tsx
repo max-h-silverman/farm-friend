@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 // projection round-trips, which is load-bearing evidence for the FORWARD projection the public
 // map depends on.
 import { ISLAND_VIEWBOX, projectToIsland } from "@farm-friend/core/island-projection";
+import { renderStandItemPrice } from "@farm-friend/core/item-price";
 // TYPE-ONLY, so nothing in the database package reaches this client bundle. The shape is
 // IMPORTED rather than restated: B-037 was a restated `ListingDefaults` drifting out of
 // agreement with what the writer stores, and a second hand-written copy of these twelve
@@ -16,6 +17,106 @@ import {
   formatSmsNumberForDisplay,
 } from "../../../../lib/farmer-invite";
 import { IslandArtwork } from "../../../island-artwork";
+
+/**
+ * One row of the inventory builder, as the FORM holds it (F-092).
+ *
+ * Every price field is a string because that is what an input's value is, and because the
+ * columns behind them are `numeric` — routing money through a JS number on the way to a
+ * `numeric` column is how `5.10` becomes `5.0999999999999996`. They are parsed once, at submit.
+ */
+interface ItemRow {
+  name: string;
+  priceAmount: string;
+  priceQuantity: string;
+  priceUnit: string;
+  priceBasis: "per" | "for";
+  inStock: boolean;
+}
+
+/**
+ * The units the menu offers, and NOT a vocabulary the system understands (F-092).
+ *
+ * These are a shortcut for the common case, never a closed set: the menu's last entry opens a
+ * box for the farmer's own word, and `price_unit` is free text precisely so a stand selling by
+ * the half-flat or the cord can say so. No business code may branch on what is in this list —
+ * it is a list of suggestions, and the day it becomes policy is the day it becomes a produce
+ * taxonomy the architecture refuses.
+ */
+const SUGGESTED_UNITS = [
+  "each",
+  "dozen",
+  "lb",
+  "bunch",
+  "pint",
+  "quart",
+  "bag",
+  "jar",
+] as const;
+
+/** The menu value that swaps the picker for a free-text box. Not a unit; a control. */
+const OTHER_UNIT = "__other__";
+
+/** A select's value is a bare string; this is the narrowing, in one place. */
+function asBasis(value: string): "per" | "for" {
+  return value === "for" ? "for" : "per";
+}
+
+/**
+ * One row's four boxes as the price the writer stores, or `null` (F-092).
+ *
+ * **A half-filled price is NOT a price**, and this is where that is decided for the form. An
+ * amount with no unit, or a unit with no amount, is a farmer part-way through a thought — it
+ * travels as "not stated" rather than as an object the database would refuse.
+ *
+ * `pricesPublic` gates it because max's call was that hidden means hidden (2026-08-08). The
+ * values stay in React state either way, so the switch is reversible on screen; what this stops
+ * is them reaching the database — and therefore any customer — while the farmer has prices off.
+ */
+function rowPrice(
+  row: ItemRow,
+  pricesPublic: boolean,
+): { amount: string; quantity: string; unit: string; basis: "per" | "for" } | null {
+  if (!pricesPublic) return null;
+
+  const amount = row.priceAmount.trim();
+  const unit = row.priceUnit.trim();
+  // A quantity the farmer emptied means one, which is what the `per` sentence says anyway.
+  const quantity = row.priceQuantity.trim() === "" ? "1" : row.priceQuantity.trim();
+  if (amount === "" || unit === "") return null;
+
+  // `Number("")` is 0 — already excluded above, but the finiteness check is what stops a stray
+  // "." (which `sanitizeMoney` permits mid-typing) arriving as NaN.
+  const amountValue = Number(amount);
+  const quantityValue = Number(quantity);
+  if (!Number.isFinite(amountValue) || !Number.isFinite(quantityValue)) return null;
+  if (amountValue < 0 || quantityValue <= 0) return null;
+
+  return { amount, quantity, unit, basis: row.priceBasis };
+}
+
+/**
+ * What a farmer may type into a money box: digits and at most one decimal point (F-092).
+ *
+ * Filtered on the way IN rather than validated on the way out, so the box cannot hold something
+ * it will not submit. A farmer who types a letter simply sees it not appear, which is a quieter
+ * correction than an error message under the field.
+ *
+ * `type="text"` with `inputMode="decimal"` rather than `type="number"`: a number input's spinner
+ * arrows are wrong for a price, its scroll-wheel-changes-the-value behaviour is a real hazard on
+ * a form, and browsers disagree about what its value even is when the text is partial. The
+ * decimal keypad on a phone is what was actually wanted, and `inputMode` is what asks for it.
+ */
+function sanitizeMoney(value: string): string {
+  const kept = value.replace(/[^0-9.]/g, "");
+  const firstDot = kept.indexOf(".");
+  if (firstDot === -1) return kept;
+  // Everything after the first point keeps only its digits, so "1.2.3" becomes "1.23" rather
+  // than being rejected — the farmer's intent is legible and refusing it would be pedantry.
+  return (
+    kept.slice(0, firstDot + 1) + kept.slice(firstDot + 1).replace(/\./g, "")
+  );
+}
 
 /**
  * F-067 / F-069 — the listing details a farmer fills in while onboarding.
@@ -423,6 +524,12 @@ export interface ListingDefaults {
    * farmer had deliberately hidden.
    */
   addressPublic: boolean;
+  /**
+   * F-092 — whether this stand shows prices at all. B-037's rule once more: the writer sets this
+   * column on every save, so a form that could not see it would switch a farmer's prices back
+   * off the next time they edited their hours.
+   */
+  pricesPublic: boolean;
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
@@ -566,21 +673,39 @@ export function ListingStep({
     `inStock` lives here rather than in its own parallel array for the same reason the price
     does: two lists indexed against each other drift the moment one is filtered.
   */
-  const [itemRows, setItemRows] = useState<
-    { name: string; priceText: string; inStock: boolean }[]
-  >(
+  const [itemRows, setItemRows] = useState<ItemRow[]>(
     (defaults?.items ?? []).map((item) => ({
       name: item.name,
-      // "" rather than null in the FIELD, because an input's value must be a string; it is
-      // mapped back to null on submit. The stored null and a farmer's cleared box are the
-      // same fact — not stated — so collapsing them here is right.
-      priceText: item.priceText ?? "",
+      // The price as FOUR FIELDS, all strings, because an input's value must be one. They are
+      // mapped back to a price object — or to null — on submit. A stored null and a farmer's
+      // cleared boxes are the same fact, not stated, so collapsing them here is right.
+      //
+      // The defaults are what an unpriced row starts with: a quantity of one and the `per`
+      // basis, which together are the sentence "$_ / _" waiting for its two blanks. Starting
+      // `for` or with an empty quantity would make the common case the one needing work.
+      priceAmount: item.price?.amount ?? "",
+      priceQuantity: item.price?.quantity ?? "1",
+      priceUnit: item.price?.unit ?? "",
+      priceBasis: item.price?.basis ?? "per",
       // An edit door never asks about today's stock, so this is always false there and is
       // never sent. Onboarding is the only door that can state it.
       inStock: false,
     })),
   );
   const [draftItem, setDraftItem] = useState("");
+  /**
+   * F-092 — whether this stand prices anything, one switch for the whole section.
+   *
+   * max's call (2026-08-08): one decision rather than one per row. A farmer either prices their
+   * goods or does not, and asking per item would put the same question in front of them as many
+   * times as they have items.
+   *
+   * OFF HIDES THE LINE AND WITHHOLDS THE PRICES, but never clears them: the amounts stay in
+   * state and stay saved, so a farmer who switches it off and on again finds their work. That is
+   * the same shape `addressPublic` has — the fact is stored, and one boolean decides whether it
+   * is shown.
+   */
+  const [pricesPublic, setPricesPublic] = useState(defaults?.pricesPublic === true);
 
   /** Add whatever is in the draft box, ignoring blanks and exact repeats. */
   function addItem(): void {
@@ -593,14 +718,40 @@ export function ListingStep({
       (row) => row.name.trim().toLowerCase() === name.toLowerCase(),
     );
     if (!already) {
-      setItemRows((rows) => [...rows, { name, priceText: "", inStock: false }]);
+      setItemRows((rows) => [
+        ...rows,
+        {
+          name,
+          priceAmount: "",
+          // The same starting shape a prefilled unpriced row gets — see the state above.
+          priceQuantity: "1",
+          priceUnit: "",
+          priceBasis: "per",
+          inStock: false,
+        },
+      ]);
     }
     setDraftItem("");
   }
 
-  function setItemPrice(index: number, priceText: string): void {
+  /**
+   * Change one field of one row's price.
+   *
+   * One setter for all four rather than four near-identical ones: the fields differ only in
+   * which key they write, and a family of `setItemAmount` / `setItemUnit` / … would be the
+   * same function copied with a word changed.
+   */
+  function setItemPriceField(
+    index: number,
+    field: "priceAmount" | "priceQuantity" | "priceUnit" | "priceBasis",
+    value: string,
+  ): void {
     setItemRows((rows) =>
-      rows.map((row, at) => (at === index ? { ...row, priceText } : row)),
+      rows.map((row, at) =>
+        at === index
+          ? { ...row, [field]: field === "priceBasis" ? asBasis(value) : value }
+          : row,
+      ),
     );
   }
 
@@ -766,6 +917,22 @@ export function ListingStep({
   const mapViewBox = useZoomedViewBox(pinPoint);
 
   /**
+   * Whether the address on screen is one the farmer could usefully press Save on.
+   *
+   * "Saved" is `pin !== null`, and that is not a shortcut — a coordinate exists exactly when
+   * it was derived from the characters currently in the field. `changeAddress` discards the
+   * pin on every keystroke, so the two can never disagree; and an edit form arrives holding
+   * the coordinate stored beside the address it is showing, which is the same state reached
+   * by a different door.
+   *
+   * So this covers all three of the button's off states with one expression: nothing typed,
+   * the typed address already resolved, and a lookup in flight. A refusal clears the pin, so
+   * the button comes back on by itself for a farmer who needs to try again.
+   */
+  const addressSaved = pin !== null;
+  const canSaveAddress = !lookingUp && !addressSaved && address.trim() !== "";
+
+  /**
    * Change the address, and DISCARD any coordinate the old text resolved to (F-077).
    *
    * This is the sharp edge geocode-only placement creates. With no tap and no confirmation
@@ -791,7 +958,10 @@ export function ListingStep({
    * come from the address printed next to it.
    */
   async function findAddress(): Promise<void> {
-    if (lookingUp || address.trim() === "") return;
+    // The same condition the button is disabled on, enforced here too because `Enter` reaches
+    // this without passing through the button at all. Without it the key would re-run a lookup
+    // on an address already resolved, spending a geocoder call to reach the state on screen.
+    if (!canSaveAddress) return;
     setLookingUp(true);
     setLookupNote(null);
     try {
@@ -815,10 +985,16 @@ export function ListingStep({
         setLookupNote(null);
         return;
       }
-      // Refusals. Each says what to do — correct the address — because that is now the only
-      // thing that CAN be done. A failure leaves the stand unpublishable rather than placed
-      // approximately, which is the whole of max's call on this.
-      setPin(null);
+      /*
+        Refusals. Each says what to do — correct the address — because that is now the only
+        thing that CAN be done. A failure leaves the stand unpublishable rather than placed
+        approximately, which is the whole of max's call on this.
+
+        These branches used to clear the pin as well, defensively. They no longer can: this
+        function only runs when `canSaveAddress`, which requires there to be no pin — so by the
+        time a refusal lands there is nothing to clear, and the clearing was a second mechanism
+        asserting a fact `changeAddress` already owns outright. One place, not two.
+      */
       setLookupNote(
         body.status === "off_island"
           ? "That address does not look like it is on Vashon or Maury. Check the address " +
@@ -830,7 +1006,7 @@ export function ListingStep({
                 "number and street name usually works best.",
       );
     } catch {
-      setPin(null);
+      // No `setPin(null)` here either, and for the same reason as the refusal branch above.
       setLookupNote(
         "We could not look that up. Check the address and your connection, then try again.",
       );
@@ -989,6 +1165,10 @@ export function ListingStep({
           // false: the writer sets this column on every save, so omitting it would reset a
           // hidden address back to public on the farmer's next edit.
           addressPublic,
+          // F-092 — sent on every save for the same reason `addressPublic` is: the writer sets
+          // this column unconditionally, so omitting it would switch a farmer's prices back off
+          // the next time they edited anything else.
+          pricesPublic,
           latitude: pin?.latitude ?? null,
           longitude: pin?.longitude ?? null,
           hoursText,
@@ -1024,12 +1204,12 @@ export function ListingStep({
             ? { stockingDays: stockingDays.length > 0 ? stockingDays : null }
             : {}),
           paymentMethods: [...payments, ...list(otherPayment)],
-          // F-090 — name and price as one pair per item. A blank price is `null`, never "":
-          // the column refuses a blank string, and "not stated" is a different fact from a
-          // price of nothing.
+          // F-090 / F-092 — name and price as one pair per item. A price that is not fully
+          // stated travels as `null`, never as a half-filled object: the database refuses that
+          // shape, and "not stated" is a different fact from a price of nothing.
           items: itemRows.map((row) => ({
             name: row.name,
-            priceText: row.priceText.trim() === "" ? null : row.priceText.trim(),
+            price: rowPrice(row, pricesPublic),
           })),
           /*
             TODAY'S STOCK, sent only by a door that asked (F-090).
@@ -1046,12 +1226,17 @@ export function ListingStep({
             ? {
                 currentStock: itemRows
                   .filter((row) => row.inStock)
-                  .map((row) => ({
-                    itemName: row.name,
-                    ...(row.priceText.trim() === ""
-                      ? {}
-                      : { priceText: row.priceText.trim() }),
-                  })),
+                  .map((row) => {
+                    // `inventory_entries.price_text` is STILL FREE TEXT — F-092 restructured
+                    // `stand_items` only. So today's stock carries the rendered sentence rather
+                    // than the parts, which is also the honest shape for that column: it holds
+                    // what a farmer said about one day, not a price list to compute over.
+                    const rendered = renderStandItemPrice(rowPrice(row, pricesPublic));
+                    return {
+                      itemName: row.name,
+                      ...(rendered === null ? {} : { priceText: rendered }),
+                    };
+                  }),
               }
             : {}),
           // Always sent, even when blank: an empty box means the farmer CLEARED the paragraph,
@@ -1142,14 +1327,17 @@ export function ListingStep({
           {itemRows.length === 0 ? null : (
             <div>
               <dt>Usually sells</dt>
-              {/* Priced items read back with their price, so a farmer can check both. */}
+              {/*
+                Priced items read back WITH their price, through the same renderer the public
+                card uses — so what the farmer confirms here is character for character what a
+                customer will see, rather than a second formatting of the same parts.
+              */}
               <dd>
                 {itemRows
-                  .map((row) =>
-                    row.priceText.trim() === ""
-                      ? row.name
-                      : `${row.name} ${row.priceText.trim()}`,
-                  )
+                  .map((row) => {
+                    const rendered = renderStandItemPrice(rowPrice(row, pricesPublic));
+                    return rendered === null ? row.name : `${row.name} ${rendered}`;
+                  })
                   .join(", ")}
               </dd>
             </div>
@@ -1326,12 +1514,21 @@ export function ListingStep({
             a screen reader was told outright. "Save" is what the farmer is doing to the
             address they typed; that the coordinate comes with it is the form's business, not
             a distinction to put on a button.
+
+            IT LOOKS LIKE SUBMIT (max 2026-08-08), carrying the shared `-primary` class rather
+            than a quieter style of its own. It says "Save" and it commits the address, so
+            dressing it as a secondary control asked the farmer to read two different-looking
+            buttons as the same kind of action.
+
+            OFF UNLESS THERE IS SOMETHING TO SAVE — see `canSaveAddress`. A live button on an
+            address already saved invites a press that changes nothing, which is what makes a
+            farmer doubt the first press worked.
           */}
           <button
             type="button"
-            className="farmer-listing-lookup"
+            className="farmer-listing-lookup farmer-listing-primary"
             onClick={() => void findAddress()}
-            disabled={lookingUp || address.trim() === ""}
+            disabled={!canSaveAddress}
           >
             {lookingUp ? (
               <>
@@ -1791,99 +1988,293 @@ export function ListingStep({
         remain three items — folding them would be a produce taxonomy, which no business code
         may hard-code.
       */}
-      <label htmlFor="stand-items">What do you usually sell?</label>
-      <div className="farmer-listing-item-add">
-        <input
-          id="stand-items"
-          type="text"
-          value={draftItem}
-          onChange={(event) => setDraftItem(event.target.value)}
-          onKeyDown={(event) => {
-            // Enter adds the item rather than submitting a form the farmer is still
-            // building — the same accident `type="button"` prevents on the button.
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            addItem();
-          }}
-          placeholder="e.g. eggs"
-          maxLength={120}
-        />
-        <button
-          type="button"
-          className="farmer-listing-item-add-button"
-          onClick={addItem}
-          disabled={draftItem.trim() === ""}
-        >
-          Add item
-        </button>
-      </div>
+      {/*
+        ONE SECTION that owns the whole question (max 2026-08-08). The label, the add box, the
+        rows and two loose notes used to be five siblings among the form's other fields, so
+        nothing marked where "what you sell" began or ended — the rows read as belonging to the
+        paragraph box that follows them.
 
-      {itemRows.length === 0 ? (
-        <p className="farmer-form-note">
-          Add the things you usually have. You can put a price on any of them, or leave it
-          off.
-        </p>
-      ) : (
-        <ul className="farmer-listing-items">
-          {itemRows.map((row, index) => (
-            <li key={`${row.name}-${index}`} className="farmer-listing-item">
-              <span className="farmer-listing-item-name">{row.name}</span>
-              {/*
-                The price, labelled with ITS OWN ITEM's name. A shared label ("Price") would
-                leave a screen reader user with a column of identical fields and no way to
-                tell which belongs to what — and it is what the tests anchor on, so a price
-                landing on the wrong row fails rather than passing on presence alone.
-              */}
-              <label
-                className="sr-only"
-                htmlFor={`item-price-${index}`}
-              >{`Price for ${row.name}`}</label>
-              <input
-                id={`item-price-${index}`}
-                className="farmer-listing-item-price"
-                type="text"
-                value={row.priceText}
-                onChange={(event) => setItemPrice(index, event.target.value)}
-                placeholder="price (optional)"
-                maxLength={120}
-              />
-              {/*
-                TODAY'S STOCK, ticked per item and asked only where it can be acted on.
+        A `fieldset`/`legend` rather than a styled `div`, matching `-branch` above: the
+        boundary has to exist for a screen reader too, and `legend` is what names the group
+        without inventing a heading level in the middle of a form.
+      */}
+      <fieldset className="farmer-listing-inventory">
+        <legend>What do you usually sell?</legend>
+        {/*
+          ONE SWITCH FOR THE WHOLE SECTION (max 2026-08-08). A farmer either prices their goods
+          or does not; asking per item would put the same question in front of them once per
+          row, and pricing is the exception rather than the rule at an honor-system stand.
 
-                F-066's split, on the form: "we usually sell eggs" is a standing claim and
-                "eggs are on the table right now" is a dated confirmation. They are different
-                fields here because they are different facts, and only the second one waits
-                for the farmer's START to prove the handset before it publishes.
+          It governs BOTH the second line's visibility and whether prices reach a customer —
+          the two are deliberately the same switch, because a farmer turning prices "off" and
+          still finding them on the map is the surprise this design exists to avoid. Nothing is
+          cleared: the amounts stay in state and in the database, so switching back on restores
+          the work.
 
-                Not offered on the edit door: an onboarded farmer reports today's stock on
-                their status tab, through the confirmation gate. Two ways to do one thing is
-                exactly what the zen desk refuses.
-              */}
-              {asksForCurrentStock && (
-                <label className="farmer-listing-item-stock">
-                  <input
-                    type="checkbox"
-                    checked={row.inStock}
-                    onChange={() => toggleItemStock(index)}
-                  />
-                  <span>{`${row.name} are on the table right now`}</span>
-                </label>
-              )}
-              <button
-                type="button"
-                className="farmer-listing-item-remove"
-                aria-label={`Remove ${row.name}`}
-                onClick={() => removeItem(index)}
-              >
-                <span aria-hidden="true">×</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="farmer-form-note">
-        This is what you usually have. You will text what is actually in stock as it changes.
-      </p>
+          A `switch` rather than a checkbox, matching the per-row stock control: it turns a
+          feature on and off rather than ticking a statement as true.
+        */}
+        <div className="farmer-listing-inventory-prices">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pricesPublic}
+            className="farmer-listing-prices-switch"
+            onClick={() => setPricesPublic(!pricesPublic)}
+          >
+            <span className="farmer-listing-item-stock-track" aria-hidden="true" />
+            <span>Add prices</span>
+          </button>
+          <p className="farmer-listing-inventory-subtitle">
+            {pricesPublic
+              ? "Prices show on your listing. Leave any of them blank to say nothing."
+              : "Your listing shows what you sell, without prices."}
+          </p>
+        </div>
+
+        {/*
+          The way in, at the TOP of the section. It is the one thing a farmer arriving here
+          does, and putting it above the rows means it stays in the same place as the list
+          grows rather than sliding down the screen behind the items already added.
+        */}
+        <div className="farmer-listing-item-add">
+          <label className="sr-only" htmlFor="stand-items">
+            What do you usually sell?
+          </label>
+          <input
+            id="stand-items"
+            type="text"
+            value={draftItem}
+            onChange={(event) => setDraftItem(event.target.value)}
+            onKeyDown={(event) => {
+              // Enter adds the item rather than submitting a form the farmer is still
+              // building — the same accident `type="button"` prevents on the button.
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              addItem();
+            }}
+            placeholder="e.g. eggs"
+            maxLength={120}
+          />
+          <button
+            type="button"
+            className="farmer-listing-item-add-button"
+            onClick={addItem}
+            disabled={draftItem.trim() === ""}
+          >
+            Add item
+          </button>
+        </div>
+
+        {itemRows.length === 0 ? (
+          /*
+            The empty state, and the only prose left in the section. It says what to do rather
+            than what the list means — the trailing paragraph that explained the standing-mix
+            versus today's-stock split is GONE (max 2026-08-08). It explained a distinction to
+            a farmer who could not yet see the control that makes it, and sat below the rows
+            where it read as a footnote to the last item. The per-row toggle carries that
+            distinction now, where it can be acted on.
+          */
+          <p className="farmer-listing-inventory-empty">
+            Nothing here yet. Add what your stand usually has.
+          </p>
+        ) : (
+          <ul className="farmer-listing-items">
+            {itemRows.map((row, index) => (
+              /*
+                ONE LINE PER ITEM: name, price, in stock, remove. The row is the unit of
+                meaning, so everything about one item is on one line and two items are two
+                lines. It used to wrap to two — the stock tick claimed a full-width row of its
+                own to carry a whole sentence — which made ten items twenty lines of form on
+                the phone this is filled in on.
+              */
+              <li key={`${row.name}-${index}`} className="farmer-listing-item">
+                {/*
+                  LINE ONE — what this item IS, and whether it is there today (max 2026-08-08).
+                  Identity and availability belong together; the price is a different kind of
+                  fact and gets its own line below.
+                */}
+                <div className="farmer-listing-item-identity">
+                  <span className="farmer-listing-item-name">{row.name}</span>
+                  {/*
+                    TODAY'S STOCK, toggled per item and asked only where it can be acted on.
+
+                    F-066's split, on the form: "we usually sell eggs" is a standing claim and
+                    "eggs are on the table right now" is a dated confirmation. They are
+                    different fields here because they are different facts, and only the second
+                    waits for the farmer's START to prove the handset before it publishes.
+
+                    `role="switch"` is what states on/off to a screen reader — a checkbox merely
+                    styled as a toggle would announce the wrong thing — and the visible "in
+                    stock" text names it for everyone else.
+
+                    Not offered on the edit door: an onboarded farmer reports today's stock on
+                    their status tab, through the confirmation gate. Two ways to do one thing is
+                    exactly what the zen desk refuses.
+                  */}
+                  {asksForCurrentStock && (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={row.inStock}
+                      aria-label={`${row.name} in stock`}
+                      className="farmer-listing-item-stock"
+                      onClick={() => toggleItemStock(index)}
+                    >
+                      <span className="farmer-listing-item-stock-track" aria-hidden="true" />
+                      <span className="farmer-listing-item-stock-text" aria-hidden="true">
+                        in stock
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="farmer-listing-item-remove"
+                    aria-label={`Remove ${row.name}`}
+                    onClick={() => removeItem(index)}
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
+                </div>
+
+                {/*
+                  LINE TWO — the price, shown only when the section's switch is on.
+
+                  Every field is labelled with ITS OWN ITEM's name. A shared label ("Price")
+                  would leave a screen reader user with a column of identical controls and no
+                  way to tell which belongs to what — and it is what the tests anchor on, so a
+                  price landing on the wrong row fails rather than passing on presence alone.
+
+                  The sentence reads left to right as it will render: `$ [6] [per] [dozen]`.
+                */}
+                {pricesPublic && (
+                  <div className="farmer-listing-item-pricing">
+                    <span className="farmer-listing-price-mark" aria-hidden="true">
+                      $
+                    </span>
+                    <label className="sr-only" htmlFor={`item-amount-${index}`}>
+                      {`Price for ${row.name}`}
+                    </label>
+                    <input
+                      id={`item-amount-${index}`}
+                      className="farmer-listing-item-amount"
+                      type="text"
+                      // `inputMode` is what raises the DECIMAL KEYPAD on a phone, which is the
+                      // whole of what a numeric field was wanted for. `type="number"` would
+                      // bring spinner arrows and scroll-to-change, both wrong for money.
+                      inputMode="decimal"
+                      value={row.priceAmount}
+                      onChange={(event) =>
+                        setItemPriceField(
+                          index,
+                          "priceAmount",
+                          sanitizeMoney(event.target.value),
+                        )
+                      }
+                      placeholder="0.00"
+                      maxLength={12}
+                    />
+                    <label className="sr-only" htmlFor={`item-basis-${index}`}>
+                      {`Price basis for ${row.name}`}
+                    </label>
+                    <select
+                      id={`item-basis-${index}`}
+                      className="farmer-listing-item-basis"
+                      value={row.priceBasis}
+                      onChange={(event) =>
+                        setItemPriceField(index, "priceBasis", event.target.value)
+                      }
+                    >
+                      <option value="per">per</option>
+                      <option value="for">for</option>
+                    </select>
+                    {/*
+                      A BUNDLE needs its count — "3 lb for $5" — where a unit price's count is
+                      always one. So the box appears with `for` and not before it: asking every
+                      farmer for a quantity they will leave at 1 is a control earning nothing.
+                    */}
+                    {row.priceBasis === "for" && (
+                      <>
+                        <label className="sr-only" htmlFor={`item-quantity-${index}`}>
+                          {`How many ${row.name}`}
+                        </label>
+                        <input
+                          id={`item-quantity-${index}`}
+                          className="farmer-listing-item-quantity"
+                          type="text"
+                          inputMode="decimal"
+                          value={row.priceQuantity}
+                          onChange={(event) =>
+                            setItemPriceField(
+                              index,
+                              "priceQuantity",
+                              sanitizeMoney(event.target.value),
+                            )
+                          }
+                          placeholder="1"
+                          maxLength={12}
+                        />
+                      </>
+                    )}
+                    <label className="sr-only" htmlFor={`item-unit-${index}`}>
+                      {`Unit for ${row.name}`}
+                    </label>
+                    {/*
+                      The menu is a SHORTCUT, never a vocabulary — see `SUGGESTED_UNITS`. Its
+                      last entry swaps in a free-text box, because `price_unit` is free text
+                      precisely so a stand selling by the half-flat or the cord can say so.
+
+                      A unit the farmer typed that is not in the list keeps the box open on an
+                      edit, which is why the picker's value is derived rather than stored: the
+                      row holds the unit, and the control shows whichever shape fits it.
+                    */}
+                    {row.priceUnit !== "" &&
+                    !SUGGESTED_UNITS.includes(
+                      row.priceUnit as (typeof SUGGESTED_UNITS)[number],
+                    ) ? (
+                      <input
+                        id={`item-unit-${index}`}
+                        className="farmer-listing-item-unit-other"
+                        type="text"
+                        value={row.priceUnit}
+                        onChange={(event) =>
+                          setItemPriceField(index, "priceUnit", event.target.value)
+                        }
+                        placeholder="unit"
+                        maxLength={40}
+                      />
+                    ) : (
+                      <select
+                        id={`item-unit-${index}`}
+                        className="farmer-listing-item-unit"
+                        value={row.priceUnit}
+                        onChange={(event) =>
+                          setItemPriceField(
+                            index,
+                            "priceUnit",
+                            // "Other" clears the unit rather than storing the sentinel, which
+                            // is what swaps this control for the box above: the row never holds
+                            // a value that is not a real unit.
+                            event.target.value === OTHER_UNIT ? " " : event.target.value,
+                          )
+                        }
+                      >
+                        <option value="">unit</option>
+                        {SUGGESTED_UNITS.map((unit) => (
+                          <option key={unit} value={unit}>
+                            {unit}
+                          </option>
+                        ))}
+                        <option value={OTHER_UNIT}>other…</option>
+                      </select>
+                    )}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </fieldset>
 
       {/*
         THE FARM'S OWN PARAGRAPH, and the first farmer-facing surface that can change it.

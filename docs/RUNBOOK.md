@@ -134,18 +134,69 @@ without `GEOCODING_API_KEY`.
 file in `packages/db/drizzle/` twice (the second run must be a no-op), exercises the constraints,
 then drops only that database. Inspect and fingerprint any manual migration target first.
 
-### Writing a new migration — the snapshot must land with it
+### Writing a new migration — always GENERATE, never hand-write
 
-Every migration needs the executable `.sql` and matching schema snapshot in
-`packages/db/drizzle/meta/`. Generation diffs against the newest snapshot, not the migration
-journal; a stale snapshot produces unsafe create/rename questions such as:
+Edit `packages/db/src/schema.ts` first, then generate:
+
+```bash
+cd packages/db && npx drizzle-kit generate --name <short_name>
+```
+
+It prompts per added column ("created or renamed from another column?"). The prompt needs a real
+TTY — piping input does not answer it. Drive it with `expect` if you are not at a terminal.
+
+**Hand-writing the `.sql` looks like it works and does not.** Generation is what produces the
+schema snapshot in `packages/db/drizzle/meta/`, and generation diffs the database against
+`schema.ts` — never against the journal. Skipping it leaves the next author's `generate`
+comparing to a stale schema, which is where unsafe create/rename questions come from:
 
 ```
 Is message_category column in outbox_work table created or renamed from another column?
 ```
 
-A wrong answer can recreate existing tables or rename production data. Commit both artifacts;
-`migration-metadata.test.ts` enforces the pair. Never edit an applied `.sql`.
+A wrong answer can recreate existing tables or rename production data. `migration-metadata.test.ts`
+enforces that the pair lands together; commit both. Never edit an applied `.sql`.
+
+**`drizzle-kit generate` does not emit `check()` constraints.** Append them to the generated file
+by hand — every CHECK in `packages/db/drizzle/` got there that way.
+
+**A column missing from `schema.ts` will be DROPPED by the next generate.** This has already
+happened: `farmer_invitations.pending_stock` was added by a hand-written `0031` and never mirrored
+into `schema.ts`, so an unrelated migration two weeks later proposed dropping a live column
+(F-090's held stock). Read the generated `.sql` line by line before applying it, and treat any
+`DROP COLUMN` you did not ask for as a schema-file omission rather than a drizzle bug.
+
+### Applying locally — "migrations applied" is not proof
+
+```bash
+npm run db:migrate:local
+```
+
+**This command prints `migrations applied` when it applied nothing.** Two ways it silently skips:
+
+- **The journal entry is missing.** A hand-written `.sql` with no `packages/db/drizzle/meta/_journal.json`
+  entry is invisible to the runner.
+- **The journal timestamp is not newer than `drizzle.__drizzle_migrations`.** Entries in this repo
+  carry future-dated `when` values, so a freshly generated migration can be stamped *earlier* than
+  the newest applied record and be treated as already run. This is the same failure the deploy
+  section below warns about for `npm run db:migrate` against production — it bites locally too.
+
+Verify by effect against `information_schema`, never by the exit code or the message:
+
+```bash
+node --env-file=apps/web/.env.local --import tsx -e "
+import postgres from 'postgres';
+const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+console.log(await sql\`select column_name from information_schema.columns
+  where table_name = 'your_table' order by column_name\`);
+console.log(await sql\`select conname from pg_constraint
+  where conrelid = 'your_table'::regclass\`);
+await sql.end();
+"
+```
+
+Then prove each new constraint refuses what it should by inserting rows that violate it — a
+constraint that exists is not a constraint that works.
 
 ## Bootstrap the fixed administrator
 

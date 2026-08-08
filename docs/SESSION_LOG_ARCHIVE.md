@@ -1,7 +1,7 @@
 # Farm Friend — Session Log Archive (through 2026-08-06)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-08; it now holds 66 entries.
+everything older lives here. Last rotated 2026-08-08; it now holds 67 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -10,6 +10,81 @@ current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), tho
 
 ---
 
+## 2026-08-06 — self-onboarding: the plan's five workstreams, and where it was wrong
+
+Worked `~/.claude/plans/woolly-kindling-origami.md`. Three workstreams merged, one on a branch,
+one not started. **Nothing deployed.** The interesting content is where the plan and the code
+disagreed, and where sabotage disagreed with both.
+
+**B-037 was a live defect the tests actively concealed.** Editing a listing erased the farmer's
+season, hours and restocking — every one of twelve columns written back NULL, silently. The test
+that should have caught it was named "RESAVES an untouched edit form unchanged, **field for
+field**" over a fixture holding only the eight fields the type knew about. A name asserting
+completeness over an incomplete fixture is worse than no test: it is a claim nobody re-checks.
+Fixed fixture-first so it failed on its own name before anything else changed.
+
+**One of my own tests then passed for the wrong reason, and only sabotage found it.** The
+integration test "an edit preserves restocking" survived deleting `stocking_days` from
+`updateStand` — because omitting a column from a SET clause leaves what the INSERT already
+wrote, so "preserved it" and "never wrote it" are the same observation. The edit now *moves* a
+restocking day, which makes them different.
+
+**The architecture tripwires never covered the web app at all.** `sourceFiles` collected only
+`.ts`; the geocode block scanned `apps/web/lib` and not `apps/web/app`. So every page, route
+handler and React component in the repository sat outside the geocode allowlist and the
+`MapProvider` ban. Proven before fixing: a `geocode()` call plus the Maps host added to
+`listing-step.tsx` passed the suite untouched. **No production source was violating any of it** —
+the suite was green because the code happened to behave, not because anything checked.
+
+**F-077 traded a real capability, deliberately.** Geocode-only means a stand at the road rather
+than the mailing address can no longer be nudged, and rural Vashon is where lookup is weakest.
+What it buys: a published coordinate that always corresponds to the published address. The
+sharp edge it creates — A's coordinate publishing under B's address once the confirm gate is
+gone — is handled in `changeAddress`. Two refusal paths clear a *stored* pin, and each needed
+its own test: sabotaging either alone left the suite green, because `changeAddress` had already
+cleared the pin in every test that existed. The clearing is only reachable on an **edit** form.
+
+`DEVELOPMENT.md`'s geocoder exemption was justified by "every failure degrades to tapping the
+map". F-077 deletes that, so the justification was **replaced rather than quietly dropped**.
+
+**F-080: the plan's decisive sabotage is not decisive, and saying so is the point.** `JOIN` is
+carrier-registered, so giving it an argument grammar inverts the compliance-first ordering. The
+plan said the guarantee is proven by moving the token regex above the compliance lookup. It is
+not: that regex *requires* a token, so it cannot match a bare `JOIN` from any position. And
+loosening the grammar in place also passes, because compliance already consumed the word. **Only
+both at once fails.** Two properties, each making the other non-critical — defence in depth, and
+recorded in the test as such rather than as a single-guard proof.
+
+Two more plan claims that did not survive contact:
+- **`signup-reply.ts` does not collapse.** Requiring a token was said to make the "no consent
+  basis" case unreachable. `openFarmerOnboardingRequest` writes no consent when
+  `agreed_to_sms_at` is null, which an un-ticked invitation reaches *with* a token. Renamed, not
+  deleted.
+- **The two-consent-writer edit was unnecessary.** `JOIN <token>` parses as `kind: "farmer"` and
+  never enters `routeCompliance` at all, so the parser separates the writers structurally.
+
+**F-078: measured the corpus before building, and the plan was imprecise twice.** All three
+headline claims held (32/32 rows carry an email, 5 multi-address farms, zero cross-farm
+collisions). But Lavender Hill's three addresses come from **two columns combined**, not one
+cell — the columns disagree for 5 of 32 farms, so they are unioned. And separators are **mixed**:
+`" and "` as well as commas. A comma-only splitter turns one farm's cell into a single malformed
+address and stores it, since nothing rejects "and" on sight. The corpus test caught that; the
+fixtures alone did not.
+
+**`drizzle-kit generate` silently dropped every constraint.** Run against the same `schema.ts`,
+it emitted the CREATE TABLE and the foreign key and nothing else — both CHECKs and the
+normalized unique index gone, no warning. Its version would have created a table enforcing none
+of the rules `schema.ts` appears to declare. Only the meta snapshot was kept.
+
+**Email provider: the plan said Vercel Marketplace, which is wrong for this repository.** Farm
+Friend deploys to Cloud Run with Terraform-managed secrets and has no Vercel deployment. max
+chose Google — and **Google Cloud has no first-party email service**, its own docs direct you to
+a third party. What exists is VIGA's **Workspace account**, relaying through
+`smtp-relay.gmail.com`. max chose **`board@vigavashon.org`** as the sender rather than a
+dedicated address, because farmers will reply to a verification code and a `farmfriend@` mailbox
+is one nobody watches. The trade — shared sending reputation — is accepted at ~35 messages.
+
+---
 ## 2026-08-06 — the farmer's own surfaces, from max using them
 
 max reported four things from actually working the app: he could not find how to delete a stand,

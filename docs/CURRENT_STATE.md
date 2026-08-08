@@ -15,9 +15,12 @@ Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **30 migrat
 from `main` at `6ab087e`, started only to pick up a rotated secret. Everything merged since is
 undeployed. **A deploy is owed and is the next release step.**
 
-**Two migrations are written and unapplied in production**: `0030_stand_item_price` and
-`0031_invitation_pending_stock` (F-090). Both verified by effect against a fresh database and
-applied to local dev. `0031` **recreates the `inventory_revision_source` enum** to add `web`.
+**Three migrations are written and unapplied in production**: `0030_stand_item_price`,
+`0031_invitation_pending_stock` (F-090) and `0032_structured_item_price` (F-092). All verified by
+effect against a fresh database and applied to local dev. `0031` **recreates the
+`inventory_revision_source` enum** to add `web`. `0032` **drops `stand_items.price_text`** — safe
+because no row anywhere has ever carried a price (285 CSV stands, one dollar sign, and it is a
+delivery threshold; 37 local stand items, none priced).
 
 **Production data was rebuilt from the CSVs on 2026-08-08.** Verified counts after the final
 re-seed: 35 farms / 35 sales locations / 35 live approvals; 35 `farm_links`, 53 payment methods, 10
@@ -50,7 +53,7 @@ path is proven through the real webhook handler against real Postgres only.
 
 ## Verification
 
-**Latest, 2026-08-08** (F-090 + admin sign-in): **1652 unit** (134 files), **840 integration** (59
+**Latest, 2026-08-08** (F-092 structured prices): **1681 unit** (134 files), **847 integration** (59
 files), typecheck, lint. Integration ran against **local Postgres**, never Neon. No `packages/ai`
 file changed and prices reach no model seam, so no `evals`/`evals:live` was owed.
 
@@ -106,7 +109,9 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 - **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
   names, transient browser proximity, destination links, code-bound stock-out reporting, and
-  farmer-stated item prices.
+  farmer-stated item prices — **structured** as amount/quantity/unit/basis (F-092), rendered to one
+  sentence by core's `renderStandItemPrice` and gated per stand by `sales_locations.prices_public`.
+  The gate is **in the SQL**, so a withheld price never leaves the database.
 - **Farmer workflows:** deterministic bare `START` onboarding, `LINK`, `STAND`, `SETTINGS`, `SAME`;
   one exact stand per credential; SMS/web proposal and confirmation; closures, participants,
   reminders. Three onboarding doors — invited, grandfathered (`/farmer/start`), and the emailed-code
@@ -144,8 +149,18 @@ link** — a conditional with a test behind it rather than an unbypassable const
 - **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a
   verified `senderHash`; the onboarding form has no phone, so this needs an attribution decision
   first. Its own analysis allows "stays post-authorization" as a possible right answer.
-- **F-076 — quantity/price editing on the today's-stock chips.** Adjacent to F-090's prices on the
-  *usual* mix; different surface, same vocabulary.
+- **F-076 — quantity/price editing on the today's-stock chips.** Now also the one place the two
+  price shapes meet: `stand_items` is structured (F-092) while `inventory_entries.price_text` is
+  still free text, and onboarding writes today's stock by rendering the structured price into it.
+  Whether that column follows is the open question.
+- **B-040 / B-041 — the price control, found by max reviewing F-092 and worth doing together.**
+  B-040: choosing "other" for a unit stores a sentinel space, and the control is chosen by asking
+  whether the value is in the suggestion list — so the free-text box never gives the menu back. The
+  row needs to carry *which control the farmer chose* rather than inferring it. B-041: a bundle
+  should not require a unit — "$5 for 3" is complete, the unit being the item itself — but
+  `stand_items_price_complete`, both boundary parsers and the renderer all demand four parts, so the
+  price is dropped silently. `for` may omit the unit; `per` cannot, and that asymmetry belongs in
+  one place.
 - **B-008:** replace the incomplete deployed-build lint gate. Next does not recognize
   `outputFileTracingRoot`, and the Next ESLint plugin is not installed.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
@@ -156,9 +171,10 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, the expanded stand detail, F-067's onboarding
-listing form and its map, and **F-090's four-step wizard, two-tab stand page, and wrapping priced
-item rows** — the newest and most layout-dependent. Per-tranche browser checks are **not tracked
-here** (max, 2026-08-05): he runs a browser pass himself before go-live.
+listing form and its map, and **F-090's four-step wizard and two-tab stand page**. F-092's two-line
+priced item rows *were* measured in a real browser at 500px (name ellipsises, controls hold size,
+no sideways page scroll) — the rest of the form was not. Per-tranche browser checks are **not
+tracked here** (max, 2026-08-05): he runs a browser pass himself before go-live.
 
 **VIGA's call, not a code question:** whether Vashon Island Farmers Market belongs in the roster as
 a farm at all — it is the market itself, not a stand with a farmer to onboard.
@@ -168,10 +184,19 @@ a farm at all — it is the market itself, not a stand with a farmer to onboard.
 - **`VIGA Map Stands.csv` writes multi-line descriptions unquoted**, so an ordinary CSV read splits
   one stand into many rows — a naive parse produced 275 phantom farms. The real count is **31
   stands**, reassembled by treating a `POINT` in the first column as the only record boundary.
-- **`drizzle-kit generate` silently drops CHECK constraints and partial unique indexes.** Hand-write
-  the SQL and keep only its meta snapshot; verify by effect that each constraint genuinely refuses.
+- **`drizzle-kit generate` silently drops CHECK constraints and partial unique indexes.** Always
+  RUN `generate` (it is what writes the meta snapshot), then append the CHECKs to the generated
+  file by hand; verify by effect that each constraint genuinely refuses. Writing the `.sql`
+  yourself instead skips the snapshot and strands the next author — see RUNBOOK §Migrations.
+- **A column missing from `schema.ts` is DROPPED by the next `generate`, in whatever unrelated
+  migration runs next.** `generate` diffs the database against that file, never against the
+  journal. `farmer_invitations.pending_stock` — live, hand-written in `0031`, never mirrored —
+  came within one unread line of being dropped by F-092's migration. Read generated SQL line by
+  line and treat an unasked-for `DROP` as a schema-file omission.
 - **A migration command can exit 0 having skipped a migration** whose journal timestamp is not
-  newer. Verify the schema effect, never the exit status.
+  newer, or one with no journal entry at all. Verify the schema effect against
+  `information_schema`, never the exit status or the words "migrations applied". This bites
+  locally exactly as it does in production.
 - **A backtick inside a SQL comment ends the JS template literal.** It fails as a TypeScript syntax
   error pointing at the query, not at the comment.
 - **`printf %s`, never `echo`, when adding a salt to Secret Manager.** A trailing newline produces

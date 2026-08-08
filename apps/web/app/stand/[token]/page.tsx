@@ -155,6 +155,9 @@ export default async function StandPage({
                   visitability: listing.visitability,
                   publicAddress: listing.publicAddress,
                   addressPublic: listing.addressPublic,
+                  // F-092 — same B-037 rule: the writer sets this on every save, so an edit
+                  // form that did not carry it would switch a farmer's prices back off.
+                  pricesPublic: listing.pricesPublic,
                   latitude: listing.latitude,
                   longitude: listing.longitude,
                   hoursText: listing.hoursText,
