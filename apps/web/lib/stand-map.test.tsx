@@ -83,6 +83,60 @@ describe("farm-map poster treatment", () => {
     });
   });
 
+  /*
+    B-039 — A STAND THAT STATED ITS DAYS MUST NOT READ "Hours not listed".
+
+    Provo Farms answers VIGA's "Open Hours & Days" question with "All days". That is a real
+    schedule, and the card rendered "Hours not listed" beside it for months because the only
+    column anything read was the TIME of day. 13 of 35 stands were in this state and 9 of them
+    had stated something.
+
+    `openNow` is right to answer `unknown` here — without clock times nothing can say whether
+    the stand is open at this minute — so the fix is in what the CARD says, not in that answer.
+    It says the days it actually knows.
+  */
+  it("says which days a stand is open instead of 'Hours not listed'", async () => {
+    const user = userEvent.setup();
+    const base: PublicStandPayload = {
+      id: "days",
+      farmName: "Provo Farms",
+      locationName: "Provo Farms",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "20171 87th Ave SW",
+      latitude: 47.4233,
+      longitude: -122.4455,
+      farmBucksAccepted: true,
+      availability: { season: { kind: "year_round" }, days: [0, 1, 2, 3, 4, 5, 6] },
+      alsoSellingHere: [],
+      links: [],
+      paymentMethods: [],
+      items: [],
+    };
+
+    const { container, unmount } = render(<StandMap stands={[base]} />);
+    await user.click(screen.getByRole("button", { name: "Provo Farms" }));
+    expect(container.textContent).not.toContain("Hours not listed");
+    expect(container.textContent).toContain("Open daily");
+    unmount();
+
+    // A partial week states the days themselves rather than a blanket word.
+    const weekend = render(
+      <StandMap stands={[{ ...base, id: "wk", availability: { ...base.availability, days: [0, 6] } }]} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Provo Farms" }));
+    expect(weekend.container.textContent).not.toContain("Hours not listed");
+    expect(weekend.container.textContent).toContain("Sun");
+    weekend.unmount();
+
+    // And a stand that genuinely stated NOTHING still says so — the honest case survives.
+    const silent = render(
+      <StandMap stands={[{ ...base, id: "quiet", availability: { season: { kind: "year_round" } } }]} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Provo Farms" }));
+    expect(silent.container.textContent).toContain("Hours not listed");
+  });
+
   it("explains the interactive map's inventory recency and availability limits", () => {
     render(<StandMap stands={[]} />);
 

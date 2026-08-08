@@ -57,10 +57,37 @@ const OPEN_STATE_LABEL: Record<FilteredStand["openState"], string | null> = {
   closed_today: "Closed today",
   out_of_season: "Closed for the season",
   by_appointment: "By appointment",
-  // The honest one. Shown whenever a stand is displayed under a filter it could not be judged
-  // against, so "shown" never silently becomes "shown as open".
+  // The honest one, and now the LAST resort rather than the first. A stand that stated which
+  // weekdays it is open says so instead — see `openStateLabel` below. This remains for a stand
+  // that genuinely stated nothing, so "shown" never silently becomes "shown as open".
   unknown: "Hours not listed",
 };
+
+const DAY_ABBREVIATION = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * What the card says about when a stand is open (B-039).
+ *
+ * WHY THIS IS NOT JUST `OPEN_STATE_LABEL[openState]`. `openNow` answers `unknown` for a stand
+ * that named its DAYS but no clock times, and that answer is correct — without times nothing can
+ * say whether the stand is open at this minute. But rendering it as "Hours not listed" told a
+ * customer the farm said nothing, when the farm had said "All days". 13 of 35 stands read that
+ * way, 9 of them having stated something.
+ *
+ * So an `unknown` stand with a day set states its days. Every other state is unchanged: a stand
+ * that is closed today, out of season, or by appointment already has a truer thing to say, and
+ * a stand that stated nothing still says so.
+ */
+function openStateLabel(stand: FilteredStand & MapViewStand): string | null {
+  const days = stand.availability?.days;
+  if (stand.openState !== "unknown" || days === undefined || days.length === 0) {
+    return OPEN_STATE_LABEL[stand.openState];
+  }
+  if (days.length === 7) return "Open daily";
+  // The farmer's own days, in week order from Sunday, so a customer reads them as a schedule
+  // rather than as the set the database happens to store.
+  return `Open ${days.map((day) => DAY_ABBREVIATION[day]).join(", ")}`;
+}
 
 type ToggleFilterKey =
   | "openNow"
@@ -400,9 +427,7 @@ function StandDetailBody({
   const description = stand.description;
   const links = stand.links ?? [];
   const stateLabel =
-    stand.closure?.state === "active"
-      ? stand.closure.label
-      : OPEN_STATE_LABEL[stand.openState];
+    stand.closure?.state === "active" ? stand.closure.label : openStateLabel(stand);
 
   return (
     <div className="stand-detail-body">

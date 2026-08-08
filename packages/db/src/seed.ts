@@ -71,6 +71,15 @@ export interface SeedStandInput {
   hoursText?: string;
   season: SeededSeason;
   openHours: SeededOpenHours;
+  /**
+   * Which weekdays the stand states it is open, 0 = Sunday (B-039).
+   *
+   * Separate from `openHours`, which carries the TIME of day. VIGA's form asks both as one
+   * question and farmers answer both — "10-6, Wednesday & Saturday" is a clock range and a day
+   * set — so a stand may state either, both, or neither. Absent means the farm said nothing
+   * about days, never that it is closed.
+   */
+  openDays?: number[];
   stocking: SeededStocking;
   flags: SeedStandFlag[];
   farmBucksAccepted?: boolean;
@@ -459,7 +468,7 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
           hours_text, is_public, farm_bucks_accepted, farm_bucks_eligible,
           season_kind, season_start_month, season_start_day, season_end_month,
           season_end_day, season_names,
-          open_hours_kind, open_from_minutes, open_until_minutes,
+          open_hours_kind, open_from_minutes, open_until_minutes, open_days,
           stocking_cadence, stocking_days
         ) values (
           ${farmId}, ${stand.kind}, ${stand.name}, 'America/Los_Angeles', ${stand.place?.address ?? null},
@@ -471,6 +480,7 @@ export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<Se
           ${season.endMonth}, ${season.endDay},
           ${season.names as unknown as string[] | null},
           ${hours.kind}, ${hours.from}, ${hours.until},
+          ${(stand.openDays ?? null) as unknown as number[] | null},
           ${stocking.cadence === "not_stated" ? null : stocking.cadence},
           ${stocking.days ?? null}
         ) returning id

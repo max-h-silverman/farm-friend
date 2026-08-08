@@ -33,6 +33,7 @@ import {
   parsePaymentMethods,
   parseSeason,
   parseStandCsv,
+  parseOpenDays,
   parseStocking,
   refusesPublicAddress,
   stripContactDetails,
@@ -242,6 +243,12 @@ function toSeedInput(stand: JoinedStand): {
   const parsedSeason = parseSeason(seasonText || mapDescription);
   const parsedHours = parseOpenHours(hoursText || mapDescription);
   const parsedStocking = parseStocking(stockingText || mapDescription);
+
+  // B-039 — which WEEKDAYS, read from the SAME answer the hours come from. VIGA's form asks
+  // "Open Hours & Days" as one question, so "10-6, Wednesday & Saturday" carries both axes;
+  // `parseOpenHours` takes the times and this takes the days. Neither is a fallback for the
+  // other, and a stand may state one without the other.
+  const parsedOpenDays = parseOpenDays(hoursText || mapDescription);
   const farmBucksPolicy = parseFarmBucksPolicy(
     [
       stand.name,
@@ -296,6 +303,7 @@ function toSeedInput(stand: JoinedStand): {
     ...(hoursText !== "" ? { hoursText } : {}),
     season,
     openHours,
+    ...(parsedOpenDays !== undefined ? { openDays: parsedOpenDays } : {}),
     stocking:
       parsedStocking.cadence === "unparsed"
         ? { cadence: "not_stated" as const }
