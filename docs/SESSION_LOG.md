@@ -93,7 +93,10 @@ Also fixed: the map search field's native clear "x" had an I-beam cursor, so it 
 than a control. `cursor: pointer` on `::-webkit-search-cancel-button`, matching `.filter-clear`.
 
 **Verified**: 1562 unit + 805 integration passing, typecheck and lint clean, web build compiles.
-Committed to `main` (max chose to skip the branch/PR flow this session). **Not browser-verified** —
+Committed and pushed to `main` at `e55cb92` (max chose to skip the branch/PR flow this session).
+**Not deployed, and the two migrations were deliberately NOT applied to production** — max's call:
+production keeps serving the current image, which does not read the new column, and the schema
+change waits for a session where it can be watched. **Not browser-verified** —
 the zoom timing, the icon placement and the map strip at phone width are judgment calls made in
 code; max does his own pass before go-live.
 

@@ -12,9 +12,10 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 `sha256:6206537e9464c2fdc936ad3bd902342a6a445e6b7ca49b3386f8faebabaadbec` (`main` at `386c3d2`).
 Production Postgres is `neondb` with **26 migrations** (`0000`–`0025`).
 
-**Everything merged is now DEPLOYED** (2026-08-07). The three tranches max had been holding —
-F-081's default reminder schedule, the farmer sign-up wizard plus the integration-suite guard, and
-the self-consent and listing-merge tranche — shipped together at revision 00041/00040.
+**`main` is AHEAD of production** as of F-088 (`e55cb92`, pushed 2026-08-07, not deployed). The
+serving revisions above still run `386c3d2`. Everything before F-088 is deployed: F-081's default
+reminder schedule, the farmer sign-up wizard plus the integration-suite guard, and the self-consent
+and listing-merge tranche all shipped together at revision 00041/00040.
 
 **TWO MIGRATIONS ARE NOW OWED TO PRODUCTION** (F-088, 2026-08-07): `0026_address_visibility` and
 `0027_placeable_contact_only`. Both are applied and verified by effect on **local** Postgres only —
