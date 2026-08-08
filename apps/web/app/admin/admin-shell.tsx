@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useState } from "react";
+import { LoginForm } from "./login/login-form";
 
 const ADMIN_ROUTES = [
   { href: "/admin", label: "Home" },
@@ -11,13 +12,28 @@ const ADMIN_ROUTES = [
   { href: "/admin/reports", label: "Stock reports" },
 ] as const;
 
+/**
+ * What a signed-out operator sees on any protected page: the sign-in form itself.
+ *
+ * It used to be a heading and a "Go to sign in" link — one click in front of the only thing
+ * the screen offered, and the operator arrived at `/admin/login` having learned nothing they
+ * did not already know (max 2026-08-08).
+ *
+ * **The same `LoginForm` the login page renders**, not a copy of it. That form owns the fixed
+ * email, the native `method="post"` fallback for a broken bundle, and the generic refusal
+ * copy; a second set of password fields here would be a second place for those to drift.
+ *
+ * It still names no state that could distinguish a wrong password from revoked authority, and
+ * still says nothing about whether the visitor's session merely expired — the property the
+ * signed-out screen has always had, unchanged by showing the fields sooner.
+ */
 export function SignedOutAdmin() {
   return (
     <main className="admin admin-signed-out">
-      <h1>Sign in required</h1>
-      <Link className="admin-primary-link" href="/admin/login">
-        Go to sign in
-      </Link>
+      <header className="admin-header">
+        <h1>Farm Friend admin</h1>
+      </header>
+      <LoginForm />
     </main>
   );
 }
