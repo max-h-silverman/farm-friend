@@ -8,34 +8,30 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00041-r5m` and worker revision `farm-friend-worker-00040-bks`, both at digest
-`sha256:6206537e9464c2fdc936ad3bd902342a6a445e6b7ca49b3386f8faebabaadbec` (`main` at `386c3d2`).
-Production Postgres is `neondb` with **26 migrations** (`0000`–`0025`).
+`farm-friend-web-00042-rfs` and worker revision `farm-friend-worker-00041-g59`, both at digest
+`sha256:efc4271941f4d0d764d878b085b66bed3a0278527d568c7ec280c3a51ff0fd1e` (`main` at `6ab087e`).
+Production Postgres is `neondb` with **29 migrations** (`0000`–`0028`).
 
-**`main` is AHEAD of production** as of F-088 (`e55cb92`, pushed 2026-08-07, not deployed). The
-serving revisions above still run `386c3d2`. Everything before F-088 is deployed: F-081's default
-reminder schedule, the farmer sign-up wizard plus the integration-suite guard, and the self-consent
-and listing-merge tranche all shipped together at revision 00041/00040.
+**`main` and production are IN SYNC** as of 2026-08-08. The onboarding-form pass and the `START`
+onboarding replacement are deployed, and all three previously-owed migrations are applied.
 
-**THREE MIGRATIONS ARE NOW OWED TO PRODUCTION**: `0026_address_visibility`,
-`0027_placeable_contact_only`, and `0028_invitation_pending_phone`. All three are applied and
-verified by effect on **local** Postgres only — production `neondb` remains at 26 and the code on
-`main` now expects 29. **Deploying the image before applying them breaks the listing writer, the
-public reader, and farmer onboarding**: the first two reference `sales_locations.address_public`,
-and 0028 adds the `farmer_invitations.pending_phone_*` pair that the onboarding form writes and
-inbound `START` matches against. Apply first, then deploy.
+**No migrations are owed.** `0026_address_visibility`, `0027_placeable_contact_only`, and
+`0028_invitation_pending_phone` were applied to production before the image was promoted, in that
+order, and verified by effect rather than from the apply's exit status: migration count 26 → **29**,
+`sales_locations.address_public` present, `sales_locations_coherent_visitability` present, both
+`farmer_invitations.pending_phone_*` columns present with all **three** CHECK constraints, and the
+partial index present **with** its `where (redeemed_at is null)` predicate. The production database
+was fingerprinted first (Neon `neondb`, 36 farms, 36 locations) and 36 farms survived.
 
-`0028` is HAND-WRITTEN and the journal entry was retagged onto it. `drizzle-kit generate` emitted
-only the two `ADD COLUMN` lines and **silently dropped all three CHECK constraints and the partial
-index** — 0024's documented warning, confirmed again here. It also stamped a `when` EARLIER than
-0027's, which `migration-ordering.test.ts` caught: an out-of-order journal entry is silently
-skipped. Both were corrected by hand.
-
-**Verified by effect against the live service**, not from the apply's exit status: `plan-assertions`
-55/55, `deploy_assertions` confirms each serving revision is newer than every secret version it
-consumes, `served_card_assertions` confirms 153 bytes / 6 CRLF / 0 bare LF. New code confirmed
-serving rather than merely restarted — health 200 with **34 stands**, bare `/farmer/start` **404**,
-and a malformed lookup body **400** rather than 500.
+**Verified by effect against the live service**, not from the apply's exit status: the plan was
+`0 to add, 2 to change, 0 to destroy` (the two image digests, nothing else), `plan-assertions`
+55/55 including the guard that fails on any plan unmounting a live secret, `deploy_assertions`
+confirms each serving revision is newer than every secret version it consumes, and
+`served_card_assertions` confirms 153 bytes / 6 CRLF / 0 bare LF. Reachability: health 200, bare
+`/farmer/start` **404**, a malformed lookup body **400** rather than 500, and a dead invitation token
+renders "no longer available". The deployed code reads the new schema — the invitation query returns
+7 unredeemed rows and 0 with a stated phone, which is correct since none has been through the new
+form yet.
 
 **The description cleanup HAS BEEN RUN** (2026-08-07, max approved). 31 of 34 rows rewritten in one
 transaction and verified by reading them back, then confirmed independently through
