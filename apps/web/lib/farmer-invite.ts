@@ -33,29 +33,26 @@ export function buildInviteDeliveryUrl(
 }
 
 /**
- * The prepared text that redeems an invitation (F-080 — `JOIN`, replacing `SIGNUP`).
+ * Farm Friend's own number, formatted for a farmer to READ (max 2026-08-07).
  *
- * The body must match `parseCommand`'s `JOIN <64-hex>` grammar exactly. Anything else — a
- * greeting prepended, the token wrapped in punctuation — is free text that reaches the model
- * and leaves the invitation unspent, with nothing to tell the farmer why.
+ * `206-868-5323`, not `+120658685323`. The stored value is E.164 because that is what the send
+ * path dials and what `normalizePhone` produces, but E.164 is a dialing format, not a reading
+ * one: a farmer checking a number against their phone's keypad should see the shape they would
+ * write down.
+ *
+ * The country code is dropped rather than rendered as `+1`. Every Farm Friend number is US, so
+ * `+1` is a constant that carries no information and only makes the string harder to scan.
+ *
+ * **Falls back to the input unchanged** when it is not a US E.164 number. A short-code, a
+ * non-US number, or an already-formatted string is returned as-is rather than mangled — this is
+ * a display helper, and a helper that silently produced a WRONG number would be worse than one
+ * that produced an ugly one. `buildInviteSmsUrl` used to live here; it was deleted with the
+ * agreement card that was its only caller.
  */
-export function buildInviteSmsUrl(fromNumber: string): string {
-  /*
-    A bare `START`, and NO TOKEN (max 2026-08-07).
-
-    This used to compose `JOIN <64-hex>`. That grammar is gone: it asked the farmer to carry the
-    token in the message, and a farmer typing it by hand (rather than tapping this link) failed
-    silently on any slip. Onboarding now completes by matching a bare `START` against the phone
-    the farmer stated on the onboarding form.
-
-    **Leaving `JOIN <token>` here would be worse than a dead link.** `parseCommand` no longer has
-    that grammar, so the message would arrive as free text, reach the model, and finish nothing —
-    while looking to the farmer like they did exactly what they were told.
-
-    START is also the only word that clears the carrier's own opt-out list (B-011), so it is the
-    right word for a handset whose history we cannot see.
-  */
-  return buildKeywordSmsUrl(fromNumber, "START");
+export function formatSmsNumberForDisplay(fromNumber: string): string {
+  const match = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(fromNumber.trim());
+  if (match === null) return fromNumber;
+  return `${match[1]}-${match[2]}-${match[3]}`;
 }
 
 /**

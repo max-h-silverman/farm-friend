@@ -1,7 +1,5 @@
 import { loadFarmerInvitation } from "@farm-friend/db";
-import { buildInviteSmsUrl } from "../../../../lib/farmer-invite";
 import { publicReadContext } from "../../../../lib/public-context";
-import { AgreementStep } from "./agreement-step";
 import { ListingStep } from "./listing-step";
 
 export const dynamic = "force-dynamic";
@@ -28,10 +26,6 @@ export default async function FarmerOnboardingPage({
   }
 
   const fromNumber = process.env.TELNYX_FROM_NUMBER?.trim();
-  const joinUrl =
-    fromNumber === undefined || fromNumber === ""
-      ? null
-      : buildInviteSmsUrl(fromNumber);
   return (
     <main className="farmer-onboarding">
       <p className="farmer-eyebrow">VIGA Farm Friend</p>
@@ -43,10 +37,12 @@ export default async function FarmerOnboardingPage({
         performs it.
       */}
       <h1>{invitation.farmName ?? "Set up your farm"}</h1>
-      <p className="farmer-onboarding-lede">
-        Tell people what you have, then send one text from the phone you want to use for
-        stand updates.
-      </p>
+      {/*
+        NO LEDE (max 2026-08-07). It summarized the page — "tell people what you have, then send
+        one text" — directly above a form that says both things where they happen: the section
+        heading names the task, and the text hand-off is stated beside the phone field and again
+        on the saved screen. A farmer read the same instruction three times before acting once.
+      */}
 
       {/*
         F-067 — the listing comes FIRST, and the order is deliberate.
@@ -59,8 +55,16 @@ export default async function FarmerOnboardingPage({
         max chose (2026-08-05) that it publishes on submit rather than waiting for the text:
         "the admin can fix anything that's erroneous".
       */}
+      {/*
+        The heading is `sr-only` (max 2026-08-07). "Your stand" was visible above a form whose
+        first field already asks "What is your farm called?" — a label for a thing the farmer can
+        see. It stays in the accessibility tree because `aria-labelledby` names the section, and a
+        landmark with a dangling reference is worse than a redundant visible line.
+      */}
       <section className="farmer-onboarding-card" aria-labelledby="listing-heading">
-        <h2 id="listing-heading">Your stand</h2>
+        <h2 className="sr-only" id="listing-heading">
+          Your stand
+        </h2>
         {/*
           NO `defaults`, deliberately — an invitation CREATES a listing rather than editing
           one, so there is nothing to prefill and nothing B-037 could erase. Only the edit
@@ -79,13 +83,6 @@ export default async function FarmerOnboardingPage({
         />
       </section>
 
-      <section className="farmer-onboarding-card" aria-labelledby="verify-phone-heading">
-        <h2 className="sr-only" id="verify-phone-heading">
-          Agree to texts and verify your phone
-        </h2>
-        <AgreementStep token={params.token} joinUrl={joinUrl} />
-      </section>
-
       {/*
         NOT a numbered to-do list. Presenting this as "step 2, step 3" told farmers more
         screens were coming when there are none. Framed as what to expect, it answers "what
@@ -97,9 +94,13 @@ export default async function FarmerOnboardingPage({
         nobody keeps.
       */}
 
-      <p className="farmer-onboarding-note">
-        This link expires after seven days and works once.
-      </p>
+      {/*
+        NO LINK-EXPIRY NOTE (max 2026-08-07). It said "this link expires after seven days and
+        works once" — true, but it warned about the page the farmer is already successfully on,
+        which is the one moment the fact cannot help them. A farmer who returns to a spent link
+        gets the "no longer available" page, which states it where it actually applies and tells
+        them what to do.
+      */}
     </main>
   );
 }

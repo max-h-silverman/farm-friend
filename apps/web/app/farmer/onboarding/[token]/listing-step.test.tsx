@@ -20,6 +20,21 @@ import { ListingStep } from "./listing-step";
 // because the form is where a farmer would otherwise be stopped by a constraint violation they
 // cannot act on.
 
+/*
+  The three endpoints that SAVE a listing, matched positively.
+
+  These lookups used to exclude `address-lookup` and take whatever was left, which held only
+  while the form made exactly two kinds of request. The SMS agreement POST to
+  `/api/farmer/onboarding` broke that: it is neither a lookup nor a listing save, so an
+  exclusion filter returned IT and every assertion read the wrong body — reporting the form as
+  posting nothing rather than as posting to a third place.
+
+  Naming what is wanted, rather than what is not, is what keeps the next endpoint from doing the
+  same. `listing-edit` is matched by the same pattern as `listing`, deliberately: both are
+  listing saves and every caller here wants whichever one its door uses.
+*/
+const LISTING_ENDPOINT_RE = /\/api\/farmer\/(listing|listing-edit|grandfathered-listing)$/;
+
 const TOKEN = "a".repeat(64);
 const FARM_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -50,6 +65,12 @@ function stubFetch(response: { ok: boolean; status?: number; body?: unknown }) {
           longitude: -122.4594,
         }),
       };
+    }
+    // The SMS agreement stamp. Answered OK so ticking the box succeeds — an unanswered POST
+    // shows the farmer an error and leaves Submit disabled, failing every test downstream for
+    // a reason unrelated to what it asserts.
+    if (String(url).includes("/api/farmer/onboarding")) {
+      return { ok: true, status: 200, json: async () => ({ status: "agreed" }) };
     }
     return {
       ok: response.ok,
@@ -95,6 +116,16 @@ async function submitListing(
   if (phoneField !== null && (phoneField as HTMLInputElement).value === "") {
     await user.type(phoneField, "2065550143");
   }
+  // The invited door also gates Submit on the SMS agreement (max 2026-08-07). Ticking it here
+  // keeps every test that merely wants to reach the network from having to know that — the gate
+  // itself is asserted on its own, in "REFUSES to submit until the agreement is ticked".
+  const agreeBox = screen.queryByLabelText(/I agree to receive texts/i);
+  if (agreeBox !== null && !(agreeBox as HTMLInputElement).checked) {
+    await user.click(agreeBox);
+    await waitFor(() => {
+      expect(agreeBox).toBeChecked();
+    });
+  }
   await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
   const dialog = screen.queryByRole("dialog");
   if (dialog !== null) {
@@ -103,6 +134,19 @@ async function submitListing(
     );
   }
 }
+
+/*
+  The two NAME fields, selected by id rather than by label.
+
+  Both labels read "What is your farm called?" (max 2026-08-07), so label text can no longer
+  tell them apart — `getByLabelText` matches two elements on the edit door and throws. The ids
+  are what actually distinguish them: `farm-name` is the farm's own name, offered only when
+  editing, and `stand-name` is the stand's.
+*/
+const standNameField = (): HTMLInputElement =>
+  document.getElementById("stand-name") as HTMLInputElement;
+const farmNameField = (): HTMLInputElement | null =>
+  document.getElementById("farm-name") as HTMLInputElement | null;
 
 /** A saved listing, as an already-onboarded farmer's editor is prefilled from. */
 const EDIT_DEFAULTS = {
@@ -145,7 +189,7 @@ const EDIT_DEFAULTS = {
  */
 function posted(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown> {
   const call = fetchMock.mock.calls.find(
-    (entry) => !String((entry as [string, unknown])[0]).includes("address-lookup"),
+    (entry) => LISTING_ENDPOINT_RE.test(String((entry as [string, unknown])[0])),
   ) as [string, { body: string }] | undefined;
   if (call === undefined) throw new Error("the form posted no listing");
   return JSON.parse(call[1].body) as Record<string, unknown>;
@@ -163,11 +207,11 @@ describe("onboarding listing step", () => {
 
     // Both present from the start, with no answer needed to reveal the address.
     expect(screen.getByLabelText(/your farm address/i)).toBeInTheDocument();
-    expect(screen.getByText(/can people come to your stand/i)).toBeInTheDocument();
+    expect(screen.getByText(/do you have a farm stand people can visit/i)).toBeInTheDocument();
 
     // ...and the address comes FIRST in the document, which is the ordering claim itself.
     const address = screen.getByLabelText(/your farm address/i);
-    const visit = screen.getByText(/can people come to your stand/i);
+    const visit = screen.getByText(/do you have a farm stand people can visit/i);
     expect(
       address.compareDocumentPosition(visit) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -183,7 +227,7 @@ describe("onboarding listing step", () => {
     const user = userEvent.setup();
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
 
     expect(screen.getByLabelText(/your farm address/i)).toBeInTheDocument();
     expect(
@@ -203,7 +247,7 @@ describe("onboarding listing step", () => {
     const fetchMock = stubFetch({ ok: true });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
 
@@ -220,13 +264,13 @@ describe("onboarding listing step", () => {
     const fetchMock = stubFetch({ ok: true });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
 
     // Not `calls[0]` — that is the address lookup since F-088. Found by endpoint instead.
     const call = fetchMock.mock.calls.find(
-      (entry) => !String((entry as [string, unknown])[0]).includes("address-lookup"),
+      (entry) => LISTING_ENDPOINT_RE.test(String((entry as [string, unknown])[0])),
     ) as [string, unknown];
     expect(call[0]).toBe("/api/farmer/listing");
     expect(call[0]).not.toContain(TOKEN);
@@ -241,7 +285,7 @@ describe("onboarding listing step", () => {
     const fetchMock = stubFetch({ ok: true });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await user.type(
       screen.getByLabelText(/what do you usually sell/i),
@@ -257,7 +301,7 @@ describe("onboarding listing step", () => {
     const fetchMock = stubFetch({ ok: true });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs, , rhubarb,");
     await submitListing(user);
@@ -287,7 +331,7 @@ describe("onboarding listing step", () => {
         />,
       );
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await submitListing(user);
 
@@ -296,7 +340,7 @@ describe("onboarding listing step", () => {
       // farmer who ever texted STOP is restored by this word and by no other — verified live
       // 2026-07-27, when a JOIN four minutes after a STOP was still refused 409.
       expect(next.textContent).toContain("START");
-      expect(next.textContent).toContain("+12065550000");
+      expect(next.textContent).toContain("206-555-0000");
     });
 
     it("does NOT promise that VIGA will finish setting them up", async () => {
@@ -312,7 +356,7 @@ describe("onboarding listing step", () => {
         />,
       );
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await submitListing(user);
 
@@ -348,7 +392,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.type(
         screen.getByLabelText(/anything else people should know/i),
@@ -373,7 +417,7 @@ describe("onboarding listing step", () => {
         />,
       );
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.clear(screen.getByLabelText(/anything else people should know/i));
       await submitListing(user);
@@ -387,7 +431,7 @@ describe("onboarding listing step", () => {
   it("defaults the stand's name to the farm the invitation named", () => {
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("Test Farm");
+    expect(standNameField()).toHaveValue("Test Farm");
   });
 
   it("tells the farmer their stand is live, and how to change it", async () => {
@@ -397,7 +441,7 @@ describe("onboarding listing step", () => {
     stubFetch({ ok: true });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
 
@@ -417,7 +461,7 @@ describe("onboarding listing step", () => {
       <ListingStep credential={{ kind: "stand_link", token: TOKEN }} farmName="Test Farm" />,
     );
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
 
@@ -437,7 +481,7 @@ describe("onboarding listing step", () => {
     stubFetch({ ok: true });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
 
@@ -455,7 +499,7 @@ describe("onboarding listing step", () => {
     stubFetch({ ok: true });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
 
@@ -469,13 +513,13 @@ describe("onboarding listing step", () => {
     stubFetch({ ok: true });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
     await user.click(await screen.findByRole("button", { name: /change/i }));
 
     // Reopening is not a fresh form: a farmer correcting one field must not retype the rest.
-    expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("Test Farm");
+    expect(standNameField()).toHaveValue("Test Farm");
   });
 
   // The farm name is public on the map beside the stand and was previously unchangeable by
@@ -493,16 +537,16 @@ describe("onboarding listing step", () => {
       );
 
       // Prefilled from the FARM, not from the stand — they are different records.
-      expect(screen.getByLabelText(/farm.*called|name of your farm/i)).toHaveValue(
+      expect(farmNameField()!).toHaveValue(
         "Two Sisters Farm",
       );
-      expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("The Red Shed");
+      expect(standNameField()).toHaveValue("The Red Shed");
     });
 
     it("does not ask an onboarding farmer to name their farm twice", () => {
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      expect(screen.queryByLabelText(/farm.*called|name of your farm/i)).not.toBeInTheDocument();
+      expect(farmNameField()).not.toBeInTheDocument();
     });
 
     it("sends the farm name with the listing when it is edited", async () => {
@@ -516,7 +560,7 @@ describe("onboarding listing step", () => {
         />,
       );
 
-      const farmField = screen.getByLabelText(/farm.*called|name of your farm/i);
+      const farmField = farmNameField()!;
       await user.clear(farmField);
       await user.type(farmField, "Misty Hollow Farm");
       await placeStand(user);
@@ -533,7 +577,7 @@ describe("onboarding listing step", () => {
     stubFetch({ ok: false, status: 400, body: { error: "off_island" } });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
 
@@ -549,7 +593,7 @@ describe("onboarding listing step", () => {
     });
     render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-    await user.click(screen.getByLabelText(/I deliver/i));
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
 
@@ -581,7 +625,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.click(screen.getByRole("checkbox", { name: "Cash" }));
       await user.click(screen.getByRole("checkbox", { name: "Venmo" }));
@@ -595,7 +639,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.click(screen.getByRole("checkbox", { name: "Cash" }));
       await user.click(screen.getByRole("checkbox", { name: "Venmo" }));
@@ -611,10 +655,10 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.click(screen.getByRole("checkbox", { name: "Cash" }));
-      await user.type(screen.getByLabelText(/anything else you take/i), "trade for eggs");
+      await user.type(screen.getByLabelText(/anything else you accept as payment/i), "trade for eggs");
       await submitListing(user);
 
       expect(posted(fetchMock).paymentMethods).toEqual(["Cash", "trade for eggs"]);
@@ -629,7 +673,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await submitListing(user);
 
@@ -692,7 +736,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(
         screen.getByLabelText(/when are you usually open/i),
@@ -724,7 +768,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(
         screen.getByLabelText(/when are you usually open/i),
@@ -745,7 +789,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(
         screen.getByLabelText(/when are you usually open/i),
@@ -763,7 +807,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(
         screen.getByLabelText(/when is your stand open in the year/i),
@@ -830,7 +874,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(
         screen.getByLabelText(/when is your stand open in the year/i),
@@ -855,7 +899,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(
         screen.getByLabelText(/when is your stand open in the year/i),
@@ -896,7 +940,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(
         screen.getByLabelText(/when are you usually open/i),
@@ -918,7 +962,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       const season = screen.getByLabelText(/when is your stand open in the year/i);
       await user.selectOptions(season, "date_range");
@@ -938,7 +982,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       // Ticked out of order, to prove the order sent is the weekday order and not the click
       // order — the column is a set, and a reader showing "Sat, Wed" would read as wrong.
@@ -954,7 +998,7 @@ describe("onboarding listing step", () => {
       stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(screen.getByLabelText(/how often do you restock/i), "daily");
       expect(screen.queryByText(/which days do you restock/i)).not.toBeInTheDocument();
@@ -971,7 +1015,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(screen.getByLabelText(/how often do you restock/i), "variable");
       await submitListing(user);
@@ -988,7 +1032,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubFetch({ ok: true });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await user.selectOptions(
         screen.getByLabelText(/when are you usually open/i),
@@ -1014,7 +1058,7 @@ describe("onboarding listing step", () => {
       });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
       await submitListing(user);
 
@@ -1045,6 +1089,10 @@ describe("onboarding listing step", () => {
             json: async () => lookupBody,
           };
         }
+        // The agreement stamp — see `stubFetch` for why it must be answered.
+        if (String(url).includes("/api/farmer/onboarding")) {
+          return { ok: true, status: 200, json: async () => ({ status: "agreed" }) };
+        }
         return { ok: true, status: 200, json: async () => ({ status: "saved" }) };
       }) as unknown as typeof fetch;
       vi.stubGlobal("fetch", fetchMock);
@@ -1072,7 +1120,7 @@ describe("onboarding listing step", () => {
       });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -1092,7 +1140,7 @@ describe("onboarding listing step", () => {
       });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -1105,8 +1153,11 @@ describe("onboarding listing step", () => {
       // phone's own gate is asserted in the phone suite below, and leaving it blank here would
       // fail this test for an unrelated reason.
       await user.type(screen.getByLabelText(/your phone number/i), "2065550143");
+      await user.click(screen.getByLabelText(/I agree to receive texts/i));
       const publish = screen.getByRole("button", { name: /submit/i });
-      expect(publish).toBeEnabled();
+      await waitFor(() => {
+        expect(publish).toBeEnabled();
+      });
       await submitListing(user);
 
       const body = bodyFor(fetchMock, "/api/farmer/listing");
@@ -1122,7 +1173,7 @@ describe("onboarding listing step", () => {
       stubRoutes({ status: "no_result" });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "nowhere at all");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -1142,7 +1193,7 @@ describe("onboarding listing step", () => {
           <ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />,
         );
 
-        await user.click(screen.getByLabelText(/there is a stand to visit/i));
+        await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await user.type(screen.getByLabelText(/your farm address/i), "somewhere");
         await user.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -1172,7 +1223,7 @@ describe("onboarding listing step", () => {
       stubRoutes({ status: "not_configured" });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -1197,7 +1248,7 @@ describe("onboarding listing step", () => {
       );
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -1257,7 +1308,7 @@ describe("onboarding listing step", () => {
       stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       const addressField = screen.getByLabelText(/your farm address/i);
       await user.type(addressField, "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
@@ -1266,7 +1317,10 @@ describe("onboarding listing step", () => {
       // Filled in so enabled/disabled below tracks the PIN alone. Without it the button stays
       // disabled for want of a phone and the test would pass for the wrong reason.
       await user.type(screen.getByLabelText(/your phone number/i), "2065550143");
-      expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+      await user.click(screen.getByLabelText(/I agree to receive texts/i));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+      });
 
       // The farmer changes their mind about the address.
       await user.type(addressField, " Unit B");
@@ -1339,7 +1393,7 @@ describe("onboarding listing step", () => {
       });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
       await screen.findByText(/found it/i);
@@ -1369,7 +1423,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubRoutes({ status: "no_result" });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
 
       expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
       expect(fetchMock).not.toHaveBeenCalled();
@@ -1382,7 +1436,7 @@ describe("onboarding listing step", () => {
       const fetchMock = stubRoutes({ status: "no_result" });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
 
@@ -1417,7 +1471,7 @@ describe("onboarding listing step", () => {
       });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
       await screen.findByText(/found it/i);
@@ -1441,7 +1495,7 @@ describe("onboarding listing step", () => {
       });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
       await user.click(screen.getByRole("button", { name: /^save$/i }));
       await screen.findByText(/found it/i);
@@ -1489,6 +1543,152 @@ describe("onboarding listing step", () => {
     // map-pin glyph, and the privacy choice sat below the map — far enough from the address
     // it governs that it read as a separate topic.
 
+    it("puts the SMS agreement inside the form, directly above Submit", async () => {
+      // max 2026-08-07. It was a separate card BELOW the whole form, so the page read as two
+      // steps and a farmer could submit their listing having never seen the disclosures.
+      //
+      // Order is the claim: the tick sits after the last field and before the button, which is
+      // where a farmer reads it as a condition of submitting rather than as a separate errand.
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+          smsNumber="+12065550000"
+        />,
+      );
+
+      const agree = screen.getByLabelText(/I agree to receive texts/i);
+      const submit = screen.getByRole("button", { name: /submit/i });
+      const phone = screen.getByLabelText(/your phone number/i);
+
+      expect(
+        phone.compareDocumentPosition(agree) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      expect(
+        agree.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+
+      // The four registered disclosures travel with it — they are what the carrier receipt
+      // claims the farmer was shown, so they cannot be dropped in the move.
+      const block = agree.closest(".farmer-onboarding-agreement")!;
+      expect(block).toHaveTextContent(/message frequency varies/i);
+      expect(block).toHaveTextContent(/rates may apply/i);
+      expect(block).toHaveTextContent(/STOP/);
+      expect(block).toHaveTextContent(/HELP/);
+    });
+
+    it("REFUSES to submit until the agreement is ticked", async () => {
+      // The gate. Without the tick `agreed_to_sms_at` is null, and the redemption authorizes
+      // nobody — the farmer would publish a listing and then find that texting START enrolled
+      // them for messages while setting up no farm, with nothing saying why.
+      const user = userEvent.setup();
+      stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+          smsNumber="+12065550000"
+        />,
+      );
+
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
+      await placeStand(user);
+      await user.type(screen.getByLabelText(/your phone number/i), "2065550143");
+
+      expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
+
+      await user.click(screen.getByLabelText(/I agree to receive texts/i));
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+      });
+    });
+
+    it("STAMPS the agreement server-side when ticked, before any listing is posted", async () => {
+      // The tick is not consent and never was, but it IS provenance: it records that these
+      // disclosures were shown and accepted on this invitation. That stamp is what the carrier
+      // registration claims we collect, and what gates authorization at redemption.
+      const user = userEvent.setup();
+      const fetchMock = stubRoutes({
+        status: "found",
+        latitude: 47.4471,
+        longitude: -122.4594,
+      });
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+          smsNumber="+12065550000"
+        />,
+      );
+
+      await user.click(screen.getByLabelText(/I agree to receive texts/i));
+
+      await waitFor(() => {
+        const call = fetchMock.mock.calls.find((entry) =>
+          String((entry as [string, unknown])[0]).includes("/api/farmer/onboarding"),
+        ) as [string, { body: string }] | undefined;
+        expect(call).toBeDefined();
+        expect(JSON.parse(call![1].body).token).toBe(TOKEN);
+      });
+    });
+
+    it("does NOT ask for the agreement on the EDIT door", () => {
+      // An already-onboarded farmer agreed once, and that stamp is provenance of what they were
+      // shown then. Asking again on every edit would collect a second answer to a settled
+      // question and invite re-stamping it.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={EDIT_DEFAULTS}
+        />,
+      );
+
+      expect(screen.queryByLabelText(/I agree to receive texts/i)).toBeNull();
+    });
+
+    it("gives EVERY text field a type the form's own styling rule covers", () => {
+      // The defect this pins: the rule was `input[type="text"]` alone, so the `type="tel"` phone
+      // field and the paragraph `<textarea>` matched NOTHING and rendered at the browser default
+      // — a hairline box at a different height, mid-form, where every sibling was 48px with a
+      // 10px radius. Nothing failed; two fields just looked like a different page.
+      //
+      // Asserted from the RENDERED FIELDS rather than by grepping the stylesheet for a selector.
+      // A regex over CSS proves the rule is written, not that it matches anything — and matching
+      // nothing is precisely what went wrong. This enumerates what the form actually renders and
+      // requires each one to fall inside the covered set, so a future field with an uncovered
+      // type fails here rather than looking wrong in a browser.
+      const { container } = render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+          smsNumber="+12065550000"
+        />,
+      );
+
+      // The types `.farmer-listing` styles as a text-entry box. Checkboxes and radios are
+      // deliberately absent — they have their own rules and must not get a 48px text box.
+      const styled = new Set(["text", "tel", "email"]);
+      const textFields = [
+        ...container.querySelectorAll<HTMLInputElement>("input"),
+      ].filter((field) => !["checkbox", "radio"].includes(field.type));
+
+      // Guard the guard: if this found nothing, the assertion below would pass vacuously.
+      expect(textFields.length).toBeGreaterThan(3);
+      for (const field of textFields) {
+        // `getAttribute`, not `.type` — a missing attribute reads as "text" through the DOM
+        // property, which would hide a bare `<input>` the CSS covers only via `:not([type])`.
+        const declared = field.getAttribute("type");
+        expect(
+          declared === null || styled.has(declared),
+          `${field.id || field.name} has type="${declared}", which the styling rule misses`,
+        ).toBe(true);
+      }
+
+      // And the paragraph box, which is a textarea rather than an input.
+      expect(container.querySelector("textarea")).not.toBeNull();
+    });
+
     it("labels the address field and puts the guidance in its placeholder", () => {
       // The label states the FIELD; "Enter your farm address" is the instruction, and an
       // instruction belongs where a farmer is about to type rather than in a heading.
@@ -1523,7 +1723,7 @@ describe("onboarding listing step", () => {
 
       for (const label of [
         /anything else about your hours/i,
-        /anything else you take/i,
+        /anything else you accept as payment/i,
         /what do you usually sell/i,
       ]) {
         const placeholder = screen.getByLabelText(label).getAttribute("placeholder") ?? "";
@@ -1578,7 +1778,7 @@ describe("onboarding listing step", () => {
       stubRoutes({ status: "no_result" });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
 
       // Present the instant the address question is on screen, with no address typed and no
       // lookup performed.
@@ -1593,7 +1793,7 @@ describe("onboarding listing step", () => {
       stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       const before = screen.getByRole("img", { name: /vashon and maury/i });
 
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
@@ -1640,7 +1840,7 @@ describe("onboarding listing step", () => {
         <ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />,
       );
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       expect(container.querySelector(".farmer-listing-pin")).toBeNull();
 
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
@@ -1685,7 +1885,7 @@ describe("onboarding listing step", () => {
         <ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />,
       );
 
-      await user.click(screen.getByLabelText(/there is a stand to visit/i));
+      await user.click(screen.getByLabelText(/yes . there is a stand/i));
       const map = container.querySelector(".farmer-listing-map")!;
       const whole = map.getAttribute("viewBox");
       // The starting frame is the entire island, at its full drawing width.
@@ -1742,7 +1942,11 @@ describe("onboarding listing step", () => {
         // text node.
         const note = screen.getByLabelText(/your phone number/i).parentElement!;
         expect(note).toHaveTextContent(/text START/i);
-        expect(note).toHaveTextContent(/\+12065550000/);
+        // Formatted for READING, with the country code dropped: `206-555-0000`, not
+        // `+12065550000`. E.164 is a dialing format and belongs in the `sms:` href, not on
+        // screen where a farmer is checking it against their keypad.
+        expect(note).toHaveTextContent(/206-555-0000/);
+        expect(note.textContent ?? "").not.toContain("+1");
       });
 
       it("does NOT ask for a phone on the EDIT door", () => {
@@ -1776,9 +1980,14 @@ describe("onboarding listing step", () => {
           />,
         );
 
-        await user.click(screen.getByLabelText(/there is a stand to visit/i));
+        await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await placeStand(user);
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "2065550143");
+        // The agreement gates Submit; its own gate is asserted separately.
+        await user.click(screen.getByLabelText(/I agree to receive texts/i));
+        await waitFor(() => {
+          expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+        });
         await user.click(screen.getByRole("button", { name: /submit/i }));
 
         // The modal is up, showing the number back, and NOTHING was posted.
@@ -1814,9 +2023,14 @@ describe("onboarding listing step", () => {
           />,
         );
 
-        await user.click(screen.getByLabelText(/there is a stand to visit/i));
+        await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await placeStand(user);
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "2065550143");
+        // The agreement gates Submit; its own gate is asserted separately.
+        await user.click(screen.getByLabelText(/I agree to receive texts/i));
+        await waitFor(() => {
+          expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+        });
         await user.click(screen.getByRole("button", { name: /submit/i }));
 
         const dialog = await screen.findByRole("dialog");
@@ -1845,7 +2059,7 @@ describe("onboarding listing step", () => {
           />,
         );
 
-        await user.click(screen.getByLabelText(/there is a stand to visit/i));
+        await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await placeStand(user);
 
         expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
@@ -1864,16 +2078,22 @@ describe("onboarding listing step", () => {
           />,
         );
 
-        await user.click(screen.getByLabelText(/there is a stand to visit/i));
+        await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await placeStand(user);
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "2065550143");
+        // The agreement gates Submit; its own gate is asserted separately.
+        await user.click(screen.getByLabelText(/I agree to receive texts/i));
+        await waitFor(() => {
+          expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+        });
         await user.click(screen.getByRole("button", { name: /submit/i }));
         const dialog = await screen.findByRole("dialog");
         await user.click(within(dialog).getByRole("button", { name: /yes|confirm|correct/i }));
 
         const saved = await screen.findByText(/text/i, { selector: ".farmer-listing-saved-next" });
         expect(saved).toHaveTextContent(/START/);
-        expect(saved).toHaveTextContent(/\+12065550000/);
+        expect(saved).toHaveTextContent(/206-555-0000/);
+      expect(saved.textContent ?? "").not.toContain("+1");
         // No 64-character token anywhere — that grammar is gone.
         expect(saved.textContent ?? "").not.toMatch(/[0-9a-f]{64}/i);
       });
@@ -1891,7 +2111,7 @@ describe("onboarding listing step", () => {
           />,
         );
 
-        await user.click(screen.getByLabelText(/there is a stand to visit/i));
+        await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await placeStand(user);
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "555");
 
@@ -1913,12 +2133,12 @@ describe("onboarding listing step", () => {
       const user = userEvent.setup();
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      await user.click(screen.getByLabelText(/I deliver, or people arrange/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
       await placeStand(user);
       await submitListing(user);
 
       const call = fetchMock.mock.calls.find(
-        (entry) => !String((entry as [string, unknown])[0]).includes("address-lookup"),
+        (entry) => LISTING_ENDPOINT_RE.test(String((entry as [string, unknown])[0])),
       ) as [string, { body: string }];
       expect(call[0]).toBe("/api/farmer/listing");
       expect(JSON.parse(call[1].body).token).toBe(TOKEN);
@@ -1934,12 +2154,12 @@ describe("onboarding listing step", () => {
         />,
       );
 
-      await user.click(screen.getByLabelText(/I deliver, or people arrange/i));
+      await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
       await placeStand(user);
       await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       const call = fetchMock.mock.calls.find(
-        (entry) => !String((entry as [string, unknown])[0]).includes("address-lookup"),
+        (entry) => LISTING_ENDPOINT_RE.test(String((entry as [string, unknown])[0])),
       ) as [string, { body: string }];
       expect(call[0]).toBe("/api/farmer/grandfathered-listing");
       const body = JSON.parse(call[1].body) as Record<string, unknown>;
@@ -1962,7 +2182,7 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       const call = fetchMock.mock.calls.find(
-        (entry) => !String((entry as [string, unknown])[0]).includes("address-lookup"),
+        (entry) => LISTING_ENDPOINT_RE.test(String((entry as [string, unknown])[0])),
       ) as [string, { body: string }];
       expect(call[0]).toBe("/api/farmer/listing-edit");
       expect(JSON.parse(call[1].body).token).toBe(TOKEN);
@@ -2017,7 +2237,7 @@ describe("onboarding listing step", () => {
       // if the form came up blank.
       renderEdit();
 
-      expect(screen.getByLabelText(/what is your stand called/i)).toHaveValue("Existing Stand");
+      expect(standNameField()).toHaveValue("Existing Stand");
       expect(screen.getByLabelText(/your farm address/i)).toHaveValue("12345 Vashon Highway SW");
     });
 
@@ -2027,7 +2247,7 @@ describe("onboarding listing step", () => {
       renderEdit();
 
       expect(screen.getByLabelText("Cash")).toBeChecked();
-      expect(screen.getByLabelText("Anything else you take?")).toHaveValue("Goats");
+      expect(screen.getByLabelText("Anything else you accept as payment?")).toHaveValue("Goats");
     });
 
     it("arrives PUBLISHABLE, so an edit is not a forced re-lookup", async () => {

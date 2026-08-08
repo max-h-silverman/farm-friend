@@ -63,8 +63,8 @@ already sent.
 
 ## Verification
 
-**Latest, 2026-08-07** (onboarding form pass + `START` onboarding, UNCOMMITTED): **1583 unit** (131
-files), **821 integration** (59 files), typecheck, lint. Integration ran against **local Postgres**,
+**Latest, 2026-08-07** (onboarding form pass + `START` onboarding): **1580 unit** (130 files),
+**821 integration** (59 files), typecheck, lint. Integration ran against **local Postgres**,
 never Neon. **No `packages/ai` file changed**, checked against the diff, so no `evals`/`evals:live`
 run was owed. **Three migrations ARE owed to production** — see Release state.
 
@@ -118,6 +118,12 @@ so redeeming on it would set up a farmer whose messages the carrier silently ref
 
 **The carrier transition runs FIRST, the redemption second.** `START` must enroll unconditionally
 whether or not an invitation is waiting; the redemption is attempted after the consent write.
+
+**The SMS agreement is now a FIELD on the listing form, above Submit, and it gates submission.**
+`AgreementStep` and its separate card are deleted. Without `agreed_to_sms_at` the redemption
+authorizes nobody, so a farmer who could publish without ticking would text START, be enrolled for
+messages, and find no farm set up. Pinned by *"REFUSES to submit until the agreement is ticked"* —
+sabotage-verified.
 
 **A mistyped phone is invisible without the confirm modal.** The listing saves, the farmer texts
 START from their real phone, it matches nothing, and they wait with every field on screen looking

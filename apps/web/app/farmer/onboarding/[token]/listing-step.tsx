@@ -11,7 +11,10 @@ import { ISLAND_VIEWBOX, projectToIsland } from "@farm-friend/core/island-projec
 // agreement with what the writer stores, and a second hand-written copy of these twelve
 // fields is how that happens again.
 import type { ListingAvailability } from "@farm-friend/db";
-import { buildKeywordSmsUrl } from "../../../../lib/farmer-invite";
+import {
+  buildKeywordSmsUrl,
+  formatSmsNumberForDisplay,
+} from "../../../../lib/farmer-invite";
 import { IslandArtwork } from "../../../island-artwork";
 
 /**
@@ -580,6 +583,63 @@ export function ListingStep({
   const [confirming, setConfirming] = useState(false);
 
   /*
+    THE SMS AGREEMENT, now INSIDE this form and directly above Submit (max 2026-08-07).
+
+    It was a separate card below the whole form, which read as a second errand: a farmer could
+    fill in every field and submit having never scrolled to the disclosures. Folding it in makes
+    agreeing a condition of submitting, which is what it always was in substance.
+
+    **The tick is not consent and this component does not claim it is.** It stamps provenance —
+    these disclosures were shown on this invitation and accepted at this time — and that stamp
+    is what the carrier receipt claims we collect and what gates authorization when the farmer's
+    `START` arrives. Consent itself is written only by that inbound message, because a tick on a
+    web page says nothing about who holds the handset.
+
+    Stamped on the TICK rather than at submit, deliberately: the stamp must exist before the
+    listing publishes, and doing it here means a farmer who ticks and then abandons the form has
+    still recorded what they were shown — which is the honest record of what happened.
+
+    Withdrawing the tick does not un-stamp. The stamp is provenance of a disclosure being
+    accepted, and rewriting history because someone changed their mind would falsify it; what
+    the untick does is re-block Submit.
+  */
+  const asksForAgreement = credential.kind === "invitation";
+  const [agreed, setAgreed] = useState(false);
+  const [agreeing, setAgreeing] = useState(false);
+  const [agreeError, setAgreeError] = useState<string | null>(null);
+
+  async function toggleAgreement(checked: boolean): Promise<void> {
+    setAgreeError(null);
+    if (!checked) {
+      setAgreed(false);
+      return;
+    }
+    if (agreeing) return;
+    setAgreeing(true);
+    try {
+      const response = await fetch("/api/farmer/onboarding", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        // The token travels in the BODY, never a query string — a credential in a URL lands in
+        // server logs and browser history by default.
+        body: JSON.stringify(credentialBody(credential)),
+      });
+      if (!response.ok) {
+        setAgreeError(
+          "This invitation is no longer available. Ask the VIGA coordinator who invited you " +
+            "for a new link.",
+        );
+        return;
+      }
+      setAgreed(true);
+    } catch {
+      setAgreeError("That did not go through. Check your connection and try again.");
+    } finally {
+      setAgreeing(false);
+    }
+  }
+
+  /*
     The pin's place on the drawing, and the frame that travels toward it.
 
     Both computed HERE, above the `saved` early return, because `useZoomedViewBox` is a hook:
@@ -759,7 +819,15 @@ export function ListingStep({
     pin !== null &&
     // The phone is what ties the handset to the farm, so an invited farmer without a usable one
     // has no way to finish. Blocking here beats publishing a listing they cannot complete.
-    (!asksForPhone || phoneLooksReal(phone));
+    (!asksForPhone || phoneLooksReal(phone)) &&
+    /*
+      No tick, no submit. Without `agreed_to_sms_at` the redemption authorizes NOBODY — so a
+      farmer who published without it would text START, get enrolled for messages, and find no
+      farm set up, with nothing on screen or in the reply explaining why.
+
+      Blocking here is what keeps that from being discoverable only by its absence.
+    */
+    (!asksForAgreement || agreed);
 
   /**
    * Submitting the form, which on the invited door OPENS THE CONFIRMATION rather than posting.
@@ -964,7 +1032,14 @@ export function ListingStep({
         {isOnboarding && smsNumber !== undefined ? (
           <p className="farmer-listing-saved-next">
             Last step: text <strong>START</strong> to{" "}
-            <a href={buildKeywordSmsUrl(smsNumber, "START")}>{smsNumber}</a> from the phone you
+            {/*
+              The LINK keeps the raw E.164 — that is what a handset dials — while the visible
+              text is the readable form. Formatting the href would be a dead link.
+            */}
+            <a href={buildKeywordSmsUrl(smsNumber, "START")}>
+              {formatSmsNumberForDisplay(smsNumber)}
+            </a>{" "}
+            from the phone you
             want to use for stand updates. That is what turns on texting for you — we cannot
             text you until you do.
           </p>
@@ -997,7 +1072,7 @@ export function ListingStep({
         </>
       )}
 
-      <label htmlFor="stand-name">What is your stand called?</label>
+      <label htmlFor="stand-name">What is your farm called?</label>
       <input
         id="stand-name"
         type="text"
@@ -1196,7 +1271,7 @@ export function ListingStep({
         a state the farmer can see they are in.
       */}
       <fieldset className="farmer-listing-branch">
-        <legend>Can people come to your stand?</legend>
+        <legend>Do you have a farm stand people can visit?</legend>
         <label className="farmer-listing-choice">
           <input
             type="radio"
@@ -1204,7 +1279,7 @@ export function ListingStep({
             checked={visitability === "visitable"}
             onChange={() => setVisitability("visitable")}
           />
-          <span>Yes — there is a stand to visit</span>
+          <span>Yes — there is a stand</span>
         </label>
         <label className="farmer-listing-choice">
           <input
@@ -1213,7 +1288,7 @@ export function ListingStep({
             checked={visitability === "contact_only"}
             onChange={() => setVisitability("contact_only")}
           />
-          <span>No — I deliver, or people arrange it with me</span>
+          <span>No — I deliver, or coordinate with people</span>
         </label>
       </fieldset>
 
@@ -1468,7 +1543,7 @@ export function ListingStep({
         ))}
       </fieldset>
 
-      <label htmlFor="other-payment">Anything else you take?</label>
+      <label htmlFor="other-payment">Anything else you accept as payment?</label>
       <input
         id="other-payment"
         type="text"
@@ -1554,12 +1629,53 @@ export function ListingStep({
             ) : (
               <>
                 After you submit, text <strong>START</strong> to{" "}
-                <strong>{smsNumber}</strong> from this phone to finish setting up. We cannot
+                <strong>{formatSmsNumberForDisplay(smsNumber)}</strong> from this phone to
+                finish setting up. We cannot
                 text you until you do.
               </>
             )}
           </p>
         </>
+      )}
+
+      {/*
+        THE AGREEMENT, directly above the button it gates.
+
+        The tick leads and the disclosure follows it, because the tick is the action and the
+        disclosure is its terms. The four facts the carrier receipt claims were shown —
+        frequency, rates, STOP, HELP — are REGISTERED COPY and are asserted by test; only their
+        framing is ours. The list replaces a five-line paragraph in which the three message
+        kinds and the four disclosures ran together as one wall.
+      */}
+      {asksForAgreement && (
+        <div className="farmer-onboarding-agreement" data-testid="sms-agreement">
+          <label className="farmer-onboarding-agree">
+            <input
+              type="checkbox"
+              checked={agreed}
+              disabled={agreeing}
+              onChange={(event) => void toggleAgreement(event.target.checked)}
+            />
+            <span>I agree to receive texts from VIGA Farm Friend.</span>
+          </label>
+          <div className="farmer-onboarding-terms">
+            <p>Farm Friend texts you about your stand:</p>
+            <ul>
+              <li>Reminders to update what you have</li>
+              <li>Confirmations of what you publish</li>
+              <li>Notices when a customer reports something sold out</li>
+            </ul>
+            <p>
+              Message frequency varies. Message and data rates may apply. Reply STOP any time to
+              stop all messages, or HELP for help.
+            </p>
+          </div>
+          {agreeError === null ? null : (
+            <p className="farmer-form-error" role="alert">
+              {agreeError}
+            </p>
+          )}
+        </div>
       )}
 
       {error === null ? null : (
@@ -1606,7 +1722,7 @@ export function ListingStep({
             <p>
               {smsNumber === undefined
                 ? "You will text START from this phone to finish setting up, so it has to be the phone you have with you."
-                : `You will text START to ${smsNumber} from this phone to finish setting up, so it has to be the phone you have with you.`}
+                : `You will text START to ${formatSmsNumberForDisplay(smsNumber)} from this phone to finish setting up, so it has to be the phone you have with you.`}
             </p>
             <div className="farmer-listing-confirm-actions">
               <button

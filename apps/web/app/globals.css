@@ -2048,7 +2048,22 @@ form.farmer-picker-next {
   gap: 0.5rem;
 }
 
-.farmer-listing input[type="text"] {
+/* EVERY text-entry field in this form, listed by what it IS rather than by type.
+ *
+ * This used to be `input[type="text"]` alone, which silently excluded anything else: the
+ * paragraph `<textarea>` and the `type="tel"` phone field both rendered at the browser's
+ * default — a hairline box at a different height, mid-way down a form where every other field
+ * was 48px with a 10px radius. Nothing failed; the two fields just looked like they belonged to
+ * a different page.
+ *
+ * Enumerating types is what caused it, so the fix is to stop enumerating. `type="tel"`,
+ * `type="email"` and a bare `<input>` with no type at all now all land here, which is the
+ * property that keeps the next field added to this form from repeating it. */
+.farmer-listing input[type="text"],
+.farmer-listing input[type="tel"],
+.farmer-listing input[type="email"],
+.farmer-listing input:not([type]),
+.farmer-listing textarea {
   width: 100%;
   min-height: 48px;
   padding: 0.6rem 0.8rem;
@@ -2058,6 +2073,12 @@ form.farmer-picker-next {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
+}
+
+/* The paragraph box sizes to its `rows` and stays resizable VERTICALLY only. Horizontal resize
+   would let a farmer drag it wider than the form and break the single-column layout. */
+.farmer-listing textarea {
+  resize: vertical;
 }
 
 /* The saved confirmation. Replaces a bare sentence that used to stand in for the whole

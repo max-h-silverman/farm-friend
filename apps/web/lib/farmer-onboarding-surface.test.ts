@@ -31,8 +31,12 @@ describe("farmer invitation onboarding surface", () => {
   // the page must keep, not the sentences that keep them: copy is free to improve, but a
   // rewrite that drops the waiting state or the publication boundary is a farmer left
   // wondering whether their stand just went public.
-  it("tells the farmer what the link itself is worth, so a spent one is not a surprise", () => {
-    expect(page).toContain("This link expires after seven days and works once.");
+  it("does NOT warn about link expiry on the page the link just worked on", () => {
+    // max removed the note (2026-08-07). It was true — the link is one-use and does expire —
+    // but it warned about the very page the farmer had just successfully opened, which is the
+    // one moment the fact cannot act on anything. The `status !== "active"` branch above states
+    // it where it applies and says what to do, and that branch is asserted separately.
+    expect(page).not.toContain("expires after seven days");
   });
 
   // F-067 — "VIGA reviews your request" was RETIRED, not reworded. Redeeming an agreed
@@ -56,7 +60,10 @@ describe("farmer invitation onboarding surface", () => {
   // alone would satisfy a name check while the component went unrendered.
   it("renders the listing form, and passes it the invitation's own farm name", () => {
     expect(page).toContain("<ListingStep");
-    expect(page).toContain("token={params.token}");
+    // The token reaches the form inside its CREDENTIAL, which is the shape `ListingCredential`
+    // requires — it was `token={params.token}` while the deleted `AgreementStep` took it as a
+    // bare prop, and that spelling no longer appears anywhere on this page.
+    expect(page).toContain('kind: "invitation", token: params.token');
     expect(page).toContain('farmName={invitation.farmName ?? ""}');
   });
 
@@ -67,33 +74,40 @@ describe("farmer invitation onboarding surface", () => {
   });
 
   it("routes the whole prepared-text affordance through the agreement step", () => {
-    // The launch blocker's structural half. If the page rendered the `sms:` link itself,
-    // a farmer could send the redemption text without agreeing, spend the one-use
-    // invitation, establish no consent, and be authorized into permanent silence.
-    // `AgreementStep` is what gates it, so the page must own no second path to the link.
+    // The launch blocker's structural half, PRESERVED THROUGH THE MOVE (max 2026-08-07).
     //
-    // Anchored to the CALL SITE and the absence of the affordance, not to the import: an
+    // The property has never changed: the page must own no path by which a farmer sends the
+    // redemption text without having agreed. What changed is where the gate lives — the
+    // agreement is now a field inside `ListingStep`, above its Submit button, rather than a
+    // separate card below the whole form. `AgreementStep` is deleted.
+    //
+    // So this asserts the page renders the form and NOTHING else that could text on its own.
+    // Anchored to the call site and to the absence of the affordance, not to an import: an
     // import line alone would satisfy a name check while the component went unrendered.
-    expect(page).toContain("<AgreementStep token={params.token} joinUrl={joinUrl} />");
+    expect(page).toContain("<ListingStep");
     expect(page).not.toContain("farmer-primary-link");
-    // F-080 — this asserted the absence of "Text SIGNUP to verify this phone". Once that
-    // keyword was retired the string existed NOWHERE, so the assertion passed on every
-    // possible page and proved nothing. It now names the string the affordance actually
-    // uses, which is the only form in which "the page does not render it" is a real claim.
+    expect(page).not.toContain("AgreementStep");
+    // The prepared-text affordance is gone from this page entirely. Asserted against a string
+    // that genuinely EXISTS somewhere (see the test below), so this is a real claim rather than
+    // a tautology over retired copy.
     expect(page).not.toContain("Text START to verify this phone");
   });
 
-  it("the affordance it must not render is one that genuinely EXISTS", () => {
-    // Guards the failure the assertion above just had. A `not.toContain` is only meaningful
-    // while its subject is a string something really renders — otherwise retiring the copy
-    // silently turns the guard into a tautology.
+  it("the agreement it must render is a real, gating field on the form", () => {
+    // Guards the failure the assertion above could have. A `not.toContain` is only meaningful
+    // while the thing it forbids is genuinely reachable somewhere — and the wider property here
+    // is that the agreement did not simply VANISH when its card was deleted.
     //
-    // So: read the component that owns the affordance and require the exact string there.
-    // If it is reworded, this fails and forces the guard above to be updated with it.
-    const agreementStep = readFileSync(
-      resolve(process.cwd(), "apps/web/app/farmer/onboarding/[token]/agreement-step.tsx"),
+    // So: read the component that now owns it and require both halves — the tick, and the
+    // registered disclosure copy the carrier receipt claims was shown. If either is dropped, a
+    // farmer publishes a listing having agreed to nothing and the redemption authorizes nobody.
+    const listingStep = readFileSync(
+      resolve(process.cwd(), "apps/web/app/farmer/onboarding/[token]/listing-step.tsx"),
       "utf8",
     );
-    expect(agreementStep).toContain("Text START to verify this phone");
+    expect(listingStep).toContain("I agree to receive texts from VIGA Farm Friend.");
+    expect(listingStep).toContain("Message frequency varies.");
+    // It POSTs the stamp, which is what gates authorization at redemption.
+    expect(listingStep).toContain("/api/farmer/onboarding");
   });
 });
