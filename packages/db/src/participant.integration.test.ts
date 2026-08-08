@@ -116,10 +116,10 @@ describe("sales-location participant history constraints (integration)", () => {
     const rows = await client()`
       insert into sales_location_participants (
         owner_farm_id, sales_location_id, display_name,
-        confirmed_by_authorization_id, confirmed_at
+        source, confirmed_by_authorization_id, confirmed_at
       ) values (
         ${ids.ownerFarm}, ${ids.location}, ${displayName},
-        ${ids.ownerAuthorization}, ${T0}
+        'sms', ${ids.ownerAuthorization}, ${T0}
       ) returning id
     `;
     return rows[0]?.id as string;
@@ -134,10 +134,10 @@ describe("sales-location participant history constraints (integration)", () => {
       client()`
         insert into sales_location_participants (
           owner_farm_id, sales_location_id, display_name,
-          confirmed_by_authorization_id, confirmed_at
+          source, confirmed_by_authorization_id, confirmed_at
         ) values (
           ${ids.ownerFarm}, ${ids.location}, 'Wrong Authority',
-          ${ids.otherAuthorization}, ${T0}
+          'sms', ${ids.otherAuthorization}, ${T0}
         )
       `,
     ).rejects.toMatchObject({ code: "23503" });
@@ -408,10 +408,10 @@ describe("sales-location participant history constraints (integration)", () => {
       await tx`
         insert into sales_location_participants (
           owner_farm_id, sales_location_id, display_name,
-          confirmed_by_authorization_id, confirmed_at
+          source, confirmed_by_authorization_id, confirmed_at
         ) values (
           ${ids.ownerFarm}, ${ids.location}, 'Guest Growers',
-          ${ids.ownerAuthorization}, ${T0}
+          'sms', ${ids.ownerAuthorization}, ${T0}
         )
       `;
       markInserted();
@@ -423,10 +423,10 @@ describe("sales-location participant history constraints (integration)", () => {
       claimant`
         insert into sales_location_participants (
           owner_farm_id, sales_location_id, display_name,
-          confirmed_by_authorization_id, confirmed_at
+          source, confirmed_by_authorization_id, confirmed_at
         ) values (
           ${ids.ownerFarm}, ${ids.location}, ' guest   growers ',
-          ${secondAuthorization[0]?.id as string}, ${T1}
+          'sms', ${secondAuthorization[0]?.id as string}, ${T1}
         )
       `)();
     let queued = 0;

@@ -139,6 +139,38 @@ describe("lookupIslandAddress", () => {
     expect(failed).toEqual({ status: "no_result" });
   });
 
+  it("reports a REJECTED CREDENTIAL as not_configured, not as a missing address", async () => {
+    // The production incident this exists to prevent (2026-08-07). The geocoding secret held the
+    // literal placeholder `<key>` — pasted from the runbook without substitution — so Google
+    // answered REQUEST_DENIED for every address. That collapsed to `no_result`, which is the
+    // same answer a genuinely unknown address gets, so:
+    //
+    //   * every farmer saw "we could not find that address" for a PERFECTLY VALID one,
+    //   * the route returned HTTP 200, so the logs showed a healthy endpoint, and
+    //   * no farmer could create a visitable stand for two days, silently.
+    //
+    // A rejected key is a broken DEPLOYMENT, and `not_configured` is already this module's word
+    // for that. It is deliberately NOT a new status: the farmer-facing behaviour is unchanged
+    // (no coordinate either way, and the form's copy for both is the same), while an operator
+    // checking why lookups fail now gets a different answer from "that address does not exist".
+    for (const status of ["REQUEST_DENIED", "INVALID_REQUEST"] as const) {
+      const result = await lookupIslandAddress(
+        deps(googleResponse([], status)),
+        "20171 87th Ave SW, Vashon, WA",
+      );
+      expect(result).toEqual({ status: "not_configured" });
+    }
+
+    // OVER_QUERY_LIMIT stays `no_result` and is the reason this is not a blanket rule: a
+    // throttled key is correctly configured and working, just busy. Calling it misconfigured
+    // would send an operator to rotate a credential that is fine.
+    const throttled = await lookupIslandAddress(
+      deps(googleResponse([], "OVER_QUERY_LIMIT")),
+      "20171 87th Ave SW, Vashon, WA",
+    );
+    expect(throttled).toEqual({ status: "no_result" });
+  });
+
   it("asks for no draft when the provider throws", async () => {
     const result = await lookupIslandAddress(
       {

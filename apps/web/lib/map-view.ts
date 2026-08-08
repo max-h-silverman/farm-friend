@@ -207,10 +207,13 @@ export interface StandAvailability {
   /**
    * Which weekdays the stand is open, 0 = Sunday.
    *
-   * **Absent island-wide today**: no production row carries a day set, though 14 stands state
-   * a `specific_days` restocking cadence. The column is plumbed because the schema permits it
-   * and an unread column is how F-042 and this item both came to exist — but nothing may
-   * assume it is present.
+   * POPULATED since B-039 — 23 of the 32 stands that submitted a form state a day pattern, and
+   * `parseOpenDays` now reads them. This column was plumbed but never written for months, and
+   * the cost was visible: a stand saying "All days" rendered "Hours not listed", because the
+   * only column anything read was the TIME of day.
+   *
+   * Still optional, and absence still means the farm said nothing about days — never that it is
+   * shut. "See below" and a seasonally split answer both refuse rather than guess.
    */
   days?: number[];
 }
@@ -227,8 +230,6 @@ export interface MapView {
   stands: MapViewStand[];
   /** True when the list is ordered nearest-first, so the UI can say so honestly. */
   sortedByDistance: boolean;
-  /** How many listings carry a staleness warning, for the one up-front notice. */
-  staleCount: number;
 }
 
 /**
@@ -395,7 +396,6 @@ export function buildMapView(
 
   return {
     sortedByDistance: isPlausibleOrigin(origin) && stands.length > 0,
-    staleCount: stands.filter((stand) => stand.stale).length,
     stands: located.map(({ factId: _factId, ...stand }) => ({
       ...stand,
       // F-038 — no coordinates means no route. `destinationRoutingLink` already refuses an

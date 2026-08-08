@@ -141,10 +141,10 @@ export async function saveSalesLocationParticipants(
       const inserted = await tx`
         insert into sales_location_participants (
           owner_farm_id, sales_location_id, display_name,
-          confirmed_by_authorization_id, confirmed_at
+          source, confirmed_by_authorization_id, confirmed_at
         ) values (
           ${ownerFarmId}, ${input.salesLocationId}, ${displayName},
-          ${authorizationId}, ${input.occurredAt}
+          'sms', ${authorizationId}, ${input.occurredAt}
         )
         on conflict (
           sales_location_id,

@@ -7,29 +7,45 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web revision
-`farm-friend-web-00042-rfs` and worker revision `farm-friend-worker-00041-g59`, both at digest
-`sha256:efc4271941f4d0d764d878b085b66bed3a0278527d568c7ec280c3a51ff0fd1e` (`main` at `6ab087e`).
-Production Postgres is `neondb` with **29 migrations** (`0000`–`0028`).
+Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **30 migrations**
+(`0000`–`0029`). Cloud Run web is revision `farm-friend-web-00043-bn7`; worker is
+`farm-friend-worker-00041-g59`.
 
-**`main` and production are IN SYNC** as of 2026-08-08, and **no migrations are owed** — `0026`
-through `0028` were applied before the image was promoted, in that order, and verified by effect
-(count 26 → 29, every new column, all three `pending_phone` CHECK constraints, and the partial index
-*with* its `where (redeemed_at is null)` predicate). Production was fingerprinted first and 36 farms
-survived. Deploy assertions: plan `0 to add, 2 to change, 0 to destroy`, `plan-assertions` 55/55,
-`deploy_assertions` and `served_card_assertions` pass.
+**The DATA is current; the CODE is one release behind.** Revision `00043` runs the image built from
+`main` at `6ab087e` — it was started only to pick up a rotated secret, not to ship code. Everything
+merged after that (the weekly-ingest fixes, host participants, GL-015 backfill, the geocoding status
+fix, the map cleanup, B-039's day parsing) is **on `main` and not yet deployed**. A deploy is owed
+and is the next release step.
+
+**Production data was rebuilt from scratch on 2026-08-08** (max: "nuke the entire production db,
+re-ingest and start fresh"), then rebuilt a second time after B-039 so the day data landed. Current
+verified state, queried after the final re-seed:
+
+| | |
+|---|---|
+| Farms / sales locations | 35 / 35 |
+| Farm approvals (live) | 35, attributed to `board@vigavashon.org` |
+| `farm_links` / payment methods / participants | 35 / 53 / 10 |
+| Dated confirmations | 15, all `source = 'viga'`, no handset keys |
+| `open_days` populated | 24 of 35 |
+| Farm email roster | 38 emails across 32 farms |
+| Administrators | 1 |
+| Consents / farmer authorizations | 0 / 0 |
+
+The wipe **deleted 3 real SMS consent records** (max chose this explicitly over preserving them).
+Those numbers must each text `START` again before Farm Friend can message them — we cannot text
+first. The pre-wipe database is at `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`,
+verified restorable with all three consent rows intact; it is the only copy of that evidence.
+
+**Two restore steps the seeders do NOT cover**, both learned by hitting them: the fixed
+administrator (`bootstrap-administrator.ts`) and the farm email roster
+(`ingest-farm-emails.ts`, which must reuse the stored `EMAIL_HASH_SALT` or no farmer can verify).
+Neither is in the CSVs. The salt survived the wipe and was reused; verified behaviourally by hashing
+a known farm email through the shipped `hashEmail` and resolving the row back to that farm.
 
 **Nothing has been exercised against Telnyx or in a browser on production.** The `START` onboarding
 path is proven through the real webhook handler against real Postgres only. No SMS has completed
 onboarding on the deployed code, and no farmer has filled in the form on production.
-
-**The description cleanup HAS BEEN RUN** (2026-08-07, max approved). 31 of 34 rows rewritten in one
-transaction and verified by reading them back, then confirmed independently through
-`/api/public/stands` — the surface a customer actually reads. **34 → 29 farms carry a description**;
-the 5 emptied held nothing but structured facts, which still render from their own columns. A
-re-run reports **0 would change**, which is idempotence proven by effect rather than by argument.
-Prior values are backed up at `~/farm-friend-backups/farm-descriptions-backup-2026-08-07T21-53-18-994Z.json`
-— with no `farms.description` history table, that file is the rollback.
 
 **Secrets and mount flags.** Web mounts `GEOCODING_API_KEY`, `SMTP_PASSWORD`, and F-079's three;
 **the worker mounts none of them**, asserted unconditionally so flipping a flag can never hand a
@@ -118,22 +134,10 @@ constraint. max accepted that trade knowingly.
 
 **Owed data runs and live checks**
 
-- **F-064's production ingest has NOT happened.** Needs a re-export of all three CSVs (the profile
-  form is still open), a **`neondb` snapshot** — with an insert-only utility and GL-015 open, the
-  snapshot *is* the rollback — max's explicit approval for the bulk write, and a render check on a
-  real card afterwards. Until it runs, production serves pre-tranche listing **content** through the
-  new code.
-  **The description half is DONE and no longer part of this item** (2026-08-07):
-  `scripts/clean-farm-descriptions.ts` cleaned all 31 affected rows without a re-ingest or the CSVs.
-  What F-064 still owes is the listing **content** — items, hours, and dated confirmations from the
-  three exports.
-- **B-024** — fixed in code (F-061) and verified on a rehearsal database: a farmer's written refusal
-  makes the stand `contact_only`. **Production still publishes her address** until F-064's ingest
-  runs; the approved interim correction remains in place. **F-088 changed what that fix means**: a
-  `contact_only` stand may now carry an address and a pin, so "refused" no longer implies "unplaced".
-  The seeder still stores nothing for a farm that states nothing, and the protection a refusal buys
-  is now the suppressed directions link and the "Farm, no stand" marker — verify the ingest honours
-  that rather than assuming the old all-or-nothing shape.
+- **A deploy is owed.** Production data is current; production *code* is the `6ab087e` image. Six
+  merged changes are undeployed, including the geocoding status fix and B-039's day badge — the
+  card still renders "Hours not listed" for stands whose `open_days` are now populated, because the
+  reading code has not shipped.
 - **F-029:** finish live carrier launch verification — the `START` onboarding path has never
   been exercised against Telnyx from a real handset.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
@@ -161,8 +165,9 @@ constraint. max accepted that trade knowingly.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
 - **B-036:** the "North ferry" label is clipped at the island map's top edge (cosmetic).
 - Remaining go-live work is tracked in [GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md): **GL-007** (stock-out →
-  farmer alert), **GL-008** (customer stock-out surface), **GL-015** (applying a stand-data
-  decision), plus the P2 resilience band and P3 decisions.
+  farmer alert), **GL-008** (customer stock-out surface), **GL-015** (only its *stand-data flag*
+  half — resolving a flag still records the decision without applying a correction; the seed
+  utility's insert-only limit closed 2026-08-08), plus the P2 resilience band and P3 decisions.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so three surfaces are
 covered by tests but not by eye: the farmer agreement step, the expanded stand detail, and F-067's

@@ -243,8 +243,32 @@ Naming the target is not enough on its own — printing `host/neondb` confirms t
 typed, not the database it reaches. The guard reports what is *actually* there (database name,
 migrations applied, farms, locations, revisions) and refuses anything unexpected.
 
-The batch is transactional, idempotent by stand name, and skip-only: re-running never overwrites a
-farmer's later correction. It refuses invalid coordinates rather than coercing them.
+The batch is transactional and idempotent by stand name: re-running never overwrites a farmer's
+later correction. It refuses invalid coordinates rather than coercing them.
+
+**An existing stand's empty SIDE TABLES are backfilled** (GL-015, 2026-08-08) — `farm_links`,
+`sales_location_payment_methods`, and `sales_location_participants`. Until this existed the loader
+could only create a stand or skip it entirely, and running the launch ingest against production
+found the cost: all 35 stands already existed, so the batch wrote nothing and those three tables
+stayed empty with no way to fill them. The stand's own listing — address, coordinates, season,
+hours, stocking, description — is still never rewritten. Every backfill write is
+`on conflict do nothing`, so it fills gaps and never overwrites, reorders, or removes.
+
+**A farm whose farmer holds a live authorization is refused outright**, reported as
+`refused N (farmer owns the listing)`. Once a farmer owns their listing (golden rule #1), VIGA's
+older spreadsheet must not add to it behind their back — a payment method or host they deliberately
+removed would otherwise reappear on the next run.
+
+**Hosted participants** (`Hosting: Kareli Farm` in the map prose) are written with
+`source = 'viga'` and no confirming authorization, the same split F-063 made for inventory and
+enforced by the same shape of CHECK. A farmer takes ownership by editing the list on their own
+settings page, which writes `source = 'sms'`.
+
+**Weekday patterns are read into `open_days`** (B-039). VIGA asks "Open Hours & Days" as one
+question and farmers answer both axes — `10-6, Wednesday & Saturday` is a clock range *and* a day
+set — so `parseOpenDays` and `parseOpenHours` each read their own axis from the same answer. It
+refuses rather than guesses: a time-only answer, `See below`, and a seasonally split answer
+(`Spring: Fri- Sun, Summer: everyday`) all store no days.
 
 Both scripts **report everything they did not do** — refused rows, unknown farms, and any farm name
 that resolved to a stand under a *different* name. A submission landing on the wrong farm's card is
@@ -641,10 +665,14 @@ revision.
    # Same salt, then --commit. Insert-only and idempotent: a re-run writes zero.
    ```
 
-   The script **pins the expected farm count at 36** (VIGA's 35 real farms plus the marked
-   `Test Farm`) and refuses anything else, so a mistyped connection string fails loudly instead
-   of writing a roster somewhere else. If the count legitimately changes — a farm joins VIGA —
-   pass `EXPECTED_FARMS=<n>`; it failing then is the guard working.
+   The script **pins the expected farm count at 36** (VIGA's 35 real farms plus a `Test Farm` that
+   existed at the time) and refuses anything else, so a mistyped connection string fails loudly
+   instead of writing a roster somewhere else. If the count legitimately changes, pass
+   `EXPECTED_FARMS=<n>`; it failing then is the guard working.
+
+   **Production now holds 35 farms, so this needs `EXPECTED_FARMS=35`** — the 2026-08-08 rebuild
+   dropped `Test Farm`. The default is deliberately left at 36 rather than re-pinned: a guard that
+   is edited to match whatever the database currently holds has stopped being a guard.
 
    **Use the same salt for both runs and keep it.** Then add all three versions:
 

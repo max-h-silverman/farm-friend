@@ -255,6 +255,17 @@ export const inventoryRevisionSource = pgEnum("inventory_revision_source", [
   "viga",
 ]);
 
+/**
+ * Where a `sales_location_participants` row's name came from (F-064).
+ *
+ * The same two actors, and the same reasoning, as `inventoryRevisionSource` above: VIGA's map
+ * and weekly form state host farms as prose, with no handset behind them. A separate enum
+ * rather than a shared one because the two tables' keys differ — participants carry one
+ * authorization, revisions carry three — so one enum would imply a coherence rule it cannot
+ * enforce for both.
+ */
+export const participantSource = pgEnum("participant_source", ["sms", "viga"]);
+
 export const contacts = pgTable(
   "contacts",
   {
@@ -1510,7 +1521,16 @@ export const salesLocationParticipants = pgTable(
     ownerFarmId: uuid("owner_farm_id").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
     displayName: text("display_name").notNull(),
-    confirmedByAuthorizationId: uuid("confirmed_by_authorization_id").notNull(),
+    /**
+     * F-064 — who stated this name: the farmer's own handset, or VIGA's records.
+     *
+     * The same split F-063 made for `inventory_revisions`, for the same reason. The launch
+     * import reads host farms from VIGA's spreadsheets, which have no handset behind them, and
+     * fabricating an authorization would make the founding corpus indistinguishable from
+     * farmer-confirmed data.
+     */
+    source: participantSource("source").notNull(),
+    confirmedByAuthorizationId: uuid("confirmed_by_authorization_id"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }).notNull(),
     retiredByAuthorizationId: uuid("retired_by_authorization_id"),
     retiredAt: timestamp("retired_at", { withTimezone: true }),
@@ -1545,6 +1565,23 @@ export const salesLocationParticipants = pgTable(
     displayNameNotBlank: check(
       "sales_location_participants_display_name_not_blank",
       sql`length(trim(${table.displayName})) > 0`,
+    ),
+    // F-064 — the confirming key is required exactly when a farmer's handset confirmed the
+    // list. A biconditional rather than an independent NULL test, because a CHECK PASSES on
+    // NULL: `source = 'sms'` with no authorization would otherwise be admitted, which is the
+    // fabricated-confirmation row this exists to refuse.
+    sourceProvenance: check(
+      "sales_location_participants_source_keys_coherent",
+      sql`
+        (
+          ${table.source} = 'sms'
+          and ${table.confirmedByAuthorizationId} is not null
+        )
+        or (
+          ${table.source} = 'viga'
+          and ${table.confirmedByAuthorizationId} is null
+        )
+      `,
     ),
     retirementCoherent: check(
       "sales_location_participants_retirement_coherent",

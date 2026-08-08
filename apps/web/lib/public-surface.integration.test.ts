@@ -255,16 +255,16 @@ describe("public web surface boundary (integration)", () => {
       await client()`
         insert into sales_location_participants (
           owner_farm_id, sales_location_id, display_name,
-          confirmed_by_authorization_id, confirmed_at,
+          source, confirmed_by_authorization_id, confirmed_at,
           retired_by_authorization_id, retired_at
         ) values
           (
             ${ids.farm}, ${ids.location}, 'Guest Growers',
-            ${authorization[0]?.id as string}, ${T0}, null, null
+            'sms', ${authorization[0]?.id as string}, ${T0}, null, null
           ),
           (
             ${ids.farm}, ${ids.location}, 'Island Apiary',
-            ${authorization[0]?.id as string}, ${hoursAgo(4)},
+            'sms', ${authorization[0]?.id as string}, ${hoursAgo(4)},
             ${authorization[0]?.id as string}, ${T0}
           )
       `;

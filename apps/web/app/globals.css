@@ -8,15 +8,23 @@
  * is "confirmed a while ago".
  *
  * STALENESS IS NEVER SIGNALLED BY COLOUR ALONE — colour fails for a colourblind customer and
- * in bright sun, and this is the one signal the product cannot afford to have missed. Three
- * signals carry it, two of them WORDS: a left border, the "Needs confirmation" label beside
- * the address, and the dated "Confirmed 6 days ago" above the items.
+ * in bright sun, and this is the one signal the product cannot afford to have missed. It is
+ * carried by WORDS, and by a date rather than a judgement: the dated "Confirmed 39 days ago"
+ * above the items, rendered in amber once it ages past its window.
  *
- * A fourth signal — a separate "May be out of date — updated 6 days ago" line — was removed
- * (max, 2026-08-06). It predated the card's dated timestamp and had become the same fact told
- * a second time in the same colour, stranded beside "Get directions" where it read as a
- * caveat about the DIRECTIONS rather than about the produce. The words-based guarantee above
- * is what the rule actually requires, and it survives without it. */
+ * Three signals have been removed as the surface settled, each for the same reason — the same
+ * fact told again, more loudly, in a place that made it read as something else:
+ *
+ *   * "May be out of date — updated 6 days ago" (max, 2026-08-06) — stranded beside "Get
+ *     directions", where it read as a caveat about the DIRECTIONS rather than the produce.
+ *   * The "N listings need a recent confirmation" summary above the list, the "Needs
+ *     confirmation" label beside the address, and the amber left border on the card (max,
+ *     2026-08-08). The summary counted a condition the customer could already see per stand,
+ *     and the label and border restated the dated line two more times on the same card.
+ *
+ * What survives is the honest form of the fact: the date itself, which lets a customer decide
+ * what "recent" means for what they are driving out to buy. A count and a warning label were
+ * the system deciding that for them. */
 
 :root {
   /*
@@ -385,18 +393,6 @@ body {
   cursor: pointer;
 }
 
-/* ---------------------------------------------------------------- staleness notice */
-
-.stale-summary {
-  margin: 0 0 1.25rem;
-  padding: 0.8rem 1rem;
-  font-size: 0.92rem;
-  color: var(--amber);
-  background: var(--amber-soft);
-  border-left: 4px solid var(--amber-line);
-  border-radius: 0 10px 10px 0;
-}
-
 /* ---------------------------------------------------------------- stands */
 
 .stands {
@@ -414,11 +410,6 @@ body {
   border: 1px solid var(--line);
   border-left: 4px solid var(--green);
   border-radius: var(--radius);
-}
-
-/* Staleness, signal one of three. */
-.stand-stale {
-  border-left-color: var(--amber-line);
 }
 
 .stand-head {
@@ -3251,10 +3242,6 @@ form.farmer-picker-next {
     margin-bottom: 0;
   }
 
-  .list-column-hoisted > .stale-summary {
-    margin-bottom: 0;
-  }
-
   .stands {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     /* Rows sit closer than columns: the cards' own padding already separates them vertically,
@@ -4311,10 +4298,6 @@ button.admin-action-danger,
   box-shadow: 0 3px 8px rgb(63 74 56 / 9%);
 }
 
-.stand-stale {
-  box-shadow: inset 4px 0 0 var(--amber-line);
-}
-
 .stand-head {
   gap: 0.35rem;
   /* Keep the number anchored to the first line when a long stand name wraps. */
@@ -4374,10 +4357,6 @@ button.admin-action-danger,
   /* 3px, matching the selected pin's stroke — the two marks are read as one selection across
    * the map and the directory, so they carry the same weight as well as the same color. */
   box-shadow: 0 0 0 3px var(--selected);
-}
-
-.stand-selected.stand-stale {
-  box-shadow: 0 0 0 3px var(--selected), inset 4px 0 0 var(--amber-line);
 }
 
 .stand-selected:hover {
@@ -4559,12 +4538,6 @@ button.admin-action-danger,
   font-size: 0.9rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
-}
-
-.stand-summary-freshness {
-  color: var(--amber);
-  font-size: 0.82rem;
-  font-weight: 750;
 }
 
 .stand-details {
@@ -4923,13 +4896,6 @@ button.admin-action-danger,
     height: 0.58rem;
   }
 
-  .stale-summary {
-    margin-bottom: 0.4rem;
-    padding: 0.4rem 0.55rem;
-    font-size: 0.82rem;
-    line-height: 1.25;
-  }
-
   .stands {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.3rem 1rem;
@@ -4959,10 +4925,6 @@ button.admin-action-danger,
     background: var(--row-hover);
     border-color: transparent;
     box-shadow: none;
-  }
-
-  .stand-stale {
-    border-left-color: var(--amber-line);
   }
 
   .stand > .poster-indicators {
@@ -5012,12 +4974,6 @@ button.admin-action-danger,
     margin: 0;
     font-size: 0.875rem;
     line-height: 1.2;
-  }
-
-  .stand-summary-freshness {
-    min-height: 1.45rem;
-    font-size: 0.82rem;
-    line-height: 1.15;
   }
 
   .distance {

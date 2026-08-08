@@ -27,11 +27,13 @@ import {
   matchStandName,
   parseFarmLinks,
   parseFormResponses,
+  parseHostedParticipants,
   parseFarmBucksPolicy,
   parseOpenHours,
   parsePaymentMethods,
   parseSeason,
   parseStandCsv,
+  parseOpenDays,
   parseStocking,
   refusesPublicAddress,
   stripContactDetails,
@@ -223,9 +225,30 @@ function toSeedInput(stand: JoinedStand): {
   });
   const paymentMethods = [...new Set(mapLines.flatMap((line) => parsePaymentMethods(line)))];
 
+  // F-064 — host farms, from the map's `Hosting:` prose. The profile form has no hosting
+  // question (measured against the real header, 2026-08-07), so the map is the only source
+  // here. The weekly form asks it as its own column and is a separate, later feed.
+  //
+  // Only lines that ANNOUNCE hosting are offered to the parser. It reads a bare list too,
+  // because the weekly form's column has no label — so handing it every description line would
+  // read a farm's address or its produce sentence as a roster of sellers.
+  const participants = [
+    ...new Set(
+      mapLines
+        .filter((line) => /^\s*hosting\b/i.test(line))
+        .flatMap((line) => parseHostedParticipants(line)),
+    ),
+  ];
+
   const parsedSeason = parseSeason(seasonText || mapDescription);
   const parsedHours = parseOpenHours(hoursText || mapDescription);
   const parsedStocking = parseStocking(stockingText || mapDescription);
+
+  // B-039 — which WEEKDAYS, read from the SAME answer the hours come from. VIGA's form asks
+  // "Open Hours & Days" as one question, so "10-6, Wednesday & Saturday" carries both axes;
+  // `parseOpenHours` takes the times and this takes the days. Neither is a fallback for the
+  // other, and a stand may state one without the other.
+  const parsedOpenDays = parseOpenDays(hoursText || mapDescription);
   const farmBucksPolicy = parseFarmBucksPolicy(
     [
       stand.name,
@@ -272,6 +295,7 @@ function toSeedInput(stand: JoinedStand): {
     ...(publicDescription !== undefined ? { description: publicDescription } : {}),
     ...(links.length > 0 ? { links } : {}),
     ...(paymentMethods.length > 0 ? { paymentMethods } : {}),
+    ...(participants.length > 0 ? { participants } : {}),
     kind: /farmers\s*market/i.test(stand.name)
       ? ("farmers_market" as const)
       : ("farm_stand" as const),
@@ -279,6 +303,7 @@ function toSeedInput(stand: JoinedStand): {
     ...(hoursText !== "" ? { hoursText } : {}),
     season,
     openHours,
+    ...(parsedOpenDays !== undefined ? { openDays: parsedOpenDays } : {}),
     stocking:
       parsedStocking.cadence === "unparsed"
         ? { cadence: "not_stated" as const }
@@ -446,6 +471,8 @@ async function main(): Promise<void> {
     const result = await seedStands(sql, inputs);
     console.log(
       `\nseeded ${result.seeded}, skipped ${result.skipped} (already present), ` +
+        `backfilled ${result.backfilled} (links/payments/hosts added to an existing stand), ` +
+        `refused ${result.backfillRefused} (farmer owns the listing), ` +
         `flags raised ${result.flagsRaised}`,
     );
   } finally {

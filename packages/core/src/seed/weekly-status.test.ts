@@ -99,6 +99,39 @@ describe("parseWeeklyStatus", () => {
     expect(result.submissions[0]?.items).toEqual(["tomatoes", "basil"]);
   });
 
+  it("treats one farm's own spelling variants as ONE farm", () => {
+    // REAL 2026 rows: this farmer typed "Fruits Des Vignes Farm" in April and "Fruits des
+    // Vignes Farm" in July. Keying the latest-wins race on the raw string made them two farms,
+    // so an April row survived as if it were current stock for a second, non-existent stand.
+    //
+    // The database layer happened to absorb it — both names resolve to the same seeded stand,
+    // and the older row then lost the `skippedAsOlder` guard. That is ordering luck, not a
+    // guarantee: it counted a real farm's submission as a routine skip, and the parser's own
+    // contract is "latest per farm", which is what this asserts.
+    const result = parseWeeklyStatus(
+      header +
+        row({
+          timestamp: "4/20/2026 8:00:00",
+          farm: "Fruits Des Vignes Farm",
+          available: "Eggs, plant starts",
+        }) +
+        "\n" +
+        row({
+          timestamp: "7/8/2026 8:00:00",
+          farm: "Fruits des Vignes Farm",
+          available: "Raspberries, Rhubarb, Eggs, Honey",
+        }),
+      { season: 2026 },
+    );
+
+    expect(result.submissions).toHaveLength(1);
+    const submission = result.submissions[0]!;
+    // The name is stored as the farmer most recently typed it, never as the match key.
+    expect(submission.farmName).toBe("Fruits des Vignes Farm");
+    expect(submission.statedOn).toEqual(new Date(Date.UTC(2026, 6, 8)));
+    expect(submission.items).toEqual(["Raspberries", "Rhubarb", "Eggs", "Honey"]);
+  });
+
   it("reads only the season asked for", () => {
     // The file carries four seasons — 2020, 2024, 2025, 2026 — and a 2020 row describes a stand
     // as it was six years ago. Nothing reads past seasons (max, 2026-08-04).
@@ -234,6 +267,61 @@ describe("parseWeeklyStatus", () => {
       );
       expect(reopened.closed).toHaveLength(0);
       expect(reopened.submissions.map((s) => s.farmName)).toEqual(["Reopened Farm"]);
+    });
+
+    it("races a closure against stock filed under the farm's FORMER name", () => {
+      // The real 2026 pair, and the one that published a wrong fact in rehearsal: this farmer
+      // submitted stock on 30 March as "Maggie's Farm", renamed, and closed on 6 July as
+      // "Green Ears". Their profile row says "Formerly Maggie's Farm".
+      //
+      // Those are two keys at parse time, so the two rows never raced: the closure was reported
+      // for a human (correct, closures are not written) while the STALE MARCH STOCK ROW was
+      // published as current. A farmer who shut their stand for the season appeared open,
+      // carrying produce from four months earlier — the exact "publish a closed stand as
+      // stocked" failure the same-name test above already forbids.
+      //
+      // The rename is the farmer's own stated fact, never inferred from spelling.
+      const result = parseWeeklyStatus(
+        header +
+          row({
+            timestamp: "3/30/2026 8:00:00",
+            farm: "Maggie's Farm",
+            available: "Flower Bouquets, Bunches, Parsley",
+          }) +
+          "\n" +
+          row({
+            timestamp: "7/6/2026 8:00:00",
+            farm: "Green Ears",
+            open: "No",
+            available: "Closed",
+          }),
+        { season: 2026, formerNames: new Map([["maggie's", "green ears"]]) },
+      );
+
+      expect(result.submissions).toHaveLength(0);
+      expect(result.closed.map((c) => c.farmName)).toEqual(["Green Ears"]);
+    });
+
+    it("keeps a rename's stock row when it is NEWER than the closure", () => {
+      // The same timeline the other way up, so the fix cannot be "a rename always loses".
+      // Closed under the old name in March, stocked again under the new one in July.
+      const result = parseWeeklyStatus(
+        header +
+          row({
+            timestamp: "3/30/2026 8:00:00",
+            farm: "Maggie's Farm",
+            open: "No",
+            available: "Closed",
+          }) +
+          "\n" +
+          row({ timestamp: "7/6/2026 8:00:00", farm: "Green Ears", available: "Bouquets, herbs" }),
+        { season: 2026, formerNames: new Map([["maggie's", "green ears"]]) },
+      );
+
+      expect(result.closed).toHaveLength(0);
+      expect(result.submissions).toHaveLength(1);
+      expect(result.submissions[0]?.farmName).toBe("Green Ears");
+      expect(result.submissions[0]?.items).toEqual(["Bouquets", "herbs"]);
     });
 
     it("reads 'nothing available this week' as a closure, not as an unreadable answer", () => {

@@ -11,6 +11,99 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-08 — the launch ingest, a two-day silent outage, and a database rebuilt from scratch
+
+Started from one screenshot — Provo Farms showing "Hours not listed" beside a map entry that reads
+"Open: All year, All days" — and ended with production's data rebuilt from the CSVs twice, a
+production outage found and fixed, and four defects that only appeared when code met real data.
+
+**The screenshot was not a new bug.** F-061 had already fixed the code; F-064's data run had never
+happened, so production was new code over old rows. Worth stating because the instinct was to go
+looking for a rendering fault, and the honest answer was "the parser works, it has never been run".
+
+**Two defects in the weekly ingest, both found by rehearsing rather than by reading.**
+`parseWeeklyStatus` promises "the latest submission per farm" and keyed that race on the raw
+`Farm Name` string — a spelling, not a farm.
+
+- One farmer submitted as `Fruits Des Vignes Farm` in April and `Fruits des Vignes Farm` in July.
+  Two farms, 17 submissions for 16 farms. The database absorbed it by *ordering luck*: both names
+  resolve to the same stand, so the April row lost the `skippedAsOlder` guard and was counted as a
+  routine skip.
+- The second published a **wrong fact**. Green Ears filed stock on 30 March as "Maggie's Farm",
+  renamed, and closed on 6 July under the new name. Two keys, so the closure and the stock row never
+  raced: the closure was correctly reported-not-written, and the four-month-old March stock
+  published as current. A farmer who shut their stand for the season appeared open and stocked.
+
+The writer already resolved renames, but it could not repair this — by the time it sees the rows the
+timeline is decided, and a closure is deliberately never written, so nothing is there to supersede
+the stale row. The rename map had to move *into* the parser.
+
+**`sales_location_participants` got its writer.** Third table with a schema, live readers, and
+nothing ever writing it — the card's "Also selling here" section had rendered nothing since F-050.
+It could not be written because `confirmed_by_authorization_id` was `NOT NULL`, and a spreadsheet
+has no handset. That is the problem F-063 already settled for `inventory_revisions`, so migration
+`0029` takes the same shape rather than inventing a second one: a `source` column with a
+biconditional CHECK. Fabricating an authorization was rejected for F-063's reason — at inception it
+would make the entire founding corpus indistinguishable from farmer-confirmed data.
+
+**GL-015's insert-only limit, found the only way it could be.** The first production ingest reported
+`skipped 35` and wrote nothing: every stand already existed, and the loader could only create or
+skip. Links, hosts and most payment methods stayed empty. **The rehearsal had missed it by running
+from an empty schema, where every stand is an insert** — same code, same CSVs, opposite outcome.
+That is the lesson worth keeping: rehearse against a restored production snapshot, not a clean one.
+Backfill now fills empty side tables and refuses any farm whose farmer holds a live authorization.
+
+**The production outage, which nothing was reporting.** max reported address lookup broken in
+production but working locally. The mount was fine and the secret had a version — the secret
+*contained the literal five bytes* `<key>`, pasted from the RUNBOOK's own step 2 without
+substitution. Google answered `REQUEST_DENIED` for every address, and `lookupIslandAddress`
+collapsed that into `no_result` — the same answer a genuinely unknown address gets. So every farmer
+was told their valid address could not be found, the route returned HTTP 200 throughout, and since
+F-077 made the typed address the only source of a coordinate, **no visitable stand could be created
+for two days with no signal anywhere**. Fixed in both places: the key, and the code —
+`REQUEST_DENIED`/`INVALID_REQUEST` now return `not_configured`, whose existing copy tells the farmer
+to contact VIGA instead of blaming their address. `OVER_QUERY_LIMIT` deliberately stays `no_result`:
+a throttled key is configured correctly, and calling it misconfigured sends an operator to rotate a
+healthy credential.
+
+**"Gold & Silver" was ours, not the ingest's.** max spotted a payment method on Provo's card that is
+in none of the CSVs. Traced to the pre-ingest snapshot: it was one of the 7 payment rows that
+already existed, from earlier hand-testing on a real farm's listing. The backfill correctly left it
+alone — it adds, never removes.
+
+**Then max chose to nuke and rebuild.** Schema dropped, 30 migrations reapplied, stands re-seeded,
+confirmations re-published. Two restore steps the seeders do **not** cover surfaced by hitting them:
+the fixed administrator, and the farm email roster (which must reuse the stored `EMAIL_HASH_SALT` —
+verified behaviourally by hashing a known email through the shipped function and resolving the row
+back to its farm). max chose to wipe the 3 real consent records too; those numbers must text `START`
+again, since we cannot text first.
+
+**Map cleanup, and one accessibility rule narrowed deliberately.** The staleness banner, the "Needs
+confirmation" label, and the amber border all came out — each was the same fact told again. The rule
+in `globals.css` says staleness is never signalled by colour alone; the dated "Confirmed 39 days
+ago" line is words and survives, so the rule holds, but it is now the *whole* of the signal. Its
+test was kept and widened rather than dropped, because a guarantee with no test is one that leaves
+silently — which is exactly what that test's own comment says.
+
+**B-039, the item the screenshot started.** 13 of 35 stands read "Hours not listed" while stating
+their hours, because the answers are *day* patterns and `open_hours_kind` models times of day.
+`open_days` could hold them, had two live readers, and had never been written. `parseOpenDays` reads
+the day axis from the same answer `parseOpenHours` reads the time axis from. Measured against all 32
+real answers: 24 of 35 stands now carry days, and every refusal is right — 5 blanks, "See below", 4
+time-only answers that must not become a seven-day claim, and Sweet Alyssum's `Spring: Fri- Sun,
+Summer: everyday`, which one day set cannot express without being wrong half the year. `openNow`
+still answers `unknown` for a days-but-no-times stand, correctly; the fix is in what the card says.
+
+**A correction I made mid-session.** I flagged a "participants rendering gap" from a bad inference —
+searched the collapsed page for the wrong key name. Checked properly: the payload carries all 6
+non-empty host lists, the section renders on card expansion by design, and existing tests already
+covered it. There was no gap.
+
+**Committed, merged, and released this session**; production *data* is current, production *code* is
+not — the deploy is owed and is the next release step.
+
+---
+
 ## 2026-08-08 — the onboarding form, and `JOIN <token>` replaced by a bare `START`
 
 Started as eight cosmetic edits to the onboarding form and ended by replacing the credential that

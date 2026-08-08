@@ -169,15 +169,9 @@ describe("buildMapView", () => {
     expect(view.stands.map((s) => s.id)).toEqual(["fresh-far", "stale-near"]);
   });
 
-  it("counts stale listings so the UI can warn once, up front", () => {
-    expect(buildMapView(stands, null).staleCount).toBe(1);
-    expect(buildMapView([stands[0]!], null).staleCount).toBe(0);
-  });
-
   it("handles an empty map without inventing anything", () => {
     const view = buildMapView([], ORIGIN);
     expect(view.stands).toEqual([]);
-    expect(view.staleCount).toBe(0);
     expect(view.sortedByDistance).toBe(false);
   });
 
@@ -205,12 +199,13 @@ describe("buildMapView", () => {
       expect(view.stands.map((s) => s.id)).toContain("unconfirmed");
     });
 
-    it("is NOT counted as stale", () => {
+    it("is NOT marked stale", () => {
       // "Stale" means a farmer confirmed something and it has aged. Nothing was confirmed
-      // here, so counting it would inflate the up-front warning and tell customers a
-      // listing went out of date when no listing ever existed.
-      expect(buildMapView([unconfirmed], null).staleCount).toBe(0);
-      expect(buildMapView([...stands, unconfirmed], null).staleCount).toBe(1);
+      // here, so flagging it would tell a customer a listing went out of date when no
+      // listing ever existed. The card reads this flag to age its dated line.
+      expect(buildMapView([unconfirmed], null).stands[0]!.stale).toBeUndefined();
+      const mixed = buildMapView([...stands, unconfirmed], null);
+      expect(mixed.stands.filter((stand) => stand.stale === true)).toHaveLength(1);
     });
 
     it("still gets a routing link — location is known even when stock is not", () => {
@@ -277,8 +272,8 @@ describe("buildMapView", () => {
       expect(view.stands[view.stands.length - 1]!.id).toBe("contact-only");
     });
 
-    it("is NOT counted as stale", () => {
-      expect(buildMapView([contactOnly], null).staleCount).toBe(0);
+    it("is NOT marked stale", () => {
+      expect(buildMapView([contactOnly], null).stands[0]!.stale).toBeUndefined();
     });
 
     it("shows published stock when it has some — the two facts are independent", () => {
@@ -354,7 +349,6 @@ describe("buildMapView", () => {
 
       const view = buildMapView([tagged], null);
 
-      expect(view.staleCount).toBe(0);
       expect(view.stands[0]!.updated).toBeUndefined();
       expect(view.stands[0]!.stale).toBeUndefined();
     });
