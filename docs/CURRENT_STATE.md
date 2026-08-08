@@ -130,7 +130,7 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Owed data runs and live checks**
 
-- **A deploy is owed**, including migrations `0030`/`0031`.
+- **A deploy is owed**, including migrations `0030`/`0031`/`0032`.
 - **F-029:** finish live carrier launch verification — the `START` onboarding path has never been
   exercised against Telnyx from a real handset.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
