@@ -127,6 +127,42 @@ describe("buildMapView", () => {
     expect(view.stands[0]!.routingLink).toBeNull();
   });
 
+  it("offers NO routing link for a farm with no stand to visit (F-088)", () => {
+    // THE PROTECTION THAT REPLACES THE OLD CONSTRAINT.
+    //
+    // F-038 kept a contact-only farm off the map by forbidding it a coordinate. F-088 lets it
+    // be placed — so the thing that actually sends someone driving, the directions link, is
+    // suppressed here instead. Without this, relaxing the constraint would reintroduce exactly
+    // the defect it was built to prevent: turn-by-turn navigation to a farm with nothing to buy.
+    //
+    // The PIN survives. The farm is findable, carries its own "Farm, no stand" marker, and its
+    // card says there is no stand to visit — what it does not do is invite the drive.
+    const delivery = [
+      { ...stands[0]!, visitability: "contact_only" as const },
+    ];
+    const view = buildMapView(delivery, ORIGIN);
+
+    expect(view.stands[0]!.routingLink).toBeNull();
+    expect(view.stands[0]!.latitude).toBeDefined();
+    expect(view.stands[0]!.longitude).toBeDefined();
+  });
+
+  it("offers NO routing link when the farmer hid their address (F-088)", () => {
+    // The link is built from the COORDINATE, not the address string — so hiding the address
+    // does not suppress it on its own, and without this the "get directions" button would
+    // still hand a customer turn-by-turn navigation to the farmer's front door. That is the
+    // whole of what hiding an address is meant to prevent, so the suppression is explicit.
+    //
+    // The PIN survives: the stand keeps its coordinates and stays on the map. What goes away
+    // is the printed address and the route to it.
+    const hidden = [{ ...stands[0]!, address: undefined }];
+    const view = buildMapView(hidden, ORIGIN);
+
+    expect(view.stands[0]!.routingLink).toBeNull();
+    expect(view.stands[0]!.latitude).toBeDefined();
+    expect(view.stands[0]!.longitude).toBeDefined();
+  });
+
   it("ignores a garbage origin rather than ranking from it", () => {
     const view = buildMapView(stands, { latitude: Number.NaN, longitude: 0 });
     expect(view.sortedByDistance).toBe(false);

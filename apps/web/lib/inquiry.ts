@@ -131,7 +131,10 @@ async function retrieveCurrentListings(
     select
       l.id as location_id,
       l.name as location_name,
-      l.public_address as public_address,
+      -- F-088 — a hidden address never leaves the database on an answer path. Suppressed
+      -- HERE rather than at the renderer so no downstream reader can print it by
+      -- accident; the paging renderer already shows a null address as "address not listed".
+      case when l.address_public then l.public_address else null end as public_address,
       f.name as farm_name,
       r.published_at as published_at,
       e.item_name as item_name,
@@ -175,7 +178,10 @@ async function retrieveCurrentListings(
         factId: locationId,
         farmName: row.farm_name as string,
         locationName: row.location_name as string,
-        publicAddress: row.public_address as string,
+        // `as string` was a lie even before F-088 — the column has been nullable since
+        // F-038, and the cast is what let the literal "null" reach customers once
+        // (F-046). A hidden address now arrives null on this path too.
+        publicAddress: row.public_address as string | null,
         asOf: row.published_at as Date,
         basis: "confirmed",
         items: [],
@@ -200,7 +206,10 @@ async function retrieveCurrentListings(
     select
       l.id as location_id,
       l.name as location_name,
-      l.public_address as public_address,
+      -- F-088 — a hidden address never leaves the database on an answer path. Suppressed
+      -- HERE rather than at the renderer so no downstream reader can print it by
+      -- accident; the paging renderer already shows a null address as "address not listed".
+      case when l.address_public then l.public_address else null end as public_address,
       f.name as farm_name,
       l.created_at as created_at,
       o.display_name as item,
@@ -241,7 +250,10 @@ async function retrieveCurrentListings(
         factId: `${OFFERING_FACT_PREFIX}${locationId}`,
         farmName: row.farm_name as string,
         locationName: row.location_name as string,
-        publicAddress: row.public_address as string,
+        // `as string` was a lie even before F-088 — the column has been nullable since
+        // F-038, and the cast is what let the literal "null" reach customers once
+        // (F-046). A hidden address now arrives null on this path too.
+        publicAddress: row.public_address as string | null,
         asOf: row.created_at as Date,
         basis: "offering",
         items: [],

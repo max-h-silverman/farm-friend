@@ -2181,17 +2181,53 @@ form.farmer-picker-next {
   height: 1.25rem;
 }
 
+/* The address and the control that resolves it, on ONE line. A full-width button underneath
+   read as a second step for what is a single action on a single value. The input keeps the
+   whole row and the button overlays its trailing edge, so a long address still has the full
+   field width to scroll within. */
+.farmer-listing-address {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.farmer-listing-address input {
+  width: 100%;
+  /* Room for the button, so the caret never slides underneath it. */
+  padding-right: 3.25rem;
+}
+
 /* The map, now a READ-ONLY display of where the address resolved (F-077). It was a tappable
    input until the pin picker was retired; `cursor: crosshair` and `touch-action` went with the
    tap, because a crosshair over something that cannot be clicked invites a tap that does
-   nothing. It stays full width so the farmer can actually check the point at phone size. */
+   nothing. It stays full width so the farmer can actually check the point at phone size.
+
+   **A FIXED height, and that is the point of it.** The map renders from the moment the address
+   is asked for, so this box is on screen before there is anything to put in it. A height that
+   depended on the artwork would grow when the pin arrived and shove the rest of the form down
+   the page — the exact thing rendering it always is meant to stop. `preserveAspectRatio`'s
+   default slicing keeps the island centred in the box at any frame. */
 .farmer-listing-map {
   width: 100%;
-  height: auto;
+  height: 38vh;
+  /* Bounded so it stays a strip on a tall phone and never dominates a laptop screen. */
+  max-height: 320px;
+  min-height: 180px;
   margin-top: 0.2rem;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 10px;
+  transition: opacity 200ms ease;
+}
+
+/* Faint while waiting, so an empty map reads as "not placed yet" rather than as a stand.
+
+   THE ZOOM ITSELF IS NOT HERE. `viewBox` is an SVG attribute, and the CSS `view-box` property
+   that would animate it is too thinly supported to rely on — where it is missing the frame
+   would simply snap, losing the travel that carries the meaning. It is animated frame by frame
+   in the component instead (`useZoomedViewBox`), which behaves the same everywhere. */
+.farmer-listing-map[data-placed="no"] {
+  opacity: 0.55;
 }
 
 .farmer-listing-map-label {
@@ -2212,25 +2248,61 @@ form.farmer-picker-next {
   stroke-width: 3;
 }
 
-/* The lookup button. Secondary to the submit button: it resolves an answer rather than
-   publishing anything. The `-confirm` button it used to share these rules with was the "that
-   spot looks right" gate, deleted with the pin picker. */
+/* The lookup button, now an icon INSIDE the address field. Secondary to the submit button: it
+   resolves an answer rather than publishing anything. The `-confirm` button it used to share
+   these rules with was the "that spot looks right" gate, deleted with the pin picker.
+
+   Absolutely positioned over the input's trailing edge rather than sharing a flex row, so the
+   field keeps its full width for a long address. It stays a 44px target despite showing only a
+   glyph — a one-handed tap outdoors is the real use. */
 .farmer-listing-lookup {
-  min-height: 48px;
-  margin-top: 0.4rem;
-  padding: 0.6rem 0.9rem;
-  font: inherit;
-  font-weight: 600;
+  position: absolute;
+  right: 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   color: var(--ink);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
   cursor: pointer;
 }
 
+.farmer-listing-lookup svg {
+  width: 22px;
+  height: 22px;
+}
+
 .farmer-listing-lookup:disabled {
-  opacity: 0.65;
+  opacity: 0.4;
   cursor: default;
+}
+
+/* The looking-up state. A spinner rather than the word "Looking…", which no longer fits in a
+   44px square — the control is momentary and the map below carries the result. */
+.farmer-listing-lookup-busy {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--line);
+  border-top-color: var(--ink);
+  border-radius: 50%;
+  animation: farmer-listing-spin 700ms linear infinite;
+}
+
+@keyframes farmer-listing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A spinner that cannot spin should not pretend to. The shape still reads as "working". */
+@media (prefers-reduced-motion: reduce) {
+  .farmer-listing-lookup-busy {
+    animation: none;
+  }
 }
 
 /* F-069 — the structured season / hours / restocking pickers. */
@@ -3829,6 +3901,13 @@ button.admin-action-danger,
 
 .field-input::placeholder {
   color: var(--ink-faint);
+}
+
+/* The native "x" on `type="search"`. It is the browser's own control, not markup of ours, so it
+   inherited the text field's I-beam cursor and read as part of the text rather than as something
+   to click. `cursor: pointer` matches `.filter-clear`, the other control that clears a filter. */
+.field-input::-webkit-search-cancel-button {
+  cursor: pointer;
 }
 
 .field-input:focus-visible {

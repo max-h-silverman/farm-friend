@@ -218,7 +218,7 @@ describe("farmer onboarding listing endpoint", () => {
     );
   });
 
-  it("DROPS an address and pin sent alongside contact_only", async () => {
+  it("KEEPS the address and pin on a contact-only stand (F-088)", async () => {
     // A farmer who fills in the address, then changes their answer to "no stand to visit",
     // must not publish a pin. The form hides those fields, but the boundary cannot rely on
     // the form — it is reachable by anything that can POST, and `coherentVisitability` would
@@ -243,9 +243,12 @@ describe("farmer onboarding listing endpoint", () => {
       {},
       expect.objectContaining({
         listing: expect.objectContaining({
-          publicAddress: null,
-          latitude: null,
-          longitude: null,
+          // F-088 — a farm with no stand is now PLACED like any other. Stripping here would
+          // discard a location the farmer gave us; `visitability` is what stops the map
+          // inviting the drive, and it travels untouched.
+          publicAddress: "12345 Vashon Highway SW",
+          latitude: 47.4471,
+          longitude: -122.4594,
         }),
       }),
     );
@@ -349,6 +352,75 @@ describe("farmer onboarding listing endpoint", () => {
   // These reach five CHECK constraints. The boundary's job is to refuse a MALFORMED request —
   // a bad enum value, a non-integer month, a weekday of 9 — before it becomes either a
   // constraint violation or, worse, a coerced value the farmer never stated.
+
+  // ── F-088: hiding the ADDRESS without hiding the stand ────────────────────────────────
+  //
+  // Some Vashon stands sit at the farmer's home. The farmer wants customers to find the
+  // stand and does not want their street address printed. Until F-088 the only way to
+  // suppress the address was `contact_only`, which also removes the pin and tells customers
+  // there is nowhere to go — a different and wrong claim.
+  //
+  // The flag governs DISPLAY only. The address is still stored and still required for a
+  // visitable stand, so `coherentVisitability` is untouched.
+  describe("F-088 address visibility", () => {
+    it("carries the farmer's choice to hide their address through to the writer", async () => {
+      const save = saver();
+      await handleFarmerListingPost(
+        deps(loader(), save),
+        post({ token: TOKEN, ...LISTING, addressPublic: false }),
+      );
+
+      expect(save).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          listing: expect.objectContaining({
+            // The address is still STORED — hiding is a display decision, and the database
+            // still requires an address for a visitable stand.
+            publicAddress: "12345 Vashon Highway SW",
+            addressPublic: false,
+          }),
+        }),
+      );
+    });
+
+    it("defaults to PUBLIC when the field is absent", async () => {
+      // Every door that predates this field posts nothing for it, and every row that existed
+      // before the column held an address a farmer typed into a public listing form. The
+      // default must match that, or deploying this would hide every address on the island.
+      const save = saver();
+      await handleFarmerListingPost(
+        deps(loader(), save),
+        post({ token: TOKEN, ...LISTING }),
+      );
+
+      expect(save).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          listing: expect.objectContaining({ addressPublic: true }),
+        }),
+      );
+    });
+
+    it("treats a NON-BOOLEAN as public rather than trusting it", async () => {
+      // The parse must not be truthiness. `"false"` is a truthy string and `0` is falsy, so a
+      // coerced read would hide addresses on some malformed bodies and publish them on others
+      // — and the direction that leaks is the one that matters. Only a real `false` hides.
+      for (const value of ["false", 0, null, "no"]) {
+        const save = saver();
+        await handleFarmerListingPost(
+          deps(loader(), save),
+          post({ token: TOKEN, ...LISTING, addressPublic: value }),
+        );
+
+        expect(save).toHaveBeenCalledWith(
+          {},
+          expect.objectContaining({
+            listing: expect.objectContaining({ addressPublic: true }),
+          }),
+        );
+      }
+    });
+  });
 
   describe("F-069 structured availability", () => {
     const AVAILABILITY = {

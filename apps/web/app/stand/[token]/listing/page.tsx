@@ -77,6 +77,9 @@ export default async function FarmerListingEditPage({
             standName: listing.standName,
             visitability: listing.visitability,
             publicAddress: listing.publicAddress,
+            // F-088 — B-037's rule for the newest column: the writer sets it on every save, so
+            // an edit form that did not carry it would republish a hidden address.
+            addressPublic: listing.addressPublic,
             latitude: listing.latitude,
             longitude: listing.longitude,
             hoursText: listing.hoursText,

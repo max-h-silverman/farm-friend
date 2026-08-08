@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 // `unprojectFromIsland` is NO LONGER imported: F-077 removed the tap that needed it. It is
 // deliberately still exported from the projection module — its own tests use it to prove the
 // projection round-trips, which is load-bearing evidence for the FORWARD projection the public
@@ -17,12 +17,18 @@ import { IslandArtwork } from "../../../island-artwork";
 /**
  * F-067 / F-069 — the listing details a farmer fills in while onboarding.
  *
- * **The visitability question is this form's structure, not a field on it.** The database
- * refuses a `visitable` stand without an address and a complete coordinate pair, and refuses a
- * `contact_only` one that has any of them (`sales_locations_coherent_visitability`, F-038 /
- * B-024). Inventing an address for a farm with no stand to visit puts a pin on the map that
- * sends a customer driving to a place with nothing to buy. So the form ASKS first, and the
- * address and pin only exist once the farmer says there is somewhere to go.
+ * **EVERY farm is placed, and the visit question decides what the map INVITES** (F-088, max
+ * 2026-08-07). The address comes first and is asked of everyone.
+ *
+ * It used to be the other way round: the visitability question came first and gated the address,
+ * because `coherentVisitability` refused to store an address or a pin on a farm with no stand
+ * (F-038 / B-024). Asking first would have collected a value the database then threw away.
+ *
+ * That constraint was relaxed to the shape it always meant — a location is complete or absent,
+ * whoever it belongs to. The original defect was never the coordinate but the UNLABELLED
+ * coordinate: a pin that silently implied "come here". A farm with no stand now renders with its
+ * own marker ("Farm, no stand"), a card saying so, and NO directions link, so being findable and
+ * being drivable-to have come apart. Every farmer gets found; only some invite the drive.
  *
  * **The typed address is the ONLY source of a coordinate** (F-077, max 2026-08-06). F-069 made
  * the lookup a draft the farmer confirmed by tapping the island; that tap, that confirm gate,
@@ -197,6 +203,144 @@ interface GeocodedPin {
 }
 
 /**
+ * How much of the island stays in frame once the view settles on a resolved stand.
+ *
+ * **The coastline is the only thing there is to check a pin against.** Farm Friend draws the
+ * island from its own artwork and has no map tiles — that is the "no permanent map package"
+ * boundary, still shut. So a frame tight enough to crop the shoreline away leaves a dot on an
+ * empty field: a confident-looking picture carrying no information, which is worse than no
+ * picture at all.
+ *
+ * A third of the island's width keeps a recognisable stretch of shore beside the pin while
+ * still being a real zoom. The `listing-step` suite asserts both halves of that — narrower
+ * than the whole island, and not so narrow the coast is gone.
+ */
+const ZOOM_FRACTION = 1 / 3;
+
+/**
+ * The viewBox that frames a resolved stand, clamped to stay over the drawing.
+ *
+ * Clamping rather than centring blindly: a stand near a corner of the island would otherwise
+ * be framed half off the artwork, filling the box with blank space exactly where the farmer
+ * is looking for the shoreline.
+ */
+function zoomedFrame(point: { x: number; y: number }): Frame {
+  const width = ISLAND_VIEWBOX.width * ZOOM_FRACTION;
+  const height = ISLAND_VIEWBOX.height * ZOOM_FRACTION;
+  const x = Math.min(
+    ISLAND_VIEWBOX.width - width,
+    Math.max(0, point.x - width / 2),
+  );
+  const y = Math.min(
+    ISLAND_VIEWBOX.height - height,
+    Math.max(0, point.y - height / 2),
+  );
+  return { x, y, width, height };
+}
+
+/** A viewBox as its four numbers, so two frames can be interpolated between. */
+interface Frame {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const WHOLE_FRAME: Frame = {
+  x: 0,
+  y: 0,
+  width: ISLAND_VIEWBOX.width,
+  height: ISLAND_VIEWBOX.height,
+};
+
+function frameAttribute(frame: Frame): string {
+  return `${frame.x} ${frame.y} ${frame.width} ${frame.height}`;
+}
+
+/** The inverse of `frameAttribute`, so the animation can read its target from its dependency. */
+function parseFrame(attribute: string): Frame {
+  const [x, y, width, height] = attribute.split(/\s+/).map(Number);
+  return { x: x!, y: y!, width: width!, height: height! };
+}
+
+/** Ease-out cubic — quick to leave, gentle to arrive, which is how a camera settles. */
+function easeOut(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
+const ZOOM_MS = 520;
+
+/**
+ * The animated frame, travelling toward wherever the pin currently puts it.
+ *
+ * **Animated here rather than in CSS**, because `viewBox` is an SVG attribute: the CSS
+ * `view-box` property that would transition it is too thinly supported to depend on, and where
+ * it is absent the frame snaps — losing the travel that is the whole point. A `requestAnimation
+ * Frame` loop behaves identically everywhere.
+ *
+ * The motion is what carries the meaning — a farmer watching the view arrive at the north end
+ * has checked "right end of the island?" before reading the pin — so `prefers-reduced-motion`
+ * lands on the SAME settled frame instantly rather than on a different one. No movement, no
+ * information lost.
+ */
+function useZoomedViewBox(pinPoint: { x: number; y: number } | null): string {
+  const target = pinPoint === null ? WHOLE_FRAME : zoomedFrame(pinPoint);
+  const [frame, setFrame] = useState<Frame>(target);
+  const fromRef = useRef<Frame>(target);
+  /*
+    The target as its four numbers, and the effect's ONLY dependency.
+
+    `target` itself is a fresh object on every render, so depending on it would tear down and
+    restart the travel on each animated frame — the view would jitter at the start and never
+    arrive. The string is the same for equal frames, so the effect re-runs exactly when the
+    destination really changes.
+
+    It is also what the effect READS, via `parseFrame`. Deriving `to` from the dependency
+    rather than closing over `target` is what keeps the two from drifting.
+  */
+  const targetKey = frameAttribute(target);
+
+  useEffect(() => {
+    const to = parseFrame(targetKey);
+    const from = fromRef.current;
+    if (frameAttribute(from) === frameAttribute(to)) return;
+
+    const reduced =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || typeof requestAnimationFrame !== "function") {
+      fromRef.current = to;
+      setFrame(to);
+      return;
+    }
+
+    const started = performance.now();
+    let raf = 0;
+    const step = (now: number): void => {
+      const progress = Math.min(1, (now - started) / ZOOM_MS);
+      const eased = easeOut(progress);
+      const next: Frame = {
+        x: from.x + (to.x - from.x) * eased,
+        y: from.y + (to.y - from.y) * eased,
+        width: from.width + (to.width - from.width) * eased,
+        height: from.height + (to.height - from.height) * eased,
+      };
+      setFrame(next);
+      if (progress < 1) {
+        raf = requestAnimationFrame(step);
+        return;
+      }
+      fromRef.current = to;
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [targetKey]);
+
+  return frameAttribute(frame);
+}
+
+/**
  * Which door this form is being filled in through (F-072).
  *
  * **The form states WHAT is being written; the credential states who may write it.** An invited
@@ -248,6 +392,12 @@ export interface ListingDefaults {
   standName: string;
   visitability: "visitable" | "contact_only";
   publicAddress: string | null;
+  /**
+   * F-088 — whether the address is shown to customers. B-037's rule again: the writer sets this
+   * column on every save, so an edit form that could not see it would republish an address the
+   * farmer had deliberately hidden.
+   */
+  addressPublic: boolean;
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
@@ -352,6 +502,10 @@ export function ListingStep({
     "visitable" | "contact_only" | null
   >(defaults?.visitability ?? null);
   const [address, setAddress] = useState(defaults?.publicAddress ?? "");
+  // F-088 — public unless the farmer says otherwise, matching the column default and every row
+  // that predates it. `!== false` rather than `?? true` so a door that omits it cannot hide an
+  // address by accident.
+  const [addressPublic, setAddressPublic] = useState(defaults?.addressPublic !== false);
   const [pin, setPin] = useState<GeocodedPin | null>(
     defaults?.latitude != null && defaults.longitude != null
       ? // A stand already on the map has a coordinate, and it belongs to the address stored
@@ -402,6 +556,19 @@ export function ListingStep({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  /*
+    The pin's place on the drawing, and the frame that travels toward it.
+
+    Both computed HERE, above the `saved` early return, because `useZoomedViewBox` is a hook:
+    below that return it would be skipped whenever the form is in its saved state, which is a
+    conditional hook call and a real bug rather than a lint complaint.
+  */
+  const pinPoint =
+    pin === null
+      ? null
+      : projectToIsland({ latitude: pin.latitude, longitude: pin.longitude });
+  const mapViewBox = useZoomedViewBox(pinPoint);
 
   /**
    * Change the address, and DISCARD any coordinate the old text resolved to (F-077).
@@ -536,14 +703,25 @@ export function ListingStep({
     return hours * 60 + minutes;
   }
 
-  const visitable = visitability === "visitable";
-  // F-077 — a visitable stand needs an address that RESOLVED. The pin is cleared whenever the
+  // F-077 — a stand needs an address that RESOLVED. The pin is cleared whenever the
   // address text changes, so `pin !== null` means "this address, as currently typed, has a
   // coordinate" rather than merely "a coordinate was found at some point".
+  /*
+    F-088 — EVERY farm is placed, so the address requirement no longer depends on the answer.
+
+    It used to read `!visitable || (…)`: an address was required of a visitable stand and
+    forbidden of anything else, because the database refused to store one. Now every farm gives
+    an address and a resolved pin, and the visit question only decides what the map INVITES —
+    the marker, the warning line, the suppressed directions link.
+
+    `pin !== null` still means "this address, as currently typed, resolved" (F-077), so an
+    address the geocoder cannot place still cannot be published by anyone.
+  */
   const ready =
     standName.trim() !== "" &&
     visitability !== null &&
-    (!visitable || (address.trim() !== "" && pin !== null));
+    address.trim() !== "" &&
+    pin !== null;
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -565,13 +743,17 @@ export function ListingStep({
           // two values describe stands VIGA seeded (a service business, an order-only farm)
           // and are not questions worth putting to someone setting up a farm stand.
           offeringType: "produce",
-          ...(visitable
-            ? {
-                publicAddress: address,
-                latitude: pin?.latitude ?? null,
-                longitude: pin?.longitude ?? null,
-              }
-            : {}),
+          // F-088 — the location is sent for EVERY farm, not only a visitable one. It used to
+          // be conditional because the database refused an address on a farm with no stand;
+          // that is what changed. `visitability` still travels beside it and is what decides
+          // the marker, the "no stand to visit" line, and whether directions are offered.
+          publicAddress: address,
+          // F-088 — sent with the address it governs. Always sent, never conditional on being
+          // false: the writer sets this column on every save, so omitting it would reset a
+          // hidden address back to public on the farmer's next edit.
+          addressPublic,
+          latitude: pin?.latitude ?? null,
+          longitude: pin?.longitude ?? null,
           hoursText,
           // Only the detail the chosen kind carries is sent. The boundary strips the rest too,
           // but sending stale dates for a season the farmer changed would be this form asking
@@ -683,7 +865,8 @@ export function ListingStep({
           {address.trim() === "" ? null : (
             <div>
               <dt>Address</dt>
-              <dd>{address}</dd>
+              {/* Says which choice was recorded, so a farmer who ticked the box can see it took. */}
+              <dd>{addressPublic ? address : `${address} — hidden from customers`}</dd>
             </div>
           )}
           {items.trim() === "" ? null : (
@@ -736,9 +919,6 @@ export function ListingStep({
     );
   }
 
-  const pinPoint =
-    pin === null ? null : projectToIsland({ latitude: pin.latitude, longitude: pin.longitude });
-
   return (
     <form className="farmer-listing" onSubmit={(event) => void submit(event)}>
       {canRenameFarm && (
@@ -767,6 +947,173 @@ export function ListingStep({
       />
 
       {/*
+        WHERE THE FARM IS — asked of EVERY farm, before the visit question (F-088).
+
+        This used to sit BEHIND the visit question, because the database refused an address on
+        a farm with no stand: asking first would have collected a value it then had to throw
+        away. max reopened that (2026-08-07), so every farm is placed and the dependency that
+        forced the old order is gone.
+
+        Asking first is what the farmer expects — the address is the one fact they know cold —
+        and it means the visit question below narrows what an already-placed farm SHOWS rather
+        than deciding whether to collect anything at all.
+      */}
+        <label htmlFor="stand-address">Where is it?</label>
+        {/*
+          The lookup sits INSIDE the field rather than on its own row below it. It is one
+          action on one value, and a full-width button underneath read as a second step —
+          the address and the thing that resolves it now occupy one line.
+
+          `Enter` runs the lookup too. A farmer who finishes typing an address and presses
+          the key their phone keyboard offers should not have to go find a control; and
+          without this the keypress would SUBMIT the whole form, which is the same accident
+          `type="button"` prevents on the icon.
+        */}
+        <div className="farmer-listing-address">
+          <input
+            id="stand-address"
+            type="text"
+            value={address}
+            // Editing DISCARDS the coordinate the previous text resolved to — see
+            // `changeAddress`. This is what stops one address publishing under another.
+            onChange={(event) => changeAddress(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              void findAddress();
+            }}
+            placeholder="12345 Vashon Highway SW"
+            maxLength={300}
+          />
+          {/*
+            `type="button"` matters — inside a form a bare button submits, which would try to
+            publish the listing on a lookup, with no coordinate and a refusal the farmer did
+            not ask for.
+
+            The label stays a full sentence for a screen reader even though the control shows
+            only a glyph; the icon is `aria-hidden` so it is not announced twice.
+          */}
+          <button
+            type="button"
+            className="farmer-listing-lookup"
+            onClick={() => void findAddress()}
+            disabled={lookingUp || address.trim() === ""}
+            aria-label="Find this address on the map"
+          >
+            {lookingUp ? (
+              <span className="farmer-listing-lookup-busy" aria-hidden="true" />
+            ) : (
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                {/* A location pin, drawn rather than imported — one glyph is not a font. */}
+                <path
+                  d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+                <circle cx="12" cy="9" r="2.5" fill="currentColor" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        {/*
+          The map is a READ-ONLY DISPLAY of where the address resolved (F-077). It carries no
+          click handler: there is no placement for a farmer to make, because the address is
+          the only thing that decides the coordinate.
+
+          It is not merely decoration, though, which is why it survived the pin picker. A
+          coordinate published without ever being shown is one the farmer cannot sanity-check
+          — and a geocoder putting a Vashon Highway address at the wrong end of the island is
+          exactly the mistake a glance catches and no validation can.
+
+          **It is present from the moment the address is asked for, pin or no pin.** It used
+          to render only on a successful lookup, so a found address made a large block appear
+          mid-form and push every field below it down the page — on a phone that lands the
+          farmer's thumb somewhere other than where they aimed it. Always rendering turns
+          that into a swap inside a box whose height never changes.
+
+          The frame is the WHOLE ISLAND until an address resolves, then travels to the
+          stand's neighbourhood. Starting wide is what makes the zoom informative: the coarse
+          check a farmer actually performs is "is this the right end of the island?", and
+          watching the view arrive there answers it before they read the pin. The coastline
+          stays in frame at rest for the same reason — see `ZOOM_FRACTION`.
+        */}
+        <p className="farmer-listing-map-label" id="pin-instruction">
+          {pinPoint === null
+            ? "Your stand will show here once we find your address."
+            : "Found it. This is where people will be sent — check it looks right."}
+        </p>
+        <svg
+          className="farmer-listing-map"
+          viewBox={mapViewBox}
+          role="img"
+          aria-describedby="pin-instruction"
+          aria-label={
+            pinPoint === null
+              ? "Map of Vashon and Maury Island. Your stand is not placed yet."
+              : "Map of Vashon and Maury Island, showing your stand's location."
+          }
+          // Faint until there is something real to show, so an empty map reads as waiting
+          // rather than as a placed stand.
+          data-placed={pinPoint === null ? "no" : "yes"}
+        >
+          <IslandArtwork />
+          {pinPoint === null ? null : (
+            <g>
+              <circle
+                cx={pinPoint.x}
+                cy={pinPoint.y}
+                /*
+                  Sized against the CURRENT frame, not the drawing.
+
+                  An `r` in fixed viewBox units is a fixed fraction of the frame, so as the
+                  view narrows the pin swells on screen — it would balloon through the zoom
+                  and settle three times too large. Scaling with the frame's width holds it
+                  at one apparent size from the first frame to the last.
+                */
+                r={14 * (Number(mapViewBox.split(/\s+/)[2]) / ISLAND_VIEWBOX.width)}
+                className="farmer-listing-pin"
+              />
+            </g>
+          )}
+        </svg>
+        {lookupNote === null ? null : (
+          <p className="farmer-form-note" role="status">
+            {lookupNote}
+          </p>
+        )}
+
+        {/*
+          F-088 — hiding the address WITHOUT hiding the stand.
+
+          Offered here rather than as a third answer to "can people come to your stand?",
+          because it answers a different question. Visitability decides whether there is
+          somewhere to go; this decides whether the street address is printed. Folding them
+          into one list would make "don't show my address" look like "I have no stand", which
+          is what the map says today for the farms that prompted this.
+
+          The note states the consequence plainly, including what still happens — the pin
+          stays. A farmer who wants no location shown at all wants the other answer above,
+          and saying so here is what stops this being mistaken for it.
+        */}
+        <label className="farmer-listing-choice farmer-listing-address-privacy">
+          <input
+            type="checkbox"
+            checked={!addressPublic}
+            onChange={() => setAddressPublic(!addressPublic)}
+          />
+          <span>Don&apos;t show my address to customers</span>
+        </label>
+        <p className="farmer-form-note">
+          {addressPublic
+            ? "Your address shows on your listing, with a link to directions."
+            : "Your stand still shows on the map, and people can find it by its pin — " +
+              "but your address and the directions link stay hidden."}
+        </p>
+
+      {/*
         THE BRANCH. Asked before anything that depends on it, and deliberately not
         pre-answered: whether there is a place to drive to is the one fact nobody may invent
         on a farmer's behalf. Radio buttons rather than a checkbox, so "not answered yet" is
@@ -793,80 +1140,6 @@ export function ListingStep({
           <span>No — I deliver, or people arrange it with me</span>
         </label>
       </fieldset>
-
-      {visitable ? (
-        <>
-          <label htmlFor="stand-address">Where is it?</label>
-          <input
-            id="stand-address"
-            type="text"
-            value={address}
-            // Editing DISCARDS the coordinate the previous text resolved to — see
-            // `changeAddress`. This is what stops one address publishing under another.
-            onChange={(event) => changeAddress(event.target.value)}
-            placeholder="12345 Vashon Highway SW"
-            maxLength={300}
-          />
-          {/*
-            `type="button"` matters — inside a form a bare button submits, which would try to
-            publish the listing on a lookup, with no coordinate and a refusal the farmer did
-            not ask for.
-          */}
-          <button
-            type="button"
-            className="farmer-listing-lookup"
-            onClick={() => void findAddress()}
-            disabled={lookingUp || address.trim() === ""}
-          >
-            {lookingUp ? "Looking…" : "Find this address on the map"}
-          </button>
-
-          {/*
-            The map is a READ-ONLY DISPLAY of where the address resolved (F-077). It carries no
-            click handler: there is no placement for a farmer to make, because the address is
-            the only thing that decides the coordinate.
-
-            It is not merely decoration, though, which is why it survived the pin picker. A
-            coordinate published without ever being shown is one the farmer cannot sanity-check
-            — and a geocoder putting a Vashon Highway address at the wrong end of the island is
-            exactly the mistake a glance catches and no validation can.
-          */}
-          {pinPoint === null ? null : (
-            <>
-              <p className="farmer-listing-map-label" id="pin-instruction">
-                Found it. This is where people will be sent — check it looks right.
-              </p>
-              <svg
-                className="farmer-listing-map"
-                viewBox={`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`}
-                role="img"
-                aria-describedby="pin-instruction"
-                aria-label="Map of Vashon and Maury Island, showing your stand's location."
-              >
-                <IslandArtwork />
-                <g>
-                  <circle
-                    cx={pinPoint.x}
-                    cy={pinPoint.y}
-                    r={14}
-                    className="farmer-listing-pin"
-                  />
-                </g>
-              </svg>
-            </>
-          )}
-          {lookupNote === null ? null : (
-            <p className="farmer-form-note" role="status">
-              {lookupNote}
-            </p>
-          )}
-          {pin === null && lookupNote === null ? (
-            <p className="farmer-form-note">
-              Type your address and look it up, so people can find your stand.
-            </p>
-          ) : null}
-        </>
-      ) : null}
 
       {/* ── Season ─────────────────────────────────────────────────────────────────────── */}
       <label htmlFor="season-kind">When is your stand open in the year?</label>

@@ -11,6 +11,93 @@ current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), tho
 ---
 
 
+## 2026-08-05 — retiring a stand, re-issuing a lost onboarding link, and quieter admin chrome
+
+Four small admin asks from max (F-071). Two were one-line changes; two turned out to have a real
+design decision underneath, and both were put to max rather than assumed. Merged as PR #83.
+**Not deployed** — migration `0022_stand_retirement` is not applied to production.
+
+### "Delete a farm/stand" could only ever mean taking it off the map
+
+Reading the schema settled it before asking: nearly every reference to `sales_locations` is
+`on delete restrict` — `inventory_revisions`, `inventory_entries`, `stand_items`,
+`stock_out_reports` — so **a hard DELETE fails at the constraint for any stand that has ever
+published**, which is nearly all of them. Erasure would also erase the answer to "what did this
+stand say it had, and when", which Golden Rule #1 and the audit trail exist to keep. max was asked
+anyway, with the constraint stated, and chose "take it off the map, keep records".
+
+**`retired_at` is deliberately not `is_public`.** That column is a *listing attribute the farmer's
+own onboarding form writes on every save* (`onboarding-listing.ts` sets `is_public = true`), so an
+operator decision expressed through it would be silently reverted the next time the farmer edited
+their listing. One column owned by two actors is the failure; a separate operator-owned column is
+the fix.
+
+**The enforcement is at the publication seam, not in the caller.** `confirmInventoryPublication`
+reads `retired_at` from the location row it had *already locked* at the top of the transaction, so
+a retirement racing an in-flight confirmation resolves at the lock rather than by arrival order.
+It deliberately does **not** gate the `no` branch: declining a prompt for a since-retired stand is
+closing your own proposal, not publishing, and refusing it would strand that proposal open forever.
+
+### A lost onboarding link is re-minted, never recovered
+
+`farmer_invitations` stores only `token_hash`, and `createFarmerInvitation` returns the token
+exactly once. So max's "view onboarding link" is not implementable as a view, and shouldn't be —
+the password-reset argument. max chose "make a new link". The farmers page now lists farms with no
+live authorization and mints a fresh link through the invite path that already existed, rather than
+a second endpoint.
+
+**"Unfinished" is the absence of a LIVE AUTHORIZATION, not an unredeemed invitation.** Those come
+apart in both directions and each is a test: VIGA can authorize a farmer straight from the queue
+with no invitation involved (that farm is finished, and keying on redemption would strand it in the
+list forever), and a farm whose only farmer was revoked again has nobody who can update it. An
+*expired* invitation keeps the farm listed rather than dropping it — a farmer who lost their link
+usually notices after it lapsed, so hiding those would hide exactly the farms an operator came for.
+
+### Three existing guards caught real defects rather than passing
+
+The most valuable part of the session, and none of it was found by reading the code.
+
+- **drizzle-kit silently omits CHECK constraints when it generates SQL.** The coherent-retirement
+  invariant existed in `schema.ts` and in *nothing the database enforced*.
+  `migration-metadata.test.ts` caught it by name. The constraint is now hand-written into the
+  migration and verified **by effect** against a freshly migrated database: present in
+  `pg_constraint`, and it refuses an insert carrying half a retirement.
+- **The generated journal timestamp was LOWER than `0021`'s** (1785992670717 vs 1787000000000) —
+  precisely the documented silent-skip condition, where drizzle applies only when
+  `created_at < folderMillis` and reports success for a migration it skipped. Corrected by hand.
+- **`closure.integration.test.ts` detects lock contention by matching `pg_stat_activity` query
+  text**, and adding a column to the locked SELECT reduced its observed claimants to **zero while
+  the test kept running**. It was re-anchored to the locked table plus `for update` — the
+  constructs it actually proves — rather than to a column list that changes whenever a column is
+  added, then re-sabotaged to confirm it still bites. This is the "anchor a source assertion to the
+  construct it proves" lesson appearing in a *runtime* probe.
+
+Stashing the branch proved the closure failure was ours rather than environmental, which is what
+distinguished it from a flaky concurrency test.
+
+### The admin stands route had no guard test at all
+
+`/api/admin/stands` was missing from the "every admin route refuses an unauthorized caller" sweep
+in `admin-routes.integration.test.ts` — a sweep whose entire stated purpose is that adding a route
+without a guard shows up there rather than in production. It is now covered, which matters more
+than before: the route now carries the power to take any stand off the public map.
+
+### Verified
+
+1240 unit / 688 integration, typecheck and lint clean, on the merged base. No `packages/ai` file
+changed, so no evals are owed. Every new guard was sabotaged and confirmed to fail: the publication
+check, **both public read filters independently** (map filter intact while breaking SMS, and the
+reverse — `inquiry.ts` runs its own SQL, so the map passing proves nothing about the text reply),
+the route's session guard, and the awaiting-onboarding revocation clause.
+
+**No browser check was run, and it is not tracked as owed.** max's call at the wrap: he does his own
+browser testing in a pass before go-live, so recording a per-tranche browser debt overstates what is
+outstanding. Migration `0022` was applied to the **local sandbox only** (43 farms / 39 stands
+unchanged, verified by effect); production is untouched, and max chose not to deploy this tranche.
+
+---
+
+---
 ## 2026-08-05 — structured listing facts, a geocoded draft pin, and roads on the island map
 
 Two asks on the onboarding form (F-069), then the map (F-070). Both merged as PR #82 and **deployed**

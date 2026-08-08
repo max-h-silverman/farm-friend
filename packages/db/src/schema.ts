@@ -1004,6 +1004,23 @@ export const salesLocations = pgTable(
     publicLatitude: doublePrecision("public_latitude"),
     publicLongitude: doublePrecision("public_longitude"),
     /**
+     * Whether the address TEXT may be shown to customers. The pin is unaffected.
+     *
+     * **A display decision, not a location one**, and that separation is the whole point. Some
+     * Vashon stands sit at the farmer's home: they want people to find the stand, and they do
+     * not want their street address printed in a public listing. Before this, those two wishes
+     * were one column — the only way to hide the address was `contact_only`, which also removes
+     * the pin and tells customers there is nowhere to go.
+     *
+     * So `coherentVisitability` is UNCHANGED and still requires an address and a coordinate pair
+     * for a visitable stand. The address is always STORED; this column decides only whether it
+     * is rendered. VIGA still sees it in admin, because support work needs it.
+     *
+     * `true` by default: an address a farmer typed into a public listing form is public unless
+     * they say otherwise, and every row that existed before this column was exactly that.
+     */
+    addressPublic: boolean("address_public").notNull().default(true),
+    /**
      * The farmer's own words about when they are open, preserved verbatim.
      *
      * DISPLAY ONLY — never filtered on (F-035). Sherman Creek's "Saturday and Sunday when
@@ -1098,28 +1115,40 @@ export const salesLocations = pgTable(
       `,
     ),
     /**
-     * F-038 — the load-bearing invariant. All-or-nothing in BOTH directions.
+     * F-038, narrowed by F-088 — a location is COMPLETE or absent, whoever it belongs to.
      *
-     * `visitable` requires an address and a complete coordinate pair: without them the map
-     * cannot place the stand, so "visitable" would be a promise the system cannot keep. Half a
-     * coordinate pair is refused too — latitude alone puts a pin in the ocean.
+     * `visitable` still requires an address and a complete coordinate pair: without them the
+     * map cannot place the stand, so "visitable" would be a promise the system cannot keep.
      *
-     * `contact_only` requires all three to be ABSENT, which is the direction that actually
-     * protects customers. The old map export carries real coordinates for Open Gate Lamb even
-     * though it has no stand; seeding those would put a pin on the map that sends someone
-     * driving to a place with nothing to buy. The database refuses that rather than trusting
-     * every future loader and admin screen to remember.
+     * **What F-088 relaxed (max, 2026-08-07): `contact_only` may now be fully placed.** It used
+     * to require all three ABSENT, on the reasoning that the old map export carried real
+     * coordinates for Open Gate Lamb and seeding them would send someone driving to a farm with
+     * nothing to buy.
+     *
+     * That reasoning held while a pin was an unqualified invitation. It no longer is. A
+     * contact-only farm renders with its own marker kind ("Farm, no stand" — built long ago and
+     * unreachable until now, precisely because this constraint forbade the coordinate), a card
+     * stating there is no stand to visit, and NO directions link. The defect was never the
+     * coordinate; it was the UNLABELLED coordinate, and the label is now code with tests behind
+     * it. Being findable is what a farm wants; being drivable-to is what it may decline.
+     *
+     * **What did NOT relax, and is the whole of what this still enforces: half a location is
+     * refused in every direction.** Latitude without longitude puts a pin in the ocean, and an
+     * address-less point cannot be checked by anyone — neither has anything to do with whether
+     * there is a stand. That is why the rule below is stated once, over the shape of a location,
+     * rather than twice over the two visitability values.
      */
     coherentVisitability: check(
       "sales_locations_coherent_visitability",
       sql`
         (
-          ${table.visitability} = 'visitable'
-          and ${table.publicAddress} is not null
+          -- Fully placed: an address AND both coordinates. Any farm may be.
+          ${table.publicAddress} is not null
           and ${table.publicLatitude} is not null
           and ${table.publicLongitude} is not null
         )
         or (
+          -- Not placed at all — and then it cannot claim to be visitable.
           ${table.visitability} = 'contact_only'
           and ${table.publicAddress} is null
           and ${table.publicLatitude} is null

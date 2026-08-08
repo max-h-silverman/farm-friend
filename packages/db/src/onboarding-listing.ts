@@ -79,6 +79,15 @@ export interface OnboardingListingInput {
   visitability: "visitable" | "contact_only";
   offeringType: "produce" | "services" | "by_order";
   publicAddress: string | null;
+  /**
+   * F-088 — whether the address TEXT may be shown to customers. The pin is unaffected.
+   *
+   * Written on every save alongside the address, for the same B-037 reason the availability
+   * columns are: this writer replaces the whole listing, so a field it did not set would be
+   * reset to the column default on every edit — silently republishing an address a farmer had
+   * deliberately hidden.
+   */
+  addressPublic: boolean;
   /** From the farmer's pin drop on the drawn island — there is no geocoder (a non-goal). */
   latitude: number | null;
   longitude: number | null;
@@ -406,7 +415,7 @@ async function insertStand(
   const rows = await tx`
     insert into sales_locations (
       owner_farm_id, kind, name, timezone, visitability, offering_type,
-      public_address, public_latitude, public_longitude, hours_text,
+      public_address, address_public, public_latitude, public_longitude, hours_text,
       season_kind, season_start_month, season_start_day,
       season_end_month, season_end_day, season_names,
       open_hours_kind, open_from_minutes, open_until_minutes, open_days,
@@ -416,7 +425,8 @@ async function insertStand(
     ) values (
       ${input.farmId}, 'farm_stand', ${input.standName}, 'America/Los_Angeles',
       ${input.listing.visitability}, ${input.listing.offeringType},
-      ${input.address}, ${input.listing.latitude}, ${input.listing.longitude},
+      ${input.address}, ${input.listing.addressPublic},
+      ${input.listing.latitude}, ${input.listing.longitude},
       ${input.hoursText},
       ${available.seasonKind}, ${available.seasonStartMonth}, ${available.seasonStartDay},
       ${available.seasonEndMonth}, ${available.seasonEndDay},
@@ -463,6 +473,7 @@ async function updateStand(
         visitability = ${input.listing.visitability},
         offering_type = ${input.listing.offeringType},
         public_address = ${input.address},
+        address_public = ${input.listing.addressPublic},
         public_latitude = ${input.listing.latitude},
         public_longitude = ${input.listing.longitude},
         hours_text = ${input.hoursText},
@@ -595,6 +606,13 @@ export interface StandListing {
   visitability: "visitable" | "contact_only";
   offeringType: "produce" | "services" | "by_order";
   publicAddress: string | null;
+  /**
+   * F-088 — B-037's rule applied to the newest field. The edit form prefills from this reader
+   * and the writer replaces every column, so a flag the reader could not see would be reset to
+   * `true` by the next save — republishing an address the farmer had hidden, with nothing shown
+   * and nothing failing.
+   */
+  addressPublic: boolean;
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
@@ -615,7 +633,8 @@ export async function readStandListing(
   const rows = await driver(db)`
     select
       location.name, location.visitability, location.offering_type,
-      location.public_address, location.public_latitude, location.public_longitude,
+      location.public_address, location.address_public,
+      location.public_latitude, location.public_longitude,
       location.hours_text,
       location.season_kind, location.season_start_month, location.season_start_day,
       location.season_end_month, location.season_end_day, location.season_names,
@@ -651,6 +670,7 @@ export async function readStandListing(
     visitability: row.visitability as "visitable" | "contact_only",
     offeringType: row.offering_type as "produce" | "services" | "by_order",
     publicAddress: (row.public_address as string | null) ?? null,
+    addressPublic: row.address_public !== false,
     latitude: (row.public_latitude as number | null) ?? null,
     longitude: (row.public_longitude as number | null) ?? null,
     hoursText: (row.hours_text as string | null) ?? null,

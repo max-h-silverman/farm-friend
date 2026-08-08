@@ -34,8 +34,22 @@ axis of its own. That is sufficient to render an honest "updated X ago".
 - **farms and sales locations** — the farm and its stands or sales points. A location's
   `owner_farm_id` is the farm authorized to govern address, hours, closure, and visibility; owner
   authority is not seller participation. Each location carries one reviewed timezone used for
-  local scheduled work; launch currently permits only `America/Los_Angeles`. A farm without a
-  public stand records an exact, approximate, or hidden map location.
+  local scheduled work; launch currently permits only `America/Los_Angeles`.
+
+  **A location is complete or absent, and any farm may have one** (F-088, narrowing F-038).
+  `sales_locations_coherent_visitability` requires an address *and* both coordinates together —
+  half a pair puts a pin in the ocean, and a point with no address cannot be checked by anyone.
+  Only the `visitable` branch still names `visitability`, forbidding a stand that claims visitors
+  with nowhere to send them. A `contact_only` farm may be fully placed; **whether a farm is a
+  destination is a rendering decision, not a storage one**, and the guarantee that nobody is routed
+  to a farm with nothing to buy now lives in `buildMapView` (no directions link for `contact_only`)
+  rather than in this constraint.
+
+  **`address_public` governs the address TEXT, never the pin** (F-088). `NOT NULL DEFAULT true`,
+  because every row predating it holds an address a farmer typed into a public listing form. The
+  address is always stored; this decides whether it renders. Admin reads it regardless — support
+  work needs the address — and the SMS answer path suppresses it in SQL so a hidden address never
+  leaves the database on that path.
 
   **`retired_at` is VIGA taking a stand down, and it is the only "delete" there is** (F-071). A
   retired location leaves every public surface and refuses publication, but keeps every revision it
@@ -66,8 +80,10 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   **It is an operator fact about a fake farm, never a privacy control for a real one.** The web
   half of "deliberate viewer" is `?hidden=true`, a guessable query parameter rather than a
   credential, so it hides nothing from anyone determined to look. A farmer who does not want her
-  address published is `contact_only` (B-024) — a fact about the listing, which is a different
-  kind of thing entirely.
+  address published sets **`address_public = false`** (F-088) — a fact about the listing, which is
+  a different kind of thing entirely. It was `contact_only` until F-088 separated the two: that
+  value now says only *"there is no stand to visit"*, and no longer implies an unpublished address
+  or an absent pin.
 - **farmer contacts and authorization** — who may act for a farm, and proof they control the phone
   number. **VIGA always grants this**, because a phone proves possession of a phone and not
   ownership of a farm: the only writer is administrator-gated, re-reads the administrator's

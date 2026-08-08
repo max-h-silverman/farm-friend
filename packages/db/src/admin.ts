@@ -568,6 +568,15 @@ export interface AdminStandRow {
   visitability: "visitable" | "contact_only";
   offeringType: string;
   publicAddress: string | null;
+  /**
+   * F-088 — whether customers see the address. VIGA sees it either way.
+   *
+   * Admin reads the RAW address regardless, because support work needs it: answering "where is
+   * this farm?" on the phone is exactly the job this screen exists for. The flag travels beside
+   * it so the screen can say the address is withheld from the public rather than implying it is
+   * on the map.
+   */
+  addressPublic: boolean;
   publicLatitude: number | null;
   publicLongitude: number | null;
   hoursText: string | null;
@@ -619,6 +628,7 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       location.visitability,
       location.offering_type,
       location.public_address,
+      location.address_public,
       location.public_latitude,
       location.public_longitude,
       location.hours_text,
@@ -696,6 +706,7 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     visitability: row.visitability as AdminStandRow["visitability"],
     offeringType: row.offering_type as string,
     publicAddress: (row.public_address as string | null) ?? null,
+    addressPublic: row.address_public !== false,
     publicLatitude: row.public_latitude === null ? null : Number(row.public_latitude),
     publicLongitude: row.public_longitude === null ? null : Number(row.public_longitude),
     hoursText: (row.hours_text as string | null) ?? null,

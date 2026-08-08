@@ -179,7 +179,10 @@ function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdministratio
         {
           title: "Visit & listing",
           items: [
-            ["Address", row.publicAddress ?? "No public address"],
+            // F-088 — the real address either way, marked when customers cannot see it. VIGA
+            // answers "where is this farm?" from this screen, so hiding it here would break
+            // support to protect a customer-facing preference this row is not shown to.
+            ["Address", row.publicAddress === null ? "No public address" : row.addressPublic ? row.publicAddress : `${row.publicAddress} — hidden from customers`],
             ["Coordinates", row.publicLatitude === null || row.publicLongitude === null ? "Not applicable" : `${row.publicLatitude}, ${row.publicLongitude}`],
             ["Visit in person", row.visitability === "visitable" ? "Yes" : "No — contact the farm"],
             ["Type", row.kind === "farm_stand" ? "Farm stand" : "Farmers market"],

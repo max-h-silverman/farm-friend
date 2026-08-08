@@ -292,20 +292,30 @@ export function parseListingSubmission(
     return null;
   }
 
-  // A contact-only stand carries NO address and NO pin, and the boundary enforces that rather
-  // than trusting the form to have hidden the fields. `coherentVisitability` would refuse the
-  // write anyway, but as a constraint violation the farmer cannot act on — and a farmer who
-  // filled in an address and then changed their answer is the ordinary case, not an attack.
-  const visitable = visitability === "visitable";
-
   return {
     standName,
     listing: {
       visitability,
       offeringType,
-      publicAddress: visitable ? address : null,
-      latitude: visitable ? latitude : null,
-      longitude: visitable ? longitude : null,
+      // F-088 — the location is kept for EVERY farm. This used to null it out for a
+      // contact-only stand because `coherentVisitability` refused to store it; that constraint
+      // was relaxed, so stripping it here would now discard a fact the farmer gave us and the
+      // map wants. Whether the farm is a DESTINATION is `visitability`, carried separately.
+      publicAddress: address,
+      /*
+        F-088 — hiding the address is a DISPLAY choice, and only an explicit `false` makes it.
+
+        Read as an identity check rather than a truthiness one, deliberately. `"false"` is a
+        truthy string and `0` is falsy, so a coerced read would hide addresses on some malformed
+        bodies and publish them on others — and defaulting to PUBLISHED is the safe direction
+        only because it matches what every pre-F-088 row and every other door already means. The
+        unsafe direction, hiding on a value nobody chose, would silently blank the map.
+      */
+      addressPublic: body.addressPublic !== false,
+      // F-088 — kept for every farm too. The location travels whole or not at all, which is
+      // what the database still enforces; `visitability` decides what the map does with it.
+      latitude,
+      longitude,
       hoursText,
       availability,
       paymentMethods,

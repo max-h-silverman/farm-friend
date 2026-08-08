@@ -931,6 +931,7 @@ describe("public web surface boundary (integration)", () => {
           visitability: "visitable",
           offeringType: "produce",
           publicAddress: "123 Vashon Hwy",
+          addressPublic: true,
           latitude: 47.4471,
           longitude: -122.4594,
           hoursText: "Daily, dawn to dusk",

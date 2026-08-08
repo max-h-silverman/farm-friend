@@ -16,7 +16,11 @@ Production Postgres is `neondb` with **26 migrations** (`0000`–`0025`).
 F-081's default reminder schedule, the farmer sign-up wizard plus the integration-suite guard, and
 the self-consent and listing-merge tranche — shipped together at revision 00041/00040.
 
-**No migration was owed and none is**, so production Postgres stays at 26.
+**TWO MIGRATIONS ARE NOW OWED TO PRODUCTION** (F-088, 2026-08-07): `0026_address_visibility` and
+`0027_placeable_contact_only`. Both are applied and verified by effect on **local** Postgres only —
+production `neondb` remains at 26 and the code on `main` now expects 28. **Deploying the image
+before applying them breaks the listing writer and the public reader**, both of which reference
+`sales_locations.address_public`. Apply first, then deploy.
 
 **Verified by effect against the live service**, not from the apply's exit status: `plan-assertions`
 55/55, `deploy_assertions` confirms each serving revision is newer than every secret version it
@@ -50,14 +54,13 @@ already sent.
 
 ## Verification
 
-**Latest, 2026-08-07** (the self-consent and listing-merge tranche, merged to `main`): **1553 unit**
-(131 files), **802 integration** (58 files), typecheck, lint. Integration ran against **local
-Postgres**, never Neon. **No `packages/ai` file changed and no migration**, both checked against the
-diff rather than assumed, so no `evals`/`evals:live` run and nothing owed to production Postgres.
+**Latest, 2026-08-07** (F-088 address visibility, committed to `main`): **1562 unit** (131 files),
+**805 integration** (58 files), typecheck, lint, production build. Integration ran against **local
+Postgres**, never Neon. **No `packages/ai` file changed**, checked against the diff, so no
+`evals`/`evals:live` run was owed. **Two migrations ARE owed to production** — see Release state.
 
-**Prior, 2026-08-07** (F-081, merged to `main`): 1496 unit (127 files), 796 integration, typecheck,
-lint. **No `packages/ai` file changed, so no `evals` or `evals:live` run was owed** — checked
-against the diff rather than assumed.
+**Prior, 2026-08-07** (the self-consent and listing-merge tranche, deployed): 1553 unit, 802
+integration, typecheck, lint.
 
 **Prior, 2026-08-07** (F-079 tranche, deployed): 1495 unit, 791 integration, typecheck, lint,
 `evals` 44/44 (critical 11/11, advisory 4/4, adversarial 29/29), production build. Infra:
@@ -70,31 +73,34 @@ projection, schema, or output contract.
 Standing rules: real-Postgres integration runs from an empty schema against local Postgres, **never**
 production Neon. Never carry an old test count forward as current evidence.
 
-## Standing facts from the newest tranche (2026-08-07)
+## Standing facts from the newest tranche (F-088, 2026-08-07)
 
 Reasoning and the findings behind each: [SESSION_LOG.md](SESSION_LOG.md), 2026-08-07.
 
-- **Farm Friend cannot send the first SMS to a number that never opted in.**
-  `isProactiveSendPermitted` allows an un-consented send only for `required_reply` — the
-  carrier-required answer to that recipient's *own* message — and `authorizeDispatch` suppresses
-  everything else. So any "type your number and we text you a code" design is unbuildable, and a
-  self-serve opt-in must have the farmer text **us**. The word is **`START`**, never `JOIN` or
-  `CONFIRM`: only `START` clears the carrier's own opt-out list, so any other word would record
-  consent for someone every send is refused for.
-- **`farms.description` now has a farmer-facing writer.** It renders on the public card and had
-  none, so VIGA's seeded prose stayed welded under every listing a farmer published. In the writer,
-  `undefined` means "this door states nothing" and `""` means "the farmer cleared it" — collapsing
-  the two is B-037 one column over.
-- **The migration door prefills the paragraph and nothing else**, deliberately: it replaces VIGA's
-  seeded listing with what the farmer states, but the paragraph is the one field with nothing else
-  to restore it.
-- **The contact card reaches customers who arrive by text.** F-039 built it and linked it from the
-  public web map only, so a customer who texted `JOIN` was never told it existed. It now rides in
-  the welcome, which costs a **second segment** — the URL is 71 characters at the production host
-  (max's call, 2026-08-07).
+- **Every farm is placed, and `visitability` decides what the map INVITES — not what it stores.**
+  `sales_locations_coherent_visitability` now states one rule over the shape of a location
+  (complete, or absent) and names `visitability` only in the branch forbidding an unplaced
+  *visitable* stand. A `contact_only` farm may carry a full address and coordinates.
+- **F-038's protection moved from the database into `buildMapView`, and is weaker for it.** A farm
+  with no stand gets its pin and its own `contact-only` marker but **no directions link** — the
+  clause `stand.visitability !== "contact_only"` is what stops a customer being handed turn-by-turn
+  navigation to a farm with nothing to buy. It was an unbypassable constraint; it is now a
+  conditional with a test behind it. max accepted that trade knowingly.
+- **The `contact-only` marker had existed and been unreachable all along.** `mapMarkerKind`, the `●`
+  symbol, the "Farm, no stand" legend entry and its CSS were built long ago; the old constraint
+  forbade the coordinate that would have rendered them.
+- **`address_public` is display-only, and the directions link needs separate suppression.** The
+  route is built from the *coordinate*, not the address string, so hiding an address does not hide
+  the way there. Both the public card and the SMS answer path honour the flag (the latter in SQL, so
+  a hidden address never leaves the database); **admin deliberately shows it**, marked "hidden from
+  customers", because support work needs it.
+- **The whole-listing writer means every new column is a B-037 risk.** `saveOnboardingListing`
+  writes `address_public` on every save, so any door or reader that cannot see it would silently
+  republish an address the farmer hid.
 
 **Owed:** a human visual pass. The browser extension never connected, so the wizard styling,
-dropdown widths, the 30rem breakpoint, and the new description box are unverified by eye.
+dropdown widths, the 30rem breakpoint, the description box, and **F-088's inline address control,
+always-on map and zoom** are unverified by eye.
 
 ## What is live
 
@@ -126,8 +132,12 @@ dropdown widths, the 30rem breakpoint, and the new description box are unverifie
   What F-064 still owes is the listing **content** — items, hours, and dated confirmations from the
   three exports.
 - **B-024** — fixed in code (F-061) and verified on a rehearsal database: a farmer's written refusal
-  makes the stand `contact_only` with no address and no pin. **Production still publishes her
-  address** until F-064's ingest runs; the approved interim correction remains in place.
+  makes the stand `contact_only`. **Production still publishes her address** until F-064's ingest
+  runs; the approved interim correction remains in place. **F-088 changed what that fix means**: a
+  `contact_only` stand may now carry an address and a pin, so "refused" no longer implies "unplaced".
+  The seeder still stores nothing for a farm that states nothing, and the protection a refusal buys
+  is now the suppressed directions link and the "Farm, no stand" marker — verify the ingest honours
+  that rather than assuming the old all-or-nothing shape.
 - **F-029:** finish live carrier/`JOIN` launch verification.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.

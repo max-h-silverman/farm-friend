@@ -1,0 +1,28 @@
+-- F-088 — hiding a stand's ADDRESS without hiding the stand.
+--
+-- Some Vashon stands sit at the farmer's home. The farmer wants customers to find the stand and
+-- does not want their street address printed in a public listing. Until now those two wishes
+-- were the same column: the only way to suppress the address was `contact_only`, which also
+-- removes the pin and tells customers there is nowhere to go — a different, wrong claim.
+--
+-- This splits the DISPLAY decision away from the LOCATION decision:
+--
+--   * `sales_locations.visitability` still answers "is there somewhere to go?", and
+--     `sales_locations_coherent_visitability` is DELIBERATELY UNCHANGED — a visitable stand
+--     still requires an address and a complete coordinate pair. Nothing about placement moves.
+--   * `address_public` answers only "may the address text be shown?". The address is always
+--     stored; VIGA still reads it in admin, because support work needs it.
+--
+-- The pin is unaffected on purpose. A customer can still navigate to the stand — what goes away
+-- is the printed address line and the "get directions" link built from it. A farmer who wants no
+-- location disclosed at all wants `contact_only`, which already exists and already does that.
+--
+-- `NOT NULL DEFAULT true` is the honest backfill rather than a convenience: every row that
+-- existed before this column holds an address a farmer typed into a public listing form, which
+-- is public. A nullable column would invent a third "unstated" state that no reader could
+-- resolve without guessing, and a guess here prints someone's home address.
+--
+-- Additive with a default, so an image built before this migration keeps serving correctly in
+-- the window between applying it and deploying the code that reads it.
+
+ALTER TABLE "sales_locations" ADD COLUMN IF NOT EXISTS "address_public" boolean DEFAULT true NOT NULL;

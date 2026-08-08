@@ -373,8 +373,17 @@ function StandListings({ stand }: { stand: FilteredStand }) {
 function StandSummaryMeta({ stand }: { stand: FilteredStand & MapViewStand }) {
  return (
    <div className="stand-summary-meta">
+     {/*
+       The same three states as the detail card (F-088). `?? "No farm stand to visit"` claimed
+       there was nowhere to go for any stand without an address text — which since F-088
+       includes stands that ARE on the map, with a pin, whose farmer simply withheld the
+       street address.
+     */}
      <p className="stand-summary-address">
-       {stand.address ?? "No farm stand to visit"}
+       {stand.address ??
+         (stand.latitude !== undefined && stand.longitude !== undefined
+           ? "See the map pin — no street address listed"
+           : "No farm stand to visit")}
      </p>
 
      {stand.stale === true ? (
@@ -420,8 +429,22 @@ function StandDetailBody({
           aria-label={isMarket ? "Visit the market" : "Plan your visit"}
         >
           <h3>{isMarket ? "Visit the market" : "Plan your visit"}</h3>
+          {/*
+            THREE states, not two (F-088). A missing address used to mean exactly one thing —
+            there is nowhere to go — so it rendered "No stand to visit". A farmer can now hide
+            their address while keeping the stand ON the map, and telling a customer there is
+            nothing to visit while a pin sits on the map beside that sentence is simply false.
+
+            The coordinate is what tells them apart: a placed stand has one, a contact-only farm
+            has none. The hidden-address wording deliberately does not apologise or invite the
+            customer to ask for the address — the farmer withheld it on purpose.
+          */}
           {stand.address !== undefined ? (
             <p className="address">{stand.address}</p>
+          ) : stand.latitude !== undefined && stand.longitude !== undefined ? (
+            <p className="address address-hidden">
+              Find this stand by its pin on the map — the farm has not listed a street address.
+            </p>
           ) : (
             <p className="address address-contact-only">
               <strong>No stand to visit</strong> — order by contacting this farm.

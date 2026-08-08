@@ -136,10 +136,16 @@ describe("seeding VIGA's stands (B-002)", () => {
     expect(rows[0]!.is_public).toBe(true);
   });
 
-  it("REFUSES a contact_only farm carrying coordinates, rather than storing half of it", async () => {
-    // The reverse direction, which is the one that would hurt a customer: a farm marked
-    // contact-only but pinned anyway. `coherent_visitability` forbids it in both directions, so
-    // the seeder cannot produce this row even by mistake.
+  it("REFUSES a coordinate with no address, whatever the visitability", async () => {
+    // F-088 narrowed what this asserts, and the narrowing is deliberate.
+    //
+    // It used to prove that a contact-only farm could carry NOTHING. Since max reopened that
+    // (2026-08-07) a contact-only farm may be fully placed — what it may not be is placed
+    // without an address, because a bare point is the shape "copy the map export through"
+    // produces, and an address is what lets anyone check the point is right.
+    //
+    // The customer-facing protection moved to where it belongs: the map renders such a farm
+    // with its own marker and NO directions link. See the F-088 block below.
     await expect(
       seedStands(client, [
         {
@@ -161,6 +167,80 @@ describe("seeding VIGA's stands (B-002)", () => {
       select count(*)::integer as count from sales_locations where name = 'Incoherent Farm'
     `;
     expect(rows[0]!.count).toBe(0);
+  });
+
+  // ── F-088: every farm may be placed, including one with no stand to visit ──────────────
+  //
+  // F-038 bundled two rules into one constraint: a complete location or none, AND nothing at
+  // all for a contact-only farm. max reopened the second half (2026-08-07): every farm gives
+  // an address and coordinates, and what varies is what the MAP INVITES YOU TO DO.
+  //
+  // The original defect is not reintroduced, because it was never the coordinate — it was the
+  // UNLABELLED coordinate. A contact-only farm now renders with its own marker kind
+  // ("Farm, no stand", already built and until now unreachable), a card that says there is no
+  // stand to visit, and NO directions link. A pin that says "do not drive here" does not send
+  // anyone driving.
+  //
+  // What did NOT relax: half a coordinate pair is still refused in both directions. Latitude
+  // alone still puts a pin in the ocean, and that has nothing to do with visitability.
+
+  it("ACCEPTS a contact_only farm with a full location (F-088)", async () => {
+    await client`
+      insert into sales_locations
+        (owner_farm_id, kind, name, timezone, visitability, offering_type,
+         public_address, public_latitude, public_longitude,
+         is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
+      values
+        ((select id from farms limit 1), 'farm_stand', 'Placed Delivery Farm',
+         'America/Los_Angeles', 'contact_only', 'by_order',
+         '12345 Vashon Highway SW', 47.4471, -122.4594,
+         true, false, false, now(), now())
+    `;
+
+    const rows = await client`
+      select public_address, public_latitude, public_longitude
+      from sales_locations where name = 'Placed Delivery Farm'
+    `;
+    expect(rows[0]!.public_address).toBe("12345 Vashon Highway SW");
+    expect(Number(rows[0]!.public_latitude)).toBeCloseTo(47.4471, 6);
+    expect(Number(rows[0]!.public_longitude)).toBeCloseTo(-122.4594, 6);
+  });
+
+  it("STILL refuses half a coordinate pair, whatever the visitability (F-088)", async () => {
+    // The half that did NOT relax, asserted in both directions. Latitude alone puts a pin in
+    // the ocean — a defect about coordinates, not about whether there is a stand.
+    for (const visitability of ["visitable", "contact_only"] as const) {
+      await expect(
+        client`
+          insert into sales_locations
+            (owner_farm_id, kind, name, timezone, visitability, offering_type,
+             public_address, public_latitude, public_longitude,
+             is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
+          values
+            ((select id from farms limit 1), 'farm_stand', ${`Half Pinned ${visitability}`},
+             'America/Los_Angeles', ${visitability}, 'produce',
+             '12345 Vashon Highway SW', 47.4471, null,
+             true, false, false, now(), now())
+        `,
+      ).rejects.toThrow();
+    }
+  });
+
+  it("STILL requires a complete location for a VISITABLE stand (F-088)", async () => {
+    // "Visitable" without a place to go is a promise the map cannot keep. Unchanged.
+    await expect(
+      client`
+        insert into sales_locations
+          (owner_farm_id, kind, name, timezone, visitability, offering_type,
+           public_address, public_latitude, public_longitude,
+           is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
+        values
+          ((select id from farms limit 1), 'farm_stand', 'Unplaced Visitable Stand',
+           'America/Los_Angeles', 'visitable', 'produce',
+           null, null, null,
+           true, false, false, now(), now())
+      `,
+    ).rejects.toThrow();
   });
 
   it("seeds ZERO inventory — a seeder cannot fabricate a farmer's confirmation", async () => {

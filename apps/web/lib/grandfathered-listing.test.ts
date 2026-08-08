@@ -198,7 +198,7 @@ describe("grandfathered listing endpoint", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it("strips an address and pin from a contact-only stand", async () => {
+  it("KEEPS the address and pin on a contact-only stand (F-088)", async () => {
     const save = saver();
     await handleGrandfatheredListingPost(
       deps(claimer(), save),
@@ -209,9 +209,12 @@ describe("grandfathered listing endpoint", () => {
       {},
       expect.objectContaining({
         listing: expect.objectContaining({
-          publicAddress: null,
-          latitude: null,
-          longitude: null,
+          // F-088 — a farm with no stand is now PLACED like any other. Stripping here would
+          // discard a location the farmer gave us; `visitability` is what stops the map
+          // inviting the drive, and it travels untouched.
+          publicAddress: "12345 Vashon Highway SW",
+          latitude: 47.4471,
+          longitude: -122.4594,
         }),
       }),
     );

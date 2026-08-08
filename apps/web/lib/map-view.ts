@@ -401,8 +401,23 @@ export function buildMapView(
       // F-038 — no coordinates means no route. `destinationRoutingLink` already refuses an
       // implausible coordinate, but it cannot be handed `undefined`, and defaulting to 0 here
       // would ask it to route to the Gulf of Guinea.
+      //
+      // F-088 — NO ADDRESS ALSO MEANS NO ROUTE, and this is the non-obvious half. The link is
+      // built from the coordinate rather than the address string, so hiding the address does
+      // not suppress it by itself: without this clause a farmer who hid their address would
+      // still be handing every customer turn-by-turn navigation to their front door, which is
+      // exactly what hiding it is for. The pin stays — the stand keeps its place on the map —
+      // and only the route is withheld.
+      //
+      // F-088 — A FARM WITH NO STAND GETS NO ROUTE, and this clause is now load-bearing in a
+      // way the others are not. F-038 kept such a farm off the map entirely by forbidding it a
+      // coordinate; that constraint was relaxed so every farm can be findable, which means the
+      // guarantee "nobody is sent driving to a farm with nothing to buy" now lives HERE rather
+      // than in the database. Deleting this line reintroduces the original defect.
       routingLink:
         stand.closure?.state !== "active" &&
+        stand.visitability !== "contact_only" &&
+        stand.address !== undefined &&
         stand.latitude !== undefined &&
         stand.longitude !== undefined
           ? destinationRoutingLink({

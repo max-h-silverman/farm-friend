@@ -6,8 +6,96 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 62. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 63. A log too large to open
 mid-session defeats its own purpose.
+
+---
+
+## 2026-08-07 — F-088: the address question, reversed twice, and a constraint that outlived its defect
+
+Started as UI polish on one janky field and ended by relaxing F-038's load-bearing invariant. The
+path there was three reversals, each of them max correcting the frame rather than the details.
+
+**What shipped on the form.** The full-width "Find this address on the map" button became a pin icon
+inside the field; `Enter` runs the lookup. The island map now renders from the moment the address is
+asked for — faint, pinless, fixed height — instead of materialising on a successful lookup and
+shoving every field below it down the page. A resolved address zooms the frame from the whole island
+to the stand's neighbourhood, keeping the coastline in view because Farm Friend draws its own island
+with no tiles, and a pin on a blank field is a confident-looking picture carrying no information.
+
+**The zoom is animated in JavaScript, not CSS, and the first version was wrong.** I wrote it as a
+`view-box` transition; that property is too thinly supported to depend on, so on most browsers the
+frame would have snapped and the travel — which is the part that carries the meaning — would have
+been lost. A `requestAnimationFrame` loop behaves the same everywhere. The tests passed either way,
+because they assert the settled viewBox value rather than the motion: green for a reason unrelated
+to the change being correct.
+
+**Places Autocomplete was scoped, argued for, and dropped.** The obvious answer to "make this less
+janky" is autocomplete, and I costed it: a third reopening of the no-runtime-geocoder boundary, a
+second Google API, a decision only max could make. He took the smaller path instead — polish the
+geocoding flow that exists. `GEOCODE_ALLOWLIST` stays one file and the dependency tripwire is
+untouched. Worth remembering that the boundary held because the cheaper option was actually enough.
+
+**"Don't show my farm on the map" could not exist as asked, and the real need was narrower.** The
+database had no third visitability state. Pushed back; max clarified from the live map — some farms
+show a pin with no address listed — so the ask was "don't show my *address*", which is a display
+fact, not a location one. That became `address_public` (0026), a flag beside the address that the
+public card, the SMS answer path, and the admin screen all read. The non-obvious half: the "get
+directions" link is built from the **coordinate**, not the address string, so hiding the address
+does not suppress it. Without an explicit clause a farmer who hid their address would still be
+handing every customer turn-by-turn navigation to their front door.
+
+**Then max reversed the model twice more, and the second reversal is the one that matters.** First:
+every farm should give an address, stored either way — which meant relaxing the constraint that
+forbade an address on a `contact_only` row. I argued for keeping the coordinate forbidden, since the
+pin is what sends someone driving. Max disagreed on the product: *"pin everyone. most farms would
+want to be shown on the map as lead-gen. it's just about not wanting people driving there."* That is
+a better frame than the binary I offered — "don't drive here" and "don't show me" are different
+wishes, and F-038 had collapsed them.
+
+**The original defect was never the coordinate. It was the *unlabelled* coordinate.** A pin that
+looks identical to a real stand and offers the same directions link does imply "come here"; a pin
+that says "Farm, no stand" and offers no route does not. So 0027 restates the constraint as one rule
+over the shape of a location — complete, or absent — with `visitability` named only in the branch
+that still forbids an unplaced visitable stand.
+
+**max also caught that the differentiated pin already existed.** I was scoping how to build it;
+`mapMarkerKind` has returned `contact-only` all along, with a `●` symbol, a "Farm, no stand" legend
+entry and its own CSS — **unreachable the entire time**, because the constraint forbade the
+coordinate that would have rendered it. The feature was already written and the database was
+preventing it from ever appearing.
+
+**What this trades away, stated plainly because it was a real decision.** The guarantee that nobody
+is sent driving to a farm with nothing to buy used to be enforced by Postgres and unbypassable. It
+now lives in `buildMapView` behind a test. That is weaker — a future change can drop one condition —
+and max accepted it knowingly. Sabotage-checked: removing the clause fails the test.
+
+**Two migrations applied to the local database, verified by effect.** 0026: 48 rows backfilled to
+`address_public = true`, zero NULLs, nobody's address changed visibility. 0027: checked against the
+real rows *before* applying (zero would violate), then probed after — contact-only-with-location
+accepted, half a coordinate pair still refused, unplaced-visitable still refused, probe rows deleted.
+Both recorded in `drizzle.__drizzle_migrations`, which hand-applied SQL bypasses; without that
+`drizzle-kit migrate` would have tried to reapply them.
+
+**Two corrections I owe the record.** I reported there was no Postgres locally and that integration
+tests could not run — I had checked for the `psql` *client binary* and concluded the server was
+absent. There is a database with 48 stands; the integration suite runs here and passes. And I
+reported the new UI was missing from the served HTML: that check was wrong, not the code. The
+address block renders client-side behind the visit question, so `curl` on the initial page cannot
+see it; the client bundle carries it.
+
+**Test churn worth avoiding next time.** Relaxing the constraint broke 41 tests and I fixed them in
+several passes rather than diagnosing first. Most came from one cause: `posted()` read
+`fetchMock.mock.calls[0]`, which became the *geocoding lookup* once every farm needed a resolved
+address. Finding that first would have collapsed three rounds into one.
+
+Also fixed: the map search field's native clear "x" had an I-beam cursor, so it read as text rather
+than a control. `cursor: pointer` on `::-webkit-search-cancel-button`, matching `.filter-clear`.
+
+**Verified**: 1562 unit + 805 integration passing, typecheck and lint clean, web build compiles.
+Committed to `main` (max chose to skip the branch/PR flow this session). **Not browser-verified** —
+the zoom timing, the icon placement and the map strip at phone width are judgment calls made in
+code; max does his own pass before go-live.
 
 ---
 
@@ -636,90 +724,3 @@ Browser-checked at desktop width and at phone width (the sheet, forced visible a
 window manager would not resize the window) — and the light-only palette confirmed **while the OS
 sat in dark appearance**, which is the check DEVELOPMENT.md §before you ship requires and which
 F-043 shipped five defects past. No model seam, schema, or projection changed, so no evals owed.
-
-## 2026-08-05 — retiring a stand, re-issuing a lost onboarding link, and quieter admin chrome
-
-Four small admin asks from max (F-071). Two were one-line changes; two turned out to have a real
-design decision underneath, and both were put to max rather than assumed. Merged as PR #83.
-**Not deployed** — migration `0022_stand_retirement` is not applied to production.
-
-### "Delete a farm/stand" could only ever mean taking it off the map
-
-Reading the schema settled it before asking: nearly every reference to `sales_locations` is
-`on delete restrict` — `inventory_revisions`, `inventory_entries`, `stand_items`,
-`stock_out_reports` — so **a hard DELETE fails at the constraint for any stand that has ever
-published**, which is nearly all of them. Erasure would also erase the answer to "what did this
-stand say it had, and when", which Golden Rule #1 and the audit trail exist to keep. max was asked
-anyway, with the constraint stated, and chose "take it off the map, keep records".
-
-**`retired_at` is deliberately not `is_public`.** That column is a *listing attribute the farmer's
-own onboarding form writes on every save* (`onboarding-listing.ts` sets `is_public = true`), so an
-operator decision expressed through it would be silently reverted the next time the farmer edited
-their listing. One column owned by two actors is the failure; a separate operator-owned column is
-the fix.
-
-**The enforcement is at the publication seam, not in the caller.** `confirmInventoryPublication`
-reads `retired_at` from the location row it had *already locked* at the top of the transaction, so
-a retirement racing an in-flight confirmation resolves at the lock rather than by arrival order.
-It deliberately does **not** gate the `no` branch: declining a prompt for a since-retired stand is
-closing your own proposal, not publishing, and refusing it would strand that proposal open forever.
-
-### A lost onboarding link is re-minted, never recovered
-
-`farmer_invitations` stores only `token_hash`, and `createFarmerInvitation` returns the token
-exactly once. So max's "view onboarding link" is not implementable as a view, and shouldn't be —
-the password-reset argument. max chose "make a new link". The farmers page now lists farms with no
-live authorization and mints a fresh link through the invite path that already existed, rather than
-a second endpoint.
-
-**"Unfinished" is the absence of a LIVE AUTHORIZATION, not an unredeemed invitation.** Those come
-apart in both directions and each is a test: VIGA can authorize a farmer straight from the queue
-with no invitation involved (that farm is finished, and keying on redemption would strand it in the
-list forever), and a farm whose only farmer was revoked again has nobody who can update it. An
-*expired* invitation keeps the farm listed rather than dropping it — a farmer who lost their link
-usually notices after it lapsed, so hiding those would hide exactly the farms an operator came for.
-
-### Three existing guards caught real defects rather than passing
-
-The most valuable part of the session, and none of it was found by reading the code.
-
-- **drizzle-kit silently omits CHECK constraints when it generates SQL.** The coherent-retirement
-  invariant existed in `schema.ts` and in *nothing the database enforced*.
-  `migration-metadata.test.ts` caught it by name. The constraint is now hand-written into the
-  migration and verified **by effect** against a freshly migrated database: present in
-  `pg_constraint`, and it refuses an insert carrying half a retirement.
-- **The generated journal timestamp was LOWER than `0021`'s** (1785992670717 vs 1787000000000) —
-  precisely the documented silent-skip condition, where drizzle applies only when
-  `created_at < folderMillis` and reports success for a migration it skipped. Corrected by hand.
-- **`closure.integration.test.ts` detects lock contention by matching `pg_stat_activity` query
-  text**, and adding a column to the locked SELECT reduced its observed claimants to **zero while
-  the test kept running**. It was re-anchored to the locked table plus `for update` — the
-  constructs it actually proves — rather than to a column list that changes whenever a column is
-  added, then re-sabotaged to confirm it still bites. This is the "anchor a source assertion to the
-  construct it proves" lesson appearing in a *runtime* probe.
-
-Stashing the branch proved the closure failure was ours rather than environmental, which is what
-distinguished it from a flaky concurrency test.
-
-### The admin stands route had no guard test at all
-
-`/api/admin/stands` was missing from the "every admin route refuses an unauthorized caller" sweep
-in `admin-routes.integration.test.ts` — a sweep whose entire stated purpose is that adding a route
-without a guard shows up there rather than in production. It is now covered, which matters more
-than before: the route now carries the power to take any stand off the public map.
-
-### Verified
-
-1240 unit / 688 integration, typecheck and lint clean, on the merged base. No `packages/ai` file
-changed, so no evals are owed. Every new guard was sabotaged and confirmed to fail: the publication
-check, **both public read filters independently** (map filter intact while breaking SMS, and the
-reverse — `inquiry.ts` runs its own SQL, so the map passing proves nothing about the text reply),
-the route's session guard, and the awaiting-onboarding revocation clause.
-
-**No browser check was run, and it is not tracked as owed.** max's call at the wrap: he does his own
-browser testing in a pass before go-live, so recording a per-tranche browser debt overstates what is
-outstanding. Migration `0022` was applied to the **local sandbox only** (43 farms / 39 stands
-unchanged, verified by effect); production is untouched, and max chose not to deploy this tranche.
-
----
-

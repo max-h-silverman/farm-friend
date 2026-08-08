@@ -104,8 +104,9 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   tapping the island map**, with every failure degrading to that tap. **F-077 removed the tap**,
   so that justification no longer holds and is replaced rather than quietly dropped: the typed
   address is now the **sole** source of a coordinate, and an address that will not resolve is
-  **refused** — the farmer corrects the address, and a visitable stand cannot be published
-  without one. What the exemption rests on now:
+  **refused** — the farmer corrects the address, and **no stand of any kind** can be published
+  without one (F-088 made every farm placed, not only visitable ones). What the exemption rests
+  on now:
 
   - **Off-island results are refused, never shown**, against the single `ISLAND_BOUNDS`
     statement.
@@ -118,8 +119,9 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
 
   **The cost of this narrowing, stated plainly:** a stand at the road rather than at the mailing
   address can no longer be nudged, and rural Vashon is where lookup is weakest. With no
-  `GEOCODING_API_KEY` configured, **no visitable stand can be created at all** — the form says
-  lookup is unavailable and points the farmer at VIGA.
+  `GEOCODING_API_KEY` configured, **no stand can be created at all** — since F-088 that includes a
+  delivery-only farm, which also needs a resolved address. The form says lookup is unavailable and
+  points the farmer at VIGA.
 
   A `MapProvider` seam, a coordinate-inventing stub, and a mapping/geocoding **dependency**
   remain forbidden everywhere, that file included.

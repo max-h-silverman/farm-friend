@@ -283,6 +283,9 @@ export async function listPublicStands(
       l.public_address as public_address,
       l.public_latitude as public_latitude,
       l.public_longitude as public_longitude,
+      -- F-088 — whether the address TEXT may be shown. The pin is unaffected: a stand with a
+      -- hidden address is still placed on the map, it just prints no address line.
+      l.address_public as address_public,
       l.visitability as visitability,
       l.offering_type as offering_type,
       l.farm_bucks_accepted as farm_bucks_accepted,
@@ -432,7 +435,6 @@ export async function listPublicStands(
       const address = row.public_address as string | null;
       const latitude = row.public_latitude as number | null;
       const longitude = row.public_longitude as number | null;
-      const isVisitable = row.visitability === "visitable";
       const closure = readPublicClosure(row, now);
 
       stand = {
@@ -451,9 +453,30 @@ export async function listPublicStands(
         ...(row.farm_bucks_eligible === true
           ? { farmBucksAccepted: row.farm_bucks_accepted as boolean }
           : {}),
-        ...(isVisitable && address !== null && latitude !== null && longitude !== null
+        /*
+          F-088 — the pin and the address text are now separate decisions.
+
+          The COORDINATE travels whenever the stand is visitable and placed. The ADDRESS travels
+          only when the farmer also lets it be shown. `address_public` is `NOT NULL DEFAULT true`,
+          so an explicit `=== false` is not needed — but it is written that way anyway, because a
+          missing column on an older row would otherwise read as `undefined` and silently hide
+          every address on the island.
+        */
+        /*
+          F-088 — `isVisitable` is NO LONGER a gate on the location.
+
+          It used to be, because the database guaranteed a contact-only farm had none. Now every
+          farm may be placed, and a farm the map cannot draw is a farm nobody finds — the
+          lead-gen case max named. What tells the two apart downstream is `visitability` itself,
+          which the payload already carries: the marker kind, the "no stand to visit" card line,
+          and the suppressed directions link all read it.
+
+          The location still travels whole or not at all. That half is the database's rule and
+          this mirrors it rather than restating a second, looser version.
+        */
+        ...(address !== null && latitude !== null && longitude !== null
           ? {
-              publicAddress: address,
+              ...(row.address_public === false ? {} : { publicAddress: address }),
               latitude: Number(latitude),
               longitude: Number(longitude),
             }
@@ -559,14 +582,19 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     ...(stand.farmBucksAccepted !== undefined
       ? { farmBucksAccepted: stand.farmBucksAccepted }
       : {}),
-    // F-038 — omitted TOGETHER for a contact-only farm, never serialized as null. A client
-    // reading `address: null` would print an empty address line; `latitude: 0` would drop a
-    // pin in the Atlantic. Absence is the only honest encoding of "there is nowhere to go".
-    ...(stand.publicAddress !== undefined &&
-    stand.latitude !== undefined &&
-    stand.longitude !== undefined
+    // F-038 — the COORDINATE PAIR is omitted together for a contact-only farm, never serialized
+    // as null. A client reading `latitude: 0` would drop a pin in the Atlantic. Absence is the
+    // only honest encoding of "there is nowhere to go".
+    //
+    // F-088 SPLIT THE ADDRESS OUT OF THAT BUNDLE, deliberately. The three used to travel as one
+    // group because they described one fact; they now describe two — where the stand is, and
+    // whether its address may be printed. A stand whose farmer hid the address sends the
+    // coordinates with NO `address` key, so the pin still places and the client has nothing to
+    // print. `address` without coordinates remains impossible, which is the half that was
+    // load-bearing: it is the direction that would put a pin in the ocean.
+    ...(stand.latitude !== undefined && stand.longitude !== undefined
       ? {
-          address: stand.publicAddress,
+          ...(stand.publicAddress !== undefined ? { address: stand.publicAddress } : {}),
           latitude: stand.latitude,
           longitude: stand.longitude,
         }
