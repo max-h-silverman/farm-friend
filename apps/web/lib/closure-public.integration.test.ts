@@ -199,7 +199,7 @@ describe("one closure projection across public discovery and customer SMS (integ
       expect.objectContaining({ state: "active", label: expect.stringMatching(/Closed through/) }),
     );
     expect(payload.items.map((item) => item.itemName)).toEqual(["Eggs"]);
-    expect(payload.usuallySells).toEqual(["Honey"]);
+    expect(payload.usuallySells!.map((o) => o.itemName)).toEqual(["Honey"]);
     expect(payload.updated).toBeDefined();
 
     expect(
@@ -231,7 +231,7 @@ describe("one closure projection across public discovery and customer SMS (integ
     const expired = serializePublicStand(expiredStand);
     expect(expired.closure).toBeUndefined();
     expect(expired.items.map((item) => item.itemName)).toEqual(["Eggs"]);
-    expect(expired.usuallySells).toEqual(["Honey"]);
+    expect(expired.usuallySells!.map((o) => o.itemName)).toEqual(["Honey"]);
     expect(expiredStand.asOf).toEqual(upcomingStand.asOf);
     expect(expired.updated).toMatch(/4 days ago/);
     expect(expired.stale).toBe(true);

@@ -305,6 +305,174 @@ export async function recordFarmerInvitationPendingPhone(
   return updated.length > 0 ? { status: "recorded" } : { status: "invalid" };
 }
 
+/**
+ * One thing on the table right now, as stated on the onboarding form (F-090).
+ *
+ * A deliberately NARROW subset of what an inventory entry can carry. The confirmation path
+ * supports quantity, unit, and approximation as well, all of which arrive through a model
+ * interpreting a farmer's sentence. This form asks for a list of things with optional prices,
+ * so it states exactly that — widening it later is easy, and inventing fields the form never
+ * asked about would be storing facts nobody stated.
+ */
+export interface PendingStockEntry {
+  itemName: string;
+  priceText?: string;
+}
+
+export type RecordPendingStockResult = { status: "recorded" } | { status: "invalid" };
+
+/**
+ * Hold what a farmer says is in the stand right now, until their `START` proves the handset.
+ *
+ * **This is the half of F-090 that had to wait.** max first chose to publish today's stock at
+ * submit; shown that a dated public claim would then stand behind a phone nobody had proved,
+ * he chose to hold it (2026-08-08). A listing is a standing description the farmer may correct
+ * at leisure. A dated confirmation is Farm Friend telling the island that someone holding this
+ * farm's handset says this was true today — and until `START` arrives, there is nobody to
+ * attribute that to.
+ *
+ * So this writes only to the invitation, which no public reader touches, and
+ * `openFarmerOnboardingRequest` composes it into a real proposal-and-publication in the same
+ * transaction that mints the authorization and the approval.
+ *
+ * **An EMPTY list is refused rather than stored.** "The farmer skipped the question" and "the
+ * farmer says the stand is empty" are opposite facts, and an empty array would publish the
+ * second — a stand publicly confirming it has nothing. The column's CHECK refuses it too; this
+ * refusal is what turns that guarantee into an answer the caller can act on.
+ *
+ * Overwritable while the invitation is unredeemed, like the pending phone and for the same
+ * reason: a farmer who goes back to fix what they typed must be able to.
+ */
+export async function recordFarmerInvitationPendingStock(
+  db: Db,
+  input: { token: string; entries: PendingStockEntry[]; occurredAt: Date },
+): Promise<RecordPendingStockResult> {
+  if (!/^[0-9a-f]{64}$/.test(input.token)) return { status: "invalid" };
+
+  // Trimmed and dropped-if-blank before the emptiness test, so a list of nothing but spaces is
+  // the same "said nothing" a list of nothing is — rather than a claim of emptiness that
+  // happened to survive because it contained a space.
+  // Built as plain records rather than as `PendingStockEntry[]`: the driver's `json()` takes a
+  // JSON value, and an interface is not assignable to one (an interface has no index
+  // signature). Stating the shape here rather than casting keeps the compiler checking it.
+  const entries: Record<string, string>[] = [];
+  for (const entry of input.entries) {
+    const itemName = entry.itemName.trim();
+    if (itemName === "") continue;
+    const priceText = entry.priceText?.trim() ?? "";
+    entries.push({ itemName, ...(priceText === "" ? {} : { priceText }) });
+  }
+  if (entries.length === 0) return { status: "invalid" };
+
+  const driverSql = driver(db);
+  const updated = await driverSql`
+    update farmer_invitations
+    -- The driver's own json() helper, never a stringified value: serializing an ordinary JS
+    -- value produces a JSON *string*, so stringifying first stores a quoted string and the
+    -- shape CHECK refuses it — as it should, since a string is not the array this holds.
+    set pending_stock = ${driverSql.json(entries)}
+    where token_hash = ${hashFarmerInviteToken(input.token)}
+      and redeemed_at is null
+      and expires_at > ${input.occurredAt.toISOString()}
+      -- The target constraint's two halves, checked here so a caller that has not yet stated a
+      -- phone gets a refusal rather than a constraint violation. Held stock with no phone would
+      -- never publish: nothing would ever match it to an inbound START.
+      and farm_id is not null
+      and pending_phone_hash is not null
+    returning id
+  `;
+  return updated.length > 0 ? { status: "recorded" } : { status: "invalid" };
+}
+
+/**
+ * Publish the stock a farmer stated at onboarding, now that `START` has proved the handset.
+ *
+ * **Runs inside the redemption transaction**, after the authorization and the farm approval
+ * exist and before it commits. That placement is the guarantee: the dated claim and the proof
+ * of who stands behind it are the same commit, so there is no window in which one exists
+ * without the other, and a crash publishes neither.
+ *
+ * **`source = 'web'`, and the third provenance exists because neither of the other two is
+ * true** (max's call, 2026-08-08). The FARMER stated this and their `START` proved the handset,
+ * so `viga` would credit VIGA with a farmer's claim. But no prompt went out and no `YES` came
+ * back, so `sms` would require a `consumed_token` and a consumption event naming an inbound
+ * message that does not exist — inventing the very evidence the constraint demands.
+ *
+ * So there is deliberately NO PROPOSAL. A proposal is the record of a confirmation exchange,
+ * and there was none; creating one in a terminal state would be a fabricated exchange, and one
+ * left `open` would occupy the one-open-per-sender slot and refuse the farmer's first SMS
+ * update. The authorization and the approval are both real, both minted by this transaction
+ * from the invitation VIGA sent — which is what makes this claim as attributable as a texted
+ * one. F-063's rule honoured rather than worked around.
+ *
+ * Returns silently when there is nothing held, which is the common case — the form does not
+ * require today's stock.
+ */
+async function publishPendingStockIn(
+  tx: Tx,
+  input: {
+    invitationId: string;
+    farmId: string;
+    authorizationId: string;
+    occurredAt: Date;
+  },
+): Promise<void> {
+  const invitations = await tx`
+    select pending_stock from farmer_invitations where id = ${input.invitationId}
+  `;
+  const entries = invitations[0]?.pending_stock as PendingStockEntry[] | null | undefined;
+  // The column's CHECK already refuses an empty array, so this is the "stated nothing" case
+  // rather than a claim of emptiness. Publishing an entry-less revision here would tell the
+  // island the stand is confirmed EMPTY, which is the opposite of what silence means.
+  if (entries === null || entries === undefined || entries.length === 0) return;
+
+  // The farm's stand — the same one `saveOnboardingListing` wrote the listing against, chosen
+  // the same way, so the confirmation lands on the stand the farmer just described.
+  const locations = await tx`
+    select id from sales_locations
+    where owner_farm_id = ${input.farmId} and retired_at is null
+    order by created_at asc
+    limit 1
+  `;
+  const salesLocationId = locations[0]?.id as string | undefined;
+  // No stand means nothing to confirm against. The redemption itself still stands: the farmer
+  // is authorized, and losing that over a missing listing would be a worse failure than
+  // losing a stock statement they can restate in one text.
+  if (salesLocationId === undefined) return;
+
+  const approvals = await tx`
+    select id from farm_approvals
+    where farm_id = ${input.farmId} and revoked_at is null
+  `;
+  const farmApprovalId = approvals[0]?.id as string | undefined;
+  if (farmApprovalId === undefined) return;
+
+  const revisions = await tx`
+    insert into inventory_revisions (
+      farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+      farm_approval_id, source, published_at
+    )
+    values (
+      ${input.farmId}, ${salesLocationId}, null, ${input.authorizationId},
+      ${farmApprovalId}, 'web', ${input.occurredAt.toISOString()}
+    )
+    returning id
+  `;
+  const revisionId = revisions[0]?.id as string;
+
+  for (const [index, entry] of entries.entries()) {
+    await tx`
+      insert into inventory_entries (
+        inventory_revision_id, sales_location_id, item_name, price_text, sort_order
+      )
+      values (
+        ${revisionId}, ${salesLocationId}, ${entry.itemName},
+        ${entry.priceText ?? null}, ${index}
+      )
+    `;
+  }
+}
+
 export interface AuthorizeFarmerInput {
   farmId: string;
   /** The opaque open request VIGA is answering. */
@@ -728,6 +896,23 @@ export async function openFarmerOnboardingRequest(
               invitedByAdministratorId,
               occurredAt: input.occurredAt,
             });
+
+      // F-090 — today's stock, stated on the form and held until this moment.
+      //
+      // IN THIS TRANSACTION, and only once the authorization exists: the dated claim and the
+      // proof of who stands behind it commit together or not at all. Gated on
+      // `authorizationId` rather than attempted unconditionally, because that value being null
+      // IS the "nobody to attribute this to" case — a farmer who never ticked the agreement,
+      // or an invitation naming no farm. Those keep their held stock unpublished, which is the
+      // honest outcome rather than a revision signed by nobody.
+      if (authorizationId !== null && invitationFarmId !== null) {
+        await publishPendingStockIn(tx, {
+          invitationId,
+          farmId: invitationFarmId,
+          authorizationId,
+          occurredAt: input.occurredAt,
+        });
+      }
 
       return {
         status: "opened" as const,

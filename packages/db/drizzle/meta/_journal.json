@@ -218,6 +218,13 @@
       "when": 1787804800000,
       "tag": "0030_stand_item_price",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1787891200000,
+      "tag": "0031_invitation_pending_stock",
+      "breakpoints": true
     }
   ]
 }

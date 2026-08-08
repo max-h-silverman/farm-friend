@@ -250,8 +250,22 @@ export const modelValidationStatus = pgEnum("model_validation_status", [
  * Attribution for an admin edit belongs to that workflow's own action row, matching how
  * `stock_out_reports.reviewed_by_administrator_id` and `farm_approvals` already work (F-065).
  */
+/**
+ * Where a dated stock claim came from, and what evidence each one carries (F-063, F-090).
+ *
+ *   `sms`  — the farmer texted it and confirmed by reply. Names a proposal, an authorization,
+ *            and a farm approval; the proposal holds the token they sent back.
+ *   `web`  — the farmer stated it on the onboarding form, and their `START` proved the handset.
+ *            Names an authorization and an approval, and NO proposal: there was no confirmation
+ *            exchange to hold one. As strong as `sms` on who stands behind the claim.
+ *   `viga` — VIGA's own records say so. Names none of them; a spreadsheet has no handset.
+ *
+ * `inventory_revisions_source_keys_coherent` is what makes each of those a guarantee rather
+ * than a convention.
+ */
 export const inventoryRevisionSource = pgEnum("inventory_revision_source", [
   "sms",
+  "web",
   "viga",
 ]);
 
@@ -2439,6 +2453,12 @@ export const inventoryRevisions = pgTable(
         (
           ${table.source} = 'sms'
           and ${table.proposalId} is not null
+          and ${table.publishedByAuthorizationId} is not null
+          and ${table.farmApprovalId} is not null
+        )
+        or (
+          ${table.source} = 'web'
+          and ${table.proposalId} is null
           and ${table.publishedByAuthorizationId} is not null
           and ${table.farmApprovalId} is not null
         )
