@@ -99,8 +99,10 @@ searched the collapsed page for the wrong key name. Checked properly: the payloa
 non-empty host lists, the section renders on card expansion by design, and existing tests already
 covered it. There was no gap.
 
-**Committed, merged, and released this session**; production *data* is current, production *code* is
-not — the deploy is owed and is the next release step.
+**Committed and merged this session** (PR #87, squashed to `main`). Production *data* is current;
+production *code* is not. **max deferred the deploy to the next session** — it is the first step
+there, and until it runs the card still reads "Hours not listed" for the 24 stands whose `open_days`
+are now populated.
 
 ---
 
