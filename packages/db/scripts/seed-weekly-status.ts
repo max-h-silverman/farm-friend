@@ -63,13 +63,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const parsed = parseWeeklyStatus(readFileSync(weeklyPath, "utf8"), {
-    ...(season !== undefined ? { season } : {}),
-  });
-
   // A farmer who renamed their listing still submits under the old name — Green Ears' profile row
   // reads "Formerly Maggie's Farm", and the two names share no characters, so no spelling rule
   // could reach it. Read from the PROFILE form, which is where the farmer stated it.
+  //
+  // Read BEFORE the parse, because the parser needs it too: the old and new names are one farm's
+  // timeline, and the closure/stock race that decides whether a stand is open runs inside the
+  // parser. Resolving renames only at write time let Green Ears' March stock publish as current
+  // over their July closure.
   const formPath = argValue("--form");
   const formerNames =
     formPath === undefined
@@ -80,6 +81,11 @@ async function main(): Promise<void> {
   } else if (formPath === undefined) {
     console.log("note: --form not given, so stated renames cannot be resolved");
   }
+
+  const parsed = parseWeeklyStatus(readFileSync(weeklyPath, "utf8"), {
+    ...(season !== undefined ? { season } : {}),
+    ...(formerNames.size > 0 ? { formerNames } : {}),
+  });
 
   console.log(
     `weekly form: ${parsed.submissions.length} submissions (latest per farm), ` +

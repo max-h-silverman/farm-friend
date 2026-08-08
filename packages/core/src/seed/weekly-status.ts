@@ -1,3 +1,4 @@
+import { matchStandName } from "./match-stands";
 import type { RejectedStand } from "./stand-csv";
 
 // F-062 — VIGA's weekly stock form, the third CSV and the one nothing has ever read.
@@ -59,6 +60,20 @@ export interface WeeklyStatusOptions {
    * data with no consumer.
    */
   season?: number;
+
+  /**
+   * Former farm name key → current farm name key, from `readFormerNames`.
+   *
+   * A farmer who renames mid-season keeps submitting under both names, and those rows are ONE
+   * farm's timeline. Without this they are two, and the closure/stock race that decides whether
+   * a stand is open never happens between them: Green Ears filed stock on 30 March as "Maggie's
+   * Farm" and closed on 6 July under the new name, and the March stock published as current.
+   *
+   * The writer resolves renames too, but it cannot repair this — by the time it sees the rows
+   * the parser has already resolved the timeline, and a closure is deliberately not written, so
+   * there is nothing there to supersede the stale stock row.
+   */
+  formerNames?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -228,6 +243,30 @@ export function parseWeeklyStatus(
   const closed = new Map<string, WeeklyClosure>();
   const latest = new Map<string, WeeklySubmission>();
 
+  /**
+   * The key the latest-wins race runs on.
+   *
+   * NOT the raw string the farmer typed. One farmer really did submit as "Fruits Des Vignes
+   * Farm" in April and "Fruits des Vignes Farm" in July, and a raw-string key makes those two
+   * farms — so an April row survives as current stock for a stand that does not exist. The same
+   * normalization the join downstream uses is the one that has to run here, or "latest per farm"
+   * is a claim about a key rather than about a farm.
+   *
+   * Falls back to the raw name when a name is entirely generic words: `matchStandName` throws
+   * there by design, and one unusable name must not abort a 700-row file. Such a row then races
+   * only against itself, which is the pre-existing behaviour for a name nothing can match.
+   */
+  const raceKey = (name: string): string => {
+    let key: string;
+    try {
+      key = matchStandName(name);
+    } catch {
+      return name;
+    }
+    // A stated rename folds the old name's rows into the current farm's single timeline.
+    return options.formerNames?.get(key) ?? key;
+  };
+
   for (const row of rows.slice(1)) {
     if (row.every((value) => value.trim() === "")) continue;
 
@@ -261,13 +300,15 @@ export function parseWeeklyStatus(
     // really does both — stocked 18 May, closed 6 July — and two independent maps would list it
     // as stocked AND closed, letting the ingest publish a closed stand as open. One timeline per
     // farm: the newest row wins, whichever kind it is, so a farm that reopens is stocked again.
+    const key = raceKey(farmName);
+
     if (CLOSED.test(available) || CLOSED.test(openAnswer)) {
-      const priorClosure = closed.get(farmName);
-      const priorStock = latest.get(farmName);
+      const priorClosure = closed.get(key);
+      const priorStock = latest.get(key);
       if (priorClosure !== undefined && statedOn <= priorClosure.statedOn) continue;
       if (priorStock !== undefined && statedOn <= priorStock.statedOn) continue;
-      latest.delete(farmName);
-      closed.set(farmName, { farmName, statedOn, statedAs: available || openAnswer });
+      latest.delete(key);
+      closed.set(key, { farmName, statedOn, statedAs: available || openAnswer });
       continue;
     }
 
@@ -291,12 +332,12 @@ export function parseWeeklyStatus(
 
     // Same one-timeline-per-farm race as the closure branch above: a stock row newer than a
     // recorded closure means the farm reopened and is stocked again.
-    const priorStock = latest.get(farmName);
-    const priorClosure = closed.get(farmName);
+    const priorStock = latest.get(key);
+    const priorClosure = closed.get(key);
     if (priorStock !== undefined && statedOn <= priorStock.statedOn) continue;
     if (priorClosure !== undefined && statedOn <= priorClosure.statedOn) continue;
-    closed.delete(farmName);
-    latest.set(farmName, { farmName, statedOn, items });
+    closed.delete(key);
+    latest.set(key, { farmName, statedOn, items });
   }
 
   return {
