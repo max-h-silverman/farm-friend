@@ -46,9 +46,16 @@ export type AddressLookupResult =
   | { status: "found"; latitude: number; longitude: number }
   /** Resolved, but not to a place on Vashon or Maury. The farmer places the pin. */
   | { status: "off_island" }
-  /** Nothing usable came back. Indistinguishable, on purpose, from a provider failure. */
+  /** Nothing usable came back. Indistinguishable, on purpose, from a transient provider failure. */
   | { status: "no_result" }
-  /** No key in this deployment. The form falls back to pin-dropping in silence. */
+  /**
+   * Geocoding is not usable in this deployment: no key, or a key the provider REFUSED.
+   *
+   * The two are one status because they are one operator problem with one fix — the deployment's
+   * credential — and because the farmer-facing behaviour is identical either way. What this
+   * separates is `no_result`: that is a fact about the ADDRESS, and conflating a dead key with it
+   * told farmers their valid address did not exist for two days (see the provider-status branch).
+   */
   | { status: "not_configured" };
 
 export interface AddressLookupDeps {
@@ -123,6 +130,23 @@ export async function lookupIslandAddress(
     | { status?: unknown; results?: { geometry?: { location?: unknown } }[] }
     | null
     | undefined;
+
+  // A REJECTED CREDENTIAL IS A BROKEN DEPLOYMENT, NOT A MISSING ADDRESS.
+  //
+  // Learned in production (2026-08-07): the secret held the literal placeholder `<key>`, so
+  // Google answered REQUEST_DENIED for every address. Collapsed into `no_result` that is
+  // indistinguishable from an address nobody can find — so every farmer was told their valid
+  // address did not exist, the route kept returning HTTP 200, and a two-day outage of the only
+  // path to a visitable stand produced no signal anywhere.
+  //
+  // These two statuses mean the request was refused before any geocoding happened: the key is
+  // invalid, restricted, unbilled, or the query was malformed. None is a fact about the address.
+  // OVER_QUERY_LIMIT is deliberately NOT here — a throttled key is configured correctly and
+  // working, and calling it misconfigured would send an operator to rotate a healthy credential.
+  if (payload?.status === "REQUEST_DENIED" || payload?.status === "INVALID_REQUEST") {
+    return { status: "not_configured" };
+  }
+
   if (payload?.status !== "OK" || !Array.isArray(payload.results)) {
     return { status: "no_result" };
   }
