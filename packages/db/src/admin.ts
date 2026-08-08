@@ -656,8 +656,14 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       closure.closed_through::text as closure_closed_through,
       -- F-066 — the standing state of a stand item. Only usually_carried rows are a claim
       -- that the stand usually has the thing.
+      -- F-090 — the price is rendered INTO the display string here, unlike the public reader
+      -- which carries it as its own field. This row is read-only support copy: an operator
+      -- looking at "eggs $6/dozen" wants the farmer's claim as the farmer stated it, and a
+      -- structured pair would only be flattened again by the one table that renders it.
       coalesce(
-        (select array_agg(offering.display_name
+        (select array_agg(
+           case when offering.price_text is null then offering.display_name
+                else offering.display_name || ' ' || offering.price_text end
            order by offering.sort_order, offering.display_name)
          from stand_items offering
          where offering.sales_location_id = location.id and offering.usually_carried),

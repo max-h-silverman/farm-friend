@@ -55,6 +55,21 @@ export interface PublicStandItem {
   approximation?: "some" | "limited" | "plentiful";
 }
 
+/**
+ * Something a stand USUALLY sells, with the price the farmer states for it (F-090).
+ *
+ * Deliberately its own type rather than a reuse of `PublicStandItem`: that one describes a
+ * DATED confirmation and carries quantity and approximation, none of which a standing claim
+ * has. One type serving both would invite a renderer to read "12 dozen" off a fact that never
+ * counted anything.
+ *
+ * `priceText` absent means the farmer stated no price — never "free".
+ */
+export interface UsualOffering {
+  itemName: string;
+  priceText?: string;
+}
+
 export interface PublicStand {
   /** The sales location id — the same stable identifier SMS retrieval carries. */
   factId: string;
@@ -127,8 +142,12 @@ export interface PublicStand {
    *
    * Carries NO date, here or anywhere downstream. There is nothing to date: nobody confirmed
    * these.
+   *
+   * F-090 — each carries the farmer's OPTIONAL price, which is a standing claim in exactly the
+   * same way the item is: "eggs are usually $6/dozen", true in March and in September, dated by
+   * nothing. A price on today's confirmed stock is a different fact and lives on `items`.
    */
-  usualOfferings: string[];
+  usualOfferings: UsualOffering[];
   /**
    * What the stand has stated about when it is open (F-043).
    *
@@ -321,13 +340,18 @@ export async function listPublicStands(
       -- F-066 — the standing state of a stand item, not a table of its own. usually_carried
       -- is what makes it a standing claim; an item that exists only because a past revision
       -- named it is vocabulary, not something the stand says it usually has.
+      -- F-090 — the item AND its optional price, as objects. Two parallel arrays would have to
+      -- be zipped by index downstream, which is how a price ends up beside the wrong item.
       coalesce(
         (
-          select array_agg(o.display_name order by o.sort_order asc, o.display_name asc)
+          select jsonb_agg(
+            jsonb_build_object('itemName', o.display_name, 'priceText', o.price_text)
+            order by o.sort_order asc, o.display_name asc
+          )
           from stand_items o
           where o.sales_location_id = l.id and o.usually_carried
         ),
-        array[]::text[]
+        '[]'::jsonb
       ) as usual_offerings,
       coalesce(
         (
@@ -491,7 +515,15 @@ export async function listPublicStands(
           : {}),
         // F-042 — spread flat rather than conditionally: an empty list is the honest answer
         // for an untagged stand, and there is no second fact for absence to distinguish.
-        usualOfferings: (row.usual_offerings as string[] | null) ?? [],
+        // F-090 — `priceText` is dropped when NULL rather than carried as null, so the type's
+        // optionality means what it says and no renderer has to distinguish two spellings of
+        // "not stated".
+        usualOfferings: (
+          (row.usual_offerings as { itemName: string; priceText: string | null }[] | null) ?? []
+        ).map((offering) => ({
+          itemName: offering.itemName,
+          ...(offering.priceText === null ? {} : { priceText: offering.priceText }),
+        })),
         // F-043 — always present, `{}` when the stand stated nothing. The inner fields carry
         // the stated/unstated distinction; see `readAvailability`.
         availability: readAvailability(row),

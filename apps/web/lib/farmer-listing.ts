@@ -14,6 +14,7 @@ import {
   type SaveOnboardingListingInput,
   type SaveOnboardingListingResult,
   type SeasonKind,
+  type StandingItem,
   type StockingCadence,
 } from "@farm-friend/db";
 
@@ -99,6 +100,46 @@ function stringList(value: unknown): string[] | undefined {
     if (typeof entry !== "string" || entry.length > MAX_TEXT) return undefined;
   }
   return value as string[];
+}
+
+/**
+ * The standing items a farmer stated, each with its optional price (F-090).
+ *
+ * **A bare string is still accepted, and means "no price".** Three doors post this body, and a
+ * farmer with a tab open across a deploy would otherwise get a 400 they cannot act on for a
+ * body that is perfectly unambiguous. This is a widening, not a second format: everything is
+ * normalized to the pair before it leaves here, so exactly one shape reaches the writer.
+ *
+ * Validated as the types they are and never coerced. `String(6)` is `"6"`, which would turn a
+ * malformed price into a plausible-looking one the farmer never typed — the same reasoning
+ * `optionalCoordinate` spells out below.
+ *
+ * `undefined` means malformed, matching every other parser here.
+ */
+function itemList(value: unknown): StandingItem[] | undefined {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_LIST_ENTRIES) return undefined;
+
+  const items: StandingItem[] = [];
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      if (entry.length > MAX_TEXT) return undefined;
+      items.push({ name: entry, priceText: null });
+      continue;
+    }
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      return undefined;
+    }
+    const { name, priceText } = entry as { name?: unknown; priceText?: unknown };
+    if (typeof name !== "string" || name.length > MAX_TEXT) return undefined;
+    if (priceText === undefined || priceText === null) {
+      items.push({ name, priceText: null });
+      continue;
+    }
+    if (typeof priceText !== "string" || priceText.length > MAX_TEXT) return undefined;
+    items.push({ name, priceText });
+  }
+  return items;
 }
 
 /**
@@ -293,7 +334,7 @@ export function parseListingSubmission(
   // corpus, and a limit under that would silently refuse a farmer re-saving their own listing.
   const description = optionalText(body.description, MAX_DESCRIPTION);
   const paymentMethods = stringList(body.paymentMethods);
-  const items = stringList(body.items);
+  const items = itemList(body.items);
   const latitude = optionalCoordinate(body.latitude);
   const longitude = optionalCoordinate(body.longitude);
   const availability = readAvailability(body);

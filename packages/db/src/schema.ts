@@ -1638,6 +1638,16 @@ export const standItems = pgTable(
     displayName: text("display_name").notNull(),
     /** The standing state. Never a date — see the note above. */
     usuallyCarried: boolean("usually_carried").notNull().default(false),
+    /**
+     * F-090 — what this usually costs, in the farmer's own words. Optional.
+     *
+     * Free text for the same reason `inventory_entries.price_text` is: a roadside sign says
+     * "$6/dozen" or "2 for $5", not a decimal with a currency code. Nothing parses or sums it.
+     *
+     * NULL is "not stated" — never "free" and never "ask". Blank strings are refused by
+     * `stand_items_price_text_not_blank` so the two cannot render identically.
+     */
+    priceText: text("price_text"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => ({
@@ -1659,6 +1669,14 @@ export const standItems = pgTable(
     nonnegativeSortOrder: check(
       "stand_items_nonnegative_sort_order",
       sql`${table.sortOrder} >= 0`,
+    ),
+    /**
+     * F-090 — a stated price is a real one. NULL stays legal (a CHECK passes on NULL, which is
+     * what makes the bare condition safe), so "not stated" and "" cannot both reach a card.
+     */
+    priceTextNotBlank: check(
+      "stand_items_price_text_not_blank",
+      sql`${table.priceText} is null or length(btrim(${table.priceText}, E' \t\r\n')) > 0`,
     ),
     /**
      * One item per stand per name, and the first-insert arbiter for concurrent writers.

@@ -73,6 +73,21 @@ function trimItem(name: string): string {
   return name.slice(start, end);
 }
 
+/**
+ * One thing a stand usually sells, and optionally what it costs (F-090).
+ *
+ * **A pair rather than two parallel arrays**, so a price cannot drift onto the wrong item — the
+ * failure a `prices: string[]` beside `items: string[]` invites the first time one list is
+ * filtered and the other is not.
+ *
+ * `priceText` is the farmer's own words and NULL when unstated. See the column comment: nothing
+ * parses it, nothing sums it, and NULL is not "free".
+ */
+export interface StandingItem {
+  name: string;
+  priceText: string | null;
+}
+
 /** What the farmer stated about their listing. */
 export interface OnboardingListingInput {
   /** Whether there is a place to go. Decides whether an address and pin are required. */
@@ -100,7 +115,7 @@ export interface OnboardingListingInput {
   availability?: ListingAvailability;
   paymentMethods: string[];
   /** What they usually sell, in their own words and their own order. */
-  items: string[];
+  items: StandingItem[];
   /**
    * The farm's own prose, as it renders on the public card under "Additional information".
    *
@@ -544,17 +559,21 @@ async function writePaymentMethods(
 async function writeStandingItems(
   tx: Tx,
   salesLocationId: string,
-  items: string[],
+  items: StandingItem[],
 ): Promise<void> {
-  const stated: string[] = [];
+  const stated: StandingItem[] = [];
   const seen = new Set<string>();
   for (const item of items) {
-    const trimmed = trimItem(item);
+    const trimmed = trimItem(item.name);
     if (trimmed === "") continue;
     const key = standItemKey(trimmed);
     if (seen.has(key)) continue;
     seen.add(key);
-    stated.push(trimmed);
+    // Blank and whitespace-only prices become NULL rather than reaching the CHECK. A farmer
+    // who cleared the box means "not stated", and refusing the whole submission over a stray
+    // space would be this writer asking to be refused for a thing it can resolve.
+    const price = item.priceText === null ? "" : trimItem(item.priceText);
+    stated.push({ name: trimmed, priceText: price === "" ? null : price });
   }
 
   // Clear the standing claim across the whole stand FIRST, so an item the farmer dropped stops
@@ -574,11 +593,18 @@ async function writeStandingItems(
     //
     // The display name is NOT overwritten on conflict: the farmer's first spelling is the
     // item's words, and F-066 has no rename operation by design.
+    //
+    // **The price IS overwritten, including back to NULL** (F-090). This writer replaces the
+    // whole listing, so a price left out of the `do update` would survive every save that
+    // dropped it — a farmer who removed their price would keep publishing it with nothing on
+    // screen saying so. That is B-037's shape, and the integration suite asserts the clear.
     await tx`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${salesLocationId}, ${item}, true, ${index})
+      insert into stand_items (
+        sales_location_id, display_name, usually_carried, price_text, sort_order
+      )
+      values (${salesLocationId}, ${item.name}, true, ${item.priceText}, ${index})
       on conflict (sales_location_id, lower(btrim(display_name, E' \t\r\n')))
-      do update set usually_carried = true, sort_order = ${index}
+      do update set usually_carried = true, price_text = ${item.priceText}, sort_order = ${index}
     `;
   }
 }
@@ -618,7 +644,13 @@ export interface StandListing {
   hoursText: string | null;
   availability: ListingAvailability;
   paymentMethods: string[];
-  items: string[];
+  /**
+   * What the stand usually sells, each with its optional price (F-090).
+   *
+   * B-037's rule for the newest column: the writer replaces every item row on every save, so a
+   * price this reader could not see would be deleted by the next otherwise-untouched edit.
+   */
+  items: StandingItem[];
   /**
    * The farm's own prose. Returned so the edit form can prefill it — a description the reader
    * could not see would be erased by the next save of an otherwise untouched form.
@@ -648,13 +680,19 @@ export async function readStandListing(
         ),
         '{}'
       ) as payment_methods,
+      -- F-090 — name AND price together, as objects rather than two arrays. Two separate
+      -- aggregates would be two independently ordered lists that a reader has to zip by index,
+      -- which is exactly how a price lands on the wrong item.
       coalesce(
         (
-          select array_agg(item.display_name order by item.sort_order, item.display_name)
+          select jsonb_agg(
+            jsonb_build_object('name', item.display_name, 'priceText', item.price_text)
+            order by item.sort_order, item.display_name
+          )
           from stand_items as item
           where item.sales_location_id = location.id and item.usually_carried
         ),
-        '{}'
+        '[]'::jsonb
       ) as items
       , farm.name as farm_name, farm.description as farm_description
     from sales_locations as location
@@ -689,7 +727,7 @@ export async function readStandListing(
       stockingDays: (row.stocking_days as number[] | null) ?? null,
     },
     paymentMethods: row.payment_methods as string[],
-    items: row.items as string[],
+    items: row.items as StandingItem[],
     description: (row.farm_description as string | null) ?? null,
   };
 }
