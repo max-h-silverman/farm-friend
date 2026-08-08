@@ -11,6 +11,13 @@ Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **30 migrat
 (`0000`–`0029`). Cloud Run web is revision `farm-friend-web-00043-bn7`; worker is
 `farm-friend-worker-00041-g59`.
 
+**Two migrations are written and unapplied in production**: `0030_stand_item_price` and
+`0031_invitation_pending_stock` (F-090). Both are verified by effect against a fresh local
+database and applied to local dev. `0031` **recreates the `inventory_revision_source` enum** to
+add `web` — a plain `ALTER TYPE … ADD VALUE` cannot work here, because the migrator runs every
+pending migration in one transaction and Postgres refuses to use a new value in the transaction
+that added it.
+
 **The DATA is current; the CODE is one release behind.** Revision `00043` runs the image built from
 `main` at `6ab087e` — it was started only to pick up a rotated secret, not to ship code. Everything
 merged after that (the weekly-ingest fixes, host participants, GL-015 backfill, the geocoding status
@@ -65,9 +72,16 @@ already sent.
 
 ## Verification
 
-**Latest, 2026-08-08** (onboarding form + `START` onboarding, deployed): **1580 unit** (130 files),
-**821 integration** (59 files), typecheck, lint. Integration ran against **local Postgres**, never
-Neon. No `packages/ai` file changed, so no `evals`/`evals:live` run was owed.
+**Latest, 2026-08-08** (F-090 — onboarding wizard, tabbed edit view, item prices, held stock):
+**1646 unit** (133 files), **840 integration** (59 files), typecheck, lint. Integration ran against
+**local Postgres**, never Neon. No `packages/ai` file changed, so no `evals`/`evals:live` run was
+owed — the SMS answer renders location names and addresses only, never item text, so prices reach
+no model seam.
+
+Both F-090 pages were also exercised against the **running app**, which caught what no suite could:
+the local dev database had never had `0030`/`0031` applied, so every page reading the new columns
+returned 500 while every test stayed green (each builds its own database). The served stylesheet was
+checked for the new class names by fetching its bytes, not by reading the source.
 
 **Last `evals:live`: 2026-08-06, 25/25** against `mistralai/Mistral-Small-24B-Instruct-2501`
 (containment 4/4, closure 7/7, quality 9/9, recall 5/5). Owed again on any change to a seam's
@@ -155,10 +169,11 @@ constraint. max accepted that trade knowingly.
   is no general admin audit log. There are now **three writers of public listing state** (invited,
   grandfathered, edit) and none records who wrote. The edit path is the one holding an authorization
   to attribute to.
-- **F-050 participants on the onboarding form — not attempted.** The field exists but on the stand
-  settings page, and `saveSalesLocationParticipants` requires a `senderHash` (the farmer's verified
-  phone). The onboarding form holds an invitation token or a farm ID and no phone at all, so this
-  needs a way to attribute the write. Own item, own session.
+- **F-084 participants on the onboarding form — still not attempted**, and deliberately left out of
+  F-090. `saveSalesLocationParticipants` requires a `senderHash` (the farmer's verified phone); the
+  onboarding form holds an invitation token or a farm ID and no phone at all, so this needs a way to
+  attribute the write. F-084's own analysis allows "the field stays post-authorization" as a
+  possible right answer. Own item, own session.
 - **B-008:** replace the incomplete deployed-build lint gate. Production build warnings are
   unchanged: Next does not recognize `outputFileTracingRoot`, and the Next ESLint plugin is not
   installed.
@@ -169,10 +184,11 @@ constraint. max accepted that trade knowingly.
   half — resolving a flag still records the decision without applying a correction; the seed
   utility's insert-only limit closed 2026-08-08), plus the P2 resilience band and P3 decisions.
 
-**Unverified at phone width** — jsdom reports every element as zero-sized, so three surfaces are
-covered by tests but not by eye: the farmer agreement step, the expanded stand detail, and F-067's
-onboarding listing form including its map. Per-tranche browser checks are **not tracked here**
-(max, 2026-08-05): he runs a browser pass himself before go-live.
+**Unverified at phone width** — jsdom reports every element as zero-sized, so these surfaces are
+covered by tests but not by eye: the farmer agreement step, the expanded stand detail, F-067's
+onboarding listing form including its map, and **F-090's four-step wizard, two-tab stand page, and
+wrapping priced item rows** — the newest and the most layout-dependent of them. Per-tranche browser
+checks are **not tracked here** (max, 2026-08-05): he runs a browser pass himself before go-live.
 
 **VIGA's call, not a code question:** whether Vashon Island Farmers Market belongs in the roster as
 a farm at all — it is the market itself, not a stand with a farmer to onboard.
