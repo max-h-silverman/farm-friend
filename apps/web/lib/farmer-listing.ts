@@ -1,6 +1,7 @@
-import type { Clock } from "@farm-friend/core";
+import { hashPhone, normalizePhone, type Clock } from "@farm-friend/core";
 import {
   loadFarmerInvitation,
+  recordFarmerInvitationPendingPhone,
   saveOnboardingListing,
   OPEN_HOURS_KINDS,
   SEASON_KINDS,
@@ -52,6 +53,14 @@ const MAX_LIST_ENTRIES = 100;
 export interface FarmerListingDeps {
   db: Db;
   clock: Clock;
+  /**
+   * The HMAC salt the phone hash is built under (Golden Rule #5).
+   *
+   * Required rather than optional: a missing salt would silently produce a hash no inbound
+   * `START` could ever match, so the farmer would wait for a text that never came and nothing
+   * would report a fault.
+   */
+  phoneSalt: string;
   /** Injected so the boundary's contract is testable without a database. */
   loadInvitation: (
     db: Db,
@@ -62,6 +71,17 @@ export interface FarmerListingDeps {
     db: Db,
     input: SaveOnboardingListingInput,
   ) => Promise<SaveOnboardingListingResult>;
+  /**
+   * Record the phone this farmer will text `START` from (max 2026-08-07).
+   *
+   * Replaces `JOIN <token>`, which asked the farmer to hand-copy 64 hex characters into a text
+   * message and failed silently on any typo. **Not consent and not a grant** — it records which
+   * handset to expect, so a later inbound `START` can be attributed to this invitation.
+   */
+  recordPendingPhone?: (
+    db: Db,
+    input: { token: string; phoneE164: string; phoneHash: string; occurredAt: Date },
+  ) => Promise<{ status: "recorded" } | { status: "invalid" }>;
 }
 
 /** A field that must be a string within its ceiling, or absent. */
@@ -360,6 +380,35 @@ export async function handleFarmerListingPost(
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 
+  /*
+    THE PHONE, normalized and hashed BEFORE anything is written.
+
+    Validated up here, ahead of the save, because the listing and the phone commit together: a
+    farmer who mistyped their number must not end up with a published listing and no way to
+    finish it. Refusing the whole request leaves them on the form with the number to fix, which
+    is the only state they can act on.
+
+    `invalid_phone` rather than the uniform `invalid_request`: this one IS actionable, and the
+    form shows it against the field. Nothing here discloses anything about the invitation.
+  */
+  const rawPhone = body.phone;
+  let pendingPhone: { phoneE164: string; phoneHash: string } | null = null;
+  if (rawPhone !== undefined && rawPhone !== null && rawPhone !== "") {
+    if (typeof rawPhone !== "string" || rawPhone.length > MAX_TEXT) {
+      return Response.json({ error: "invalid_phone" }, { status: 400 });
+    }
+    try {
+      pendingPhone = {
+        phoneE164: normalizePhone(rawPhone),
+        phoneHash: hashPhone(rawPhone, deps.phoneSalt),
+      };
+    } catch {
+      // `normalizePhone` throws on anything that is not a 10/11-digit US/CA number. The raw
+      // value is deliberately NOT echoed back or logged.
+      return Response.json({ error: "invalid_phone" }, { status: 400 });
+    }
+  }
+
   const invitation = await deps.loadInvitation(
     deps.db,
     token,
@@ -383,22 +432,59 @@ export async function handleFarmerListingPost(
     occurredAt: deps.clock.now(),
   });
 
-  if (result.status === "saved") return Response.json({ status: "saved" });
+  if (result.status === "saved") {
+    /*
+      Recorded AFTER the listing saved, and deliberately not inside its transaction.
+
+      The two are not one commitment. A listing that saved is real and publishable; a phone that
+      failed to record leaves the farmer needing to re-submit the form, which they can do. The
+      reverse order would be worse — a recorded phone whose listing failed would have `START`
+      complete onboarding for a farm with nothing on it.
+
+      A `recordPendingPhone` failure is NOT reported as a failed save, because the save
+      succeeded. What it costs is the automatic phone match, and the farmer's next submit fixes
+      it: the writer overwrites rather than keeping the first value.
+    */
+    if (pendingPhone !== null && deps.recordPendingPhone !== undefined) {
+      await deps.recordPendingPhone(deps.db, {
+        token,
+        phoneE164: pendingPhone.phoneE164,
+        phoneHash: pendingPhone.phoneHash,
+        occurredAt: deps.clock.now(),
+      });
+    }
+    return Response.json({ status: "saved" });
+  }
   // `unknown_farm` is unreachable through this path — the farm came from the invitation we
   // just resolved — but is answered honestly rather than reported as a save.
   const status = result.status === "unknown_farm" ? 410 : 400;
   return Response.json({ error: result.status }, { status });
 }
 
-/** The production wiring: the real invitation lookup and writer behind the boundary above. */
+/**
+ * The production wiring: the real invitation lookup and writers behind the boundary above.
+ *
+ * The salt is read from the environment here rather than taken from `publicReadContext`, the
+ * same way `farmerLinkRequestConfig` does it — which keeps this public path free of the model
+ * graph. It THROWS when absent rather than defaulting: a missing salt would produce a hash no
+ * inbound `START` could match, so the farmer would wait forever for a text with nothing
+ * reporting a fault.
+ */
 export function farmerListingDeps(context: {
   db: Db;
   clock: Clock;
+  env?: Record<string, string | undefined>;
 }): FarmerListingDeps {
+  const phoneSalt = (context.env ?? process.env).PHONE_HASH_SALT?.trim();
+  if (phoneSalt === undefined || phoneSalt === "") {
+    throw new Error("PHONE_HASH_SALT is required");
+  }
   return {
     db: context.db,
     clock: context.clock,
+    phoneSalt,
     loadInvitation: loadFarmerInvitation,
     saveListing: saveOnboardingListing,
+    recordPendingPhone: recordFarmerInvitationPendingPhone,
   };
 }

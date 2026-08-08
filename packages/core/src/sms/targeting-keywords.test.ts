@@ -60,11 +60,12 @@ describe("deterministic stand targeting keywords (F-051)", () => {
     for (const keyword of ["LINK", "STAND", "SETTINGS"]) {
       expect(parseCommand(keyword).kind, keyword).toBe("farmer");
     }
-    // F-080 — `JOIN <token>` is a farmer command, and BARE `JOIN` is not. Both directions
-    // belong in this precedence list, because the bare word sits in the compliance tier
-    // above and the argument form in the farmer tier below.
-    expect(parseCommand(`JOIN ${"a".repeat(64)}`).kind).toBe("farmer");
+    // `JOIN` belongs in this list for ONE reason now: the bare word is compliance, and it must
+    // stay in that tier. Its argument form was removed (max 2026-08-07) — onboarding completes
+    // with a bare START matched by phone — so a well-formed token is free text, asserted here
+    // so a re-added grammar cannot slip back in unnoticed.
     expect(parseCommand("JOIN").kind).toBe("compliance");
+    expect(parseCommand(`JOIN ${"a".repeat(64)}`).kind).toBe("none");
     for (const keyword of ["MORE", "NEXT"]) {
       expect(parseCommand(keyword).kind, keyword).toBe("paging");
     }

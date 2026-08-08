@@ -3,7 +3,6 @@ import {
   consentTransitionFor,
   ALREADY_JOINED_RESPONSE,
   renderCustomerWelcome,
-  FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   REGISTERED_HELP_AUTO_RESPONSE,
   REGISTERED_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
@@ -36,7 +35,7 @@ import type { PagingStatus } from "./paging";
 //   3. FLAG                  — the human-handoff safety rail, also upstream of the model
 //   4. commitment YES/NO     — context- and version-bound to the sender's ONE open proposal
 //   5. SAME                  — only the exact active scheduled full-snapshot subject
-//   6. farmer keywords       — JOIN <token>/LINK/STAND/SETTINGS, upstream of the model
+//   6. farmer keywords       — LINK/STAND/SETTINGS, upstream of the model
 //   7. MORE                  — the next page of the sender's pending result list (F-046)
 //   8. stand menu number     — exact server-bound authorization+location selection
 //   9. free text             — only here may a model seam run
@@ -281,29 +280,23 @@ export async function routeInboundMessage(
     };
   }
 
-  // F-040 / F-080 — the farmer keywords, still upstream of any model call. None grants
-  // anything by itself: `JOIN <token>` requires an unspent invitation, and LINK/STAND/SETTINGS
-  // are refused unless the sender is ALREADY an authorized farmer.
+  // F-040 — the farmer keywords, still upstream of any model call. None grants anything by
+  // itself: LINK/STAND/SETTINGS are refused unless the sender is ALREADY an authorized farmer.
   //
-  // **`JOIN <token>` never reaches `routeCompliance`**, and that is what keeps the invited
-  // path to ONE consent writer. Bare `JOIN` parses as compliance and is handled there by
-  // `applyConsentTransition`; the token form parses as `kind: "farmer"` and is handled here by
-  // `openFarmerOnboardingRequest`, which does its own consent write inside its transaction.
-  // The parser's ordering is what separates them, so neither branch has to test for the other.
+  // `JOIN <token>` used to be handled here. It is gone (max 2026-08-07) — onboarding completes
+  // with a bare `START`, which `routeCompliance` owns. That keeps the invited path to ONE
+  // consent writer, as it always had, but the branch that owns it moved.
   if (command.kind === "farmer") {
-    if (command.keyword !== "JOIN") {
-      const targeted = await deps.farmerTarget({
-        senderHash: input.senderHash,
-        keyword: command.keyword,
-        occurredAt: input.occurredAt,
-        providerEventId: input.providerEventId,
-      });
-      return {
-        outcome: { kind: "farmer", keyword: command.keyword, status: targeted.status },
-        replies: targeted.replies,
-      };
-    }
-    return routeInvitedJoin(deps, input, command.invitationToken);
+    const targeted = await deps.farmerTarget({
+      senderHash: input.senderHash,
+      keyword: command.keyword,
+      occurredAt: input.occurredAt,
+      providerEventId: input.providerEventId,
+    });
+    return {
+      outcome: { kind: "farmer", keyword: command.keyword, status: targeted.status },
+      replies: targeted.replies,
+    };
   }
 
   // F-046 — MORE. Ordered AFTER the compliance keywords and the commitment tokens, which is
@@ -431,14 +424,63 @@ async function routeCompliance(
     ...(firstTimeOnly ? { firstTimeOnly: true } : {}),
   });
 
+  /*
+    START COMPLETES ONBOARDING when an invitation is waiting for this handset.
+
+    This replaces `JOIN <token>` (max 2026-08-07): the farm identity now travels on the
+    onboarding form as a stated phone rather than in the message body, so the farmer's message
+    is one carrier-registered word with nothing to copy.
+
+    **Attempted AFTER the consent write above, never instead of it.** `START` is the carrier's
+    own keyword and its consent effect is unconditional — a farmer whose invitation has already
+    been spent, or who never had one, must still be enrolled and unblocked by it. Ordering it
+    second is what keeps this a redemption bolted onto `START` rather than a second meaning for
+    the word.
+
+    **Only for `START`, never for bare `JOIN`.** JOIN cannot clear the carrier's own opt-out
+    list (B-011), so completing onboarding on it would set a farmer up whose messages the
+    carrier silently refuses — the dead end that rule exists to close.
+
+    The match is by sender HASH against unredeemed invitations. A sender with no invitation
+    gets `invalid_invitation` and nothing happens, which is the ordinary case for every
+    customer who ever texts START.
+  */
+  const redeemed =
+    keyword === "START"
+      ? await openFarmerOnboardingRequest(deps.db, {
+          contactHash: input.senderHash,
+          occurredAt: input.occurredAt,
+          pendingPhoneHash: input.senderHash,
+          providerEventId: input.providerEventId,
+        })
+      : { status: "invalid_invitation" as const };
+
   // B-011: a JOIN refused because a record already exists gets told the word that actually
   // works. Keyed on the explicit refusal reason, NOT on `!applied` — a JOIN refused by the
   // watermark (an older event arriving late) is not a returning farmer, and answering it
   // with "reply START" would be a non-sequitur.
   const replyBody =
     applied.refusal === "already_enrolled" ? ALREADY_JOINED_RESPONSE : autoResponse;
-  const welcomeReply =
-    (keyword === "JOIN" || keyword === "START") && applied.applied
+
+  /*
+    WHICH follow-up the sender gets, and why a farmer must not get the customer welcome.
+
+    The customer welcome points at the public map — the right thing for a stranger who just
+    opted in, and the wrong thing for a farmer who just finished onboarding, whose next step is
+    their own stand. So a completed redemption replaces it rather than adding to it.
+  */
+  const onboarded = redeemed.status === "opened" && redeemed.authorizationId !== null;
+  const welcomeReply = onboarded
+    ? invitedJoinReplyBodies({
+        consentEstablished: redeemed.status === "opened" && redeemed.consentEstablished,
+        hadConsent: redeemed.status === "opened" && redeemed.hadConsentRecord,
+        authorized: true,
+      }).map((body, index) => ({
+        body,
+        category: "required_reply" as const,
+        logicalKey: `farmer-onboarded-${index}-${input.providerEventId}`,
+      }))
+    : (keyword === "JOIN" || keyword === "START") && applied.applied
       ? [{
           body: renderCustomerWelcome(deps.publicBaseUrl),
           category: "inquiry_reply" as const,
@@ -468,77 +510,6 @@ async function routeCompliance(
   };
 }
 
-/**
- * `JOIN <token>` — redeeming an administrator's invitation (F-080, replacing `SIGNUP`).
- *
- * **The INVITATION is what grants, never the text.** A phone proves possession of a phone,
- * not ownership of a farm, so this path can only spend an invitation an administrator already
- * minted and a farmer already agreed to. What the inbound text supplies that nothing else can
- * is the phone itself: `farmer_authorizations` requires `phone_verified_at`, and the only
- * honest source of that is a message the farmer sent. That is precisely why `SIGNUP` could not
- * simply be deleted — it was the sole writer of `farmer_onboarding_requests`, which the admin
- * fallback `authorizeFarmer` requires, so removing it without a replacement would have left no
- * path at all by which anyone became an authorized farmer.
- *
- * **Bare `JOIN` never arrives here.** It parses as compliance and is handled by
- * `routeCompliance`, which owns the `applyConsentTransition` call. This function's consent
- * write happens inside `openFarmerOnboardingRequest`'s transaction. Two writers, two branches,
- * separated by the parser rather than by a check either one performs — which is what stops
- * them ever running against the same message.
- *
- * `LINK`, by contrast, mints a standing link ONLY for a sender who is already an authorized
- * farmer; a stranger texting LINK gets the same nothing they started with.
- */
-async function routeInvitedJoin(
-  deps: RouteDeps,
-  input: RouteInput,
-  invitationToken?: string,
-): Promise<RouteResult> {
-  const opened = await openFarmerOnboardingRequest(deps.db, {
-    contactHash: input.senderHash,
-    occurredAt: input.occurredAt,
-    providerEventId: input.providerEventId,
-    ...(invitationToken !== undefined ? { invitationToken } : {}),
-  });
-
-  // The acknowledgement never reveals queue state — a farmer who texts twice because nothing
-  // visibly happened is told the same true thing. Since F-067 it is also OMITTED entirely for
-  // a farmer the redemption set up, because they are not waiting on VIGA for anything.
-  //
-  // What accompanies it depends on what the write did to their consent, which is why the
-  // decision is a pure function over the write's own report rather than a re-read here.
-  // A repeat JOIN (`already_open`, `invalid_invitation`) established nothing and had no
-  // chance to observe a record, so it is answered with the acknowledgement alone: saying
-  // "reply JOIN" on the second text when the first already said it adds nothing, and the
-  // first text is the one that carried the instruction.
-  const bodies =
-    opened.status === "opened"
-      ? invitedJoinReplyBodies({
-          consentEstablished: opened.consentEstablished,
-          hadConsent: opened.hadConsentRecord,
-          authorized: opened.authorizationId !== null,
-        })
-      : [FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT];
-
-  return {
-    outcome: { kind: "farmer", keyword: "JOIN", status: opened.status },
-    replies: bodies.map((body) => ({
-      body,
-      // `required_reply`: each answers the sender's own inbound message. The opt-in receipt
-      // in particular must not be gated on the consent it is confirming.
-      category: "required_reply" as const,
-      // Keyed by WHICH body this is, never by its position. The acknowledgement is now
-      // conditional, so a positional key would hand `join-ack-` to the opt-in receipt on
-      // exactly the runs that omit the acknowledgement — two different messages sharing one
-      // idempotency key across senders, which is how a receipt gets silently dropped as a
-      // duplicate of an acknowledgement.
-      logicalKey:
-        body === FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT
-          ? `join-ack-${input.providerEventId}`
-          : `join-consent-${input.providerEventId}`,
-    })),
-  };
-}
 
 async function routeCommitment(
   deps: RouteDeps,

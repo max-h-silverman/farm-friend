@@ -18,21 +18,21 @@ import {
 // registered block claims a registration nobody made, and a compliance keyword shadowed by a
 // product one is a Golden Rule #2 violation.
 //
-// ## `SIGNUP` is gone, and an invitation is redeemed by `JOIN <token>` (F-080)
+// ## Both invitation-redeeming grammars are gone
 //
-// `SIGNUP` was promoted nowhere and was never a registered keyword. max removed it (2026-08-06)
-// outright — no grace window, because Farm Friend is pre-go-live and there is no farmer
-// mid-onboarding to strand.
+// `SIGNUP` was never a registered keyword and max removed it outright (2026-08-06). Its
+// replacement `JOIN <token>` is now gone too (max 2026-08-07): it asked the farmer to hand-copy
+// 64 hex characters into a text message, where a single transcription slip failed identically
+// and silently — the token matched no invitation, and nothing could distinguish "you mistyped"
+// from "no invitation exists".
 //
-// **`JOIN` is a carrier-registered COMPLIANCE keyword**, deliberately parsed before every
-// product keyword so a product word can never shadow compliance. Giving it an argument grammar
-// inverts exactly that ordering, which is the risk this design has to answer.
+// Onboarding now completes with a bare `START`, matched against the phone the farmer states on
+// the onboarding form. One carrier-registered word, nothing to copy.
 //
-// **The mitigation is structural, not a comment.** Bare `JOIN` matches first, in the unchanged
-// compliance branch. `JOIN <64-hex>` matches in a SEPARATE, LATER branch — after compliance,
-// after commitments, alongside the other argument grammars. The test named "bare JOIN is still
-// the compliance opt-in" is the whole safety argument, and the sabotage that moves the token
-// regex above the compliance lookup must fail it.
+// **`JOIN` remains a carrier-registered COMPLIANCE keyword** and must keep working as one for
+// anyone who texts it. That property is now simpler to hold — with no argument grammar there is
+// nothing that could shadow the bare word — but it is still asserted, because the failure is
+// silent: a registered opt-in that stopped enrolling would look like nothing at all.
 
 const registeredFieldValues = resolve(
   __dirname,
@@ -111,24 +111,21 @@ describe("farmer keywords (F-040, F-080)", () => {
     expect(parseCommand("JOIN ").kind).toBe("compliance");
   });
 
-  it("carries a one-use invite token through JOIN <token>", () => {
-    expect(parseCommand(`JOIN ${"a".repeat(64)}`)).toEqual({
-      kind: "farmer",
-      keyword: "JOIN",
-      invitationToken: "a".repeat(64),
-    });
-    // Case-folded on the way in, so the stored lowercase hash matches whatever the farmer's
-    // keyboard produced.
-    expect(parseCommand(`join ${"A".repeat(64)}`)).toEqual({
-      kind: "farmer",
-      keyword: "JOIN",
-      invitationToken: "a".repeat(64),
-    });
+  it("JOIN <token> IS NO LONGER A GRAMMAR — a well-formed token is free text", () => {
+    // max removed it (2026-08-07). It asked the farmer to hand-copy 64 hex characters into a
+    // text message, and every transcription slip failed identically and silently: the token
+    // matched no invitation and nothing could say why. Onboarding completes with a bare START
+    // matched against the phone stated on the form.
+    //
+    // A farmer holding an old pre-filled link now sends free text and reaches the model, rather
+    // than silently redeeming anything — the same shape `SIGNUP <token>` was retired into.
+    expect(parseCommand(`JOIN ${"a".repeat(64)}`).kind).toBe("none");
+    expect(parseCommand(`join ${"A".repeat(64)}`).kind).toBe("none");
   });
 
-  it("does not treat arbitrary text after JOIN as an invitation", () => {
-    // The token is accepted only in its opaque 32-byte hex form, so ordinary words after JOIN
-    // stay free text and cannot accidentally select an invitation.
+  it("does not treat arbitrary text after JOIN as a command", () => {
+    // Unchanged in effect, now for a simpler reason: there is no argument grammar at all, so
+    // everything after a bare JOIN is ordinary free text.
     for (const raw of [
       "JOIN please help",
       "JOIN the club",
@@ -145,8 +142,10 @@ describe("farmer keywords (F-040, F-080)", () => {
     // affordable. This is Golden Rule #2's reason, applied to the words that decide whether
     // someone can use the product at all.
     expect(bypassesModel("LINK")).toBe(true);
-    expect(bypassesModel(`JOIN ${"a".repeat(64)}`)).toBe(true);
+    // Bare JOIN still bypasses — it remains the registered compliance opt-in. Its ARGUMENT
+    // form does not, because it is no longer a command at all.
     expect(bypassesModel("JOIN")).toBe(true);
+    expect(bypassesModel(`JOIN ${"a".repeat(64)}`)).toBe(false);
   });
 
   it("normalizes case, surrounding space, and trailing punctuation", () => {
@@ -157,17 +156,17 @@ describe("farmer keywords (F-040, F-080)", () => {
 
   it("collapses INTERNAL whitespace, not merely the ends", () => {
     // Sabotage originally found this untested against "SIGN UP", a literal table key where a
-    // single space needed no collapsing. The collapse is still load-bearing for the JOIN
-    // token grammar, where a double space or a wrapped newline is what a thumb produces.
-    for (const raw of [
-      `JOIN  ${"a".repeat(64)}`,
-      `JOIN\n${"a".repeat(64)}`,
-      `  join \t ${"a".repeat(64)}  `,
-    ]) {
+    // single space needed no collapsing.
+    //
+    // The collapse is still load-bearing, and this asserts it on a keyword that still HAS an
+    // internal space rather than on the retired JOIN token grammar. Without the collapse,
+    // "NO  THANKS" would miss the table and reach the model as free text — a farmer declining
+    // a proposal and being answered by a model instead of by code.
+    for (const raw of ["NO  THANKS", "no\nthanks", "  No \t Thanks  "]) {
       expect(parseCommand(raw), raw).toEqual({
-        kind: "farmer",
-        keyword: "JOIN",
-        invitationToken: "a".repeat(64),
+        kind: "commitment",
+        token: "NO",
+        contextBound: true,
       });
     }
   });

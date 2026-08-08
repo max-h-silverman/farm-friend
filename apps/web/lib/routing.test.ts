@@ -496,36 +496,79 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       expect(freeText).toHaveBeenCalled();
     });
 
-    it("routes the onboarding link's token with JOIN", async () => {
+    it("JOIN <token> NO LONGER REDEEMS — it reaches the model as free text", async () => {
+      // The grammar is gone (max 2026-08-07). It made the farmer hand-copy 64 hex characters,
+      // and every slip failed silently. This asserts the routing half: no onboarding request
+      // is opened, and the message reaches the model like any other sentence.
       const { db, queries } = recordingDb([{ id: "invite-1" }]);
-      const result = await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
+      const freeText = vi.fn(async () => ({ replies: [], handled: "none" as const }));
+      const result = await routeInboundMessage(
+        deps({ db, freeText }),
+        event(`JOIN ${INVITE}`),
+      );
 
-      expect(result.outcome).toMatchObject({ kind: "farmer", keyword: "JOIN" });
-      expect(queries.some((q) => q.includes("invitation_id"))).toBe(true);
+      expect(result.outcome.kind).not.toBe("farmer");
+      expect(
+        queries.some((q) => q.includes("insert into farmer_onboarding_requests")),
+      ).toBe(false);
+      expect(freeText).toHaveBeenCalled();
+    });
+
+    it("a bare START COMPLETES onboarding when an invitation expects that phone", async () => {
+      // The replacement, at the routing layer. START is matched against the phone the farmer
+      // stated on the form, so the message carries nothing to mistype.
+      const { db, queries } = recordingDb([{ id: "invite-1" }]);
+      const result = await routeInboundMessage(deps({ db }), event("START"));
+
+      // Still a consent outcome — START's carrier meaning is unchanged and comes first.
+      expect(result.outcome).toMatchObject({ kind: "consent", transition: "start" });
+      // ...and it looked for an invitation waiting on this handset.
+      expect(queries.some((q) => q.includes("pending_phone_hash"))).toBe(true);
       expect(
         queries.some((q) => q.includes("insert into farmer_onboarding_requests")),
       ).toBe(true);
     });
 
-    it("BARE JOIN still routes to compliance, never to the invitation path", async () => {
-      // The routing half of the safety argument the parser makes. A bare `JOIN` is the
-      // carrier-registered opt-in: it must reach `routeCompliance`, and must NOT open an
-      // onboarding request or touch an invitation.
-      const { db, queries } = recordingDb();
+    it("matches the invitation by phone HASH, never by a raw number", async () => {
+      // Golden Rule #5 at the match. The raw column exists for the send path alone, so the
+      // matcher must never appear in a query beside it.
+      const { db, queries } = recordingDb([{ id: "invite-1" }]);
+      await routeInboundMessage(deps({ db }), event("START"));
+
+      const match = queries.find((q) => q.includes("pending_phone_hash"));
+      expect(match).toBeDefined();
+      expect(match).not.toContain("pending_phone_e164");
+    });
+
+    it("does NOT complete onboarding on a bare JOIN", async () => {
+      // B-011. JOIN cannot clear the carrier's own opt-out list, so setting a farmer up on it
+      // would authorize someone whose messages the carrier silently refuses — the exact dead
+      // end that rule closed. Only START may complete onboarding.
+      const { db, queries } = recordingDb([{ id: "invite-1" }]);
       const result = await routeInboundMessage(deps({ db }), event("JOIN"));
 
       expect(result.outcome).toMatchObject({ kind: "consent", transition: "start" });
+      expect(queries.some((q) => q.includes("pending_phone_hash"))).toBe(false);
       expect(
         queries.some((q) => q.includes("insert into farmer_onboarding_requests")),
       ).toBe(false);
-      expect(queries.some((q) => q.includes("invitation_id"))).toBe(false);
     });
 
-    it("acknowledges an invited JOIN without claiming the farmer is set up", async () => {
+    it("BARE JOIN still routes to compliance — the registered opt-in keeps working", async () => {
+      // The routing half of the safety argument the parser makes. A bare `JOIN` is the
+      // carrier-registered opt-in: it must reach `routeCompliance` and enroll.
+      const { db } = recordingDb();
+      const result = await routeInboundMessage(deps({ db }), event("JOIN"));
+
+      expect(result.outcome).toMatchObject({ kind: "consent", transition: "start" });
+    });
+
+    it("acknowledges a START without claiming an un-set-up farmer is ready", async () => {
       // A request grants nothing on its own. Copy that read as a yes would send a farmer to
-      // their stand expecting to publish.
+      // their stand expecting to publish. The invitation here was never ticked, so nothing
+      // was authorized.
       const { db } = recordingDb([{ id: "invite-1", agreed_to_sms_at: null }]);
-      const result = await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
+      const result = await routeInboundMessage(deps({ db }), event("START"));
 
       expect(result.replies.length).toBeGreaterThan(0);
       for (const reply of result.replies) {
@@ -540,13 +583,12 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       // `applyConsentTransition`'s existing rules, inside the redemption transaction. A
       // second consent writer would be a second set of rules for one fact.
       //
-      // The two JOIN forms reach DIFFERENT handlers (`routeCompliance` for the bare word,
-      // `routeInvitedJoin` for the token form) and that is exactly why this matters: they
-      // must still converge on one writer.
+      // Now that START owns both the carrier transition and the redemption, "one writer" is
+      // what stops the same message enrolling twice under two sets of rules.
       const { db, queries } = recordingDb([
         { id: "invite-1", agreed_to_sms_at: new Date(T0.getTime() - 60_000) },
       ]);
-      await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
+      await routeInboundMessage(deps({ db }), event("START"));
 
       expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(true);
       expect(
@@ -558,13 +600,13 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       // VIGA creating an invitation cannot opt a farmer in. Only the farmer's own tick,
       // followed by their own inbound message, can.
       //
-      // Still reachable after F-080, contrary to the assumption that requiring a token would
-      // collapse this case: `openFarmerOnboardingRequest` writes no consent when
-      // `agreed_to_sms_at` is null, and a farmer can redeem an un-ticked invitation by text.
+      // The REDEMPTION writes no consent when `agreed_to_sms_at` is null. START's own carrier
+      // transition is a separate, unconditional write — which is why this asserts on the
+      // redemption's guarded insert rather than on there being no consent write at all.
       const { db, queries } = recordingDb([{ id: "invite-1", agreed_to_sms_at: null }]);
-      await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
+      await routeInboundMessage(deps({ db }), event("START"));
 
-      expect(queries.some((q) => q.includes("insert into sms_consents"))).toBe(false);
+      expect(queries.some((q) => q.includes("insert into farmer_authorizations"))).toBe(false);
     });
 
     it("does not re-enroll a number that texted STOP, by redeeming an invitation", async () => {
@@ -578,7 +620,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       const { db, queries } = recordingDb([
         { id: "invite-1", agreed_to_sms_at: new Date(T0.getTime() - 60_000) },
       ]);
-      await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
+      await routeInboundMessage(deps({ db }), event("START"));
 
       // The consent insert is guarded by an existence check rather than being unconditional.
       const consentWrite = queries.find((q) => q.includes("insert into sms_consents"));
@@ -593,7 +635,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       // farmer's own tick there is no informed opt-in, and setting them up here would
       // grant publishing rights off a message alone.
       const { db, queries } = recordingDb([{ id: "invite-1", agreed_to_sms_at: null }]);
-      await routeInboundMessage(deps({ db }), event(`JOIN ${INVITE}`));
+      await routeInboundMessage(deps({ db }), event("START"));
 
       expect(
         queries.some((q) => q.includes("insert into farmer_authorizations")),
@@ -656,7 +698,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       // The structural claim, stated once more where it is cheapest to check: the seam in
       // `deps()` throws, so any model call fails these outright rather than being asserted
       // about afterwards.
-      for (const word of [`JOIN ${INVITE}`, "LINK", "link", "STAND", "SETTINGS"]) {
+      for (const word of ["LINK", "link", "STAND", "SETTINGS"]) {
         const { db } = recordingDb([{ id: "invite-1" }]);
         const farmerTarget = vi.fn(async () => ({ status: "menu", replies: [] }));
         await expect(

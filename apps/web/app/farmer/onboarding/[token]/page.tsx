@@ -31,7 +31,7 @@ export default async function FarmerOnboardingPage({
   const joinUrl =
     fromNumber === undefined || fromNumber === ""
       ? null
-      : buildInviteSmsUrl(fromNumber, params.token);
+      : buildInviteSmsUrl(fromNumber);
   return (
     <main className="farmer-onboarding">
       <p className="farmer-eyebrow">VIGA Farm Friend</p>
@@ -66,9 +66,16 @@ export default async function FarmerOnboardingPage({
           one, so there is nothing to prefill and nothing B-037 could erase. Only the edit
           page passes them.
         */}
+        {/*
+          `smsNumber` is what lets the form name the number the farmer will text START to, both
+          beside the phone field and in the confirmation. Absent when `TELNYX_FROM_NUMBER` is
+          unset, and the form falls back to copy that names the word without the number rather
+          than rendering "undefined".
+        */}
         <ListingStep
           credential={{ kind: "invitation", token: params.token }}
           farmName={invitation.farmName ?? ""}
+          {...(fromNumber === undefined || fromNumber === "" ? {} : { smsNumber: fromNumber })}
         />
       </section>
 

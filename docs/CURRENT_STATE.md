@@ -17,11 +17,19 @@ serving revisions above still run `386c3d2`. Everything before F-088 is deployed
 reminder schedule, the farmer sign-up wizard plus the integration-suite guard, and the self-consent
 and listing-merge tranche all shipped together at revision 00041/00040.
 
-**TWO MIGRATIONS ARE NOW OWED TO PRODUCTION** (F-088, 2026-08-07): `0026_address_visibility` and
-`0027_placeable_contact_only`. Both are applied and verified by effect on **local** Postgres only —
-production `neondb` remains at 26 and the code on `main` now expects 28. **Deploying the image
-before applying them breaks the listing writer and the public reader**, both of which reference
-`sales_locations.address_public`. Apply first, then deploy.
+**THREE MIGRATIONS ARE NOW OWED TO PRODUCTION**: `0026_address_visibility`,
+`0027_placeable_contact_only`, and `0028_invitation_pending_phone`. All three are applied and
+verified by effect on **local** Postgres only — production `neondb` remains at 26 and the code on
+`main` now expects 29. **Deploying the image before applying them breaks the listing writer, the
+public reader, and farmer onboarding**: the first two reference `sales_locations.address_public`,
+and 0028 adds the `farmer_invitations.pending_phone_*` pair that the onboarding form writes and
+inbound `START` matches against. Apply first, then deploy.
+
+`0028` is HAND-WRITTEN and the journal entry was retagged onto it. `drizzle-kit generate` emitted
+only the two `ADD COLUMN` lines and **silently dropped all three CHECK constraints and the partial
+index** — 0024's documented warning, confirmed again here. It also stamped a `when` EARLIER than
+0027's, which `migration-ordering.test.ts` caught: an out-of-order journal entry is silently
+skipped. Both were corrected by hand.
 
 **Verified by effect against the live service**, not from the apply's exit status: `plan-assertions`
 55/55, `deploy_assertions` confirms each serving revision is newer than every secret version it
@@ -55,10 +63,24 @@ already sent.
 
 ## Verification
 
-**Latest, 2026-08-07** (F-088 address visibility, committed to `main`): **1562 unit** (131 files),
-**805 integration** (58 files), typecheck, lint, production build. Integration ran against **local
-Postgres**, never Neon. **No `packages/ai` file changed**, checked against the diff, so no
-`evals`/`evals:live` run was owed. **Two migrations ARE owed to production** — see Release state.
+**Latest, 2026-08-07** (onboarding form pass + `START` onboarding, UNCOMMITTED): **1583 unit** (131
+files), **821 integration** (59 files), typecheck, lint. Integration ran against **local Postgres**,
+never Neon. **No `packages/ai` file changed**, checked against the diff, so no `evals`/`evals:live`
+run was owed. **Three migrations ARE owed to production** — see Release state.
+
+Sabotage-verified this tranche, each confirmed to FAIL when the behavior is broken: the seven form
+tests (label/placeholder, the Save button as visible text rather than an icon carrying `aria-label`,
+the `e.g.` placeholders, the privacy checkbox's position and wording, the pin's size as a fraction of
+the settled frame); all three `0028` CHECK constraints plus the partial index; `firstTimeOnly` being
+restored on the phone path; the `redeemed_at is null` guard on the phone lookup; the phone hash being
+replaced by the raw number; the invalid-phone refusal; and bare `JOIN` being allowed to complete
+onboarding.
+
+**Not verified in a browser or against a real handset.** No SMS was sent end to end — the `START`
+path is proven through the real webhook handler against real Postgres, not against Telnyx.
+
+**Prior, 2026-08-07** (F-088 address visibility, committed to `main`): 1562 unit, 805 integration,
+typecheck, lint, production build.
 
 **Prior, 2026-08-07** (the self-consent and listing-merge tranche, deployed): 1553 unit, 802
 integration, typecheck, lint.
@@ -74,7 +96,35 @@ projection, schema, or output contract.
 Standing rules: real-Postgres integration runs from an empty schema against local Postgres, **never**
 production Neon. Never carry an old test count forward as current evidence.
 
-## Standing facts from the newest tranche (F-088, 2026-08-07)
+## Standing facts from the newest tranche (onboarding form + `START`, 2026-08-07)
+
+**`JOIN <token>` IS GONE.** Onboarding is completed by a **bare `START`** matched against
+`farmer_invitations.pending_phone_hash` — the phone the farmer states on the onboarding form. The
+old grammar made the farmer hand-copy 64 hex characters into a text message, where any slip failed
+identically and silently. `JOIN` remains a registered compliance opt-in; `JOIN` followed by anything
+is now ordinary free text.
+
+**The consent rule DIFFERS by credential, and inverting it is the trap.** The phone-matched path
+deliberately does **not** pass `firstTimeOnly`. `START` is the carrier's own keyword and the only
+word that clears its opt-out list, so it is exactly what a *returning* farmer sends — someone who by
+definition already has a record. Keeping `firstTimeOnly` there would refuse consent for the sender
+`START` exists to restore: invitation spent, consent left `stopped`, farmer never told. The token
+path kept it (B-011). The web-form protection is unchanged, because a form tick writes no consent at
+all. Pinned by *"ENROLLS a returning farmer whose phone had texted STOP"* — sabotage-verified.
+
+**Only `START` may complete onboarding, never bare `JOIN`.** `JOIN` cannot clear the carrier block,
+so redeeming on it would set up a farmer whose messages the carrier silently refuses. Pinned by
+*"does NOT complete onboarding on a bare JOIN"*.
+
+**The carrier transition runs FIRST, the redemption second.** `START` must enroll unconditionally
+whether or not an invitation is waiting; the redemption is attempted after the consent write.
+
+**A mistyped phone is invisible without the confirm modal.** The listing saves, the farmer texts
+START from their real phone, it matches nothing, and they wait with every field on screen looking
+correct — ten valid digits are indistinguishable from the right ten digits. Hence the blocking
+confirm dialog. A wrong number grants nothing and leaves the invitation unredeemed and retryable.
+
+## Standing facts from F-088 (2026-08-07)
 
 Reasoning and the findings behind each: [SESSION_LOG.md](SESSION_LOG.md), 2026-08-07.
 
@@ -107,7 +157,8 @@ always-on map and zoom** are unverified by eye.
 
 - **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
   names, transient browser proximity, destination links, and code-bound stock-out reporting.
-- **Farmer workflows:** deterministic `JOIN <token>`, `LINK`, `STAND`, `SETTINGS`, and `SAME`; one
+- **Farmer workflows:** deterministic bare `START` onboarding, `LINK`, `STAND`, `SETTINGS`, and
+  `SAME`; one
   exact stand per credential; SMS/web proposal and confirmation; closures, participants, reminders.
   Three onboarding doors — invited, grandfathered (`/farmer/start`), and the emailed-code migration
   door (`/farmer/start/<secret>`).

@@ -128,8 +128,9 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   re-resolves the link, and cannot grant access or attach names to profiles. The settings page has
   no second login and no consent control; pausing reminders never changes launch-program consent.
 - **Farmer onboarding** (F-067): `/farmer/onboarding/<token>` — a one-use invitation link that
-  captures the SMS agreement and the farm's **listing details**, then hands off to a prepared
-  `JOIN <token>` text. The invitation token is the whole credential and, like the standing link, is
+  captures the SMS agreement, the farm's **listing details**, and the **phone the farmer will text
+  from**, then hands off to a prepared bare `START` text. The invitation token is the whole
+  credential and, like the standing link, is
   posted in the request **body** (`/api/farmer/onboarding`, `/api/farmer/listing`), never a query
   string. **The token also names the farm**: a `farmId` in the request body is ignored, which is
   what stops one invitation writing another farm's listing.
@@ -230,9 +231,10 @@ Launch VIGA Farm Friend is one registered operational SMS program. Each recipien
 launch-program consent state with capture provenance. `START` establishes **or restores** it from
 any state; `JOIN` establishes it **only for a sender with no consent record** — see B-011 in
 docs/SMS_COMPLIANCE.md, where the carrier's own opt-out list, which only `START` clears, is why;
-documented farmer onboarding establishes it through that same `JOIN` rule — first-time senders only,
-and only once an inbound `JOIN <token>` demonstrates control of the number the web agreement was
-accepted for. Inventory prompts, publication confirmations, customer
+documented farmer onboarding establishes it once an inbound bare `START` from the **stated phone**
+demonstrates control of the number the web agreement was accepted for. That path deliberately does
+**not** apply the first-time-only rule: `START` is the carrier's own keyword and is exactly what a
+returning farmer sends, so refusing an existing record would strand the sender it exists to restore. Inventory prompts, publication confirmations, customer
 inquiry replies, and stock-out alerts are message categories inside that program, not separate
 program enrollments.
 
@@ -300,9 +302,9 @@ order:
    identical inventory revision only for the sender's active, provider-accepted scheduled prompt
    whose complete snapshot was shown. With no such prompt it changes nothing; text such as
    "same eggs?" continues below as free text. It never confirms closure or profile data.
-6. **Farmer keywords** (F-040/F-051/F-080) — `JOIN <64-hex token>` redeems an administrator's
-   invitation, `LINK` asks for their private web-form link, `STAND` issues an exact numbered target
-   menu, and `SETTINGS` opens the settings view through the existing standing link. `LINK`, `STAND`
+6. **Farmer keywords** (F-040/F-051) — `LINK` asks for their private web-form link, `STAND` issues
+   an exact numbered target menu, and `SETTINGS` opens the settings view through the existing
+   standing link. `LINK`, `STAND`
    and `SETTINGS` are, like `FLAG`, **Farm Friend product keywords, never carrier-mandated ones**,
    and must never be registered as such. They are parsed **last among the keyword branches** so one
    can never shadow a compliance keyword or a commitment token — if a synonym ever collided with

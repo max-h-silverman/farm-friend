@@ -685,11 +685,26 @@ export const farmerInvitations = pgTable(
      *
      * **This records where the agreement was shown; it is not consent.** A tick on a web
      * page proves nothing about who holds the handset, so it grants nothing on its own. The
-     * consent record is written only when a `SIGNUP <token>` arrives from a phone, which is
-     * the evidence that the person agreeing and the person being messaged are the same.
-     * NULL means the box was never ticked, and that SIGNUP establishes no consent.
+     * consent record is written only when the farmer's own message arrives from a phone,
+     * which is the evidence that the person agreeing and the person being messaged are the
+     * same. NULL means the box was never ticked, and that message establishes no consent.
      */
     agreedToSmsAt: timestamp("agreed_to_sms_at", { withTimezone: true }),
+    /**
+     * The phone the farmer stated on the onboarding form, so a bare `START` from it completes
+     * their setup (max 2026-08-07). Replaces `JOIN <token>`, where the farm identity travelled
+     * in the message body and a hand-copied 64-character token failed silently on any typo.
+     *
+     * **Golden Rule #5, the same two-column shape as `contacts`.** The raw E.164 lives in
+     * exactly one column read only by the send path; the hash is the only lookup key, and it
+     * is what an inbound `START` is matched against. Both nullable: an invitation minted
+     * before the farmer reaches the form has neither.
+     *
+     * The INVITATION is still the credential. The phone says which handset to expect, never
+     * who may be set up — see `0028_invitation_pending_phone.sql`.
+     */
+    pendingPhoneE164: text("pending_phone_e164"),
+    pendingPhoneHash: text("pending_phone_hash"),
   },
   (table) => ({
     tokenHashUnique: unique("farmer_invitations_token_hash_unique").on(table.tokenHash),
@@ -710,6 +725,24 @@ export const farmerInvitations = pgTable(
     validAgreement: check(
       "farmer_invitations_valid_agreement",
       sql`${table.agreedToSmsAt} is null or ${table.agreedToSmsAt} >= ${table.createdAt}`,
+    ),
+    // E.164 as `normalizePhone` produces it. This column feeds the outbound send path, so a
+    // malformed number here is a message that cannot be delivered with nothing saying why.
+    // Passes on NULL deliberately: no stated phone is the normal starting state.
+    pendingPhoneShape: check(
+      "farmer_invitations_pending_phone_e164_shape",
+      sql`${table.pendingPhoneE164} is null or ${table.pendingPhoneE164} ~ '^\\+1[0-9]{10}$'`,
+    ),
+    pendingPhoneHashIsDigest: check(
+      "farmer_invitations_pending_phone_hash_is_digest",
+      sql`${table.pendingPhoneHash} is null or ${table.pendingPhoneHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    // A COHERENCE PAIR in both directions — the one-directional form passes on NULL and would
+    // enforce nothing (0023's lesson, and 0025's). A raw number with no hash can never be
+    // matched; a hash with no raw number matches an invitation we then cannot text.
+    pendingPhoneCoherent: check(
+      "farmer_invitations_pending_phone_coherent",
+      sql`(${table.pendingPhoneE164} is null) = (${table.pendingPhoneHash} is null)`,
     ),
   }),
 );

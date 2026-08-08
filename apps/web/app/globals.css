@@ -2115,6 +2115,71 @@ form.farmer-picker-next {
   color: var(--ink);
 }
 
+/* The phone confirmation (max 2026-08-07).
+ *
+ * **Interruptive on purpose.** A mistyped phone number is the one error on this form with no
+ * feedback anywhere: the listing saves, the farmer texts START from their real phone, it matches
+ * no invitation, and they wait — with every field on screen looking correct. Nothing can detect
+ * it, because ten valid digits are indistinguishable from the right ten digits. A passive note
+ * beside the field is what a farmer scrolls past, so this blocks until they read it back.
+ *
+ * `position: fixed` with the overlay covering the viewport, because the form is taller than one
+ * screen — an inline panel would open below the fold on a phone, which is the same as not
+ * opening at all. */
+.farmer-listing-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  /* Dimmed rather than opaque: seeing the form behind it is what makes this read as a question
+     about the form rather than as a different screen. */
+  background: rgb(28 35 33 / 55%);
+}
+
+.farmer-listing-confirm-card {
+  display: grid;
+  gap: 0.85rem;
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.25rem;
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgb(28 35 33 / 25%);
+}
+
+.farmer-listing-confirm-card h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.farmer-listing-confirm-card p {
+  margin: 0;
+}
+
+/* The number itself, large enough to check against a handset at arm's length — which is the one
+   job this dialog has. */
+.farmer-listing-confirm-number {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Stacked, with the confirming action first. Side-by-side buttons at this width put two 44px
+   targets within a thumb's width of each other, and the destructive-feeling one is the one a
+   farmer would hit by accident. */
+.farmer-listing-confirm-actions {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.farmer-listing-confirm-actions .farmer-listing-change {
+  justify-self: stretch;
+  text-align: center;
+}
+
 /* The submit control. This form had NO button rule at all, so the one control that
    publishes a farmer's stand rendered at the browser's default size — a ~20px target at
    the bottom of a long mobile form. It uses the same filled-green primary as every other
@@ -2214,19 +2279,32 @@ form.farmer-picker-next {
   max-height: 320px;
   min-height: 180px;
   margin-top: 0.2rem;
-  background: var(--card);
+  /* THE WATER COLOUR, not the card's white (max 2026-08-07). This is the ground behind the
+     artwork, and the artwork's own `island-water` rect is `--cream`, so anything else here
+     shows as a mismatched border wherever the drawing does not reach the frame's edge. It was
+     `--card` — pure white — which is what made the box read as turning white on zoom. */
+  background: var(--cream);
   border: 1px solid var(--line);
   border-radius: 10px;
-  transition: opacity 200ms ease;
 }
 
 /* Faint while waiting, so an empty map reads as "not placed yet" rather than as a stand.
+
+   **THE ARTWORK FADES, NEVER THE BOX** (max 2026-08-07). This used to set `opacity` on the
+   `<svg>` itself, which fades the element against the page — so the whole map washed out
+   toward white while unplaced and then resolved to full strength as the view zoomed in. The
+   backdrop appeared to change colour, when all that should change is the pin arriving.
+   Fading the artwork GROUP instead leaves the box's own ground fixed at the water colour.
 
    THE ZOOM ITSELF IS NOT HERE. `viewBox` is an SVG attribute, and the CSS `view-box` property
    that would animate it is too thinly supported to rely on — where it is missing the frame
    would simply snap, losing the travel that carries the meaning. It is animated frame by frame
    in the component instead (`useZoomedViewBox`), which behaves the same everywhere. */
-.farmer-listing-map[data-placed="no"] {
+.farmer-listing-map > g {
+  transition: opacity 200ms ease;
+}
+
+.farmer-listing-map[data-placed="no"] > g {
   opacity: 0.55;
 }
 
@@ -2248,32 +2326,35 @@ form.farmer-picker-next {
   stroke-width: 3;
 }
 
-/* The lookup button, now an icon INSIDE the address field. Secondary to the submit button: it
-   resolves an answer rather than publishing anything. The `-confirm` button it used to share
-   these rules with was the "that spot looks right" gate, deleted with the pin picker.
+/* The lookup button, INSIDE the address field. Secondary to the submit button: it resolves an
+   answer rather than publishing anything. The `-confirm` button it used to share these rules
+   with was the "that spot looks right" gate, deleted with the pin picker.
+
+   **It reads "Save" in words** (max 2026-08-07), where it was a bare map-pin glyph that asked
+   a sighted farmer to infer what a screen reader was told outright. So it is sized to its text
+   rather than as a 44px square, while keeping the 44px HEIGHT — a one-handed tap outdoors is
+   the real use, and that is the dimension a thumb misses.
 
    Absolutely positioned over the input's trailing edge rather than sharing a flex row, so the
-   field keeps its full width for a long address. It stays a 44px target despite showing only a
-   glyph — a one-handed tap outdoors is the real use. */
+   field keeps its full width for a long address. Visibly a button now that it carries a word:
+   a bare label floating inside a text field reads as placeholder text, not as something to
+   press. */
 .farmer-listing-lookup {
   position: absolute;
   right: 0.35rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
+  min-width: 44px;
   height: 44px;
-  padding: 0;
+  padding: 0 0.85rem;
+  font: inherit;
+  font-weight: 600;
   color: var(--ink);
-  background: transparent;
-  border: none;
+  background: var(--paper);
+  border: 1px solid var(--line);
   border-radius: 8px;
   cursor: pointer;
-}
-
-.farmer-listing-lookup svg {
-  width: 22px;
-  height: 22px;
 }
 
 .farmer-listing-lookup:disabled {

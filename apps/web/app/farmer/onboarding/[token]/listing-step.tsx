@@ -558,6 +558,28 @@ export function ListingStep({
   const [saved, setSaved] = useState(false);
 
   /*
+    THE PHONE THE FARMER WILL TEXT FROM, and the confirmation of it (max 2026-08-07).
+
+    This replaces `JOIN <token>`. That grammar asked the farmer to hand-copy 64 hex characters
+    from this page into a text message, where a single transcription slip failed identically and
+    silently — the token matched no invitation, and nothing could distinguish "you mistyped"
+    from "no invitation exists". Stating the phone here moves the farm identity onto a field the
+    farmer is already filling in, so the message they send is one carrier-registered word.
+
+    **Asked only where it can be acted on.** An invited farmer is the one whose invitation has a
+    column to hold it; a farmer editing an existing listing already has a verified handset, and
+    asking again would invite a change this form has no power to make.
+
+    `confirming` holds the submission open while the modal shows the number back. A mistyped
+    number is otherwise INVISIBLE: the farmer texts START from their real phone, matches
+    nothing, and waits, with nothing on screen wrong. Reading it back is the only check
+    available before the message is sent.
+  */
+  const asksForPhone = credential.kind === "invitation";
+  const [phone, setPhone] = useState("");
+  const [confirming, setConfirming] = useState(false);
+
+  /*
     The pin's place on the drawing, and the frame that travels toward it.
 
     Both computed HERE, above the `saved` early return, because `useZoomedViewBox` is a hook:
@@ -717,15 +739,49 @@ export function ListingStep({
     `pin !== null` still means "this address, as currently typed, resolved" (F-077), so an
     address the geocoder cannot place still cannot be published by anyone.
   */
+  /*
+    A US/CA number, by the same rule `normalizePhone` applies at the boundary.
+
+    Ten digits, or eleven starting with 1 — punctuation and spacing ignored, because a farmer
+    types what their thumbs produce and the shape is the boundary's job to normalize. Checked
+    here as well so the refusal happens on the form, in place, rather than after a round trip
+    that reads as "that did not save".
+  */
+  function phoneLooksReal(value: string): boolean {
+    const digits = value.replace(/\D/g, "");
+    return digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
+  }
+
   const ready =
     standName.trim() !== "" &&
     visitability !== null &&
     address.trim() !== "" &&
-    pin !== null;
+    pin !== null &&
+    // The phone is what ties the handset to the farm, so an invited farmer without a usable one
+    // has no way to finish. Blocking here beats publishing a listing they cannot complete.
+    (!asksForPhone || phoneLooksReal(phone));
 
-  async function submit(event: React.FormEvent): Promise<void> {
+  /**
+   * Submitting the form, which on the invited door OPENS THE CONFIRMATION rather than posting.
+   *
+   * The gate is here rather than inside `send` so that nothing — no network call, no published
+   * listing — happens until the farmer has read their number back. `send` is what the modal's
+   * confirm button calls.
+   */
+  function submit(event: React.FormEvent): void {
     event.preventDefault();
     if (busy || !ready) return;
+    if (asksForPhone) {
+      setError(null);
+      setConfirming(true);
+      return;
+    }
+    void send();
+  }
+
+  async function send(): Promise<void> {
+    if (busy || !ready) return;
+    setConfirming(false);
     setError(null);
     setBusy(true);
     try {
@@ -791,6 +847,10 @@ export function ListingStep({
           // Always sent, even when blank: an empty box means the farmer CLEARED the paragraph,
           // which the boundary distinguishes from a door that states nothing about it.
           description,
+          // The phone the farmer will text START from, sent RAW for the boundary to normalize
+          // and hash. Only the invited door asks for it, and only that door has a column to
+          // hold it — omitted means "this door states nothing about a phone", never "clear it".
+          ...(asksForPhone ? { phone } : {}),
         }),
       });
       if (!response.ok) {
@@ -920,7 +980,7 @@ export function ListingStep({
   }
 
   return (
-    <form className="farmer-listing" onSubmit={(event) => void submit(event)}>
+    <form className="farmer-listing" onSubmit={submit}>
       {canRenameFarm && (
         <>
           <label htmlFor="farm-name">What is your farm called?</label>
@@ -958,7 +1018,13 @@ export function ListingStep({
         and it means the visit question below narrows what an already-placed farm SHOWS rather
         than deciding whether to collect anything at all.
       */}
-        <label htmlFor="stand-address">Where is it?</label>
+        {/*
+          The label names the FIELD; the instruction lives in the placeholder, where the
+          farmer is about to type (max 2026-08-07). It used to be the question "Where is it?"
+          with the example address as the placeholder — a heading asking one thing and a hint
+          showing another, when there is only one thing to say.
+        */}
+        <label htmlFor="stand-address">Your farm address</label>
         {/*
           The lookup sits INSIDE the field rather than on its own row below it. It is one
           action on one value, and a full-width button underneath read as a second step —
@@ -967,7 +1033,7 @@ export function ListingStep({
           `Enter` runs the lookup too. A farmer who finishes typing an address and presses
           the key their phone keyboard offers should not have to go find a control; and
           without this the keypress would SUBMIT the whole form, which is the same accident
-          `type="button"` prevents on the icon.
+          `type="button"` prevents on the button.
         */}
         <div className="farmer-listing-address">
           <input
@@ -982,7 +1048,7 @@ export function ListingStep({
               event.preventDefault();
               void findAddress();
             }}
-            placeholder="12345 Vashon Highway SW"
+            placeholder="Enter your farm address"
             maxLength={300}
           />
           {/*
@@ -990,33 +1056,66 @@ export function ListingStep({
             publish the listing on a lookup, with no coordinate and a refusal the farmer did
             not ask for.
 
-            The label stays a full sentence for a screen reader even though the control shows
-            only a glyph; the icon is `aria-hidden` so it is not announced twice.
+            IT SAYS "SAVE" IN WORDS (max 2026-08-07). It was a map-pin glyph with the sentence
+            carried in `aria-label`, which asked a sighted farmer to infer from a picture what
+            a screen reader was told outright. "Save" is what the farmer is doing to the
+            address they typed; that the coordinate comes with it is the form's business, not
+            a distinction to put on a button.
           */}
           <button
             type="button"
             className="farmer-listing-lookup"
             onClick={() => void findAddress()}
             disabled={lookingUp || address.trim() === ""}
-            aria-label="Find this address on the map"
           >
             {lookingUp ? (
-              <span className="farmer-listing-lookup-busy" aria-hidden="true" />
+              <>
+                {/*
+                  The spinner is decorative, so it carries the name in text a screen reader
+                  reads and CSS hides. Without this the button loses its accessible name for
+                  exactly as long as the lookup runs.
+                */}
+                <span className="farmer-listing-lookup-busy" aria-hidden="true" />
+                <span className="sr-only">Saving</span>
+              </>
             ) : (
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                {/* A location pin, drawn rather than imported — one glyph is not a font. */}
-                <path
-                  d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7Z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                />
-                <circle cx="12" cy="9" r="2.5" fill="currentColor" />
-              </svg>
+              "Save"
             )}
           </button>
         </div>
+
+        {/*
+          F-088 — hiding the address WITHOUT hiding the stand.
+
+          Offered here rather than as a third answer to "can people come to your stand?",
+          because it answers a different question. Visitability decides whether there is
+          somewhere to go; this decides whether the street address is printed. Folding them
+          into one list would make "don't show my address" look like "I have no stand", which
+          is what the map says today for the farms that prompted this.
+
+          **Directly BELOW the address field it governs** (max 2026-08-07). It used to render
+          after the map, where a tall block sat between the choice and the thing it applies to
+          — far enough that the choice read as being about the map.
+
+          The note states the consequence plainly, including what still happens — the pin
+          stays. A farmer who wants no location shown at all wants the other answer below, and
+          saying so here is what stops this being mistaken for it. "By default" is what tells
+          them the current state is a default they may change.
+        */}
+        <label className="farmer-listing-choice farmer-listing-address-privacy">
+          <input
+            type="checkbox"
+            checked={!addressPublic}
+            onChange={() => setAddressPublic(!addressPublic)}
+          />
+          <span>Don&apos;t show my address in the live listing</span>
+        </label>
+        <p className="farmer-form-note">
+          {addressPublic
+            ? "Your address shows on your listing by default, with a link to directions."
+            : "Your stand still shows on the map, and people can find it by its pin — " +
+              "but your address and the directions link stay hidden."}
+        </p>
 
         {/*
           The map is a READ-ONLY DISPLAY of where the address resolved (F-077). It carries no
@@ -1072,8 +1171,13 @@ export function ListingStep({
                   view narrows the pin swells on screen — it would balloon through the zoom
                   and settle three times too large. Scaling with the frame's width holds it
                   at one apparent size from the first frame to the last.
+
+                  The base radius is deliberately LARGE (max 2026-08-07): the dot is the
+                  answer to "did it find the right place?", and at its old size it read as a
+                  speck rather than as a located stand. Its apparent size is asserted as a
+                  fraction of the settled frame, never as this number — see the suite.
                 */
-                r={14 * (Number(mapViewBox.split(/\s+/)[2]) / ISLAND_VIEWBOX.width)}
+                r={34 * (Number(mapViewBox.split(/\s+/)[2]) / ISLAND_VIEWBOX.width)}
                 className="farmer-listing-pin"
               />
             </g>
@@ -1084,34 +1188,6 @@ export function ListingStep({
             {lookupNote}
           </p>
         )}
-
-        {/*
-          F-088 — hiding the address WITHOUT hiding the stand.
-
-          Offered here rather than as a third answer to "can people come to your stand?",
-          because it answers a different question. Visitability decides whether there is
-          somewhere to go; this decides whether the street address is printed. Folding them
-          into one list would make "don't show my address" look like "I have no stand", which
-          is what the map says today for the farms that prompted this.
-
-          The note states the consequence plainly, including what still happens — the pin
-          stays. A farmer who wants no location shown at all wants the other answer above,
-          and saying so here is what stops this being mistaken for it.
-        */}
-        <label className="farmer-listing-choice farmer-listing-address-privacy">
-          <input
-            type="checkbox"
-            checked={!addressPublic}
-            onChange={() => setAddressPublic(!addressPublic)}
-          />
-          <span>Don&apos;t show my address to customers</span>
-        </label>
-        <p className="farmer-form-note">
-          {addressPublic
-            ? "Your address shows on your listing, with a link to directions."
-            : "Your stand still shows on the map, and people can find it by its pin — " +
-              "but your address and the directions link stay hidden."}
-        </p>
 
       {/*
         THE BRANCH. Asked before anything that depends on it, and deliberately not
@@ -1246,7 +1322,7 @@ export function ListingStep({
             type="text"
             value={seasonNames}
             onChange={(event) => setSeasonNames(event.target.value)}
-            placeholder="berry season, pumpkin season"
+            placeholder="e.g. berry season, pumpkin season"
             maxLength={500}
           />
         </>
@@ -1328,7 +1404,7 @@ export function ListingStep({
         type="text"
         value={hoursText}
         onChange={(event) => setHoursText(event.target.value)}
-        placeholder="Weekends when available"
+        placeholder="e.g. Weekends when available"
         maxLength={500}
       />
       <p className="farmer-form-note">
@@ -1398,7 +1474,7 @@ export function ListingStep({
         type="text"
         value={otherPayment}
         onChange={(event) => setOtherPayment(event.target.value)}
-        placeholder="trade for eggs"
+        placeholder="e.g. trade for eggs"
         maxLength={500}
       />
 
@@ -1413,7 +1489,7 @@ export function ListingStep({
         type="text"
         value={items}
         onChange={(event) => setItems(event.target.value)}
-        placeholder="eggs, plant starts, flowers"
+        placeholder="e.g. eggs, plant starts, flowers"
         maxLength={500}
       />
       <p className="farmer-form-note">
@@ -1435,13 +1511,56 @@ export function ListingStep({
         value={description}
         onChange={(event) => setDescription(event.target.value)}
         rows={4}
-        placeholder="We put a sign at the bottom of the driveway when the stand is open."
+        placeholder="e.g. We put a sign at the bottom of the driveway when the stand is open."
         maxLength={2000}
       />
       <p className="farmer-form-note">
         This shows on your card. Hours, payments and what you sell are already covered above —
         this is for anything they do not say.
       </p>
+
+      {/*
+        THE PHONE, and the last step stated BEFORE the farmer submits.
+
+        Announced here rather than only on the saved screen: the farmer is about to type the
+        number that decides which handset can finish their setup, and "you will text START to
+        this number" is the fact that makes the field make sense. Discovering it afterwards is
+        how a farmer fills in a number they cannot actually text from.
+
+        `type="tel"` with `inputMode` and `autoComplete`, matching `PhoneStep` — it summons the
+        numeric keypad and lets a phone offer its own number, which is the difference between
+        one tap and typing ten digits outdoors.
+      */}
+      {asksForPhone && (
+        <>
+          <label htmlFor="farmer-phone">Your phone number</label>
+          <input
+            id="farmer-phone"
+            name="phone"
+            type="tel"
+            autoComplete="tel"
+            inputMode="tel"
+            value={phone}
+            onChange={(event) => setPhone(event.target.value)}
+            placeholder="e.g. (206) 555-0143"
+            maxLength={40}
+          />
+          <p className="farmer-form-note">
+            {smsNumber === undefined ? (
+              <>
+                The phone you will send stand updates from. After you submit, you will text{" "}
+                <strong>START</strong> from it to finish setting up.
+              </>
+            ) : (
+              <>
+                After you submit, text <strong>START</strong> to{" "}
+                <strong>{smsNumber}</strong> from this phone to finish setting up. We cannot
+                text you until you do.
+              </>
+            )}
+          </p>
+        </>
+      )}
 
       {error === null ? null : (
         <p className="farmer-form-error" role="alert">
@@ -1452,6 +1571,64 @@ export function ListingStep({
       <button type="submit" disabled={busy || !ready}>
         {busy ? "Submitting…" : "Submit"}
       </button>
+
+      {/*
+        THE CONFIRMATION, and why a modal rather than a note beside the field.
+
+        A mistyped phone number is the one error on this form with NO feedback anywhere. The
+        listing saves, the farmer texts START from their real phone, it matches no invitation,
+        and they wait — with every field on screen looking correct. Nothing in the system can
+        detect it, because a number that is ten valid digits is indistinguishable from the right
+        ten digits.
+
+        So the farmer is made to read it back before anything is sent. It is deliberately
+        interruptive: a passive note beside the field is exactly what a farmer scrolls past.
+
+        `role="dialog"` with `aria-modal` and a label, so a screen reader announces it as the
+        thing now demanding an answer. Both buttons are `type="button"` — inside a form a bare
+        button submits, which would post the listing twice.
+      */}
+      {confirming && (
+        <div
+          className="farmer-listing-confirm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-phone-heading"
+        >
+          <div className="farmer-listing-confirm-card">
+            <h3 id="confirm-phone-heading">Is this your number?</h3>
+            {/*
+              The number as the farmer typed it, not normalized. They are checking it against
+              the phone in their hand, and reformatting it into +1XXXXXXXXXX would make them
+              compare two differently-shaped strings.
+            */}
+            <p className="farmer-listing-confirm-number">{phone}</p>
+            <p>
+              {smsNumber === undefined
+                ? "You will text START from this phone to finish setting up, so it has to be the phone you have with you."
+                : `You will text START to ${smsNumber} from this phone to finish setting up, so it has to be the phone you have with you.`}
+            </p>
+            <div className="farmer-listing-confirm-actions">
+              <button
+                type="button"
+                className="farmer-primary-action"
+                onClick={() => void send()}
+                disabled={busy}
+              >
+                Yes, that is my number
+              </button>
+              <button
+                type="button"
+                className="farmer-listing-change"
+                onClick={() => setConfirming(false)}
+                disabled={busy}
+              >
+                Go back and change it
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

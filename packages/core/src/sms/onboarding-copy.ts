@@ -37,15 +37,19 @@ export const FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT =
  * was first assumed. `openFarmerOnboardingRequest` writes no consent when `agreed_to_sms_at`
  * is null, which an un-ticked invitation reaches with a token in hand.
  *
- * It names `JOIN` and not `START`, because the sender it reaches has no consent record at
- * all — `JOIN` is the first-time keyword, and `START` is for returning after an opt-out
- * (B-011). Naming both would ask a farmer to choose between two words for one act.
+ * **It names `START`, and that changed** (max 2026-08-07). It said `JOIN`, on the reasoning that
+ * the sender it reaches has no consent record and `JOIN` is the first-time keyword. That is no
+ * longer the whole story: onboarding is completed by matching a bare `START` against the phone
+ * the farmer stated on the form, and `JOIN` completes nothing. Telling a farmer to reply `JOIN`
+ * would enroll them for messages and still leave them unset-up, with nothing saying why.
  *
- * A farmer who ALREADY has a record is deliberately sent nothing here: they need no
- * instruction, and telling them to JOIN would be false since JOIN no longer restores.
+ * `START` is also the only word that clears the carrier's own opt-out list (B-011), so it is the
+ * right instruction whether or not this handset has a history we cannot see.
+ *
+ * A farmer who ALREADY has a record is deliberately sent nothing here: they need no instruction.
  */
 export const FARMER_JOIN_INSTRUCTION =
-  "VIGA Farm Friend: To get texts about your farm, reply JOIN. " +
+  "VIGA Farm Friend: To get texts about your farm, reply START. " +
   "Msg freq may vary. Msg & data rates may apply. Reply STOP to opt out.";
 
 /**

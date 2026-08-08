@@ -14,25 +14,24 @@ export type ComplianceKeyword =
 export type CommitmentToken = "YES" | "NO";
 
 /**
- * The farmer-facing keywords (F-040/F-051/F-080).
+ * The farmer-facing keywords (F-040/F-051).
  *
  * `LINK` asks for the web form link; `STAND` and `SETTINGS` select a code-owned exact target
- * or open its settings view. Those three are **Farm Friend product keywords, never carrier
+ * or open its settings view. All three are **Farm Friend product keywords, never carrier
  * compliance keywords**, and must never be registered as such — `farmer-keywords.test.ts`
  * asserts both directions.
  *
- * **`JOIN` is the exception, and it is the reason this type is worth reading carefully.** It
- * is a carrier-REGISTERED compliance keyword. It appears here only in its argument form,
- * `JOIN <token>`, which redeems an administrator's invitation (F-080, replacing `SIGNUP`).
- * **Bare `JOIN` never reaches this type**: it matches earlier, in the unchanged compliance
- * branch, and `parseCommand`'s ordering is what guarantees that.
+ * **`JOIN` was removed from this type** (max 2026-08-07). It was here only in its argument
+ * form, `JOIN <token>`, which redeemed an invitation — a grammar that asked the farmer to
+ * hand-copy 64 hex characters and failed silently on any typo. Onboarding now completes with a
+ * bare `START` matched against the phone the farmer stated on the form. `JOIN` remains a
+ * registered compliance keyword and is still honored as one, in the compliance branch.
  *
  * They are parsed deterministically for the same reason everything else here is: a farmer
- * asking to be set up must not depend on a model being available, correct, or affordable.
- * None grants anything by itself — an invitation must exist and be unspent, and `LINK` is
- * refused unless the sender is already an authorized farmer.
+ * must not depend on a model being available, correct, or affordable. None grants anything by
+ * itself — `LINK` is refused unless the sender is already an authorized farmer.
  */
-export type FarmerKeyword = "JOIN" | "LINK" | "STAND" | "SETTINGS";
+export type FarmerKeyword = "LINK" | "STAND" | "SETTINGS";
 
 export type ParsedCommand =
   | { kind: "compliance"; keyword: ComplianceKeyword; global: boolean }
@@ -40,7 +39,7 @@ export type ParsedCommand =
   | { kind: "map" }
   | { kind: "commitment"; token: CommitmentToken; contextBound: true }
   | { kind: "scheduled_same"; contextBound: true }
-  | { kind: "farmer"; keyword: FarmerKeyword; invitationToken?: string }
+  | { kind: "farmer"; keyword: FarmerKeyword }
   /**
    * `MORE` — the next page of a customer's result list (F-046).
    *
@@ -109,8 +108,8 @@ const COMMITMENT_WORDS: Record<string, CommitmentToken> = {
  *
  * `SIGNUP` and `SIGN UP` were removed here (F-080). **`JOIN` is deliberately absent too**: its
  * bare form is compliance and is matched well before this table, so listing it here would be
- * the exact shadowing Golden Rule #2 forbids. Only its argument form is a farmer command, and
- * that is parsed separately below.
+ * the exact shadowing Golden Rule #2 forbids. Its argument form was removed entirely (max
+ * 2026-08-07) — onboarding completes with a bare `START` matched by phone.
  *
  * This table stays deliberately small: it is a fixed keyword list, not a vocabulary the system
  * tries to understand. Anything not listed is free text, which is the honest default.
@@ -179,24 +178,18 @@ export function parseCommand(body: string): ParsedCommand {
   if (farmer) {
     return { kind: "farmer", keyword: farmer };
   }
-  // F-080 — redeeming an administrator's invitation. An onboarding link pre-fills this exact
-  // message. The token is accepted only in its opaque 32-byte hex form, so ordinary text after
-  // JOIN remains free text and cannot accidentally select an invitation.
+  // `JOIN <token>` USED TO BE PARSED HERE, and its removal is deliberate (max 2026-08-07).
   //
-  // THE POSITION OF THIS BRANCH IS THE SAFETY ARGUMENT, not a preference. `JOIN` is a
-  // carrier-registered compliance keyword: bare `JOIN` was already matched far above, in the
-  // compliance branch, and reaching this line means the message was NOT a bare keyword. Moving
-  // this regex above the compliance lookup would let a product grammar shadow a registered
-  // compliance word — Golden Rule #2's exact failure. `farmer-keywords.test.ts` asserts bare
-  // `JOIN` still parses as compliance, and that sabotage must fail it.
-  const invitedJoin = /^JOIN ([0-9A-F]{64})$/.exec(normalized);
-  if (invitedJoin !== null) {
-    return {
-      kind: "farmer",
-      keyword: "JOIN",
-      invitationToken: invitedJoin[1]!.toLowerCase(),
-    };
-  }
+  // It made the farmer hand-copy 64 hex characters from a web page into a text message. Every
+  // transcription slip failed identically and silently — the token matched no invitation, and
+  // nothing could distinguish "you mistyped" from "no invitation exists". The farm identity
+  // moved to a phone the farmer states on the onboarding form, so the message that completes
+  // onboarding is now a bare `START`: one carrier-registered word, nothing to copy.
+  //
+  // Bare `JOIN` is UNAFFECTED and still parses as compliance far above — it remains a
+  // registered opt-in keyword and must keep working for anyone who texts it. What is gone is
+  // only the argument grammar, so `JOIN` followed by anything is now ordinary free text.
+  //
   // Also last, for the same reason as the farmer keywords: a paging word must never shadow a
   // compliance keyword or a commitment token. Reaching here means the message matched none of
   // them.

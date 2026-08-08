@@ -212,9 +212,9 @@ export type RecordInvitationAgreementResult =
  *
  * **This grants nothing and sends nothing.** It stamps provenance: the agreement was shown
  * on this invitation's page and accepted at this time. Consent itself is established only
- * when `SIGNUP <token>` arrives from a handset, because a tick on a web page says nothing
- * about who holds the phone that will receive the messages. Anyone with the link can reach
- * this, which is exactly why it may not be the consent write.
+ * when the farmer's own message arrives from a handset, because a tick on a web page says
+ * nothing about who holds the phone that will receive the messages. Anyone with the link can
+ * reach this, which is exactly why it may not be the consent write.
  *
  * **Stamping is idempotent and keeps the FIRST time.** A farmer who reloads and ticks again
  * has not agreed twice, and moving the timestamp would falsify the provenance the consent
@@ -253,6 +253,56 @@ export async function recordFarmerInvitationSmsAgreement(
       and agreed_to_sms_at is not null
   `;
   return existing.length > 0 ? { status: "agreed" } : { status: "invalid" };
+}
+
+export type RecordPendingPhoneResult = { status: "recorded" } | { status: "invalid" };
+
+/**
+ * Record the phone the invited farmer stated on the onboarding form (max 2026-08-07).
+ *
+ * **This grants nothing, sends nothing, and is not consent** — the same rule the agreement
+ * stamp above lives under, for the same reason. It says which handset to EXPECT, so that a
+ * later inbound `START` can be attributed to this invitation. Consent is still written only
+ * when that message arrives, because a number typed into a web form proves nothing about who
+ * holds the phone.
+ *
+ * **Why this replaces `JOIN <token>`.** The token form made the farmer hand-copy 64 hex
+ * characters into a text message, where a single transcription slip failed silently — the
+ * token simply matched no invitation, and nothing could say why. Moving the farm identity to a
+ * value stated on a form the farmer is already filling in means the message they send is the
+ * one word the carrier itself defines.
+ *
+ * **Golden Rule #5.** The raw E.164 is written to the single column the send path reads; the
+ * hash is the only lookup key and the only thing the matcher ever compares. The caller
+ * normalizes and hashes — this function never sees an unnormalized number, and never logs
+ * either value.
+ *
+ * **Overwritable, unlike the agreement stamp.** A farmer who mistyped their number and comes
+ * back to fix it must be able to; keeping the first value would strand them on a handset they
+ * do not hold. The agreement stamp keeps its first value because it is provenance of a
+ * disclosure, which is a different kind of fact.
+ */
+export async function recordFarmerInvitationPendingPhone(
+  db: Db,
+  input: { token: string; phoneE164: string; phoneHash: string; occurredAt: Date },
+): Promise<RecordPendingPhoneResult> {
+  if (!/^[0-9a-f]{64}$/.test(input.token)) return { status: "invalid" };
+  // Shape-checked here as well as by the CHECK constraint. The constraint is the guarantee;
+  // this is what turns a caller bug into a refusal rather than a raised database error that
+  // reaches the farmer as "that did not save".
+  if (!/^\+1[0-9]{10}$/.test(input.phoneE164)) return { status: "invalid" };
+  if (!/^[0-9a-f]{64}$/.test(input.phoneHash)) return { status: "invalid" };
+
+  const updated = await driver(db)`
+    update farmer_invitations
+    set pending_phone_e164 = ${input.phoneE164},
+        pending_phone_hash = ${input.phoneHash}
+    where token_hash = ${hashFarmerInviteToken(input.token)}
+      and redeemed_at is null
+      and expires_at > ${input.occurredAt.toISOString()}
+    returning id
+  `;
+  return updated.length > 0 ? { status: "recorded" } : { status: "invalid" };
 }
 
 export interface AuthorizeFarmerInput {
@@ -517,24 +567,74 @@ export async function openFarmerOnboardingRequest(
     contactHash: string;
     occurredAt: Date;
     invitationToken?: string;
+    /**
+     * Complete the invitation that EXPECTS this sender's phone (max 2026-08-07).
+     *
+     * The replacement for `invitationToken`, and the reason this function takes two shapes of
+     * the same credential rather than being forked in two. max removed `JOIN <token>`: a
+     * farmer hand-copying a 64-character token into a text message fails silently on any typo,
+     * and every failure looked identical to "no invitation". The farm identity moved to a phone
+     * the farmer states on the onboarding form, so the message they send is a bare `START`.
+     *
+     * **The INVITATION is still the credential.** It is minted by an administrator and reaches
+     * only the farmer VIGA sent the link to; the phone merely says which handset to expect.
+     * A mistyped number matches nothing, grants nothing, and leaves the invitation unredeemed
+     * and retryable.
+     *
+     * Set exactly one of these. Both set is a caller bug and refuses rather than guessing.
+     */
+    pendingPhoneHash?: string;
     /** The inbound event this request came from, recorded as the consent evidence. */
     providerEventId?: string;
   },
 ): Promise<OpenOnboardingRequestResult> {
   const invitationToken = input.invitationToken;
-  if (invitationToken !== undefined) {
-    if (!/^[0-9a-f]{64}$/.test(invitationToken)) {
+  const pendingPhoneHash = input.pendingPhoneHash;
+  // Two ways to name one invitation, so exactly one may be given. Guessing which the caller
+  // meant would make a routing bug look like a farmer's bad input.
+  if (invitationToken !== undefined && pendingPhoneHash !== undefined) {
+    return { status: "invalid_invitation" };
+  }
+  if (invitationToken !== undefined || pendingPhoneHash !== undefined) {
+    if (invitationToken !== undefined && !/^[0-9a-f]{64}$/.test(invitationToken)) {
+      return { status: "invalid_invitation" };
+    }
+    if (pendingPhoneHash !== undefined && !/^[0-9a-f]{64}$/.test(pendingPhoneHash)) {
       return { status: "invalid_invitation" };
     }
     return driver(db).begin(async (tx) => {
-      const invitations = await tx`
-        select id, agreed_to_sms_at, farm_id, created_by_administrator_id
-        from farmer_invitations
-        where token_hash = ${hashFarmerInviteToken(invitationToken)}
-          and redeemed_at is null
-          and expires_at > ${input.occurredAt.toISOString()}
-        for update
-      `;
+      /*
+        ONE query, selected by which credential was given.
+
+        `for update` on both branches, for the reason the token branch always needed it: two
+        concurrent messages must not both redeem one invitation.
+
+        The phone branch adds `order by created_at desc limit 1`. A household phone may appear
+        on two unredeemed invitations (the migration deliberately does not make the hash
+        unique), and the NEWEST is the one the farmer just filled in — an older unredeemed
+        invitation for the same handset is the abandoned one. `limit 1` also means a second
+        `START` finds the next one rather than nothing, which is the retry a farmer expects.
+      */
+      const invitations =
+        invitationToken !== undefined
+          ? await tx`
+              select id, agreed_to_sms_at, farm_id, created_by_administrator_id
+              from farmer_invitations
+              where token_hash = ${hashFarmerInviteToken(invitationToken)}
+                and redeemed_at is null
+                and expires_at > ${input.occurredAt.toISOString()}
+              for update
+            `
+          : await tx`
+              select id, agreed_to_sms_at, farm_id, created_by_administrator_id
+              from farmer_invitations
+              where pending_phone_hash = ${pendingPhoneHash!}
+                and redeemed_at is null
+                and expires_at > ${input.occurredAt.toISOString()}
+              order by created_at desc
+              limit 1
+              for update
+            `;
       const invitationId = invitations[0]?.id as string | undefined;
       if (invitationId === undefined) return { status: "invalid_invitation" as const };
       const agreedToSmsAt =
@@ -563,11 +663,28 @@ export async function openFarmerOnboardingRequest(
       // "your farm is ready" text stays suppressed forever. That is the exact silent dead
       // end this work exists to close.
       //
-      // `firstTimeOnly` is what makes onboarding safe as an opt-in path. It refuses when
-      // ANY record exists, so a farmer who already texted JOIN keeps one unchanged record,
-      // and a person who texted STOP is never silently re-enrolled by filling in a web
-      // form. Both are decided inside `applyConsentTransitionIn`'s own lock, by the same
-      // rules JOIN gets — this function states no consent rule of its own.
+      // **`firstTimeOnly` DEPENDS ON WHICH WORD ARRIVED, and that is the whole subtlety of
+      // replacing `JOIN <token>` with a bare `START`.**
+      //
+      // For the token form it stays true, exactly as B-011 requires: `JOIN` is *our* word and
+      // means nothing to the carrier's compliance layer, so claiming consent for a sender who
+      // already has a record would record `active` while every send was refused 409. Refusing
+      // there is what keeps our record conforming to the carrier's.
+      //
+      // For the phone form it must be FALSE, and inverting this is how the returning farmer
+      // breaks. `START` is the carrier's OWN keyword and the one word that clears its opt-out
+      // list — which makes it precisely the word a returning farmer sends, someone who by
+      // definition already has a record. `firstTimeOnly` refuses whenever any record exists,
+      // so keeping it true here would refuse consent for exactly the sender `START` exists to
+      // restore: their invitation would be spent, their consent left `stopped`, and nothing
+      // would report it. `consentTransitionFor` already honours `START` from any state
+      // (`captureSource: "start"`); this branch matches that rule rather than inventing a
+      // stricter one.
+      //
+      // The safety `firstTimeOnly` was protecting is not lost. It stopped a WEB FORM silently
+      // re-enrolling someone who had texted STOP — and it still does, because a form tick
+      // writes no consent at all. What enrolls here is an inbound message from the handset,
+      // which is the one thing that legitimately clears a stop.
       //
       // Read BEFORE the write. Afterwards every consenting sender looks like one who
       // already had a record, and the reply would drop the opt-in receipt it owes them.
@@ -580,8 +697,8 @@ export async function openFarmerOnboardingRequest(
               transition: "start",
               occurredAt: input.occurredAt,
               providerEventId: input.providerEventId ?? `onboarding-${requestId}`,
-              captureSource: "farmer_onboarding",
-              firstTimeOnly: true,
+              captureSource: pendingPhoneHash !== undefined ? "start" : "farmer_onboarding",
+              ...(invitationToken !== undefined ? { firstTimeOnly: true } : {}),
             });
 
       // F-067 — THE INVITATION IS THE AUTHORIZATION DECISION, so redeeming it sets the farmer

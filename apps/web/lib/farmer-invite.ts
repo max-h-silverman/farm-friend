@@ -39,8 +39,23 @@ export function buildInviteDeliveryUrl(
  * greeting prepended, the token wrapped in punctuation — is free text that reaches the model
  * and leaves the invitation unspent, with nothing to tell the farmer why.
  */
-export function buildInviteSmsUrl(fromNumber: string, invitationToken: string): string {
-  return buildKeywordSmsUrl(fromNumber, `JOIN ${invitationToken}`);
+export function buildInviteSmsUrl(fromNumber: string): string {
+  /*
+    A bare `START`, and NO TOKEN (max 2026-08-07).
+
+    This used to compose `JOIN <64-hex>`. That grammar is gone: it asked the farmer to carry the
+    token in the message, and a farmer typing it by hand (rather than tapping this link) failed
+    silently on any slip. Onboarding now completes by matching a bare `START` against the phone
+    the farmer stated on the onboarding form.
+
+    **Leaving `JOIN <token>` here would be worse than a dead link.** `parseCommand` no longer has
+    that grammar, so the message would arrive as free text, reach the model, and finish nothing —
+    while looking to the farmer like they did exactly what they were told.
+
+    START is also the only word that clears the carrier's own opt-out list (B-011), so it is the
+    right word for a handset whose history we cannot see.
+  */
+  return buildKeywordSmsUrl(fromNumber, "START");
 }
 
 /**

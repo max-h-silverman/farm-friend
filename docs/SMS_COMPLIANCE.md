@@ -41,12 +41,13 @@ commit or decline.
 ### Farmer keywords (F-040/F-080)
 
 `LINK`, `STAND` and `SETTINGS` are Farm Friend **product** keywords and are never
-carrier-registered. `JOIN <token>` is the one exception in this table, and the reason is set out
+carrier-registered. `START` carries an onboarding effect in addition to its carrier meaning, and
+the reason is set out
 in its row.
 
 | Keyword | Behavior |
 |---|---|
-| `JOIN <64-hex token>` | Redeem an administrator's invitation (F-080, replacing `SIGNUP`). The **invitation** is what grants; the text supplies only the handset, which `farmer_authorizations` requires as `phone_verified_at`. If the invitation carries a web agreement it establishes launch consent (see §consent model, farmer onboarding); if it also **names a farm**, redeeming it authorizes the farmer for it in the same transaction — the invitation is the decision, made when VIGA minted it. An invitation naming no farm, or one whose box was never ticked, still waits for a coordinator.<br><br>**`JOIN` is carrier-registered, so the ordering is load-bearing.** Bare `JOIN` matches in the compliance branch, unchanged and first. This grammar matches in a **separate, later** branch and **requires** the token, so it can never capture the bare word. Two independent properties, each tested; the sabotage that breaks the guarantee is a looser grammar hoisted above the compliance lookup. |
+| `START` (bare) | The carrier-registered opt-in, **and** what completes farmer onboarding (max 2026-08-07). Matched against `farmer_invitations.pending_phone_hash` — the phone the farmer stated on the onboarding form. The **invitation** is what grants; the text supplies only the handset, which `farmer_authorizations` requires as `phone_verified_at`. If the invitation carries a web agreement it establishes launch consent (see §consent model, farmer onboarding); if it also **names a farm**, the match authorizes the farmer for it in the same transaction — the invitation is the decision, made when VIGA minted it. An invitation naming no farm, or one whose box was never ticked, still waits for a coordinator.<br><br>**Ordering: the carrier transition comes FIRST, the redemption second.** `START` must enroll and lift a carrier block unconditionally, whether or not any invitation is waiting — so the redemption is attempted after the consent write, never instead of it. A sender with no invitation is the ordinary case and nothing happens.<br><br>**Only `START`, never bare `JOIN`.** `JOIN` cannot clear the carrier's own opt-out list (B-011), so completing onboarding on it would set up a farmer whose messages the carrier silently refuses. `JOIN` remains a registered opt-in and is otherwise unchanged.<br><br>**`JOIN <64-hex token>` was REMOVED.** It asked the farmer to hand-copy 64 hex characters into a text message, where any slip failed identically and silently — the token matched no invitation and nothing could distinguish "you mistyped" from "no invitation exists". That grammar is gone; `JOIN` followed by anything is now ordinary free text. |
 | `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets an acknowledgement and no link. |
 | `STAND` | Issue a 12-hour numbered menu of the sender's currently editable locations. Each number binds one exact authorization+location pair; the model sees neither menu nor choice. |
 | `SETTINGS` | Send the existing private standing link directly to its settings view. It uses the same token and revocation lifecycle as `LINK`, never a second login. |
@@ -220,13 +221,13 @@ carrier-mandated keyword in campaign registration or public compliance copy.
 - **Farmer onboarding** — the invited farmer accepts an SMS agreement on
   `/farmer/onboarding/[token]`, which stamps `farmer_invitations.agreed_to_sms_at`. That stamp is
   **not** consent: a tick on a web page proves nothing about who holds the handset. Consent is
-  established when `JOIN <token>` arrives from a phone, which is the evidence tying the person who
+  established when a bare `START` arrives from the stated phone, which is the evidence tying the person who
   agreed to the number that will be messaged — recorded with capture source `farmer_onboarding`, the
   agreement's own moment as its documented origin. Every proactive farmer send must trace to that
   opt-in or a deterministic `JOIN`/`START`.
 
   **The capture source stays `farmer_onboarding`.** Only the keyword that reaches this path
-  changed (F-080, `SIGNUP` → `JOIN <token>`); the writer, the rules, and the recorded origin are
+  changed (`SIGNUP` → `JOIN <token>` → bare `START`); the writer, the rules, and the recorded origin are
   the same, and existing production rows reference that value.
 
   It goes through **the same** `applyConsentTransition` writer as a bare `JOIN`, under
@@ -236,7 +237,7 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   the send regardless and only `START` clears its list.
 
   **One writer, two branches.** Bare `JOIN` is handled by `routeCompliance`, which owns the
-  `applyConsentTransition` call; `JOIN <token>` is handled by `routeInvitedJoin`, whose consent
+  `applyConsentTransition` call; the onboarding redemption runs in that same branch, whose consent
   write happens inside `openFarmerOnboardingRequest`'s transaction. The parser's ordering is what
   keeps them apart, so neither branch tests for the other and no message can reach both.
 

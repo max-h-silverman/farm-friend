@@ -49,7 +49,7 @@ describe("onboarding agreement step", () => {
   it("does not offer the prepared text until the farmer agrees", () => {
     render(<AgreementStep token={TOKEN} joinUrl={JOIN_URL} />);
 
-    expect(screen.queryByRole("link", { name: /text join/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /text start/i })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox")).not.toBeChecked();
   });
 
@@ -68,7 +68,7 @@ describe("onboarding agreement step", () => {
     const init = fetchMock.mock.calls[0]?.[1];
     expect(JSON.parse(String(init?.body))).toEqual({ token: TOKEN });
 
-    const link = await screen.findByRole("link", { name: /text join/i });
+    const link = await screen.findByRole("link", { name: /text start/i });
     expect(link).toHaveAttribute("href", JOIN_URL);
   });
 
@@ -81,7 +81,7 @@ describe("onboarding agreement step", () => {
     await userEvent.click(screen.getByRole("checkbox"));
 
     expect(await screen.findByRole("alert")).toBeVisible();
-    expect(screen.queryByRole("link", { name: /text join/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /text start/i })).not.toBeInTheDocument();
     expect(screen.getByRole("checkbox")).not.toBeChecked();
   });
 
@@ -97,7 +97,7 @@ describe("onboarding agreement step", () => {
     await userEvent.click(screen.getByRole("checkbox"));
 
     expect(await screen.findByRole("alert")).toBeVisible();
-    expect(screen.queryByRole("link", { name: /text join/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /text start/i })).not.toBeInTheDocument();
   });
 
   it("un-ticking hides the prepared text again", async () => {
@@ -108,10 +108,10 @@ describe("onboarding agreement step", () => {
     render(<AgreementStep token={TOKEN} joinUrl={JOIN_URL} />);
 
     await userEvent.click(screen.getByRole("checkbox"));
-    expect(await screen.findByRole("link", { name: /text join/i })).toBeVisible();
+    expect(await screen.findByRole("link", { name: /text start/i })).toBeVisible();
 
     await userEvent.click(screen.getByRole("checkbox"));
-    expect(screen.queryByRole("link", { name: /text join/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /text start/i })).not.toBeInTheDocument();
   });
 
   it("does not fire a second request while the first is in flight", async () => {
@@ -141,7 +141,13 @@ describe("onboarding agreement step", () => {
 
     await userEvent.click(screen.getByRole("checkbox"));
 
-    expect(await screen.findByText(new RegExp(`JOIN ${TOKEN}`))).toBeVisible();
-    expect(screen.queryByRole("link", { name: /text join/i })).not.toBeInTheDocument();
+    // The word alone, with NO token: that grammar is gone (max 2026-08-07), and printing it
+    // would tell the farmer to send a message the parser now treats as free text.
+    const instruction = await screen.findByText(/text/i, {
+      selector: ".farmer-onboarding-instruction",
+    });
+    expect(instruction).toHaveTextContent(/START/);
+    expect(instruction.textContent ?? "").not.toMatch(/[0-9a-f]{64}/i);
+    expect(screen.queryByRole("link", { name: /text start/i })).not.toBeInTheDocument();
   });
 });

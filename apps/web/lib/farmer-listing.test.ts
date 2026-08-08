@@ -70,15 +70,32 @@ function saver(
   return vi.fn<Parameters<Saver>, ReturnType<Saver>>(async () => result);
 }
 
+type PhoneRecorder = NonNullable<FarmerListingDeps["recordPendingPhone"]>;
+
+/**
+ * The pending-phone writer, stubbed.
+ *
+ * Injected like the other two so the boundary's contract — what it normalizes, what it refuses,
+ * and what it hands the writer — is provable without a database.
+ */
+function phoneRecorder(
+  result: Awaited<ReturnType<PhoneRecorder>> = { status: "recorded" },
+) {
+  return vi.fn<Parameters<PhoneRecorder>, ReturnType<PhoneRecorder>>(async () => result);
+}
+
 function deps(
   loadInvitation = loader(),
   saveListing = saver(),
+  recordPendingPhone = phoneRecorder(),
 ): FarmerListingDeps {
   return {
     db: {} as Db,
     clock: new FixedClock(T0),
+    phoneSalt: "test-salt",
     loadInvitation,
     saveListing,
+    recordPendingPhone,
   };
 }
 
@@ -691,6 +708,87 @@ describe("farmer onboarding listing endpoint", () => {
 
       expect(response.status).toBe(400);
       expect(save).not.toHaveBeenCalled();
+    });
+  });
+  // ── The phone that completes onboarding (max 2026-08-07) ─────────────────────────────────
+  //
+  // `JOIN <token>` is gone: it asked the farmer to hand-copy 64 hex characters into a text
+  // message, and every transcription slip failed identically and silently. The farm identity
+  // moved here — the farmer states the phone they will text from, and a later bare `START`
+  // from it completes their setup.
+  //
+  // **This is not consent and grants nothing.** It records which handset to expect. Consent is
+  // still written only when their own message arrives, because a number typed into a web form
+  // proves nothing about who holds the phone.
+  describe("the phone a farmer will text from", () => {
+    it("NORMALIZES the number and stores it with its hash", async () => {
+      // A farmer types whatever their thumbs produce. E.164 is what the column requires and
+      // what the send path can dial, so normalization happens at the boundary — never in the
+      // database, and never in the browser where it could be bypassed.
+      const recordPhone = phoneRecorder();
+      const response = await handleFarmerListingPost(
+        deps(loader(), saver(), recordPhone),
+        post({ token: TOKEN, ...LISTING, phone: "(206) 555-0143" }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(recordPhone).toHaveBeenCalledWith(
+        {},
+        expect.objectContaining({
+          token: TOKEN,
+          phoneE164: "+12065550143",
+          occurredAt: T0,
+        }),
+      );
+      // The hash is a digest, and it is NOT the raw number under another name.
+      const stored = recordPhone.mock.calls[0]?.[1] as { phoneHash: string };
+      expect(stored.phoneHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(stored.phoneHash).not.toContain("2065550143");
+    });
+
+    it("REFUSES a number that is not a real US phone, saving nothing at all", async () => {
+      // The listing and the phone commit together. A farmer who mistyped their number must not
+      // end up with a published listing and no way to finish, so this refuses the whole
+      // request rather than saving the listing and dropping the phone.
+      for (const bad of ["555", "not a phone", "+44 20 7946 0958"]) {
+        const save = saver();
+        const recordPhone = phoneRecorder();
+        const response = await handleFarmerListingPost(
+          deps(loader(), save, recordPhone),
+          post({ token: TOKEN, ...LISTING, phone: bad }),
+        );
+
+        expect(response.status, bad).toBe(400);
+        await expect(response.json()).resolves.toEqual({ error: "invalid_phone" });
+        expect(save, bad).not.toHaveBeenCalled();
+        expect(recordPhone, bad).not.toHaveBeenCalled();
+      }
+    });
+
+    it("saves the listing when no phone is given, recording none", async () => {
+      // The edit and grandfathered doors send no phone, and an invited farmer who somehow
+      // submits without one must still get their listing. Absent is not invalid.
+      const save = saver();
+      const recordPhone = phoneRecorder();
+      const response = await handleFarmerListingPost(
+        deps(loader(), save, recordPhone),
+        post({ token: TOKEN, ...LISTING }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(save).toHaveBeenCalled();
+      expect(recordPhone).not.toHaveBeenCalled();
+    });
+
+    it("never puts the raw number in the RESPONSE", async () => {
+      // Golden Rule #5. The raw number lives in one column read by the send path; echoing it
+      // back would make this endpoint a second place it exists.
+      const response = await handleFarmerListingPost(
+        deps(loader(), saver(), phoneRecorder()),
+        post({ token: TOKEN, ...LISTING, phone: "206-555-0143" }),
+      );
+
+      expect(await response.text()).not.toContain("2065550143");
     });
   });
 });

@@ -12,6 +12,7 @@ import {
   createDb,
   createFarmerInvitation,
   openFarmerOnboardingRequest,
+  recordFarmerInvitationPendingPhone,
   recordFarmerInvitationSmsAgreement,
   type Db,
   type Sql,
@@ -649,6 +650,284 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         select count(*)::int as n from sms_consents where recipient_hash = ${contactHash}
       `;
       expect(consents[0]?.n).toBe(1);
+    });
+  });
+
+  // ── The phone-matched path: a bare START completes onboarding (max 2026-08-07) ───────────
+  //
+  // `JOIN <token>` is gone. It made the farmer hand-copy 64 hex characters into a text
+  // message, where one transcription slip failed silently — the token matched no invitation
+  // and nothing could say why. The farm identity moved to a phone stated on the onboarding
+  // form, so the message the farmer sends is the one word the carrier itself defines.
+  //
+  // **The invitation is still the credential.** It reaches only the person VIGA sent the link
+  // to; the phone says which handset to expect. That distinction is what the wrong-number
+  // tests below pin down.
+  //
+  // Every sender hash here comes from `contact()` — a REAL contacts row. Fabricated digests
+  // cannot be used: `farmer_onboarding_requests.contact_hash` and
+  // `consent_transition_watermarks.recipient_hash` both carry a foreign key to `contacts`, so
+  // an invented hash fails on the insert rather than on the property under test.
+  describe("a bare START from the stated phone completes onboarding", () => {
+    it("establishes consent and AUTHORIZES the farmer, with no token in the message", async () => {
+      // The whole replacement, end to end: the form states the phone, START arrives from it,
+      // the farmer is set up. Nothing the farmer typed into a text message is involved.
+      const senderHash = await contact("e1");
+      const farmId = await farmWithStand(`Phone ${randomUUID()}`);
+      const token = await invitation(farmId);
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+      const recorded = await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551001",
+        phoneHash: senderHash,
+        occurredAt: at(1),
+      });
+      expect(recorded.status).toBe("recorded");
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      expect(opened.status).toBe("opened");
+      if (opened.status !== "opened") return;
+      expect(opened.consentEstablished).toBe(true);
+      // Set up for the farm the INVITATION named — never a farm the phone chose.
+      expect(opened.authorizationId).not.toBeNull();
+      expect(await authorizeAndClaim({ contactHash: senderHash, farmId })).toBe("authorized");
+    });
+
+    it("records the raw number and the hash TOGETHER", async () => {
+      // Golden Rule #5's shape, read back from the row. The coherence constraint makes a
+      // half-written pair impossible, so this asserts the pair the writer actually stores.
+      const senderHash = await contact("e2");
+      const token = await invitation(await farmWithStand(`Shape ${randomUUID()}`));
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551002",
+        phoneHash: senderHash,
+        occurredAt: at(1),
+      });
+
+      const rows = await sql()`
+        select pending_phone_e164, pending_phone_hash from farmer_invitations
+        where token_hash = ${hashFarmerInviteToken(token)}
+      `;
+      expect(rows[0]?.pending_phone_e164).toBe("+12065551002");
+      expect(rows[0]?.pending_phone_hash).toBe(senderHash);
+    });
+
+    it("lets a farmer CORRECT a mistyped number before they text", async () => {
+      // The recovery that makes a typo survivable. Unlike the agreement stamp — provenance of
+      // a disclosure, which keeps its first value — this must be overwritable, or a farmer who
+      // mistyped is stranded waiting for a text from a handset they do not hold.
+      const wrong = await contact("e3");
+      const right = await contact("e4");
+      const token = await invitation(await farmWithStand(`Fix ${randomUUID()}`));
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551003",
+        phoneHash: wrong,
+        occurredAt: at(1),
+      });
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551004",
+        phoneHash: right,
+        occurredAt: at(2),
+      });
+
+      const rows = await sql()`
+        select pending_phone_e164, pending_phone_hash from farmer_invitations
+        where token_hash = ${hashFarmerInviteToken(token)}
+      `;
+      expect(rows[0]?.pending_phone_e164).toBe("+12065551004");
+      expect(rows[0]?.pending_phone_hash).toBe(right);
+    });
+
+    it("ENROLLS a returning farmer whose phone had texted STOP", async () => {
+      // **The case that inverts if `firstTimeOnly` is left true, and the reason this path sets
+      // it differently from the token path.**
+      //
+      // START is the carrier's OWN keyword and the only word that clears its opt-out list, so
+      // it is precisely the word a returning farmer sends — someone who by definition already
+      // has a record. `firstTimeOnly` refuses whenever any record exists, so keeping it here
+      // would refuse consent for exactly the sender START exists to restore: invitation spent,
+      // consent left `stopped`, farmer never told, and nothing reporting it.
+      //
+      // The safety `firstTimeOnly` protected is not lost. It stopped a WEB FORM silently
+      // re-enrolling an opted-out person, and it still does — a form tick writes no consent at
+      // all. What enrolls here is an inbound message from the handset, which is the one thing
+      // that legitimately clears a stop.
+      const senderHash = await contact("e5");
+      const farmId = await farmWithStand(`Returning ${randomUUID()}`);
+      const token = await invitation(farmId);
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551005",
+        phoneHash: senderHash,
+        occurredAt: at(1),
+      });
+
+      // They opted out at some point in the past, as a customer.
+      await applyConsentTransition(database(), {
+        recipientHash: senderHash,
+        transition: "stop",
+        occurredAt: at(0),
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      expect(opened.status).toBe("opened");
+      if (opened.status !== "opened") return;
+      // The assertion that fails if `firstTimeOnly` is restored on this path.
+      expect(opened.consentEstablished).toBe(true);
+      expect((await consentRow(senderHash))?.state).toBe("active");
+      // Provenance says START, because START is what arrived and what lifted the carrier block.
+      expect((await consentRow(senderHash))?.capture_source).toBe("start");
+      expect(await authorizeAndClaim({ contactHash: senderHash, farmId })).toBe("authorized");
+    });
+
+    it("matches NOTHING for a phone no invitation states", async () => {
+      // The mistyped-number direction. It grants nothing and leaves the invitation unredeemed
+      // and retryable — the failure direction to want, because the farmer can fix the number
+      // and text again.
+      const stated = await contact("e6");
+      const other = await contact("e7");
+      const token = await invitation(await farmWithStand(`Miss ${randomUUID()}`));
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551006",
+        phoneHash: stated,
+        occurredAt: at(1),
+      });
+
+      // START arrives from a DIFFERENT handset than the one stated.
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: other,
+        occurredAt: at(2),
+        pendingPhoneHash: other,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      expect(opened.status).toBe("invalid_invitation");
+
+      // The invitation is still spendable, which is what makes the typo recoverable.
+      const rows = await sql()`
+        select redeemed_at from farmer_invitations
+        where token_hash = ${hashFarmerInviteToken(token)}
+      `;
+      expect(rows[0]?.redeemed_at).toBeNull();
+    });
+
+    it("does NOT match an invitation that was already redeemed", async () => {
+      // A spent invitation is history. Without the `redeemed_at is null` predicate a second
+      // START from the same handset would re-run the whole redemption.
+      const senderHash = await contact("e8");
+      const farmId = await farmWithStand(`Spent ${randomUUID()}`);
+      const token = await invitation(farmId);
+      await recordFarmerInvitationSmsAgreement(database(), { token, occurredAt: at(1) });
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551008",
+        phoneHash: senderHash,
+        occurredAt: at(1),
+      });
+
+      const first = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      expect(first.status).toBe("opened");
+
+      const second = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(3),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      expect(second.status).toBe("invalid_invitation");
+
+      const consents = await sql()`
+        select count(*)::int as n from sms_consents where recipient_hash = ${senderHash}
+      `;
+      expect(consents[0]?.n).toBe(1);
+    });
+
+    it("does NOT authorize when the agreement was never ticked", async () => {
+      // The tick gate is unchanged by the new credential. No disclosure accepted means no
+      // informed opt-in, so the request falls through to VIGA rather than setting anyone up.
+      const senderHash = await contact("e9");
+      const farmId = await farmWithStand(`NoTick ${randomUUID()}`);
+      const token = await invitation(farmId);
+      await recordFarmerInvitationPendingPhone(database(), {
+        token,
+        phoneE164: "+12065551009",
+        phoneHash: senderHash,
+        occurredAt: at(1),
+      });
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+
+      expect(opened.status).toBe("opened");
+      if (opened.status !== "opened") return;
+      expect(opened.authorizationId).toBeNull();
+      expect(opened.consentEstablished).toBe(false);
+    });
+
+    it("REFUSES when both a token and a phone hash are given", async () => {
+      // Two ways to name one invitation, so exactly one may be supplied. Guessing which the
+      // caller meant would turn a routing bug into what looks like the farmer's bad input.
+      const senderHash = await contact("ea");
+      const token = await invitation(await farmWithStand(`Both ${randomUUID()}`));
+
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: senderHash,
+        occurredAt: at(2),
+        invitationToken: token,
+        pendingPhoneHash: senderHash,
+        providerEventId: `evt-${randomUUID()}`,
+      });
+      expect(opened.status).toBe("invalid_invitation");
+    });
+
+    it("refuses to store a number that is not normalized E.164", async () => {
+      // The boundary normalizes; this refuses what reaches it unnormalized rather than letting
+      // the database raise, which would surface to the farmer as "that did not save".
+      const senderHash = await contact("eb");
+      const token = await invitation(await farmWithStand(`Raw ${randomUUID()}`));
+
+      for (const bad of ["2065551010", "(206) 555-1010", "+442065551010"]) {
+        const result = await recordFarmerInvitationPendingPhone(database(), {
+          token,
+          phoneE164: bad,
+          phoneHash: senderHash,
+          occurredAt: at(1),
+        });
+        expect(result.status).toBe("invalid");
+      }
+
+      const rows = await sql()`
+        select pending_phone_e164 from farmer_invitations
+        where token_hash = ${hashFarmerInviteToken(token)}
+      `;
+      expect(rows[0]?.pending_phone_e164).toBeNull();
     });
   });
 });

@@ -87,11 +87,13 @@ describe("farmer onboarding copy", () => {
     // available to lean on — a bare SIGNUP, or an invitation whose box was never ticked —
     // this is the only route left, and it must name the word that works.
     const body = FARMER_JOIN_INSTRUCTION;
-    expect(body).toContain("JOIN");
+    // **START, not JOIN** (max 2026-08-07). Onboarding is completed by matching a bare START
+    // against the phone the farmer stated on the form; JOIN completes nothing, so naming it
+    // would enroll them for messages and still leave them unset-up with nothing saying why.
+    // START is also the only word that clears the carrier's own opt-out list (B-011).
+    expect(body).toContain("START");
+    expect(body).not.toContain("JOIN");
     expect(body).toContain("STOP");
-    // First-time enrollment is JOIN's job; START is for returning after an opt-out (B-011)
-    // and naming both here would ask a farmer to choose between them.
-    expect(body).not.toContain("START");
     // It must not claim the request itself did anything about messaging.
     expect(body.toLowerCase()).not.toContain("you are subscribed");
     expect(body.toLowerCase()).not.toContain("you have agreed");

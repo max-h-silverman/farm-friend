@@ -99,15 +99,26 @@ export function AgreementStep({
         )}
       </div>
 
+      {/*
+        THE WORD IS `START`, AND IT CARRIES NO TOKEN (max 2026-08-07).
+
+        This said "Text JOIN {token}" — the farmer copying 64 hex characters into a text message,
+        where any slip failed silently. That grammar is gone; onboarding completes by matching a
+        bare `START` against the phone stated on the listing form above.
+
+        START is also the only word that clears the carrier's OWN opt-out list (B-011, verified
+        live 2026-07-27): a farmer whose handset ever texted STOP would otherwise be recorded as
+        consenting while every message to them was refused.
+      */}
       {agreed ? (
         joinUrl === null ? (
           <p className="farmer-onboarding-instruction">
-            Text <strong>JOIN {token}</strong> to the Farm Friend number from your
-            invitation.
+            Text <strong>START</strong> to the Farm Friend number from your invitation, using
+            the phone number you gave above.
           </p>
         ) : (
           <a className="farmer-primary-link" href={joinUrl}>
-            Text JOIN to verify this phone
+            Text START to verify this phone
           </a>
         )
       ) : null}

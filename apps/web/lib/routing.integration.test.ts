@@ -13,7 +13,6 @@ import {
 import {
   FARMER_AUTHORIZED_NOTIFICATION,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-  FARMER_JOIN_INSTRUCTION,
   FixedClock,
   hashPhone,
   REGISTERED_OPT_IN_AUTO_RESPONSE,
@@ -618,11 +617,19 @@ describe("inbound routing end to end (integration)", () => {
     // same journey produced an authorized farmer with no consent record and no way to
     // learn it — behind a fully green suite, because nothing exercised the whole path.
 
-    /** An administrator and an active invitation, returning the raw one-use token. */
+    /**
+     * An administrator, an active invitation, and the PHONE the farmer stated on the form.
+     *
+     * The phone is what ties the handset to the farm now that `JOIN <token>` is gone (max
+     * 2026-08-07): the farmer's message is a bare `START`, matched against this hash. Stating it
+     * here is the fixture equivalent of filling in the onboarding form.
+     */
     async function invite(agreed: boolean): Promise<string> {
-      const { createFarmerInvitation, recordFarmerInvitationSmsAgreement } = await import(
-        "@farm-friend/db"
-      );
+      const {
+        createFarmerInvitation,
+        recordFarmerInvitationSmsAgreement,
+        recordFarmerInvitationPendingPhone,
+      } = await import("@farm-friend/db");
       const administrators = await client()`
         insert into administrators (email, authorized_at)
         values ('board@vigavashon.org', ${at(0)}) returning id
@@ -643,21 +650,29 @@ describe("inbound routing end to end (integration)", () => {
           occurredAt: at(0),
         });
       }
+      await recordFarmerInvitationPendingPhone(database(), {
+        token: created.token,
+        phoneE164: farmerPhone,
+        phoneHash: farmerHash,
+        occurredAt: at(0),
+      });
       return created.token;
     }
 
     it("records consent and queues the registered opt-in receipt, with NO model call", async () => {
-      const token = await invite(true);
-      await deliverInbound({ fromPhone: farmerPhone, text: `JOIN ${token}` });
+      await invite(true);
+      // A BARE START, carrying nothing. That is the whole point of the replacement: the farmer
+      // types one carrier-registered word instead of transcribing 64 hex characters.
+      await deliverInbound({ fromPhone: farmerPhone, text: "START" });
       const provider = await runPassWithForbiddenModel();
 
       const consent = await client()`
         select state, capture_source from sms_consents
         where recipient_hash = ${farmerHash}
       `;
-      expect(consent).toEqual([
-        { state: "active", capture_source: "farmer_onboarding" },
-      ]);
+      // `start`, not `farmer_onboarding`: START is the carrier's own keyword and the provenance
+      // records the word that actually arrived and lifted any carrier block.
+      expect(consent).toEqual([{ state: "active", capture_source: "start" }]);
 
       const work = await client()`
         select message_category, body from outbox_work
@@ -671,12 +686,15 @@ describe("inbound routing end to end (integration)", () => {
       // The old acknowledgement is deliberately ABSENT: "VIGA has your request, they will
       // review it and text you when your farm is ready" is false for a farmer who is already
       // set up, and it would arrive beside the message saying the farm is ready.
+      // Ordered by `logical_key`, which is an ordering over KEYS and not a claim about send
+      // order — the carrier receipt (`consent-…`) sorts before the authorization notification
+      // (`farmer-authorized-…`). Both are present, which is the property.
       expect(work).toEqual([
+        { message_category: "required_reply", body: REGISTERED_OPT_IN_AUTO_RESPONSE },
         {
           message_category: "inventory_prompt",
           body: FARMER_AUTHORIZED_NOTIFICATION,
         },
-        { message_category: "required_reply", body: REGISTERED_OPT_IN_AUTO_RESPONSE },
       ]);
       expect(work.map((row) => row.body)).not.toContain(
         FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
@@ -684,36 +702,41 @@ describe("inbound routing end to end (integration)", () => {
       expect(provider.calls).toBe(0);
     });
 
-    it("tells a farmer with no agreement to text JOIN, and records no consent", async () => {
-      const token = await invite(false);
-      await deliverInbound({ fromPhone: farmerPhone, text: `JOIN ${token}` });
+    it("AUTHORIZES nobody when the agreement was never ticked, though START still enrolls", async () => {
+      // Two facts that used to be one, and had to come apart when START took this over.
+      //
+      // START's consent effect is the CARRIER's and is unconditional — it must enroll and lift
+      // a block whatever else is true, which is why consent is `active` here. What the missing
+      // tick withholds is the AUTHORIZATION: no accepted disclosure means no informed opt-in
+      // for farmer messaging, so nobody is set up and the request falls through to VIGA.
+      await invite(false);
+      await deliverInbound({ fromPhone: farmerPhone, text: "START" });
       const provider = await runPassWithForbiddenModel();
 
       const consent = await client()`
         select state from sms_consents where recipient_hash = ${farmerHash}
       `;
-      expect(consent).toEqual([]);
+      expect(consent).toEqual([{ state: "active" }]);
+
+      // No authorization, so no "your farm is ready" — that notification would be a lie.
+      const authorizations = await client()`
+        select count(*)::integer as count from farmer_authorizations
+      `;
+      expect(authorizations[0]?.count).toBe(0);
 
       const bodies = await client()`
         select body from outbox_work where recipient_hash = ${farmerHash}
         order by logical_key
       `;
-      expect(bodies.map((row) => row.body)).toEqual([
-        FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-        FARMER_JOIN_INSTRUCTION,
-      ]);
+      expect(bodies.map((row) => row.body)).not.toContain(FARMER_AUTHORIZED_NOTIFICATION);
       expect(provider.calls).toBe(0);
     });
 
     it("STOP still wins after an agreed onboarding — the later opt-out clears consent", async () => {
       // Onboarding is an opt-in path, so it must not become one that is hard to leave. The
       // consent watermark orders these independently of conversation state.
-      const token = await invite(true);
-      await deliverInbound({
-        fromPhone: farmerPhone,
-        text: `JOIN ${token}`,
-        occurredAt: at(0),
-      });
+      await invite(true);
+      await deliverInbound({ fromPhone: farmerPhone, text: "START", occurredAt: at(0) });
       await runPassWithForbiddenModel();
       await deliverInbound({ fromPhone: farmerPhone, text: "STOP", occurredAt: at(1) });
       await runPassWithForbiddenModel();
@@ -724,25 +747,38 @@ describe("inbound routing end to end (integration)", () => {
       expect(consent).toEqual([{ state: "stopped" }]);
     });
 
-    it("a farmer who onboards AFTER opting out is not silently re-enrolled", async () => {
-      // The direction that matters more. A person who texted STOP filling in a web form
-      // must not come back as `active` — and the carrier would refuse the send anyway
-      // (B-011), so recording consent here would make our record disagree with theirs.
+    it("a RETURNING farmer who once texted STOP is enrolled by START, not stranded", async () => {
+      // **The case that inverts under the new credential, deliberately.**
+      //
+      // Under `JOIN <token>` this asserted the opposite: a stopped sender stayed stopped, because
+      // `JOIN` is *our* word and cannot clear the carrier's own opt-out list — recording consent
+      // would have made our record disagree with theirs (B-011).
+      //
+      // START is the opposite case. It is the carrier's OWN keyword and the only word that lifts
+      // that block, so it is precisely the word a returning farmer sends. Refusing here would
+      // spend their invitation, leave consent `stopped`, and strand them with nothing reporting
+      // it — the silent dead end this architecture keeps closing.
+      //
+      // What still protects an opted-out person is unchanged: a WEB FORM cannot re-enroll them,
+      // because a form tick writes no consent at all. Only an inbound message from the handset
+      // does, and that is the one act that legitimately clears a stop.
       await deliverInbound({ fromPhone: farmerPhone, text: "STOP", occurredAt: at(0) });
       await runPassWithForbiddenModel();
 
-      const token = await invite(true);
-      await deliverInbound({
-        fromPhone: farmerPhone,
-        text: `JOIN ${token}`,
-        occurredAt: at(1),
-      });
+      await invite(true);
+      await deliverInbound({ fromPhone: farmerPhone, text: "START", occurredAt: at(1) });
       await runPassWithForbiddenModel();
 
       const consent = await client()`
-        select state from sms_consents where recipient_hash = ${farmerHash}
+        select state, capture_source from sms_consents where recipient_hash = ${farmerHash}
       `;
-      expect(consent).toEqual([{ state: "stopped" }]);
+      expect(consent).toEqual([{ state: "active", capture_source: "start" }]);
+
+      // ...and they are actually set up, which is the point of enrolling them.
+      const authorizations = await client()`
+        select count(*)::integer as count from farmer_authorizations
+      `;
+      expect(authorizations[0]?.count).toBe(1);
     });
   });
 

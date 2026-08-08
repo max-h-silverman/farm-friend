@@ -80,7 +80,7 @@ describe("farmer invitation onboarding surface", () => {
     // keyword was retired the string existed NOWHERE, so the assertion passed on every
     // possible page and proved nothing. It now names the string the affordance actually
     // uses, which is the only form in which "the page does not render it" is a real claim.
-    expect(page).not.toContain("Text JOIN to verify this phone");
+    expect(page).not.toContain("Text START to verify this phone");
   });
 
   it("the affordance it must not render is one that genuinely EXISTS", () => {
@@ -94,6 +94,6 @@ describe("farmer invitation onboarding surface", () => {
       resolve(process.cwd(), "apps/web/app/farmer/onboarding/[token]/agreement-step.tsx"),
       "utf8",
     );
-    expect(agreementStep).toContain("Text JOIN to verify this phone");
+    expect(agreementStep).toContain("Text START to verify this phone");
   });
 });
