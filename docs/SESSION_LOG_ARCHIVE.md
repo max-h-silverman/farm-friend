@@ -10,6 +10,80 @@ current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), tho
 
 ---
 
+## 2026-08-06 — the expanded stand card, redesigned around what's in stock
+
+A design pass max asked for on the expanded card — specifically the "usually sells" and confirmed
+stock blocks, and the card generally, built from scratch rather than carried over. He supplied an
+e-commerce product page as a reference for hierarchy and use of space. What was taken from it was
+its *typographic method* (one dominant fact, quiet uppercase section labels, weight spent
+sparingly, space instead of boxes), not its layout — a product page is built around one price and
+one buy button, and this card answers "what's here, how sure are we, how do I get there".
+
+Two decisions were put to max rather than assumed, because both change the whole card: **stock
+leads** (the confirmed items are the headline, not the farm's identity or the freshness caveat),
+and **chips for confirmed items only**.
+
+### The two voices are now told by SHAPE, not by two shades of the same shape
+
+F-042 established that a farmer's confirmation and a seeded specialty are different kinds of claim
+and must be distinguishable at a glance. They were a filled chip list and an outlined chip list —
+which still gave a soft fact the countable shape of a stock list, so at speed the two blocks read
+as one kind of claim in two tints. Now a confirmation is chips (discrete, countable, dated by a
+label directly above the items it covers) and a specialty is a plain grey comma-joined sentence.
+Prose cannot be mistaken for a stock list, and it leaves **no visual slot where a date would look
+at home** — the no-timestamp rule stays enforced in `standListingLines`, and the styling stops
+inviting a violation of it.
+
+`StandListings` splits the elapsed phrase off `line.label` and reads `line.detail` instead. That
+field is guaranteed present on a `confirmed` line and *never* on a `usual` one, so the split is
+type-safe rather than a string slice off a rendered sentence — the failure `confirmedElapsed`
+exists to prevent.
+
+### Looking at it caught an honesty defect that the code review could not
+
+On a stale stand the card rendered a green `CONFIRMED 6 DAYS AGO` directly above an amber
+"May be out of date". Green is this map's colour for *a farmer vouched for this*, so the card was
+saying trust this and don't trust this about one fact — the exact contradiction the recency design
+exists to prevent. The timestamp now follows staleness into amber. This is a behaviour rule, so it
+has its own sabotage-verified test rather than living only in CSS.
+
+### The fourth staleness signal was removed, and the accessibility rule re-anchored
+
+max flagged the "May be out of date — updated 6 days ago" line as not understandable. It was
+genuinely confusing and this pass had made it worse: the card said one fact four times, and that
+line sat inside `.detail-aside` next to "Get directions", where it read as a caveat about the
+*route* rather than the produce. **Its placement was never a design decision** — the aside exists
+to close a gap the old two-column detail grid opened between its children, and the staleness line
+was grouped in to fix that layout hole, then rationalised afterwards in the comment.
+
+It was NOT removed on the "it's redundant" reasoning alone. `globals.css` carries a documented
+rule: staleness is never signalled by colour alone, because colour fails for a colourblind
+customer and in bright sun, and this is the one signal the product cannot afford to have missed.
+That rule was written when the timestamp was neutral. It no longer is — **two word-based signals
+survive** (`Needs confirmation` beside the address, and the dated `Confirmed 6 days ago` above the
+items), so the guarantee holds without the fourth line. The rule's comment was rewritten to
+describe what actually carries it now, rather than a line that no longer exists.
+
+**Removing a user-facing accessibility signal broke zero tests** — nothing guarded that rule, which
+is how the line drifted into redundancy unnoticed in the first place. A test now asserts staleness
+appears in readable *text* (not class names: a `.stand-summary-freshness` query passes against an
+empty span). Sabotaged both ways — emptying the label and dropping the date each fail it.
+
+### Deleted on the way through
+
+The nested bordered inventory panel (a panel inside a panel spends a border and two paddings to
+say what the gap already says), `.recency`/`.recency-stale` (no renderer left), the description
+block's duplicate margin/border and its `.listing-label` override (now identical to the base rule),
+`.sheet .detail-inventory`'s background, and `.detail-visit`'s own rule — section separators are
+owned in one place, `.stand-detail-body`.
+
+### Verified
+
+1243 tests / 112 files, typecheck and lint clean. Three tests added, **each sabotage-verified**.
+Browser-checked at desktop width and at phone width (the sheet, forced visible at 390px since the
+window manager would not resize the window) — and the light-only palette confirmed **while the OS
+sat in dark appearance**, which is the check DEVELOPMENT.md §before you ship requires and which
+F-043 shipped five defects past. No model seam, schema, or projection changed, so no evals owed.
 
 ## 2026-08-05 — retiring a stand, re-issuing a lost onboarding link, and quieter admin chrome
 

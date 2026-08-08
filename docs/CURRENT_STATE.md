@@ -12,26 +12,16 @@ Farm Friend is **pre-go-live**. Production runs one image across Cloud Run web r
 `sha256:efc4271941f4d0d764d878b085b66bed3a0278527d568c7ec280c3a51ff0fd1e` (`main` at `6ab087e`).
 Production Postgres is `neondb` with **29 migrations** (`0000`–`0028`).
 
-**`main` and production are IN SYNC** as of 2026-08-08. The onboarding-form pass and the `START`
-onboarding replacement are deployed, and all three previously-owed migrations are applied.
+**`main` and production are IN SYNC** as of 2026-08-08, and **no migrations are owed** — `0026`
+through `0028` were applied before the image was promoted, in that order, and verified by effect
+(count 26 → 29, every new column, all three `pending_phone` CHECK constraints, and the partial index
+*with* its `where (redeemed_at is null)` predicate). Production was fingerprinted first and 36 farms
+survived. Deploy assertions: plan `0 to add, 2 to change, 0 to destroy`, `plan-assertions` 55/55,
+`deploy_assertions` and `served_card_assertions` pass.
 
-**No migrations are owed.** `0026_address_visibility`, `0027_placeable_contact_only`, and
-`0028_invitation_pending_phone` were applied to production before the image was promoted, in that
-order, and verified by effect rather than from the apply's exit status: migration count 26 → **29**,
-`sales_locations.address_public` present, `sales_locations_coherent_visitability` present, both
-`farmer_invitations.pending_phone_*` columns present with all **three** CHECK constraints, and the
-partial index present **with** its `where (redeemed_at is null)` predicate. The production database
-was fingerprinted first (Neon `neondb`, 36 farms, 36 locations) and 36 farms survived.
-
-**Verified by effect against the live service**, not from the apply's exit status: the plan was
-`0 to add, 2 to change, 0 to destroy` (the two image digests, nothing else), `plan-assertions`
-55/55 including the guard that fails on any plan unmounting a live secret, `deploy_assertions`
-confirms each serving revision is newer than every secret version it consumes, and
-`served_card_assertions` confirms 153 bytes / 6 CRLF / 0 bare LF. Reachability: health 200, bare
-`/farmer/start` **404**, a malformed lookup body **400** rather than 500, and a dead invitation token
-renders "no longer available". The deployed code reads the new schema — the invitation query returns
-7 unredeemed rows and 0 with a stated phone, which is correct since none has been through the new
-form yet.
+**Nothing has been exercised against Telnyx or in a browser on production.** The `START` onboarding
+path is proven through the real webhook handler against real Postgres only. No SMS has completed
+onboarding on the deployed code, and no farmer has filled in the form on production.
 
 **The description cleanup HAS BEEN RUN** (2026-08-07, max approved). 31 of 34 rows rewritten in one
 transaction and verified by reading them back, then confirmed independently through
@@ -59,109 +49,61 @@ already sent.
 
 ## Verification
 
-**Latest, 2026-08-07** (onboarding form pass + `START` onboarding): **1580 unit** (130 files),
-**821 integration** (59 files), typecheck, lint. Integration ran against **local Postgres**,
-never Neon. **No `packages/ai` file changed**, checked against the diff, so no `evals`/`evals:live`
-run was owed. **Three migrations ARE owed to production** — see Release state.
-
-Sabotage-verified this tranche, each confirmed to FAIL when the behavior is broken: the seven form
-tests (label/placeholder, the Save button as visible text rather than an icon carrying `aria-label`,
-the `e.g.` placeholders, the privacy checkbox's position and wording, the pin's size as a fraction of
-the settled frame); all three `0028` CHECK constraints plus the partial index; `firstTimeOnly` being
-restored on the phone path; the `redeemed_at is null` guard on the phone lookup; the phone hash being
-replaced by the raw number; the invalid-phone refusal; and bare `JOIN` being allowed to complete
-onboarding.
-
-**Not verified in a browser or against a real handset.** No SMS was sent end to end — the `START`
-path is proven through the real webhook handler against real Postgres, not against Telnyx.
-
-**Prior, 2026-08-07** (F-088 address visibility, committed to `main`): 1562 unit, 805 integration,
-typecheck, lint, production build.
-
-**Prior, 2026-08-07** (the self-consent and listing-merge tranche, deployed): 1553 unit, 802
-integration, typecheck, lint.
-
-**Prior, 2026-08-07** (F-079 tranche, deployed): 1495 unit, 791 integration, typecheck, lint,
-`evals` 44/44 (critical 11/11, advisory 4/4, adversarial 29/29), production build. Infra:
-`plan-assertions.py` 55/55, `secrets-lifecycle.test.py` and `test_plan_assertions.py` pass.
+**Latest, 2026-08-08** (onboarding form + `START` onboarding, deployed): **1580 unit** (130 files),
+**821 integration** (59 files), typecheck, lint. Integration ran against **local Postgres**, never
+Neon. No `packages/ai` file changed, so no `evals`/`evals:live` run was owed.
 
 **Last `evals:live`: 2026-08-06, 25/25** against `mistralai/Mistral-Small-24B-Instruct-2501`
 (containment 4/4, closure 7/7, quality 9/9, recall 5/5). Owed again on any change to a seam's
 projection, schema, or output contract.
 
 Standing rules: real-Postgres integration runs from an empty schema against local Postgres, **never**
-production Neon. Never carry an old test count forward as current evidence.
+production Neon. Never carry an old test count forward as current evidence. Per-tranche verification
+narratives live in [SESSION_LOG.md](SESSION_LOG.md).
 
-## Standing facts from the newest tranche (onboarding form + `START`, 2026-08-07)
+## Standing facts a cold start needs
 
-**`JOIN <token>` IS GONE.** Onboarding is completed by a **bare `START`** matched against
-`farmer_invitations.pending_phone_hash` — the phone the farmer states on the onboarding form. The
-old grammar made the farmer hand-copy 64 hex characters into a text message, where any slip failed
-identically and silently. `JOIN` remains a registered compliance opt-in; `JOIN` followed by anything
-is now ordinary free text.
+Reasoning, the defects found on the way, and the sabotage lists: [SESSION_LOG.md](SESSION_LOG.md).
 
-**The consent rule DIFFERS by credential, and inverting it is the trap.** The phone-matched path
-deliberately does **not** pass `firstTimeOnly`. `START` is the carrier's own keyword and the only
-word that clears its opt-out list, so it is exactly what a *returning* farmer sends — someone who by
-definition already has a record. Keeping `firstTimeOnly` there would refuse consent for the sender
-`START` exists to restore: invitation spent, consent left `stopped`, farmer never told. The token
-path kept it (B-011). The web-form protection is unchanged, because a form tick writes no consent at
-all. Pinned by *"ENROLLS a returning farmer whose phone had texted STOP"* — sabotage-verified.
+**Onboarding completes by a bare `START`, matched by phone.** `JOIN <token>` is gone — a farmer
+hand-copying 64 hex characters failed silently on any slip. The farmer states a phone on the
+onboarding form (`farmer_invitations.pending_phone_*`); an inbound bare `START` matches it against
+unredeemed invitations and runs the redemption. `JOIN` remains a registered compliance opt-in, and
+`JOIN` followed by anything is ordinary free text.
 
-**Only `START` may complete onboarding, never bare `JOIN`.** `JOIN` cannot clear the carrier block,
-so redeeming on it would set up a farmer whose messages the carrier silently refuses. Pinned by
-*"does NOT complete onboarding on a bare JOIN"*.
+- **The consent rule differs by credential, and inverting it is the trap.** The phone path must NOT
+  pass `firstTimeOnly` — `START` is the carrier's own keyword and the only word that clears its
+  opt-out list, so it is exactly what a *returning* farmer sends. Refusing an existing record would
+  spend their invitation and leave consent `stopped` with nothing reporting it. The token path kept
+  the flag (B-011). A web form still cannot re-enroll an opted-out person, because a tick writes no
+  consent at all.
+- **Only `START` may complete onboarding, never bare `JOIN`** — `JOIN` cannot lift a carrier block.
+- **The carrier transition runs first, the redemption second.** `START` enrolls unconditionally
+  whether or not an invitation is waiting.
+- **The SMS agreement is a field on the listing form, above Submit, and gates it.** Without
+  `agreed_to_sms_at` the redemption authorizes nobody. `AgreementStep` is deleted.
+- **A mistyped phone has no other signal**, which is why the confirm dialog blocks: ten valid digits
+  are indistinguishable from the right ten. A wrong number grants nothing and leaves the invitation
+  unredeemed and retryable.
 
-**The carrier transition runs FIRST, the redemption second.** `START` must enroll unconditionally
-whether or not an invitation is waiting; the redemption is attempted after the consent write.
+**Every farm is placed; `visitability` decides what the map INVITES, not what it stores.** A
+`contact_only` farm may carry a full address and coordinates. F-038's protection moved from a database
+constraint into `buildMapView` — a farm with no stand gets a pin and a `contact-only` marker but **no
+directions link** — so it is now a conditional with a test behind it rather than an unbypassable
+constraint. max accepted that trade knowingly.
 
-**The SMS agreement is now a FIELD on the listing form, above Submit, and it gates submission.**
-`AgreementStep` and its separate card are deleted. Without `agreed_to_sms_at` the redemption
-authorizes nobody, so a farmer who could publish without ticking would text START, be enrolled for
-messages, and find no farm set up. Pinned by *"REFUSES to submit until the agreement is ticked"* —
-sabotage-verified.
-
-**A mistyped phone is invisible without the confirm modal.** The listing saves, the farmer texts
-START from their real phone, it matches nothing, and they wait with every field on screen looking
-correct — ten valid digits are indistinguishable from the right ten digits. Hence the blocking
-confirm dialog. A wrong number grants nothing and leaves the invitation unredeemed and retryable.
-
-## Standing facts from F-088 (2026-08-07)
-
-Reasoning and the findings behind each: [SESSION_LOG.md](SESSION_LOG.md), 2026-08-07.
-
-- **Every farm is placed, and `visitability` decides what the map INVITES — not what it stores.**
-  `sales_locations_coherent_visitability` now states one rule over the shape of a location
-  (complete, or absent) and names `visitability` only in the branch forbidding an unplaced
-  *visitable* stand. A `contact_only` farm may carry a full address and coordinates.
-- **F-038's protection moved from the database into `buildMapView`, and is weaker for it.** A farm
-  with no stand gets its pin and its own `contact-only` marker but **no directions link** — the
-  clause `stand.visitability !== "contact_only"` is what stops a customer being handed turn-by-turn
-  navigation to a farm with nothing to buy. It was an unbypassable constraint; it is now a
-  conditional with a test behind it. max accepted that trade knowingly.
-- **The `contact-only` marker had existed and been unreachable all along.** `mapMarkerKind`, the `●`
-  symbol, the "Farm, no stand" legend entry and its CSS were built long ago; the old constraint
-  forbade the coordinate that would have rendered them.
-- **`address_public` is display-only, and the directions link needs separate suppression.** The
-  route is built from the *coordinate*, not the address string, so hiding an address does not hide
-  the way there. Both the public card and the SMS answer path honour the flag (the latter in SQL, so
-  a hidden address never leaves the database); **admin deliberately shows it**, marked "hidden from
-  customers", because support work needs it.
-- **The whole-listing writer means every new column is a B-037 risk.** `saveOnboardingListing`
-  writes `address_public` on every save, so any door or reader that cannot see it would silently
-  republish an address the farmer hid.
-
-**Owed:** a human visual pass. The browser extension never connected, so the wizard styling,
-dropdown widths, the 30rem breakpoint, the description box, and **F-088's inline address control,
-always-on map and zoom** are unverified by eye.
+- **`address_public` is display-only, and the directions link needs separate suppression**, because
+  the route is built from the coordinate rather than the address string. Admin deliberately shows the
+  address, marked "hidden from customers", because support work needs it.
+- **The whole-listing writer makes every new column a B-037 risk.** `saveOnboardingListing` writes
+  every column on every save, so any door or reader that cannot see a column silently reverts it.
 
 ## What is live
 
 - **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
   names, transient browser proximity, destination links, and code-bound stock-out reporting.
 - **Farmer workflows:** deterministic bare `START` onboarding, `LINK`, `STAND`, `SETTINGS`, and
-  `SAME`; one
-  exact stand per credential; SMS/web proposal and confirmation; closures, participants, reminders.
+  `SAME`; one exact stand per credential; SMS/web proposal and confirmation; closures, participants, reminders.
   Three onboarding doors — invited, grandfathered (`/farmer/start`), and the emailed-code migration
   door (`/farmer/start/<secret>`).
 - **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
@@ -192,7 +134,8 @@ always-on map and zoom** are unverified by eye.
   The seeder still stores nothing for a farm that states nothing, and the protection a refusal buys
   is now the suppressed directions link and the "Farm, no stand" marker — verify the ingest honours
   that rather than assuming the old all-or-nothing shape.
-- **F-029:** finish live carrier/`JOIN` launch verification.
+- **F-029:** finish live carrier launch verification — the `START` onboarding path has never
+  been exercised against Telnyx from a real handset.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
   keyboard/focus, and recovery-copy browser proof.
 - **F-044:** verify public-map and authenticated-admin embeds on VIGA's actual Squarespace pages.

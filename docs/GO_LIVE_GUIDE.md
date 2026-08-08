@@ -126,7 +126,8 @@ surface, signing out, and having the copied cookie refused.
 
 ### GL-010 — Build farmer onboarding and number verification
 
-**Completed:** 2026-08-07 — three doors exist and are deployed: invited (`JOIN <token>`),
+**Completed:** 2026-08-07 — three doors exist and are deployed: invited (a bare `START` matched to
+the phone stated on the onboarding form; `JOIN <token>` was removed 2026-08-08, F-089),
 grandfathered (`/farmer/start`, F-072), and the emailed-code migration door
 (`/farmer/start/<secret>`, F-079). Consent is established by the one existing writer; authorization
 and consent stay separate records; onboarding still grants no approval. F-081 closed the last

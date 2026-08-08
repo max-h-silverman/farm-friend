@@ -11,6 +11,94 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-08 — the onboarding form, and `JOIN <token>` replaced by a bare `START`
+
+Started as eight cosmetic edits to the onboarding form and ended by replacing the credential that
+completes farmer onboarding. Deployed to production (web `00042-rfs`, worker `00041-g59`).
+
+**The eight form items were genuinely cosmetic, except two.** "Where is it?" → "Your farm address"
+with the instruction in the placeholder; the pin-icon lookup became a **Save** button; the found dot
+got much bigger; `e.g.` on the example placeholders; "…to customers" → "…in the live listing"; and
+the privacy checkbox moved directly under the address it governs. The two that weren't cosmetic:
+
+- **The map "turning white" on zoom was `opacity` on the `<svg>` itself**, fading the whole element
+  against the page rather than fading the artwork. The box is now a fixed water-coloured ground with
+  the artwork group fading over it.
+- **The pin's size is asserted as a fraction of the settled frame**, never as a raw `r`. The radius
+  scales with the zoom, so a bare number would have passed at any apparent size and would need
+  rewriting every time `ZOOM_FRACTION` changed.
+
+**Item 7 turned into a redesign, over five reversals.** max asked for the consent box above Submit;
+then a post-submit modal; then "text CONFIRM" instead of a token; then a saved phone; then removing
+the `JOIN <token>` route entirely. Two of those I pushed back on with evidence rather than building:
+
+- **"Reply CONFIRM" cannot work**, because it inverts the direction. `isProactiveSendPermitted`
+  permits a send to a number with no consent record only for `required_reply` — the answer to that
+  recipient's *own* message. We cannot text first, so the farmer's message has to come first.
+  `CONFIRM` is also not a compliance keyword, so it would establish nothing.
+- **A stored phone would have duplicated a mechanism that already worked.** `JOIN <token>` already
+  tied handset to farm. I said so before building it. max's answer was to delete `JOIN <token>`
+  instead — which is the right call and made the phone the *only* mechanism rather than a second one.
+
+**The trap in that change, and the reason it needed care.** `openFarmerOnboardingRequest` calls the
+consent writer with `firstTimeOnly: true`, which refuses whenever *any* record exists. That is
+correct for `JOIN` (B-011: `JOIN` is ours and cannot clear the carrier's own opt-out list, so
+claiming consent for a returning sender records `active` while every send is refused 409). But
+`START` is the carrier's own keyword and the only word that lifts that block — so it is *precisely*
+what a returning farmer sends. Keeping the flag would have spent their invitation, left consent
+`stopped`, and told them nothing. The flag is now conditional on which credential arrived, and the
+inversion is pinned by *"ENROLLS a returning farmer whose phone had texted STOP"*.
+
+What that does **not** give up: the protection `firstTimeOnly` was added for was a *web form*
+silently re-enrolling someone who had opted out. That still holds, because a form tick writes no
+consent at all. What enrolls is an inbound message from the handset, which is the one act that
+legitimately clears a stop.
+
+**Four dead references the removal left behind, each of which would have failed silently.**
+`buildInviteSmsUrl` still composed a `JOIN <token>` body — with the grammar gone, that message would
+arrive as free text, reach the model, finish nothing, and look to the farmer like they did exactly
+what they were told. The agreement step's copy told them to text it. `FARMER_JOIN_INSTRUCTION` named
+`JOIN`, a word that now enrolls without setting anyone up. And the schema comment still described
+`SIGNUP <token>`, two keywords out of date.
+
+**`drizzle-kit` did exactly what migration 0024 warned it would.** For `0028` it emitted only the
+two `ADD COLUMN` lines and **silently dropped all three CHECK constraints and the partial index** —
+so `schema.ts` would have declared rules enforced by nothing. It also stamped a journal `when`
+*earlier* than 0027's, which `migration-ordering.test.ts` caught: an out-of-order entry is silently
+skipped. Both fixed by hand. The migration test fails 4 of 7 when the constraints are removed, which
+is the evidence they are real rather than declared.
+
+**The agreement folded into the form, closing max's original item 7.** It had been a separate card
+*below* the whole form, so the page read as two errands and a farmer could submit having never
+scrolled to the disclosures. `AgreementStep` is deleted; the tick is a field above Submit and gates
+it. The old ordering hazard (a prepared-text link between tick and Submit, which could take a farmer
+off the page before their listing saved) went away with the card, since the hand-off now lives on the
+saved screen.
+
+**The confirm modal exists for a failure with no other signal.** A mistyped phone number: the listing
+saves, the farmer texts `START` from their real phone, it matches nothing, and they wait — with every
+field on screen looking correct. Ten valid digits are indistinguishable from the right ten digits, so
+nothing in the system can detect it. Hence a blocking dialog that reads the number back.
+
+**Two real defects my own tests caught, both worth recording.** Removing the agreement `<section>`
+also took the link-expiry paragraph with it — the surface test failed and I initially misread it as a
+stale assertion. And the agreement POST became the *first* fetch call, so every test reading calls
+positionally read the wrong body; the endpoint filters now select the listing endpoints **by name**
+rather than excluding the lookup, which is what keeps the next new endpoint from doing it again.
+
+**A styling rule that excluded by enumerating.** `.farmer-listing input[type="text"]` silently missed
+the `type="tel"` phone field and the paragraph `<textarea>`, so both rendered at browser default
+mid-form. The rule stops enumerating; a test asserts every rendered field carries a covered type,
+read from the DOM rather than by grepping the stylesheet — because matching nothing is the failure.
+
+**Deploy.** Migrations first (26 → **29**), fingerprinting production before touching it and
+verifying by effect rather than from the apply's exit status. Then the image: plan was
+`0 to add, 2 to change, 0 to destroy`, `plan-assertions` 55/55.
+
+**Still owed, and it is the real gap:** no SMS has gone through this code, and nobody has used the
+form in a browser on production. The `START` path is proven through the real webhook handler against
+real Postgres — never against Telnyx.
+
 ## 2026-08-07 — F-088: the address question, reversed twice, and a constraint that outlived its defect
 
 Started as UI polish on one janky field and ended by relaxing F-038's load-bearing invariant. The
@@ -652,78 +740,3 @@ listing facts with **zero inventory revisions**, so F-066's separation survives 
 **Merged nowhere and deployed nowhere** — branch `f-072-grandfathered-onboarding`, commit `5e1c596`.
 
 ---
-
-## 2026-08-06 — the expanded stand card, redesigned around what's in stock
-
-A design pass max asked for on the expanded card — specifically the "usually sells" and confirmed
-stock blocks, and the card generally, built from scratch rather than carried over. He supplied an
-e-commerce product page as a reference for hierarchy and use of space. What was taken from it was
-its *typographic method* (one dominant fact, quiet uppercase section labels, weight spent
-sparingly, space instead of boxes), not its layout — a product page is built around one price and
-one buy button, and this card answers "what's here, how sure are we, how do I get there".
-
-Two decisions were put to max rather than assumed, because both change the whole card: **stock
-leads** (the confirmed items are the headline, not the farm's identity or the freshness caveat),
-and **chips for confirmed items only**.
-
-### The two voices are now told by SHAPE, not by two shades of the same shape
-
-F-042 established that a farmer's confirmation and a seeded specialty are different kinds of claim
-and must be distinguishable at a glance. They were a filled chip list and an outlined chip list —
-which still gave a soft fact the countable shape of a stock list, so at speed the two blocks read
-as one kind of claim in two tints. Now a confirmation is chips (discrete, countable, dated by a
-label directly above the items it covers) and a specialty is a plain grey comma-joined sentence.
-Prose cannot be mistaken for a stock list, and it leaves **no visual slot where a date would look
-at home** — the no-timestamp rule stays enforced in `standListingLines`, and the styling stops
-inviting a violation of it.
-
-`StandListings` splits the elapsed phrase off `line.label` and reads `line.detail` instead. That
-field is guaranteed present on a `confirmed` line and *never* on a `usual` one, so the split is
-type-safe rather than a string slice off a rendered sentence — the failure `confirmedElapsed`
-exists to prevent.
-
-### Looking at it caught an honesty defect that the code review could not
-
-On a stale stand the card rendered a green `CONFIRMED 6 DAYS AGO` directly above an amber
-"May be out of date". Green is this map's colour for *a farmer vouched for this*, so the card was
-saying trust this and don't trust this about one fact — the exact contradiction the recency design
-exists to prevent. The timestamp now follows staleness into amber. This is a behaviour rule, so it
-has its own sabotage-verified test rather than living only in CSS.
-
-### The fourth staleness signal was removed, and the accessibility rule re-anchored
-
-max flagged the "May be out of date — updated 6 days ago" line as not understandable. It was
-genuinely confusing and this pass had made it worse: the card said one fact four times, and that
-line sat inside `.detail-aside` next to "Get directions", where it read as a caveat about the
-*route* rather than the produce. **Its placement was never a design decision** — the aside exists
-to close a gap the old two-column detail grid opened between its children, and the staleness line
-was grouped in to fix that layout hole, then rationalised afterwards in the comment.
-
-It was NOT removed on the "it's redundant" reasoning alone. `globals.css` carries a documented
-rule: staleness is never signalled by colour alone, because colour fails for a colourblind
-customer and in bright sun, and this is the one signal the product cannot afford to have missed.
-That rule was written when the timestamp was neutral. It no longer is — **two word-based signals
-survive** (`Needs confirmation` beside the address, and the dated `Confirmed 6 days ago` above the
-items), so the guarantee holds without the fourth line. The rule's comment was rewritten to
-describe what actually carries it now, rather than a line that no longer exists.
-
-**Removing a user-facing accessibility signal broke zero tests** — nothing guarded that rule, which
-is how the line drifted into redundancy unnoticed in the first place. A test now asserts staleness
-appears in readable *text* (not class names: a `.stand-summary-freshness` query passes against an
-empty span). Sabotaged both ways — emptying the label and dropping the date each fail it.
-
-### Deleted on the way through
-
-The nested bordered inventory panel (a panel inside a panel spends a border and two paddings to
-say what the gap already says), `.recency`/`.recency-stale` (no renderer left), the description
-block's duplicate margin/border and its `.listing-label` override (now identical to the base rule),
-`.sheet .detail-inventory`'s background, and `.detail-visit`'s own rule — section separators are
-owned in one place, `.stand-detail-body`.
-
-### Verified
-
-1243 tests / 112 files, typecheck and lint clean. Three tests added, **each sabotage-verified**.
-Browser-checked at desktop width and at phone width (the sheet, forced visible at 390px since the
-window manager would not resize the window) — and the light-only palette confirmed **while the OS
-sat in dark appearance**, which is the check DEVELOPMENT.md §before you ship requires and which
-F-043 shipped five defects past. No model seam, schema, or projection changed, so no evals owed.
