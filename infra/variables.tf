@@ -251,9 +251,21 @@ variable "mount_geocoding_key" {
     So the order is three steps, not one:
 
       1. apply with this false — creates the empty secret container
-      2. printf %s "<key>" | gcloud secrets versions add farm-friend-geocoding-api-key \
+      2. printf %s "$YOUR_REAL_KEY" | gcloud secrets versions add farm-friend-geocoding-api-key \
            --project farm-friend-vashon --data-file=-
       3. apply with this true — the web service mounts it and a new revision picks it up
+
+    THE PLACEHOLDER IN STEP 2 WAS ONCE PASTED VERBATIM (2026-08-07). The secret held the literal
+    five bytes `<key>`, Google answered REQUEST_DENIED for every address, and because the lookup
+    collapsed every provider error into "no result", every farmer was told their perfectly valid
+    address could not be found. The route returned HTTP 200 throughout, so nothing looked wrong,
+    and no visitable stand could be created for two days. Hence `$YOUR_REAL_KEY` above: a shell
+    variable fails loudly when unset, where a literal placeholder succeeds silently.
+
+    VERIFY BY EFFECT, never by "the version exists": read the stored value's length (a Google key
+    is 39 chars) and call the Geocoding API with it. `address-lookup.ts` now returns
+    `not_configured` rather than `no_result` for REQUEST_DENIED, so a rejected key at least tells
+    a farmer to contact VIGA instead of blaming their address.
 
     Setting it back to false is also the kill switch: apply, and address lookup stops without
     touching the key or the application.
