@@ -1063,7 +1063,7 @@ describe("public web surface boundary (integration)", () => {
       const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
       const body = (await response.json()) as { stands: Record<string, unknown>[] };
 
-      expect(body.stands[0]!.usuallySells!.map((o) => o.itemName)).toEqual([]);
+      expect(body.stands[0]!.usuallySells).toEqual([]);
       expect("usuallySells" in body.stands[0]!).toBe(true);
     });
 
@@ -1094,7 +1094,7 @@ describe("public web surface boundary (integration)", () => {
       const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
       const body = (await response.json()) as {
         stands: {
-          usuallySells?: unknown;
+          usuallySells?: { itemName: string; priceText?: string }[];
           updated?: unknown;
           confirmedElapsed?: unknown;
           stale?: unknown;
@@ -1122,7 +1122,11 @@ describe("public web surface boundary (integration)", () => {
 
       const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
       const body = (await response.json()) as {
-        stands: { updated?: string; confirmedElapsed?: string; usuallySells?: string[] }[];
+        stands: {
+          updated?: string;
+          confirmedElapsed?: string;
+          usuallySells?: { itemName: string; priceText?: string }[];
+        }[];
       };
 
       // Both facts on the wire, separately: the confirmation is dated, the tags are not.

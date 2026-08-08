@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { NO_AVAILABILITY_STATED } from "./listing-availability";
 import {
+  readFarmListingForOnboarding,
   readStandListing,
   renameFarm,
   saveOnboardingListing,
@@ -369,6 +370,85 @@ describe("F-067 onboarding listing (integration)", () => {
 
     const after = await readStandListing(database(), { salesLocationId });
     expect(after!.items).toEqual(before!.items);
+  });
+
+  it("prefills an onboarding form from the SAME stand the save will replace", async () => {
+    /*
+      F-090 — the reader and the writer must agree about which stand a farm IS.
+
+      `readFarmListingForOnboarding` resolves a farm to a stand so the invited and
+      grandfathered doors can prefill; `saveOnboardingListing` resolves it again to decide
+      what to overwrite. If they disagree, the farmer edits one stand's values and saves them
+      over another's — silently, with nothing failing.
+
+      The trap is specific and was nearly shipped: adding `and retired_at is null` to the read
+      looks obviously right, and the writer has no such filter. This asserts the pair against a
+      farm whose OLDEST stand is retired, which is the only shape that can tell them apart.
+    */
+    // `sales_locations_coherent_retirement` pairs the timestamp with the administrator who
+    // retired it — a retirement nobody performed is refused, which is the constraint doing
+    // exactly its job.
+    // The ONE administrator identity the schema permits — `administrators_fixed_identity`
+    // pins the address, so this is VIGA's board account rather than a fixture-shaped one.
+    const administrators = await client()`
+      insert into administrators (email, authorized_at)
+      values ('board@vigavashon.org', now())
+      on conflict do nothing
+      returning id
+    `;
+    const administratorId =
+      (administrators[0]?.id as string | undefined) ??
+      ((
+        await client()`select id from administrators where email = 'board@vigavashon.org'`
+      )[0]!.id as string);
+
+    const first = await client()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude, hours_text,
+        farm_bucks_accepted, farm_bucks_eligible, retired_at, retired_by_administrator_id
+      )
+      values (
+        ${farmId}, 'farm_stand', 'Retired Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Old Road', 47.44, -122.45, 'Old hours', false, false,
+        now(), ${administratorId}
+      )
+      returning id
+    `;
+    const retiredId = first[0]!.id as string;
+
+    await client()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude, hours_text,
+        farm_bucks_accepted, farm_bucks_eligible
+      )
+      values (
+        ${farmId}, 'farm_stand', 'Live Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '2 New Road', 47.45, -122.46, 'New hours', false, false
+      )
+    `;
+
+    const prefill = await readFarmListingForOnboarding(database(), { farmId });
+
+    // The retired one, because it is the oldest — matching the writer, not intuition.
+    expect(prefill!.standName).toBe("Retired Stand");
+
+    // And the save lands on that same row, which is the property that actually matters.
+    const saved = await saveOnboardingListing(database(), {
+      farmId,
+      standName: prefill!.standName,
+      listing: { ...visitableListing, hoursText: "Corrected hours" },
+      occurredAt: new Date("2026-08-08T17:00:00Z"),
+    });
+    expect(saved.status).toBe("saved");
+    if (saved.status !== "saved") return;
+    expect(saved.salesLocationId).toBe(retiredId);
+  });
+
+  it("prefills NOTHING for a farm that has no stand yet", async () => {
+    // A genuinely new farm. Prefilling must never invent a value, so the form starts blank.
+    expect(await readFarmListingForOnboarding(database(), { farmId })).toBeNull();
   });
 
   it("keeps the farmer's OWN WORDS — no singular/plural or synonym folding", async () => {

@@ -109,9 +109,73 @@ async function placeStand(
  * The other two doors ask for no phone and post immediately; the `queryByRole` keeps this one
  * helper correct for all three rather than needing a per-door variant.
  */
+/**
+ * Bring a field into view on a wizard door, wherever its step happens to be.
+ *
+ * Every field stays MOUNTED behind a `hidden` fieldset, so it is always in the document —
+ * which is what makes `getByLabelText` find it and `getByRole` refuse it. A test asserting
+ * what the form OFFERS needs it visible, so this steps forward until it is.
+ *
+ * Written as "advance until visible" rather than "go to step N" deliberately: reordering the
+ * steps must not silently strand these tests on the wrong screen, and a field that never
+ * becomes visible fails loudly here instead of as a confusing assertion further down.
+ */
+async function revealField(
+  user: ReturnType<typeof userEvent.setup>,
+  label: RegExp | string,
+): Promise<HTMLElement> {
+  for (;;) {
+    const field = screen.getByLabelText(label);
+    // The enclosing step, or null on the flat door. `hidden` on that fieldset is exactly what
+    // hides the field — jsdom computes no layout, so this is the honest check rather than
+    // `checkVisibility`, which this jsdom does not implement at all.
+    if (field.closest("fieldset[hidden]") === null) return field;
+    const next = screen.queryByRole("button", { name: /next/i });
+    if (next === null) {
+      throw new Error(`no step of this form ever shows ${String(label)}`);
+    }
+    await user.click(next);
+  }
+}
+
+/**
+ * Walk a wizard to its last step, so a test can reach Submit.
+ *
+ * Clicks Next until it runs out, rather than a fixed count: a step added later must not
+ * silently strand every test that submits. Returns immediately on a door that does not step,
+ * which is what lets the shared `submitListing` stay one helper for all three doors.
+ */
+async function stepToEnd(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  for (;;) {
+    const next = screen.queryByRole("button", { name: /next/i });
+    if (next === null) return;
+    await user.click(next);
+  }
+}
+
+/**
+ * The Submit button, on whichever step shows it.
+ *
+ * A wizard door reveals Submit only on its last step (F-090) — a farmer must not be able to
+ * publish a listing they have not finished describing, because the writer replaces the WHOLE
+ * listing and the fields they never reached would be written empty. Tests that assert
+ * something ABOUT the button (that it is disabled, that a gate blocks it) need it on screen,
+ * and should not have to know how many steps there currently are.
+ */
+async function submitButton(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<HTMLElement> {
+  await stepToEnd(user);
+  return screen.getByRole("button", { name: /submit|save changes/i });
+}
+
 async function submitListing(
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> {
+  // F-090 — a WIZARD door shows Submit only on its last step, so reach it first. Done here
+  // rather than in every caller: a test about what the form POSTS should not have to know
+  // how many steps the form currently has. `stepToEnd` returns immediately on the flat door.
+  await stepToEnd(user);
   const phoneField = screen.queryByLabelText(/your phone number/i);
   if (phoneField !== null && (phoneField as HTMLInputElement).value === "") {
     await user.type(phoneField, "2065550143");
@@ -287,13 +351,20 @@ describe("onboarding listing step", () => {
 
     await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
-    await user.type(
-      screen.getByLabelText(/what do you usually sell/i),
-      "tomato, tomatoes , love apple",
-    );
+    // F-090 — added one row at a time, where this used to be a comma-separated box. The
+    // invariant is unchanged and is what this test still guards: three near-identical words
+    // stay three items, because folding them would be a produce taxonomy.
+    for (const item of ["tomato", "tomatoes", "love apple"]) {
+      await user.type(await revealField(user, /what do you usually sell/i), item);
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+    }
     await submitListing(user);
 
-    expect(posted(fetchMock).items).toEqual(["tomato", "tomatoes", "love apple"]);
+    expect(posted(fetchMock).items).toEqual([
+      { name: "tomato", priceText: null },
+      { name: "tomatoes", priceText: null },
+      { name: "love apple", priceText: null },
+    ]);
   });
 
   it("drops empty entries from a list rather than sending blanks", async () => {
@@ -303,10 +374,28 @@ describe("onboarding listing step", () => {
 
     await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
-    await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs, , rhubarb,");
+    /*
+      F-090 — the blank is refused at ENTRY now rather than filtered at submit, which is the
+      better place for it: the farmer sees immediately that nothing was added.
+
+      The invariant is the same one and still worth guarding. `stand_items` has a not-blank
+      CHECK, so a blank reaching the writer is a failed submission the farmer cannot act on;
+      here they simply see no row appear.
+    */
+    const box = await revealField(user, /what do you usually sell/i);
+    await user.type(box, "eggs");
+    await user.click(screen.getByRole("button", { name: /add item/i }));
+    // A stray space, and then nothing at all — neither may become an item.
+    await user.type(box, "   ");
+    await user.click(screen.getByRole("button", { name: /add item/i }));
+    await user.type(box, "rhubarb");
+    await user.click(screen.getByRole("button", { name: /add item/i }));
     await submitListing(user);
 
-    expect(posted(fetchMock).items).toEqual(["eggs", "rhubarb"]);
+    expect(posted(fetchMock).items).toEqual([
+      { name: "eggs", priceText: null },
+      { name: "rhubarb", priceText: null },
+    ]);
   });
 
   describe("finishing setup by text", () => {
@@ -606,7 +695,7 @@ describe("onboarding listing step", () => {
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       for (const method of ["Cash", "Check", "Venmo", "PayPal", "Zelle"]) {
-        expect(screen.getByRole("checkbox", { name: method })).toBeInTheDocument();
+        expect(screen.getByLabelText(method)).toBeInTheDocument();
       }
     });
 
@@ -627,7 +716,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
-      await user.click(screen.getByRole("checkbox", { name: "Cash" }));
+      await user.click(await revealField(user, "Cash"));
       await user.click(screen.getByRole("checkbox", { name: "Venmo" }));
       await submitListing(user);
 
@@ -641,7 +730,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
-      await user.click(screen.getByRole("checkbox", { name: "Cash" }));
+      await user.click(await revealField(user, "Cash"));
       await user.click(screen.getByRole("checkbox", { name: "Venmo" }));
       await user.click(screen.getByRole("checkbox", { name: "Cash" }));
       await submitListing(user);
@@ -657,7 +746,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
-      await user.click(screen.getByRole("checkbox", { name: "Cash" }));
+      await user.click(await revealField(user, "Cash"));
       await user.type(screen.getByLabelText(/anything else you accept as payment/i), "trade for eggs");
       await submitListing(user);
 
@@ -986,7 +1075,7 @@ describe("onboarding listing step", () => {
     await placeStand(user);
       // Ticked out of order, to prove the order sent is the weekday order and not the click
       // order — the column is a set, and a reader showing "Sat, Wed" would read as wrong.
-      await user.click(screen.getByRole("checkbox", { name: "Sat" }));
+      await user.click(await revealField(user, "Sat"));
       await user.click(screen.getByRole("checkbox", { name: "Wed" }));
       await submitListing(user);
 
@@ -1154,7 +1243,7 @@ describe("onboarding listing step", () => {
       // fail this test for an unrelated reason.
       await user.type(screen.getByLabelText(/your phone number/i), "2065550143");
       await user.click(screen.getByLabelText(/I agree to receive texts/i));
-      const publish = screen.getByRole("button", { name: /submit/i });
+      const publish = await submitButton(user);
       await waitFor(() => {
         expect(publish).toBeEnabled();
       });
@@ -1179,7 +1268,7 @@ describe("onboarding listing step", () => {
 
       await screen.findByRole("status");
       expect(
-        screen.getByRole("button", { name: /submit/i }),
+        await submitButton(user),
       ).toBeDisabled();
     });
 
@@ -1204,7 +1293,7 @@ describe("onboarding listing step", () => {
         // the old sentence forever.
         expect(note).not.toHaveTextContent(/tap the map/i);
         expect(
-          screen.getByRole("button", { name: /submit/i }),
+          await submitButton(user),
         ).toBeDisabled();
         document.body.innerHTML = "";
       }
@@ -1233,7 +1322,7 @@ describe("onboarding listing step", () => {
       expect(note).not.toHaveTextContent(/check the address/i);
       expect(note).not.toHaveTextContent(/tap the map/i);
       expect(
-        screen.getByRole("button", { name: /submit/i }),
+        await submitButton(user),
       ).toBeDisabled();
     });
 
@@ -1254,7 +1343,7 @@ describe("onboarding listing step", () => {
 
       expect(await screen.findByRole("status")).toHaveTextContent(/check the address|correct/i);
       expect(
-        screen.getByRole("button", { name: /submit/i }),
+        await submitButton(user),
       ).toBeDisabled();
     });
 
@@ -1318,15 +1407,16 @@ describe("onboarding listing step", () => {
       // disabled for want of a phone and the test would pass for the wrong reason.
       await user.type(screen.getByLabelText(/your phone number/i), "2065550143");
       await user.click(screen.getByLabelText(/I agree to receive texts/i));
+      await submitButton(user);
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+        expect(screen.getByRole("button", { name: /submit|save changes/i })).toBeEnabled();
       });
 
       // The farmer changes their mind about the address.
       await user.type(addressField, " Unit B");
 
       expect(
-        screen.getByRole("button", { name: /submit/i }),
+        await submitButton(user),
       ).toBeDisabled();
       expect(screen.queryByText(/found it/i)).not.toBeInTheDocument();
     });
@@ -1544,6 +1634,7 @@ describe("onboarding listing step", () => {
     // it governs that it read as a separate topic.
 
     it("puts the SMS agreement inside the form, directly above Submit", async () => {
+      const user = userEvent.setup();
       // max 2026-08-07. It was a separate card BELOW the whole form, so the page read as two
       // steps and a farmer could submit their listing having never seen the disclosures.
       //
@@ -1558,7 +1649,7 @@ describe("onboarding listing step", () => {
       );
 
       const agree = screen.getByLabelText(/I agree to receive texts/i);
-      const submit = screen.getByRole("button", { name: /submit/i });
+      const submit = await submitButton(user);
       const phone = screen.getByLabelText(/your phone number/i);
 
       expect(
@@ -1595,11 +1686,12 @@ describe("onboarding listing step", () => {
       await placeStand(user);
       await user.type(screen.getByLabelText(/your phone number/i), "2065550143");
 
-      expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
+      expect(await submitButton(user)).toBeDisabled();
 
       await user.click(screen.getByLabelText(/I agree to receive texts/i));
+      await submitButton(user);
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+        expect(screen.getByRole("button", { name: /submit|save changes/i })).toBeEnabled();
       });
     });
 
@@ -1985,10 +2077,11 @@ describe("onboarding listing step", () => {
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "2065550143");
         // The agreement gates Submit; its own gate is asserted separately.
         await user.click(screen.getByLabelText(/I agree to receive texts/i));
+        await submitButton(user);
         await waitFor(() => {
-          expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+          expect(screen.getByRole("button", { name: /submit|save changes/i })).toBeEnabled();
         });
-        await user.click(screen.getByRole("button", { name: /submit/i }));
+        await user.click(await submitButton(user));
 
         // The modal is up, showing the number back, and NOTHING was posted.
         const dialog = await screen.findByRole("dialog");
@@ -2028,10 +2121,11 @@ describe("onboarding listing step", () => {
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "2065550143");
         // The agreement gates Submit; its own gate is asserted separately.
         await user.click(screen.getByLabelText(/I agree to receive texts/i));
+        await submitButton(user);
         await waitFor(() => {
-          expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+          expect(screen.getByRole("button", { name: /submit|save changes/i })).toBeEnabled();
         });
-        await user.click(screen.getByRole("button", { name: /submit/i }));
+        await user.click(await submitButton(user));
 
         const dialog = await screen.findByRole("dialog");
         await user.click(within(dialog).getByRole("button", { name: /back|change|fix/i }));
@@ -2062,7 +2156,7 @@ describe("onboarding listing step", () => {
         await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await placeStand(user);
 
-        expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
+        expect(await submitButton(user)).toBeDisabled();
       });
 
       it("shows the number to text AFTER saving, with the word START", async () => {
@@ -2083,10 +2177,11 @@ describe("onboarding listing step", () => {
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "2065550143");
         // The agreement gates Submit; its own gate is asserted separately.
         await user.click(screen.getByLabelText(/I agree to receive texts/i));
+        await submitButton(user);
         await waitFor(() => {
-          expect(screen.getByRole("button", { name: /submit/i })).toBeEnabled();
+          expect(screen.getByRole("button", { name: /submit|save changes/i })).toBeEnabled();
         });
-        await user.click(screen.getByRole("button", { name: /submit/i }));
+        await user.click(await submitButton(user));
         const dialog = await screen.findByRole("dialog");
         await user.click(within(dialog).getByRole("button", { name: /yes|confirm|correct/i }));
 
@@ -2115,7 +2210,7 @@ describe("onboarding listing step", () => {
         await placeStand(user);
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "555");
 
-        expect(screen.getByRole("button", { name: /submit/i })).toBeDisabled();
+        expect(await submitButton(user)).toBeDisabled();
         expect(screen.queryByRole("dialog")).toBeNull();
       });
     });
@@ -2156,7 +2251,8 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
       await placeStand(user);
-      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+      // The grandfathered door is a wizard too (F-090), so Submit is on its last step.
+      await submitListing(user);
 
       const call = fetchMock.mock.calls.find(
         (entry) => LISTING_ENDPOINT_RE.test(String((entry as [string, unknown])[0])),
@@ -2203,7 +2299,7 @@ describe("onboarding listing step", () => {
       longitude: -122.4594,
       hoursText: "Dawn to dusk",
       paymentMethods: ["Cash", "Goats"],
-      items: ["Eggs", "Flowers"],
+      items: [{ name: "Eggs", priceText: null }, { name: "Flowers", priceText: null }],
       availability: {
         seasonKind: "date_range" as const,
         seasonStartMonth: 3,
@@ -2288,7 +2384,12 @@ describe("onboarding listing step", () => {
       expect(body.longitude).toBe(-122.4594);
       expect(body.hoursText).toBe("Dawn to dusk");
       expect(body.paymentMethods).toEqual(["Cash", "Goats"]);
-      expect(body.items).toEqual(["Eggs", "Flowers"]);
+      // F-090 — items round-trip as name/price pairs. Still the same B-037 guarantee this
+      // test was written for: what the form was given is exactly what it sends back.
+      expect(body.items).toEqual([
+        { name: "Eggs", priceText: null },
+        { name: "Flowers", priceText: null },
+      ]);
       // B-037 — the twelve the writer sets unconditionally. `updateStand` names every
       // availability column in one statement, so anything absent here is written NULL: a
       // farmer who came to change their hours loses their season and restocking silently.
@@ -2392,6 +2493,270 @@ describe("onboarding listing step", () => {
       expect(body.seasonNames).toEqual(["summer", "apple season"]);
       expect(body.seasonStartMonth).toBeUndefined();
       expect(body.seasonEndMonth).toBeUndefined();
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────────────────
+  // F-090 — one form, two presentations.
+  //
+  // max asked for a WIZARD when onboarding and TABS when editing (2026-08-08). A farmer
+  // setting up is doing it once, linearly, and should not face every field at once; a
+  // farmer coming back wants to jump straight to the thing they came for.
+  //
+  // **The fields, the writer, and every rule stay shared.** Forking the component per door
+  // is how two doors start publishing different shapes onto the same map — the reason
+  // `ListingCredential` is a prop rather than three components. This is presentation over
+  // one form, which is also why every field stays MOUNTED: an unmounted step would drop
+  // the farmer's state on every Back, and the whole-listing writer would then erase by
+  // omission whatever they could not see (B-037's shape).
+  describe("stepping through onboarding as a wizard (F-090)", () => {
+    it("shows one step at a time, starting with the farm", async () => {
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+        />,
+      );
+
+      // The address is on the first step, visible.
+      expect(screen.getByLabelText(/your farm address/i)).toBeVisible();
+      // A later step's field is present in the document — so its state survives — but not
+      // shown. Asserted as "not visible" rather than "not in the document", because those
+      // are different facts and only one of them is safe here.
+      expect(screen.getByLabelText(/what do you usually sell/i)).not.toBeVisible();
+    });
+
+    it("carries values across Back and Next without losing them", async () => {
+      // The property that makes stepping safe. A wizard that unmounts its steps would send
+      // a listing missing everything the farmer could not currently see.
+      const user = userEvent.setup();
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Hwy");
+      await user.click(screen.getByRole("button", { name: /next/i }));
+      await user.click(screen.getByRole("button", { name: /back/i }));
+
+      expect(screen.getByLabelText(/your farm address/i)).toHaveValue("12345 Vashon Hwy");
+    });
+
+    it("submits the WHOLE listing, including steps left at their defaults", async () => {
+      // The B-037 guarantee restated for the wizard. A farmer who walks to the last step
+      // without touching the middle ones must still publish every field — the writer
+      // replaces the whole listing, so a field the form failed to send is a field deleted.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+        />,
+      );
+
+      await placeStand(user);
+      await user.click(screen.getByLabelText(/yes — there is a stand/i));
+      await stepToEnd(user);
+      await submitListing(user);
+
+      const body = posted(fetchMock);
+      // Fields from three different steps, all present in one request.
+      expect(body.publicAddress).toBe("12345 Vashon Highway SW");
+      expect(body.visitability).toBe("visitable");
+      expect(body).toHaveProperty("paymentMethods");
+      expect(body).toHaveProperty("items");
+    });
+
+    it("does NOT step the edit door — every field is reachable at once", async () => {
+      // The other half of max's call. An editing farmer came for one field and must not be
+      // marched through five screens to reach it.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={EDIT_DEFAULTS}
+        />,
+      );
+
+      expect(screen.queryByRole("button", { name: /next/i })).toBeNull();
+    });
+  });
+
+  describe("prices on the usual mix (F-090)", () => {
+    /*
+      A PLACED listing, because submitting requires a resolved pin (F-077/F-088) and the
+      shared `EDIT_DEFAULTS` is deliberately a contact-only farm with none. Spread from it so
+      this stays the whole-listing shape B-037 requires rather than a hand-picked subset.
+    */
+    const PLACED = {
+      ...EDIT_DEFAULTS,
+      visitability: "visitable" as const,
+      publicAddress: "12345 Vashon Highway SW",
+      latitude: 47.4471,
+      longitude: -122.4594,
+    };
+
+    it("sends the price a farmer typed beside its own item", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.type(screen.getByLabelText(/price for eggs/i), "$6/dozen");
+
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+
+      // The PAIR, not merely that a price was sent — a form that attached the price to the
+      // wrong item would satisfy any assertion that only checked presence.
+      expect(posted(fetchMock).items).toEqual([
+        { name: "eggs", priceText: "$6/dozen" },
+      ]);
+    });
+
+    it("prefills a stored price, so an edit cannot silently drop it", async () => {
+      // B-037 in the UI. `saveOnboardingListing` writes every item row on every save, so a
+      // price the form could not show is a price the next save deletes.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...PLACED,
+            items: [
+              { name: "Eggs", priceText: "$6/dozen" },
+              { name: "Flowers", priceText: null },
+            ],
+          }}
+        />,
+      );
+
+      expect(screen.getByLabelText(/price for Eggs/i)).toHaveValue("$6/dozen");
+      expect(screen.getByLabelText(/price for Flowers/i)).toHaveValue("");
+    });
+
+    it("round-trips an untouched priced listing unchanged", async () => {
+      // The whole B-037 shape in one assertion: open the form, change nothing, save. What
+      // comes back out must be what went in.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      const items = [
+        { name: "Eggs", priceText: "$6/dozen" },
+        { name: "Flowers", priceText: null },
+      ];
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items }}
+        />,
+      );
+
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+
+      expect(posted(fetchMock).items).toEqual(items);
+    });
+  });
+
+  describe("prefilling what VIGA already holds (F-090)", () => {
+    it("shows an invited farmer their farm's seeded listing rather than a blank form", async () => {
+      /*
+        max's point 3, and it is a DEFECT rather than a convenience.
+
+        Nearly every invited farm is one VIGA already seeded: measured against the real
+        corpus, 47 of 48 stands carry an address, 48 carry hours, 37 a season, and 36 items
+        are standing claims. A blank onboarding form asked those farmers to retype all of it
+        — and because `saveOnboardingListing` replaces the WHOLE listing, submitting the form
+        they were shown would have overwritten VIGA's data with the blanks. That is B-037
+        exactly, on the door where it does the most damage.
+      */
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{
+            ...EDIT_DEFAULTS,
+            visitability: "visitable" as const,
+            publicAddress: "12345 Vashon Highway SW",
+            latitude: 47.4471,
+            longitude: -122.4594,
+            hoursText: "Dawn to dusk",
+            items: [{ name: "Eggs", priceText: "$6/dozen" }],
+          }}
+        />,
+      );
+
+      expect(screen.getByLabelText(/your farm address/i)).toHaveValue(
+        "12345 Vashon Highway SW",
+      );
+      expect(screen.getByLabelText(/anything else about your hours/i)).toHaveValue(
+        "Dawn to dusk",
+      );
+      expect(screen.getByLabelText(/price for Eggs/i)).toHaveValue("$6/dozen");
+    });
+
+    it("still starts a genuinely new farm blank", async () => {
+      // A farm VIGA has nothing on. Prefilling must not invent values, so the absence of
+      // defaults still produces an empty form.
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+        />,
+      );
+
+      expect(screen.getByLabelText(/your farm address/i)).toHaveValue("");
+      expect(screen.getByLabelText(/anything else about your hours/i)).toHaveValue("");
+    });
+  });
+
+  describe("today's stock during onboarding (F-090)", () => {
+    it("sends what is in the stand now, separately from the usual mix", async () => {
+      // F-066's split, carried onto the form. "We usually sell eggs" and "eggs are on the
+      // table today" are different claims and travel in different fields — collapsing them
+      // is what would manufacture the certainty an honor-system stand refuses to fake.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+        />,
+      );
+
+      await placeStand(user);
+      await user.click(screen.getByLabelText(/yes — there is a stand/i));
+      await user.type(await revealField(user, /what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByLabelText(/eggs are on the table right now/i));
+      await submitListing(user);
+
+      const body = posted(fetchMock);
+      expect(body.items).toEqual([{ name: "eggs", priceText: null }]);
+      expect(body.currentStock).toEqual([{ itemName: "eggs" }]);
+    });
+
+    it("is NOT asked on the edit door, which has its own stock update", async () => {
+      // An onboarded farmer reports today's stock on the status tab, through the
+      // confirmation gate. Asking again here would be two ways to do one thing.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={EDIT_DEFAULTS}
+        />,
+      );
+
+      expect(screen.queryByLabelText(/on the table right now/i)).toBeNull();
     });
   });
 });

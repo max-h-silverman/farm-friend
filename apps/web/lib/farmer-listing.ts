@@ -2,6 +2,7 @@ import { hashPhone, normalizePhone, type Clock } from "@farm-friend/core";
 import {
   loadFarmerInvitation,
   recordFarmerInvitationPendingPhone,
+  recordFarmerInvitationPendingStock,
   saveOnboardingListing,
   OPEN_HOURS_KINDS,
   SEASON_KINDS,
@@ -83,6 +84,21 @@ export interface FarmerListingDeps {
     db: Db,
     input: { token: string; phoneE164: string; phoneHash: string; occurredAt: Date },
   ) => Promise<{ status: "recorded" } | { status: "invalid" }>;
+  /**
+   * Hold what is on the table right now until the farmer's `START` proves the handset (F-090).
+   *
+   * **This publishes nothing.** It writes to the invitation, which no public reader touches;
+   * the redemption composes it into a real, attributed confirmation. A dated claim needs
+   * somebody to stand behind it, and a web form proves only that VIGA sent a link to somebody.
+   */
+  recordPendingStock?: (
+    db: Db,
+    input: {
+      token: string;
+      entries: { itemName: string; priceText?: string }[];
+      occurredAt: Date;
+    },
+  ) => Promise<{ status: "recorded" } | { status: "invalid" }>;
 }
 
 /** A field that must be a string within its ceiling, or absent. */
@@ -100,6 +116,38 @@ function stringList(value: unknown): string[] | undefined {
     if (typeof entry !== "string" || entry.length > MAX_TEXT) return undefined;
   }
   return value as string[];
+}
+
+/**
+ * What the farmer says is on the table RIGHT NOW (F-090).
+ *
+ * Narrower than the standing items above: a name and an optional price, no quantity and no
+ * approximation, because that is exactly what the form asks. Absent means the farmer said
+ * nothing about today; an EMPTY array is refused rather than treated as silence, since
+ * publishing it would be the stand confirming it has nothing — the opposite claim.
+ */
+function currentStockList(
+  value: unknown,
+): { itemName: string; priceText?: string }[] | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  if (value.length > MAX_LIST_ENTRIES) return undefined;
+
+  const entries: { itemName: string; priceText?: string }[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      return undefined;
+    }
+    const { itemName, priceText } = entry as { itemName?: unknown; priceText?: unknown };
+    if (typeof itemName !== "string" || itemName.length > MAX_TEXT) return undefined;
+    if (priceText === undefined || priceText === null) {
+      entries.push({ itemName });
+      continue;
+    }
+    if (typeof priceText !== "string" || priceText.length > MAX_TEXT) return undefined;
+    entries.push({ itemName, priceText });
+  }
+  return entries;
 }
 
 /**
@@ -303,6 +351,15 @@ export interface ParsedListingSubmission {
   /** The stand name the farmer typed, or null to fall back to the farm's own name. */
   standName: string | null;
   listing: OnboardingListingInput;
+  /**
+   * What is on the table RIGHT NOW, when the farmer said (F-090). `null` means they did not.
+   *
+   * BESIDE the listing rather than inside it, because it is not a listing fact: the listing is
+   * a standing description, and this is a dated confirmation that publishes only when the
+   * farmer's `START` proves the handset. `saveOnboardingListing` must never see it — collapsing
+   * the two is what would let "we usually sell eggs" become "eggs are on the table today".
+   */
+  currentStock: { itemName: string; priceText?: string }[] | null;
 }
 
 /**
@@ -335,6 +392,7 @@ export function parseListingSubmission(
   const description = optionalText(body.description, MAX_DESCRIPTION);
   const paymentMethods = stringList(body.paymentMethods);
   const items = itemList(body.items);
+  const currentStock = currentStockList(body.currentStock);
   const latitude = optionalCoordinate(body.latitude);
   const longitude = optionalCoordinate(body.longitude);
   const availability = readAvailability(body);
@@ -346,6 +404,7 @@ export function parseListingSubmission(
     description === undefined ||
     paymentMethods === undefined ||
     items === undefined ||
+    currentStock === undefined ||
     latitude === undefined ||
     longitude === undefined ||
     availability === MALFORMED
@@ -354,6 +413,7 @@ export function parseListingSubmission(
   }
 
   return {
+    currentStock,
     standName,
     listing: {
       visitability,
@@ -494,6 +554,24 @@ export async function handleFarmerListingPost(
         occurredAt: deps.clock.now(),
       });
     }
+    /*
+      Today's stock, held for the same reason and in the same order (F-090).
+
+      AFTER the phone, which is not incidental: `recordFarmerInvitationPendingStock` refuses an
+      invitation with no `pending_phone_hash`, because held stock with no phone would never
+      publish — nothing would ever match it to an inbound START. Recording the phone first is
+      what makes this write land.
+
+      A failure here is not a failed save either. The listing is real and publishable; what the
+      farmer loses is the head start on today's stock, which one text replaces.
+    */
+    if (submission.currentStock !== null && deps.recordPendingStock !== undefined) {
+      await deps.recordPendingStock(deps.db, {
+        token,
+        entries: submission.currentStock,
+        occurredAt: deps.clock.now(),
+      });
+    }
     return Response.json({ status: "saved" });
   }
   // `unknown_farm` is unreachable through this path — the farm came from the invitation we
@@ -527,5 +605,6 @@ export function farmerListingDeps(context: {
     loadInvitation: loadFarmerInvitation,
     saveListing: saveOnboardingListing,
     recordPendingPhone: recordFarmerInvitationPendingPhone,
+    recordPendingStock: recordFarmerInvitationPendingStock,
   };
 }

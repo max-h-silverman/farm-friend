@@ -84,6 +84,15 @@ function phoneRecorder(
   return vi.fn<Parameters<PhoneRecorder>, ReturnType<PhoneRecorder>>(async () => result);
 }
 
+type StockRecorder = NonNullable<FarmerListingDeps["recordPendingStock"]>;
+
+/** The held-stock writer, stubbed like its two neighbours (F-090). */
+function stockRecorder(
+  result: Awaited<ReturnType<StockRecorder>> = { status: "recorded" },
+) {
+  return vi.fn<Parameters<StockRecorder>, ReturnType<StockRecorder>>(async () => result);
+}
+
 function deps(
   loadInvitation = loader(),
   saveListing = saver(),
@@ -439,6 +448,63 @@ describe("farmer onboarding listing endpoint", () => {
 
     expect(response.status).toBe(400);
     expect(save).not.toHaveBeenCalled();
+  });
+
+  // ── F-090: today's stock, held until START ────────────────────────────────────────────
+  //
+  // The form may state what is on the table right now. It is NOT published here — it is
+  // recorded against the invitation and published only when the inbound START proves the
+  // handset, because a dated public claim needs somebody to stand behind it.
+
+  it("records today's stock against the invitation, and publishes nothing", async () => {
+    const save = saver();
+    const stock = stockRecorder();
+    const response = await handleFarmerListingPost(
+      { ...deps(loader(), save), recordPendingStock: stock },
+      post({
+        token: TOKEN,
+        ...LISTING,
+        currentStock: [{ itemName: "eggs", priceText: "$6/dozen" }],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(stock).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        token: TOKEN,
+        entries: [{ itemName: "eggs", priceText: "$6/dozen" }],
+      }),
+    );
+    // The LISTING save carries no stock: a standing claim and a dated one are different
+    // facts and travel by different routes (F-066).
+    expect(save.mock.calls[0]![1].listing).not.toHaveProperty("currentStock");
+  });
+
+  it("records NO stock when the farmer said nothing about today", async () => {
+    // Silence is the common answer. An empty call would be the farmer stating their stand is
+    // empty, which is the opposite fact — the writer and the column both refuse it.
+    const stock = stockRecorder();
+    const response = await handleFarmerListingPost(
+      { ...deps(), recordPendingStock: stock },
+      post({ token: TOKEN, ...LISTING }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(stock).not.toHaveBeenCalled();
+  });
+
+  it("refuses malformed stock rather than dropping it silently", async () => {
+    const save = saver();
+    const stock = stockRecorder();
+    const response = await handleFarmerListingPost(
+      { ...deps(loader(), save), recordPendingStock: stock },
+      post({ token: TOKEN, ...LISTING, currentStock: [{ priceText: "$6" }] }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(save).not.toHaveBeenCalled();
+    expect(stock).not.toHaveBeenCalled();
   });
 
   it("caps how MANY items one submission can write", async () => {

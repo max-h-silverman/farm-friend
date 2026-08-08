@@ -658,6 +658,46 @@ export interface StandListing {
   description: string | null;
 }
 
+/**
+ * The listing VIGA already holds for a farm, for an onboarding form to prefill (F-090).
+ *
+ * **The same reader, reached by farm rather than by stand**, because that is the only handle
+ * the invited and grandfathered doors have — neither knows a `salesLocationId`, and both are
+ * about to write against whichever stand `saveOnboardingListing` picks.
+ *
+ * It resolves the stand exactly as that writer does — the farm's oldest live one — so the
+ * form prefills from the row the save will replace. Choosing differently here would show the
+ * farmer one stand and overwrite another.
+ *
+ * `null` for a farm with no stand yet, which is a genuinely new farm: the form starts blank,
+ * and prefilling must never invent a value.
+ */
+export async function readFarmListingForOnboarding(
+  db: Db,
+  input: { farmId: string },
+): Promise<StandListing | null> {
+  /*
+    THE SAME SELECTION `saveOnboardingListing` MAKES, character for character — including its
+    lack of a `retired_at` filter.
+
+    Adding one here looked obviously right and is a silent data-loss bug: for a farm whose
+    oldest stand is retired, a filtered read would prefill from stand B while the save
+    replaced stand A, wiping A's address, hours and items with B's values. The two queries
+    have to agree about which stand this farm IS, and the writer is the one that decides.
+
+    If that selection ever gains a filter, it gains it in both places or the pair is broken.
+  */
+  const locations = await driver(db)`
+    select id from sales_locations
+    where owner_farm_id = ${input.farmId}
+    order by created_at asc
+    limit 1
+  `;
+  const salesLocationId = locations[0]?.id as string | undefined;
+  if (salesLocationId === undefined) return null;
+  return readStandListing(db, { salesLocationId });
+}
+
 export async function readStandListing(
   db: Db,
   input: { salesLocationId: string },

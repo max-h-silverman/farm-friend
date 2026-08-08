@@ -1,9 +1,18 @@
+import { hashFarmerLinkToken } from "@farm-friend/core";
+import {
+  listActiveSalesLocationParticipants,
+  readStandListing,
+  resolveFarmerLink,
+} from "@farm-friend/db";
 import { readCurrentStandEntries, resolveStandFromToken } from "../../../lib/farmer-stand";
-import Link from "next/link";
+import { loadFarmerSettings } from "../../../lib/farmer-settings";
 import { publicReadContext } from "../../../lib/public-context";
+import { ListingStep } from "../../farmer/onboarding/[token]/listing-step";
+import { SettingsForm } from "./settings/settings-form";
 import { StandForm } from "./stand-form";
+import { StandTabs } from "./stand-tabs";
 
-// The farmer's bookmarkable stand page (F-040).
+// The farmer's bookmarkable stand page (F-040), now TABBED (F-090).
 //
 // **Resolved server-side on every request.** There is no session and no cookie: the token in
 // the path is the whole credential, and it is checked against the database each time the page
@@ -14,6 +23,16 @@ import { StandForm } from "./stand-form";
 // and deliberately nothing else about them. No phone number, no other farm, no customer data.
 // What it can show is bounded by `resolveFarmerLink`'s projection, not by what this file
 // remembers to leave out.
+//
+// ## F-090 — the two links became the second tab
+//
+// This page used to end in a nav headed "Change your stand's details", pointing at
+// `/stand/[token]/listing` and `/stand/[token]/settings`. Both are now panels here: a farmer's
+// two commonest return errands are one tap from where they land rather than one navigation,
+// and a half-typed update survives switching between them because both panels stay mounted.
+//
+// The old routes still exist and still work — a farmer may have bookmarked one, and Farm
+// Friend's own SMS replies name them. They are simply no longer the only way in.
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +72,38 @@ export default async function StandPage({
     stand.salesLocationId,
     stand.senderHash,
   );
+
+  /*
+    The details tab's data, read HERE rather than inside a client component.
+
+    Both reads are the same ones the standalone pages perform, and they stay server-side for
+    the same reason those do: `readStandListing` is the prefill the whole-listing writer
+    depends on (B-037), and a client fetch would put a window between arriving and having it
+    in which a save would erase what had not loaded.
+  */
+  const link = await resolveFarmerLink(db, {
+    tokenHash: hashFarmerLinkToken(params.token),
+  });
+  const listing =
+    link === null
+      ? null
+      : await readStandListing(db, { salesLocationId: link.salesLocationId });
+  const settings = await loadFarmerSettings(db, params.token);
+  const participantNamesByLocation =
+    settings.status === "active"
+      ? Object.fromEntries(
+          await Promise.all(
+            settings.locations.map(
+              async (location) =>
+                [
+                  location.salesLocationId,
+                  await listActiveSalesLocationParticipants(db, location.salesLocationId),
+                ] as const,
+            ),
+          ),
+        )
+      : {};
+
   return (
     <main className="farmer-form">
       <header>
@@ -62,39 +113,71 @@ export default async function StandPage({
         </p>
       </header>
 
-      {/*
-        Says what the screen now IS. It used to promise "update in your own words", which
-        described the text box back when that was the only way in — with the listing directly
-        editable, leading with prose would point a farmer at the slower path.
-      */}
-      <p className="farmer-form-note">
-        Take things off, add what you have, or write it out. We&apos;ll show you exactly what
-        people will see, and <strong>nothing changes until you confirm it</strong>.
-      </p>
+      <StandTabs
+        statusPanel={
+          <>
+            {/*
+              Says what the screen now IS. It used to promise "update in your own words", which
+              described the text box back when that was the only way in — with the listing
+              directly editable, leading with prose would point a farmer at the slower path.
+            */}
+            <p className="farmer-form-note">
+              Take things off, add what you have, or write it out. We&apos;ll show you exactly
+              what people will see, and{" "}
+              <strong>nothing changes until you confirm it</strong>.
+            </p>
+            <StandForm token={params.token} currentEntries={currentEntries} />
+          </>
+        }
+        detailsPanel={
+          <>
+            {/*
+              F-073's wording, kept because it still does the load-bearing job: "what I usually
+              sell" and "what is on the table today" are two different claims (F-066), and this
+              panel makes only the first. The other tab is where today's stock is reported.
+            */}
+            <p className="farmer-form-note">
+              This is what people see on the island map — not what is in stock today.
+            </p>
 
-      <StandForm token={params.token} currentEntries={currentEntries} />
+            {listing === null ? (
+              <p className="farmer-form-note">
+                We could not find your stand&apos;s details. Text Farm Friend and VIGA will
+                sort it out.
+              </p>
+            ) : (
+              <ListingStep
+                credential={{ kind: "stand_link", token: params.token }}
+                // The FARM's name, which is a different record from the stand's.
+                farmName={listing.farmName}
+                defaults={{
+                  standName: listing.standName,
+                  visitability: listing.visitability,
+                  publicAddress: listing.publicAddress,
+                  addressPublic: listing.addressPublic,
+                  latitude: listing.latitude,
+                  longitude: listing.longitude,
+                  hoursText: listing.hoursText,
+                  availability: listing.availability,
+                  paymentMethods: listing.paymentMethods,
+                  // F-090 — carries each item's price. B-037's rule: the writer rewrites every
+                  // item row on every save, so a price this could not see would be deleted.
+                  items: listing.items,
+                  description: listing.description,
+                }}
+              />
+            )}
 
-      {/*
-        F-073 — the listing facts, kept clearly separate from the stock update above. "What I
-        usually sell" and "what is on the table today" are two different claims (F-066), and the
-        wording says which is which so a farmer does not come here to report today's eggs.
-
-        Grouped under a heading rather than left as two bare links directly beneath the submit
-        button, where they read as continuations of the update the farmer was mid-way through —
-        a farmer reporting today's eggs should not find "what you usually sell" as the next
-        thing after the button they just pressed. These are somewhere ELSE to go, and the
-        heading says so before either link is read.
-      */}
-      <nav className="farmer-stand-elsewhere" aria-labelledby="stand-elsewhere-heading">
-        <h2 id="stand-elsewhere-heading">Change your stand&apos;s details</h2>
-        <Link className="farmer-settings-back" href={`/stand/${params.token}/listing`}>
-          Stand details: address, hours, payment, and what you usually sell
-        </Link>
-
-        <Link className="farmer-settings-back" href={`/stand/${params.token}/settings`}>
-          Stand settings: reminders, default stand, and other sellers
-        </Link>
-      </nav>
+            {settings.status === "active" && (
+              <SettingsForm
+                token={params.token}
+                locations={settings.locations}
+                participantNamesByLocation={participantNamesByLocation}
+              />
+            )}
+          </>
+        }
+      />
 
       <p id="new-link-help" className="farmer-form-note">
         This link is private — anyone with it can update this stand. If it stops working, text
