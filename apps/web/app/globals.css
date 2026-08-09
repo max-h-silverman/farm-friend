@@ -279,17 +279,16 @@ body {
 /* INDICATOR COLORS CARRY MEANING, so no two of them may be the same and none may repeat a color
  * the MAP already spends on a different fact (max, 2026-08-04). The map's pin palette is the
  * other half of this system — green year-round, blue seasonal, dark red flowers-only, red
- * farm-with-no-stand, purple market — and a customer reads both on one screen.
+ * farm-with-no-stand, purple market — and a customer reads both on one screen. Map-only facts
+ * remain map-only; the no-stand red never appears as a directory-card dot.
  *
  * Year-round deliberately matches the map's year-round pin exactly: same fact, same color, on
  * both surfaces. The rest are held apart from every pin color and from each other. */
 .poster-indicator-no-viga-bucks { color: #ec641d; }
 .poster-indicator-year-round { color: #65a936; }
 /* Deep magenta: "ending soon" needs to read as a caution without borrowing the map's red, which
- * already means a farm with no stand to visit — and `contact-only` below spends that same red on
- * exactly that fact in this very list. */
+ * already means a farm with no stand to visit. */
 .poster-indicator-late-november { color: #a3216b; }
-.poster-indicator-contact-only { color: #d83225; }
 
 .stand .poster-indicators {
   margin-top: 0.5rem;
@@ -2838,7 +2837,7 @@ form.farmer-picker-next {
    listing became editable the first button on the page was a chip's × — so the control that
    takes an item off was styled as the one that commits. Position is not intent. */
 .farmer-form .farmer-form-affirmative,
-.farmer-form button.farmer-stock-preview {
+.farmer-form button.farmer-stock-update {
   color: var(--card);
   background: var(--green);
   border-color: var(--green);
@@ -4521,6 +4520,37 @@ button.admin-action-danger,
   border: none;
 }
 
+.detail-schedule h3 {
+  margin: 0 0 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--ink-faint);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.detail-schedule dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0.45rem 1rem;
+  margin: 0;
+}
+
+.detail-schedule dl > div {
+  display: contents;
+}
+
+.detail-schedule dt {
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.detail-schedule dd {
+  margin: 0;
+  color: var(--ink);
+}
+
 /* No rule of its own: `.stand-detail-body` draws every section separator. */
 .detail-visit {
   display: grid;
@@ -5095,7 +5125,7 @@ button.admin-action-danger,
   gap: 0.45rem;
   align-items: center;
   justify-self: start;
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 0.15rem;
   font: inherit;
   font-size: 0.95rem;
@@ -5138,9 +5168,6 @@ button.admin-action-danger,
   text-align: center;
 }
 
-/* F-076 — the returning-farmer status editor reuses onboarding's item rows but edits a dated
-   inventory snapshot. Quantity, unit and price are three equal facts below the identity line;
-   keeping their labels visible makes the row readable without relying on placeholders. */
 .farmer-stock-editor {
   margin-top: 0;
 }
@@ -5149,38 +5176,8 @@ button.admin-action-danger,
   padding-bottom: 0.15rem;
 }
 
-.farmer-stock-item-details {
-  display: grid;
-  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.45rem;
-  min-width: 0;
-}
-
-.farmer-stock-item-details label {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 0;
-  font-size: 0.78rem;
-  font-weight: 600;
+.farmer-stock-detail-separator {
   color: var(--ink-faint);
-}
-
-.farmer-stock-item-details input[type="text"] {
-  width: 100%;
-  min-width: 0;
-  min-height: 44px;
-  margin: 0;
-  padding: 0.45rem 0.55rem;
-  font: inherit;
-  font-size: 0.92rem;
-  color: var(--ink);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.farmer-stock-item-details input:disabled {
-  opacity: 0.45;
 }
 
 .farmer-listing-item-add {
@@ -5208,7 +5205,7 @@ button.admin-action-danger,
   white-space: nowrap;
 }
 
-.farmer-form button.farmer-stock-preview {
+.farmer-form button.farmer-stock-update {
   width: 100%;
   min-height: 52px;
   margin-top: 1rem;
@@ -5315,7 +5312,7 @@ button.admin-action-danger,
 .farmer-listing-item input[type="text"].farmer-listing-item-unit-other {
   flex: none;
   min-width: 0;
-  min-height: 36px;
+  min-height: 44px;
   margin: 0;
   padding: 0.3rem 0.5rem;
   font-size: 0.92rem;
@@ -5344,11 +5341,12 @@ button.admin-action-danger,
 /* The two pickers. `width: auto` matters — the form's global `select` rule is `width: 100%`,
    which would give each of these the whole line and stack the sentence vertically. */
 .farmer-listing .farmer-listing-item-basis,
-.farmer-listing .farmer-listing-item-unit {
+.farmer-listing .farmer-listing-item-unit,
+.farmer-form .farmer-listing-item-unit {
   flex: none;
   width: auto;
   min-width: 0;
-  min-height: 36px;
+  min-height: 44px;
   margin: 0;
   padding: 0.25rem 0.4rem;
   font-size: 0.92rem;
@@ -5368,8 +5366,8 @@ button.admin-action-danger,
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  min-height: 36px;
+  width: 44px;
+  min-height: 44px;
   margin: 0;
   padding: 0;
   border: 1px solid var(--rule);

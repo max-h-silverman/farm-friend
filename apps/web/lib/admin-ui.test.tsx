@@ -1181,20 +1181,21 @@ describe("the farmer stand form", () => {
     vi.stubGlobal("fetch", fetcher);
 
     render(<StandForm token="private-token" currentEntries={[]} />);
-    await user.type(screen.getByLabelText("Add an in-stock item"), "Winter squash");
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Item name"), "Winter squash");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("switch", { name: "Add prices" }));
     await user.type(screen.getByLabelText("Quantity for Winter squash"), "3");
-    await user.type(screen.getByLabelText("Price for Winter squash"), "$4");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.type(screen.getByLabelText("Price for Winter squash"), "4");
+    await user.click(screen.getByRole("button", { name: "Update" }));
     expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
       "Winter squash (3, $4)",
     );
-    expect(screen.getByText("Nothing has changed yet.")).toBeTruthy();
+    expect(screen.getByText("Exact preview — nothing has changed yet.")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Decline this update" }));
+    await user.click(screen.getByRole("button", { name: "Don't publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Nothing changed");
 
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Update" }));
     await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
 
@@ -1212,9 +1213,9 @@ describe("the farmer stand form", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response(403)));
     render(<StandForm token="private-token" currentEntries={[]} />);
 
-    await user.type(screen.getByLabelText("Add an in-stock item"), "eggs");
-    await user.click(screen.getByRole("button", { name: "Add item" }));
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.type(screen.getByLabelText("Item name"), "eggs");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "Update" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/listing is unchanged/i);
     expect(screen.getByRole("link", { name: "How to get a new link" })).toHaveAttribute(
@@ -1241,16 +1242,17 @@ describe("the farmer stand form", () => {
     );
     render(<StandForm token="private-token" currentEntries={[]} />);
 
-    await user.type(screen.getByLabelText("Add an in-stock item"), "Kale");
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Item name"), "Kale");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("switch", { name: "Add prices" }));
     await user.type(screen.getByLabelText("Price for Kale"), "$3/bunch");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Update" }));
     await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
 
     await user.clear(screen.getByLabelText("Price for Kale"));
     await user.type(screen.getByLabelText("Price for Kale"), "$4/bunch");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Update" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save the proposal.");
     expect(screen.queryByText("Your stand is updated. Customers can now see this listing.")).toBeNull();

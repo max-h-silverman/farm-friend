@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { StockItemRow } from "../../farmer/stock-item-row";
+import {
+  OTHER_STOCK_UNIT,
+  SUGGESTED_STOCK_UNITS,
+  StockItemRow,
+  initialStockUnitMode,
+} from "../../farmer/stock-item-row";
 
 type Stage =
   | { step: "typing" }
@@ -26,7 +31,9 @@ interface EditorRow {
   itemName: string;
   quantity: string;
   unit: string;
+  unitMode: "menu" | "custom";
   priceText: string;
+  pricePrefix: "" | "$";
   inStock: boolean;
 }
 
@@ -39,7 +46,9 @@ function rowsFromEntries(entries: CurrentEntry[]): EditorRow[] {
     itemName: entry.itemName,
     quantity: entry.quantity === undefined ? "" : String(entry.quantity),
     unit: entry.unit ?? "",
-    priceText: entry.priceText ?? "",
+    unitMode: initialStockUnitMode(entry.unit),
+    priceText: entry.priceText?.replace(/^\$\s*/, "") ?? "",
+    pricePrefix: entry.priceText === undefined || /^\$/.test(entry.priceText) ? "$" : "",
     inStock: true,
   }));
 }
@@ -57,6 +66,15 @@ function optionalText(value: string): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
+function rowsHavePrices(rows: EditorRow[]): boolean {
+  return rows.some((row) => optionalText(row.priceText) !== undefined);
+}
+
+function serializedPrice(row: EditorRow): string {
+  const value = row.priceText.trim();
+  return value === "" ? "" : `${row.pricePrefix}${value}`;
+}
+
 function detailDelta(
   current: string,
   baseline: string,
@@ -68,7 +86,11 @@ function detailDelta(
   return next === "" ? null : parse(next);
 }
 
-function structuredEdit(rows: EditorRow[], baselineRows: EditorRow[]) {
+function structuredEdit(
+  rows: EditorRow[],
+  baselineRows: EditorRow[],
+  pricesEnabled: boolean,
+) {
   const baselineById = new Map(
     baselineRows.flatMap((row) => (row.entryId === undefined ? [] : [[row.entryId, row] as const])),
   );
@@ -96,9 +118,9 @@ function structuredEdit(rows: EditorRow[], baselineRows: EditorRow[]) {
         itemName: row.itemName,
         ...(parsedQuantity === undefined ? {} : { quantity: parsedQuantity }),
         ...(optionalText(row.unit) === undefined ? {} : { unit: optionalText(row.unit) }),
-        ...(optionalText(row.priceText) === undefined
+        ...(!pricesEnabled || optionalText(serializedPrice(row)) === undefined
           ? {}
-          : { priceText: optionalText(row.priceText) }),
+          : { priceText: optionalText(serializedPrice(row)) }),
       });
       continue;
     }
@@ -113,7 +135,11 @@ function structuredEdit(rows: EditorRow[], baselineRows: EditorRow[]) {
     const quantity = detailDelta(row.quantity, baseline.quantity, Number);
     if (typeof quantity === "number" && !Number.isFinite(quantity)) return null;
     const unit = detailDelta(row.unit, baseline.unit, (value) => value);
-    const priceText = detailDelta(row.priceText, baseline.priceText, (value) => value);
+    const priceText = detailDelta(
+      pricesEnabled ? serializedPrice(row) : "",
+      serializedPrice(baseline),
+      (value) => value,
+    );
     if (quantity !== undefined || unit !== undefined || priceText !== undefined) {
       changes.push({
         entryId: row.entryId,
@@ -143,15 +169,17 @@ export function StandForm({
   currentEntries: CurrentEntry[];
 }) {
   const initialRows = rowsFromEntries(currentEntries);
+  const initialPricesEnabled = rowsHavePrices(initialRows);
   const [baselineRows, setBaselineRows] = useState(initialRows);
   const [rows, setRows] = useState(initialRows);
+  const [pricesEnabled, setPricesEnabled] = useState(initialPricesEnabled);
   const [draftItem, setDraftItem] = useState("");
   const [stage, setStage] = useState<Stage>({ step: "typing" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkInactive, setLinkInactive] = useState(false);
   const nextKey = useRef(0);
-  const edit = structuredEdit(rows, baselineRows);
+  const edit = structuredEdit(rows, baselineRows, pricesEnabled);
 
   function addDraftItem() {
     const itemName = draftItem.trim();
@@ -174,7 +202,9 @@ export function StandForm({
         itemName,
         quantity: "",
         unit: "",
+        unitMode: "menu",
         priceText: "",
+        pricePrefix: "$",
         inStock: true,
       },
     ]);
@@ -251,6 +281,7 @@ export function StandForm({
       const publishedRows = rowsFromEntries(payload.currentEntries);
       setRows(publishedRows);
       setBaselineRows(publishedRows);
+      setPricesEnabled(rowsHavePrices(publishedRows));
       setDraftItem("");
     }
   }
@@ -269,30 +300,43 @@ export function StandForm({
         <>
           {stage.step === "published" && (
             <p className="farmer-form-published" role="status">
-              Your stand is updated. Customers can now see this listing.
+              Your stand is updated.
             </p>
           )}
           {stage.step === "declined" && (
             <p className="farmer-form-note" role="status">
-              Nothing changed. Your listing is as it was.
+              Nothing changed.
             </p>
           )}
 
           <fieldset className="farmer-listing-inventory farmer-stock-editor">
-            <legend>What is in stock today?</legend>
+            <legend className="sr-only">Stock today</legend>
             <p className="farmer-listing-inventory-subtitle">
-              This is a dated stock update. It does not change what your stand usually sells.
+              Doesn&apos;t change what your stand usually sells.
             </p>
+
+            <div className="farmer-listing-inventory-prices">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={pricesEnabled}
+                className="farmer-listing-prices-switch"
+                onClick={() => setPricesEnabled(!pricesEnabled)}
+              >
+                <span className="farmer-listing-item-stock-track" aria-hidden="true" />
+                <span>Add prices</span>
+              </button>
+            </div>
 
             <div className="farmer-listing-item-add">
               <label className="sr-only" htmlFor="farmer-stock-add-item">
-                Add an in-stock item
+                Item name
               </label>
               <input
                 id="farmer-stock-add-item"
                 type="text"
                 value={draftItem}
-                placeholder="e.g. plum jam"
+                placeholder="Item name"
                 maxLength={120}
                 onChange={(event) => setDraftItem(event.target.value)}
                 onKeyDown={(event) => {
@@ -307,13 +351,13 @@ export function StandForm({
                 disabled={draftItem.trim() === ""}
                 onClick={addDraftItem}
               >
-                Add item
+                Add
               </button>
             </div>
 
             {rows.length === 0 ? (
               <p className="farmer-listing-inventory-empty">
-                Nothing is listed in stock. Add what is available today.
+                No items in stock.
               </p>
             ) : (
               <ul className="farmer-listing-items">
@@ -326,49 +370,102 @@ export function StandForm({
                       onChange: () => updateRow(row.key, { inStock: !row.inStock }),
                     }}
                   >
-                    <div className="farmer-stock-item-details">
-                      <label>
-                        <span>Quantity</span>
+                    {pricesEnabled && (
+                      <div className="farmer-listing-item-pricing">
+                        <span className="farmer-listing-price-mark" aria-hidden="true">
+                          {row.pricePrefix}
+                        </span>
+                        <label className="sr-only" htmlFor={`stock-price-${row.key}`}>
+                          Price for {row.itemName}
+                        </label>
                         <input
+                          id={`stock-price-${row.key}`}
                           type="text"
                           inputMode="decimal"
-                          aria-label={`Quantity for ${row.itemName}`}
-                          value={row.quantity}
-                          disabled={!row.inStock}
-                          placeholder="—"
-                          maxLength={12}
-                          onChange={(event) =>
-                            updateRow(row.key, { quantity: cleanQuantity(event.target.value) })
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>Unit</span>
-                        <input
-                          type="text"
-                          aria-label={`Unit for ${row.itemName}`}
-                          value={row.unit}
-                          disabled={!row.inStock}
-                          placeholder="e.g. dozen"
-                          maxLength={40}
-                          onChange={(event) => updateRow(row.key, { unit: event.target.value })}
-                        />
-                      </label>
-                      <label>
-                        <span>Price</span>
-                        <input
-                          type="text"
-                          aria-label={`Price for ${row.itemName}`}
+                          className="farmer-listing-item-amount"
                           value={row.priceText}
                           disabled={!row.inStock}
-                          placeholder="e.g. $6"
+                          placeholder="0.00"
                           maxLength={80}
                           onChange={(event) =>
                             updateRow(row.key, { priceText: event.target.value })
                           }
                         />
-                      </label>
-                    </div>
+                        <span className="farmer-stock-detail-separator" aria-hidden="true">
+                          ·
+                        </span>
+                        <label className="sr-only" htmlFor={`stock-quantity-${row.key}`}>
+                          Quantity for {row.itemName}
+                        </label>
+                        <input
+                          id={`stock-quantity-${row.key}`}
+                          type="text"
+                          inputMode="decimal"
+                          className="farmer-listing-item-quantity"
+                          value={row.quantity}
+                          disabled={!row.inStock}
+                          placeholder="qty"
+                          maxLength={12}
+                          onChange={(event) =>
+                            updateRow(row.key, { quantity: cleanQuantity(event.target.value) })
+                          }
+                        />
+                        <label className="sr-only" htmlFor={`stock-unit-${row.key}`}>
+                          Unit for {row.itemName}
+                        </label>
+                        {row.unitMode === "custom" ? (
+                          <>
+                            <input
+                              id={`stock-unit-${row.key}`}
+                              type="text"
+                              className="farmer-listing-item-unit-other"
+                              value={row.unit}
+                              disabled={!row.inStock}
+                              placeholder="unit"
+                              maxLength={40}
+                              onChange={(event) =>
+                                updateRow(row.key, { unit: event.target.value })
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="farmer-listing-item-unit-back"
+                              disabled={!row.inStock}
+                              onClick={() =>
+                                updateRow(row.key, { unit: "", unitMode: "menu" })
+                              }
+                            >
+                              <span className="sr-only">
+                                {`Use the unit menu for ${row.itemName}`}
+                              </span>
+                              <span aria-hidden="true">↺</span>
+                            </button>
+                          </>
+                        ) : (
+                          <select
+                            id={`stock-unit-${row.key}`}
+                            className="farmer-listing-item-unit"
+                            value={row.unit}
+                            disabled={!row.inStock}
+                            onChange={(event) => {
+                              if (event.target.value === OTHER_STOCK_UNIT) {
+                                updateRow(row.key, { unit: "", unitMode: "custom" });
+                                return;
+                              }
+                              updateRow(row.key, { unit: event.target.value });
+                            }}
+                          >
+                            <option value="">item</option>
+                            {SUGGESTED_STOCK_UNITS.map((unit) => (
+                              <option key={unit} value={unit}>
+                                {unit}
+                              </option>
+                            ))}
+                            <option value={OTHER_STOCK_UNIT}>other…</option>
+                          </select>
+                        )}
+                      </div>
+                    )}
                   </StockItemRow>
                 ))}
               </ul>
@@ -376,11 +473,11 @@ export function StandForm({
 
             <button
               type="button"
-              className="farmer-stock-preview"
+              className="farmer-stock-update"
               disabled={busy || edit === undefined || edit === null}
               onClick={() => void propose()}
             >
-              {busy ? "Checking…" : "Preview update"}
+              {busy ? "Checking…" : "Update"}
             </button>
           </fieldset>
         </>
@@ -389,9 +486,8 @@ export function StandForm({
       {stage.step === "confirming" && (
         <section className="farmer-confirmation" role="region" aria-label="Exact publication preview">
           <p className="farmer-form-note">
-            <strong>This is exactly what people will see.</strong>
+            <strong>Exact preview — nothing has changed yet.</strong>
           </p>
-          <p className="farmer-form-note">Nothing has changed yet.</p>
           <pre className="farmer-form-snapshot">{stage.confirmationText}</pre>
           <button
             className="farmer-form-affirmative"
@@ -402,7 +498,7 @@ export function StandForm({
             {busy ? "Publishing…" : "Confirm and publish"}
           </button>
           <button type="button" disabled={busy} onClick={() => void settle(false)}>
-            Decline this update
+            Don&apos;t publish
           </button>
         </section>
       )}

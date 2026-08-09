@@ -115,30 +115,10 @@ export default async function StandPage({
 
       <StandTabs
         statusPanel={
-          <>
-            {/*
-              Says what the screen now IS. It used to promise "update in your own words", which
-              described the text box back when that was the only way in — with the listing
-              directly editable, leading with prose would point a farmer at the slower path.
-            */}
-            <p className="farmer-form-note">
-              Update what is in stock today. We&apos;ll show you exactly what people will see, and{" "}
-              <strong>nothing changes until you confirm it</strong>.
-            </p>
-            <StandForm token={params.token} currentEntries={currentEntries} />
-          </>
+          <StandForm token={params.token} currentEntries={currentEntries} />
         }
         detailsPanel={
           <>
-            {/*
-              F-073's wording, kept because it still does the load-bearing job: "what I usually
-              sell" and "what is on the table today" are two different claims (F-066), and this
-              panel makes only the first. The other tab is where today's stock is reported.
-            */}
-            <p className="farmer-form-note">
-              This is what people see on the island map — not what is in stock today.
-            </p>
-
             {listing === null ? (
               <p className="farmer-form-note">
                 We could not find your stand&apos;s details. Text Farm Friend and VIGA will
@@ -182,9 +162,8 @@ export default async function StandPage({
       />
 
       <p id="new-link-help" className="farmer-form-note">
-        This link is private — anyone with it can update this stand. If it stops working, text
-        <strong> LINK</strong> to VIGA Farm Friend for a new one. If you share it by accident,
-        ask VIGA to turn it off.
+        Private link — anyone with it can update this stand. Text <strong>LINK</strong> for a new
+        one; ask VIGA to disable a shared link.
       </p>
     </main>
   );

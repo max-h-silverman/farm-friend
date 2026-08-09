@@ -20,7 +20,12 @@ import {
   formatSmsNumberForDisplay,
 } from "../../../../lib/farmer-invite";
 import { IslandArtwork } from "../../../island-artwork";
-import { StockItemRow } from "../../stock-item-row";
+import {
+  OTHER_STOCK_UNIT as OTHER_UNIT,
+  SUGGESTED_STOCK_UNITS as SUGGESTED_UNITS,
+  StockItemRow,
+  initialStockUnitMode as initialUnitMode,
+} from "../../stock-item-row";
 
 /**
  * One row of the inventory builder, as the FORM holds it (F-092).
@@ -58,34 +63,6 @@ interface ItemRow {
  * it is a list of suggestions, and the day it becomes policy is the day it becomes a produce
  * taxonomy the architecture refuses.
  */
-const SUGGESTED_UNITS = [
-  "each",
-  "dozen",
-  "lb",
-  "bunch",
-  "pint",
-  "quart",
-  "bag",
-  "jar",
-] as const;
-
-/** The menu value that swaps the picker for a free-text box. Not a unit; a control. */
-const OTHER_UNIT = "__other__";
-
-/**
- * Which control a STORED unit should open in (B-040).
- *
- * The list is consulted exactly once, when a row is built from what the database holds — a
- * farmer's own word like "cord" has to arrive in the box that can show it. After that the row's
- * `unitMode` is the answer, so the farmer can move between the two controls freely.
- */
-function initialUnitMode(unit: string | null | undefined): "menu" | "custom" {
-  if (typeof unit !== "string" || unit.trim() === "") return "menu";
-  return SUGGESTED_UNITS.includes(unit as (typeof SUGGESTED_UNITS)[number])
-    ? "menu"
-    : "custom";
-}
-
 /** A select's value is a bare string; this is the narrowing, in one place. */
 function asBasis(value: string): "per" | "for" {
   return value === "for" ? "for" : "per";

@@ -25,10 +25,59 @@ describe("StandForm", () => {
   it("presents one direct dated-stock editor with no prose or SMS proxy", () => {
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
-    expect(screen.getByRole("group", { name: /what is in stock today/i })).toBeVisible();
+    expect(screen.getByRole("group", { name: /stock today/i })).toBeVisible();
     expect(screen.queryByLabelText(/in your own words/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/text|sms/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/does not change what your stand usually sells/i)).toBeVisible();
+    expect(screen.getByText(/doesn.t change what your stand usually sells/i)).toBeVisible();
+    expect(screen.queryByText(/this is a dated stock update/i)).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Item name")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Add" })).toBeVisible();
+  });
+
+  it("uses onboarding's one price switch and removes visible prices when it is off", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({
+      outcome: "proposed",
+      proposalId: "p1",
+      confirmationText: "Your stand will show:\n- Eggs (12 dozen)\n- Kale",
+    });
+    render(<StandForm token="private-token" currentEntries={CURRENT} />);
+
+    const prices = screen.getByRole("switch", { name: "Add prices" });
+    expect(prices).toBeChecked();
+    expect(screen.getByLabelText("Price for Eggs")).toHaveValue("6");
+
+    await user.click(prices);
+
+    expect(prices).not.toBeChecked();
+    expect(screen.queryByLabelText("Price for Eggs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Quantity for Eggs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Unit for Eggs")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Update" }));
+    const body = JSON.parse(
+      (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
+    ) as Record<string, unknown>;
+    expect(body).toEqual({
+      token: "private-token",
+      action: "propose",
+      edit: {
+        additions: [],
+        changes: [{ entryId: "e1", priceText: null }],
+        removals: [],
+      },
+    });
+  });
+
+  it("keeps price controls hidden by default when today's stock has no prices", async () => {
+    const user = userEvent.setup();
+    render(<StandForm token="private-token" currentEntries={[{ entryId: "e2", itemName: "Kale" }]} />);
+
+    const prices = screen.getByRole("switch", { name: "Add prices" });
+    expect(prices).not.toBeChecked();
+    expect(screen.queryByLabelText("Price for Kale")).not.toBeInTheDocument();
+
+    await user.click(prices);
+    expect(screen.getByLabelText("Price for Kale")).toBeVisible();
   });
 
   it("shows the exact pending-or-published base the next edit targets", () => {
@@ -38,17 +87,21 @@ describe("StandForm", () => {
     expect(screen.getByText("Kale")).toBeVisible();
   });
 
-  it("gives existing and newly added items the same stock, quantity, unit, and price controls", async () => {
+  it("uses onboarding's item-card treatment and suggested-unit menu", async () => {
     const user = userEvent.setup();
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
     expect(screen.getByRole("switch", { name: "Eggs in stock" })).toBeChecked();
     expect(screen.getByLabelText("Quantity for Eggs")).toHaveValue("12");
     expect(screen.getByLabelText("Unit for Eggs")).toHaveValue("dozen");
-    expect(screen.getByLabelText("Price for Eggs")).toHaveValue("$6");
+    expect(screen.getByLabelText("Price for Eggs")).toHaveValue("6");
+    expect(screen.getByLabelText("Unit for Eggs")).toHaveRole("combobox");
+    expect(screen.getByText("Eggs").closest(".farmer-listing-item")).toContainElement(
+      screen.getByLabelText("Quantity for Eggs").closest(".farmer-listing-item-pricing"),
+    );
 
-    await user.type(screen.getByLabelText(/add an in-stock item/i), "Plum jam");
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Item name"), "Plum jam");
+    await user.click(screen.getByRole("button", { name: "Add" }));
 
     expect(screen.getByRole("switch", { name: "Plum jam in stock" })).toBeChecked();
     expect(screen.getByLabelText("Quantity for Plum jam")).toHaveValue("");
@@ -69,14 +122,14 @@ describe("StandForm", () => {
     await user.clear(screen.getByLabelText("Quantity for Eggs"));
     await user.type(screen.getByLabelText("Quantity for Eggs"), "6");
     await user.clear(screen.getByLabelText("Price for Eggs"));
-    await user.type(screen.getByLabelText("Price for Eggs"), "$5");
+    await user.type(screen.getByLabelText("Price for Eggs"), "5");
     await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
-    await user.type(screen.getByLabelText(/add an in-stock item/i), "Plum jam");
-    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Item name"), "Plum jam");
+    await user.click(screen.getByRole("button", { name: "Add" }));
     await user.type(screen.getByLabelText("Quantity for Plum jam"), "3");
-    await user.type(screen.getByLabelText("Unit for Plum jam"), "jars");
-    await user.type(screen.getByLabelText("Price for Plum jam"), "$8");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.selectOptions(screen.getByLabelText("Unit for Plum jam"), "jar");
+    await user.type(screen.getByLabelText("Price for Plum jam"), "8");
+    await user.click(screen.getByRole("button", { name: "Update" }));
 
     const body = JSON.parse(
       (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
@@ -85,7 +138,7 @@ describe("StandForm", () => {
       token: "private-token",
       action: "propose",
       edit: {
-        additions: [{ itemName: "Plum jam", quantity: 3, unit: "jars", priceText: "$8" }],
+        additions: [{ itemName: "Plum jam", quantity: 3, unit: "jar", priceText: "$8" }],
         changes: [{ entryId: "e1", quantity: 6, priceText: "$5" }],
         removals: [{ entryId: "e2" }],
       },
@@ -96,7 +149,7 @@ describe("StandForm", () => {
   it("does not open a proposal for an unchanged or fully reverted editor", async () => {
     const user = userEvent.setup();
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
-    const preview = screen.getByRole("button", { name: "Preview update" });
+    const preview = screen.getByRole("button", { name: "Update" });
 
     expect(preview).toBeDisabled();
     await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
@@ -116,12 +169,12 @@ describe("StandForm", () => {
 
     await user.clear(screen.getByLabelText("Quantity for Eggs"));
     await user.type(screen.getByLabelText("Quantity for Eggs"), "6");
-    await user.click(screen.getByRole("button", { name: "Preview update" }));
+    await user.click(screen.getByRole("button", { name: "Update" }));
 
     expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
       "Eggs (6 dozen, $6)",
     );
-    expect(screen.getByText("Nothing has changed yet.")).toBeVisible();
+    expect(screen.getByText("Exact preview — nothing has changed yet.")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole("button", { name: "Confirm and publish" }));

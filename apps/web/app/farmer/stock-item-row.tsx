@@ -2,6 +2,31 @@
 
 import type { ReactNode } from "react";
 
+/** Shared shortcuts; "other" always opens a free-text unit field. */
+export const SUGGESTED_STOCK_UNITS = [
+  "each",
+  "dozen",
+  "lb",
+  "bunch",
+  "pint",
+  "quart",
+  "bag",
+  "jar",
+] as const;
+
+export const OTHER_STOCK_UNIT = "__other__";
+
+export function initialStockUnitMode(
+  unit: string | null | undefined,
+): "menu" | "custom" {
+  if (typeof unit !== "string" || unit.trim() === "") return "menu";
+  return SUGGESTED_STOCK_UNITS.includes(
+    unit as (typeof SUGGESTED_STOCK_UNITS)[number],
+  )
+    ? "menu"
+    : "custom";
+}
+
 /**
  * The shared item-row shell used during onboarding and for dated stock updates.
  *

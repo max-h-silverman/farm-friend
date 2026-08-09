@@ -35,8 +35,8 @@ export function StandTabs({
   const [tab, setTab] = useState<"status" | "details">("status");
 
   const tabs = [
-    { id: "status" as const, label: "What's in the stand" },
-    { id: "details" as const, label: "Stand details & settings" },
+    { id: "status" as const, label: "Stock today" },
+    { id: "details" as const, label: "Details & settings" },
   ];
 
   return (

@@ -1489,6 +1489,31 @@ describe("public web surface boundary (integration)", () => {
       const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
       expect(stands[0]!.availability.days).toEqual([0, 6]);
     });
+
+    it("carries the farmer's hours note and restocking details through to the wire", async () => {
+      await setAvailability({
+        hours_text: "Weekends when available",
+        stocking_cadence: "specific_days",
+        stocking_days: [2, 5],
+      });
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect(stands[0]!.availability).toEqual({
+        hoursText: "Weekends when available",
+        stockingCadence: "specific_days",
+        stockingDays: [2, 5],
+      });
+
+      const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+      const body = (await response.json()) as {
+        stands: { availability: Record<string, unknown> }[];
+      };
+      expect(body.stands[0]!.availability).toEqual({
+        hoursText: "Weekends when available",
+        stockingCadence: "specific_days",
+        stockingDays: [2, 5],
+      });
+    });
   });
 
   describe("the QR stock-out form is the one throttled public model surface", () => {

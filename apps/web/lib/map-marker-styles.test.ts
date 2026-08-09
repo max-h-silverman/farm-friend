@@ -125,9 +125,9 @@ describe("indicator and pin colors do not collide", () => {
     const meanings = {
       "no-viga-bucks": colorOf(".poster-indicator-no-viga-bucks"),
       "late-november": colorOf(".poster-indicator-late-november"),
-      // Stated on both surfaces; the cross-surface test below pins them equal.
+      // Stated on both surfaces; the cross-surface test below pins it equal.
       "year-round": colorOf(".poster-indicator-year-round"),
-      "no-stand-to-visit": colorOf(".poster-indicator-contact-only"),
+      "no-stand-to-visit": colorOf(".marker-legend-contact-only"),
       seasonal: colorOf(".marker-legend-seasonal"),
       "flowers-only": colorOf(".marker-legend-flower-only"),
       market: colorOf(".marker-legend-farmers-market"),
@@ -144,13 +144,8 @@ describe("indicator and pin colors do not collide", () => {
     expect(shared).toEqual([]);
   });
 
-  it("uses ONE color per fact across the list and the map", () => {
-    // Year-round and no-stand-to-visit are each stated on both surfaces. Same fact, same color —
-    // a customer matching a dot in the directory to a pin on the island depends on it.
+  it("uses one color for the year-round fact across the list and map", () => {
     expect(colorOf(".poster-indicator-year-round")).toBe(colorOf(".marker-legend-year-round"));
-    expect(colorOf(".poster-indicator-contact-only")).toBe(
-      colorOf(".marker-legend-contact-only"),
-    );
   });
 
   it("keeps the selection color out of the meaning palette", () => {
@@ -161,10 +156,10 @@ describe("indicator and pin colors do not collide", () => {
       ".poster-indicator-no-viga-bucks",
       ".poster-indicator-year-round",
       ".poster-indicator-late-november",
-      ".poster-indicator-contact-only",
       ".marker-legend-seasonal",
       ".marker-legend-year-round",
       ".marker-legend-flower-only",
+      ".marker-legend-contact-only",
       ".marker-legend-farmers-market",
     ].map(colorOf);
 
