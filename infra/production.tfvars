@@ -27,6 +27,10 @@ mount_geocoding_key = true
 # F-078 — live since revision 00037.
 mount_smtp_password = true
 
+# B-045. Stays false until the empty Gmail OAuth secret containers exist, the board mailbox has
+# granted send-only access, and both secret versions have been added out of band.
+mount_gmail_delivery = false
+
 # F-079 — FALSE until the three secret versions exist. The containers are created by an apply
 # with this false; only then can it flip true, because `version = "latest"` on a versionless
 # secret makes Cloud Run refuse the revision and would take the public map down.

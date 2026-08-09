@@ -112,21 +112,28 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `LLM_PROVIDER` | Required `stub` or `deepinfra`; no default or environment exception |
 | `DEEPINFRA_API_KEY`, `DEEPINFRA_MODEL` | Required with DeepInfra; `anthropic/` and `google/` models are refused because their terms are not attested |
 | `GEOCODING_API_KEY` | **Optional.** Google Geocoding key for the onboarding draft pin (F-069). Absent or blank disables lookup and the form asks the farmer to tap the map, which is fully supported. **Billed per call** — server-side only, behind the invitation token and its own throttle bucket. Restrict the key to the Geocoding API in the GCP console |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_FROM_ADDRESS`, `SMTP_FROM_NAME` | **Optional, `web` role only** (F-078). The Google Workspace relay: `smtp-relay.gmail.com`, port **587** — Google Cloud blocks outbound **port 25** with no way to open it. `SMTP_FROM_ADDRESS` is the visible sender and is **configuration, never a hard-coded default**, which is what makes moving to a dedicated address a config change. `SMTP_FROM_NAME` (`VIGA`) is the display name a recipient sees instead of the bare mailbox "board"; optional, and quotes/angle brackets/newlines are refused because a display name is folded into the From header |
+| `GMAIL_SENDER_ADDRESS`, `GMAIL_SENDER_NAME`, `GMAIL_OAUTH_CLIENT_ID` | **Required with `EMAIL_PROVIDER=gmail`, `web` only** (B-045). Gmail HTTPS delivery sends from VIGA's existing board mailbox over port 443; its sender remains configuration, never a code default |
+| `GMAIL_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REFRESH_TOKEN` | **Required with `EMAIL_PROVIDER=gmail`, `web` only.** Secret Manager only. The OAuth grant is bound to `board@vigavashon.org` and requests `gmail.send` only: it sends mail but cannot read the mailbox |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_FROM_ADDRESS`, `SMTP_FROM_NAME`, `SMTP_PASSWORD` | Legacy local SMTP path only. Production must select Gmail because Cloud Run cannot open the Workspace SMTP connection |
 | `FARMER_START_SECRET` | **Optional, `web` role only** (F-079). The secret path segment gating the migration door at `/farmer/start/<secret>`. **Minimum 32 characters**, enforced in the resolver — a shorter value is treated as absent. Absent, blank, or too short means the door does not exist and every request under `/farmer/start` 404s, which is a fully supported deployment. **This is OBSCURITY, not authentication**: it travels in browser history, `Referer` headers and access logs, and is neither one-use nor revocable. What actually proves a farmer may publish is the emailed code |
 | `EMAIL_HASH_SALT` | **Required for email verification** (F-079). The lookup-key salt for farmer email addresses. **Must match the salt the roster ingest used**, or every farmer's address silently fails to match and nobody can verify. Deliberately NOT `PHONE_HASH_SALT`: separate hash spaces mean one leaked salt does not compromise the other, and a shared one would let its holder correlate a farmer's address with their phone |
 | `VERIFICATION_CODE_SALT` | **Required for email verification** (F-079). Salt for the stored code hash. Rotating it invalidates every code currently in flight, which is the intended effect — codes live 30 minutes |
-| `EMAIL_PROVIDER` | **Optional, local development only.** Unset (the default) uses the `SMTP_*` configuration. `simulator` writes each message to a file under `SIMULATED_MAIL_DIR` (default `.mail/`, git-ignored) and sends nothing, so the farmer verification flow can be walked without a relay. **Refuses to construct under `NODE_ENV=production`**, and refuses to start if the `SMTP_*` variables are also set — a mail sink that outranked a working relay would stop farmer codes while every log read "accepted". Any other value is a startup error rather than a silent fallback |
+| `EMAIL_PROVIDER` | `gmail` in production; `simulator` is local-only and writes each message under `SIMULATED_MAIL_DIR`. A selected provider beside any `SMTP_*` setting is a startup error, never a silent precedence rule |
 | `SIMULATED_MAIL_DIR` | **Optional, local development only.** Absolute path for captured mail. The default `.mail/` is relative to the process working directory, which differs between `next dev` (`apps/web`) and the test suites (repo root) |
-| `SMTP_PASSWORD` | **Optional, `web` role only.** The 16-character Workspace app password. A **real credential to the board mailbox** — it authenticates as the account, not as a scoped API key. Revoke it from the same Google account page if exposed. Never logged. Absent or blank disables email sending; the worker never receives it |
 
 There is no `CRON_SECRET`; Cloud Scheduler uses OIDC and IAM.
 
-**Mail is optional and web-only.** Farm Friend sends email for F-078's farmer identity
-verification through VIGA's own Workspace account, so there is no third-party mail vendor and no
-additional company holding farmer addresses. With `SMTP_PASSWORD` absent the email seam is simply
-unconfigured and email verification is unavailable — the deployment still runs, exactly as it does
-without `GEOCODING_API_KEY`.
+**Mail is optional and web-only.** B-045 sends verification through Gmail's HTTPS API using VIGA's
+own board mailbox, with no third-party email vendor or DNS change. With Gmail OAuth absent the seam
+is unconfigured and email verification is unavailable while every other deployment surface runs.
+
+### B-045 — authorize Gmail HTTPS delivery
+
+1. Create an internal Google OAuth client in the Farm Friend Cloud project and enable Gmail API.
+2. Sign in as `board@vigavashon.org` once and grant only `https://www.googleapis.com/auth/gmail.send`.
+3. Add the client secret and resulting refresh token to the two empty Secret Manager containers.
+4. Set `gmail_sender_address`, `gmail_sender_name`, `gmail_oauth_client_id`, then flip `mount_gmail_delivery = true`; review the plan before applying.
+5. Deploy only after approval, then request a real code and verify Neon plus `farmer_verification_send` logs record `outcome: "accepted"`.
 
 ## Migrations
 

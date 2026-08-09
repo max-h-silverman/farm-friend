@@ -18,6 +18,13 @@ describe("resolveEmailDelivery", () => {
     SMTP_PASSWORD: "pass",
     SMTP_FROM_ADDRESS: "board@vigafarms.org",
   };
+  const gmail = {
+    EMAIL_PROVIDER: "gmail",
+    GMAIL_SENDER_ADDRESS: "board@vigafarms.org",
+    GMAIL_OAUTH_CLIENT_ID: "client-id.apps.googleusercontent.com",
+    GMAIL_OAUTH_CLIENT_SECRET: "client-secret",
+    GMAIL_OAUTH_REFRESH_TOKEN: "refresh-token",
+  };
 
   it("is unavailable when nothing is configured, exactly as before", () => {
     const delivery = resolveEmailDelivery({});
@@ -28,6 +35,24 @@ describe("resolveEmailDelivery", () => {
     const delivery = resolveEmailDelivery({ ...smtp });
     expect(delivery.available).toBe(true);
     if (delivery.available) expect(delivery.kind).toBe("smtp");
+  });
+
+  it("uses Gmail's HTTPS API when explicitly selected", () => {
+    const delivery = resolveEmailDelivery(gmail);
+    expect(delivery.available).toBe(true);
+    if (delivery.available) {
+      expect(delivery.kind).toBe("gmail");
+      expect(delivery.config.fromAddress).toBe("board@vigafarms.org");
+    }
+  });
+
+  it("REFUSES a Gmail selection with missing OAuth material", () => {
+    const { GMAIL_OAUTH_REFRESH_TOKEN: _refreshToken, ...missingToken } = gmail;
+    expect(() => resolveEmailDelivery(missingToken)).toThrow(/GMAIL_OAUTH_REFRESH_TOKEN/);
+  });
+
+  it("REFUSES to let Gmail silently displace configured SMTP", () => {
+    expect(() => resolveEmailDelivery({ ...smtp, ...gmail })).toThrow(/both/i);
   });
 
   it("uses the simulator when opted in locally with no SMTP", () => {

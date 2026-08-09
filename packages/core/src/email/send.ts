@@ -10,26 +10,24 @@ import { EmailNormalizationError, normalizeEmail } from "../privacy/email";
 // library and every test runs without a mail server. Swapping Google's relay for another
 // provider is a new transport, not a change to any of this.
 
-/** Resolved, complete email configuration. */
+/** The visible sender identity shared by every email provider. */
 export interface EmailConfig {
+  /** The visible From. Configuration, never a hard-coded string. */
+  fromAddress: string;
+  /** The display name a recipient's mail client shows. */
+  fromName?: string;
+}
+
+/** Resolved SMTP configuration. SMTP-only connection values stay out of other providers. */
+export interface SmtpConfig extends EmailConfig {
   host: string;
   port: number;
   username: string;
   password: string;
-  /** The visible From. Configuration, never a hard-coded string. */
-  fromAddress: string;
-  /**
-   * The display name a recipient's mail client shows — "VIGA" (max, 2026-08-06).
-   *
-   * OPTIONAL, unlike the address. Only the address is load-bearing: it is what the relay
-   * authorizes and where replies return. Without a name a recipient sees the bare mailbox
-   * ("board"), which says nothing about who is writing; with one, the sender reads as VIGA.
-   */
-  fromName?: string;
 }
 
 export type EmailConfigResult =
-  | { ok: true; config: EmailConfig }
+  | { ok: true; config: SmtpConfig }
   | {
       ok: false;
       reason:
@@ -167,28 +165,27 @@ export interface EmailSenderOptions {
 }
 
 /**
- * SMTP reply codes where the relay definitively refused. `5xx` is permanent by the protocol —
- * a bad mailbox, a rejected sender. Everything else, including `4xx` and any transport-level
- * failure, may still have been accepted.
+ * A transport declares a definitive refusal only when its protocol proves no message was
+ * accepted. Everything else — including an HTTP 5xx or a dropped connection — stays ambiguous.
  */
 function classify(error: unknown): EmailDispatchOutcome {
-  const responseCode = (error as { responseCode?: number } | null)?.responseCode;
-  if (typeof responseCode === "number" && responseCode >= 500 && responseCode < 600) {
-    return { outcome: "definitive_rejection", errorCode: String(responseCode) };
+  const failure = error as { responseCode?: number; definitive?: boolean; code?: string } | null;
+  const responseCode = failure?.responseCode;
+  // NOTHING from an error message or response body reaches the log. Gmail error bodies can
+  // contain OAuth details; only a numeric provider status or a constrained transport code may.
+  const errorCode =
+    typeof failure?.code === "string" && /^[A-Z0-9_]{1,32}$/.test(failure.code)
+      ? failure.code
+      : typeof responseCode === "number"
+        ? String(responseCode)
+        : "unknown";
+  if (failure?.definitive === true) {
+    return { outcome: "definitive_rejection", errorCode };
   }
 
-  // NOTHING from the error's message or body reaches `errorCode` — only a numeric response
-  // code or a transport error code. An SMTP auth failure's text can echo the credential back,
-  // and this value is logged.
-  const code = (error as { code?: string } | null)?.code;
   return {
     outcome: "ambiguous",
-    errorCode:
-      typeof code === "string" && /^[A-Z0-9_]{1,32}$/.test(code)
-        ? code
-        : typeof responseCode === "number"
-          ? String(responseCode)
-          : "unknown",
+    errorCode,
   };
 }
 

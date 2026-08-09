@@ -46,6 +46,10 @@ locals {
     # email seam is unconfigured and email verification is simply unavailable, rather than the
     # deployment failing.
     smtp-password = "Google Workspace app password for the SMTP relay. Optional; web only; authenticates as the board mailbox."
+    # B-045. OAuth is bound to `board@` with the `gmail.send` scope only; it cannot read that
+    # mailbox. Both values are web-only and are added only after the empty containers exist.
+    gmail-oauth-client-secret = "Google OAuth client secret for Farm Friend's Gmail send-only grant. Web only."
+    gmail-oauth-refresh-token = "Google OAuth refresh token bound to the VIGA board mailbox with gmail.send only. Web only."
     # F-079. The lookup-key salt for farmer email addresses.
     #
     # **NEVER ROTATE**, for exactly the reason `phone-hash-salt` says so: it is the input to the

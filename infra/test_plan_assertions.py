@@ -60,6 +60,14 @@ class SecretCutoverChangesTest(unittest.TestCase):
                 {'google_secret_manager_secret.protected["smtp-password"]': ["delete"]}
             )
         )
+
+    def test_allows_creating_the_empty_gmail_oauth_secret_containers(self) -> None:
+        self.assertTrue(
+            PLAN_ASSERTIONS.secret_cutover_changes_are_safe({
+                'google_secret_manager_secret.protected["gmail-oauth-client-secret"]': ["create"],
+                'google_secret_manager_secret.protected["gmail-oauth-refresh-token"]': ["create"],
+            })
+        )
         self.assertFalse(
             PLAN_ASSERTIONS.secret_cutover_changes_are_safe(
                 {'google_secret_manager_secret.protected["geocoding-api-key"]': ["delete"]}
