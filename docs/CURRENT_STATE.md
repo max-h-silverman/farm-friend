@@ -8,12 +8,15 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **30 migrations**
-(`0000`–`0029`). Cloud Run web is revision `farm-friend-web-00043-bn7`; worker is
-`farm-friend-worker-00041-g59`.
+(`0000`–`0029`). Cloud Run web is revision `farm-friend-web-00046-jth`; worker is
+`farm-friend-worker-00043-2mx`.
 
-**The DATA is current; the CODE is several releases behind.** Revision `00043` runs the image built
-from `main` at `6ab087e`, started only to pick up a rotated secret. Everything merged since is
-undeployed. **A deploy is owed and is the next release step.**
+**The DATA is current; the CODE is deliberately hotfixed from the last release.** Both services run
+immutable image digest `sha256:dfff942104af009c3cbfe67b2bf2ce1ad496d41d86ecb33c4d4902be1afb5faa`,
+built from `57cd404`: deployed baseline `6ab087e`
+plus the contact-only onboarding-location fix, and nothing else. The same fix is merged into local
+`main` at `c581e1f`; every other change after `6ab087e` remains undeployed. **A full deploy is still
+owed and is the next release step.**
 
 **Four migrations are written and unapplied in production**: `0030_stand_item_price`,
 `0031_invitation_pending_stock` (F-090), `0032_structured_item_price` (F-092) and
@@ -56,9 +59,13 @@ path is proven through the real webhook handler against real Postgres only.
 
 ## Verification
 
-**Latest, 2026-08-08** (B-024, B-040–B-042, the submission flow): **1699 unit** (135 files),
-typecheck, lint. Integration ran against **local Postgres**, never Neon. No `packages/ai` file
-changed and prices reach no model seam, so no `evals`/`evals:live` was owed.
+**Latest, 2026-08-08** (contact-only onboarding hotfix): local `main` passed **1720 unit** and
+**849 integration** tests, typecheck and lint. The production hotfix branch passed **1580 unit**,
+all **42 onboarding-listing integration** tests against fresh local Postgres, typecheck and lint.
+The regression test was sabotaged by restoring the rejection and failed on the exact contact-only
+case. The deployment plan passed **55/55** assertions; both serving revisions were verified newer
+than every mounted secret version, and the served vCard passed its byte-level contract. No model
+seam changed, so no `evals`/`evals:live` was owed.
 
 Sabotaged before believing: inverting `standItemPriceNeedsUnit` fails 5 renderer tests; restoring
 the value-sniffing unit control fails B-040's test; `CHECK (true)` fails the constraint test;
