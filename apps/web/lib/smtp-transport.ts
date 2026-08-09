@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 
-import type { EmailConfig, EmailTransport } from "@farm-friend/core";
+import type { EmailTransport, SmtpConfig } from "@farm-friend/core";
 
 // F-078 — the ONE place an SMTP library is imported.
 //
@@ -22,7 +22,7 @@ import type { EmailConfig, EmailTransport } from "@farm-friend/core";
  * of tens of messages during migration, and a pooled connection held open across Cloud Run's
  * scale-to-zero would be reconnecting on nearly every use anyway.
  */
-export function createSmtpTransport(config: EmailConfig): EmailTransport {
+export function createSmtpTransport(config: SmtpConfig): EmailTransport {
   const transporter = nodemailer.createTransport({
     host: config.host,
     port: config.port,
@@ -36,7 +36,8 @@ export function createSmtpTransport(config: EmailConfig): EmailTransport {
   });
 
   return async function send(request) {
-    const info = await transporter.sendMail({
+    try {
+      const info = await transporter.sendMail({
       // A display name plus the address, so a recipient's client shows "VIGA" rather than the
       // bare mailbox "board". Passed as STRUCTURED FIELDS rather than a hand-built
       // `"Name" <addr>` string: nodemailer does the header encoding, so the name cannot
@@ -52,8 +53,21 @@ export function createSmtpTransport(config: EmailConfig): EmailTransport {
       // explicitly so a future dedicated sending address does not silently send replies
       // somewhere nobody looks.
       replyTo: request.fromAddress,
-    });
+      });
 
-    return { providerMessageId: info.messageId };
+      return { providerMessageId: info.messageId };
+    } catch (error) {
+      // SMTP itself proves a 5xx was rejected before acceptance. Preserve every other failure
+      // unchanged: a connection break or 4xx may still have delivered the code.
+      const responseCode = (error as { responseCode?: unknown } | null)?.responseCode;
+      if (typeof responseCode === "number" && responseCode >= 500 && responseCode < 600) {
+        throw {
+          responseCode,
+          definitive: true,
+          code: (error as { code?: unknown } | null)?.code,
+        };
+      }
+      throw error;
+    }
   };
 }

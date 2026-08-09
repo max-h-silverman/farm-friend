@@ -157,6 +157,41 @@ variable "smtp_from_address" {
 }
 
 # ---------------------------------------------------------------------------
+# Gmail HTTPS delivery (B-045)
+# ---------------------------------------------------------------------------
+variable "gmail_sender_address" {
+  description = "Board mailbox Farm Friend sends through Gmail's HTTPS API. Required when Gmail delivery is mounted."
+  type        = string
+  default     = ""
+}
+
+variable "gmail_sender_name" {
+  description = "Optional display name for Gmail HTTPS delivery."
+  type        = string
+  default     = ""
+}
+
+variable "gmail_oauth_client_id" {
+  description = "Google OAuth client ID for the board mailbox's send-only Gmail grant. Required when Gmail delivery is mounted."
+  type        = string
+  default     = ""
+}
+
+variable "mount_gmail_delivery" {
+  description = "Whether WEB mounts Gmail OAuth material and selects Gmail HTTPS delivery. Keep false until both OAuth secret versions exist."
+  type        = bool
+  default     = false
+
+  validation {
+    condition = !var.mount_gmail_delivery || (
+      trimspace(var.gmail_sender_address) != "" &&
+      trimspace(var.gmail_oauth_client_id) != ""
+    )
+    error_message = "gmail_sender_address and gmail_oauth_client_id are required when mount_gmail_delivery is true."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Telnyx non-secret configuration
 # ---------------------------------------------------------------------------
 # Identifiers and a public verification key — NOT secrets, so they are plain variables rather

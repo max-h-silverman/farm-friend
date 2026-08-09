@@ -60,6 +60,14 @@ class SecretCutoverChangesTest(unittest.TestCase):
                 {'google_secret_manager_secret.protected["smtp-password"]': ["delete"]}
             )
         )
+
+    def test_allows_creating_the_empty_gmail_oauth_secret_containers(self) -> None:
+        self.assertTrue(
+            PLAN_ASSERTIONS.secret_cutover_changes_are_safe({
+                'google_secret_manager_secret.protected["gmail-oauth-client-secret"]': ["create"],
+                'google_secret_manager_secret.protected["gmail-oauth-refresh-token"]': ["create"],
+            })
+        )
         self.assertFalse(
             PLAN_ASSERTIONS.secret_cutover_changes_are_safe(
                 {'google_secret_manager_secret.protected["geocoding-api-key"]': ["delete"]}
@@ -75,6 +83,34 @@ class SecretCutoverChangesTest(unittest.TestCase):
         self.assertFalse(
             PLAN_ASSERTIONS.secret_cutover_changes_are_safe(
                 {'google_secret_manager_secret.protected["extra"]': ["create"]}
+            )
+        )
+
+    def test_gmail_delivery_rejects_any_remaining_smtp_setting(self) -> None:
+        self.assertFalse(
+            PLAN_ASSERTIONS.email_delivery_configuration_is_exclusive(
+                {"EMAIL_PROVIDER": "gmail"},
+                {"SMTP_PASSWORD", "GMAIL_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_REFRESH_TOKEN"},
+            )
+        )
+        self.assertTrue(
+            PLAN_ASSERTIONS.email_delivery_configuration_is_exclusive(
+                {"EMAIL_PROVIDER": "gmail"},
+                {"GMAIL_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_REFRESH_TOKEN"},
+            )
+        )
+
+    def test_gmail_cutover_allows_only_replacing_smtp_password(self) -> None:
+        before = {"SMTP_PASSWORD", "DATABASE_URL"}
+        after = {"DATABASE_URL", "GMAIL_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_REFRESH_TOKEN"}
+        self.assertTrue(
+            PLAN_ASSERTIONS.dropped_secret_mounts_are_safe(
+                before, after, {"EMAIL_PROVIDER": "gmail"}
+            )
+        )
+        self.assertFalse(
+            PLAN_ASSERTIONS.dropped_secret_mounts_are_safe(
+                before | {"GEOCODING_API_KEY"}, after, {"EMAIL_PROVIDER": "gmail"}
             )
         )
 

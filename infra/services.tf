@@ -66,17 +66,26 @@ locals {
   # Configuration rather than a derived `Host:` header on purpose: farmer links are bearer
   # credentials and must never be built against an attacker-controlled origin.
 
-  # Non-secret SMTP configuration, WEB ONLY — it accompanies a web-only credential, and config
-  # for a capability the worker does not have would be a standing invitation to give it one.
-  # The sender address is here rather than in the application because it must be a deployment
-  # decision: moving to a dedicated `farmfriend@` address is then an apply, not a code change.
-  web_env = {
+  smtp_web_env = {
     SMTP_HOST         = var.smtp_host
     SMTP_PORT         = tostring(var.smtp_port)
     SMTP_USERNAME     = var.smtp_username
     SMTP_FROM_ADDRESS = var.smtp_from_address
     SMTP_FROM_NAME    = var.smtp_from_name
   }
+
+  # B-045. The switch is tied to the two OAuth secret mounts: an image that selects Gmail
+  # without its refresh token would serve a false `sent`, while an empty secret mount prevents
+  # Cloud Run starting at all. False preserves the current SMTP configuration while Terraform
+  # creates the empty containers and Max authorizes the board mailbox.
+  gmail_web_env = {
+    EMAIL_PROVIDER          = "gmail"
+    GMAIL_SENDER_ADDRESS    = var.gmail_sender_address
+    GMAIL_SENDER_NAME       = var.gmail_sender_name
+    GMAIL_OAUTH_CLIENT_ID   = var.gmail_oauth_client_id
+  }
+
+  web_env = var.mount_gmail_delivery ? local.gmail_web_env : local.smtp_web_env
 
   shared_secret_env = {
     DATABASE_URL      = google_secret_manager_secret.protected["database-url"].secret_id
@@ -113,8 +122,11 @@ locals {
     ADMIN_PASSWORD_HASH = google_secret_manager_secret.protected["admin-password-hash"].secret_id
     }, var.mount_geocoding_key ? {
     GEOCODING_API_KEY = google_secret_manager_secret.protected["geocoding-api-key"].secret_id
-    } : {}, var.mount_smtp_password ? {
+    } : {}, var.mount_smtp_password && !var.mount_gmail_delivery ? {
     SMTP_PASSWORD = google_secret_manager_secret.protected["smtp-password"].secret_id
+    } : {}, var.mount_gmail_delivery ? {
+    GMAIL_OAUTH_CLIENT_SECRET = google_secret_manager_secret.protected["gmail-oauth-client-secret"].secret_id
+    GMAIL_OAUTH_REFRESH_TOKEN = google_secret_manager_secret.protected["gmail-oauth-refresh-token"].secret_id
     } : {}, var.mount_email_verification ? {
     # F-079's three, mounted TOGETHER behind one flag because they are one feature and a
     # partial mount is a worse state than none: the salts are required by the verify routes, so

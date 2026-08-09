@@ -1,6 +1,7 @@
 import { resolveEmailConfig, type EmailConfig, type EmailTransport } from "@farm-friend/core";
 
 import { createEmailSimulatorTransport } from "./email-simulator-transport";
+import { createGmailTransport, resolveGmailConfig } from "./gmail-transport";
 import { createSmtpTransport } from "./smtp-transport";
 
 // F-079 — which mail path a deployment gets.
@@ -33,7 +34,7 @@ export type EmailDelivery =
   | { available: false }
   | {
       available: true;
-      kind: "smtp" | "simulator";
+      kind: "gmail" | "smtp" | "simulator";
       config: EmailConfig;
       transport: EmailTransport;
     };
@@ -43,10 +44,6 @@ export type EmailDelivery =
  * mistaken for VIGA's real sending address when reading a captured message.
  */
 const SIMULATED_CONFIG: EmailConfig = {
-  host: "simulator",
-  port: 0,
-  username: "simulator",
-  password: "",
   fromAddress: "simulator@localhost",
   fromName: "Farm Friend (local simulator)",
 };
@@ -54,23 +51,35 @@ const SIMULATED_CONFIG: EmailConfig = {
 export function resolveEmailDelivery(env: Record<string, string | undefined>): EmailDelivery {
   const provider = env.EMAIL_PROVIDER?.trim();
   const smtp = resolveEmailConfig(env);
+  const hasSmtpSetting = Object.entries(env).some(
+    ([name, value]) => name.startsWith("SMTP_") && value?.trim() !== "",
+  );
 
   if (provider !== undefined && provider !== "") {
-    if (provider !== "simulator") {
+    if (provider !== "simulator" && provider !== "gmail") {
       throw new Error(
-        `EMAIL_PROVIDER="${provider}" is not a known provider (expected "simulator", or unset ` +
-          "to use the SMTP_* configuration).",
+        `EMAIL_PROVIDER="${provider}" is not a known provider (expected "gmail", "simulator", ` +
+          "or unset to use the SMTP_* configuration).",
       );
     }
 
-    // Both configured is ambiguous, and both plausible readings are bad: honouring the
-    // simulator silences a working relay, honouring SMTP makes the opt-in a lie.
-    if (smtp.ok) {
+    // Both configured is ambiguous. Honouring the selected provider leaves a stale live
+    // transport invisible; honouring SMTP makes the explicit provider selection a lie.
+    if (hasSmtpSetting) {
       throw new Error(
-        "EMAIL_PROVIDER=simulator and the SMTP_* variables are both set. Unset one — the " +
-          "simulator writes mail to a local file and sends nothing, so leaving both configured " +
-          "hides which one is actually delivering.",
+        `EMAIL_PROVIDER=${provider} and the SMTP_* variables are both set. Unset one — leaving ` +
+          "both configured hides which transport is actually delivering.",
       );
+    }
+
+    if (provider === "gmail") {
+      const gmail = resolveGmailConfig(env);
+      return {
+        available: true,
+        kind: "gmail",
+        config: gmail,
+        transport: createGmailTransport(gmail),
+      };
     }
 
     return {

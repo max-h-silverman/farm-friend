@@ -83,6 +83,30 @@ def _mounted_secret_names(service: dict) -> set[str]:
                 names.add(entry.get("name"))
     return names
 
+
+def email_delivery_configuration_is_exclusive(
+    environment: dict[str, str | None], secret_environment_names: set[str]
+) -> bool:
+    """A selected mail transport must not inherit another transport's credentials."""
+    if environment.get("EMAIL_PROVIDER") != "gmail":
+        return True
+    return not (
+        any(name.startswith("SMTP_") for name in environment)
+        or any(name.startswith("SMTP_") for name in secret_environment_names)
+    )
+
+
+def dropped_secret_mounts_are_safe(
+    before_names: set[str], after_names: set[str], after_environment: dict[str, str | None]
+) -> bool:
+    """The Gmail cutover may replace SMTP's credential, but may never drop another secret."""
+    dropped = before_names - after_names
+    return not dropped or (
+        dropped == {"SMTP_PASSWORD"}
+        and after_environment.get("EMAIL_PROVIDER") == "gmail"
+        and {"GMAIL_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_REFRESH_TOKEN"} <= after_names
+    )
+
 def secret_cutover_changes_are_safe(secret_changes: dict[str, list[str]]) -> bool:
     """Accept the known cutover phases and the stable state after each is complete.
 
@@ -107,6 +131,8 @@ def secret_cutover_changes_are_safe(secret_changes: dict[str, list[str]]) -> boo
     optional_containers = {
         'google_secret_manager_secret.protected["geocoding-api-key"]',
         'google_secret_manager_secret.protected["smtp-password"]',
+        'google_secret_manager_secret.protected["gmail-oauth-client-secret"]',
+        'google_secret_manager_secret.protected["gmail-oauth-refresh-token"]',
         # F-079's three, on the same terms: created empty, versions added out of band. All three
         # move together behind one mount flag, but they are three containers and any subset may
         # be planned depending on what already exists.
@@ -200,7 +226,7 @@ def main() -> int:
 
     print("\nSecrets")
     secrets = by_type(plan, "google_secret_manager_secret")
-    check("ten application secrets are declared", len(secrets) == 10, f"found {len(secrets)}")
+    check("twelve application secrets are declared", len(secrets) == 12, f"found {len(secrets)}")
     secret_ids = {value.get("secret_id") for value in secrets.values()}
     check("the admin password verifier container is declared",
           "farm-friend-admin-password-hash" in secret_ids)
@@ -333,6 +359,11 @@ def main() -> int:
     # `mount_smtp_password` can never quietly hand it over.
     check("the worker never mounts SMTP_PASSWORD",
           "SMTP_PASSWORD" not in secret_names(worker))
+    for _name in ("GMAIL_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_REFRESH_TOKEN"):
+        check(f"the worker never mounts {_name}", _name not in secret_names(worker))
+    check("Gmail delivery has no SMTP configuration",
+          email_delivery_configuration_is_exclusive(web_env, secret_names(web)),
+          "Gmail delivery must not mount or configure SMTP")
     # NO APPLY MAY SILENTLY UNMOUNT A SECRET THAT IS ALREADY LIVE.
     #
     # This exists because it HAPPENED. `GEOCODING_API_KEY` was mounted on web revision 00034 and
@@ -348,10 +379,14 @@ def main() -> int:
     for _svc, _label in ((web_change, "web"), (worker_change, "worker")):
         _before = _svc.get("change", {}).get("before") or {}
         _after = _svc.get("change", {}).get("after") or {}
-        _dropped = _mounted_secret_names(_before) - _mounted_secret_names(_after)
-        check(f"the {_label} service unmounts no secret that is currently live",
-              not _dropped,
-              f"would remove {sorted(_dropped)} — pass -var-file=production.tfvars")
+        _before_names = _mounted_secret_names(_before)
+        _after_names = _mounted_secret_names(_after)
+        _dropped = _before_names - _after_names
+        check(f"the {_label} service removes no live secret except SMTP_PASSWORD's Gmail replacement",
+              dropped_secret_mounts_are_safe(
+                  _before_names, _after_names, web_env if _label == "web" else worker_env
+              ),
+              f"would remove {sorted(_dropped)} without the exact Gmail credential replacement")
     # F-079 — the worker verifies nobody. `EMAIL_HASH_SALT` is the sharpest of the three: it is
     # an UNROTATABLE lookup key for every farmer address, so mounting it into a process with no
     # use for it widens a compromise's blast radius for nothing. Asserted unconditionally, so
@@ -392,6 +427,16 @@ def main() -> int:
               for s in (web, worker)
           ),
           "an SMTP password supplied as a literal env value would sit in state in cleartext")
+    for _name in ("GMAIL_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_REFRESH_TOKEN"):
+        check(f"{_name} is never a plain environment value",
+              all(
+                  _name not in {
+                      e.get("name") for e in
+                      (((s.get("template") or [{}])[0].get("containers") or [{}])[0].get("env") or [])
+                      if isinstance(e, dict) and e.get("value")
+                  }
+                  for s in (web, worker)
+              ))
     check("no service mounts MAGIC_LINK_SECRET",
           all("MAGIC_LINK_SECRET" not in secret_names(service) for service in (web, worker)))
 
@@ -400,13 +445,14 @@ def main() -> int:
     # change. Asserted on the plan because that is the artifact the platform consumes: a
     # default baked into the application would satisfy any source-level check and still be
     # invisible here.
+    sender_env = "GMAIL_SENDER_ADDRESS" if web_env.get("EMAIL_PROVIDER") == "gmail" else "SMTP_FROM_ADDRESS"
     check("the web service is told its sender address",
-          "@" in (web_env.get("SMTP_FROM_ADDRESS") or ""),
-          f"SMTP_FROM_ADDRESS={web_env.get('SMTP_FROM_ADDRESS')} — the sender must be "
-          "configuration, never a default compiled into the application")
+          "@" in (web_env.get(sender_env) or ""),
+          f"{sender_env}={web_env.get(sender_env)} — the sender must be configuration, "
+          "never a default compiled into the application")
     check("the worker is given no email configuration",
-          not any(key.startswith("SMTP_") for key in worker_env),
-          f"worker carries {sorted(k for k in worker_env if k.startswith('SMTP_'))} — the worker "
+          not any(key.startswith(("SMTP_", "GMAIL_", "EMAIL_PROVIDER")) for key in worker_env),
+          f"worker carries {sorted(k for k in worker_env if k.startswith(("SMTP_", "GMAIL_", "EMAIL_PROVIDER")))} — the worker "
           "sends no email and must not be configured as though it could")
 
     print("\nSecret rotation reaches containers")

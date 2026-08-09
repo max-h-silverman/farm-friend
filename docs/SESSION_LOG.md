@@ -11,6 +11,26 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-09 — B-045, verification email restored over Gmail HTTPS
+
+Cloud Run could no longer open the SMTP connection, while HTTPS egress and the VIGA board mailbox
+continued to work. B-045 replaces only the delivery adapter: Gmail's HTTPS API now sends from the
+board mailbox with a refresh grant restricted to `gmail.send`. The client secret and refresh token
+live in Secret Manager; the delivery resolver refuses any configuration that would mount Gmail and
+SMTP credentials together.
+
+The approved production release is web `farm-friend-web-00053-jcr` and worker
+`farm-friend-worker-00048-4st`, digest
+`sha256:cb9a6fa262ed7edf414486f65261f5e4e6c5a6abe220de664903f87137e630a8`. A real production
+verification request recorded B-047's `farmer_verification_send` outcome `accepted`, then arrived
+in the recipient's inbox. Max's controlled address was added to Sylvan Garden's roster without
+removing its existing address.
+
+Verified with 1777 unit tests, 860 integration tests against an empty local Postgres schema,
+typecheck, lint, the web production build, Terraform plan-assertion tests, Cloud Run health, and
+provider acceptance plus inbox receipt. No DNS change, third-party email account, or paid service
+was used.
+
 ## 2026-08-09 — B-044, reviewed offerings restored as part of the stand corpus
 
 Two cards exposed one production-data defect. Tian Tian's prose named bok choy and a choy but its

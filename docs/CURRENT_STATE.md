@@ -8,13 +8,15 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production Postgres `neondb` has **36 migrations** (`0000`–`0035`);
-Cloud Run web is `farm-friend-web-00052-pm2` and worker is `farm-friend-worker-00047-ljx`, both on
-digest `sha256:87bfe17249fb9f5f486b4eff248b716ae0e389d422dfec391aa58ca139f48c16`.
+Cloud Run web is `farm-friend-web-00053-jcr` and worker is `farm-friend-worker-00048-4st`, both on
+digest `sha256:cb9a6fa262ed7edf414486f65261f5e4e6c5a6abe220de664903f87137e630a8`.
 
-**Deployed runtime is `ca212df`** (2026-08-09): F-076, F-097, F-098, B-046 and B-047 are live.
+**Deployed runtime is `be50780`** (2026-08-09): F-076, F-097, F-098, B-045, B-046 and B-047 are live.
 Migrations `0034` and `0035` are applied and verified by schema effect; none remains unapplied.
-Main also contains B-044's rebuild tooling and description parser; its production data repair is live,
-but the parser awaits the next approved web deploy.
+B-044's rebuild tooling and description parser are live with its production data repair.
+
+**B-045 is verified by effect.** Gmail's HTTPS API accepted a production verification request on
+`farm-friend-web-00053-jcr`, and its six-digit code arrived in the recipient's inbox.
 
 **Max walks the farmer surfaces at phone width before a tranche ships.** He confirmed that pass for
 this deploy; a session that opens by deploying has skipped the gate.
@@ -22,7 +24,7 @@ this deploy; a session that opens by deploying has skipped the gate.
 **Production data and schema are current.** Neon has all structured-price and pending-stock columns,
 no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
 35 farms / locations / approvals, **212 reviewed usual items across 33 stands**, 35 links,
-53 payments, 10 participants, 15 VIGA confirmations, 24 with open days, 38 farm emails across
+53 payments, 10 participants, 15 VIGA confirmations, 24 with open days, 39 farm emails across
 32 farms, 1 administrator, 0 consents/authorizations. The public API returns Tian Tian's complete
 nine-item usual list (including bok choy and a choy) and 3 Brothers' structured eggs with no
 duplicate Additional information prose.
@@ -31,17 +33,9 @@ The rebuild deliberately removed 3 real consents; those phones must text `START`
 backup is `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`. Seeders do not restore the
 fixed administrator or farm-email roster; email ingest must reuse the deployed `EMAIL_HASH_SALT`.
 
-### B-045 — BLOCKING the grandfathered door
-
-Every Cloud Run verification send fails immediately with `ECONNECTION`; the farmer sees the
-deliberately uniform "sent" response but receives nothing. Live checks ruled out our code/config,
-ports 465/587, Workspace relay settings, credentials, and general HTTPS egress. Move the existing
-`EmailTransport` seam to an HTTPS provider; provider account, DNS verification and any spend require
-max's approval. Full incident evidence: [SESSION_LOG.md](SESSION_LOG.md).
-
 ### Secrets
 
-- **Web mounts** `GEOCODING_API_KEY`, `SMTP_PASSWORD`, and F-079's three; **the worker mounts
+- **Web mounts** `GEOCODING_API_KEY`, `GMAIL_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REFRESH_TOKEN`, and F-079's three; **the worker mounts
   none**, asserted unconditionally. `infra/production.tfvars` keeps that true across applies — every
   `mount_*` defaults to false, so a plan without `-var-file` silently unmounts whatever the last
   apply enabled. `plan-assertions.py` fails by name on any plan that would unmount a live secret.
@@ -53,7 +47,7 @@ max's approval. Full incident evidence: [SESSION_LOG.md](SESSION_LOG.md).
 
 ## Verification
 
-**Current main:** **1770 unit**, full integration suite, typecheck, lint, web production build, and a
+**Current main:** **1777 unit**, full integration suite, typecheck, lint, web production build, and a
 complete seed dry run against the real exports: 35 stands, 212 reviewed usual items, 0 unknown, 0
 unresolved. B-044 sabotage proved the integration checks fail if offerings are omitted or the stand
 half commits before an offering failure.
@@ -144,7 +138,6 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Open build items**
 
-- **B-044:** merged; data/tooling complete, but its description parser awaits an approved web deploy.
 - **F-065 — attribution for a listing change.** A revision row carries no `admin_actor_id` and there
   is no general admin audit log. Three writers of public listing state, none recording who wrote.
 - **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a

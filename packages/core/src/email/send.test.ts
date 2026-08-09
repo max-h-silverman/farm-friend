@@ -165,7 +165,7 @@ describe("createEmailSender", () => {
   });
 
   it("classifies a rejected recipient as definitive, never as retryable", async () => {
-    const transport = vi.fn().mockRejectedValue({ responseCode: 550 });
+    const transport = vi.fn().mockRejectedValue({ responseCode: 550, definitive: true });
     const send = createEmailSender({ config: CONFIG, transport });
 
     const result = await send({
@@ -176,6 +176,34 @@ describe("createEmailSender", () => {
     });
 
     expect(result.outcome).toBe("definitive_rejection");
+  });
+
+  it("keeps an unclassified provider 5xx ambiguous", async () => {
+    const transport = vi.fn().mockRejectedValue({ responseCode: 500 });
+    const send = createEmailSender({ config: CONFIG, transport });
+
+    const result = await send({
+      toEmail: "cathy@example.com",
+      subject: "s",
+      text: "t",
+      idempotencyKey: "k",
+    });
+
+    expect(result).toEqual({ outcome: "ambiguous", errorCode: "500" });
+  });
+
+  it("records a provider-declared refusal as definitive even when it has no SMTP reply code", async () => {
+    const transport = vi.fn().mockRejectedValue({ responseCode: 401, definitive: true });
+    const send = createEmailSender({ config: CONFIG, transport });
+
+    const result = await send({
+      toEmail: "cathy@example.com",
+      subject: "s",
+      text: "t",
+      idempotencyKey: "k",
+    });
+
+    expect(result).toEqual({ outcome: "definitive_rejection", errorCode: "401" });
   });
 
   it("classifies a timeout as AMBIGUOUS, so it is never blindly resent", async () => {
