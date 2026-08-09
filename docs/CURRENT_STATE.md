@@ -197,6 +197,14 @@ a farm at all — it is the market itself, not a stand with a farmer to onboard.
   error pointing at the query, not at the comment.
 - **`printf %s`, never `echo`, when adding a salt to Secret Manager.** A trailing newline produces
   hashes that look right in every listing and match nothing at runtime.
+- **Next expands `$NAME` inside .env values, so an Argon2id verifier cannot live in one.**
+  `ADMIN_PASSWORD_HASH` in `apps/web/.env.local` reaches the server *shorter than it was
+  written* (97 → 95 or 65), and every local sign-in then refuses with the same generic message a
+  wrong password gets — while the verifier keeps verifying correctly in any standalone script,
+  because that script reads the file directly. Quoting does not help; pass it as a real
+  environment variable. `./scripts/dev-setup.sh` does this and is the supported local path.
+  Two other refusals look identical: no administrator row, and a live `admin_login_failures`
+  bucket that outlives the server process.
 - **Measuring a parser is not measuring the data.** To say what a card shows, read
   `farms.description` from production.
 - **The stored prose contains malformed dates.** One row begins literally `/22/2026 Update:`.

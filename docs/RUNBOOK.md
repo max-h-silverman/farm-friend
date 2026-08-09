@@ -21,6 +21,47 @@ Build/deployment status lives only in [CURRENT_STATE.md](CURRENT_STATE.md).
 
 ## Local dev — required commands
 
+**From nothing, use the script:** `./scripts/dev-setup.sh --run` creates the local database,
+writes `apps/web/.env.local`, migrates, bootstraps the administrator row, and starts the server
+with a working sign-in. `--reset` drops the database first. It refuses to run if a non-local
+`DATABASE_URL` is in the environment, and verifies the migration by schema effect rather than by
+its exit status. The steps below are what it automates.
+
+### The admin verifier must NOT go in a .env file
+
+**Next expands `$NAME` inside .env values, and an Argon2id verifier is a run of `$`-delimited
+segments.** `ADMIN_PASSWORD_HASH` written into `apps/web/.env.local` therefore reaches the server
+**shorter than it was written** — 95 or 65 characters instead of 97, depending on which segments
+happen to look like variable references. Quoting does not prevent it.
+
+The failure is silent and mimics the wrong bug: every sign-in refuses with the *same generic
+message a wrong password gets*, so the obvious next moves — regenerate the hash, reset the
+password, check the administrator row — all leave it broken. The verifier hashes and verifies
+correctly in a standalone script the whole time, because that script reads the file directly.
+
+Pass it as a real environment variable instead:
+
+```bash
+ADMIN_PASSWORD_HASH="$(npx tsx scripts/dev-admin-hash.ts localdevpassword)" \
+  npm run dev --workspace @farm-friend/web
+```
+
+Confirm what the *running server* holds rather than what the file says — the gap between them is
+the whole defect. A temporary route echoing `process.env.ADMIN_PASSWORD_HASH?.length` settles it
+in one request; 97 is correct.
+
+### Two other silent sign-in refusals
+
+Both produce the same generic message, and neither is a password problem:
+
+- **No administrator row.** Authority is data, not configuration. Run
+  `DATABASE_URL=… npx tsx packages/db/scripts/bootstrap-administrator.ts` (idempotent).
+- **A live throttle bucket** from earlier failed attempts, which outlives the server process:
+  `psql "$DATABASE_URL" -c "delete from admin_login_failures;"`.
+
+Also note `apps/web/.env.local` is the file the web app reads — a `.env` at the repo root is
+**not** loaded by `next dev`, and the app starts without complaint lacking every value in it.
+
 ```bash
 npm install                 # install all workspaces
 npm run db:migrate:local    # apply the schema to apps/web/.env.local
