@@ -11,6 +11,32 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-08 — F-076: one returning-farmer stock editor, literally shared with onboarding
+
+The returning-farmer status tab now emits additions, removals and price changes as a direct
+structured edit. The old chip-only path and free-text/SMS proxy are gone from the web; SMS retains
+its model interpretation seam. Web edits still stop at the existing exact code-rendered preview,
+then require explicit confirmation before publication. “Usually sells” remains standing listing
+state; “in stock” remains a dated claim.
+
+The first pass reused only the item-row shell, leaving the status tab with its own container, add
+controls, copy and page-scoped styling. Max caught the mismatch twice. The final design has one
+`StockInventoryEditor` rendering the fieldset, price switch, helper copy, add row, item cards, stock
+switches, remove controls and structured price fields for both onboarding and later updates. The
+stand's `Update` button is its only extra child; contextual labels preserve the standing-versus-
+dated distinction. A source guard requires both surfaces to call this component and fails if either
+recreates the pricing markup; deleting the returning-farmer call made the guard fail as intended.
+
+Phone-width Chrome exercised `per`/`for`, count visibility, the unit menu, price hiding, removal,
+exact preview, confirmation and publication against an isolated local Postgres fixture. It then
+measured both mounted editors while visible and matched computed styles for the add row, cards,
+amount, basis, unit and remove controls. Final verification passed 1723 unit and 851 integration
+tests, typecheck, lint and the production build.
+
+F-076 merged to main through its review branch and remains undeployed by Max's explicit wrap
+decision. Production still serves the digest recorded in `CURRENT_STATE.md`; the next deployment
+must begin with a fresh live audit rather than treating that snapshot as evidence.
+
 ## 2026-08-08 — Contact-only onboarding fix, and a stale-state deployment regression
 
 The live four-step onboarding form accepted a resolved address and pin for Sylvan Garden, then the
