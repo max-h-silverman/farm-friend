@@ -13,7 +13,8 @@ digest `sha256:87bfe17249fb9f5f486b4eff248b716ae0e389d422dfec391aa58ca139f48c16`
 
 **Deployed runtime is `ca212df`** (2026-08-09): F-076, F-097, F-098, B-046 and B-047 are live.
 Migrations `0034` and `0035` are applied and verified by schema effect; none remains unapplied.
-Main also contains B-044's rebuild tooling, which has no runtime deployment surface.
+Main also contains B-044's rebuild tooling and description parser; its production data repair is live,
+but the parser awaits the next approved web deploy.
 
 **Max walks the farmer surfaces at phone width before a tranche ships.** He confirmed that pass for
 this deploy; a session that opens by deploying has skipped the gate.
@@ -29,8 +30,6 @@ duplicate Additional information prose.
 The rebuild deliberately removed 3 real consents; those phones must text `START` again. Its verified
 backup is `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`. Seeders do not restore the
 fixed administrator or farm-email roster; email ingest must reuse the deployed `EMAIL_HASH_SALT`.
-
-Telnyx remains untested live.
 
 ### B-045 — BLOCKING the grandfathered door
 
@@ -145,6 +144,7 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Open build items**
 
+- **B-044:** merged; data/tooling complete, but its description parser awaits an approved web deploy.
 - **F-065 — attribution for a listing change.** A revision row carries no `admin_actor_id` and there
   is no general admin audit log. Three writers of public listing state, none recording who wrote.
 - **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a
