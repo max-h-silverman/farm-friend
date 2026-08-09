@@ -5645,6 +5645,13 @@ button.admin-action-danger,
   gap: 0.7rem;
 }
 
+/* B-042 — the same trap the wizard steps hit: `hidden` is only the browser's own `display: none`,
+   and the rule above outranks it, so BOTH tab panels rendered stacked. Found by the sweep in
+   `apps/web/lib/hidden-attribute.test.ts`, which is what keeps the next one from shipping. */
+.farmer-stand-panel[hidden] {
+  display: none;
+}
+
 /* Select-all for the open days (max 2026-08-08). Takes the whole row and sits above the
    weekdays with a rule under it, so it reads as a control OVER the set rather than an
    eighth member of it — which is what it would look like sharing their wrapping line. */

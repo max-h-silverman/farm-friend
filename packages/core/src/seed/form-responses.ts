@@ -172,6 +172,29 @@ const NON_LOCATION = /\b(delivery|deliver|by appointment|appointment only|order|
  * of …") and a road named without a number ("Bank Road, East of Town") — rather than to a
  * general "looks vague" heuristic, which is how a flag becomes noise.
  */
+/**
+ * A farmer asking us NOT TO PUBLISH THEIR ADDRESS, stated anywhere on their row (B-024).
+ *
+ * The defect this exists to close: Handpicked Homestead's address cell holds a perfectly good
+ * address, and her refusal is in the "Anything else we need to know?" column —
+ *
+ *     "I don't have my own farmstand - please add me under Plum Forest's location,
+ *      do not add my address."
+ *
+ * — so a classifier reading only the address cell published a private residence, with a pin,
+ * against an explicit written request. **A parser that reads only the field it expects the
+ * answer in cannot see a farmer who answered somewhere else.**
+ *
+ * Matched NARROWLY and in one direction. The risk here runs both ways: too loose and a real
+ * stand is dropped off the map (F-038, B-013), too tight and someone's home is published. So
+ * this matches an explicit negated request only — "do not add/list/publish/include … address",
+ * "please don't post my address" — and never the bare word "address", which farmers use
+ * constantly to CORRECT one. `no.{0,12}address` is deliberately absent for the same reason:
+ * "no street address" is a farmer describing their location, not refusing to give it.
+ */
+const ADDRESS_WITHHELD =
+  /\b(?:do\s*n[o']?t|don['’]t|please\s+do\s+not|no\s+need\s+to)\s+(?:\w+\s+){0,3}?(?:add|list|publish|include|post|show|share|put)\b[^.!?]{0,40}?\baddress\b/i;
+
 const NEEDS_HUMAN_REVIEW = [
   // "300' north of 28815 Vashon Hwy SW" — positioned relative to a different address.
   /\b(north|south|east|west)\s+of\b/i,
@@ -200,13 +223,41 @@ function farmstandAddress(stated: string): string | undefined {
   return tidy(candidate);
 }
 
-function classifyAddress(cell: string | undefined): {
+function classifyAddress(
+  cell: string | undefined,
+  /**
+   * The rest of the farmer's own words — the notes and general-information columns.
+   *
+   * Passed in because a refusal to publish is a fact about the ADDRESS wherever the farmer
+   * happened to write it, and this function is the one place that decides what the address
+   * becomes (B-024).
+   */
+  ...elsewhere: (string | undefined)[]
+): {
   publicAddress?: string;
   accessNote?: string;
   addressNeedsReview?: true;
   visitability: "visitable" | "contact_only";
 } {
   const stated = optional(cell);
+
+  /*
+    THE FARMER'S REFUSAL WINS OVER EVERY OTHER RULE, including a well-formed address sitting
+    right there in the address cell — which is exactly the shape B-024 shipped. Checked before
+    anything can classify the cell as visitable, because every branch below this point ends in
+    publishing what it found.
+
+    Her own words are still kept as an access note: "find her at Plum Forest" is a fact about
+    how to buy, and dropping it would answer her request by making her unfindable.
+  */
+  const words = [stated, ...elsewhere].filter(
+    (value): value is string => optional(value) !== undefined,
+  );
+  const refusal = words.find((value) => ADDRESS_WITHHELD.test(value));
+  if (refusal !== undefined) {
+    return { visitability: "contact_only", accessNote: refusal };
+  }
+
   if (stated === undefined) {
     // No address at all. Not classifiable from this file — the caller refuses the row rather
     // than guessing, because the MAP export may still hold a real address (Forest Garden Farm).
@@ -277,7 +328,13 @@ export function parseFormResponses(content: string): FormResponsesResult {
     }
 
     const timestamp = tidy(column(fields, "Timestamp"));
-    const address = classifyAddress(column(fields, "Address"));
+    // The two free-prose columns come WITH the address cell: a farmer's instruction about
+    // their address is binding wherever they wrote it, and B-024's was in the last one.
+    const address = classifyAddress(
+      column(fields, "Address"),
+      column(fields, "Anything else we need to know?"),
+      column(fields, "General Information (keep short and only text)"),
+    );
 
     // A row with no address AND no stated non-location tells us nothing about where or how to
     // buy. Forest Garden Farm's whole submission is "(same info as last year)" plus a name —

@@ -94,6 +94,57 @@ describe("parseFormResponses", () => {
     expect(gate.openSeasonText).toBe("Butchering in July and November");
   });
 
+  it("HONOURS a farmer who asks us not to publish her address (B-024)", () => {
+    // Handpicked Homestead. The address cell holds an ordinary, valid, correct address — and
+    // the farmer asked us in writing not to publish it, in a DIFFERENT column:
+    //
+    //   Anything else we need to know?  "I don't have my own farmstand - please add me under
+    //                                    Plum Forest's location, do not add my address."
+    //
+    // Production published her home with a map pin anyway, because `classifyAddress` only ever
+    // read the address cell. Nothing in that cell is wrong; the refusal is not in it.
+    //
+    // This is the worst failure shape this seeder has: the coordinate is CORRECT, it is
+    // someone's residence, and she specifically asked us not to. A parser that reads only the
+    // field it expects the answer in cannot see a farmer who answered somewhere else.
+    //
+    // The strings are quoted from B-024's record of the real row rather than lifted from the
+    // corpus file, which is not on this machine — noted because every other fixture here is
+    // verbatim.
+    const handpicked =
+      "4/18/2026 9:00:00,hp@b.test,Handpicked Homestead,19804 107th Ave SW," +
+      "Someone,hp@b.test,,,All year,Fridays,Fridays," +
+      '"My flowers are available at Plum Forest Farmstand, stocked on Fridays",Yes,' +
+      "\"I don't have my own farmstand - please add me under Plum Forest's location, " +
+      'do not add my address."';
+
+    const { stands, rejected } = parse(handpicked);
+
+    expect(rejected).toEqual([]);
+    const farm = stands[0]!;
+    expect(farm.name).toBe("Handpicked Homestead");
+    // Her farm still EXISTS — max's call (2026-08-08). She keeps a card people can find by
+    // name; what she does not get is a place to drive to.
+    expect(farm.visitability).toBe("contact_only");
+    // The whole point: no address anywhere on the record.
+    expect(farm.publicAddress).toBeUndefined();
+  });
+
+  it("does not demote a farm that merely MENTIONS an address in its notes", () => {
+    // The dangerous direction, and why the refusal is matched rather than the word "address".
+    // A farmer writing "the address on the map is out of date, use this one" is asking us to
+    // publish an address, not to withhold one — demoting them would drop a real stand off the
+    // map, which is the failure F-038 and B-013 both exist to prevent.
+    const mentionsAddress =
+      "4/18/2026 9:00:00,m@b.test,Mentions Address Farm,15624 115th AV SW," +
+      "Someone,m@b.test,,,All year,Daily,Daily,,Yes," +
+      '"Our address changed last year, please use the new one above"';
+
+    const { stands } = parse(mentionsAddress);
+    expect(stands[0]!.visitability).toBe("visitable");
+    expect(stands[0]!.publicAddress).toBe("15624 115th AV SW");
+  });
+
   it("REFUSES a row carrying only a name, rather than seeding an empty farm", () => {
     // Forest Garden Farm's entire submission is "(same info as last year)" plus a name. That
     // is resolvable — the MAP export has their address — but not from this file, and inventing
