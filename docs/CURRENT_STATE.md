@@ -56,13 +56,22 @@ path is proven through the real webhook handler against real Postgres only.
 
 ## Verification
 
-**Latest, 2026-08-08** (B-040 / B-041, the price control): **1691 unit** (134 files), **849
-integration** (59 files), typecheck, lint. Integration ran against **local Postgres**, never Neon.
-No `packages/ai` file changed and prices reach no model seam, so no `evals`/`evals:live` was owed.
+**Latest, 2026-08-08** (B-024, B-040–B-042, the submission flow): **1699 unit** (135 files),
+typecheck, lint. Integration ran against **local Postgres**, never Neon. No `packages/ai` file
+changed and prices reach no model seam, so no `evals`/`evals:live` was owed.
+
 Sabotaged before believing: inverting `standItemPriceNeedsUnit` fails 5 renderer tests; restoring
-the value-sniffing control choice fails the B-040 test; replacing the new CHECK with `CHECK (true)`
-fails the constraint test. Both constraint halves were also proven by direct insert against local
-dev — a unitless bundle accepted, a unitless `per` refused by name.
+the value-sniffing unit control fails B-040's test; `CHECK (true)` fails the constraint test;
+removing either `[hidden]` rule fails the sweep, and blinding the sweep's own JSX matcher fails its
+guard; B-024's refusal pattern was sabotaged in **both** directions — too tight fails the honour
+test, too loose fails the false-positive test. Both constraint halves proven by direct insert
+against local dev. The wizard, the price row and the new submission flow were **walked in a real
+browser**; the stand page's two-tab fix was not — it is the same one-line rule as the wizard's, and
+is covered by the sweep.
+
+**A full `test:integration:local` fails intermittently** on three files that vary run to run, and
+fails identically with this work stashed — B-020, not the change. Touched areas pass on their own:
+52 onboarding-listing, 225 seed.
 
 **Last `evals:live`: 2026-08-06, 25/25** against `mistralai/Mistral-Small-24B-Instruct-2501`
 (containment 4/4, closure 7/7, quality 9/9, recall 5/5). Owed again on any change to a seam's
@@ -140,6 +149,13 @@ link** — a conditional with a test behind it rather than an unbypassable const
 **Owed data runs and live checks**
 
 - **A deploy is owed**, including migrations `0030`/`0031`/`0032`/`0033`.
+- **B-024 is fixed in the SEEDER but not in the live row.** Handpicked Homestead's home address
+  was still published as a visitable stand as of the 2026-08-08 rebuild, which ran the old
+  classifier. The fix takes effect only on a re-seed, so production must be **re-seeded or the row
+  corrected by hand** — and verified by effect (`visitability = 'contact_only'`,
+  `public_address IS NULL`, no coordinate reaching the map). Until then a private residence is on
+  the map against the farmer's written request, which is the one open item that should block
+  sharing the map with anyone.
 - **F-029:** finish live carrier launch verification — the `START` onboarding path has never been
   exercised against Telnyx from a real handset.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
@@ -162,6 +178,11 @@ link** — a conditional with a test behind it rather than an unbypassable const
   price shapes meet: `stand_items` is structured (F-092) while `inventory_entries.price_text` is
   still free text, and onboarding writes today's stock by rendering the structured price into it.
   Whether that column follows is the open question.
+- **B-001:** an unreproducible integration flake from 2026-07-25 whose failing test name was never
+  captured. Filed as a watch item, not diagnosed — a load-dependent flake is what latent
+  nondeterminism looks like. Distinct from **B-020**, the reproducible cross-suite deadlock: three
+  files fail intermittently on a full `test:integration:local`, with a different set each run, and
+  they fail identically on a clean tree. Attributed by stashing, 2026-08-08.
 - **B-008:** replace the incomplete deployed-build lint gate. Next does not recognize
   `outputFileTracingRoot`, and the Next ESLint plugin is not installed.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
