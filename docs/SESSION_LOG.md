@@ -5,11 +5,29 @@ that aren't obvious from the diff, and what was verified/owed. The **live snapsh
 true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is the *why behind
 past changes*.
 
-This file keeps the **newest eight entries**; everything older rotates into
+This file keeps recent entries; older entries rotate into
 [SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 71. A log too large to open
 mid-session defeats its own purpose.
 
 ---
+
+## 2026-08-09 — B-044 follow-up, structured offerings removed from descriptive prose
+
+The first repair restored reviewed usual offerings but left the same foods in some farms'
+Additional information. The description parser now receives the reviewed usually-sells set and
+removes only leading offering-only sentences, preserving independent prose after them. Real-corpus
+guards cover Tian Tian, Ostara, and Sweet Alyssum rather than treating one screenshot as the rule.
+
+Fourteen production descriptions were rewritten and verified, five becoming empty; the idempotence
+run now reports all 25 descriptions clean. Tian Tian exposes nine usual items with only its organic-
+practices note, while 3 Brothers exposes eggs with no current-stock claim or duplicate prose. The
+rewrite backup is
+`~/farm-friend-backups/farm-descriptions-backup-2026-08-09T19-34-25-398Z.json`.
+
+PR #94 merged as `af2cc0d` and deployed to web `00054-wfk` and worker `00049-w4v`, both on digest
+`sha256:247393a9f769e76bd13e91195eb332dbda0d8e815b8ea4b84dfc82d213b36840`. Verified with 1778
+unit and 860 integration tests, typecheck, lint, production build, the real corpus, production data,
+all 60 plan assertions, secret freshness, health, served bytes, and the live public API.
 
 ## 2026-08-09 — B-045, verification email restored over Gmail HTTPS
 
