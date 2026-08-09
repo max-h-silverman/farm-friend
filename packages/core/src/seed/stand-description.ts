@@ -129,6 +129,7 @@ function isPlainList(body: string): boolean {
 /** Labels whose body must be a plain list before the line may be dropped. */
 const LABELLED_LIST_LINE = [
   /^\s*generally\s+offers?\b\s*[:;]?\s*(.*)$/i,
+  /^\s*open\s+has\b\s*[:;]?\s*(.*)$/i,
   /^\s*stocking(?:\s+days?)?\s*[:;]?\s*(.*)$/i,
   /^\s*hosting\b\s*:?\s*(.*)$/i,
 ];
