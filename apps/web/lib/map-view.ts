@@ -74,6 +74,16 @@ export interface PublicStandPayload {
    */
   confirmedElapsed?: string;
   /**
+   * The card's own recency sentence — "Last updated 3 weeks ago", or "No recent update"
+   * once a confirmation is four weeks old (F-097).
+   *
+   * Present and absent exactly with `updated`, rendered by core's `renderCardRecency`. It is a
+   * third phrasing rather than a reformatting of `confirmedElapsed`: the card is browsed and
+   * its listings run to months, where the SMS answer's hour-by-hour counting stops meaning
+   * anything. Everything under a week is still the same shared arithmetic.
+   */
+  cardRecency?: string;
+  /**
    * What this stand USUALLY sells — its standing claim, NOT current stock (F-042).
    *
    * A different fact from `items` and kept in a different field for that reason. Nobody

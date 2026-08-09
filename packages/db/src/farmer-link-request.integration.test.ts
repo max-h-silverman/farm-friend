@@ -169,7 +169,10 @@ describe("farmer stand-link request (integration)", () => {
     `;
     expect(links).toHaveLength(1);
     const body = queued[0]?.body as string;
-    const url = body.match(/https:\/\/farmfriend\.example\/stand\/([0-9a-f]+)/);
+    // F-097 — the token is base64url, not hex. The assertion that matters is the one below:
+    // the token in the TEXT hashes to the row we stored, which is what proves the farmer was
+    // sent their own live link rather than a plausible-looking string.
+    const url = body.match(/https:\/\/farmfriend\.example\/stand\/([A-Za-z0-9_-]+)/);
     expect(url).not.toBeNull();
     expect(hashFarmerLinkToken(url?.[1] as string)).toBe(links[0]?.token_hash);
     // And never the raw number.

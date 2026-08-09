@@ -1,5 +1,6 @@
 import {
   isStale,
+  renderCardRecency,
   renderElapsed,
   renderRecency,
   renderStandItemPrice,
@@ -132,6 +133,16 @@ export interface PublicStand {
    * stripping a verb off `recencyLabel`.
    */
   confirmedElapsed?: string;
+  /**
+   * The public card's recency sentence — "Last updated 3 weeks ago", or "No recent update"
+   * once a confirmation is four weeks old (F-097).
+   *
+   * A THIRD phrasing rather than a reformatting of `confirmedElapsed`, because the card and
+   * the SMS answer are asked different questions: an answer is about right now and counts in
+   * hours; a card is browsed and its listings run to months. Both still come from core, and
+   * everything under a week is the same shared arithmetic.
+   */
+  cardRecency?: string;
   /**
    * True when the listing must be shown WITH a prominent staleness warning.
    *
@@ -556,6 +567,10 @@ export async function listPublicStands(
               asOf,
               recencyLabel: renderRecency(asOf, now),
               confirmedElapsed: renderElapsed(asOf, now),
+              // F-097 — the PUBLIC CARD's own phrasing, which counts in weeks and gives up at
+              // four of them. Rendered here beside the other two rather than derived in the
+              // component, so all three recency strings for a row are decided in one place.
+              cardRecency: renderCardRecency(asOf, now),
               isStale: isStale(asOf, now),
             }
           : {}),
@@ -699,6 +714,7 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
       ? {
           updated: stand.recencyLabel,
           confirmedElapsed: stand.confirmedElapsed,
+          cardRecency: stand.cardRecency,
           stale: stand.isStale,
         }
       : {}),

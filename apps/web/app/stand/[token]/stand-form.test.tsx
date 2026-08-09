@@ -56,13 +56,13 @@ describe("StandForm", () => {
     expect(screen.queryByLabelText("Price basis for Eggs")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("How many Eggs")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Unit for Eggs")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Update" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     const body = JSON.parse(
       (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
     ) as Record<string, unknown>;
     expect(body).toEqual({
       token: "private-token",
-      action: "propose",
+      action: "publish",
       edit: {
         additions: [],
         changes: [{ entryId: "e1", priceText: null }],
@@ -137,14 +137,14 @@ describe("StandForm", () => {
     await user.type(screen.getByLabelText("How many Plum jam"), "3");
     await user.selectOptions(screen.getByLabelText("Unit for Plum jam"), "jar");
     await user.type(screen.getByLabelText("Price for Plum jam"), "8");
-    await user.click(screen.getByRole("button", { name: "Update" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     const body = JSON.parse(
       (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
     ) as Record<string, unknown>;
     expect(body).toEqual({
       token: "private-token",
-      action: "propose",
+      action: "publish",
       edit: {
         additions: [{ itemName: "Plum jam", priceText: "3 jar for $8" }],
         changes: [{ entryId: "e1", priceText: "$5 / dozen" }],
@@ -157,7 +157,7 @@ describe("StandForm", () => {
   it("does not open a proposal for an unchanged or fully reverted editor", async () => {
     const user = userEvent.setup();
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
-    const preview = screen.getByRole("button", { name: "Update" });
+    const preview = screen.getByRole("button", { name: "Save" });
 
     expect(preview).toBeDisabled();
     await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
@@ -172,26 +172,62 @@ describe("StandForm", () => {
     expect(preview).toBeDisabled();
   });
 
-  it("keeps exact preview and explicit confirmation as the only publish boundary", async () => {
+  it("publishes on ONE press, with no preview step between the farmer and their stand", async () => {
+    // F-097 (max, 2026-08-08). The editor used to propose, render the exact snapshot back, and
+    // wait for a second press. That gate is right for SMS, where code interpreted prose and had
+    // to show its reading first; here the farmer is looking at the rows they filled in, so the
+    // preview restated the screen they were already on.
+    //
+    // Asserted as ONE request rather than as the absence of the preview text: a page that still
+    // proposed and merely hid the confirmation would pass a "no preview visible" check while
+    // leaving the farmer's listing unpublished behind it.
     const user = userEvent.setup();
     const fetchMock = stubFetch({
-      outcome: "proposed",
-      proposalId: "p1",
-      confirmationText: "Your stand will show:\n- Eggs (12 dozen, $7 / dozen)\n- Kale",
+      status: "published",
+      currentEntries: [
+        { entryId: "e1", itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$7 / dozen" },
+        { entryId: "e2", itemName: "Kale" },
+      ],
     });
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
     await user.clear(screen.getByLabelText("Price for Eggs"));
     await user.type(screen.getByLabelText("Price for Eggs"), "7");
-    await user.click(screen.getByRole("button", { name: "Update" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
-      "Eggs (12 dozen, $7 / dozen)",
-    );
-    expect(screen.getByText("Exact preview — nothing has changed yet.")).toBeVisible();
+    expect(await screen.findByText("Your stand is updated.")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(
+      screen.queryByRole("region", { name: "Exact publication preview" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirm and publish" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Don't publish" })).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Confirm and publish" }));
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+  it("re-bases the editor on the entries the SERVER published, not on its own optimism", async () => {
+    // The editor names entry ids, so the next edit may only reference ids that actually exist
+    // after this publication. Trusting the local rows would let a farmer's second save cite an
+    // id the server never minted — the composition-base failure `readCurrentStandEntries`
+    // exists to prevent, reached from the client side instead.
+    const user = userEvent.setup();
+    stubFetch({
+      status: "published",
+      // The server renamed nothing but assigned a REAL id to the row the farmer typed.
+      currentEntries: [
+        { entryId: "e1", itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$6 / dozen" },
+        { entryId: "e2", itemName: "Kale" },
+        { entryId: "server-minted", itemName: "Plum jam" },
+      ],
+    });
+    render(<StandForm token="private-token" currentEntries={CURRENT} />);
+
+    await user.type(screen.getByLabelText("Stock today"), "Plum jam");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Your stand is updated.")).toBeVisible();
+    // Saving again with nothing changed must be impossible: the baseline is now the published
+    // set, so the form has no edit to send.
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });

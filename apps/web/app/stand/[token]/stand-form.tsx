@@ -10,11 +10,19 @@ import {
   type StockItemPriceDraft,
 } from "../../farmer/stock-item-row";
 
-type Stage =
-  | { step: "typing" }
-  | { step: "confirming"; proposalId: string; confirmationText: string }
-  | { step: "published" }
-  | { step: "declined" };
+/*
+  WHAT THE FORM IS SHOWING, now that saving is one press (F-097, max 2026-08-08).
+
+  There used to be a `confirming` stage holding a proposal id and the snapshot text: the
+  farmer pressed Update, read back the exact publication, and pressed again. That preview is
+  what SMS needs, because there code has INTERPRETED prose and must show its reading before
+  acting. Here the farmer is looking at the rows they filled in — the preview restated the
+  screen they were already on, and cost every update a second press.
+
+  `declined` went with it. It existed only to answer "Don't publish", which is a question this
+  surface no longer asks; a farmer who changes their mind now edits the rows back.
+*/
+type Stage = { step: "typing" } | { step: "published" };
 
 /** What the stand is publishing right now, for display and edit composition only. */
 export interface CurrentEntry {
@@ -222,32 +230,33 @@ export function StandForm({
     }
   }
 
-  async function propose() {
+  /**
+   * Publish what is on screen, in ONE press (F-097).
+   *
+   * The server still proposes and confirms — the gate re-reads authority, VIGA approval and
+   * retirement under lock — but it does both in this one request, so nothing here holds a
+   * proposal id between two presses.
+   *
+   * The published rows come back from the server and REPLACE what is on screen, rather than
+   * the form assuming its own edit took. That is what makes the next edit compose against
+   * what actually published: the editor names entry ids, and ids the server just minted are
+   * the only ones a following change may reference.
+   */
+  async function publish() {
     if (edit === undefined) return;
-    setStage({ step: "typing" });
-    const payload = await post({ action: "propose", edit });
-    if (payload === null) return;
-    if (payload.outcome !== "proposed") {
-      setError("That update could not be prepared. Your listing is unchanged — try again.");
-      return;
-    }
-    setStage({
-      step: "confirming",
-      proposalId: payload.proposalId as string,
-      confirmationText: payload.confirmationText as string,
-    });
-  }
+    /*
+      CLEAR THE PREVIOUS SUCCESS BEFORE ASKING, not after answering.
 
-  async function settle(accept: boolean) {
-    if (stage.step !== "confirming") return;
-    const payload = await post({
-      action: accept ? "confirm" : "decline",
-      proposalId: stage.proposalId,
-      confirmationText: stage.confirmationText,
-    });
+      Otherwise a farmer whose second save is REFUSED reads "Your stand is updated." — left
+      over from the first — directly above the error explaining that it was not. The old
+      two-step flow reset this when the proposal opened; collapsing to one press removed that
+      moment, and the stale banner is what fell through the gap.
+    */
+    setStage({ step: "typing" });
+    const payload = await post({ action: "publish", edit });
     if (payload === null) return;
-    setStage({ step: accept ? "published" : "declined" });
-    if (accept && Array.isArray(payload.currentEntries) && payload.currentEntries.every(isCurrentEntry)) {
+    setStage({ step: "published" });
+    if (Array.isArray(payload.currentEntries) && payload.currentEntries.every(isCurrentEntry)) {
       const publishedRows = rowsFromEntries(payload.currentEntries);
       setRows(publishedRows);
       setBaselineRows(publishedRows);
@@ -255,8 +264,6 @@ export function StandForm({
       setDraftItem("");
     }
   }
-
-  const editing = stage.step !== "confirming";
 
   return (
     <>
@@ -266,71 +273,45 @@ export function StandForm({
         </p>
       )}
 
-      {editing && (
-        <>
-          {stage.step === "published" && (
-            <p className="farmer-form-published" role="status">
-              Your stand is updated.
-            </p>
-          )}
-          {stage.step === "declined" && (
-            <p className="farmer-form-note" role="status">
-              Nothing changed.
-            </p>
-          )}
-
-          <StockInventoryEditor
-            kind="dated"
-            items={rows.map((row) => ({
-              key: row.key,
-              name: row.itemName,
-              inStock: row.inStock,
-              price: row.price,
-            }))}
-            pricesEnabled={pricesEnabled}
-            draftItem={draftItem}
-            onPricesEnabledChange={() => setPricesEnabled(!pricesEnabled)}
-            onDraftItemChange={setDraftItem}
-            onAddItem={addDraftItem}
-            onStockChange={(key) => {
-              const row = rows.find((candidate) => candidate.key === key);
-              if (row !== undefined) updateRow(key, { inStock: !row.inStock });
-            }}
-            onPriceChange={(key, price) => updateRow(key, { price })}
-            onRemoveItem={removeRow}
-            action={
-              <button
-                type="button"
-                className="farmer-stock-update"
-                disabled={busy || edit === undefined}
-                onClick={() => void propose()}
-              >
-                {busy ? "Checking…" : "Update"}
-              </button>
-            }
-          />
-        </>
+      {stage.step === "published" && (
+        <p className="farmer-form-published" role="status">
+          Your stand is updated.
+        </p>
       )}
 
-      {stage.step === "confirming" && (
-        <section className="farmer-confirmation" role="region" aria-label="Exact publication preview">
-          <p className="farmer-form-note">
-            <strong>Exact preview — nothing has changed yet.</strong>
-          </p>
-          <pre className="farmer-form-snapshot">{stage.confirmationText}</pre>
+      <StockInventoryEditor
+        kind="dated"
+        items={rows.map((row) => ({
+          key: row.key,
+          name: row.itemName,
+          inStock: row.inStock,
+          price: row.price,
+        }))}
+        pricesEnabled={pricesEnabled}
+        draftItem={draftItem}
+        onPricesEnabledChange={() => setPricesEnabled(!pricesEnabled)}
+        onDraftItemChange={setDraftItem}
+        onAddItem={addDraftItem}
+        onStockChange={(key) => {
+          const row = rows.find((candidate) => candidate.key === key);
+          if (row !== undefined) updateRow(key, { inStock: !row.inStock });
+        }}
+        onPriceChange={(key, price) => updateRow(key, { price })}
+        onRemoveItem={removeRow}
+        action={
+          // "Save" rather than "Update", and it publishes on this press. It said "Checking…"
+          // while busy because the press only opened a proposal; now the word has to name
+          // what is actually happening to the farmer's listing.
           <button
-            className="farmer-form-affirmative"
             type="button"
-            disabled={busy}
-            onClick={() => void settle(true)}
+            className="farmer-stock-update"
+            disabled={busy || edit === undefined}
+            onClick={() => void publish()}
           >
-            {busy ? "Publishing…" : "Confirm and publish"}
+            {busy ? "Saving…" : "Save"}
           </button>
-          <button type="button" disabled={busy} onClick={() => void settle(false)}>
-            Don&apos;t publish
-          </button>
-        </section>
-      )}
+        }
+      />
     </>
   );
 }

@@ -224,7 +224,7 @@ describe("farmer authorization and standing links (integration)", () => {
         satisfy a `toContain` while resolving to nothing for the farmer.
       */
       const body = queued[0]?.body as string;
-      const token = /\/stand\/([0-9a-f]{64})\b/.exec(body)?.[1];
+      const token = /\/stand\/([A-Za-z0-9_-]{22,64})/.exec(body)?.[1];
       expect(token).toBeDefined();
       const live = await sql()`
         select authorization_id from farmer_links
@@ -232,7 +232,14 @@ describe("farmer authorization and standing links (integration)", () => {
       `;
       expect(live).toHaveLength(1);
       expect(body).toBe(
-        renderFarmerAuthorizedNotification(`https://farmfriend.test/stand/${token as string}`),
+        // This fixture's farm has exactly ONE stand, so the body must be the one-stand form —
+        // `STAND` is named only for a farmer who has a second one to pick between (max
+        // 2026-08-09). Stating the count here rather than taking the default is what makes this
+        // assert the branch the fixture actually exercises.
+        renderFarmerAuthorizedNotification(
+          `https://farmfriend.test/stand/${token as string}`,
+          { standCount: 1 },
+        ),
       );
       expect(queued[0]?.state).toBe("queued");
       // A PROACTIVE category: Farm Friend is speaking first. Categorizing it as a reply

@@ -239,6 +239,13 @@
       "when": 1788064000000,
       "tag": "0033_price_basis_unit",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1788064001000,
+      "tag": "0034_invitation_pending_cadence",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE "farmer_invitations" ADD COLUMN "pending_prompt_cadence" "inventory_prompt_cadence";

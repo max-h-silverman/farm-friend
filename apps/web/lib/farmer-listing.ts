@@ -7,7 +7,9 @@ import {
 import {
   loadFarmerInvitation,
   recordFarmerInvitationPendingPhone,
+  recordFarmerInvitationPendingCadence,
   recordFarmerInvitationPendingStock,
+  type PendingPromptCadence,
   saveOnboardingListing,
   OPEN_HOURS_KINDS,
   SEASON_KINDS,
@@ -102,6 +104,21 @@ export interface FarmerListingDeps {
     input: {
       token: string;
       entries: { itemName: string; priceText?: string }[];
+      occurredAt: Date;
+    },
+  ) => Promise<{ status: "recorded" } | { status: "invalid" }>;
+  /**
+   * Hold the reminder cadence the farmer chose until their `START` (F-097).
+   *
+   * Same holding pattern as the stock above, and for a structural reason rather than a policy
+   * one: `inventory_prompt_preferences` carries a composite foreign key to a live
+   * authorization, which an invited farmer does not have until they text.
+   */
+  recordPendingCadence?: (
+    db: Db,
+    input: {
+      token: string;
+      cadence: PendingPromptCadence;
       occurredAt: Date;
     },
   ) => Promise<{ status: "recorded" } | { status: "invalid" }>;
@@ -406,6 +423,33 @@ export interface ParsedListingSubmission {
    * the two is what would let "we usually sell eggs" become "eggs are on the table today".
    */
   currentStock: { itemName: string; priceText?: string }[] | null;
+  /**
+   * F-097 — how often the farmer asked to be reminded. `null` means they said nothing.
+   *
+   * Beside the listing for the same reason `currentStock` is: it is not a listing fact. It is
+   * a messaging preference, held on the invitation until `START` proves the handset, because
+   * the preference row needs an authorization that does not exist yet.
+   */
+  promptCadence: PendingPromptCadence | null;
+}
+
+/** The four cadences the form may state. Anything else is a malformed body, not a default. */
+const PROMPT_CADENCES = ["every_2_days", "weekly", "every_2_weeks", "paused"] as const;
+
+/**
+ * The stated cadence, `null` for absent, or `undefined` for malformed.
+ *
+ * Three outcomes rather than two, matching every other reader in this file: a body that states
+ * a cadence we do not recognise is a BUG in the caller, and quietly falling back to the default
+ * would hide it while silently changing how often a farmer is texted.
+ */
+function promptCadence(
+  value: unknown,
+): PendingPromptCadence | null | undefined {
+  if (value === undefined || value === null) return null;
+  return PROMPT_CADENCES.includes(value as PendingPromptCadence)
+    ? (value as PendingPromptCadence)
+    : undefined;
 }
 
 /**
@@ -439,6 +483,7 @@ export function parseListingSubmission(
   const paymentMethods = stringList(body.paymentMethods);
   const items = itemList(body.items);
   const currentStock = currentStockList(body.currentStock);
+  const cadence = promptCadence(body.promptCadence);
   const latitude = optionalCoordinate(body.latitude);
   const longitude = optionalCoordinate(body.longitude);
   const availability = readAvailability(body);
@@ -451,6 +496,7 @@ export function parseListingSubmission(
     paymentMethods === undefined ||
     items === undefined ||
     currentStock === undefined ||
+    cadence === undefined ||
     latitude === undefined ||
     longitude === undefined ||
     availability === MALFORMED
@@ -460,6 +506,7 @@ export function parseListingSubmission(
 
   return {
     currentStock,
+    promptCadence: cadence,
     standName,
     listing: {
       visitability,
@@ -628,6 +675,21 @@ export async function handleFarmerListingPost(
         occurredAt: deps.clock.now(),
       });
     }
+    /*
+      The reminder cadence the farmer chose, held on the same invitation (F-097).
+
+      Unlike the stock above it, this does NOT depend on the phone having been recorded: a
+      cadence with no handset simply never applies. It is still written last, so a failure here
+      cannot cost the farmer their listing or their held stock — and a farmer whose cadence did
+      not land keeps the default, which is what they had before the form asked.
+    */
+    if (submission.promptCadence !== null && deps.recordPendingCadence !== undefined) {
+      await deps.recordPendingCadence(deps.db, {
+        token,
+        cadence: submission.promptCadence,
+        occurredAt: deps.clock.now(),
+      });
+    }
     return Response.json({ status: "saved" });
   }
   // `unknown_farm` is unreachable through this path — the farm came from the invitation we
@@ -662,5 +724,6 @@ export function farmerListingDeps(context: {
     saveListing: saveOnboardingListing,
     recordPendingPhone: recordFarmerInvitationPendingPhone,
     recordPendingStock: recordFarmerInvitationPendingStock,
+    recordPendingCadence: recordFarmerInvitationPendingCadence,
   };
 }

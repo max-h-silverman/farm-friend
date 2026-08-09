@@ -275,15 +275,24 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       expect(entries.map((row) => row.item_name)).toEqual(["carrots"]);
     });
 
-    it("accepts only a structured web edit and returns the published rows after confirmation", async () => {
+    it("publishes a structured web edit in ONE request and returns the published rows", async () => {
+      // F-097 (max, 2026-08-08) — `propose`/`confirm`/`decline` collapsed into one `publish`.
+      // The two-press gate is right for SMS, where code interpreted prose and had to show its
+      // reading first; on this surface the farmer is looking at the rows they typed.
+      //
+      // **The confirmation TRANSACTION is unchanged**, which is what this asserts by effect: a
+      // real `inventory_entries` row exists afterwards, written through
+      // `confirmInventoryPublication` with all its authority, approval and retirement checks —
+      // not by a new writer that reached around them. The neighbouring tests in this file
+      // sabotage each of those bounds and still pass.
       const { token, salesLocationId } = await farmer();
-      const proposedResponse = await farmerStandRoute.POST(
+      const response = await farmerStandRoute.POST(
         new Request("https://ff.example/api/farmer/stand", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             token,
-            action: "propose",
+            action: "publish",
             edit: {
               additions: [{ itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$6" }],
               changes: [],
@@ -292,27 +301,9 @@ describe("the farmer web surface behind a standing link (integration)", () => {
           }),
         }),
       );
-      expect(proposedResponse.status).toBe(200);
-      const proposed = (await proposedResponse.json()) as {
-        proposalId: string;
-        confirmationText: string;
-      };
-      expect(proposed.confirmationText).toContain("Eggs (12 dozen, $6)");
 
-      const confirmedResponse = await farmerStandRoute.POST(
-        new Request("https://ff.example/api/farmer/stand", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            token,
-            action: "confirm",
-            proposalId: proposed.proposalId,
-            confirmationText: proposed.confirmationText,
-          }),
-        }),
-      );
-      expect(confirmedResponse.status).toBe(200);
-      expect(await confirmedResponse.json()).toMatchObject({
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
         status: "published",
         currentEntries: [
           { itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$6" },
@@ -322,6 +313,31 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         select item_name, quantity, unit, price_text
         from inventory_entries where sales_location_id = ${salesLocationId}
       `).toEqual([{ item_name: "Eggs", quantity: 12, unit: "dozen", price_text: "$6" }]);
+
+      // The proposal was consumed rather than left open: an `open` row would occupy the
+      // one-per-sender slot and refuse the farmer's next SMS update.
+      expect(await sql()`
+        select count(*)::int as open from inventory_publication_proposals
+        where sales_location_id = ${salesLocationId} and state = 'open'
+      `).toEqual([{ open: 0 }]);
+
+      // AND NOTHING WAS TEXTED. The web path writes its activation record `suppressed`: the
+      // farmer read the exact snapshot on screen as they saved it, so a text restating it is
+      // noise for an errand already finished. The row still EXISTS, because
+      // `activation_coherent` requires a message the proposal activated from.
+      //
+      // Scoped to THIS stand's proposal by logical key rather than counting every confirmation
+      // in the database — other tests in this file publish too, and a global count would make
+      // this pass or fail on their ordering rather than on the property it names.
+      const proposals = await sql()`
+        select id from inventory_publication_proposals
+        where sales_location_id = ${salesLocationId}
+      `;
+      const queued = await sql()`
+        select state from outbox_work
+        where logical_key = ${`web-proposal-${proposals[0]?.id as string}`}
+      `;
+      expect(queued).toEqual([{ state: "suppressed" }]);
     });
 
     it("refuses free text at the web boundary without opening a proposal", async () => {
@@ -330,7 +346,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         new Request("https://ff.example/api/farmer/stand", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ token, action: "propose", text: "eggs and kale" }),
+          body: JSON.stringify({ token, action: "publish", text: "eggs and kale" }),
         }),
       );
 
@@ -790,10 +806,16 @@ describe("the farmer web surface behind a standing link (integration)", () => {
     });
 
     it("rejects a malformed token WITHOUT querying the database at all", async () => {
-      // The shape guard's real job. A 64-hex string is the only thing that can match, so
-      // anything else is not a near-miss to look up — and refusing it in code keeps an
-      // absurd path segment from ever reaching the driver. Asserted by counting queries,
-      // because "returns null" is true with or without the guard.
+      // The shape guard's real job. Anything outside the token alphabet and length is not a
+      // near-miss to look up, and refusing it in code keeps an absurd path segment from ever
+      // reaching the driver. Asserted by counting queries, because "returns null" is true with
+      // or without the guard.
+      //
+      // F-097 widened the shape from 64 hex to base64url spanning 22–64 characters, so the
+      // fixtures below are ones that are still outside it: wrong characters, empty, a path
+      // traversal, too short to be a credential, and absurdly long. A 64-character run of "A"
+      // is no longer malformed — it is a well-formed token that simply matches no row, which
+      // the final assertion in this test already covers.
       let queries = 0;
       const counting = {
         ...database(),
@@ -809,7 +831,13 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         }),
       } as Db;
 
-      for (const token of ["not-a-token", "", "../../etc/passwd", "A".repeat(64)]) {
+      for (const token of [
+        "not-a-token!",
+        "",
+        "../../etc/passwd",
+        "abc",
+        "A".repeat(65),
+      ]) {
         expect(await resolveStandFromToken(counting, token), token).toBeNull();
       }
       expect(queries).toBe(0);

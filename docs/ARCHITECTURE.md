@@ -115,9 +115,15 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   publication happens only through `confirmInventoryPublication`, which re-reads farmer authority,
   VIGA approval, and whether VIGA has retired the stand (F-071) under lock — the retirement read
   comes from the location row that transaction already holds, so a retirement racing an in-flight
-  confirmation resolves at the lock rather than by arrival order. The one honest difference from SMS is activation — there is no
-  carrier prompt to be accepted, so the window is opened against a queued confirmation message the
-  farmer also receives. A leaked link can at worst propose a wrong listing on ONE stand;
+  confirmation resolves at the lock rather than by arrival order. **What the farmer PRESSES is one
+  button, and that is a screen rather than a gate** (F-097): `publishStructuredFromLink` composes
+  the propose and confirm calls in one request, so every check above still runs — the exact preview
+  the farmer used to read back is what was removed, because on this surface they are looking at the
+  rows they typed rather than at code's reading of their prose. The one honest difference from SMS
+  is activation — there is no carrier prompt to be accepted, so the window is opened against a
+  confirmation message written **`suppressed`**: it exists because `activation_coherent` requires a
+  message the proposal activated from, and it is never sent because the farmer already read the
+  snapshot on screen. A leaked link can at worst propose a wrong listing on ONE stand;
   `apps/web/lib/farmer-stand.integration.test.ts` asserts and sabotages each bound.
   `/stand/<token>/settings` reuses that same standing credential and revocation lifecycle. It
   exposes only the authorization's editable locations, stores one default SMS target, and lets the

@@ -166,6 +166,43 @@ export function renderRecency(asOf: Date, now: Date): string {
   return `updated ${renderElapsed(asOf, now)}`;
 }
 
+/**
+ * How long the public card keeps counting before it stops claiming a date at all (F-097).
+ *
+ * Four weeks, max's call (2026-08-08). Past it the card says "No recent update" rather than
+ * "Last updated 63 days ago": a two-month-old confirmation is not a fresher or staler fact
+ * than a three-month-old one, and printing the arithmetic invites a customer to reason about
+ * a number that has stopped meaning anything. This is a DISPLAY threshold and is deliberately
+ * NOT `STALE_AFTER_HOURS` — staleness (48 hours) is when the warning starts; this is when the
+ * count itself stops being worth stating.
+ */
+export const NO_RECENT_UPDATE_AFTER_DAYS = 28;
+
+/** What a card with no useful date left says instead of one. */
+export const NO_RECENT_UPDATE = "No recent update";
+
+/**
+ * The public card's recency phrase — "Last updated 3 days ago", or the no-date sentence.
+ *
+ * **Separate from `renderElapsed` because the two surfaces answer different questions.** An
+ * SMS answer is about right now, so it counts in minutes and hours and never needs a week; a
+ * map card is browsed and its listings run to months, where "45 days ago" is a number nobody
+ * converts. So this adds weeks above a day and gives up entirely at four of them.
+ *
+ * It still DELEGATES everything under a week to `renderElapsed`, rather than restating the
+ * arithmetic: web and SMS must not come to disagree about how fresh the same row is, which is
+ * the whole reason that function is shared.
+ */
+export function renderCardRecency(asOf: Date, now: Date): string {
+  const days = Math.floor(
+    Math.max(0, now.getTime() - asOf.getTime()) / 86_400_000,
+  );
+  if (days >= NO_RECENT_UPDATE_AFTER_DAYS) return NO_RECENT_UPDATE;
+  if (days < 7) return `Last updated ${renderElapsed(asOf, now)}`;
+  const weeks = Math.floor(days / 7);
+  return weeks === 1 ? "Last updated 1 week ago" : `Last updated ${weeks} weeks ago`;
+}
+
 /** True when a fact is old enough that the answer must carry a staleness warning. */
 export function isStale(asOf: Date, now: Date): boolean {
   return now.getTime() - asOf.getTime() >= STALE_AFTER_HOURS * 3_600_000;

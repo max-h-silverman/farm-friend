@@ -1096,12 +1096,12 @@ describe("the farmer stand form", () => {
 
     const names = screen.getByRole("textbox", { name: "Seller names" });
     expect(names).toHaveValue("Guest Growers");
-    expect(screen.getByText(/one farm or business name per line/i)).toBeTruthy();
-    expect(screen.getByText(/do not give anyone permission/i)).toBeTruthy();
+    expect(screen.getByText(/one name per\s+line/i)).toBeTruthy();
+    expect(screen.getByText(/give nobody permission/i)).toBeTruthy();
     await user.type(names, "{enter}Island Apiary");
-    await user.click(screen.getByRole("button", { name: "Save seller names" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/seller names saved/i);
+    expect(await screen.findByRole("status")).toHaveTextContent(/settings saved/i);
     expect(fetcher).toHaveBeenCalledWith(
       "/api/farmer/stand",
       expect.objectContaining({
@@ -1115,21 +1115,42 @@ describe("the farmer stand form", () => {
     );
   });
 
-  it("lets the owner save an empty seller list explicitly", async () => {
+  it("lets the owner CLEAR the seller list, which is a real edit and must reach the writer", async () => {
+    // "Everyone who was selling here has stopped" is a statement the farmer must be able to
+    // make, and it is the one edit whose payload is empty — so a form that treated blank as
+    // "nothing to save" would leave retired names on the public listing forever.
     const user = userEvent.setup();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        response(200, { status: "saved", activeDisplayNames: [] }),
-      ),
+    const fetcher = vi.fn().mockResolvedValue(
+      response(200, { status: "saved", activeDisplayNames: [] }),
     );
-    render(<SettingsForm token="private-token" locations={settingsLocations} participantNamesByLocation={{ "stand-a": [] }} />);
+    vi.stubGlobal("fetch", fetcher);
+    render(
+      <SettingsForm
+        token="private-token"
+        locations={settingsLocations}
+        participantNamesByLocation={{ "stand-a": ["Guest Growers"] }}
+      />,
+    );
 
     const names = screen.getByRole("textbox", { name: "Seller names" });
-    expect(names).toHaveValue("");
     expect(names).not.toHaveAttribute("placeholder");
-    await user.click(screen.getByRole("button", { name: "Save seller names" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(/seller names saved/i);
+    // Untouched, there is nothing to save — the button is not a no-op waiting to be pressed.
+    expect(screen.getByRole("button", { name: "Save settings" })).toBeDisabled();
+
+    await user.clear(names);
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/settings saved/i);
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/farmer/stand",
+      expect.objectContaining({
+        body: JSON.stringify({
+          token: "private-token",
+          action: "save_participants",
+          participantNames: [],
+        }),
+      }),
+    );
     expect(names).not.toHaveAttribute("placeholder");
   });
 
@@ -1144,13 +1165,13 @@ describe("the farmer stand form", () => {
 
     const names = screen.getByRole("textbox", { name: "Seller names" });
     await user.type(names, "{enter}Call 206-555-0199");
-    await user.click(screen.getByRole("button", { name: "Save seller names" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Please remove the phone number.",
     );
     expect(names).toHaveValue("Guest Growers\nCall 206-555-0199");
 
-    await user.click(screen.getByRole("button", { name: "Save seller names" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/link is no longer active/i);
     expect(screen.getByRole("link", { name: "How to get a new link" })).toHaveAttribute(
       "href",
@@ -1158,26 +1179,20 @@ describe("the farmer stand form", () => {
     );
   });
 
-  it("moves through exact preview, decline, and publication with honest effects", async () => {
+  it("publishes on one press and posts the credential in the body every time", async () => {
+    // F-097 (max, 2026-08-08) — the preview-and-confirm pair is gone from this surface. It is
+    // the right gate for SMS, where code interpreted prose; here the farmer is looking at the
+    // rows they typed. `stand-form.test.tsx` owns the one-request assertion; this file keeps
+    // the credential-placement guarantee it has always owned.
     const user = userEvent.setup();
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(
-        response(200, {
-          outcome: "proposed",
-          proposalId: "proposal-1",
-          confirmationText: "Your stand will show:\n- Winter squash (3 item for $4)",
-        }),
-      )
-      .mockResolvedValueOnce(response(200, { outcome: "declined" }))
-      .mockResolvedValueOnce(
-        response(200, {
-          outcome: "proposed",
-          proposalId: "proposal-2",
-          confirmationText: "Your stand will show:\n- Winter squash (3 item for $4)",
-        }),
-      )
-      .mockResolvedValueOnce(response(200, { outcome: "published" }));
+    const fetcher = vi.fn().mockResolvedValue(
+      response(200, {
+        status: "published",
+        currentEntries: [
+          { entryId: "e1", itemName: "Winter squash", priceText: "3 item for $4" },
+        ],
+      }),
+    );
     vi.stubGlobal("fetch", fetcher);
 
     render(<StandForm token="private-token" currentEntries={[]} />);
@@ -1188,18 +1203,12 @@ describe("the farmer stand form", () => {
     await user.selectOptions(screen.getByLabelText("Price basis for Winter squash"), "for");
     await user.clear(screen.getByLabelText("How many Winter squash"));
     await user.type(screen.getByLabelText("How many Winter squash"), "3");
-    await user.click(screen.getByRole("button", { name: "Update" }));
-    expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
-      "Winter squash (3 item for $4)",
-    );
-    expect(screen.getByText("Exact preview — nothing has changed yet.")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await user.click(screen.getByRole("button", { name: "Don't publish" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Nothing changed");
-
-    await user.click(screen.getByRole("button", { name: "Update" }));
-    await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
+    // The preview surface must stay gone rather than merely be skipped.
+    expect(screen.queryByRole("region", { name: "Exact publication preview" })).toBeNull();
+    expect(screen.queryByText("Exact preview — nothing has changed yet.")).toBeNull();
 
     for (const call of fetcher.mock.calls) {
       expect(call[0]).toBe("/api/farmer/stand");
@@ -1217,7 +1226,7 @@ describe("the farmer stand form", () => {
 
     await user.type(screen.getByLabelText("Stock today"), "eggs");
     await user.click(screen.getByRole("button", { name: "Add item" }));
-    await user.click(screen.getByRole("button", { name: "Update" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/listing is unchanged/i);
     expect(screen.getByRole("link", { name: "How to get a new link" })).toHaveAttribute(
@@ -1226,7 +1235,9 @@ describe("the farmer stand form", () => {
     );
   });
 
-  it("clears a prior terminal status when a new proposal begins and fails", async () => {
+  it("clears a prior success when the next save fails", async () => {
+    // A farmer must never read "Your stand is updated." over a screen whose latest save was
+    // refused. The stale success is the lie; the alert alone is not enough.
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -1234,12 +1245,10 @@ describe("the farmer stand form", () => {
         .fn()
         .mockResolvedValueOnce(
           response(200, {
-            outcome: "proposed",
-            proposalId: "proposal-1",
-            confirmationText: "Kale — $3/bunch",
+            status: "published",
+            currentEntries: [{ entryId: "e1", itemName: "Kale", priceText: "$3/bunch" }],
           }),
         )
-        .mockResolvedValueOnce(response(200, { outcome: "published" }))
         .mockResolvedValueOnce(response(500, { message: "Could not save the proposal." })),
     );
     render(<StandForm token="private-token" currentEntries={[]} />);
@@ -1248,15 +1257,14 @@ describe("the farmer stand form", () => {
     await user.click(screen.getByRole("button", { name: "Add item" }));
     await user.click(screen.getByRole("switch", { name: "Add prices" }));
     await user.type(screen.getByLabelText("Price for Kale"), "$3/bunch");
-    await user.click(screen.getByRole("button", { name: "Update" }));
-    await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
 
     await user.clear(screen.getByLabelText("Price for Kale"));
     await user.type(screen.getByLabelText("Price for Kale"), "$4/bunch");
-    await user.click(screen.getByRole("button", { name: "Update" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save the proposal.");
-    expect(screen.queryByText("Your stand is updated. Customers can now see this listing.")).toBeNull();
+    expect(screen.queryByText("Your stand is updated.")).toBeNull();
   });
 });

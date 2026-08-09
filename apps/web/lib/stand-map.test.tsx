@@ -35,6 +35,7 @@ describe("public participant names", () => {
       longitude: -122.46,
       updated: "updated 1 hour ago",
       confirmedElapsed: "1 hour ago",
+      cardRecency: "Last updated 1 hour ago",
       stale: false,
       availability: {},
       alsoSellingHere: ["Guest Growers", "Island Apiary"],
@@ -550,6 +551,7 @@ describe("farm-map poster treatment", () => {
       description: "Open every Saturday.",
       updated: "updated 1 hour ago",
       confirmedElapsed: "1 hour ago",
+      cardRecency: "Last updated 1 hour ago",
       stale: false,
       availability: {},
       alsoSellingHere: [],
@@ -723,6 +725,7 @@ describe("farm-map poster treatment", () => {
       longitude: -122.46,
       updated: "updated 1 hour ago",
       confirmedElapsed: "1 hour ago",
+      cardRecency: "Last updated 1 hour ago",
       stale: false,
       farmBucksAccepted: true,
       availability: {},
@@ -738,7 +741,7 @@ describe("farm-map poster treatment", () => {
 
     const rowDetails = container.querySelector(".stands .stand-detail-body")!;
     expect(rowDetails.querySelector(".detail-inventory")).toHaveTextContent(
-      "Confirmed 1 hour ago",
+      "Last updated 1 hour ago",
     );
     expect(rowDetails.querySelector(".detail-inventory")).toHaveTextContent("6 bunches");
     expect(rowDetails.querySelector(".detail-inventory")).toHaveTextContent("$12");
@@ -782,6 +785,7 @@ describe("farm-map poster treatment", () => {
       longitude: -122.46,
       updated: "updated 2 hours ago",
       confirmedElapsed: "2 hours ago",
+      cardRecency: "Last updated 2 hours ago",
       stale: false,
       availability: {},
       usuallySells: [{ itemName: "flowers" }, { itemName: "honey" }],
@@ -798,7 +802,16 @@ describe("farm-map poster treatment", () => {
 
     // The confirmed line is a LIST of chips, dated by its own label.
     const confirmed = body.querySelector(".listing-confirmed")!;
-    expect(confirmed.querySelector(".listing-label")).toHaveTextContent("Confirmed 2 hours ago");
+    expect(confirmed.querySelector(".listing-label")).toHaveTextContent(
+      "Last updated 2 hours ago",
+    );
+    // F-097 — the date is a CAPTION under the items, not a heading over them. What a customer
+    // came for is what is there; the timestamp qualifies it. Asserted as document order rather
+    // than as a class, so moving the line back above the list fails here.
+    const confirmedParts = Array.from(confirmed.children);
+    expect(confirmedParts.indexOf(confirmed.querySelector(".items")!)).toBeLessThan(
+      confirmedParts.indexOf(confirmed.querySelector(".listing-label")!),
+    );
     expect(confirmed.querySelectorAll(".items li")).toHaveLength(1);
 
     // The usual line is a SENTENCE. No list, no chips — nothing countable-looking, and no date.
@@ -857,16 +870,17 @@ describe("farm-map poster treatment", () => {
       items: [{ itemName: "Apples" }],
       updated: "updated 6 days ago",
       confirmedElapsed: "6 days ago",
+      cardRecency: "Last updated 6 days ago",
       stale: true,
     };
 
     const { container } = render(<StandMap stands={[stand]} />);
     await user.click(screen.getByRole("button", { name: "Wordy Stand" }));
 
-    // The dated label above the items: the age stated in words, which is now the only
+    // The dated caption under the items: the age stated in words, which is now the only
     // non-colour signal a stale stand carries.
     expect(container.querySelector(".listing-label-confirmed")).toHaveTextContent(
-      "Confirmed 6 days ago",
+      "Last updated 6 days ago",
     );
 
     // The removed signals must stay removed: each was the same fact told a second time, and a
@@ -910,6 +924,7 @@ describe("farm-map poster treatment", () => {
       items: [{ itemName: "Apples" }],
       updated: "updated 6 days ago",
       confirmedElapsed: "6 days ago",
+      cardRecency: "Last updated 6 days ago",
     };
 
     const fresh = render(<StandMap stands={[{ ...base, stale: false }]} />);

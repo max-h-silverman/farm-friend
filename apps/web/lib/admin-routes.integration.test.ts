@@ -947,8 +947,8 @@ describe("admin routes (integration)", () => {
       // hand-assembling a URL is one typo from a dead link and one wrong host from handing
       // the credential somewhere else.
       const payload = (await issued.json()) as { link?: string };
-      expect(payload.link).toMatch(/^https:\/\/[^/]+\/stand\/[0-9a-f]{64}$/);
-      const issuedToken = /\/stand\/([0-9a-f]{64})$/.exec(payload.link ?? "")?.[1];
+      expect(payload.link).toMatch(/^https:\/\/[^/]+\/stand\/[A-Za-z0-9_-]{22,64}$/);
+      const issuedToken = /\/stand\/([A-Za-z0-9_-]{22,64})$/.exec(payload.link ?? "")?.[1];
       expect(issuedToken).toBeDefined();
 
       const links = await sql()`

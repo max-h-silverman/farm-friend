@@ -5,6 +5,7 @@ import {
   renderFarmerAuthorizedNotification,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_JOIN_INSTRUCTION,
+  issueFarmerLinkToken,
   renderFarmerLinkMessage,
 } from "@farm-friend/core";
 import { estimateSmsSegments } from "./segments";
@@ -40,15 +41,42 @@ describe("onboarding message segments", () => {
     }
   });
 
-  it("keeps the setup message within three segments, link and keywords included", () => {
-    // F-093/F-094 — this message does the most work of any we send: it says the farm is live,
-    // carries the private link, names the primary interface, and teaches three keywords the
-    // farmer has no other channel for. Measured against the production host with a
-    // full-length token, which is what a real farmer receives.
+  it("keeps the setup message within three segments, example and link included", () => {
+    // This message does the most work of any we send: it names the channel, SHOWS how to phrase
+    // an update, carries the private link, and names the recovery word. Measured against the
+    // production host with a REAL minted token, which is what a farmer actually receives.
     //
-    // Three is the honest ceiling, not an aspiration: two was not reachable without dropping
-    // either the link or the keywords, and both are the point of the message. The regression
-    // this catches is a FOURTH segment.
+    // **Three, and the history is worth keeping straight.** F-097 got this to two by shortening
+    // the token and stripping the scaffolding around the URL; max then spent that budget
+    // deliberately (2026-08-09) on a worked example — "we're out of eggs, replenished kale and
+    // added radishes" — because stating the interface without demonstrating it left a farmer
+    // guessing at a format that does not exist. The example is the most valuable line in the
+    // message, so the segment goes to it rather than the bound forcing the copy.
+    //
+    // What this still catches is a FOURTH segment, and the blank lines are the likely cause:
+    // each paragraph break costs a character in a message already near its ceiling.
+    const link = `https://farm-friend-web-p5mfxfp5za-uw.a.run.app/stand/${issueFarmerLinkToken()}`;
+    // The two-stand form is the longer one — it carries the extra STAND paragraph.
+    const estimate = estimateSmsSegments(
+      renderFarmerAuthorizedNotification(link, { standCount: 2 }),
+    );
+    expect(estimate.encoding).toBe("GSM-7");
+    expect(estimate.segmentCount).toBeLessThanOrEqual(3);
+  });
+
+  it("costs a one-stand farmer less than a two-stand one", () => {
+    // The STAND paragraph is real cost, imposed only on farmers who can act on it. Asserted as
+    // a comparison rather than a fixed number, so it keeps holding as the copy changes.
+    const link = `https://farm-friend-web-p5mfxfp5za-uw.a.run.app/stand/${issueFarmerLinkToken()}`;
+    const one = renderFarmerAuthorizedNotification(link, { standCount: 1 });
+    const two = renderFarmerAuthorizedNotification(link, { standCount: 2 });
+    expect(one.length).toBeLessThan(two.length);
+  });
+
+  it("still fits the farmer whose link predates the shortened token", () => {
+    // The 35 links live in production when F-097 landed are 64 hex, and `LINK` re-mints rather
+    // than reformatting — so a farmer can hold an old-style link for as long as they never ask
+    // for a new one. That message is longer, and it is still a message we send.
     const link = `https://farm-friend-web-p5mfxfp5za-uw.a.run.app/stand/${"a".repeat(64)}`;
     const estimate = estimateSmsSegments(renderFarmerAuthorizedNotification(link));
     expect(estimate.encoding).toBe("GSM-7");
@@ -84,9 +112,9 @@ describe("onboarding message segments", () => {
   });
 
   it("keeps the link message within two segments even with a full-length token", () => {
-    // The link carries a 64-character token plus the configured origin, so one segment is
-    // not achievable and pretending otherwise would be a target nobody could hit. Two is the
-    // honest bound, asserted against the LONGEST realistic link rather than a short fixture.
+    // Asserted against the LONGEST link a farmer can hold rather than a short fixture: the
+    // 64-hex tokens minted before F-097 are still live in production threads, and `LINK` is
+    // exactly the message a farmer sends when the old one is lost.
     const link = `https://farm-friend-web-p5mfxfp5za-uw.a.run.app/stand/${"a".repeat(64)}`;
     const estimate = estimateSmsSegments(renderFarmerLinkMessage(link));
     expect(estimate.encoding).toBe("GSM-7");

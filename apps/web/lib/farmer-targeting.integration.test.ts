@@ -145,7 +145,10 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
 
     expect(result.status).toBe("issued");
     expect(result.replies[0]?.body).toContain("Harbor Stand");
-    expect(result.replies[0]?.body).toMatch(/\/stand\/[0-9a-f]{64}\/settings/);
+    // F-097 — the stand token is base64url now, not 64 hex. Anchored to the SHAPE of a link
+    // token rather than to a literal length, so this keeps proving the reply carries a real
+    // settings URL for this stand without re-pinning the encoding.
+    expect(result.replies[0]?.body).toMatch(/\/stand\/[A-Za-z0-9_-]{22,64}\/settings/);
   });
 
   it("offers the durable stand menu before interpreting free text when no target is selected", async () => {

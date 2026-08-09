@@ -45,6 +45,13 @@ carrier-registered. `START` carries an onboarding effect in addition to its carr
 the reason is set out
 in its row.
 
+**This table is what the parser HONOURS, which is wider than what farmer copy TEACHES.** Every
+keyword below works when a farmer sends it; only some are advertised. `FARMER_TAUGHT_KEYWORDS` and
+`FARMER_UNTAUGHT_KEYWORDS` in `onboarding-copy.ts` own that split and carry the reason for each
+omission — currently `SETTINGS`, because a farmer has one edit page that `LINK` already opens.
+Nothing here changes with it: an untaught keyword is still parsed, still honoured, still bound by
+every rule in this document.
+
 | Keyword | Behavior |
 |---|---|
 | `START` (bare) | The carrier-registered opt-in, **and** what completes farmer onboarding (max 2026-08-07). Matched against `farmer_invitations.pending_phone_hash` — the phone the farmer stated on the onboarding form. The **invitation** is what grants; the text supplies only the handset, which `farmer_authorizations` requires as `phone_verified_at`. If the invitation carries a web agreement it establishes launch consent (see §consent model, farmer onboarding); if it also **names a farm**, the match authorizes the farmer for it in the same transaction — the invitation is the decision, made when VIGA minted it. An invitation naming no farm, or one whose box was never ticked, still waits for a coordinator.<br><br>**Ordering: the carrier transition comes FIRST, the redemption second.** `START` must enroll and lift a carrier block unconditionally, whether or not any invitation is waiting — so the redemption is attempted after the consent write, never instead of it. A sender with no invitation is the ordinary case and nothing happens.<br><br>**Only `START`, never bare `JOIN`.** `JOIN` cannot clear the carrier's own opt-out list (B-011), so completing onboarding on it would set up a farmer whose messages the carrier silently refuses. `JOIN` remains a registered opt-in and is otherwise unchanged.<br><br>**`JOIN <64-hex token>` was REMOVED.** It asked the farmer to hand-copy 64 hex characters into a text message, where any slip failed identically and silently — the token matched no invitation and nothing could distinguish "you mistyped" from "no invitation exists". That grammar is gone; `JOIN` followed by anything is now ordinary free text. |

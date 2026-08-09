@@ -34,3 +34,6 @@ infra/terraform.tfvars
 # Python bytecode from the infra assertion scripts
 __pycache__/
 *.pyc
+
+# Screenshots max drops in the repo root to show a defect. Working material, not source.
+/*.png

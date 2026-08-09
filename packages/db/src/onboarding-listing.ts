@@ -2,6 +2,7 @@ import {
   ISLAND_BOUNDS,
   nextPromptDueSlot,
   standItemPriceNeedsUnit,
+  type PromptCadence,
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import {
@@ -391,6 +392,15 @@ export async function seedDefaultPromptPreference(
     farmId: string;
     authorizationId: string | null;
     occurredAt: Date;
+    /**
+     * F-097 — the cadence the farmer CHOSE on the onboarding form, when they stated one.
+     *
+     * Omitted or `null` means they were never asked, and the default applies exactly as it
+     * did before the form offered the choice. The two are deliberately distinguishable: a
+     * farmer who picked `weekly` and a farmer who was never asked look identical in the
+     * preferences table, and only the second may be silently moved if the default changes.
+     */
+    cadence?: PromptCadence | null;
   },
 ): Promise<void> {
   if (input.authorizationId === null) return;
@@ -425,11 +435,13 @@ export async function seedDefaultPromptPreference(
   const timeZone = locations[0]?.timezone as string | undefined;
   if (salesLocationId === undefined || timeZone === undefined) return;
 
-  const nextDueAt = nextPromptDueSlot({
-    cadence: DEFAULT_PROMPT_CADENCE,
-    timeZone,
-    laterOf: input.occurredAt,
-  });
+  const cadence = input.cadence ?? DEFAULT_PROMPT_CADENCE;
+
+  // `paused` carries NO due slot, and the schema's `due_state_coherent` CHECK enforces that
+  // pair in both directions. `nextPromptDueSlot` already answers null for it, which is why
+  // this is one call rather than a branch — the rule lives in the function that owns the
+  // 10:00-local arithmetic, not restated here.
+  const nextDueAt = nextPromptDueSlot({ cadence, timeZone, laterOf: input.occurredAt });
 
   await tx`
     insert into inventory_prompt_preferences (
@@ -437,7 +449,7 @@ export async function seedDefaultPromptPreference(
       cadence, version, next_due_at, updated_at
     ) values (
       ${input.farmId}, ${salesLocationId}, ${input.authorizationId},
-      ${DEFAULT_PROMPT_CADENCE}, 1, ${nextDueAt}, ${input.occurredAt}
+      ${cadence}, 1, ${nextDueAt}, ${input.occurredAt}
     )
     on conflict (sales_location_id) do nothing
   `;

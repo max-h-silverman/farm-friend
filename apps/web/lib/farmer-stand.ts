@@ -1,5 +1,6 @@
 import {
   hashFarmerLinkToken,
+  isFarmerLinkToken,
   renderPublicStringRefusal,
   renderProposedSnapshot,
   type Clock,
@@ -67,10 +68,11 @@ export async function resolveStandFromToken(
   db: Db,
   token: string,
 ): Promise<ResolvedFarmerLink | null> {
-  // Bounded before any database work: a token is a fixed-width hex string, and anything else
-  // is not a near-miss to look up. This also keeps an absurd path segment from reaching the
-  // driver.
-  if (!/^[0-9a-f]{64}$/.test(token)) return null;
+  // Bounded before any database work: anything outside the token shape is not a near-miss to
+  // look up, and this keeps an absurd path segment from reaching the driver. The predicate is
+  // core's, so the four doors that admit a link token cannot come to disagree about what one
+  // looks like — and it accepts the 64-hex tokens minted before F-097 shortened them.
+  if (!isFarmerLinkToken(token)) return null;
   return resolveFarmerLink(db, { tokenHash: hashFarmerLinkToken(token) });
 }
 
@@ -178,6 +180,56 @@ export async function proposeStructuredFromLink(
       edit: input.edit,
     },
   );
+}
+
+/**
+ * Save a returning farmer's stock in ONE action, from the direct structured editor (F-097).
+ *
+ * **What changed, and what deliberately did not** (max, 2026-08-08). The web editor used to
+ * propose, render the snapshot back, and wait for a second press before publishing. That gate
+ * is the right shape for SMS, where the farmer typed prose and code had to show its
+ * interpretation before acting on it. On this surface there is nothing to interpret: the
+ * farmer is looking at the exact rows they typed, so the preview restated the screen they were
+ * already on and turned one errand into two.
+ *
+ * **The confirmation TRANSACTION is untouched.** This composes the two existing steps rather
+ * than reaching around them — `confirmInventoryPublication` still re-reads live farmer
+ * authority, live VIGA approval, and stand retirement under its own locks, still consumes the
+ * proposal exactly once, and still refuses on a base-revision conflict. Golden Rule #1 and #3
+ * hold by construction: nothing here writes a revision, and there is no argument that skips
+ * the gate. What was removed is a SCREEN, not a check.
+ *
+ * The proposal row still exists for the instant between the two calls, which is what keeps
+ * the audit trail — and the "what was the farmer shown" record — identical to the SMS path.
+ */
+export async function publishStructuredFromLink(
+  deps: Pick<FarmerStandDeps, "db" | "clock"> & { activate: ProposalActivator },
+  input: {
+    token: string;
+    edit: StructuredInventoryEdit;
+  },
+): Promise<FarmerStandConfirmation | { status: "refused"; reason: string; message?: string }> {
+  const proposed = await proposeStructuredFromLink(deps, input);
+  if (proposed.outcome === "not_authorized") return { status: "not_authorized" };
+  if (proposed.outcome === "clarification") {
+    // The structured editor cannot produce an ambiguous edit — it names entry ids — so this
+    // is unreachable by the UI and is surfaced rather than swallowed. A silent success here
+    // would be the surface claiming a publication that never happened.
+    return { status: "refused", reason: "clarification", message: proposed.question };
+  }
+  if (proposed.outcome === "rejected") {
+    return { status: "refused", reason: proposed.reason };
+  }
+
+  return confirmFromLink(deps, {
+    token: input.token,
+    proposalId: proposed.proposalId,
+    accept: true,
+    // The snapshot code rendered, recorded with the activation exactly as the two-step path
+    // recorded it. It is no longer shown BEFORE the save, but it is still what was published
+    // and still what the audit record says the farmer's action produced.
+    confirmationText: proposed.confirmationText,
+  });
 }
 
 export type FarmerStandParticipantSave =

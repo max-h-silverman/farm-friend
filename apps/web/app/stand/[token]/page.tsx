@@ -162,7 +162,7 @@ export default async function StandPage({
       />
 
       <p id="new-link-help" className="farmer-form-note">
-        Private link — anyone with it can update this stand. Text <strong>LINK</strong> for a new
+        Anyone with it can update this stand. Text <strong>LINK</strong> for a new
         one; ask VIGA to disable a shared link.
       </p>
     </main>
