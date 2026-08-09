@@ -258,13 +258,18 @@ export async function saveOnboardingListing(
   if (standName === "") return { status: "invalid_name" };
 
   const hasAddress = address !== null && address !== "";
-  const hasPin = listing.latitude !== null && listing.longitude !== null;
+  const hasLatitude = listing.latitude !== null;
+  const hasLongitude = listing.longitude !== null;
+  const hasCompleteLocation = hasAddress && hasLatitude && hasLongitude;
+  const hasNoLocation = !hasAddress && !hasLatitude && !hasLongitude;
 
-  // Both directions of `coherentVisitability`, refused here so the farmer learns which half of
-  // their answer is missing rather than receiving a constraint violation.
-  if (listing.visitability === "visitable") {
-    if (!hasAddress || !hasPin) return { status: "incomplete_location" };
-  } else if (hasAddress || listing.latitude !== null || listing.longitude !== null) {
+  // Mirror `coherentVisitability` at the writer boundary so a farmer gets a useful refusal
+  // rather than a constraint violation. Any farm may be fully placed (F-088); only a
+  // contact-only farm may remain entirely unplaced. Every half-filled shape is refused.
+  if (
+    !hasCompleteLocation &&
+    !(listing.visitability === "contact_only" && hasNoLocation)
+  ) {
     return { status: "incomplete_location" };
   }
 
@@ -272,7 +277,7 @@ export async function saveOnboardingListing(
   // rather than a second envelope of this module's own: the file that owns the projection
   // warns that two independent statements about where the island is will drift, and a farm on
   // the wrong side of that drift is a pin in Puget Sound.
-  if (hasPin) {
+  if (hasCompleteLocation) {
     const latitude = listing.latitude!;
     const longitude = listing.longitude!;
     if (
