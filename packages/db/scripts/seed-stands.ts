@@ -1,22 +1,24 @@
 // B-002 / F-038 — seed VIGA's farm-stand corpus from BOTH exports.
 //
-//   npm run db:seed -- --form <form.csv> --map <map.csv> [--dry-run]
+//   npm run db:seed -- --form <form.csv> --map <map.csv> \
+//     --offerings <reviewed.json> [--dry-run]
 //
-// TWO FILES, because neither can seed a visitable location alone:
+// THREE REVIEWED INPUTS, because none can restore a complete public listing alone:
 //
 //   form responses  →  2026-current details (hours, season, stocking, website, social), and
 //                      NO COORDINATES AT ALL
 //   map export      →  coordinates, and the farms that did not submit a 2026 form
+//   offerings JSON  →  human-reviewed structured facts about what each stand usually carries
 //
 // This is the composition point: it reads both, joins them by name (`match-stands.ts`), parses
-// availability, classifies what each farm sells, and hands typed values to `seedStands`. Every
-// interpretation step lives in a tested module in `@farm-friend/core`; this script wires them
-// together and REPORTS — including the match rate, which is the number that says whether the
-// join actually worked. A silent "seeded 28" tells you nothing about the four it dropped.
+// availability, classifies what each farm sells, and hands typed values to the atomic corpus
+// writer. Every interpretation step lives in a tested module in `@farm-friend/core`; this script
+// wires them together and REPORTS — including the match rate, which is the number that says
+// whether the join actually worked. A silent "seeded 28" tells you nothing about the four it dropped.
 //
-// OFFERINGS ARE NOT SEEDED HERE. What a stand usually carries comes from the
-// `offering-extraction` model seam (F-036): the model proposes, a human approves, and
-// `npm run db:seed-offerings` commits the approved artifact. Two separate, re-runnable steps.
+// B-044 — the reviewed offerings artifact is REQUIRED here and commits in the same transaction
+// as the stands. The model proposal and human review still happen separately; once approved,
+// omitting that half from a rebuild makes every public card claim it usually has nothing.
 
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
@@ -42,7 +44,11 @@ import {
   type ParsedOpenHours,
 } from "@farm-friend/core";
 import {
-  seedStands,
+  findUnknownOfferingStands,
+  parseApprovedOfferings,
+} from "../src/approved-offerings";
+import {
+  seedReviewedCorpus,
   type SeedStandFlag,
   type SeedStandInput,
   type SeededOpenHours,
@@ -387,12 +393,15 @@ function argValue(flag: string): string | undefined {
 async function main(): Promise<void> {
   const formPath = argValue("--form");
   const mapPath = argValue("--map");
+  const offeringsPath = argValue("--offerings");
   const dryRun = process.argv.includes("--dry-run");
 
-  if (!formPath || !mapPath) {
+  if (!formPath || !mapPath || !offeringsPath) {
     console.error(
-      "usage: npm run db:seed -- --form <form.csv> --map <map.csv> [--dry-run]\n" +
-        "  both files are required: the form has the details, the map export has the coordinates",
+      "usage: npm run db:seed -- --form <form.csv> --map <map.csv> " +
+        "--offerings <reviewed.json> [--dry-run]\n" +
+        "  all files are required: the exports hold stands and the reviewed artifact holds " +
+        "what they usually carry",
     );
     process.exit(1);
   }
@@ -405,6 +414,9 @@ async function main(): Promise<void> {
 
   const form = parseFormResponses(readFileSync(formPath, "utf8"));
   const map = parseStandCsv(readFileSync(mapPath, "utf8"));
+  const { approved: offerings, skippedNoItems } = parseApprovedOfferings(
+    JSON.parse(readFileSync(offeringsPath, "utf8")) as unknown,
+  );
 
   const { joined, refused: joinRefused } = joinStandSources({
     form: form.stands,
@@ -442,6 +454,13 @@ async function main(): Promise<void> {
       `${nonProduce.length} not a produce stand), ${refused.length} refused`,
   );
 
+  const unknownOfferingStands = findUnknownOfferingStands(inputs, offerings);
+  const offeringCount = offerings.reduce((sum, entry) => sum + entry.items.length, 0);
+  console.log(
+    `offerings:   ${offerings.length} reviewed stands, ${offeringCount} usual items, ` +
+      `${unknownOfferingStands.length} unknown, ${skippedNoItems.length} unresolved`,
+  );
+
   for (const item of refused) console.log(`  REFUSED  ${item.name}: ${item.reason}`);
   for (const stand of nonProduce) {
     console.log(`  TYPE     ${stand.name}: ${stand.offeringType}`);
@@ -449,6 +468,16 @@ async function main(): Promise<void> {
   for (const stand of contactOnly) console.log(`  CONTACT  ${stand.name}: no pin`);
   for (const stand of inputs.filter((s) => s.flags.length > 0)) {
     console.log(`  FLAGGED  ${stand.name}: ${stand.flags.map((f) => f.reason).join(", ")}`);
+  }
+  for (const name of unknownOfferingStands) {
+    console.log(`  UNKNOWN OFFERING STAND  ${name}: absent from the stand restore`);
+  }
+  for (const name of skippedNoItems) {
+    console.log(`  UNRESOLVED OFFERINGS  ${name}: no reviewed items array`);
+  }
+
+  if (unknownOfferingStands.length > 0 || skippedNoItems.length > 0) {
+    throw new Error("reviewed offering artifact is incomplete for this stand restore");
   }
 
   if (dryRun) {
@@ -468,12 +497,15 @@ async function main(): Promise<void> {
         : await requireExpectedDatabase(sql, { databaseName: expectDatabase });
     console.log(`\ntarget: ${describeTarget(databaseUrl!)} — ${describeFingerprint(fingerprint)}`);
 
-    const result = await seedStands(sql, inputs);
+    const result = await seedReviewedCorpus(sql, inputs, offerings);
     console.log(
-      `\nseeded ${result.seeded}, skipped ${result.skipped} (already present), ` +
-        `backfilled ${result.backfilled} (links/payments/hosts added to an existing stand), ` +
-        `refused ${result.backfillRefused} (farmer owns the listing), ` +
-        `flags raised ${result.flagsRaised}`,
+      `\nseeded ${result.stands.seeded}, skipped ${result.stands.skipped} (already present), ` +
+        `backfilled ${result.stands.backfilled} (links/payments/hosts added to an existing stand), ` +
+        `refused ${result.stands.backfillRefused} (farmer owns the listing), ` +
+        `flags raised ${result.stands.flagsRaised}; ` +
+        `usual items inserted ${result.offerings.inserted}, ` +
+        `already present ${result.offerings.skipped}, ` +
+        `refused ${result.offerings.refusedStands.length} (farmer owns the listing)`,
     );
   } finally {
     await sql.end({ timeout: 5 });

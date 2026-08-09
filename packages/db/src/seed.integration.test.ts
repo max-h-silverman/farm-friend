@@ -5,7 +5,13 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import type { Sql } from "./sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { planOfferings, seedOfferings, seedStands, type SeedStandInput } from "./seed";
+import {
+  planOfferings,
+  seedOfferings,
+  seedReviewedCorpus,
+  seedStands,
+  type SeedStandInput,
+} from "./seed";
 
 // B-002 — the seeder, proven against real constraints.
 //
@@ -544,6 +550,58 @@ describe("seeding VIGA's stands (B-002)", () => {
   // them; this loader is the "code commits what was approved" half, and it writes
   // specialties, never inventory — the same structural separation the stand seeder proves.
   describe("seeding approved offerings", () => {
+    it("restores stands and their reviewed usual offerings as one corpus", async () => {
+      const stand: SeedStandInput = {
+        ...sample()[0]!,
+        name: "Corpus Farm",
+        place: { address: "30 Example Rd SW", longitude: -122.45, latitude: 47.46 },
+      };
+
+      const result = await seedReviewedCorpus(client, [stand], [
+        { standName: "Corpus Farm", items: ["eggs", "bok choy"] },
+      ]);
+
+      expect(result.stands.seeded).toBe(1);
+      expect(result.offerings.inserted).toBe(2);
+      const rows = await client`
+        select item.display_name
+        from stand_items item
+        join sales_locations location on location.id = item.sales_location_id
+        where location.name = 'Corpus Farm' and item.usually_carried
+        order by item.sort_order
+      `;
+      expect(rows.map((row) => row.display_name)).toEqual(["eggs", "bok choy"]);
+    });
+
+    it("rolls the stands back when their reviewed offerings cannot be attributed", async () => {
+      const { participants: _participants, ...base } = sample()[0]!;
+      const stands: SeedStandInput[] = [
+        {
+          ...base,
+          name: "Corpus Twin Stand",
+          place: { address: "31 Example Rd SW", longitude: -122.45, latitude: 47.46 },
+        },
+        {
+          ...base,
+          name: "The Corpus Twin Farm",
+          place: { address: "32 Example Rd SW", longitude: -122.45, latitude: 47.46 },
+        },
+      ];
+
+      await expect(
+        seedReviewedCorpus(client, stands, [
+          { standName: "Corpus Twin", items: ["plums"] },
+        ]),
+      ).rejects.toThrow(/ambiguous/i);
+
+      const rows = await client`
+        select count(*)::integer as count
+        from sales_locations
+        where name in ('Corpus Twin Stand', 'The Corpus Twin Farm')
+      `;
+      expect(rows[0]?.count).toBe(0);
+    });
+
     it("commits approved tags for a known stand, in review order", async () => {
       const result = await seedOfferings(client, [
         { standName: "Alpha Farm", items: ["eggs", "bok choy", "cut flowers"] },
@@ -577,6 +635,35 @@ describe("seeding VIGA's stands (B-002)", () => {
         where l.name = 'Alpha Farm'
       `;
       expect(rows[0]!.count).toBe(4);
+    });
+
+    it("REFUSES to restore VIGA offerings over a farmer-owned listing", async () => {
+      // Beta received a live authorization in the side-fact test above. The complete corpus
+      // restore now includes reviewed offerings, so the same ownership boundary must cover
+      // them: an old artifact cannot add back an item the farmer deliberately removed.
+      const result = await seedOfferings(client, [
+        { standName: "Beta Farm", items: ["lamb"] },
+      ]);
+
+      expect(result.refusedStands).toEqual(["Beta Farm"]);
+      expect(result.inserted).toBe(0);
+      const rows = await client`
+        select count(*)::integer as count
+        from stand_items item
+        join sales_locations location on location.id = item.sales_location_id
+        where location.name = 'Beta Farm'
+      `;
+      expect(rows[0]?.count).toBe(0);
+    });
+
+    it("reports the same farmer-owned refusal in the dry run", async () => {
+      const plan = await planOfferings(client, [
+        { standName: "Beta Farm", items: ["lamb"] },
+      ]);
+
+      expect(plan.matched).toEqual([]);
+      expect(plan.unknownStands).toEqual([]);
+      expect(plan.refusedStands).toEqual(["Beta Farm"]);
     });
 
     it("RAISES the standing state on an item that exists only from a confirmation", async () => {
@@ -621,7 +708,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       // file naming one must surface that, while known stands still commit.
       const result = await seedOfferings(client, [
         { standName: "No Such Stand", items: ["eggs"] },
-        { standName: "Beta Farm", items: ["lamb"] },
+        { standName: "Corpus Farm", items: ["lamb"] },
       ]);
       expect(result.unknownStands).toEqual(["No Such Stand"]);
       expect(result.inserted).toBe(1);
@@ -629,7 +716,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       const beta = await client`
         select o.display_name as item from stand_items o
         join sales_locations l on l.id = o.sales_location_id
-        where l.name = 'Beta Farm'
+        where l.name = 'Corpus Farm' and o.display_name = 'lamb'
       `;
       expect(beta.map((row) => row.item)).toEqual(["lamb"]);
     });

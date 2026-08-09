@@ -255,10 +255,11 @@ Properties to preserve:
 This is a **greenfield build**: existing VIGA map content is **reference input, not a schema
 contract**, and there is no non-destructive migration requirement or provenance axis.
 
-A **one-time seed utility** validates and loads farms, sales locations, and approval state.
-`db:seed` itself **writes no inventory** — a stand it creates renders the honest "no current
-listing" until something confirms it. It also seeds **no phone numbers**: `farmer_authorizations`
-requires captured SMS consent, so phones arrive through onboarding, never a bulk roster load.
+A **one-time seed utility** validates and atomically loads farms, sales locations, and the reviewed
+usual-offering artifact. `db:seed` still **writes no current inventory** — a stand it creates
+renders the honest "no current listing" until something confirms it. It also seeds **no phone
+numbers**: `farmer_authorizations` requires captured SMS consent, so phones arrive through
+onboarding, never a bulk roster load.
 
 **Inventory is seeded by a separate script, and only from a farmer's own dated statement**
 (F-062, superseding the 2026-07-26 B-002 position that nothing may seed inventory). `db:seed-weekly`
@@ -269,13 +270,16 @@ real, dated statement a farmer made, honestly labelled, and the staleness machin
 special handling. **A farmer's own SMS always wins** — the writer refuses to overwrite anything
 newer, whatever its source.
 
-**It takes BOTH exports**, because neither can seed a visitable location alone: the form has the
-2026-current details and **no coordinates at all**, the map export has the coordinates and the farms
-that submitted no form.
+**It takes both exports plus the reviewed offering artifact.** Neither export can seed a visitable
+location alone: the form has the 2026-current details and **no coordinates at all**, while the map
+export has the coordinates and the farms that submitted no form. The artifact owns the structured
+usual items; the prose is not reparsed during a restore.
 
 ```bash
-npm run db:seed -- --form "<form.csv>" --map "<map.csv>" --dry-run   # report only, writes nothing
-npm run db:seed -- --form "<form.csv>" --map "<map.csv>"             # apply
+npm run db:seed -- --form "<form.csv>" --map "<map.csv>" \
+  --offerings maps/offerings-proposals.json --dry-run                # report only, writes nothing
+npm run db:seed -- --form "<form.csv>" --map "<map.csv>" \
+  --offerings maps/offerings-proposals.json                          # apply atomically
 
 # The weekly stock form, as dated `source = 'viga'` confirmations. --form is optional and lets a
 # farmer's STATED rename resolve their old name ("Formerly Maggie's Farm") to their current stand.
@@ -287,7 +291,8 @@ npm run db:seed-weekly -- --weekly "<weekly.csv>" --form "<form.csv>" --season 2
 it aborts before writing a single row unless the connection really lands on that database:
 
 ```bash
-npm run db:seed -- --form … --map … --expect-database neondb
+npm run db:seed -- --form … --map … --offerings maps/offerings-proposals.json \
+  --expect-database neondb
 ```
 
 Naming the target is not enough on its own — printing `host/neondb` confirms the string an operator
@@ -363,19 +368,21 @@ Corpus-specific operating facts:
 > not to publish the home address, but the current seeder does not consult `extraNotes` for
 > visibility; a re-seed can republish it. Check this row until that defect is fixed.
 
-**Offerings — proposed by the model, committed only after review (F-024/F-036).** Two steps,
-deliberately separated so no model output reaches the database without a human between:
+**Offerings — proposed by the model, committed only after review (F-024/F-036).** Proposal and
+review remain separate so no model output reaches the database without a human between:
 
 ```bash
 DEEPINFRA_MODEL="<model-id>" npm run offerings:propose -- "<path-to-csv>" maps/offerings-proposals.json
-# max reviews/edits the file, then:
+# max reviews/edits the file. For an already-seeded database, then:
 npm run db:seed-offerings -- maps/offerings-proposals.json --dry-run
 npm run db:seed-offerings -- maps/offerings-proposals.json
 ```
 
+The next full `db:seed` run consumes the same reviewed artifact automatically and commits stands plus
+usual offerings in one transaction; omitting `--offerings` is a refusal, not a stand-only rebuild.
 The proposal step strips contacts, passes the same provider privacy gate as production, and records
-each tag beside its source text. The reviewed seed is idempotent on `(location, item)` and writes
-specialties only—never inventory. Its database-backed dry run resolves the approved map-export name
+each tag beside its source text. Both commit paths are idempotent on `(location, item)` and write
+specialties only—never inventory. The database-backed dry run resolves the approved map-export name
 through `matchStandName`, reports unknown/already-present tags, and refuses an ambiguous match.
 
 `offerings:propose` reads only the map export; form-only farms are absent rather than reported as
