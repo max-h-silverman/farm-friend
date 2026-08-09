@@ -1158,16 +1158,15 @@ describe("the farmer stand form", () => {
     );
   });
 
-  it("moves through clarification, exact preview, decline, and publication with honest effects", async () => {
+  it("moves through exact preview, decline, and publication with honest effects", async () => {
     const user = userEvent.setup();
     const fetcher = vi
       .fn()
-      .mockResolvedValueOnce(response(200, { outcome: "clarification", question: "Which kind of squash?" }))
       .mockResolvedValueOnce(
         response(200, {
           outcome: "proposed",
           proposalId: "proposal-1",
-          confirmationText: "Winter squash — 3 at $4",
+          confirmationText: "Your stand will show:\n- Winter squash (3 item for $4)",
         }),
       )
       .mockResolvedValueOnce(response(200, { outcome: "declined" }))
@@ -1175,36 +1174,30 @@ describe("the farmer stand form", () => {
         response(200, {
           outcome: "proposed",
           proposalId: "proposal-2",
-          confirmationText: "Kale — $3/bunch",
+          confirmationText: "Your stand will show:\n- Winter squash (3 item for $4)",
         }),
       )
       .mockResolvedValueOnce(response(200, { outcome: "published" }));
     vi.stubGlobal("fetch", fetcher);
 
     render(<StandForm token="private-token" currentEntries={[]} />);
-    const input = screen.getByRole("textbox", { name: "Or write it in your own words" });
-    await user.type(input, "squash");
-    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
-    expect(await screen.findByRole("status")).toHaveTextContent("Which kind of squash?");
-    expect(input).toHaveFocus();
-
-    await user.clear(input);
-    await user.type(input, "three winter squash at $4");
-    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
+    await user.type(screen.getByLabelText("Stock today"), "Winter squash");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("switch", { name: "Add prices" }));
+    await user.type(screen.getByLabelText("Price for Winter squash"), "4");
+    await user.selectOptions(screen.getByLabelText("Price basis for Winter squash"), "for");
+    await user.clear(screen.getByLabelText("How many Winter squash"));
+    await user.type(screen.getByLabelText("How many Winter squash"), "3");
+    await user.click(screen.getByRole("button", { name: "Update" }));
     expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
-      "Winter squash — 3 at $4",
+      "Winter squash (3 item for $4)",
     );
-    expect(screen.getByText("Nothing has changed yet.")).toBeTruthy();
+    expect(screen.getByText("Exact preview — nothing has changed yet.")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Decline this update" }));
+    await user.click(screen.getByRole("button", { name: "Don't publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Nothing changed");
 
-    const returnedInput = screen.getByRole("textbox", {
-      name: "Or write it in your own words",
-    });
-    await user.clear(returnedInput);
-    await user.type(returnedInput, "kale $3 a bunch");
-    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
+    await user.click(screen.getByRole("button", { name: "Update" }));
     await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
 
@@ -1222,11 +1215,9 @@ describe("the farmer stand form", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response(403)));
     render(<StandForm token="private-token" currentEntries={[]} />);
 
-    await user.type(
-      screen.getByRole("textbox", { name: "Or write it in your own words" }),
-      "eggs",
-    );
-    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
+    await user.type(screen.getByLabelText("Stock today"), "eggs");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("button", { name: "Update" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/listing is unchanged/i);
     expect(screen.getByRole("link", { name: "How to get a new link" })).toHaveAttribute(
@@ -1253,19 +1244,17 @@ describe("the farmer stand form", () => {
     );
     render(<StandForm token="private-token" currentEntries={[]} />);
 
-    const input = screen.getByRole("textbox", {
-      name: "Or write it in your own words",
-    });
-    await user.type(input, "kale $3 a bunch");
-    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
+    await user.type(screen.getByLabelText("Stock today"), "Kale");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.click(screen.getByRole("switch", { name: "Add prices" }));
+    await user.type(screen.getByLabelText("Price for Kale"), "$3/bunch");
+    await user.click(screen.getByRole("button", { name: "Update" }));
     await user.click(await screen.findByRole("button", { name: "Confirm and publish" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Your stand is updated");
 
-    const nextInput = screen.getByRole("textbox", {
-      name: "Or write it in your own words",
-    });
-    await user.type(nextInput, "eggs");
-    await user.click(screen.getByRole("button", { name: "Preview what I wrote" }));
+    await user.clear(screen.getByLabelText("Price for Kale"));
+    await user.type(screen.getByLabelText("Price for Kale"), "$4/bunch");
+    await user.click(screen.getByRole("button", { name: "Update" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save the proposal.");
     expect(screen.queryByText("Your stand is updated. Customers can now see this listing.")).toBeNull();

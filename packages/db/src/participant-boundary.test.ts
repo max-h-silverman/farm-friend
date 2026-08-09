@@ -60,15 +60,14 @@ const routeSource = executable(
 );
 
 describe("the structured participant HTTP action is deterministic", () => {
-  it("finishes its db-and-clock branch before full model composition is constructed", () => {
+  it("uses its db-and-clock context without constructing full model composition", () => {
     const branchStart = routeSource.indexOf('if (action === "save_participants")');
-    const compositionCall = routeSource.indexOf("const context = appContext()", branchStart);
-    const branch = routeSource.slice(branchStart, compositionCall);
+    const participantContext = routeSource.indexOf("const context = publicReadContext()", branchStart);
+    const participantSave = routeSource.indexOf("await saveParticipantsFromLink(context,", branchStart);
 
     expect(branchStart).toBeGreaterThan(-1);
-    expect(compositionCall).toBeGreaterThan(branchStart);
-    expect(branch).toMatch(/const context = publicReadContext\(\)/);
-    expect(branch).toMatch(/await saveParticipantsFromLink\(context,/);
-    expect(branch).not.toMatch(/\b(interpreter|model|appContext)\b/);
+    expect(participantContext).toBeGreaterThan(branchStart);
+    expect(participantSave).toBeGreaterThan(participantContext);
+    expect(routeSource).not.toMatch(/\bappContext\s*\(/);
   });
 });

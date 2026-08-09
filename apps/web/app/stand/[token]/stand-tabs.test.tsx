@@ -41,7 +41,7 @@ describe("the farmer's stand page as tabs (F-090)", () => {
     renderTabs();
 
     expect(screen.getByText("status panel")).toBeVisible();
-    expect(screen.getByRole("tab", { name: /what.s in the stand/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Stock today" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -51,10 +51,10 @@ describe("the farmer's stand page as tabs (F-090)", () => {
     const user = userEvent.setup();
     renderTabs();
 
-    await user.click(screen.getByRole("tab", { name: /stand details/i }));
+    await user.click(screen.getByRole("tab", { name: "Details & settings" }));
 
     expect(screen.getByText("details panel")).toBeVisible();
-    expect(screen.getByRole("tab", { name: /stand details/i })).toHaveAttribute(
+    expect(screen.getByRole("tab", { name: "Details & settings" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
@@ -67,7 +67,7 @@ describe("the farmer's stand page as tabs (F-090)", () => {
     const user = userEvent.setup();
     renderTabs();
 
-    await user.click(screen.getByRole("tab", { name: /stand details/i }));
+    await user.click(screen.getByRole("tab", { name: "Details & settings" }));
 
     // Present in the document, not visible — two different facts, and only one is safe.
     expect(screen.getByText("status panel")).toBeInTheDocument();

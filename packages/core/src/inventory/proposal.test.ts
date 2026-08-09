@@ -4,6 +4,8 @@ import {
   applyInventoryEdits,
   confirmationEligibility,
   renderProposedSnapshot,
+  validateInterpretation,
+  validateStructuredInventoryEdit,
   type InventoryInterpretation,
   type PublishedSnapshot,
 } from "./proposal";
@@ -60,6 +62,36 @@ describe("inventory proposal — patch-like edits over a complete snapshot", () 
       { entryId: "e-bok", itemName: "Bok choy", approximation: "plentiful" },
       { entryId: "e-jam", itemName: "Strawberry preserves", priceText: "$8" },
     ]);
+  });
+
+  it("clears optional details when a direct editor explicitly sends null", () => {
+    const proposed = applyInventoryEdits(
+      published,
+      {
+        kind: "edits",
+        additions: [],
+        changes: [{ entryId: "e-jam", priceText: null }],
+        removals: [],
+      },
+      issueDraftId,
+    );
+
+    expect(proposed.entries[2]).toEqual({
+      entryId: "e-jam",
+      itemName: "Strawberry preserves",
+    });
+  });
+
+  it("reserves explicit clears for the model-free direct editor", () => {
+    const edit = {
+      kind: "edits" as const,
+      additions: [],
+      changes: [{ entryId: "e-jam", priceText: null }],
+      removals: [],
+    };
+
+    expect(validateStructuredInventoryEdit(edit, published).ok).toBe(true);
+    expect(validateInterpretation(edit, published).ok).toBe(false);
   });
 
   it("rejects an edit naming an entry outside the base snapshot", () => {

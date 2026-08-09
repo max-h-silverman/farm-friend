@@ -44,6 +44,21 @@ describe("parseStructuredEdit", () => {
     });
   });
 
+  it("keeps explicit nulls on changes so the editor can clear optional details", () => {
+    expect(
+      parseStructuredEdit({
+        additions: [],
+        changes: [{ entryId: "e1", quantity: null, unit: null, priceText: null }],
+        removals: [],
+      }),
+    ).toEqual({
+      kind: "edits",
+      additions: [],
+      changes: [{ entryId: "e1", quantity: null, unit: null, priceText: null }],
+      removals: [],
+    });
+  });
+
   it("trims a padded item name rather than publishing the whitespace", () => {
     const parsed = parseStructuredEdit({
       additions: [{ itemName: "  Kale  " }],
@@ -100,7 +115,7 @@ describe("parseStructuredEdit", () => {
     it("refuses a non-finite quantity", () => {
       // `Number(null)` is 0 and NaN survives a bare typeof check — both would reach the
       // database as a quantity a customer then reads.
-      for (const quantity of [Number.NaN, Number.POSITIVE_INFINITY, "12", null]) {
+      for (const quantity of [Number.NaN, Number.POSITIVE_INFINITY, "12"]) {
         expect(
           parseStructuredEdit({
             additions: [{ itemName: "Eggs", quantity }],

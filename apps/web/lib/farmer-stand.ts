@@ -3,8 +3,7 @@ import {
   renderPublicStringRefusal,
   renderProposedSnapshot,
   type Clock,
-  type InventoryInterpretation,
-  type InventoryInterpreter,
+  type StructuredInventoryEdit,
 } from "@farm-friend/core";
 import {
   confirmInventoryPublication,
@@ -55,7 +54,6 @@ import { applyInterpretedInventory } from "./interpretation";
 
 export interface FarmerStandDeps {
   db: Db;
-  interpreter: InventoryInterpreter;
   clock: Clock;
 }
 
@@ -91,11 +89,10 @@ export interface StandEntryView {
  *
  * **The sender's open proposal wins over the published revision**, because that is the base
  * `applyInterpretedInventory` composes from. Showing the published listing instead was a real
- * defect once the listing became editable: the chips send ENTRY IDS, so a farmer who edited
- * once and came back saw chips for items their own pending proposal had already dropped, and
- * tapping one sent an id absent from the base — refused, correctly, for a change they had
- * every reason to believe was on offer. The typed path never hit it because free text names
- * items rather than identifiers.
+ * defect once the listing became editable: the controls send ENTRY IDS, so a farmer who edited
+ * once and came back could see items their own pending proposal had already dropped, then send
+ * an id absent from the base. Natural-language SMS does not have that failure mode because it
+ * names items rather than identifiers.
  *
  * Scoped to ONE sender: proposals are per-sender, so a second authorized farmer at the same
  * stand composes against what is published, and never sees the other's unconfirmed edit.
@@ -160,46 +157,27 @@ export type FarmerStandProposal =
   | { outcome: "not_authorized" };
 
 /**
- * Interpret what the farmer typed and open or revise their ONE pending proposal.
- *
- * **The link is re-resolved here**, not trusted from the page that rendered the form. A
- * revocation that committed while the farmer had the form open must take effect on this
- * request — which is what "checked per request, never cached into the link" means in
- * practice.
- *
- * This calls the SAME `applyInterpretedInventory` the SMS path calls. The model interprets;
- * code decides the consequence; the interpretation is validated against the retrieved
- * snapshot before anything acts on it. A second interpretation path here would be a second
- * place for that validation to drift.
+ * Open or revise the returning farmer's one proposal from a direct structured edit.
+ * The link is re-resolved on this request; revocation therefore bites before composition.
  */
-export async function proposeFromLink(
-  deps: FarmerStandDeps,
-  input:
-    | { token: string; taskText: string; edit?: undefined }
-    | {
-        token: string;
-        /** A structured edit from the form's chips — no model call, same checks. */
-        edit: Extract<InventoryInterpretation, { kind: "edits" | "clear_all" }>;
-        taskText?: undefined;
-      },
+export async function proposeStructuredFromLink(
+  deps: Pick<FarmerStandDeps, "db" | "clock">,
+  input: {
+    token: string;
+    edit: StructuredInventoryEdit;
+  },
 ): Promise<FarmerStandProposal> {
   const stand = await resolveStandFromToken(deps.db, input.token);
   if (stand === null) return { outcome: "not_authorized" };
 
-  const outcome = await applyInterpretedInventory(
-    { db: deps.db, interpreter: deps.interpreter, clock: deps.clock },
+  return applyInterpretedInventory(
+    deps,
     {
-      // The sender identity comes from the TOKEN'S row, never from the request. A holder
-      // cannot propose as somebody else by naming them.
       senderHash: stand.senderHash,
       salesLocationId: stand.salesLocationId,
-      ...(input.edit !== undefined
-        ? { edit: input.edit }
-        : { taskText: input.taskText }),
+      edit: input.edit,
     },
   );
-
-  return outcome;
 }
 
 export type FarmerStandParticipantSave =
@@ -256,7 +234,9 @@ export type FarmerStandConfirmation =
  * transaction that names their farm.
  */
 export async function confirmFromLink(
-  deps: FarmerStandDeps & { activate: ProposalActivator },
+  deps: Pick<FarmerStandDeps, "db" | "clock"> & {
+    activate: ProposalActivator;
+  },
   input: {
     token: string;
     proposalId: string;

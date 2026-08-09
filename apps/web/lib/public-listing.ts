@@ -220,6 +220,11 @@ function readAvailability(row: Record<string, unknown>): StandAvailability {
   const seasonKind = row.season_kind as StandSeason["kind"] | null;
   const hoursKind = row.open_hours_kind as StandHours["kind"] | null;
   const days = row.open_days as number[] | null;
+  const hoursText = row.hours_text as string | null;
+  const stockingCadence = row.stocking_cadence as
+    | StandAvailability["stockingCadence"]
+    | null;
+  const stockingDays = row.stocking_days as number[] | null;
 
   let season: StandSeason | undefined;
   switch (seasonKind) {
@@ -285,6 +290,9 @@ function readAvailability(row: Record<string, unknown>): StandAvailability {
     // Empty is treated as unstated rather than as "open on no day". The CHECK constraint
     // already forbids an empty array, so this is belt-and-braces against a future writer.
     ...(days && days.length > 0 ? { days } : {}),
+    ...(hoursText ? { hoursText } : {}),
+    ...(stockingCadence ? { stockingCadence } : {}),
+    ...(stockingDays && stockingDays.length > 0 ? { stockingDays } : {}),
   };
 }
 
@@ -336,6 +344,9 @@ export async function listPublicStands(
       l.open_from_minutes as open_from_minutes,
       l.open_until_minutes as open_until_minutes,
       l.open_days as open_days,
+      l.hours_text as hours_text,
+      l.stocking_cadence as stocking_cadence,
+      l.stocking_days as stocking_days,
       f.name as farm_name,
       f.description as farm_description,
       r.published_at as published_at,

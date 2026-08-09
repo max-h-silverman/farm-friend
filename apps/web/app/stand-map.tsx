@@ -64,6 +64,88 @@ const OPEN_STATE_LABEL: Record<FilteredStand["openState"], string | null> = {
 };
 
 const DAY_ABBREVIATION = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAME = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+const MONTH_NAME = [
+  "",
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+function dateLabel(month: number, day: number): string {
+  return `${MONTH_NAME[month]} ${day}`;
+}
+
+function timeLabel(minutes: number): string {
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const period = hour >= 12 ? "PM" : "AM";
+  const clockHour = hour % 12 || 12;
+  return `${clockHour}${minute === 0 ? "" : `:${String(minute).padStart(2, "0")}`} ${period}`;
+}
+
+function seasonLabel(availability: PublicStandPayload["availability"]): string | null {
+  const season = availability.season;
+  if (season === undefined) return null;
+  if (season.kind === "year_round") return "Year-round";
+  if (season.kind === "date_range") {
+    return `${dateLabel(season.startMonth, season.startDay)}–${dateLabel(season.endMonth, season.endDay)}`;
+  }
+  if (season.kind === "open_ended") {
+    return `From ${dateLabel(season.startMonth, season.startDay)}`;
+  }
+  return season.names.map((name) => name.charAt(0).toUpperCase() + name.slice(1)).join(", ");
+}
+
+function hoursLabel(availability: PublicStandPayload["availability"]): string | null {
+  const hours = availability.hours;
+  if (hours === undefined) return null;
+  if (hours.kind === "dawn_to_dusk") return "Dawn to dusk";
+  if (hours.kind === "daylight_hours") return "Daylight hours";
+  if (hours.kind === "all_day") return "All day";
+  if (hours.kind === "by_appointment") return "By appointment";
+  if (hours.kind === "until_dusk") return `From ${timeLabel(hours.fromMinutes)} until dusk`;
+  return `${timeLabel(hours.fromMinutes)}–${timeLabel(hours.untilMinutes)}`;
+}
+
+function daysLabel(days: number[] | undefined): string | null {
+  if (days === undefined || days.length === 0) return null;
+  return days.length === 7 ? "Every day" : days.map((day) => DAY_NAME[day]).join(", ");
+}
+
+function restockingLabel(availability: PublicStandPayload["availability"]): string | null {
+  switch (availability.stockingCadence) {
+    case "daily":
+      return "Daily";
+    case "specific_days":
+      return daysLabel(availability.stockingDays);
+    case "variable":
+      return "Varies";
+    case "as_needed":
+      return "As needed";
+    case "intermittent":
+      return "Intermittently";
+    default:
+      return null;
+  }
+}
 
 /**
  * What the card says about when a stand is open (B-039).
@@ -151,7 +233,7 @@ function ParticipantNames({ names }: { names: readonly string[] }) {
 }
 
 type PosterIndicator = {
-  kind: "no-viga-bucks" | "year-round" | "late-november" | "contact-only";
+  kind: "no-viga-bucks" | "year-round" | "late-november";
   label: string;
 };
 
@@ -163,9 +245,6 @@ type PosterIndicator = {
  */
 function posterIndicators(stand: PublicStandPayload): PosterIndicator[] {
   const indicators: PosterIndicator[] = [];
-  if (stand.visitability === "contact_only") {
-    indicators.push({ kind: "contact-only", label: "No farm stand to visit" });
-  }
   if (stand.farmBucksAccepted === false) {
     indicators.push({ kind: "no-viga-bucks", label: "Does not accept VIGA Bucks" });
   }
@@ -390,6 +469,32 @@ function StandListings({ stand }: { stand: FilteredStand }) {
   );
 }
 
+function StandSchedule({ availability }: { availability: PublicStandPayload["availability"] }) {
+  const details = [
+    ["Season", seasonLabel(availability)],
+    ["Hours", hoursLabel(availability)],
+    ["Open days", daysLabel(availability.days)],
+    ["Hours note", availability.hoursText ?? null],
+    ["Restocking", restockingLabel(availability)],
+  ].filter((detail): detail is [string, string] => detail[1] !== null && detail[1] !== "");
+
+  if (details.length === 0) return null;
+
+  return (
+    <section className="detail-schedule" aria-label="Stand schedule">
+      <h3>Stand schedule</h3>
+      <dl>
+        {details.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 /**
  * One hierarchy for both the expanded directory row and the phone map sheet.
  *
@@ -443,6 +548,8 @@ function StandDetailBody({
           <ParticipantNames names={stand.alsoSellingHere} />
         </>
       )}
+
+      {isMarket ? null : <StandSchedule availability={stand.availability} />}
 
       {showDestination ? (
         <section

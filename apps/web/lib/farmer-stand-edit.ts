@@ -1,4 +1,4 @@
-import type { InventoryInterpretation } from "@farm-friend/core";
+import type { StructuredInventoryEdit } from "@farm-friend/core";
 
 // The boundary parser for a STRUCTURED inventory edit posted by the farmer's web form.
 //
@@ -40,31 +40,69 @@ const ITEM_KEYS = ["itemName", "quantity", "unit", "priceText", "approximation"]
  */
 function readDetail(
   record: Record<string, unknown>,
-): { quantity?: number; unit?: string; priceText?: string; approximation?: "some" | "limited" | "plentiful" } | null {
+  allowClear?: false,
+): {
+  quantity?: number;
+  unit?: string;
+  priceText?: string;
+  approximation?: "some" | "limited" | "plentiful";
+} | null;
+function readDetail(
+  record: Record<string, unknown>,
+  allowClear: true,
+): {
+  quantity?: number | null;
+  unit?: string | null;
+  priceText?: string | null;
+  approximation?: "some" | "limited" | "plentiful" | null;
+} | null;
+function readDetail(
+  record: Record<string, unknown>,
+  allowClear = false,
+): {
+  quantity?: number | null;
+  unit?: string | null;
+  priceText?: string | null;
+  approximation?: "some" | "limited" | "plentiful" | null;
+} | null {
   const detail: {
-    quantity?: number;
-    unit?: string;
-    priceText?: string;
-    approximation?: "some" | "limited" | "plentiful";
+    quantity?: number | null;
+    unit?: string | null;
+    priceText?: string | null;
+    approximation?: "some" | "limited" | "plentiful" | null;
   } = {};
 
   if (record.quantity !== undefined) {
-    if (typeof record.quantity !== "number" || !Number.isFinite(record.quantity)) return null;
-    detail.quantity = record.quantity;
+    if (record.quantity === null && allowClear) detail.quantity = null;
+    else {
+      if (typeof record.quantity !== "number" || !Number.isFinite(record.quantity)) return null;
+      detail.quantity = record.quantity;
+    }
   }
   if (record.unit !== undefined) {
-    if (typeof record.unit !== "string") return null;
-    detail.unit = record.unit;
+    if (record.unit === null && allowClear) detail.unit = null;
+    else {
+      if (typeof record.unit !== "string") return null;
+      detail.unit = record.unit;
+    }
   }
   if (record.priceText !== undefined) {
-    if (typeof record.priceText !== "string") return null;
-    detail.priceText = record.priceText;
+    if (record.priceText === null && allowClear) detail.priceText = null;
+    else {
+      if (typeof record.priceText !== "string") return null;
+      detail.priceText = record.priceText;
+    }
   }
   if (record.approximation !== undefined) {
-    if (typeof record.approximation !== "string" || !APPROXIMATIONS.has(record.approximation)) {
+    if (record.approximation === null && allowClear) detail.approximation = null;
+    else if (
+      typeof record.approximation !== "string" ||
+      !APPROXIMATIONS.has(record.approximation)
+    ) {
       return null;
+    } else {
+      detail.approximation = record.approximation as "some" | "limited" | "plentiful";
     }
-    detail.approximation = record.approximation as "some" | "limited" | "plentiful";
   }
   return detail;
 }
@@ -77,7 +115,7 @@ function readDetail(
  */
 export function parseStructuredEdit(
   value: unknown,
-): Extract<InventoryInterpretation, { kind: "edits" }> | null {
+): Extract<StructuredInventoryEdit, { kind: "edits" }> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   if (!hasOnlyKeys(record, ["additions", "changes", "removals"])) return null;
@@ -87,7 +125,7 @@ export function parseStructuredEdit(
     return null;
   }
 
-  const parsedAdditions: Extract<InventoryInterpretation, { kind: "edits" }>["additions"] = [];
+  const parsedAdditions: Extract<StructuredInventoryEdit, { kind: "edits" }>["additions"] = [];
   for (const entry of additions) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
     const item = entry as Record<string, unknown>;
@@ -98,17 +136,17 @@ export function parseStructuredEdit(
     parsedAdditions.push({ itemName: item.itemName.trim(), ...detail });
   }
 
-  const parsedChanges: Extract<InventoryInterpretation, { kind: "edits" }>["changes"] = [];
+  const parsedChanges: Extract<StructuredInventoryEdit, { kind: "edits" }>["changes"] = [];
   for (const entry of changes) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
     const item = entry as Record<string, unknown>;
     if (!hasOnlyKeys(item, ["entryId", ...ITEM_KEYS])) return null;
     if (!isNonEmptyString(item.entryId)) return null;
     // A change that states nothing would compose to a no-op that still opens a proposal.
-    if (item.itemName === undefined && readDetail(item) !== null && Object.keys(item).length === 1) {
+    if (item.itemName === undefined && Object.keys(item).length === 1) {
       return null;
     }
-    const detail = readDetail(item);
+    const detail = readDetail(item, true);
     if (detail === null) return null;
     if (item.itemName !== undefined && !isNonEmptyString(item.itemName)) return null;
     parsedChanges.push({
@@ -118,7 +156,7 @@ export function parseStructuredEdit(
     });
   }
 
-  const parsedRemovals: Extract<InventoryInterpretation, { kind: "edits" }>["removals"] = [];
+  const parsedRemovals: Extract<StructuredInventoryEdit, { kind: "edits" }>["removals"] = [];
   for (const entry of removals) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
     const item = entry as Record<string, unknown>;

@@ -198,6 +198,73 @@ describe("farm-map poster treatment", () => {
     expect(card.querySelector(".stand-content")!.parentElement).toBe(card);
   });
 
+  it("keeps the no-stand red indicator on the map and off the listing card", () => {
+    const stand: PublicStandPayload = {
+      id: "contact-only-farm",
+      farmName: "Delivery Farm",
+      locationName: "Delivery Farm",
+      visitability: "contact_only",
+      offeringType: "produce",
+      farmBucksAccepted: true,
+      availability: {},
+      alsoSellingHere: [],
+      links: [],
+      paymentMethods: [],
+      items: [],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    const card = screen.getByRole("heading", { name: "Delivery Farm" }).closest("li")!;
+
+    expect(within(card).getByText("No farm stand to visit")).toBeVisible();
+    expect(card.querySelector(".poster-indicator-contact-only")).toBeNull();
+    expect(container.querySelector(".marker-legend-contact-only")).not.toBeNull();
+  });
+
+  it("shows the stand's stated schedule and restocking details when expanded", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "scheduled-stand",
+      farmName: "Scheduled Farm",
+      locationName: "Scheduled Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "10 Calendar Lane",
+      latitude: 47.44,
+      longitude: -122.46,
+      farmBucksAccepted: true,
+      availability: {
+        season: {
+          kind: "date_range",
+          startMonth: 5,
+          startDay: 1,
+          endMonth: 10,
+          endDay: 31,
+        },
+        hours: { kind: "clock_range", fromMinutes: 600, untilMinutes: 1080 },
+        days: [0, 6],
+        hoursText: "Weekends when available",
+        stockingCadence: "specific_days",
+        stockingDays: [2, 5],
+      },
+      alsoSellingHere: [],
+      links: [],
+      paymentMethods: [],
+      items: [],
+    };
+
+    render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Scheduled Stand" }));
+    const card = document.querySelector(".stands .stand") as HTMLElement;
+    const schedule = within(card).getByRole("region", { name: "Stand schedule" });
+
+    expect(within(schedule).getByText("May 1–October 31")).toBeVisible();
+    expect(within(schedule).getByText("10 AM–6 PM")).toBeVisible();
+    expect(within(schedule).getByText("Sunday, Saturday")).toBeVisible();
+    expect(within(schedule).getByText("Weekends when available")).toBeVisible();
+    expect(within(schedule).getByText("Tuesday, Friday")).toBeVisible();
+  });
+
   it("shows the public source description and links when a stand is expanded", async () => {
     const user = userEvent.setup();
     const stand: PublicStandPayload = {

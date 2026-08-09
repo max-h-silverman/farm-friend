@@ -11,6 +11,9 @@ Farm Friend is **pre-go-live**. Production Postgres `neondb` has **34 migrations
 Cloud Run web is `farm-friend-web-00047-2d8` and worker is `farm-friend-worker-00044-lxh`. Both run
 digest `sha256:d5379a52198d29809517175f266e48a8f3749a51ba85cf6dcca6238c7e20623d`.
 
+Main includes F-076's direct structured stock editor; production does not. Its next deployment
+must start from a fresh live revision/schema/source audit and include the merged main artifact.
+
 **Data, schema and runtime code are current.** Neon has all structured-price and pending-stock
 columns, no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
 35 farms / locations / approvals, 35 links, 53 payments, 10 participants, 15 VIGA confirmations,
@@ -37,10 +40,10 @@ that exposed this session's writer bug; that invitation has not yet retried the 
 
 ## Verification
 
-**Latest, 2026-08-08:** **1720 unit**, **849 integration**, typecheck and lint; independently, 52
-onboarding-listing integration tests passed against fresh Postgres. The exact regression test was
-sabotaged successfully. Production passed 55/55 plan assertions, shared-digest/readiness/secret
-checks, 100% web traffic, served-vCard bytes, and a clean error-log check on both new revisions.
+**Latest, 2026-08-08:** **1723 unit**, **851 integration**, typecheck, lint and production build.
+F-076's exact shared-editor regression was sabotaged successfully; phone-width Chrome verified the
+proposal/preview/confirmation flow and matched computed styles between the onboarding and returning
+farmer editors. Production verification below still describes the unchanged deployed digest.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
@@ -135,10 +138,6 @@ link** — a conditional with a test behind it rather than an unbypassable const
 - **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a
   verified `senderHash`; the onboarding form has no phone, so this needs an attribution decision
   first. Its own analysis allows "stays post-authorization" as a possible right answer.
-- **F-076 — quantity/price editing on the today's-stock chips.** Now also the one place the two
-  price shapes meet: `stand_items` is structured (F-092) while `inventory_entries.price_text` is
-  still free text, and onboarding writes today's stock by rendering the structured price into it.
-  Whether that column follows is the open question.
 - **B-001:** an unreproducible integration flake from 2026-07-25 whose failing test name was never
   captured. Filed as a watch item, not diagnosed — a load-dependent flake is what latent
   nondeterminism looks like. Distinct from **B-020**, the reproducible cross-suite deadlock: three
@@ -153,11 +152,11 @@ link** — a conditional with a test behind it rather than an unbypassable const
   P2 resilience band and P3 decisions.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
-tests but not by eye: the farmer agreement step, the expanded stand detail, F-067's onboarding
-listing form and its map, and **F-090's four-step wizard and two-tab stand page**. F-092's two-line
-priced item rows *were* measured in a real browser at 500px (name ellipsises, controls hold size,
-no sideways page scroll) — the rest of the form was not. Per-tranche browser checks are **not
-tracked here** (max, 2026-08-05): he runs a browser pass himself before go-live.
+tests but not by eye: the farmer agreement step, F-067's full onboarding listing form and its map,
+and F-090's full four-step wizard. The two-tab stand page, expanded public stand detail and F-076's
+shared priced-item editor were verified in a real phone-width browser with no sideways page scroll.
+Per-tranche browser checks are **not tracked here** (max, 2026-08-05): he runs a browser pass himself
+before go-live.
 
 **VIGA's call, not a code question:** whether Vashon Island Farmers Market belongs in the roster as
 a farm at all — it is the market itself, not a stand with a farmer to onboard.

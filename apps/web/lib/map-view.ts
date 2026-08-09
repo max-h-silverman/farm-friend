@@ -223,6 +223,16 @@ export interface StandAvailability {
    * shut. "See below" and a seasonally split answer both refuse rather than guess.
    */
   days?: number[];
+  /** The farmer's own qualification, shown verbatim and never interpreted as a schedule. */
+  hoursText?: string;
+  /** How often new stock appears; `stockingDays` gives the days for `specific_days`. */
+  stockingCadence?:
+    | "daily"
+    | "specific_days"
+    | "variable"
+    | "as_needed"
+    | "intermittent";
+  stockingDays?: number[];
 }
 
 export interface MapViewStand extends PublicStandPayload {

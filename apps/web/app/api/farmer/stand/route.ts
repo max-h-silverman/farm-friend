@@ -2,12 +2,12 @@ import {
   activateWebProposal,
   type Db,
 } from "@farm-friend/db";
-import { appContext } from "../../../../lib/composition";
 import { parseStructuredEdit } from "../../../../lib/farmer-stand-edit";
 import { publicReadContext } from "../../../../lib/public-context";
 import {
   confirmFromLink,
-  proposeFromLink,
+  proposeStructuredFromLink,
+  readCurrentStandEntries,
   resolveStandFromToken,
   saveParticipantsFromLink,
 } from "../../../../lib/farmer-stand";
@@ -43,8 +43,7 @@ export async function POST(req: Request): Promise<Response> {
   let body: {
     token?: unknown;
     action?: unknown;
-    text?: unknown;
-    /** A structured edit from the form's chips. Shape is checked by `parseStructuredEdit`. */
+    /** A structured edit from the direct stock editor. Shape is checked at this boundary. */
     edit?: unknown;
     proposalId?: unknown;
     confirmationText?: unknown;
@@ -68,8 +67,7 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  // Structured metadata save: deterministic and model-free. Keep this branch above
-  // `appContext()`, whose dependency set includes the model-backed inventory interpreter.
+  // Structured metadata save: deterministic and model-free, like the stock-edit branch below.
   if (action === "save_participants") {
     if (
       !Array.isArray(body.participantNames) ||
@@ -96,12 +94,10 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const context = appContext();
-  const deps = {
-    db: context.db,
-    interpreter: context.interpreter,
-    clock: context.clock,
-  };
+  // This web path is structurally model-free. Natural-language inventory interpretation remains
+  // an SMS capability; the returning-farmer page has one direct editor, not two competing modes.
+  const context = publicReadContext();
+  const deps = { db: context.db, clock: context.clock };
 
   // Resolved before anything else, and the refusal is the SAME for a revoked link, a
   // fabricated one, and a malformed one — a distinct answer would tell a holder whether a
@@ -112,52 +108,11 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (action === "propose") {
-    /*
-      Two ways to describe a change, ONE gate after it.
-
-      The form's chips post a structured `edit`; the text box posts `text` for the model to
-      interpret. A structured edit skips the model — it is already in the shape the model
-      would produce — but it is parsed strictly here and then meets the same snapshot
-      validation, the same proposal composition, and the same confirmation.
-
-      A request carrying BOTH is refused rather than resolved by precedence: two descriptions
-      of one change is a client bug, and picking a winner would publish whichever the farmer
-      was not looking at.
-    */
-    const hasEdit = body.edit !== undefined;
-    const hasText = typeof body.text === "string" && body.text.trim() !== "";
-    if (hasEdit === hasText) {
+    const edit = parseStructuredEdit(body.edit);
+    if (edit === null) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
-
-    if (hasEdit) {
-      const edit = parseStructuredEdit(body.edit);
-      if (edit === null) {
-        return Response.json({ error: "invalid_request" }, { status: 400 });
-      }
-      const proposedEdit = await proposeFromLink(deps, { token, edit });
-      if (proposedEdit.outcome === "not_authorized") {
-        return Response.json({ error: "not_authorized" }, { status: 403 });
-      }
-      if (proposedEdit.outcome === "proposed") {
-        return Response.json({
-          outcome: "proposed",
-          proposalId: proposedEdit.proposalId,
-          confirmationText: proposedEdit.confirmationText,
-        });
-      }
-      if (proposedEdit.outcome === "clarification") {
-        return Response.json({
-          outcome: "clarification",
-          question: proposedEdit.question,
-        });
-      }
-      return Response.json({ outcome: "rejected" });
-    }
-
-    const text = body.text as string;
-
-    const proposed = await proposeFromLink(deps, { token, taskText: text });
+    const proposed = await proposeStructuredFromLink(deps, { token, edit });
     if (proposed.outcome === "not_authorized") {
       return Response.json({ error: "not_authorized" }, { status: 403 });
     }
@@ -165,19 +120,10 @@ export async function POST(req: Request): Promise<Response> {
       return Response.json({
         outcome: "proposed",
         proposalId: proposed.proposalId,
-        // The snapshot the farmer confirms, rendered by CODE from the validated
-        // interpretation — never model prose.
+        // The exact snapshot the farmer confirms, rendered by code from validated fields.
         confirmationText: proposed.confirmationText,
       });
     }
-    if (proposed.outcome === "clarification") {
-      return Response.json({
-        outcome: "clarification",
-        question: proposed.question,
-      });
-    }
-    // Code refused the model's output. The farmer is asked again rather than shown a reason
-    // that would only describe our own internals.
     return Response.json({ outcome: "rejected" });
   }
 
@@ -207,6 +153,16 @@ export async function POST(req: Request): Promise<Response> {
       },
       { status: 409 },
     );
+  }
+  if (result.status === "published") {
+    return Response.json({
+      status: result.status,
+      currentEntries: await readCurrentStandEntries(
+        context.db,
+        stand.salesLocationId,
+        stand.senderHash,
+      ),
+    });
   }
   return Response.json({ status: result.status });
 }

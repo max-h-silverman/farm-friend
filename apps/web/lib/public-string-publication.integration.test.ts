@@ -326,11 +326,6 @@ describe("public-string safety at the shared publication boundary (integration)"
         {
           db: database(),
           clock: new FixedClock(at(6)),
-          interpreter: {
-            async interpret() {
-              throw new Error("the model must not run while confirming");
-            },
-          },
           activate: (input) => activateWebProposal(database(), input),
         },
         {
@@ -424,11 +419,6 @@ describe("public-string safety at the shared publication boundary (integration)"
       {
         db: database(),
         clock: new FixedClock(at(6)),
-        interpreter: {
-          async interpret() {
-            throw new Error("the model must not run while confirming");
-          },
-        },
         activate: (input) => activateWebProposal(database(), input),
       },
       {
