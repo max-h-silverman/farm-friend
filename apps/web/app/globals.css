@@ -2077,6 +2077,19 @@ form.farmer-picker-next {
   border-radius: var(--radius);
 }
 
+/* The headline needs no box of its own INSIDE this card (max 2026-08-08). `.farmer-form-published`
+   is a standalone banner on five other screens, where the border and fill are what make it read as
+   one — but here the card already provides both, so the rule painted `--green-soft` on
+   `--green-soft` and drew a second border a few pixels inside the first. Scoped rather than
+   changed at the source, so the other five keep the banner they need. */
+.farmer-listing-saved .farmer-form-published {
+  padding: 0;
+  font-size: 1.15rem;
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
 .farmer-listing-summary {
   display: grid;
   gap: 0.6rem;
