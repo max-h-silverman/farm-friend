@@ -756,6 +756,22 @@ export const farmerInvitations = pgTable(
      * unrelated migration; the lesson is that a hand-written migration is only half the change.
      */
     pendingStock: jsonb("pending_stock"),
+    /**
+     * F-097 — how often the farmer asked to be reminded, HELD until their `START` (max
+     * 2026-08-08).
+     *
+     * The same shape and the same reason as `pendingStock` above: the invited form publishes a
+     * listing before anyone is authorized, and `inventory_prompt_preferences` carries composite
+     * foreign keys to a live authorization — so the row is structurally impossible at the
+     * moment the farmer chooses. The choice waits here and is applied inside the redemption
+     * transaction, beside the authorization that makes it legal.
+     *
+     * NULL means the farmer stated nothing and takes the default (`weekly`), which is exactly
+     * what every farmer got before this column existed. It is deliberately NOT defaulted to
+     * `weekly` in the column: "chose weekly" and "was never asked" are different facts, and
+     * only the second may be silently changed if the default ever moves.
+     */
+    pendingPromptCadence: inventoryPromptCadence("pending_prompt_cadence"),
   },
   (table) => ({
     tokenHashUnique: unique("farmer_invitations_token_hash_unique").on(table.tokenHash),

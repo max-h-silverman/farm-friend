@@ -1,4 +1,4 @@
-import { hashFarmerLinkToken, type Clock } from "@farm-friend/core";
+import { hashFarmerLinkToken, isFarmerLinkToken, type Clock } from "@farm-friend/core";
 import {
   renameFarm,
   resolveFarmerLink,
@@ -31,9 +31,6 @@ import { parseListingSubmission } from "./farmer-listing";
 //
 // What it deliberately CANNOT change is unchanged: Farm Bucks is a VIGA eligibility fact with
 // its own admin workflow, and a farmer may not grant themselves eligibility from a form.
-
-/** The one shape a 64-hex credential may take, checked before any database work. */
-const LINK_TOKEN_RE = /^[0-9a-f]{64}$/;
 
 export interface FarmerListingEditDeps {
   db: Db;
@@ -70,8 +67,12 @@ export async function handleFarmerListingEditPost(
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 
+  // The token shape is core's, checked before any database work. Restating it as a local regex
+  // is how the four doors that admit a link token come to disagree about what one looks like —
+  // and after F-097 shortened the token, a stale copy would refuse every newly minted link at
+  // exactly one of them, with a 400 the farmer reads as "that did not save".
   const token = body.token;
-  if (typeof token !== "string" || !LINK_TOKEN_RE.test(token)) {
+  if (typeof token !== "string" || !isFarmerLinkToken(token)) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 

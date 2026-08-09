@@ -224,7 +224,7 @@ describe("farmer authorization and standing links (integration)", () => {
         satisfy a `toContain` while resolving to nothing for the farmer.
       */
       const body = queued[0]?.body as string;
-      const token = /\/stand\/([0-9a-f]{64})\b/.exec(body)?.[1];
+      const token = /\/stand\/([A-Za-z0-9_-]{22,64})/.exec(body)?.[1];
       expect(token).toBeDefined();
       const live = await sql()`
         select authorization_id from farmer_links

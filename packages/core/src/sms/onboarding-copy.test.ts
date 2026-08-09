@@ -44,10 +44,15 @@ describe("farmer onboarding copy", () => {
     //
     // max 2026-08-08: it was not clear WHAT the link was. It used to be "Save us:" plus a raw
     // API path, trailing the welcome after the opt-out instruction. Now it is a message.
+    //
+    // F-097 — and it must name the CONSEQUENCE, not just the action. On a handset the
+    // attachment previews as "contact-card · 153 bytes", which explains nothing; "save this"
+    // beside an inscrutable file is not a reason to tap it. The offer has to say what changes
+    // if they do, so this asserts the payoff rather than the word "contacts".
     const offer = renderContactCardOffer("https://farmfriend.example");
     const [instruction, url, ...rest] = offer.split("\n");
     expect(instruction?.toLowerCase()).toContain("save");
-    expect(instruction?.toLowerCase()).toContain("contacts");
+    expect(instruction).toContain("VIGA Farm Friend");
     expect(url).toBe("https://farmfriend.example/api/public/contact-card");
     expect(rest).toEqual([]);
     // Saving a contact asks for nothing and records nothing, so it carries no footer.

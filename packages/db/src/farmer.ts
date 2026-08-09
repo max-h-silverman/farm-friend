@@ -385,6 +385,46 @@ export async function recordFarmerInvitationPendingStock(
   return updated.length > 0 ? { status: "recorded" } : { status: "invalid" };
 }
 
+/** The cadences the onboarding form may state. The enum's values, minus nothing. */
+export type PendingPromptCadence =
+  | "every_2_days"
+  | "weekly"
+  | "every_2_weeks"
+  | "paused";
+
+/**
+ * Record how often the farmer asked to be reminded, HELD until their `START` (F-097).
+ *
+ * The same holding pattern as `recordFarmerInvitationPendingStock` above, for the same
+ * structural reason: `inventory_prompt_preferences` carries a composite foreign key to a live
+ * authorization, and the invited farmer has none until they text. So the choice waits on the
+ * invitation and `seedDefaultPromptPreference` reads it inside the redemption transaction.
+ *
+ * Overwritable while the invitation is unredeemed — a farmer who changes their mind on the
+ * form before submitting must be able to, exactly as with the phone and the stock.
+ *
+ * Unlike the stock, this does NOT require a stated phone: a cadence with no handset simply
+ * never applies, harming nothing, whereas held stock with no phone would be a dated claim that
+ * could never be matched to a sender.
+ */
+export async function recordFarmerInvitationPendingCadence(
+  db: Db,
+  input: { token: string; cadence: PendingPromptCadence; occurredAt: Date },
+): Promise<{ status: "recorded" | "invalid" }> {
+  if (!/^[0-9a-f]{64}$/.test(input.token)) return { status: "invalid" };
+
+  const updated = await driver(db)`
+    update farmer_invitations
+    set pending_prompt_cadence = ${input.cadence}
+    where token_hash = ${hashFarmerInviteToken(input.token)}
+      and redeemed_at is null
+      and expires_at > ${input.occurredAt.toISOString()}
+      and farm_id is not null
+    returning id
+  `;
+  return updated.length > 0 ? { status: "recorded" } : { status: "invalid" };
+}
+
 /**
  * Publish the stock a farmer stated at onboarding, now that `START` has proved the handset.
  *
@@ -647,6 +687,10 @@ export async function authorizeFarmer(
     // moments: this farmer's farm may already have a seeded VIGA stand, while an invited
     // farmer publishes a listing first and is authorized only when they text JOIN. First
     // write only, and a no-op when the farm has no stand yet.
+    //
+    // The DEFAULT cadence, deliberately: this is the ADMIN door, where no farmer filled in a
+    // form to state a preference on. The invited door reads the farmer's own choice off the
+    // invitation — see `authorizeInvitedFarmerIn`.
     await seedDefaultPromptPreference(tx, {
       salesLocationId: null,
       farmId: input.farmId,
@@ -853,7 +897,8 @@ export async function openFarmerOnboardingRequest(
       const invitations =
         invitationToken !== undefined
           ? await tx`
-              select id, agreed_to_sms_at, farm_id, created_by_administrator_id
+              select id, agreed_to_sms_at, farm_id, created_by_administrator_id,
+                pending_prompt_cadence
               from farmer_invitations
               where token_hash = ${hashFarmerInviteToken(invitationToken)}
                 and redeemed_at is null
@@ -861,7 +906,8 @@ export async function openFarmerOnboardingRequest(
               for update
             `
           : await tx`
-              select id, agreed_to_sms_at, farm_id, created_by_administrator_id
+              select id, agreed_to_sms_at, farm_id, created_by_administrator_id,
+                pending_prompt_cadence
               from farmer_invitations
               where pending_phone_hash = ${pendingPhoneHash!}
                 and redeemed_at is null
@@ -876,6 +922,12 @@ export async function openFarmerOnboardingRequest(
         (invitations[0]?.agreed_to_sms_at as Date | null | undefined) ?? null;
       const invitationFarmId = (invitations[0]?.farm_id as string | null | undefined) ?? null;
       const invitedByAdministratorId = invitations[0]?.created_by_administrator_id as string;
+      // F-097 — the cadence the farmer chose on the form, or undefined when they were never
+      // asked. Read here, applied inside the authorization below, because the preference row
+      // cannot exist until that authorization does.
+      const pendingPromptCadence =
+        (invitations[0]?.pending_prompt_cadence as PendingPromptCadence | null | undefined) ??
+        undefined;
 
       const inserted = await tx`
         insert into farmer_onboarding_requests (contact_hash, invitation_id, requested_at)
@@ -963,6 +1015,7 @@ export async function openFarmerOnboardingRequest(
               invitedByAdministratorId,
               occurredAt: input.occurredAt,
               publicBaseUrl: input.publicBaseUrl,
+              ...(pendingPromptCadence === undefined ? {} : { pendingPromptCadence }),
             });
 
       // F-090 — today's stock, stated on the form and held until this moment.
@@ -1039,6 +1092,11 @@ async function authorizeInvitedFarmerIn(
     occurredAt: Date;
     /** Base for the private link the setup message carries (F-094). */
     publicBaseUrl: string;
+    /**
+     * F-097 — the reminder cadence the farmer chose on the onboarding form, read from the
+     * invitation by the caller. Undefined when they were never asked, and the default applies.
+     */
+    pendingPromptCadence?: PendingPromptCadence;
   },
 ): Promise<string | null> {
   const contacts = await tx`
@@ -1110,14 +1168,23 @@ async function authorizeInvitedFarmerIn(
       ${authorizationId}, ${input.occurredAt.toISOString()})
   `;
 
-  // F-081 — the same default schedule the administrator path seeds. This is the moment an
-  // INVITED farmer first has both a stand (published from the web form) and a live
-  // authorization, so it is where their reminders can first be scheduled at all.
+  // F-081 — the reminder schedule. This is the moment an INVITED farmer first has both a
+  // stand (published from the web form) and a live authorization, so it is where their
+  // reminders can first be scheduled at all.
+  //
+  // F-097 — and it is the farmer's OWN choice, stated on the onboarding form and held on the
+  // invitation until now for exactly that reason: `inventory_prompt_preferences` carries a
+  // composite foreign key to the authorization this function is creating, so the row was
+  // structurally impossible at the moment they chose. Undefined when the form did not ask or
+  // they left it alone, and the default applies as it always did.
   await seedDefaultPromptPreference(tx, {
     salesLocationId: null,
     farmId: input.farmId,
     authorizationId,
     occurredAt: input.occurredAt,
+    ...(input.pendingPromptCadence === undefined
+      ? {}
+      : { cadence: input.pendingPromptCadence }),
   });
 
   // The same notification VIGA's click used to queue, through the same helper — including the
@@ -1326,26 +1393,37 @@ export async function activateWebProposal(
   },
 ): Promise<void> {
   await driver(db).begin(async (tx) => {
-    // The activation record needs a message it activated FROM. That is not bookkeeping the
-    // schema demands for its own sake: `activation_coherent` exists so a proposal cannot be
-    // committable without a prompt the farmer was actually shown, and inventing a NULL
-    // outbox id to satisfy the shape would hollow that out.
-    //
-    // So the web path queues a REAL message — the same confirmation the SMS path sends. The
-    // farmer gets a record of what they published on the channel they already trust, which
-    // is worth having on its own: a browser tab is not a receipt. Consent still gates
-    // delivery at the dispatch claim, so a farmer with no consent record simply does not
-    // receive it, and the proposal is still activated and confirmable on the page.
+    /*
+      The activation record needs a message it activated FROM. That is not bookkeeping the
+      schema demands for its own sake: `activation_coherent` exists so a proposal cannot be
+      committable without a prompt the farmer was actually shown, and inventing a NULL
+      outbox id to satisfy the shape would hollow that out.
+
+      **The row is written `suppressed`, so nothing is texted** (F-097, max 2026-08-08). It
+      used to be queued for real delivery, on the reasoning that a browser tab is not a
+      receipt. The farmer told us that is backwards for this channel: they are looking at the
+      exact snapshot on screen as they save it, so the text restates a fact they just read and
+      arrives as noise for an errand already finished.
+
+      `suppressed` with `completed_at` set and `dispatch_authorized_at` null is a state
+      `outbox_work_coherent_state` already permits — the same one the dispatch claim writes
+      when consent forbids a send. So the record still EXISTS, which is what
+      `activation_coherent` requires and what keeps the audit trail honest about what the
+      farmer was shown; it simply never becomes work for the sender. The SMS path is untouched:
+      a farmer confirming by text still gets their prompt, because there the message IS the
+      interface rather than a duplicate of it.
+    */
     const prompt = await tx`
       insert into outbox_work (
         logical_key, recipient_hash, message_category, body, body_expires_at,
-        available_at, created_at
+        available_at, created_at, state, completed_at
       )
       values (
         ${`web-proposal-${input.proposalId}`}, ${input.senderHash},
         'inventory_confirmation', ${input.confirmationText},
         ${new Date(input.at.getTime() + WEB_BODY_TTL_MS).toISOString()},
-        ${input.at.toISOString()}, ${input.at.toISOString()}
+        ${input.at.toISOString()}, ${input.at.toISOString()},
+        'suppressed', ${input.at.toISOString()}
       )
       on conflict (logical_key) do update set logical_key = excluded.logical_key
       returning id

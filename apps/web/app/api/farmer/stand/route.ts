@@ -5,8 +5,7 @@ import {
 import { parseStructuredEdit } from "../../../../lib/farmer-stand-edit";
 import { publicReadContext } from "../../../../lib/public-context";
 import {
-  confirmFromLink,
-  proposeStructuredFromLink,
+  publishStructuredFromLink,
   readCurrentStandEntries,
   resolveStandFromToken,
   saveParticipantsFromLink,
@@ -24,8 +23,9 @@ import {
 // Every request re-resolves the token. There is no session, no cookie, and nothing cached: a
 // revocation that commits between two clicks takes effect on the second one.
 //
-// The route NEVER publishes. It proposes, and it confirms through
+// The route NEVER writes a revision itself. Publication goes through
 // `confirmInventoryPublication` — the same gate SMS lands on, no bypass (Golden Rule #1, #3).
+// F-097 collapsed the farmer's two presses into one; the gate behind them is unchanged.
 
 export const dynamic = "force-dynamic";
 
@@ -45,8 +45,6 @@ export async function POST(req: Request): Promise<Response> {
     action?: unknown;
     /** A structured edit from the direct stock editor. Shape is checked at this boundary. */
     edit?: unknown;
-    proposalId?: unknown;
-    confirmationText?: unknown;
     participantNames?: unknown;
   };
   try {
@@ -57,12 +55,7 @@ export async function POST(req: Request): Promise<Response> {
 
   const token = typeof body.token === "string" ? body.token : null;
   const action =
-    body.action === "propose" ||
-    body.action === "confirm" ||
-    body.action === "decline" ||
-    body.action === "save_participants"
-      ? body.action
-      : null;
+    body.action === "publish" || body.action === "save_participants" ? body.action : null;
   if (token === null || action === null) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
@@ -107,36 +100,29 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json({ error: "not_authorized" }, { status: 403 });
   }
 
-  if (action === "propose") {
-    const edit = parseStructuredEdit(body.edit);
-    if (edit === null) {
-      return Response.json({ error: "invalid_request" }, { status: 400 });
-    }
-    const proposed = await proposeStructuredFromLink(deps, { token, edit });
-    if (proposed.outcome === "not_authorized") {
-      return Response.json({ error: "not_authorized" }, { status: 403 });
-    }
-    if (proposed.outcome === "proposed") {
-      return Response.json({
-        outcome: "proposed",
-        proposalId: proposed.proposalId,
-        // The exact snapshot the farmer confirms, rendered by code from validated fields.
-        confirmationText: proposed.confirmationText,
-      });
-    }
-    return Response.json({ outcome: "rejected" });
-  }
+  /*
+    ONE action, because the editor is not an interpretation (F-097, max 2026-08-08).
 
-  const proposalId = typeof body.proposalId === "string" ? body.proposalId : null;
-  const confirmationText =
-    typeof body.confirmationText === "string" ? body.confirmationText : null;
-  if (proposalId === null || confirmationText === null) {
+    This route used to expose `propose`, `confirm` and `decline`: the farmer's press opened a
+    proposal, the page rendered the snapshot back, and a second press published it. That gate
+    earns its place on SMS, where code must show what it made of the farmer's prose before
+    acting on it. Here the farmer is looking at the exact rows they filled in, so the preview
+    restated the screen they were on.
+
+    The three actions are GONE rather than left beside this one. A second door onto the same
+    writer is how the two come to disagree about what publishes — and the confirmation gate is
+    not bypassed by removing them: `publishStructuredFromLink` composes the same propose and
+    confirm calls, so authority, approval, retirement and exactly-once consumption are all
+    still enforced under the transaction's own locks.
+  */
+  const edit = parseStructuredEdit(body.edit);
+  if (edit === null) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  const result = await confirmFromLink(
+  const result = await publishStructuredFromLink(
     { ...deps, activate: activator(context.db) },
-    { token, proposalId, accept: action === "confirm", confirmationText },
+    { token, edit },
   );
 
   if (result.status === "not_authorized") {

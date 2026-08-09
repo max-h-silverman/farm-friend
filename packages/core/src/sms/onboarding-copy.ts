@@ -110,23 +110,37 @@ export function renderFarmerAuthorizedNotification(link: string | null): string 
     // whose farm has no stand yet, and telling them they are on the map would be false for
     // exactly the farmer least able to check.
     "VIGA Farm Friend: you're all set.",
-    "Just text us what you have out today - that is all it takes.",
+    // THE ONE THING TO DO, stated as the whole interface. Everything below is reference.
+    "Just text us what you have out - that is all it takes.",
     // A farmer with no stand yet cannot be issued a link: `issueFarmerLinkIn` needs a
     // `sales_locations` row, and the ADMIN authorization path can run before one exists (the
     // invited path always has one — the farmer published the listing on the form). Naming the
     // word is the honest fallback; inventing a URL that resolves to nothing would be worse
     // than asking for one more text.
+    /*
+      THE LINK, and the label above it cut to four words (F-097).
+
+      It read "To change your listing, open your own page here:" over the URL and "Lost it?
+      Text LINK for a new one." under it — three lines of scaffolding around one tappable
+      thing, in a message that already had a job. What a farmer needs beside a URL is what it
+      opens; the recovery word is real but it is reference, so it joins the keyword line below
+      rather than interrupting the link.
+    */
     ...(link === null
       ? ["Text LINK when you need to update your listing."]
-      : [
-          "To change your listing, open your own page here:",
-          link,
-          "Lost it? Text LINK for a new one.",
-        ]),
-    // STAND is named even though most farmers have one stand, because the tripwire in
-    // `farmer-keywords.test.ts` requires every keyword the parser honours to be taught — and a
-    // farmer who DOES have two has no other way to learn the word that picks between them.
-    "Text SETTINGS to change how often we text you, or STAND if you have more than one stand.",
+      : ["Your listing page:", link]),
+    // ONE reference line, and the keywords in the order a farmer needs them. STAND is named
+    // even though most farmers have one, because the tripwire in `farmer-keywords.test.ts`
+    // requires every keyword the parser honours to be taught — and a farmer who DOES have two
+    // has no other way to learn the word that picks between them.
+    //
+    // LINK is taught HERE, in the reference list, rather than as its own sentence under the
+    // URL: it is the recovery word for a text the farmer no longer has, which is the same kind
+    // of fact as the other two.
+    link === null
+      ? "Text SETTINGS to change how often we text you, or STAND if you have more than one."
+      : "Text LINK if you lose it, SETTINGS to change how often we text you, or STAND if you " +
+        "have more than one.",
   ].join("\n");
 }
 
@@ -170,7 +184,18 @@ export const CUSTOMER_WELCOME = [
  */
 export function renderContactCardOffer(publicBaseUrl: string): string {
   return [
-    "Save VIGA Farm Friend in your contacts:",
+    /*
+      WHAT TAPPING IT DOES, and why the sentence grew (F-097, max 2026-08-08).
+
+      On a real handset the attachment previews as "contact-card · 153 bytes" over the bare
+      host — the filename and a byte count, which say nothing about what it is for. "Save VIGA
+      Farm Friend in your contacts:" named the action but not the payoff, so the offer sat
+      beside an inscrutable file and read as something the system had emitted at the farmer.
+
+      Naming the CONSEQUENCE is what makes it worth a tap: the alternative is every later
+      message — a reminder, a stock-out alert — arriving from an unnamed number.
+    */
+    "Tap to save our number, so our texts show up as VIGA Farm Friend and not a stranger:",
     contactCardUrl(publicBaseUrl),
   ].join("\n");
 }

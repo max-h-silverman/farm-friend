@@ -863,6 +863,28 @@ export function ListingStep({
   const [agreeing, setAgreeing] = useState(false);
   const [agreeError, setAgreeError] = useState<string | null>(null);
 
+  /*
+    HOW OFTEN WE WILL TEXT THEM, asked where they agree to be texted (max, 2026-08-08).
+
+    Every farmer was put on `weekly` by `seedDefaultPromptPreference` and told nothing about
+    it. The setting existed on the stand page's settings tab — behind a link they receive
+    after this — so the first a farmer learned of their own reminder schedule was a text
+    arriving, which is exactly the surprise the SMS agreement above is meant to prevent.
+
+    Directly below the agreement and above Submit, because it is the same subject: the tick
+    says "you may text me", and this says "this often". Asking it anywhere else would separate
+    a consequence from the consent it follows from.
+
+    Defaulted to `weekly` rather than blank, because that IS what the farmer gets today — a
+    blank choice would be a required field invented out of a default nobody complained about.
+    The value only rides along if this door can hold it: it lands on the invitation and is
+    applied when their `START` creates the authorization the preference row needs.
+  */
+  const asksForCadence = credential.kind === "invitation";
+  const [promptCadence, setPromptCadence] = useState<
+    "every_2_days" | "weekly" | "every_2_weeks" | "paused"
+  >("weekly");
+
   async function toggleAgreement(checked: boolean): Promise<void> {
     setAgreeError(null);
     if (!checked) {
@@ -1237,6 +1259,9 @@ export function ListingStep({
           // and hash. Only the invited door asks for it, and only that door has a column to
           // hold it — omitted means "this door states nothing about a phone", never "clear it".
           ...(asksForPhone ? { phone } : {}),
+          // F-097 — the reminder schedule, sent only by the door that asked. Omitted means
+          // "this door states nothing about it", and the farmer keeps the default.
+          ...(asksForCadence ? { promptCadence } : {}),
         }),
       });
       if (!response.ok) {
@@ -1348,8 +1373,8 @@ export function ListingStep({
               later or never. One errand, one block.
             */}
             <p>
-              Send it from the phone you want to use for stand updates — that is what turns on
-              texting for you, and we cannot text you until you do.
+              It has to come from the phone you will send stand updates from — we cannot text
+              you until it does.
             </p>
           </div>
         ) : null}
@@ -1411,13 +1436,15 @@ export function ListingStep({
           ) : null}
         </dl>
 
-        <button
-          className="farmer-listing-change"
-          type="button"
-          onClick={() => setSaved(false)}
-        >
-          Change something
-        </button>
+        {/*
+          NO "CHANGE SOMETHING" BUTTON (max, 2026-08-08).
+
+          It reopened the form in place, and it was the wrong offer at the wrong moment: the
+          farmer's next action is the one text that turns their texting on, and a second control
+          competing with it costs completions. Changing a listing is a real errand with a real
+          home — the stand page, reached by the link they are about to be sent — so this screen
+          does not need to be a second door onto it.
+        */}
 
         {/*
           HOW THE FARMER RUNS THEIR STAND FROM A PHONE (F-093).
@@ -2170,6 +2197,41 @@ export function ListingStep({
               {agreeError}
             </p>
           )}
+        </div>
+      )}
+
+      {/*
+        THE REMINDER SCHEDULE, directly under the agreement it follows from (max 2026-08-08).
+
+        Not gated on the tick: a farmer who has not yet agreed can still say how often they
+        would want reminding, and disabling the control would make the page feel broken at the
+        moment they are deciding. What the choice cannot do without the tick is take effect —
+        no agreement means no authorization, and no authorization means no schedule at all.
+
+        "Paused" is offered here, exactly as it is in settings. A farmer who wants no reminders
+        should be able to say so before the first one arrives rather than after.
+      */}
+      {asksForCadence && (
+        <div className="farmer-onboarding-cadence">
+          <label htmlFor="prompt-cadence">How often should we remind you to update?</label>
+          <select
+            id="prompt-cadence"
+            value={promptCadence}
+            onChange={(event) =>
+              setPromptCadence(
+                event.target.value as "every_2_days" | "weekly" | "every_2_weeks" | "paused",
+              )
+            }
+          >
+            <option value="every_2_days">Every 2 days</option>
+            <option value="weekly">Weekly</option>
+            <option value="every_2_weeks">Every 2 weeks</option>
+            <option value="paused">Don&apos;t remind me</option>
+          </select>
+          <p className="farmer-form-note">
+            We text at 10am. You can change this any time by texting{" "}
+            <strong>SETTINGS</strong>.
+          </p>
         </div>
       )}
 

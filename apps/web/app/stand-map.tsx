@@ -402,17 +402,18 @@ function PosterIndicators({
   two facts on it are told in two different VOICES — the distinction F-042 established, now
   carried by shape rather than by two nearly-identical chip styles:
 
-    a confirmation → CHIPS. Discrete, countable things a farmer vouched for, dated by a label
-                     directly above them so the timestamp attaches to the items it covers.
+    a confirmation → CHIPS. Discrete, countable things a farmer vouched for, dated by a caption
+                     directly BELOW them so the timestamp attaches to the items it covers.
     a specialty    → a plain grey SENTENCE. No chip, no border, no box — nothing that gives it
                      the shape of a countable stock list, and no visual slot where a date would
                      look at home. The no-timestamp rule lives in `standListingLines`; this
                      styling refuses to leave a place to put one.
 
-  The elapsed phrase is split off the label here. `standListingLines` renders "Confirmed 4 hours
-  ago:" as one string for the SMS-shaped surfaces; the card wants the recency as its own small
-  line above the chips, so it reads the same `detail` field rather than slicing the verb off a
-  sentence — the failure mode `confirmedElapsed` exists to prevent.
+  The recency is its own line rather than part of the label. `standListingLines` renders
+  "Confirmed 4 hours ago:" as one string for the SMS-shaped surfaces; this card reads the
+  separately rendered `cardRecency` instead of slicing a verb off that sentence — the failure
+  mode `confirmedElapsed` exists to prevent — and states it in the browsed-card's own words
+  ("Last updated 3 weeks ago", or "No recent update" past four weeks).
 */
 function StandListings({ stand }: { stand: FilteredStand }) {
   return (
@@ -423,22 +424,6 @@ function StandListings({ stand }: { stand: FilteredStand }) {
             <p className="listing-note">{line.label}</p>
           ) : line.kind === "confirmed" ? (
             <>
-              {/*
-                THE TIMESTAMP FOLLOWS STALENESS, and this is an honesty rule rather than a
-                colour preference. Rendered green on a stale stand, this label says "trust
-                this" in the confirmed colour while the recency line below says "may be out of
-                date" in amber — the card contradicting itself on the one question it exists to
-                answer. Green is reserved for a confirmation still inside its window.
-              */}
-              <p
-                className={
-                  stand.stale === true
-                    ? "listing-label listing-label-confirmed listing-label-aged"
-                    : "listing-label listing-label-confirmed"
-                }
-              >
-                Confirmed {line.detail}
-              </p>
               <ul className="items">
                 {stand.items.map((item, index) => (
                   <li key={`${stand.id}-${index}`}>
@@ -456,6 +441,36 @@ function StandListings({ stand }: { stand: FilteredStand }) {
                   </li>
                 ))}
               </ul>
+              {/*
+                THE DATE SITS UNDER THE LIST IT COVERS (max, 2026-08-08).
+
+                It used to head the chips as "Confirmed 4 hours ago:". What a customer came for
+                is WHAT IS THERE, so the items lead and the date qualifies them — the same shape
+                as a caption. Reading order is unchanged in substance: the timestamp still
+                belongs to exactly these items and to nothing else on the card.
+
+                "Last updated", not "Confirmed": the farmer's act is updating their listing, and
+                "confirmed" overstates it for a stand nobody has visited. Past four weeks the
+                sentence gives up on the arithmetic entirely — see `renderCardRecency`.
+
+                THE STYLING FOLLOWS STALENESS, and that is an honesty rule rather than a colour
+                preference. Rendered green on a stale stand it would say "trust this" in the
+                confirmed colour while stating an age that says otherwise. Green is reserved for
+                a confirmation still inside its window.
+
+                `cardRecency` rather than `detail`: `standListingLines` renders the SMS-shaped
+                phrase, and this surface needs the browsed-card one. The fallback keeps a card
+                whose payload predates this field from rendering a bare "Last updated".
+              */}
+              <p
+                className={
+                  stand.stale === true
+                    ? "listing-label listing-label-confirmed listing-label-aged"
+                    : "listing-label listing-label-confirmed"
+                }
+              >
+                {stand.cardRecency ?? `Last updated ${line.detail}`}
+              </p>
             </>
           ) : (
             <>

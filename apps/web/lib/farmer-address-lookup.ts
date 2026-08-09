@@ -1,5 +1,6 @@
 import {
   hashFarmerLinkToken,
+  isFarmerLinkToken,
   type Clock,
   type PublicActionThrottle,
 } from "@farm-friend/core";
@@ -37,12 +38,17 @@ import { clientSignalFor } from "./client-signal";
 //     the provider, so a refused request costs nothing.
 
 /**
- * The one shape a 64-hex credential may take, checked before any provider work.
+ * The shapes a credential may take here, checked before any provider work.
  *
- * Both an invitation token and a farmer's stand link token are 64 hex, so this cannot tell them
- * apart — and does not try. Which one it is, is decided by which resolver accepts it.
+ * Two different credentials reach this door — an invitation token (64 hex) and a farmer's
+ * stand link token (base64url since F-097, or 64 hex if it was minted before that). This
+ * cannot tell them apart and does not try: which one it is, is decided by which resolver
+ * accepts it. `isFarmerLinkToken` already spans both, so it is the whole gate rather than one
+ * of two branches — and an invitation's hex satisfies it.
  */
-const TOKEN_RE = /^[0-9a-f]{64}$/;
+function looksLikeToken(token: string): boolean {
+  return isFarmerLinkToken(token);
+}
 
 /** A farm id must be a UUID before any provider work — a malformed one is a bad request. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -112,10 +118,9 @@ export async function handleAddressLookupPost(
   if (hasToken === hasFarmId) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  // An invitation token and a stand link token are both 64 hex, so shape cannot tell them
-  // apart — and must not try to. Each is resolved by its own resolver below, and a token that
-  // is neither is refused there.
-  if (hasToken && (typeof token !== "string" || !TOKEN_RE.test(token))) {
+  // Shape cannot tell an invitation token from a stand link token — and must not try to. Each
+  // is resolved by its own resolver below, and a token that is neither is refused there.
+  if (hasToken && (typeof token !== "string" || !looksLikeToken(token))) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
   if (hasFarmId && (typeof farmId !== "string" || !UUID_RE.test(farmId))) {
@@ -148,10 +153,10 @@ export async function handleAddressLookupPost(
 
   // The credential is checked before the billed call too, whichever one was presented.
   if (hasToken) {
-    // Either kind of token is acceptable, and both are 64 hex — so this asks each resolver in
-    // turn rather than guessing from the string. An onboarding farmer holds an invitation; an
-    // already-onboarded farmer editing their listing (F-073) holds their stand link, and both
-    // are farmers placing a pin on a stand they control.
+    // Either kind of token is acceptable, and shape does not separate them — so this asks each
+    // resolver in turn rather than guessing from the string. An onboarding farmer holds an
+    // invitation; an already-onboarded farmer editing their listing (F-073) holds their stand
+    // link, and both are farmers placing a pin on a stand they control.
     //
     // An expired, redeemed, or unknown credential gets the same uniform refusal the listing
     // endpoints give, so this cannot be used to learn whether a guessed token names anything.

@@ -578,8 +578,12 @@ describe("onboarding listing step", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/on the map/i);
     // The farmer's own answer is still on screen, not swapped for a receipt.
     expect(screen.getByText("Test Farm")).toBeInTheDocument();
-    // And there is a way back in — a saved listing is not a locked one.
-    expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
+    // NO WAY BACK IN from here (max, 2026-08-08). The "Change something" button was removed:
+    // the farmer's next action is the one text that turns their texting on, and a second
+    // control competing with it costs completions. Editing has a real home — the stand page,
+    // reached by the link they are about to be sent — so this screen is not a second door
+    // onto it.
+    expect(screen.queryByRole("button", { name: /change something/i })).not.toBeInTheDocument();
   });
 
   it("teaches the farmer how to run their stand by text (F-093)", async () => {
@@ -627,18 +631,29 @@ describe("onboarding listing step", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/last step/i);
   });
 
-  it("reopens the form with the farmer's answers intact", async () => {
+  it("leaves the saved screen with ONE errand on it", async () => {
+    // Replaces "reopens the form with the farmer's answers intact", which exercised the
+    // "Change something" button max removed on 2026-08-08. The property that matters now is
+    // the opposite one: nothing on this screen competes with texting START.
     const user = userEvent.setup();
     stubFetch({ ok: true });
-    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+    render(
+      <ListingStep
+        credential={{ kind: "invitation", token: TOKEN }}
+        farmName="Test Farm"
+        smsNumber="+12065550000"
+      />,
+    );
 
     await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
     await placeStand(user);
     await submitListing(user);
-    await user.click(await screen.findByRole("button", { name: /change/i }));
 
-    // Reopening is not a fresh form: a farmer correcting one field must not retype the rest.
-    expect(standNameField()).toHaveValue("Test Farm");
+    const saved = await screen.findByRole("status");
+    // The one thing to do is a link that composes the text. Asserted as the ONLY button on
+    // the screen, so a control reappearing beside it fails here.
+    expect(within(saved).queryAllByRole("button")).toHaveLength(0);
+    expect(within(saved).getByRole("link", { name: /206-555-0000/ })).toBeVisible();
   });
 
   // The farm name is public on the map beside the stand and was previously unchangeable by
@@ -2416,7 +2431,7 @@ describe("onboarding listing step", () => {
         expect(reminder).toHaveTextContent(/206-555-0000/);
         // Both halves of the one errand live together now (max 2026-08-08) — the instruction
         // and why it must be that handset — rather than split across the summary list.
-        expect(reminder).toHaveTextContent(/phone you want to use/i);
+        expect(reminder).toHaveTextContent(/phone you will send stand updates from/i);
       });
 
       it("tells the farmer their number is not a phone, before any modal", async () => {

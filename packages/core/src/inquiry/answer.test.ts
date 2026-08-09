@@ -4,8 +4,10 @@ import {
   ORIGIN_LIMITATION_STATEMENT,
   PUBLIC_MAP_URL,
   renderNoCurrentListing,
+  renderCardRecency,
   renderElapsed,
   renderRecency,
+  NO_RECENT_UPDATE,
   STALE_AFTER_HOURS,
   validateFactSelection,
   type RetrievedFact,
@@ -138,6 +140,46 @@ describe("recency rendering — code states how fresh a fact is", () => {
     expect(renderElapsed(hoursAgo(5), NOW)).toBe("5 hours ago");
     expect(renderElapsed(hoursAgo(24), NOW)).toBe("1 day ago");
     expect(renderElapsed(hoursAgo(72), NOW)).toBe("3 days ago");
+  });
+
+  // F-097 — the PUBLIC CARD's phrasing, which is a different question from the SMS answer's.
+  // An SMS reply is about right now and counts in hours; a card is browsed, its listings run
+  // to months, and "45 days ago" is a number nobody converts.
+  it("counts the card's recency in weeks once a listing is over a week old", () => {
+    const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000);
+    // Under a week it DELEGATES to renderElapsed, so the two surfaces cannot disagree.
+    expect(renderCardRecency(hoursAgo(2), NOW)).toBe("Last updated 2 hours ago");
+    expect(renderCardRecency(daysAgo(3), NOW)).toBe("Last updated 3 days ago");
+    expect(renderCardRecency(daysAgo(6), NOW)).toBe("Last updated 6 days ago");
+    // Then weeks, singular at exactly one.
+    expect(renderCardRecency(daysAgo(7), NOW)).toBe("Last updated 1 week ago");
+    expect(renderCardRecency(daysAgo(13), NOW)).toBe("Last updated 1 week ago");
+    expect(renderCardRecency(daysAgo(14), NOW)).toBe("Last updated 2 weeks ago");
+    expect(renderCardRecency(daysAgo(27), NOW)).toBe("Last updated 3 weeks ago");
+  });
+
+  it("stops claiming a date at four weeks rather than counting into months", () => {
+    // max's call (2026-08-08). A two-month-old confirmation is not meaningfully fresher than a
+    // three-month-old one, and printing the arithmetic invites a customer to reason about a
+    // number that has stopped carrying information.
+    //
+    // The boundary is asserted on BOTH sides: an off-by-one here would either cut a listing
+    // off a day early or let "Last updated 4 weeks ago" ship, and neither is visible from one
+    // assertion.
+    const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000);
+    expect(renderCardRecency(daysAgo(27), NOW)).toBe("Last updated 3 weeks ago");
+    expect(renderCardRecency(daysAgo(28), NOW)).toBe(NO_RECENT_UPDATE);
+    expect(renderCardRecency(daysAgo(400), NOW)).toBe(NO_RECENT_UPDATE);
+    // And it never renders the word "ago" once it has given up on the date.
+    expect(renderCardRecency(daysAgo(60), NOW)).not.toContain("ago");
+  });
+
+  it("never renders a negative or future age as a count", () => {
+    // A clock skew between the writer and the reader must not produce "Last updated -2 days
+    // ago". `renderElapsed` already floors at zero; this proves the card's wrapper inherits it.
+    expect(renderCardRecency(new Date(NOW.getTime() + 86_400_000), NOW)).toBe(
+      "Last updated just now",
+    );
   });
 
   it("states the elapsed phrase once — renderRecency is that phrase, prefixed", () => {

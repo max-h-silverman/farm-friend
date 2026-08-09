@@ -13,16 +13,50 @@ import { createHash, randomBytes } from "node:crypto";
 // this design has, so the link must be a lookup key into a row someone can withdraw — never
 // something a verifier can validate on its own.
 //
-// So there are no claims in the token at all. It is 32 random bytes; everything about who it
-// belongs to and whether it still works comes from the database, on every request
+// So there are no claims in the token at all. It is random bytes and nothing else; everything
+// about who it belongs to and whether it still works comes from the database, on every request
 // (`resolveFarmerLink`). Nothing here can approve anything.
 //
 // Same hashing discipline as the session token and the phone hash (Golden Rule #5): only the
 // hash is stored, so a database read cannot recover a live credential.
 
-/** Mint opaque link material. 32 random bytes — never derived from the farmer or the farm. */
+/**
+ * Mint opaque link material. Never derived from the farmer or the farm.
+ *
+ * **16 bytes as base64url, because the token's LENGTH is a product property** (F-097). This
+ * whole URL arrives as a text message and is the only thing in it the farmer acts on. At 32
+ * bytes of hex it ran 64 characters, wrapped across four lines in the thread, and read as
+ * machine output rather than as something to tap. The same value re-encoded is 22 characters
+ * and fits on one line beside the host.
+ *
+ * **The strength is unchanged in the way that matters.** 128 bits of randomness is not
+ * guessable — the search space is far beyond anything an online attacker can walk through
+ * against a database lookup, and this credential's real safety net is revocation, not width
+ * (see the note above). What would be wrong is shortening the *randomness* rather than the
+ * *encoding*, so the suite asserts the decoded byte count rather than the character count.
+ *
+ * base64url specifically, not base64: `+`, `/` and `=` would be percent-encoded into the link,
+ * making the message longer than the hex it replaced and breaking a hand-retyped URL.
+ */
 export function issueFarmerLinkToken(): string {
-  return randomBytes(32).toString("hex");
+  return randomBytes(16).toString("base64url");
+}
+
+/**
+ * Whether a string is shaped like a link token at all, checked before any database work.
+ *
+ * **It accepts BOTH encodings, and that is a migration requirement rather than laxity.** 35
+ * links were live in farmers' text threads when the token shortened, every one of them 64 hex
+ * characters. Recognising only the new shape would have dead-linked all of them behind the
+ * uniform "this link is not active" refusal — which deliberately cannot be told from a
+ * revocation, so no farmer could have discovered why.
+ *
+ * Hex is a subset of base64url's alphabet, so this is one bounded range rather than two
+ * branches: long enough that nothing guessable passes, short enough that an absurd path
+ * segment never reaches the driver.
+ */
+export function isFarmerLinkToken(token: string): boolean {
+  return /^[A-Za-z0-9_-]{22,64}$/.test(token);
 }
 
 /**

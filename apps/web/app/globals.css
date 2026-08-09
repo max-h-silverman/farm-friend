@@ -1956,6 +1956,27 @@ form.farmer-picker-next {
   border-radius: 10px;
 }
 
+/* THE REMINDER SCHEDULE (F-097), directly under the agreement it follows from.
+   Given the agreement's own surface so the two read as one subject — "you may text me", then
+   "this often" — rather than as a stray dropdown between the tick and Submit. */
+.farmer-onboarding-cadence {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.9rem;
+  padding: 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.farmer-onboarding-cadence label {
+  font-weight: 600;
+}
+
+.farmer-onboarding-cadence .farmer-form-note {
+  margin: 0;
+}
+
 .farmer-onboarding-agree {
   display: flex;
   gap: 0.6rem;
@@ -2066,14 +2087,18 @@ form.farmer-picker-next {
 }
 
 /* The saved confirmation. Replaces a bare sentence that used to stand in for the whole
-   form; it has to carry enough that a farmer can check their answers without reopening. */
+   form; it has to carry enough that a farmer can check their answers without reopening.
+
+   NO BOX OF ITS OWN (max 2026-08-08). It renders INSIDE `.farmer-onboarding-card`, which
+   already paints `--green-soft` with a `--green` border — so this drew a second identical
+   border a few pixels inside the first, with the same fill on both sides of it. The same
+   mistake `.farmer-form-published` made one level further in, and the same fix: the outermost
+   container owns the surface, and everything inside separates with space and weight.
+
+   Still a grid, because the gap between its sections is what this element is for. */
 .farmer-listing-saved {
   display: grid;
   gap: 0.85rem;
-  padding: 1rem;
-  background: var(--green-soft);
-  border: 1px solid var(--green);
-  border-radius: var(--radius);
 }
 
 /* The headline needs no box of its own INSIDE this card (max 2026-08-08). `.farmer-form-published`
@@ -2113,7 +2138,10 @@ form.farmer-picker-next {
   color: var(--ink);
 }
 
-/* Secondary by design: the farmer's next move is the text message, not another edit. */
+/* Secondary by design. Its one remaining consumer is "Go back and change it" in the phone
+   confirmation, where the affirmative answer is the one being asked for. (The saved screen's
+   "Change something" button used this too until max removed it — the next move there is the
+   text message, not another edit.) */
 .farmer-listing-change {
   justify-self: start;
   min-height: 48px;
@@ -2918,13 +2946,37 @@ form.farmer-picker-next {
   accent-color: var(--green);
 }
 
-.farmer-settings-reminders {
+/* One section of the settings panel — the default stand, the seller names, the reminders.
+   Replaces `.farmer-settings-reminders`, which named one of the three and was then reused for
+   the others. Each is a heading, its explanation, and its controls; the rule between them is
+   what tells a farmer where one question ends (F-097). */
+.farmer-settings-section {
   min-width: 0;
   display: grid;
-  gap: 0.85rem;
+  gap: 0.5rem;
   margin-top: 1.5rem;
   padding-top: 1.5rem;
   border-top: 1px solid var(--line);
+}
+
+.farmer-settings-section h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.farmer-settings-section .farmer-form-note {
+  margin: 0;
+}
+
+.farmer-settings-section textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
 }
 
 .farmer-settings-schedule {
@@ -2937,7 +2989,7 @@ form.farmer-picker-next {
   border-radius: 10px;
 }
 
-.farmer-settings-schedule h3 {
+.farmer-settings-schedule h4 {
   margin: 0;
   font-size: 1rem;
 }
@@ -2957,11 +3009,23 @@ form.farmer-picker-next {
   border-radius: 10px;
 }
 
-.farmer-settings-schedule button {
+/* ONE save button for the whole panel (F-097), at its foot rather than one per section. */
+.farmer-settings-content > button {
   width: 100%;
+  min-height: 48px;
+  margin-top: 1.5rem;
+  font: inherit;
+  font-weight: 600;
   color: var(--card);
   background: var(--green);
-  border-color: var(--green);
+  border: 1px solid var(--green);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.farmer-settings-content > button:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 @media (min-width: 42rem) {
@@ -2973,29 +3037,9 @@ form.farmer-picker-next {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .farmer-settings-schedule {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
-  }
-
-  .farmer-settings-schedule h3 {
-    grid-column: 1 / -1;
-  }
-
-  .farmer-settings-schedule label {
-    grid-column: 1;
-  }
-
-  .farmer-settings-schedule select {
-    grid-column: 1;
-  }
-
-  .farmer-settings-schedule button {
-    grid-column: 2;
-    grid-row: 2 / 4;
-    width: auto;
-    min-width: 9rem;
-  }
+  /* The two-column form this block used to describe existed to sit a Save button beside each
+     schedule. F-097 replaced those with one button for the whole panel, so the row is a
+     single column at every width and the wide-screen override went with the button. */
 }
 
 .farmer-settings-back {
