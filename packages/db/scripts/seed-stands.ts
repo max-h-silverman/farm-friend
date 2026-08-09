@@ -178,7 +178,7 @@ function toSeededHours(parsed: ParsedOpenHours): SeededOpenHours | null {
  * farm falls back to its description's `Open:` lines, which is what the original loader did for
  * the whole corpus.
  */
-function toSeedInput(stand: JoinedStand): {
+function toSeedInput(stand: JoinedStand, usuallySells: readonly string[]): {
   input?: SeedStandInput;
   refusal?: { name: string; reason: string };
 } {
@@ -213,6 +213,7 @@ function toSeedInput(stand: JoinedStand): {
     ...(stand.form?.stockingText !== undefined ? { stockingText: stand.form.stockingText } : {}),
     ...(stand.form?.website !== undefined ? { website: stand.form.website } : {}),
     ...(stand.form?.socialMedia !== undefined ? { socialMedia: stand.form.socialMedia } : {}),
+    ...(usuallySells.length > 0 ? { usuallySells } : {}),
     ...(mapDescription !== "" ? { mapDescription } : {}),
   });
 
@@ -426,9 +427,15 @@ async function main(): Promise<void> {
 
   const inputs: SeedStandInput[] = [];
   const refused = [...map.rejected, ...joinRefused];
+  const offeringsByStand = new Map(
+    offerings.map((offering) => [matchStandName(offering.standName), offering.items] as const),
+  );
 
   for (const stand of joined) {
-    const { input, refusal } = toSeedInput(stand);
+    const { input, refusal } = toSeedInput(
+      stand,
+      offeringsByStand.get(matchStandName(stand.name)) ?? [],
+    );
     if (refusal) refused.push(refusal);
     else if (input) inputs.push(input);
   }

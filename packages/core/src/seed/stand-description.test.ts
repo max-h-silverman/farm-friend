@@ -306,29 +306,20 @@ describe("buildStandDescription", () => {
       );
     });
 
-    it("KEEPS a labelled line WHOLE when it carries more than a list", () => {
-      // THE CORRECTION THAT MEASUREMENT FORCED. A first attempt dropped every `Generally
-      // Offers`/`Stocking Days`/`Hosting` line outright; re-measured against the real corpus it
-      // emptied NINE farms rather than one, because for those farms every line is labelled —
-      // and 10 lines across the corpus carry a tail no column holds.
-      //
-      // Tian Tian's line is half restatement ("Specializing in Asian vegetables, including
-      // gailan, bok choy") and half real ("Not certified, but following organic practices").
-      // Pacific Crest's stocking line ends "Best selection on those days by late afternoon".
-      // No punctuation rule separates the halves, so the line survives whole and the FARMER
-      // decides — deleting it here is the quieter failure this file exists to avoid.
+    it("removes a labelled structured sentence and preserves the prose after it", () => {
+      // Tian Tian, verbatim. The label gives the first sentence its meaning: it restates the
+      // structured usual-offering list. The next sentence is independent farming-practice
+      // information and must survive without the duplicate produce list above it.
       expect(
         buildStandDescription({
           mapDescription:
             "Generally Offers: Specializing in Asian vegetables, including gailan, bok choy, " +
             "perilla, a choy, and more. Not certified, but following organic practices.",
         }),
-      ).toBe(
-        "Generally Offers: Specializing in Asian vegetables, including gailan, bok choy, " +
-          "perilla, a choy, and more. Not certified, but following organic practices.",
-      );
+      ).toBe("Not certified, but following organic practices.");
 
-      // Pacific Crest Farm, verbatim — the sentence break after the column's own answer.
+      // Pacific Crest Farm, verbatim. Only the first labelled stocking answer overlaps its
+      // structured field; the harvest/selection guidance remains useful prose.
       expect(
         buildStandDescription({
           mapDescription:
@@ -336,20 +327,81 @@ describe("buildStandDescription", () => {
             "selection on those days by late afternoon.",
         }),
       ).toBe(
-        "Stocking Days: Stocking daily. Harvest days are Tuesday and Friday. Best " +
-          "selection on those days by late afternoon.",
+        "Harvest days are Tuesday and Friday. Best selection on those days by late afternoon.",
       );
     });
 
-    it("keeps a SHORT labelled line that still carries a second sentence", () => {
-      // ISOLATES THE SENTENCE-BREAK RULE. Both fixtures above are long enough that the length
-      // check alone would keep them, so disabling the sentence-break branch left every test
-      // green — a sabotage proved it. Flora Hill's real line is under the length limit and
-      // survives ONLY because of the break: "Everyday" is the column, "Flavors change on
-      // Friday" is not, and nothing else in the suite would notice it being deleted.
+    it("removes an offering-only sentence when the structured items are supplied", () => {
+      // Tian Tian's STORED production description, verbatim, no longer carries the source
+      // label. Its reviewed usual items are therefore the proof that the first sentence has
+      // another renderer; the independent organic-practices sentence remains.
+      expect(
+        buildStandDescription({
+          mapDescription:
+            "Specializing in Asian vegetables, including gailan, bok choy, perilla, a choy, " +
+            "and more. Not certified, but following organic practices.",
+          usuallySells: ["asian vegetables", "gailan", "bok choy", "perilla", "a choy"],
+        }),
+      ).toBe("Not certified, but following organic practices.");
+
+      // Mentioning one structured item does not erase a sentence that adds a real claim.
+      expect(
+        buildStandDescription({
+          mapDescription: "Pastured eggs from our own hens.",
+          usuallySells: ["eggs"],
+        }),
+      ).toBe("Pastured eggs from our own hens.");
+
+      // Littlest Bird, verbatim. Coordinated wording ("frozen lamb and pork") and singular
+      // "flower" still refer to the reviewed frozen-pork and flowers items; the independent
+      // husbandry sentence is the first prose and is preserved.
+      expect(
+        buildStandDescription({
+          mapDescription:
+            "Year round eggs, frozen lamb and pork. Seasonal blueberries, vegetables and " +
+            "flower. Organic practices and rotational grazing for chickens, sheep and pigs.",
+          usuallySells: [
+            "eggs",
+            "frozen lamb",
+            "frozen pork",
+            "blueberries",
+            "vegetables",
+            "flowers",
+          ],
+        }),
+      ).toBe("Organic practices and rotational grazing for chickens, sheep and pigs.");
+
+      // Ostara: a leading offering sentence may be removed, but the order/custom-arrangement
+      // sentence after it is not another list merely because it mentions flowers.
+      expect(
+        buildStandDescription({
+          mapDescription:
+            "Seasonally available flowers, plants, produce, jam, and holiday wreaths. " +
+            "Email for special flower orders or information about formal arrangements for " +
+            "weddings, banquets, special occasions...etc...",
+          usuallySells: ["flowers", "plants", "produce", "jam", "holiday wreaths"],
+        }),
+      ).toBe(
+        "Email for special flower orders or information about formal arrangements for " +
+          "weddings, banquets, special occasions...etc...",
+      );
+
+      // A question mark inside parentheses is not a sentence boundary. The cleanup must leave
+      // the complete prose untouched rather than returning the text after the parenthesis.
+      const sweetAlyssum =
+        "Sweet Alyssum Farm offers fresh cut flowers! Grab-and-go bouquets are stocked Fridays " +
+        "through the weekend. The You-Pick garden opens once flowers are ready (late June?), " +
+        "and stays open everyday until the flowers fade in September.";
+      expect(
+        buildStandDescription({ mapDescription: sweetAlyssum, usuallySells: ["cut flowers"] }),
+      ).toBe(sweetAlyssum);
+    });
+
+    it("keeps the prose after a SHORT labelled structured sentence", () => {
+      // Flora Hill, verbatim. Guards the transformation independently of the length fallback.
       expect(
         buildStandDescription({ mapDescription: "Stocking days: Everyday. Flavors change on Friday" }),
-      ).toBe("Stocking days: Everyday. Flavors change on Friday");
+      ).toBe("Flavors change on Friday");
     });
 
     it("still drops a SHORT labelled line that is only a list", () => {
