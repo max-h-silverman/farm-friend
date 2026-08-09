@@ -13,8 +13,7 @@ digest `sha256:cb9a6fa262ed7edf414486f65261f5e4e6c5a6abe220de664903f87137e630a8`
 
 **Deployed runtime is `be50780`** (2026-08-09): F-076, F-097, F-098, B-045, B-046 and B-047 are live.
 Migrations `0034` and `0035` are applied and verified by schema effect; none remains unapplied.
-Main also contains B-044's rebuild tooling and description parser; its production data repair is live,
-but the parser awaits the next approved web deploy.
+B-044's rebuild tooling and description parser are live with its production data repair.
 
 **B-045 is verified by effect.** Gmail's HTTPS API accepted a production verification request on
 `farm-friend-web-00053-jcr`, and its six-digit code arrived in the recipient's inbox.
@@ -48,7 +47,7 @@ fixed administrator or farm-email roster; email ingest must reuse the deployed `
 
 ## Verification
 
-**Current main:** **1770 unit**, full integration suite, typecheck, lint, web production build, and a
+**Current main:** **1777 unit**, full integration suite, typecheck, lint, web production build, and a
 complete seed dry run against the real exports: 35 stands, 212 reviewed usual items, 0 unknown, 0
 unresolved. B-044 sabotage proved the integration checks fail if offerings are omitted or the stand
 half commits before an offering failure.
@@ -139,7 +138,6 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Open build items**
 
-- **B-044:** merged; data/tooling complete, but its description parser awaits an approved web deploy.
 - **F-065 — attribution for a listing change.** A revision row carries no `admin_actor_id` and there
   is no general admin audit log. Three writers of public listing state, none recording who wrote.
 - **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a

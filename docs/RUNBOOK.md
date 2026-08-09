@@ -129,7 +129,7 @@ is unconfigured and email verification is unavailable while every other deployme
 
 ### B-045 — authorize Gmail HTTPS delivery
 
-1. Create an internal Google OAuth client in the Farm Friend Cloud project and enable Gmail API.
+1. Create a Google OAuth client in the Farm Friend Cloud project and enable Gmail API.
 2. Sign in as `board@vigavashon.org` once and grant only `https://www.googleapis.com/auth/gmail.send`.
 3. Add the client secret and resulting refresh token to the two empty Secret Manager containers.
 4. Set `gmail_sender_address`, `gmail_sender_name`, `gmail_oauth_client_id`, then flip `mount_gmail_delivery = true`; review the plan before applying.
