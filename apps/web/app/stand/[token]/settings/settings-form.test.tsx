@@ -41,8 +41,6 @@ describe("farmer reminder settings", () => {
 
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(screen.queryByText(/which stand your texts are about/i)).not.toBeInTheDocument();
-    // The reminder schedule is still offered — it is per-stand, not a choice BETWEEN stands.
-    expect(screen.getByLabelText("Reminder schedule")).toBeVisible();
     // And it does not label the one stand by name, which would be telling the farmer apart
     // from nobody.
     expect(screen.queryByRole("heading", { name: "Orchard Stand" })).not.toBeInTheDocument();
@@ -69,37 +67,36 @@ describe("farmer reminder settings", () => {
 
     // Nothing changed yet, so there is nothing to save.
     expect(buttons[0]).toBeDisabled();
-    await user.selectOptions(screen.getByLabelText("Reminder schedule"), "every_2_days");
+    await user.type(screen.getByLabelText("Seller names"), "Neighbor Farm");
     expect(screen.getByRole("button", { name: "Save settings" })).toBeEnabled();
   });
 
   it("writes only what the farmer actually changed", async () => {
-    // With one button covering three writers, sending all of them every time would file a
-    // participant audit event claiming the seller list was edited whenever a farmer touched
-    // their reminder schedule.
-    const fetchMock = vi.fn(async () => Response.json({}));
+    // Sending every writer on every press would file a participant audit event claiming the
+    // seller list was edited whenever a farmer touched an unrelated setting.
+    const fetchMock = vi.fn(async () => Response.json({ locationName: "Harbor Stand" }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(
       <SettingsForm
         token="private-token"
-        locations={oneStand}
+        locations={locations}
         participantNamesByLocation={{ "stand-a": ["Neighbor Farm"] }}
       />,
     );
 
-    await user.selectOptions(screen.getByLabelText("Reminder schedule"), "every_2_days");
+    await user.click(screen.getByRole("radio", { name: "Harbor Stand" }));
     await user.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(await screen.findByText("Settings saved.")).toBeVisible();
+    // The default moved and the seller names did not, so the participant writer stays untouched.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/farmer/settings",
       expect.objectContaining({
         body: JSON.stringify({
           token: "private-token",
-          salesLocationId: "stand-a",
-          cadence: "every_2_days",
+          salesLocationId: "stand-b",
         }),
       }),
     );
@@ -151,58 +148,23 @@ describe("farmer reminder settings", () => {
     expect(await screen.findByLabelText("Seller names")).toHaveValue("Harbor Apiary");
   });
 
-  it("shows unscheduled and paused stands as explicit per-stand states", () => {
-    render(<SettingsForm token="private-token" locations={locations} />);
-    expect(screen.getAllByLabelText("Reminder schedule")).toHaveLength(2);
-    expect(screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-a" }))
-      .toHaveValue("");
-    expect(screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-b" }))
-      .toHaveValue("paused");
-    expect(screen.getByText(/Pausing reminders does not stop your other texts/)).toBeVisible();
-  });
-
-  it("explains a revoked link without claiming the schedule changed", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 403 })));
+  it("does not claim success when the write fails", async () => {
+    // The lie this prevents: "Settings saved." over a screen where nothing was written.
+    //
+    // The two writers here are mutually exclusive by design — a default-stand move resets the
+    // seller box, so the participant write is skipped — which is why the MULTI-write partial
+    // failure is proven in `reminder-schedules.test.tsx`, where several writes really do run.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
     const user = userEvent.setup();
-    render(<SettingsForm token="private-token" locations={locations} />);
-    await user.selectOptions(
-      screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-a" }),
-      "every_2_days",
+    render(
+      <SettingsForm
+        token="private-token"
+        locations={locations}
+        participantNamesByLocation={{ "stand-a": ["Neighbor Farm"] }}
+      />,
     );
-    await user.click(screen.getByRole("button", { name: "Save settings" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "This link is no longer active. Your reminder schedule is unchanged.",
-    );
-    expect(screen.getByRole("link", { name: "How to get a new link" })).toBeVisible();
-  });
 
-  it("shows a recoverable error without claiming the schedule changed", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
-    const user = userEvent.setup();
-    render(<SettingsForm token="private-token" locations={locations} />);
-    await user.selectOptions(
-      screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-a" }),
-      "every_2_weeks",
-    );
-    await user.click(screen.getByRole("button", { name: "Save settings" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "That did not go through. Your reminder schedule is unchanged — try again.",
-    );
-  });
-
-  it("does not report success when one of several writes fails", async () => {
-    // The lie this prevents: "Settings saved." over a screen where the cadence took and the
-    // seller names did not. A partial save must read as a failure, not a success.
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json({}))
-      .mockResolvedValueOnce(new Response("{}", { status: 500 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<SettingsForm token="private-token" locations={oneStand} />);
-
-    await user.selectOptions(screen.getByLabelText("Reminder schedule"), "every_2_days");
-    await user.type(screen.getByLabelText("Seller names"), "Neighbor Farm");
+    await user.type(screen.getByLabelText("Seller names"), "Another Farm");
     await user.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(await screen.findByRole("alert")).toBeVisible();

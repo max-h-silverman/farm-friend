@@ -41,6 +41,10 @@ export default async function SecretFarmerOnboardingPage({
   // binding a farmer page to configuration it does not strictly need turned an unrelated absent
   // variable into a 500 on the whole form. The listing must publish with or without this.
   const smsNumber = process.env.TELNYX_FROM_NUMBER?.trim() || undefined;
+  // The public map, so the confirmation's own word "map" links to it (max, 2026-08-09). Read
+  // here rather than in the form: `PUBLIC_MAP_URL` is server configuration and the form is a
+  // client component.
+  const mapUrl = process.env.PUBLIC_MAP_URL?.trim() || undefined;
 
   if (claim.status === "already_onboarded") {
     return (
@@ -115,6 +119,7 @@ export default async function SecretFarmerOnboardingPage({
                 buildStandDescription({ mapDescription: claim.description ?? undefined }) ?? ""
               }
               {...(smsNumber === undefined ? {} : { smsNumber })}
+              {...(mapUrl === undefined ? {} : { mapUrl })}
             />
           </section>
         </>
@@ -134,24 +139,19 @@ export default async function SecretFarmerOnboardingPage({
       )}
 
       {/*
-        NO VIGA STEP. This said "contact VIGA and they will finish setting you up", which asked
-        a farmer to wait for a coordinator to do by hand what one text does — and F-067 already
-        learned that a promised step nobody performs is a silent dead end.
+        NO "WHAT HAPPENS NEXT" (max, 2026-08-09), and no VIGA step before it.
 
-        The farmer texts US, and that direction is not a preference. `isProactiveSendPermitted`
-        permits an un-consented send only for `required_reply` (the carrier-required answer to
-        the recipient's own message), so Farm Friend cannot send the first text at all. Their
-        inbound START is the possession proof and the opt-in in one message, through the same
-        consent writer every other opt-in uses.
+        The section promised the hand-off ahead of time, on a page where the farmer has not yet
+        submitted anything. The confirmation screen states the same thing at the moment it
+        becomes actionable — with the actual word to send and a tappable `sms:` link — so saying
+        it here twice asked a farmer to remember an instruction they could not act on yet.
+
+        What it replaced still must not come back: "contact VIGA and they will finish setting
+        you up" asked a farmer to wait for a coordinator to do by hand what one text does, and
+        F-067 learned that a promised step nobody performs is a silent dead end. The farmer
+        texts US — `isProactiveSendPermitted` permits an un-consented send only for
+        `required_reply`, so Farm Friend cannot send the first text at all.
       */}
-      <section className="farmer-onboarding-next" aria-labelledby="whats-next-heading">
-        <h2 id="whats-next-heading">What happens next</h2>
-        <p>
-          Your stand goes on the map as soon as you submit. To update what is in stock{" "}
-          <strong>by text</strong>, send one text from your phone afterwards — we will show you
-          the word to send. No need to contact anyone.
-        </p>
-      </section>
     </main>
   );
 }

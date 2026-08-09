@@ -14,6 +14,7 @@ import {
 // agreement with what the writer stores, and a second hand-written copy of these twelve
 // fields is how that happens again.
 import type { ListingAvailability, StandingItem } from "@farm-friend/db";
+import { useTabCommit } from "../../../stand/[token]/details-panel";
 import {
   buildKeywordSmsUrl,
   formatSmsNumberForDisplay,
@@ -561,6 +562,7 @@ export function ListingStep({
   defaults,
   description: initialDescription,
   smsNumber,
+  mapUrl,
 }: {
   credential: ListingCredential;
   farmName: string;
@@ -575,6 +577,14 @@ export function ListingStep({
    * field the form would otherwise silently erase. `defaults` wins when both are supplied.
    */
   description?: string;
+  /**
+   * The public map, so the confirmation's own word points at it (max, 2026-08-09).
+   *
+   * Passed in rather than read here: this is a client component, and `PUBLIC_MAP_URL` is
+   * server configuration. Optional because a door rendered without it must still state that
+   * the farm is live — the link is an improvement on the sentence, not a condition of it.
+   */
+  mapUrl?: string;
   /**
    * Farm Friend's own SMS number, for the "text START to finish" hand-off.
    *
@@ -829,11 +839,26 @@ export function ListingStep({
     hit twice).
   */
   const steps = credential.kind === "stand_link" ? null : WIZARD_STEPS;
+  /**
+   * Whether this door EDITS a listing that already exists, rather than publishing a new one.
+   *
+   * Separate from `steps === null` even though today they agree: one is about whether the
+   * form is paginated, the other about what the farmer is doing. Conflating them is what put
+   * an onboarding "Submit" on the returning farmer's tab (F-098).
+   */
+  const isEditingDoor = credential.kind === "stand_link";
+  /**
+   * The tab this form is composed into, when it is composed into one (F-098).
+   *
+   * `null` on every onboarding door and on the standalone listing page — there is no companion
+   * panel there, and this form's button commits only itself.
+   */
+  const tabCommit = useTabCommit();
   const [step, setStep] = useState(0);
   const onStep = (which: WizardStep): boolean =>
     steps === null || steps[step] === which;
 
-  const asksForPhone = credential.kind === "invitation";
+  const asksForPhone = !isEditingDoor;
   const [phone, setPhone] = useState("");
   const [confirming, setConfirming] = useState(false);
 
@@ -858,7 +883,7 @@ export function ListingStep({
     accepted, and rewriting history because someone changed their mind would falsify it; what
     the untick does is re-block Submit.
   */
-  const asksForAgreement = credential.kind === "invitation";
+  const asksForAgreement = !isEditingDoor;
   const [agreed, setAgreed] = useState(false);
   const [agreeing, setAgreeing] = useState(false);
   const [agreeError, setAgreeError] = useState<string | null>(null);
@@ -880,7 +905,7 @@ export function ListingStep({
     The value only rides along if this door can hold it: it lands on the invitation and is
     applied when their `START` creates the authorization the preference row needs.
   */
-  const asksForCadence = credential.kind === "invitation";
+  const asksForCadence = !isEditingDoor;
   const [promptCadence, setPromptCadence] = useState<
     "every_2_days" | "weekly" | "every_2_weeks" | "paused"
   >("weekly");
@@ -889,6 +914,22 @@ export function ListingStep({
     setAgreeError(null);
     if (!checked) {
       setAgreed(false);
+      return;
+    }
+    /*
+      THE GRANDFATHERED DOOR HAS NOTHING TO STAMP YET (F-098).
+
+      The pre-stamp writes `agreed_to_sms_at` onto a row that already exists — an invitation
+      VIGA issued. On the self-issued door that row is CREATED at submit, so there is nothing
+      to write to while the farmer is still filling the form; the agreement rides in the submit
+      body and is stamped as the claim is written.
+
+      Ticking is therefore local here. The guarantee is unchanged either way: no tick, no
+      submit — and on this door no claim row at all, so a farmer who abandons the form has
+      recorded nothing to be attributed to.
+    */
+    if (credential.kind === "grandfathered") {
+      setAgreed(true);
       return;
     }
     if (agreeing) return;
@@ -1262,6 +1303,17 @@ export function ListingStep({
           // F-097 — the reminder schedule, sent only by the door that asked. Omitted means
           // "this door states nothing about it", and the farmer keeps the default.
           ...(asksForCadence ? { promptCadence } : {}),
+          /*
+            THE AGREEMENT, sent by the door whose claim row does not exist yet (F-098).
+
+            The invited door stamps `agreed_to_sms_at` on its invitation the moment the farmer
+            ticks, so its submit says nothing about it. The self-issued door has no row to stamp
+            until this request creates one — so the tick travels with it, and the writer refuses
+            a phone that arrives without it.
+          */
+          ...(credential.kind === "grandfathered" && asksForPhone
+            ? { agreedToSms: agreed }
+            : {}),
         }),
       });
       if (!response.ok) {
@@ -1288,6 +1340,30 @@ export function ListingStep({
         );
         return;
       }
+
+      /*
+        THE COMPANION PANEL, saved by the same press (F-098).
+
+        The editing tab shows this form and the settings panel as one screen, so it commits as
+        one. The panel keeps its own writers — merging them would put the participant save,
+        which has its own audit event and its own public-text refusal, behind the listing
+        request — but the FARMER presses once.
+
+        Runs only after the listing write succeeded, and its failure is reported HERE rather
+        than swallowed: "Your changes are saved." over a screen where the seller names did not
+        take is the shape of lie this codebase refuses.
+      */
+      if (tabCommit !== null) {
+        const companionSaved = await tabCommit.alsoSave();
+        if (!companionSaved) {
+          setError(
+            "Your stand details saved, but your settings did not. Check the settings below " +
+              "and try again.",
+          );
+          return;
+        }
+      }
+
       setSaved(true);
     } catch {
       setError("That did not go through. Check your connection and try again.");
@@ -1316,8 +1392,31 @@ export function ListingStep({
     const isOnboarding = credential.kind === "invitation" || credential.kind === "grandfathered";
     return (
       <div className="farmer-listing-saved" role="status">
+        {/*
+          THE WORD "MAP" IS THE LINK (max, 2026-08-09). A farmer who reads "live on the map!"
+          has nowhere to go and confirm it; linking the noun keeps the sentence one sentence
+          rather than appending a second one pointing back at it.
+
+          `target="_blank"` because they just submitted a form: Back would return them to a
+          completed page. `rel` carries `noopener` — a tab this opens must not reach back into
+          the page that opened it.
+        */}
         <p className="farmer-form-published">
-          {isOnboarding ? "Your farm is live on the map!" : "Your changes are saved."}
+          {isOnboarding ? (
+            <>
+              Your farm is live on the{" "}
+              {mapUrl === undefined ? (
+                "map"
+              ) : (
+                <a href={mapUrl} target="_blank" rel="noopener noreferrer">
+                  map
+                </a>
+              )}
+              !
+            </>
+          ) : (
+            "Your changes are saved."
+          )}
         </p>
 
         {/*
@@ -1584,11 +1683,16 @@ export function ListingStep({
             publish the listing on a lookup, with no coordinate and a refusal the farmer did
             not ask for.
 
-            IT SAYS "SAVE" IN WORDS (max 2026-08-07). It was a map-pin glyph with the sentence
-            carried in `aria-label`, which asked a sighted farmer to infer from a picture what
-            a screen reader was told outright. "Save" is what the farmer is doing to the
-            address they typed; that the coordinate comes with it is the form's business, not
-            a distinction to put on a button.
+            IT SAYS WHAT IT DOES, IN WORDS (max 2026-08-07). It was a map-pin glyph with the
+            sentence carried in `aria-label`, which asked a sighted farmer to infer from a
+            picture what a screen reader was told outright.
+
+            THE WORD IS NO LONGER "SAVE" (F-098, max 2026-08-09). This button places the
+            address on the map; the TAB's one commit button is what saves. While the editing
+            door also carried an onboarding "Submit", "Save" here was the only honest word for
+            it — with a single "Save changes" now committing the whole tab, a second button
+            saying "Save" reads as a competing commit and invites the farmer to press it and
+            wonder which one counted.
 
             IT LOOKS LIKE SUBMIT (max 2026-08-08), carrying the shared `-primary` class rather
             than a quieter style of its own. It says "Save" and it commits the address, so
@@ -1613,10 +1717,10 @@ export function ListingStep({
                   exactly as long as the lookup runs.
                 */}
                 <span className="farmer-listing-lookup-busy" aria-hidden="true" />
-                <span className="sr-only">Saving</span>
+                <span className="sr-only">Finding on map</span>
               </>
             ) : (
-              "Save"
+              "Find on map"
             )}
           </button>
         </div>
@@ -2278,9 +2382,26 @@ export function ListingStep({
         </div>
       )}
 
+      {/*
+        THE ONE COMMIT BUTTON, and why its WORD depends on the door (F-098).
+
+        "Submit" is onboarding's word — handing a form in for the first time, which is what
+        the invited and grandfathered doors genuinely do. A farmer changing their hours is
+        saving, and F-097 already removed that word from the settings panel beside this one.
+
+        Naming it by the door rather than by the step is also what keeps ONE button on the
+        editing tab: `steps === null` is true for a stand link, so this used to render an
+        onboarding Submit directly above the settings panel's Save.
+      */}
       {(steps === null || step === steps.length - 1) && (
         <button type="submit" disabled={busy || !ready}>
-          {busy ? "Submitting…" : "Submit"}
+          {busy
+            ? isEditingDoor
+              ? "Saving…"
+              : "Submitting…"
+            : isEditingDoor
+              ? "Save changes"
+              : "Submit"}
         </button>
       )}
 

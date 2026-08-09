@@ -13,6 +13,7 @@ import {
   listFarmsForSelfService,
   openFarmerOnboardingRequest,
   readStandListing,
+  recordSelfIssuedFarmerClaim,
   revokeFarmerAuthorization,
   saveOnboardingListing,
   type Db,
@@ -366,6 +367,128 @@ describe("grandfathered farm claims (integration)", () => {
       // A vacuous pass would prove nothing: this run must have seen both kinds.
       expect(claimableIds.size).toBeGreaterThan(0);
       expect(allFarms.length).toBeGreaterThan(claimableIds.size);
+    });
+  });
+
+  /*
+    F-098 — THE SELF-ISSUED CLAIM, end to end.
+
+    The regression: `JOIN <token>` was removed 2026-08-07 and farm identity moved to a phone the
+    farmer states on the onboarding form, matched by a bare START against `pending_phone_hash`.
+    That column lives on `farmer_invitations`, a row this door could not write — so a
+    grandfathered farmer could publish a listing and then never finish onboarding.
+
+    Run through the REAL chain rather than asserting the row's shape: what matters is not that a
+    claim exists, but that the farmer's own START finds it and produces an authorization. A test
+    that inserted the row and read it back would pass with the matching path broken.
+  */
+  describe("a farmer who onboards without an invitation (F-098)", () => {
+    it("completes onboarding from their own START, exactly as an invited farmer does", async () => {
+      const farmId = await farm("Self Issued Farm");
+      const phone = "+12065550199";
+      const phoneHash = hashPhone(phone, "test-salt");
+
+      const claimed = await recordSelfIssuedFarmerClaim(database(), {
+        farmId,
+        phoneE164: phone,
+        phoneHash,
+        agreedToSms: true,
+        occurredAt: now,
+      });
+      expect(claimed.status).toBe("recorded");
+
+      // The farm needs a stand for the link the welcome carries, exactly as the invited door
+      // has one — the farmer published their listing before texting.
+      await saveOnboardingListing(database(), {
+        farmId,
+        standName: "Self Issued Stand",
+        listing: {
+          visitability: "visitable",
+          offeringType: "produce",
+          publicAddress: "12345 Vashon Highway SW",
+          addressPublic: true,
+          pricesPublic: true,
+          latitude: 47.4471,
+          longitude: -122.4594,
+          hoursText: "Daylight hours",
+          paymentMethods: ["cash"],
+          items: [{ name: "Eggs", price: null }],
+        },
+        occurredAt: later(1000),
+      });
+
+      await sql()`
+        insert into contacts (phone_e164, phone_hash) values (${phone}, ${phoneHash})
+        on conflict (phone_hash) do nothing
+      `;
+
+      // The farmer's own START — NO invitation token, which is the whole point: the handset is
+      // matched against the claim they stated on the form.
+      const opened = await openFarmerOnboardingRequest(database(), {
+        contactHash: phoneHash,
+        occurredAt: later(2000),
+        // The handset is the credential: no token, matched against the claim the farmer
+        // stated on the form. This is precisely what `JOIN <token>` used to do by hand.
+        pendingPhoneHash: phoneHash,
+        publicBaseUrl: "https://farmfriend.test",
+      });
+
+      // Narrowed before reading `authorizationId`: the result is a union, and `already_open`
+      // has no such property.
+      if (opened.status !== "opened") throw new Error(opened.status);
+      expect(opened.authorizationId).not.toBeNull();
+
+      // And the same welcome an invited farmer gets — queued, not merely intended.
+      const queued = await sql()`
+        select body from outbox_work where recipient_hash = ${phoneHash}
+      `;
+      expect(queued.length).toBeGreaterThan(0);
+      expect(String(queued[0]?.body)).toContain("Welcome!");
+    });
+
+    it("refuses a claim the farmer never agreed to be texted on", async () => {
+      const farmId = await farm("Unagreed Farm");
+      const phone = "+12065550198";
+
+      const claimed = await recordSelfIssuedFarmerClaim(database(), {
+        farmId,
+        phoneE164: phone,
+        phoneHash: hashPhone(phone, "test-salt"),
+        agreedToSms: false,
+        occurredAt: now,
+      });
+
+      expect(claimed.status).toBe("invalid");
+      const rows = await sql()`
+        select id from farmer_invitations where farm_id = ${farmId}
+      `;
+      expect(rows).toHaveLength(0);
+    });
+
+    it("supersedes the farm's own open claim rather than racing a second handset", async () => {
+      // Two claims naming one farm would let the newest handset win a race the farmer never
+      // knew they were in. The second submission replaces the first.
+      const farmId = await farm("Resubmitted Farm");
+      const first = "+12065550197";
+      const second = "+12065550196";
+
+      for (const phone of [first, second]) {
+        const claimed = await recordSelfIssuedFarmerClaim(database(), {
+          farmId,
+          phoneE164: phone,
+          phoneHash: hashPhone(phone, "test-salt"),
+          agreedToSms: true,
+          occurredAt: now,
+        });
+        expect(claimed.status).toBe("recorded");
+      }
+
+      const open = await sql()`
+        select pending_phone_e164 from farmer_invitations
+        where farm_id = ${farmId} and redeemed_at is null
+      `;
+      expect(open).toHaveLength(1);
+      expect(open[0]?.pending_phone_e164).toBe(second);
     });
   });
 });

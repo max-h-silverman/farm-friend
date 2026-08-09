@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useTabCommit } from "../details-panel";
 
 interface SettingsLocation {
   salesLocationId: string;
@@ -9,8 +10,6 @@ interface SettingsLocation {
   selected: boolean;
   cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
 }
-
-type Cadence = Exclude<SettingsLocation["cadence"], null>;
 
 /*
   THE SETTINGS PANEL, after F-097's pass (max, 2026-08-08).
@@ -65,17 +64,13 @@ export function SettingsForm({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linkInactive, setLinkInactive] = useState(false);
-  const [cadences, setCadences] = useState<Record<string, Cadence | "">>(
-    Object.fromEntries(locations.map((location) => [location.salesLocationId, location.cadence ?? ""])),
-  );
   /**
    * What was on screen when the page loaded, so one Save can write only what CHANGED.
    *
-   * Held rather than re-read: with one button covering three writers, sending all of them on
-   * every press would file a participant audit event every time a farmer touched their
-   * reminder schedule — an event claiming the seller list was edited when it was not.
+   * Held rather than re-read: sending every writer on every press would file a participant
+   * audit event whenever a farmer touched an unrelated setting — an event claiming the
+   * seller list was edited when it was not.
    */
-  const [savedCadences, setSavedCadences] = useState(cadences);
   const [savedDefault, setSavedDefault] = useState(initial);
   const [participantNames, setParticipantNames] = useState(participantNamesByLocation);
   const [participantText, setParticipantText] = useState(
@@ -90,14 +85,8 @@ export function SettingsForm({
       ?.locationName ?? "this stand";
 
   const defaultChanged = salesLocationId !== savedDefault;
-  const changedCadences = locations.filter(
-    (location) =>
-      (cadences[location.salesLocationId] ?? "") !== "" &&
-      cadences[location.salesLocationId] !== savedCadences[location.salesLocationId],
-  );
   const participantsChanged = participantText !== savedParticipantText;
-  const nothingToSave =
-    !defaultChanged && changedCadences.length === 0 && !participantsChanged;
+  const nothingToSave = !defaultChanged && !participantsChanged;
 
   /** One request, described by what it failed to change rather than by which route it hit. */
   async function post(
@@ -138,8 +127,11 @@ export function SettingsForm({
    * where one of their three changes silently did not take. What has already been written
    * stays written and is marked as saved, so a retry sends only what is still outstanding.
    */
-  async function save() {
-    if (nothingToSave || busy) return;
+  async function save(): Promise<boolean> {
+    // Nothing to write is a SUCCESSFUL save from the caller's point of view: the tab's one
+    // button must not report failure because this panel happened to be untouched.
+    if (nothingToSave) return true;
+    if (busy) return false;
     setBusy(true);
     setError(null);
     setSaved(false);
@@ -151,7 +143,7 @@ export function SettingsForm({
           { salesLocationId },
           "Your default stand",
         );
-        if (payload === null) return;
+        if (payload === null) return false;
         setSavedDefault(salesLocationId);
         // The seller-name box follows the default stand, so it reloads onto the new one —
         // and its baseline moves with it, or the next Save would post one stand's names
@@ -159,22 +151,6 @@ export function SettingsForm({
         const names = (participantNames[salesLocationId] ?? []).join("\n");
         setParticipantText(names);
         setSavedParticipantText(names);
-      }
-
-      for (const location of changedCadences) {
-        const payload = await post(
-          "/api/farmer/settings",
-          {
-            salesLocationId: location.salesLocationId,
-            cadence: cadences[location.salesLocationId],
-          },
-          "Your reminder schedule",
-        );
-        if (payload === null) return;
-        setSavedCadences((current) => ({
-          ...current,
-          [location.salesLocationId]: cadences[location.salesLocationId] ?? "",
-        }));
       }
 
       // Only when the default did NOT move: that branch already reset the box to the new
@@ -190,7 +166,7 @@ export function SettingsForm({
           { action: "save_participants", participantNames: names },
           "Seller names",
         );
-        if (payload === null) return;
+        if (payload === null) return false;
         const stored = Array.isArray(payload.activeDisplayNames)
           ? payload.activeDisplayNames.filter((name): name is string => typeof name === "string")
           : names;
@@ -203,10 +179,25 @@ export function SettingsForm({
       }
 
       setSaved(true);
+      return true;
     } finally {
       setBusy(false);
     }
   }
+
+  /*
+    HAND THE SAVE UP, so the tab's one button can run this panel's writers (F-098).
+
+    Through a ref read at call time rather than by re-registering on every render: `save`
+    closes over this render's state, and a parent holding a stale copy would post the values
+    the farmer saw when the tab mounted rather than what is on screen now.
+  */
+  const tab = useTabCommit();
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  useEffect(() => {
+    tab?.registerSave(() => saveRef.current());
+  }, [tab]);
 
   return (
     <section className="farmer-settings-content" aria-labelledby="settings-heading">
@@ -220,7 +211,7 @@ export function SettingsForm({
           {linkInactive && <Link href="#new-link-help">How to get a new link</Link>}
         </p>
       )}
-      {saved && (
+      {saved && tab === null && (
         <p className="farmer-form-published" role="status">
           Settings saved.
         </p>
@@ -287,45 +278,21 @@ export function SettingsForm({
         />
       </div>
 
-      <div className="farmer-settings-section">
-        <h3>Inventory reminders</h3>
-        <p className="farmer-form-note">
-          We text you at 10am to ask what you have. Pausing reminders does not stop your other
-          texts or change your SMS consent.
-        </p>
-        {locations.map((location) => (
-          <div className="farmer-settings-schedule" key={`schedule-${location.salesLocationId}`}>
-            {/* The stand's name only earns a line when there is more than one to tell apart. */}
-            {hasSeveralStands && <h4>{location.locationName}</h4>}
-            <label htmlFor={`cadence-${location.salesLocationId}`}>Reminder schedule</label>
-            <select
-              id={`cadence-${location.salesLocationId}`}
-              value={cadences[location.salesLocationId] ?? ""}
-              onChange={(event) => {
-                setCadences((current) => ({
-                  ...current,
-                  [location.salesLocationId]: event.target.value as Cadence | "",
-                }));
-                setSaved(false);
-              }}
-            >
-              <option value="" disabled>Choose a schedule</option>
-              <option value="every_2_days">Every 2 days</option>
-              <option value="weekly">Weekly</option>
-              <option value="every_2_weeks">Every 2 weeks</option>
-              <option value="paused">Don&apos;t remind me</option>
-            </select>
-          </div>
-        ))}
-      </div>
-
       {/*
         ONE button for the whole panel, and it says SAVE — never "Submit", which is
         onboarding's word for handing a form in the first time.
+
+        HIDDEN when the panel is embedded in a tab that commits for it (F-098, max's call):
+        the returning farmer's "Details & settings" tab has a single "Save changes", and a
+        second button beside it asks which one counted. The standalone `/stand/[token]/settings`
+        page — which a farmer may have bookmarked and which Farm Friend's own SMS replies name —
+        has no such button of its own, so there it still renders.
       */}
-      <button type="button" disabled={busy || nothingToSave} onClick={() => void save()}>
-        {busy ? "Saving…" : "Save settings"}
-      </button>
+      {tab === null && (
+        <button type="button" disabled={busy || nothingToSave} onClick={() => void save()}>
+          {busy ? "Saving…" : "Save settings"}
+        </button>
+      )}
     </section>
   );
 }

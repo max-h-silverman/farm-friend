@@ -710,9 +710,22 @@ export const farmerInvitations = pgTable(
     farmId: uuid("farm_id").references(() => farms.id, { onDelete: "restrict" }),
     tokenHash: text("token_hash").notNull(),
     channel: farmerInviteChannel("channel").notNull(),
-    createdByAdministratorId: uuid("created_by_administrator_id")
-      .notNull()
-      .references(() => administrators.id, { onDelete: "restrict" }),
+    /**
+     * Who issued this claim — an administrator, or NOBODY (F-098).
+     *
+     * NULL is a SELF-ISSUED claim: the grandfathered door is the honour-system route, where a
+     * farmer picks their own farm and proves an email VIGA already holds. There is no
+     * administrator in that loop, and while this was `notNull` that door could not write the
+     * row at all — which, once `JOIN <token>` was removed and START began matching on
+     * `pending_phone_hash`, left its farmer with no way to finish onboarding.
+     *
+     * A self-issued row must name its farm (`farmer_invitations_self_issued_names_farm`): the
+     * farm selection IS the credential there, with no token to name one later.
+     */
+    createdByAdministratorId: uuid("created_by_administrator_id").references(
+      () => administrators.id,
+      { onDelete: "restrict" },
+    ),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
@@ -1024,9 +1037,20 @@ export const farmApprovals = pgTable(
     farmId: uuid("farm_id")
       .notNull()
       .references(() => farms.id, { onDelete: "restrict" }),
-    administratorId: uuid("administrator_id")
-      .notNull()
-      .references(() => administrators.id, { onDelete: "restrict" }),
+    /**
+     * The administrator who approved this farm, or NOBODY (F-098).
+     *
+     * NULL means the farm published on the honour system through the self-service door, where
+     * picking your farm from a dropdown and proving an email VIGA holds is the whole claim.
+     * There is no approver to name, and requiring one would only be satisfiable by crediting
+     * somebody who never acted.
+     *
+     * **VIGA's revoke is the backstop** — the same one that covers the listing such a farmer
+     * can already publish. max's call, 2026-08-09.
+     */
+    administratorId: uuid("administrator_id").references(() => administrators.id, {
+      onDelete: "restrict",
+    }),
     approvedAt: timestamp("approved_at", { withTimezone: true }).notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },

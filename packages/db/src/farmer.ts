@@ -307,6 +307,111 @@ export async function recordFarmerInvitationPendingPhone(
 }
 
 /**
+ * A farmer claim that NO administrator issued, carrying the handset they will text START from.
+ *
+ * ## Why this row exists at all (F-098)
+ *
+ * `JOIN <token>` was removed 2026-08-07 and farm identity moved to a phone the farmer states on
+ * the onboarding form: a bare START matches the inbound handset against `pending_phone_hash`.
+ * That column lives on `farmer_invitations`, which the grandfathered door could not write —
+ * `created_by_administrator_id` was NOT NULL and there is no administrator in the honour-system
+ * loop. So that door's farmer could publish a listing and then never finish onboarding.
+ *
+ * Migration 0035 makes the issuer optional. The row now means "a pending farmer claim"; WHO
+ * issued it is what varies. Everything downstream — START matching, redemption, authorization,
+ * the welcome text — keys on this row and needed no change, which is the whole reason for
+ * reusing it rather than adding a parallel mechanism doing the same job.
+ *
+ * ## What it does NOT do
+ *
+ * It grants nothing. The row is a claim, not an authorization: the farmer's own inbound START
+ * is still the possession proof, and it still runs through the same consent writer as every
+ * other opt-in. A claim nobody ever texts from simply expires.
+ *
+ * **One live claim per farm.** A second submission for the same farm replaces the first rather
+ * than adding a row: two unredeemed claims naming one farm would let the newest handset win a
+ * race the farmer never knew they were in, and the invited path's `order by created_at desc`
+ * already resolves duplicates that way for a shared handset.
+ */
+export async function recordSelfIssuedFarmerClaim(
+  db: Db,
+  input: {
+    farmId: string;
+    /** Already normalized and hashed AT THE BOUNDARY, where the salt is injected (Rule #5). */
+    phoneE164: string;
+    phoneHash: string;
+    agreedToSms: boolean;
+    occurredAt: Date;
+  },
+): Promise<RecordPendingPhoneResult> {
+  if (!input.agreedToSms) return { status: "invalid" };
+  // Shape-checked here as well as by the CHECK constraints, so a caller bug is a refusal rather
+  // than a raised database error reaching the farmer as "that did not save".
+  if (!/^\+1[0-9]{10}$/.test(input.phoneE164)) return { status: "invalid" };
+  if (!/^[0-9a-f]{64}$/.test(input.phoneHash)) return { status: "invalid" };
+  const { phoneE164, phoneHash } = input;
+
+  return driver(db).begin(async (tx) => {
+    // The farm must exist — the FK would refuse anyway, but a resolved refusal is what the
+    // boundary can turn into an answer.
+    const farms = await tx`select id from farms where id = ${input.farmId}`;
+    if (farms.length === 0) return { status: "invalid" as const };
+
+    // Supersede this farm's own open self-issued claim. Scoped to `created_by_administrator_id
+    // is null` so a VIGA-issued invitation for the same farm is never touched: that one is an
+    // administrator's act, and this door must not revoke it.
+    await tx`
+      update farmer_invitations
+      set redeemed_at = ${input.occurredAt.toISOString()}
+      where farm_id = ${input.farmId}
+        and created_by_administrator_id is null
+        and redeemed_at is null
+    `;
+
+    const token = issueFarmerInviteToken();
+    const inserted = await tx`
+      insert into farmer_invitations (
+        farm_id, token_hash, channel, created_by_administrator_id,
+        created_at, expires_at, agreed_to_sms_at, pending_phone_e164, pending_phone_hash
+      ) values (
+        -- 'email' is how this farmer was actually reached: the grandfathered door proves an
+        -- address VIGA already holds. The enum has no self-service value and does not need one.
+        ${input.farmId}, ${hashFarmerInviteToken(token)}, 'email', null,
+        ${input.occurredAt.toISOString()},
+        ${new Date(input.occurredAt.getTime() + FARMER_INVITE_TTL_MS).toISOString()},
+        ${input.occurredAt.toISOString()}, ${phoneE164}, ${phoneHash}
+      )
+      returning id
+    `;
+    const invitationId = inserted[0]?.id as string | undefined;
+    if (invitationId === undefined) return { status: "invalid" as const };
+
+    /*
+      Audited with NO actor at all, which is the honest record of who did this.
+
+      There is no administrator — none acted. And the FARMER cannot be named either:
+      `actor_contact_hash` is a foreign key into `contacts`, which holds people who have TEXTED
+      Farm Friend. At claim time this farmer has not; the contact row appears when their START
+      arrives, which is the event that actually identifies them. Naming them here would mean
+      inserting a contact for someone who never messaged us — a person record manufactured from
+      a web form, which is exactly the rich profile the privacy rule refuses.
+
+      So the subject is the claim and the actor is nobody. The farmer becomes identifiable at
+      redemption, where the authorization is audited against a contact that genuinely exists.
+    */
+    await tx`
+      insert into audit_events (
+        action, subject_type, subject_id, occurred_at
+      ) values (
+        'self_issued_farmer_claim_created',
+        'farmer_invitation', ${invitationId}, ${input.occurredAt.toISOString()}
+      )
+    `;
+    return { status: "recorded" as const };
+  });
+}
+
+/**
  * One thing on the table right now, as stated on the onboarding form (F-090).
  *
  * A deliberately NARROW subset of what an inventory entry can carry. The confirmation path
@@ -930,7 +1035,13 @@ export async function openFarmerOnboardingRequest(
       const agreedToSmsAt =
         (invitations[0]?.agreed_to_sms_at as Date | null | undefined) ?? null;
       const invitationFarmId = (invitations[0]?.farm_id as string | null | undefined) ?? null;
-      const invitedByAdministratorId = invitations[0]?.created_by_administrator_id as string;
+      /*
+        NULL for a SELF-ISSUED claim (F-098) — nobody issued it, so nobody is credited with
+        approving the farm. Typed honestly rather than `as string`: the cast would have carried
+        a null straight into the approval insert and failed there instead of here.
+      */
+      const invitedByAdministratorId =
+        (invitations[0]?.created_by_administrator_id as string | null | undefined) ?? null;
       // F-097 — the cadence the farmer chose on the form, or undefined when they were never
       // asked. Read here, applied inside the authorization below, because the preference row
       // cannot exist until that authorization does.
@@ -1097,7 +1208,8 @@ async function authorizeInvitedFarmerIn(
     contactHash: string;
     requestId: string;
     /** The administrator who minted the invitation — the approval's honest actor. */
-    invitedByAdministratorId: string;
+    /** The administrator who issued the invitation, or NULL for a self-issued claim (F-098). */
+    invitedByAdministratorId: string | null;
     occurredAt: Date;
     /** Base for the private link the setup message carries (F-094). */
     publicBaseUrl: string;
@@ -1146,6 +1258,11 @@ async function authorizeInvitedFarmerIn(
   // The approval names the administrator who CREATED THE INVITATION, which is honest rather
   // than convenient. That is the person who decided this farm participates, at the moment they
   // minted a one-use link naming it — the same decision the authorization inherits.
+  //
+  // **Or NOBODY, for a self-issued claim** (F-098, max 2026-08-09). The honour-system door has
+  // no administrator to name, and crediting one who never acted would be the convenient lie the
+  // paragraph above refuses. A null approver records exactly what happened: this farm published
+  // because it claimed itself, and VIGA's revoke is the backstop.
   //
   // THE INDEX IS THE ARBITER, not a preceding read. `farm_approvals_one_current_per_farm` is a
   // PARTIAL unique index, and `select … for update` cannot serialize a row that does not exist

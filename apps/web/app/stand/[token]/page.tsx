@@ -8,6 +8,8 @@ import { readCurrentStandEntries, resolveStandFromToken } from "../../../lib/far
 import { loadFarmerSettings } from "../../../lib/farmer-settings";
 import { publicReadContext } from "../../../lib/public-context";
 import { ListingStep } from "../../farmer/onboarding/[token]/listing-step";
+import { DetailsPanel } from "./details-panel";
+import { ReminderSchedules } from "./reminder-schedules";
 import { SettingsForm } from "./settings/settings-form";
 import { StandForm } from "./stand-form";
 import { StandTabs } from "./stand-tabs";
@@ -115,16 +117,30 @@ export default async function StandPage({
 
       <StandTabs
         statusPanel={
-          <StandForm token={params.token} currentEntries={currentEntries} />
+          <>
+            <StandForm token={params.token} currentEntries={currentEntries} />
+            {/*
+              HOW OFTEN WE ASK, directly under the widget that answers it (F-098, max's call).
+              It was filed under settings on the other tab, a tab away from the errand it
+              schedules.
+            */}
+            {settings.status === "active" && (
+              <ReminderSchedules token={params.token} locations={settings.locations} />
+            )}
+          </>
         }
         detailsPanel={
-          <>
-            {listing === null ? (
-              <p className="farmer-form-note">
-                We could not find your stand&apos;s details. Text Farm Friend and VIGA will
-                sort it out.
-              </p>
-            ) : (
+          listing === null ? (
+            <p className="farmer-form-note">
+              We could not find your stand&apos;s details. Text Farm Friend and VIGA will
+              sort it out.
+            </p>
+          ) : (
+            /*
+              ONE screen, ONE commit (F-098). The listing form owns the button; the settings
+              panel hands its save up and is run by that same press.
+            */
+            <DetailsPanel>
               <ListingStep
                 credential={{ kind: "stand_link", token: params.token }}
                 // The FARM's name, which is a different record from the stand's.
@@ -142,27 +158,27 @@ export default async function StandPage({
                   hoursText: listing.hoursText,
                   availability: listing.availability,
                   paymentMethods: listing.paymentMethods,
-                  // F-090 — carries each item's price. B-037's rule: the writer rewrites every
-                  // item row on every save, so a price this could not see would be deleted.
+                  // F-090 — carries each item's price. B-037's rule: the writer rewrites
+                  // every item row on every save, so a price this could not see would be
+                  // deleted.
                   items: listing.items,
                   description: listing.description,
                 }}
               />
-            )}
-
-            {settings.status === "active" && (
-              <SettingsForm
-                token={params.token}
-                locations={settings.locations}
-                participantNamesByLocation={participantNamesByLocation}
-              />
-            )}
-          </>
+              {settings.status === "active" && (
+                <SettingsForm
+                  token={params.token}
+                  locations={settings.locations}
+                  participantNamesByLocation={participantNamesByLocation}
+                />
+              )}
+            </DetailsPanel>
+          )
         }
       />
 
       <p id="new-link-help" className="farmer-form-note">
-        Anyone with it can update this stand. Text <strong>LINK</strong> for a new
+        Anyone with this link can make updates. Text <strong>LINK</strong> for a new
         one; ask VIGA to disable a shared link.
       </p>
     </main>

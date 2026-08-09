@@ -94,7 +94,7 @@ async function placeStand(
   address = "12345 Vashon Highway SW",
 ): Promise<void> {
   await user.type(screen.getByLabelText(/your farm address/i), address);
-  await user.click(screen.getByRole("button", { name: /^save$/i }));
+  await user.click(screen.getByRole("button", { name: /^find on map$/i }));
   await screen.findByText(/found it/i);
 }
 
@@ -296,7 +296,7 @@ describe("onboarding listing step", () => {
 
     expect(screen.getByLabelText(/your farm address/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /^save$/i }),
+      screen.getByRole("button", { name: /^find on map$/i }),
     ).toBeInTheDocument();
   });
 
@@ -1256,7 +1256,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       const body = bodyFor(fetchMock, "address-lookup");
       expect(body.token).toBe(TOKEN);
@@ -1276,7 +1276,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       await screen.findByText(/found it/i);
       expect(
@@ -1309,7 +1309,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "nowhere at all");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       await screen.findByRole("status");
       expect(
@@ -1329,7 +1329,7 @@ describe("onboarding listing step", () => {
 
         await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await user.type(screen.getByLabelText(/your farm address/i), "somewhere");
-        await user.click(screen.getByRole("button", { name: /^save$/i }));
+        await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
         const note = await screen.findByRole("status");
         expect(note).toHaveTextContent(/check the address/i);
@@ -1359,7 +1359,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       const note = await screen.findByRole("status");
       expect(note).toHaveTextContent(/unavailable/i);
@@ -1384,7 +1384,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       expect(await screen.findByRole("status")).toHaveTextContent(/check the address|correct/i);
       expect(
@@ -1433,7 +1433,7 @@ describe("onboarding listing step", () => {
       ).toBeEnabled();
 
       await user.type(screen.getByLabelText(/your farm address/i), " Suite 2");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByRole("status");
 
       expect(
@@ -1453,7 +1453,7 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       const addressField = screen.getByLabelText(/your farm address/i);
       await user.type(addressField, "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       await screen.findByText(/found it/i);
       // Filled in so enabled/disabled below tracks the PIN alone. Without it the button stays
@@ -1514,7 +1514,7 @@ describe("onboarding listing step", () => {
 
       // The farmer CORRECTS the address, and the lookup of the correction fails.
       await user.type(screen.getByLabelText(/your farm address/i), " Suite 2");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByRole("status");
 
       expect(
@@ -1537,7 +1537,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByText(/found it/i);
 
       const map = screen.getByRole("img", { name: /map of vashon/i });
@@ -1567,7 +1567,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
 
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^find on map$/i })).toBeDisabled();
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
@@ -1581,7 +1581,7 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "   ");
 
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^find on map$/i })).toBeDisabled();
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
@@ -1603,17 +1603,17 @@ describe("onboarding listing step", () => {
       await user.type(field, "12345 Vashon Highway SW");
 
       // Typed and unsaved: the one state the button is for.
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^find on map$/i })).toBeEnabled();
 
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByText(/found it/i);
       await waitFor(() => {
-        expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+        expect(screen.getByRole("button", { name: /^find on map$/i })).toBeDisabled();
       });
 
       // One more character, and there is again something unsaved to save.
       await user.type(field, "X");
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^find on map$/i })).toBeEnabled();
     });
 
     it("arrives with Save OFF on an edit form, whose address is already saved", async () => {
@@ -1639,7 +1639,7 @@ describe("onboarding listing step", () => {
         />,
       );
 
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /^find on map$/i })).toBeDisabled();
     });
 
     it("re-enables Save when a lookup FAILS, so the farmer can try again", async () => {
@@ -1653,10 +1653,10 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "nowhere at all");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       await screen.findByRole("status");
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^find on map$/i })).toBeEnabled();
     });
 
     it("styles Save as the form's primary action, with its own disabled look", async () => {
@@ -1669,14 +1669,14 @@ describe("onboarding listing step", () => {
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
-      const save = screen.getByRole("button", { name: /^save$/i });
+      const save = screen.getByRole("button", { name: /^find on map$/i });
       expect(save).toHaveClass("farmer-listing-primary");
 
       // And the disabled state is addressable as a state rather than as a second class the
       // component has to remember to add and remove.
       expect(save).toBeDisabled();
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      expect(screen.getByRole("button", { name: /^save$/i })).toBeEnabled();
+      expect(screen.getByRole("button", { name: /^find on map$/i })).toBeEnabled();
     });
 
     it("the lookup button does NOT submit the form", async () => {
@@ -1688,7 +1688,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       const listingCalls = fetchMock.mock.calls.filter((entry) =>
         String((entry as [string, unknown])[0]).includes("/api/farmer/listing"),
@@ -1723,7 +1723,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByText(/found it/i);
 
       await user.click(screen.getByLabelText(/don.t show my address/i));
@@ -1747,7 +1747,7 @@ describe("onboarding listing step", () => {
 
       await user.click(screen.getByLabelText(/yes . there is a stand/i));
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByText(/found it/i);
       await submitListing(user);
 
@@ -1954,16 +1954,18 @@ describe("onboarding listing step", () => {
       expect(screen.queryByText(/where is it\?/i)).toBeNull();
     });
 
-    it("names the lookup control SAVE in words, not as an icon", async () => {
-      // A pin glyph asked the farmer to infer what it did. The control commits the address
-      // they typed, so it says so — and it must still be a real button rather than an
-      // `aria-label` on something shaped like an icon.
+    it("names the lookup control in words, not as an icon — and never 'Save'", async () => {
+      // A pin glyph asked the farmer to infer what it did, so the control says what it does
+      // and must stay a real button rather than an `aria-label` on something icon-shaped.
+      //
+      // It must NOT say "Save" (F-098): the tab's single "Save changes" is what commits, and
+      // a second button saying Save reads as a competing commit.
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      const save = screen.getByRole("button", { name: /^save$/i });
+      const save = screen.getByRole("button", { name: /^find on map$/i });
       // Anchored to the VISIBLE text, which is the whole change. An icon carrying
-      // `aria-label="Save"` would satisfy a name-only query and show the farmer a glyph.
-      expect(save).toHaveTextContent(/^save$/i);
+      // `aria-label` would satisfy a name-only query and show the farmer a glyph.
+      expect(save).toHaveTextContent(/^find on map$/i);
       expect(save.querySelector("svg")).toBeNull();
       // Still a button, so it cannot publish the listing by default submission.
       expect(save).toHaveAttribute("type", "button");
@@ -2050,7 +2052,7 @@ describe("onboarding listing step", () => {
       const before = screen.getByRole("img", { name: /vashon and maury/i });
 
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByText(/found it/i);
 
       expect(screen.getByRole("img", { name: /vashon and maury/i })).toBe(before);
@@ -2071,7 +2073,7 @@ describe("onboarding listing step", () => {
       );
 
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByText(/found it/i);
 
       const map = container.querySelector(".farmer-listing-map")!;
@@ -2097,7 +2099,7 @@ describe("onboarding listing step", () => {
       expect(container.querySelector(".farmer-listing-pin")).toBeNull();
 
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByText(/found it/i);
 
       expect(container.querySelector(".farmer-listing-pin")).not.toBeNull();
@@ -2145,7 +2147,7 @@ describe("onboarding listing step", () => {
       expect(whole).toBe(`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`);
 
       await user.type(screen.getByLabelText(/your farm address/i), "12345 Vashon Highway SW");
-      await user.click(screen.getByRole("button", { name: /^save$/i }));
+      await user.click(screen.getByRole("button", { name: /^find on map$/i }));
       await screen.findByText(/found it/i);
 
       // The frame TRAVELS rather than snapping, so this waits for it to settle. The wait is
@@ -3658,4 +3660,122 @@ describe("onboarding listing step", () => {
     });
   });
 
+});
+describe("both onboarding doors ask the same things (F-098)", () => {
+  /*
+    THE REGRESSION THIS PINS, and why it is not cosmetic.
+
+    `JOIN <token>` was removed 2026-08-07 and farm identity moved to a phone the farmer states
+    on the onboarding form. The grandfathered door was never given that field — every control
+    in the "Staying in touch" step was gated on `credential.kind === "invitation"` — so when the
+    form became a wizard the next day, that door rendered a fourth step holding its heading, the
+    nav buttons, and nothing else.
+
+    The farmer could publish a listing and then never finish onboarding: no phone recorded means
+    no inbound START can ever be attributed to them. max's call (2026-08-09) is that the two
+    doors ask the SAME questions, so this asserts the step has real content on both.
+  */
+  it("asks the grandfathered farmer for a phone, an agreement and a schedule", async () => {
+    const user = userEvent.setup();
+    render(
+      <ListingStep credential={{ kind: "grandfathered", farmId: FARM_ID }} farmName="Test Farm" />,
+    );
+
+    // Walk to the last step rather than asserting on a hidden fieldset: `hidden` is what the
+    // farmer's empty screen actually was, so the test has to reach the step the way they do.
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByLabelText(/your phone number/i)).toBeVisible();
+    expect(screen.getByTestId("sms-agreement")).toBeVisible();
+    expect(screen.getByText("Step 4 of 4")).toBeVisible();
+  });
+
+  it("still asks the invited farmer the same things", () => {
+    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+    expect(screen.getByText("Step 1 of 4")).toBeVisible();
+  });
+
+  it("does not ask a RETURNING farmer any of it — they are already onboarded", () => {
+    // The editing door is the one door where these questions are wrong: the farmer's phone is
+    // recorded, their consent is written, and their schedule lives on the stock tab.
+    render(
+      <ListingStep
+        credential={{ kind: "stand_link", token: TOKEN }}
+        farmName="Test Farm"
+        defaults={EDIT_DEFAULTS}
+      />,
+    );
+
+    expect(screen.queryByLabelText(/your phone number/i)).toBeNull();
+    expect(screen.queryByTestId("sms-agreement")).toBeNull();
+  });
+});
+describe("the confirmation links the word 'map' (F-098)", () => {
+  // max, 2026-08-09: a farmer who reads "live on the map!" has nowhere to go and see it. The
+  // word itself is the link, so the sentence stays one sentence.
+  /** Answers the address lookup, the agreement stamp, and the submit. */
+  function stubPublish() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("address-lookup")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status: "found",
+              latitude: 47.4471,
+              longitude: -122.4594,
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ status: "saved" }) };
+      }) as unknown as typeof fetch,
+    );
+  }
+
+  async function publish(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+    await user.click(screen.getByLabelText(/yes . there is a stand/i));
+    await placeStand(user);
+    await submitListing(user);
+  }
+
+  it("points the word at the public map", async () => {
+    const user = userEvent.setup();
+    stubPublish();
+    render(
+      <ListingStep
+        credential={{ kind: "grandfathered", farmId: FARM_ID }}
+        farmName="Test Farm"
+        mapUrl="https://www.vigavashon.org/farm-stand-map"
+      />,
+    );
+
+    await publish(user);
+
+    const link = await screen.findByRole("link", { name: "map" });
+    expect(link).toHaveAttribute("href", "https://www.vigavashon.org/farm-stand-map");
+    // Opens away from a form the farmer just completed, so Back does not return them to a
+    // submitted page — and the new tab cannot reach back into this one.
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
+  it("still states the good news when no map URL is configured", async () => {
+    // `PUBLIC_MAP_URL` is required in production, but a door rendered without it must say the
+    // farm is live rather than break over a missing link.
+    const user = userEvent.setup();
+    stubPublish();
+    render(
+      <ListingStep credential={{ kind: "grandfathered", farmId: FARM_ID }} farmName="Test Farm" />,
+    );
+
+    await publish(user);
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/live on the map/i);
+    expect(screen.queryByRole("link", { name: "map" })).toBeNull();
+  });
 });

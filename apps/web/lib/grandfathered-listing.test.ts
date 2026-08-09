@@ -230,3 +230,83 @@ describe("grandfathered listing endpoint", () => {
     await expect(response.json()).resolves.toEqual({ error: "incomplete_location" });
   });
 });
+describe("the grandfathered farmer's phone (F-098)", () => {
+  /*
+    THE REGRESSION THIS REPAIRS, and why it is not a new feature.
+
+    `JOIN <token>` was removed 2026-08-07: farm identity moved to a phone the farmer states on
+    the onboarding form, and a bare START now matches an inbound handset against
+    `pending_phone_hash`. That column lives on `farmer_invitations` — a row this door could not
+    write, because `created_by_administrator_id` was NOT NULL and there is no administrator in
+    the honour-system loop.
+
+    So this door's farmer lost their only route to SMS and got no replacement: they could
+    publish a listing and then never finish onboarding. Migration 0035 makes the issuer optional
+    so a SELF-ISSUED claim can carry the phone, and every downstream path — START matching,
+    redemption, authorization, the welcome text — keys on that row and is unchanged.
+  */
+  it("records the stated phone as a self-issued claim, with no administrator", async () => {
+    const record = vi.fn(async () => ({ status: "recorded" as const }));
+    const response = await handleGrandfatheredListingPost(
+      { ...deps(), recordSelfIssuedClaim: record },
+      post({ farmId: FARM_ID, ...LISTING, phone: "(206) 555-0143", agreedToSms: true }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(record).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        farmId: FARM_ID,
+        // RAW for the boundary to normalize and hash — the same contract the invited door has.
+        phone: "(206) 555-0143",
+        agreedToSms: true,
+        occurredAt: T0,
+      }),
+    );
+  });
+
+  it("refuses a phone it cannot make sense of, and writes nothing", async () => {
+    const save = saver();
+    const record = vi.fn(async () => ({ status: "invalid" as const }));
+    const response = await handleGrandfatheredListingPost(
+      { ...deps(claimer(), save), recordSelfIssuedClaim: record },
+      post({ farmId: FARM_ID, ...LISTING, phone: "12", agreedToSms: true }),
+    );
+
+    // Actionable, and shown against the field — unlike the uniform refusals above, which must
+    // not disclose anything about a farm.
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "invalid_phone" });
+    // The listing must NOT be published behind a phone that failed: a farmer would be on the
+    // map with no way to ever update it, which is the exact dead end this repairs.
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("still publishes for a farmer who states no phone", async () => {
+    // The phone is how a farmer reaches SMS, not a condition of appearing on the map. A farmer
+    // who only wants a listing must not be blocked, and one who returns later can text LINK.
+    const record = vi.fn(async () => ({ status: "recorded" as const }));
+    const response = await handleGrandfatheredListingPost(
+      { ...deps(), recordSelfIssuedClaim: record },
+      post({ farmId: FARM_ID, ...LISTING }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("does not record a phone the farmer never agreed to be texted on", async () => {
+    // The tick is the consent, and it gates the claim rather than decorating it. Recording a
+    // handset the farmer did not agree to would make their next START authorize a farm they
+    // never opted into.
+    const record = vi.fn(async () => ({ status: "recorded" as const }));
+    const response = await handleGrandfatheredListingPost(
+      { ...deps(), recordSelfIssuedClaim: record },
+      post({ farmId: FARM_ID, ...LISTING, phone: "(206) 555-0143", agreedToSms: false }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "sms_agreement_required" });
+    expect(record).not.toHaveBeenCalled();
+  });
+});

@@ -1,6 +1,7 @@
-import type { Clock } from "@farm-friend/core";
+import { hashPhone, normalizePhone, type Clock } from "@farm-friend/core";
 import {
   claimGrandfatheredFarm,
+  recordSelfIssuedFarmerClaim,
   saveOnboardingListing,
   type ClaimGrandfatheredFarmResult,
   type Db,
@@ -26,8 +27,15 @@ import { parseListingSubmission } from "./farmer-listing";
 //   * The check runs on THIS request, not at page render. A farmer can onboard in the window
 //     between the dropdown loading and this form being sent; the stale page must lose.
 //   * Nothing here grants authority. This writes listing facts only — publishing inventory
-//     still requires a `farmer_authorizations` row, which still requires a handset (`JOIN <token>`).
-//     The honour system therefore buys a listing, never the ability to speak as the farm.
+//     still requires a `farmer_authorizations` row, which still requires a handset. The honour
+//     system therefore buys a listing, never the ability to speak as the farm.
+//
+//     **The handset proof is a bare `START`, not `JOIN <token>`** (corrected 2026-08-09). That
+//     grammar was removed 2026-08-07 and this line went on naming it for two days — the exact
+//     shape of stale claim CLAUDE.md warns about, and it hid a real regression: with `JOIN`
+//     gone and no phone field on this door, its farmer had NO route to authorization at all.
+//     The phone stated on the form is now recorded as a self-issued claim (F-098), and the
+//     farmer's own inbound START is matched against it.
 //
 // The field rules are `parseListingSubmission`'s and are SHARED with the invited path rather
 // than restated, so both doors publish the same shape onto the same map.
@@ -47,6 +55,22 @@ export interface GrandfatheredListingDeps {
     db: Db,
     input: SaveOnboardingListingInput,
   ) => Promise<SaveOnboardingListingResult>;
+  /**
+   * Record the handset this farmer will text START from, as a SELF-ISSUED claim (F-098).
+   *
+   * Optional so a deployment that has not wired it still publishes listings — the phone is how
+   * a farmer reaches SMS, never a condition of appearing on the map.
+   *
+   * **Not consent and not a grant.** It records which handset to expect, exactly as the invited
+   * door's `recordPendingPhone` does; the inbound START is still the possession proof and the
+   * opt-in, through the same consent writer every other opt-in uses.
+   */
+  recordSelfIssuedClaim?: (
+    db: Db,
+    input: { farmId: string; phone: string; agreedToSms: boolean; occurredAt: Date },
+  ) => Promise<{ status: "recorded" } | { status: "invalid" }>;
+  /** The HMAC salt the phone hash is built under (Golden Rule #5). */
+  phoneSalt?: string;
 }
 
 /**
@@ -87,6 +111,43 @@ export async function handleGrandfatheredListingPost(
     return Response.json({ error: "already_onboarded" }, { status: 409 });
   }
 
+  /*
+    THE PHONE, validated and claimed BEFORE the listing is published (F-098).
+
+    Ordered this way deliberately: a listing published behind a phone that failed would put a
+    farmer on the map with no way to ever update it — the same dead end the `JOIN <token>`
+    removal left this door in. The invited path validates its phone ahead of its save for the
+    identical reason.
+
+    Absent phone is not an error. A farmer who wants only a listing gets one, and can text LINK
+    later; what must not happen is a stated phone silently going nowhere.
+  */
+  const rawPhone = body.phone;
+  if (rawPhone !== undefined && rawPhone !== null && rawPhone !== "") {
+    if (typeof rawPhone !== "string") {
+      return Response.json({ error: "invalid_phone" }, { status: 400 });
+    }
+    // The tick is the consent and it GATES the claim. Recording a handset the farmer did not
+    // agree to would let their next START authorize a farm they never opted into.
+    if (body.agreedToSms !== true) {
+      return Response.json({ error: "sms_agreement_required" }, { status: 400 });
+    }
+    if (deps.recordSelfIssuedClaim !== undefined) {
+      const claimed = await deps.recordSelfIssuedClaim(deps.db, {
+        farmId: claim.farmId,
+        // RAW, for the writer to normalize and hash — Golden Rule #5 keeps that in one place.
+        phone: rawPhone,
+        agreedToSms: true,
+        occurredAt: deps.clock.now(),
+      });
+      if (claimed.status === "invalid") {
+        // Actionable, and shown against the field — unlike this door's uniform refusals, which
+        // must not disclose anything about a farm.
+        return Response.json({ error: "invalid_phone" }, { status: 400 });
+      }
+    }
+  }
+
   const result = await deps.saveListing(deps.db, {
     farmId: claim.farmId,
     // The farm's own name, from the RESOLVED farm rather than the request: the body may say
@@ -105,11 +166,37 @@ export async function handleGrandfatheredListingPost(
 export function grandfatheredListingDeps(context: {
   db: Db;
   clock: Clock;
+  /** Injected so the salt read is testable without touching the process environment. */
+  env?: NodeJS.ProcessEnv;
 }): GrandfatheredListingDeps {
   return {
     db: context.db,
     clock: context.clock,
     claimFarm: claimGrandfatheredFarm,
     saveListing: saveOnboardingListing,
+    /*
+      The phone is normalized and hashed HERE, where the salt is injected — never inside the
+      database layer, which must not read configuration (Golden Rule #5: raw E.164 in exactly
+      one column, the hash as the only lookup key).
+    */
+    recordSelfIssuedClaim: async (db, input) => {
+      const salt = (context.env ?? process.env).PHONE_HASH_SALT?.trim();
+      if (salt === undefined || salt === "") return { status: "invalid" };
+      let phoneE164: string;
+      let phoneHash: string;
+      try {
+        phoneE164 = normalizePhone(input.phone);
+        phoneHash = hashPhone(input.phone, salt);
+      } catch {
+        return { status: "invalid" };
+      }
+      return recordSelfIssuedFarmerClaim(db, {
+        farmId: input.farmId,
+        phoneE164,
+        phoneHash,
+        agreedToSms: input.agreedToSms,
+        occurredAt: input.occurredAt,
+      });
+    },
   };
 }

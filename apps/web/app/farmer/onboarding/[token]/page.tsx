@@ -50,6 +50,9 @@ export default async function FarmerOnboardingPage({
       : await readFarmListingForOnboarding(db, { farmId: invitation.farmId });
 
   const fromNumber = process.env.TELNYX_FROM_NUMBER?.trim();
+  // The public map, so the confirmation's own word "map" links to it (max, 2026-08-09). Read
+  // here because `PUBLIC_MAP_URL` is server configuration and the form is a client component.
+  const mapUrl = process.env.PUBLIC_MAP_URL?.trim();
   return (
     <main className="farmer-onboarding">
       <p className="farmer-eyebrow">VIGA Farm Friend</p>
@@ -106,6 +109,7 @@ export default async function FarmerOnboardingPage({
           farmName={invitation.farmName ?? ""}
           {...(existing === null ? {} : { defaults: existing })}
           {...(fromNumber === undefined || fromNumber === "" ? {} : { smsNumber: fromNumber })}
+          {...(mapUrl === undefined || mapUrl === "" ? {} : { mapUrl })}
         />
       </section>
 

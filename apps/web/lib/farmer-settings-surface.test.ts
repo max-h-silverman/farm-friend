@@ -40,14 +40,30 @@ describe("F-051 farmer settings surface wiring", () => {
     // Never a query string: a standing credential in a URL lands in proxy logs and history.
     expect(form).not.toMatch(/\/api\/farmer\/settings\?/);
     expect(form).not.toMatch(/\/api\/farmer\/stand\?/);
+
+    /*
+      THE SAME GUARANTEE for the reminder control, which F-098 moved to its own file on the
+      stock tab. It posts to the same endpoint with the same credential, so the rule travels
+      with it — a writer that escaped this assertion by moving is exactly how a token reaches
+      a query string unnoticed.
+    */
+    const reminders = source("apps/web/app/stand/[token]/reminder-schedules.tsx");
+    expect(reminders).toMatch(/body:\s*JSON\.stringify\(\s*\{\s*\n?\s*token,/);
+    expect(reminders).not.toMatch(/\/api\/farmer\/settings\?/);
   });
 
-  it("offers explicit per-stand cadence controls without presenting consent as schedule state", () => {
+  it("asks which stand the texts are about only when there are several", () => {
     const form = source("apps/web/app/stand/[token]/settings/settings-form.tsx");
     // The default-stand choice still exists — now behind `hasSeveralStands`, because a farmer
     // with one stand is being asked to choose between one option (F-097).
     expect(form).toMatch(/type=["']radio["']/);
     expect(form).toMatch(/hasSeveralStands/);
+  });
+
+  it("offers explicit per-stand cadence controls without presenting consent as schedule state", () => {
+    // F-098 moved this control to the STOCK tab, under the widget that answers the reminder.
+    // The guarantees are unchanged and follow the control to the file that now renders it.
+    const form = source("apps/web/app/stand/[token]/reminder-schedules.tsx");
     // Every cadence the enum allows is offered, in order, and "paused" is presented as the
     // farmer's own words rather than as the column's value.
     expect(form).toMatch(

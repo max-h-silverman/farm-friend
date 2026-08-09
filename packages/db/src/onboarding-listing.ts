@@ -416,10 +416,11 @@ export async function seedDefaultPromptPreference(
   `;
   if (authorizations.length === 0) return;
 
-  // The authorization doors call this without a stand in hand: an invited farmer publishes
-  // their listing from the web form and is authorized LATER, by texting `JOIN <token>`. So the
-  // stand is resolved from the farm when the caller has no id — and a farm with no stand yet
-  // simply gets no schedule, rather than this inventing one.
+  // The authorization doors call this without a stand in hand: a farmer publishes their listing
+  // from the web form and is authorized LATER, by texting a bare `START` from the phone they
+  // stated there (`JOIN <token>` was removed 2026-08-07). So the stand is resolved from the farm
+  // when the caller has no id — and a farm with no stand yet simply gets no schedule, rather
+  // than this inventing one.
   const locations =
     input.salesLocationId === null
       ? await tx`
