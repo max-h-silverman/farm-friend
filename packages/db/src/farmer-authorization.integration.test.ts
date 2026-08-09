@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  FARMER_AUTHORIZED_NOTIFICATION,
+  renderFarmerAuthorizedNotification,
   hashFarmerLinkToken,
   issueFarmerLinkToken,
 } from "@farm-friend/core";
@@ -95,6 +95,7 @@ describe("farmer authorization and standing links (integration)", () => {
     await openFarmerOnboardingRequest(database(), {
       contactHash,
       occurredAt: at(0),
+      publicBaseUrl: "https://farmfriend.test",
     });
     const rows = await sql()`
       select id from farmer_onboarding_requests
@@ -164,6 +165,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(result.status).toBe("authorized");
 
@@ -203,6 +205,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const queued = await sql()`
@@ -210,7 +213,27 @@ describe("farmer authorization and standing links (integration)", () => {
         where recipient_hash = ${contactHash}
       `;
       expect(queued).toHaveLength(1);
-      expect(queued[0]?.body).toBe(FARMER_AUTHORIZED_NOTIFICATION);
+      /*
+        F-094 — the message CARRIES the farmer's private link, minted in this same
+        transaction. `farmWithStand` gave this farm a sales location, which is what makes a
+        link possible: `issueFarmerLinkIn` needs one, and the no-stand fallback is covered by
+        its own case in the unit suite.
+
+        Asserted on the VALUE — the token in the body must be a real live link row — rather
+        than on the shape. A body containing "/stand/" and a plausible-looking token would
+        satisfy a `toContain` while resolving to nothing for the farmer.
+      */
+      const body = queued[0]?.body as string;
+      const token = /\/stand\/([0-9a-f]{64})\b/.exec(body)?.[1];
+      expect(token).toBeDefined();
+      const live = await sql()`
+        select authorization_id from farmer_links
+        where token_hash = ${hashFarmerLinkToken(token as string)} and revoked_at is null
+      `;
+      expect(live).toHaveLength(1);
+      expect(body).toBe(
+        renderFarmerAuthorizedNotification(`https://farmfriend.test/stand/${token as string}`),
+      );
       expect(queued[0]?.state).toBe("queued");
       // A PROACTIVE category: Farm Friend is speaking first. Categorizing it as a reply
       // would let it reach a farmer with no consent basis, which is the exact bypass
@@ -231,6 +254,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(result.status).toBe("unknown_farm");
 
@@ -255,6 +279,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const queued = await sql()`
         select id from outbox_work where recipient_hash = ${contactHash}
@@ -293,6 +318,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const queued = await sql()`
         select id from outbox_work where recipient_hash = ${contactHash}
@@ -322,6 +348,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId: revoked[0]?.id as string,
         occurredAt: at(2),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(result.status).toBe("not_an_administrator");
 
@@ -340,6 +367,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(unknownFarm.status).toBe("unknown_farm");
 
@@ -348,6 +376,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: randomUUID(),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(unknownRequest.status).toBe("unknown_request");
 
@@ -366,6 +395,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(first.status).toBe("authorized");
 
@@ -374,6 +404,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(2),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(second.status).toBe("already_authorized");
 
@@ -399,6 +430,7 @@ describe("farmer authorization and standing links (integration)", () => {
             requestId: await onboardingRequest(one),
             administratorId,
             occurredAt: at(1),
+            publicBaseUrl: "https://farmfriend.test",
           })
         ).status,
       ).toBe("authorized");
@@ -409,6 +441,7 @@ describe("farmer authorization and standing links (integration)", () => {
             requestId: await onboardingRequest(two),
             administratorId,
             occurredAt: at(1),
+            publicBaseUrl: "https://farmfriend.test",
           })
         ).status,
       ).toBe("authorized");
@@ -430,6 +463,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         created.status === "authorized" ? created.authorizationId : "";
@@ -466,6 +500,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         created.status === "authorized" ? created.authorizationId : "";
@@ -509,6 +544,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       await revokeFarmerAuthorization(database(), {
         authorizationId:
@@ -522,6 +558,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(3),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(again.status).toBe("authorized");
 
@@ -542,6 +579,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const opened = await openFarmerOnboardingRequest(database(), {
         contactHash,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
 
@@ -561,6 +599,7 @@ describe("farmer authorization and standing links (integration)", () => {
         const result = await openFarmerOnboardingRequest(database(), {
           contactHash,
           occurredAt: at(1 + i),
+          publicBaseUrl: "https://farmfriend.test",
         });
         expect(result.status).toBe(i === 0 ? "opened" : "already_open");
       }
@@ -583,6 +622,7 @@ describe("farmer authorization and standing links (integration)", () => {
           openFarmerOnboardingRequest(database(), {
             contactHash,
             occurredAt: at(1),
+            publicBaseUrl: "https://farmfriend.test",
           }),
         ),
       );
@@ -603,6 +643,7 @@ describe("farmer authorization and standing links (integration)", () => {
       await openFarmerOnboardingRequest(database(), {
         contactHash,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const authorized = await authorizeFarmer(database(), {
@@ -610,6 +651,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(2),
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(authorized.status).toBe("authorized");
 
@@ -632,6 +674,7 @@ describe("farmer authorization and standing links (integration)", () => {
           await openFarmerOnboardingRequest(database(), {
             contactHash,
             occurredAt: at(9),
+            publicBaseUrl: "https://farmfriend.test",
           })
         ).status,
       ).toBe("opened");
@@ -649,6 +692,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
@@ -670,8 +714,11 @@ describe("farmer authorization and standing links (integration)", () => {
         ).rejects.toMatchObject({ code: "23502" });
       }
 
+      // Exactly the ONE link authorization itself minted for the setup message (F-094), and
+      // none of the three malformed rows above. Asserting zero here would now be asserting
+      // that the farmer never got their link.
       expect(await sql()`select id from farmer_links where authorization_id = ${authorizationId}`)
-        .toHaveLength(0);
+        .toHaveLength(1);
     });
 
     it("resolves to exactly one authorization and its one sales location", async () => {
@@ -684,6 +731,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
@@ -714,6 +762,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const issued = await issueFarmerLink(database(), {
         authorizationId:
@@ -748,6 +797,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
@@ -791,6 +841,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
@@ -827,6 +878,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
@@ -870,6 +922,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
@@ -897,8 +950,13 @@ describe("farmer authorization and standing links (integration)", () => {
         ).status,
       ).toBe("not_authorized");
 
+      // No LIVE link. Authorization mints one for the setup message (F-094), and revoking the
+      // authorization revokes it in the same transaction — so the row still exists and is
+      // dead, which is the property that matters. Asserting the row is absent would now pass
+      // only if the farmer had never been sent their link at all.
       const rows = await sql()`
-        select id from farmer_links where authorization_id = ${authorizationId}
+        select id from farmer_links
+        where authorization_id = ${authorizationId} and revoked_at is null
       `;
       expect(rows).toHaveLength(0);
     });
@@ -926,6 +984,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const issued = await issueFarmerLink(database(), {
         authorizationId:
@@ -968,6 +1027,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       await approveFarm(database(), {
         farmId,
@@ -1006,6 +1066,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       await approveFarm(database(), {
         farmId,
@@ -1059,6 +1120,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
@@ -1087,6 +1149,7 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
@@ -1110,14 +1173,27 @@ describe("farmer authorization and standing links (integration)", () => {
         requestId: await onboardingRequest(contactHash),
         administratorId,
         occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
       });
       const authorizationId =
         authorized.status === "authorized" ? authorized.authorizationId : "";
 
+      // Live from the moment of authorization (F-094) — the setup message carries a link, so
+      // there is one to report. The false case still has to be proven, so it is reached by
+      // revoking rather than by assuming a farmer starts without one.
       const before = (await listFarmerAuthorizations(database())).find(
         (r) => r.authorizationId === authorizationId,
       );
-      expect(before?.hasLiveLink).toBe(false);
+      expect(before?.hasLiveLink).toBe(true);
+
+      await sql()`
+        update farmer_links set revoked_at = ${at(2).toISOString()}
+        where authorization_id = ${authorizationId} and revoked_at is null
+      `;
+      const revoked = (await listFarmerAuthorizations(database())).find(
+        (r) => r.authorizationId === authorizationId,
+      );
+      expect(revoked?.hasLiveLink).toBe(false);
 
       const issued = await issueFarmerLink(database(), {
         authorizationId,

@@ -87,6 +87,31 @@ export function nextPromptDueSlot(input: {
   return localTenAmToInstant(dueDate, input.timeZone);
 }
 
+/**
+ * The opt-out reminder, carried by the scheduled prompt and nothing else (F-096).
+ *
+ * **This is the one place a periodic footer is genuinely earned.** No rule requires opt-out
+ * language on every message — the obligations are the opt-in confirmation, the HELP response,
+ * and that STOP always works, none of which depend on advertising it here. What makes this
+ * different is that it is the only stream where Farm Friend speaks FIRST, on a cadence, for as
+ * long as the farmer stays enrolled. A farmer months into that must have seen the exit recently.
+ *
+ * Every reply-shaped message lost its footer in the same change: those answer something the
+ * farmer sent seconds earlier, where the boilerplate is noise on their own errand.
+ *
+ * **Deliberately NOT every-Nth-send.** That needs durable state tracking when each recipient
+ * last saw it, and max chose the simple version first (2026-08-08) — revisit only if farmers
+ * report the prompts read as boilerplate.
+ *
+ * **It costs one item of snapshot capacity, measured not assumed**: a prompt for a typical
+ * stand fits 9 items inside `MAX_SCHEDULED_PROMPT_SEGMENTS` with this footer and 10 without.
+ * Past that ceiling `scheduledPromptFitsSms` withdraws the `SAME` offer and the farmer gets the
+ * fallback, so the cost of this line is that a 10-item stand now retypes instead of replying
+ * with one word. Real stands run well under that (F-046 measured 22-57 characters per entry
+ * against the live corpus), which is why it is acceptable rather than free.
+ */
+const SCHEDULED_PROMPT_OPT_OUT = "Reply STOP to opt out.";
+
 /** Code-render the exact visible snapshot; SAME is absent unless the caller proved it fits. */
 export function renderScheduledInventoryPrompt(input: {
   locationName: string;
@@ -102,7 +127,8 @@ export function renderScheduledInventoryPrompt(input: {
       // being taken off, so there is no loss to name.
       removedItemNames: [],
     }),
-    "Reply SAME if this complete listing is still right, or text what changed.",
+    "Reply SAME if that is still right, or text us what changed.",
+    SCHEDULED_PROMPT_OPT_OUT,
   ].join("\n\n");
 }
 
@@ -110,5 +136,8 @@ export function renderScheduledInventoryPrompt(input: {
 export function renderScheduledInventoryUpdateRequest(input: {
   locationName: string;
 }): string {
-  return `${input.locationName}: no complete current listing can be shown here. Please text what is available now.`;
+  return (
+    `${input.locationName}: no complete current listing can be shown here. ` +
+    `Please text what is available now.\n\n${SCHEDULED_PROMPT_OPT_OUT}`
+  );
 }

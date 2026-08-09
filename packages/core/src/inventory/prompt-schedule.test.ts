@@ -58,6 +58,33 @@ describe("scheduled inventory prompt cadence", () => {
     expect(body).not.toContain("one");
   });
 
+  it("carries the opt-out reminder, being the one recurring proactive stream (F-096)", () => {
+    // Where a periodic footer is actually earned. Farm Friend speaks first here, on a cadence,
+    // for as long as the farmer stays enrolled — so a farmer months in must have seen the exit
+    // recently. Every other footer was dropped: the reply-shaped messages answer something the
+    // farmer just sent, where it reads as boilerplate.
+    for (const body of [
+      renderScheduledInventoryPrompt({
+        locationName: "North Stand",
+        entries: [{ entryId: "one", itemName: "Eggs", quantity: 6, unit: "dozen" }],
+      }),
+      renderScheduledInventoryUpdateRequest({ locationName: "Empty Stand" }),
+    ]) {
+      expect(body).toContain("STOP");
+    }
+  });
+
+  it("keeps the opt-out reminder off the line offering SAME", () => {
+    // The farmer's one-word reply and the compliance footer must not read as one instruction.
+    const body = renderScheduledInventoryPrompt({
+      locationName: "North Stand",
+      entries: [{ entryId: "one", itemName: "Eggs", quantity: 6, unit: "dozen" }],
+    });
+    const sameLine = body.split("\n").find((line) => line.includes("SAME"));
+    expect(sameLine).toBeDefined();
+    expect(sameLine).not.toContain("STOP");
+  });
+
   it("asks for an ordinary update without exposing a caller-controlled SAME switch", () => {
     const body = renderScheduledInventoryUpdateRequest({
       locationName: "Empty Stand",

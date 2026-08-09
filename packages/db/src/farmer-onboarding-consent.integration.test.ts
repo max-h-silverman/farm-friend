@@ -138,6 +138,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         requestId: openRequestId,
         administratorId,
         occurredAt: at(10),
+        publicBaseUrl: "https://farmfriend.test",
       });
       if (authorized.status !== "authorized") throw new Error(authorized.status);
     }
@@ -242,6 +243,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         contactHash: await contact("c1"),
         occurredAt: at(2),
         invitationToken: token,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const agreed = await recordFarmerInvitationSmsAgreement(database(), {
@@ -274,6 +276,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
       if (opened.status !== "opened") return;
@@ -307,6 +310,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
 
@@ -347,6 +351,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const approvals = await sql()`
@@ -375,6 +380,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       expect(opened.status).toBe("opened");
@@ -396,6 +402,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const approvals = await sql()`
@@ -438,6 +445,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const authorizations = await sql()`
@@ -462,6 +470,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         contactHash,
         occurredAt: at(2),
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const authorizations = await sql()`
@@ -489,6 +498,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
       if (opened.status !== "opened") return;
@@ -508,6 +518,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         contactHash,
         occurredAt: at(2),
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
       if (opened.status !== "opened") return;
@@ -540,6 +551,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
       if (opened.status !== "opened") return;
@@ -580,6 +592,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
       if (opened.status !== "opened") return;
@@ -602,6 +615,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const redeemed = await sql()`
@@ -633,12 +647,14 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       const second = await openFarmerOnboardingRequest(database(), {
         contactHash,
         occurredAt: at(3),
         invitationToken: token,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(second.status).toBe("invalid_invitation");
 
@@ -690,6 +706,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       expect(opened.status).toBe("opened");
@@ -786,6 +803,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       expect(opened.status).toBe("opened");
@@ -819,6 +837,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: other,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("invalid_invitation");
 
@@ -849,6 +868,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(first.status).toBe("opened");
 
@@ -857,6 +877,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(3),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(second.status).toBe("invalid_invitation");
 
@@ -884,6 +905,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       expect(opened.status).toBe("opened");
@@ -904,6 +926,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         invitationToken: token,
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("invalid_invitation");
     });
@@ -1020,6 +1043,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
 
@@ -1048,6 +1072,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       expect(opened.status).toBe("opened");
       if (opened.status !== "opened") return;
@@ -1098,12 +1123,14 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       await openFarmerOnboardingRequest(database(), {
         contactHash: senderHash,
         occurredAt: at(3),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       const revisions = await sql()`
@@ -1133,6 +1160,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
 
       expect(opened.status).toBe("opened");
@@ -1160,6 +1188,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         occurredAt: at(2),
         pendingPhoneHash: senderHash,
         providerEventId: `evt-${randomUUID()}`,
+        publicBaseUrl: "https://farmfriend.test",
       });
       if (opened.status !== "opened") throw new Error(opened.status);
 

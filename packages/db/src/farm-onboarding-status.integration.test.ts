@@ -172,6 +172,7 @@ describe("farms awaiting onboarding (integration)", () => {
       contactHash: phoneHash,
       invitationToken: created.token,
       occurredAt: later(1_000),
+      publicBaseUrl: "https://farmfriend.test",
     });
     if (opened.status !== "opened") throw new Error("expected an open request");
     const authorized = await authorizeFarmer(database(), {
@@ -179,6 +180,7 @@ describe("farms awaiting onboarding (integration)", () => {
       requestId: opened.requestId,
       administratorId,
       occurredAt: later(2_000),
+      publicBaseUrl: "https://farmfriend.test",
     });
     expect(authorized.status).toBe("authorized");
 

@@ -2,7 +2,9 @@ import {
   parseCommand,
   consentTransitionFor,
   ALREADY_JOINED_RESPONSE,
-  renderCustomerWelcome,
+  FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+  renderContactCardOffer,
+  CUSTOMER_WELCOME,
   REGISTERED_HELP_AUTO_RESPONSE,
   REGISTERED_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
@@ -452,6 +454,7 @@ async function routeCompliance(
           occurredAt: input.occurredAt,
           pendingPhoneHash: input.senderHash,
           providerEventId: input.providerEventId,
+          publicBaseUrl: deps.publicBaseUrl,
         })
       : { status: "invalid_invitation" as const };
 
@@ -468,8 +471,20 @@ async function routeCompliance(
     The customer welcome points at the public map — the right thing for a stranger who just
     opted in, and the wrong thing for a farmer who just finished onboarding, whose next step is
     their own stand. So a completed redemption replaces it rather than adding to it.
+
+    THREE cases, not two (B-043). A redemption that opened a request but authorized NOBODY —
+    an invitation whose SMS agreement was never ticked, or one naming no farm — used to fall
+    through to the customer welcome, or to nothing at all. That farmer did exactly what the
+    onboarding form told them to do and received only the carrier opt-in receipt: a compliance
+    notice saying nothing about their farm, with no acknowledgement and no sign anyone would
+    act. A farmer who tries once and hears nothing does not try again.
+
+    They are waiting on a coordinator, which is CORRECT — a missing tick means no informed
+    opt-in, and authorizing on it would set someone up for messages they never agreed to. The
+    defect was never telling them so.
   */
   const onboarded = redeemed.status === "opened" && redeemed.authorizationId !== null;
+  const awaitingCoordinator = redeemed.status === "opened" && redeemed.authorizationId === null;
   const welcomeReply = onboarded
     ? invitedJoinReplyBodies({
         consentEstablished: redeemed.status === "opened" && redeemed.consentEstablished,
@@ -480,11 +495,44 @@ async function routeCompliance(
         category: "required_reply" as const,
         logicalKey: `farmer-onboarded-${index}-${input.providerEventId}`,
       }))
-    : (keyword === "JOIN" || keyword === "START") && applied.applied
+    : awaitingCoordinator
       ? [{
-          body: renderCustomerWelcome(deps.publicBaseUrl),
+          // The one honest thing to say: VIGA has the request and will be in touch. It claims
+          // no outcome, which is exactly why this copy already exists — a request grants
+          // nothing. `FARMER_JOIN_INSTRUCTION` is deliberately NOT used here: it says "to get
+          // texts about your farm, reply START" to a sender who just texted START.
+          body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+          category: "required_reply" as const,
+          logicalKey: `farmer-awaiting-${input.providerEventId}`,
+        }]
+      : (keyword === "JOIN" || keyword === "START") && applied.applied
+        ? [{
+            body: CUSTOMER_WELCOME,
+            category: "inquiry_reply" as const,
+            logicalKey: `customer-welcome-${input.providerEventId}`,
+          }]
+        : [];
+
+  /*
+    THE CONTACT CARD, as its own message (max 2026-08-08).
+
+    It used to be a trailing fragment on the customer welcome — "Save us:" and a raw API path,
+    after the opt-out instruction — where it read as plumbing rather than an offer.
+
+    Sent to EVERYONE this message establishes or restores messaging for, farmer and customer
+    alike. The farmer needs it more, if anything: the scheduled prompts and stock-out alerts
+    they will get for months all arrive from an unnamed number otherwise.
+
+    An `inquiry_reply`, riding on the sender's own inbound JOIN/START — it creates no consent
+    and asks for nothing, and saving a contact is device-local. STOP still suppresses it, which
+    is correct: someone opting out has no use for our number.
+  */
+  const contactCardReply =
+    (keyword === "JOIN" || keyword === "START") && applied.applied
+      ? [{
+          body: renderContactCardOffer(deps.publicBaseUrl),
           category: "inquiry_reply" as const,
-          logicalKey: `customer-welcome-${input.providerEventId}`,
+          logicalKey: `contact-card-${input.providerEventId}`,
         }]
       : [];
 
@@ -505,8 +553,9 @@ async function routeCompliance(
             logicalKey: `consent-${input.providerEventId}`,
           },
           ...welcomeReply,
+          ...contactCardReply,
         ]
-      : welcomeReply,
+      : [...welcomeReply, ...contactCardReply],
   };
 }
 

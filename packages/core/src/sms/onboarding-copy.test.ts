@@ -2,10 +2,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  renderCustomerWelcome,
-  FARMER_AUTHORIZED_NOTIFICATION,
+  CUSTOMER_WELCOME,
+  renderContactCardOffer,
+  renderFarmerAuthorizedNotification,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_JOIN_INSTRUCTION,
+  FARMER_TAUGHT_KEYWORDS,
   renderFarmerLinkMessage,
 } from "./onboarding-copy";
 
@@ -24,7 +26,7 @@ const registeredFieldValues = resolve(
 
 describe("farmer onboarding copy", () => {
   it("gives a newly joined customer a usable introduction without exposing farmer controls", () => {
-    const welcome = renderCustomerWelcome("https://farmfriend.example");
+    const welcome = CUSTOMER_WELCOME;
     expect(welcome.toLowerCase()).toContain("ask what is available");
     for (const keyword of ["MAP", "HELP", "STOP"]) {
       expect(welcome).toContain(keyword);
@@ -34,25 +36,38 @@ describe("farmer onboarding copy", () => {
     }
   });
 
-  it("offers the contact card, which no SMS path used to mention at all", () => {
+  it("offers the contact card as its OWN message, saying what the link does", () => {
     // F-039 built `/api/public/contact-card` and wired it ONLY to a link on the public web
     // map. A customer who arrived by text — the whole point of an SMS product — was never
     // told the card existed, so the number stayed unnamed in their phone and every later
     // message came from a stranger. Data present with no consumer is invisible.
-    const welcome = renderCustomerWelcome("https://farmfriend.example");
-    expect(welcome).toContain("https://farmfriend.example/api/public/contact-card");
+    //
+    // max 2026-08-08: it was not clear WHAT the link was. It used to be "Save us:" plus a raw
+    // API path, trailing the welcome after the opt-out instruction. Now it is a message.
+    const offer = renderContactCardOffer("https://farmfriend.example");
+    const [instruction, url, ...rest] = offer.split("\n");
+    expect(instruction?.toLowerCase()).toContain("save");
+    expect(instruction?.toLowerCase()).toContain("contacts");
+    expect(url).toBe("https://farmfriend.example/api/public/contact-card");
+    expect(rest).toEqual([]);
+    // Saving a contact asks for nothing and records nothing, so it carries no footer.
+    expect(offer).not.toContain("STOP");
   });
 
-  it("stays within TWO SMS segments at the real production address", () => {
-    // max chose two segments (2026-08-07) rather than cutting the wording: the card link is 71
-    // characters against production's `https://farm-friend-web-…a.run.app` host, so one segment
-    // was never reachable without gutting the copy or moving the card to a short address.
+  it("keeps the contact card OUT of the welcome, which had no room to explain it", () => {
+    const welcome = CUSTOMER_WELCOME;
+    expect(welcome).not.toContain("contact-card");
+  });
+
+  it("fits ONE segment again, now that the card link has moved out", () => {
+    // It was two segments while it carried the contact-card URL (71 characters at the
+    // production host), which max accepted on 2026-08-07. Moving the card to its own message
+    // gave that budget back, so the bound tightens rather than being left where it was.
     //
-    // The ceiling is still asserted, because the failure this guards against is a THIRD segment
-    // creeping in unnoticed. Concatenated GSM-7 is 153 characters per segment, not 160 — the
-    // header costs 7 — and using 160 here would let a 2.1-segment body read as passing.
-    const welcome = renderCustomerWelcome("https://farm-friend-web-p5mfxfp5za-uw.a.run.app");
-    expect(welcome.length).toBeLessThanOrEqual(153 * 2);
+    // Concatenated GSM-7 is 153 characters per segment, not 160 — the header costs 7. The real
+    // segment arithmetic lives in `packages/sms`, which measures encoding too; this is the
+    // cheap bound core can assert without a workspace dependency.
+    expect(CUSTOMER_WELCOME.length).toBeLessThanOrEqual(153);
   });
 
   it("acknowledges a request without promising authorization", () => {
@@ -72,13 +87,93 @@ describe("farmer onboarding copy", () => {
   it("tells an authorized farmer they can update by text or open their private web form", () => {
     // The reason this message exists: a farmer approved on Tuesday otherwise has no idea
     // until they guess.
-    const body = FARMER_AUTHORIZED_NOTIFICATION;
+    const body = renderFarmerAuthorizedNotification(
+      "https://farmfriend.example/stand/" + "c".repeat(64),
+    );
     expect(body).toContain("VIGA");
-    expect(body).toContain("STOP");
     // It must actually tell them what to do next — an announcement with no instruction
     // leaves the farmer exactly where they were.
     expect(body).toContain("LINK");
     expect(body.length).toBeGreaterThan(40);
+  });
+
+  it("SENDS the farmer their link rather than only naming the word that fetches it", () => {
+    // F-094. The message used to say "text LINK for your private web form" and send no link,
+    // so a farmer told they were live had to send a SECOND text before they could see
+    // anything. Some fraction never send it.
+    const link = "https://farmfriend.example/stand/" + "d".repeat(64);
+    expect(renderFarmerAuthorizedNotification(link)).toContain(link);
+  });
+
+  it("still names LINK, because a farmer will lose the text that carried the link", () => {
+    // max 2026-08-08: deliver AND teach the recovery word. `issueFarmerLink` already revokes
+    // the previous link and mints a new one, so the mechanism exists — what was missing is
+    // the farmer knowing the word.
+    const body = renderFarmerAuthorizedNotification(
+      "https://farmfriend.example/stand/" + "e".repeat(64),
+    );
+    expect(body).toContain("LINK");
+  });
+
+  it("falls back to naming LINK when the farmer has no stand to link to", () => {
+    // The admin authorization path can run before a `sales_locations` row exists, and
+    // `issueFarmerLinkIn` cannot mint a link without one. (The invited path always has a
+    // stand — that farmer published the listing on the form.) The farmer is still told they
+    // are live and still told how to reach their form.
+    const body = renderFarmerAuthorizedNotification(null);
+    expect(body).toContain("LINK");
+    // It must still say they are set up — and must NOT claim they are on the map, which is
+    // false for a farmer whose farm has no stand yet.
+    expect(body.toLowerCase()).toContain("all set");
+    expect(body.toLowerCase()).not.toContain("on the map");
+    // No invented URL, and no dangling label for a link that is not there.
+    expect(body).not.toContain("http");
+    expect(body).not.toContain(":\n");
+  });
+
+  it("teaches every farmer keyword whether or not a link was minted", () => {
+    // The keywords are the point of the message; a farmer without a stand needs them MORE,
+    // not less. A branch that quietly drops them is the omission F-093 exists to close.
+    for (const link of [null, "https://farmfriend.example/stand/" + "9".repeat(64)]) {
+      const body = renderFarmerAuthorizedNotification(link);
+      for (const keyword of FARMER_TAUGHT_KEYWORDS) {
+        expect(body).toContain(keyword);
+      }
+      expect(body).not.toContain("STOP");
+    }
+  });
+
+  it("teaches the farmer keywords it is the only channel for", () => {
+    // F-093. STAND and SETTINGS appeared in NO farmer-facing SMS copy at all, and the farmer
+    // finished onboarding knowing exactly one word: START. After that the interface was
+    // undiscoverable except by texting prose and hoping.
+    const body = renderFarmerAuthorizedNotification(
+      "https://farmfriend.example/stand/" + "f".repeat(64),
+    );
+    for (const keyword of FARMER_TAUGHT_KEYWORDS) {
+      expect(body).toContain(keyword);
+    }
+  });
+
+  it("names the primary interface, which is not a keyword at all", () => {
+    // "Text what you have" is the whole point. A farmer who learns three keywords and not
+    // this one has learned the accessories and missed the product.
+    const body = renderFarmerAuthorizedNotification(
+      "https://farmfriend.example/stand/" + "0".repeat(64),
+    ).toLowerCase();
+    expect(body).toContain("text");
+    expect(body).toMatch(/what (you have|is|you'?re selling|is on)/);
+  });
+
+  it("drops the STOP footer from the setup message, which is not where it is owed", () => {
+    // F-096. Nothing requires opt-out language on every message: the requirement is the
+    // opt-in confirmation, the HELP response, and that STOP always works — all enforced
+    // elsewhere. This message competes for a segment budget that now carries a real link,
+    // and the farmer saw the footer on the carrier receipt that arrives beside it.
+    const body = renderFarmerAuthorizedNotification(
+      "https://farmfriend.example/stand/" + "1".repeat(64),
+    );
+    expect(body).not.toContain("STOP");
   });
 
   it("tells a farmer with no consent basis the one word that establishes it", () => {
@@ -103,7 +198,27 @@ describe("farmer onboarding copy", () => {
     const link = "https://farmfriend.example/stand/" + "a".repeat(64);
     const body = renderFarmerLinkMessage(link);
     expect(body).toContain(link);
-    expect(body).toContain("STOP");
+  });
+
+  it("puts the link on its own line in every message that carries one", () => {
+    // F-096. A URL run together with prose and a footer is the least readable thing we send,
+    // and it is the thing the farmer most needs to tap. `paging.ts` already established the
+    // convention — one idea per line — for customer ANSWERS; transactional copy ignored it.
+    const link = "https://farmfriend.example/stand/" + "2".repeat(64);
+    for (const body of [
+      renderFarmerLinkMessage(link),
+      renderFarmerAuthorizedNotification(link),
+    ]) {
+      const lineWithLink = body.split("\n").find((line) => line.includes(link));
+      expect(lineWithLink?.trim()).toBe(link);
+    }
+  });
+
+  it("drops the STOP footer from the LINK reply, which answers the farmer's own text", () => {
+    // F-096 — reply-shaped messages lose the footer. The farmer sent LINK seconds ago; the
+    // compliance boilerplate is noise on a message they triggered themselves.
+    const link = "https://farmfriend.example/stand/" + "3".repeat(64);
+    expect(renderFarmerLinkMessage(link)).not.toContain("STOP");
   });
 
   it("never claims a link expires, because it does not", () => {
@@ -123,7 +238,7 @@ describe("farmer onboarding copy", () => {
     const registered = readFileSync(registeredFieldValues, "utf8");
     for (const body of [
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-      FARMER_AUTHORIZED_NOTIFICATION,
+      renderFarmerAuthorizedNotification("https://farmfriend.example/stand/" + "4".repeat(64)),
       FARMER_JOIN_INSTRUCTION,
     ]) {
       expect(registered).not.toContain(body);

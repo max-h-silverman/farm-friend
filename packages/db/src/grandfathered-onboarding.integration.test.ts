@@ -83,6 +83,7 @@ describe("grandfathered farm claims (integration)", () => {
       contactHash,
       occurredAt: later(2000),
       invitationToken: invitation.token,
+      publicBaseUrl: "https://farmfriend.test",
     });
     if (opened.status !== "opened") throw new Error(opened.status);
     if (opened.authorizationId === null) {

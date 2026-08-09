@@ -131,12 +131,14 @@ describe("public-string safety at the shared publication boundary (integration)"
     const opened = await openFarmerOnboardingRequest(database(), {
       contactHash: senderHash,
       occurredAt: at(0),
+      publicBaseUrl: "https://farmfriend.test",
     });
     const authorized = await authorizeFarmer(database(), {
       farmId,
       requestId: opened.status === "opened" ? opened.requestId : "",
       administratorId,
       occurredAt: at(1),
+      publicBaseUrl: "https://farmfriend.test",
     });
     expect(authorized.status).toBe("authorized");
     const authorizationId =

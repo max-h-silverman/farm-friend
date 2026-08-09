@@ -123,6 +123,7 @@ export async function POST(req: Request): Promise<Response> {
       requestId,
       administratorId: caller.administratorId,
       occurredAt,
+      publicBaseUrl: resolvePublicBaseUrl(process.env),
     });
     return Response.json({ status: result.status }, { status: statusFor(result.status) });
   }

@@ -1,5 +1,6 @@
 import {
-  FARMER_AUTHORIZED_NOTIFICATION,
+  renderFarmerAuthorizedNotification,
+  renderFarmerLinkMessage,
   farmerLinkUrl,
   hashFarmerLinkToken,
   hashFarmerInviteToken,
@@ -479,6 +480,66 @@ export interface AuthorizeFarmerInput {
   requestId: string;
   administratorId: string;
   occurredAt: Date;
+  /** Base for the private link the setup message carries (F-094). */
+  publicBaseUrl: string;
+}
+
+/**
+ * Queue the "your farm is ready" message, carrying the farmer's link when one can exist.
+ *
+ * **One helper because there are two authorization doors** — the administrator's and the
+ * invited redemption's — and F-094 gave both the same new job: mint a link, render it into the
+ * message, fall back to naming `LINK` when there is no stand to link to. Two copies of that
+ * would drift the first time either changed, which is exactly what happened to the link message
+ * itself before this change consolidated it.
+ *
+ * **The link is minted in the SAME transaction as the authorization it belongs to.** A link
+ * written but never sent is a credential the farmer cannot use and cannot re-request without
+ * revoking it; a message sent naming a link that was rolled back is worse.
+ *
+ * **The category stays `inventory_prompt` — proactive.** `authorizeDispatch` re-reads consent at
+ * the claim and suppresses this for a farmer who never texted JOIN/START. Authorization is not
+ * consent, and carrying a link does not make it a reply. Nothing here may shortcut that.
+ */
+async function queueFarmerAuthorizedNotification(
+  tx: Tx,
+  input: {
+    farmId: string;
+    authorizationId: string;
+    contactHash: string;
+    occurredAt: Date;
+    publicBaseUrl: string;
+  },
+): Promise<void> {
+  // The farm's stand, resolved exactly as the invited redemption and the default prompt
+  // schedule both resolve it, so the link lands on the stand the farmer described.
+  const locations = await tx`
+    select id from sales_locations
+    where owner_farm_id = ${input.farmId} and retired_at is null
+    order by created_at asc
+    limit 1
+  `;
+  const salesLocationId = locations[0]?.id as string | undefined;
+  // No stand yet: the administrator door can run before one exists. The farmer is still told
+  // they are live, and still told the word that fetches a link once there is something to link.
+  const issued =
+    salesLocationId === undefined
+      ? null
+      : await issueFarmerLinkIn(tx, {
+          authorizationId: input.authorizationId,
+          salesLocationId,
+          occurredAt: input.occurredAt,
+        });
+
+  await queueOutbox(tx, {
+    logicalKey: `farmer-authorized-${input.authorizationId}`,
+    recipientHash: input.contactHash,
+    messageCategory: "inventory_prompt",
+    body: renderFarmerAuthorizedNotification(
+      issued === null ? null : farmerLinkUrl(input.publicBaseUrl, issued.token),
+    ),
+    now: input.occurredAt,
+  });
 }
 
 export type AuthorizeFarmerResult =
@@ -604,12 +665,12 @@ export async function authorizeFarmer(
     // unconditional; sending is not. Nothing here may shortcut that — a `required_reply`
     // category would deliver it to someone who never opted in, which is precisely the
     // bypass the design forbids.
-    await queueOutbox(tx, {
-      logicalKey: `farmer-authorized-${authorizationId}`,
-      recipientHash: contactHash,
-      messageCategory: "inventory_prompt",
-      body: FARMER_AUTHORIZED_NOTIFICATION,
-      now: input.occurredAt,
+    await queueFarmerAuthorizedNotification(tx, {
+      farmId: input.farmId,
+      authorizationId,
+      contactHash,
+      occurredAt: input.occurredAt,
+      publicBaseUrl: input.publicBaseUrl,
     });
 
     return { status: "authorized" as const, authorizationId };
@@ -754,6 +815,12 @@ export async function openFarmerOnboardingRequest(
     pendingPhoneHash?: string;
     /** The inbound event this request came from, recorded as the consent evidence. */
     providerEventId?: string;
+    /**
+     * Base for the private link the setup message carries when this redemption authorizes the
+     * farmer (F-094). Required rather than optional: a caller that forgot it would silently
+     * send a setup message naming no link, which is the exact dead end F-094 closed.
+     */
+    publicBaseUrl: string;
   },
 ): Promise<OpenOnboardingRequestResult> {
   const invitationToken = input.invitationToken;
@@ -895,6 +962,7 @@ export async function openFarmerOnboardingRequest(
               requestId,
               invitedByAdministratorId,
               occurredAt: input.occurredAt,
+              publicBaseUrl: input.publicBaseUrl,
             });
 
       // F-090 — today's stock, stated on the form and held until this moment.
@@ -969,6 +1037,8 @@ async function authorizeInvitedFarmerIn(
     /** The administrator who minted the invitation — the approval's honest actor. */
     invitedByAdministratorId: string;
     occurredAt: Date;
+    /** Base for the private link the setup message carries (F-094). */
+    publicBaseUrl: string;
   },
 ): Promise<string | null> {
   const contacts = await tx`
@@ -1050,16 +1120,15 @@ async function authorizeInvitedFarmerIn(
     occurredAt: input.occurredAt,
   });
 
-  // The same notification VIGA's click used to queue. Still an `inventory_prompt` — a
-  // proactive category — so `authorizeDispatch` re-reads consent at the claim and suppresses
-  // it for anyone who never opted in. Authorization is not consent, and this path must not
-  // become the exception that pretends otherwise.
-  await queueOutbox(tx, {
-    logicalKey: `farmer-authorized-${authorizationId}`,
-    recipientHash: input.contactHash,
-    messageCategory: "inventory_prompt",
-    body: FARMER_AUTHORIZED_NOTIFICATION,
-    now: input.occurredAt,
+  // The same notification VIGA's click used to queue, through the same helper — including the
+  // private link, which this path can almost always mint: an invited farmer published their
+  // listing on the form, so their stand exists by the time they text START.
+  await queueFarmerAuthorizedNotification(tx, {
+    farmId: input.farmId,
+    authorizationId,
+    contactHash: input.contactHash,
+    occurredAt: input.occurredAt,
+    publicBaseUrl: input.publicBaseUrl,
   });
 
   return authorizationId;
@@ -1720,9 +1789,10 @@ export async function requestFarmerStandLink(
       logicalKey: `farmer-web-link-${issued.linkId}`,
       recipientHash: input.contactHash,
       messageCategory: "inventory_prompt",
-      body:
-        `VIGA Farm Friend: Your private update link - keep it to yourself. ` +
-        `${farmerLinkUrl(input.publicBaseUrl, issued.token)} Reply STOP to opt out.`,
+      // The SAME renderer the SMS `LINK` reply uses (F-096). It was a second hand-formatted
+      // copy of the identical message, so the two drifted the moment either was edited — the
+      // link's own line and the dropped opt-out footer landed on one of them and not the other.
+      body: renderFarmerLinkMessage(farmerLinkUrl(input.publicBaseUrl, issued.token)),
       now: input.occurredAt,
     });
 

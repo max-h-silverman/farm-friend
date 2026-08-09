@@ -87,6 +87,7 @@ describe("administrator farmer invitations (integration)", () => {
       contactHash: phoneHash,
       invitationToken: created.token,
       occurredAt: new Date(now.getTime() + 1_000),
+      publicBaseUrl: "https://farmfriend.test",
     });
     expect(opened.status).toBe("opened");
 
@@ -185,6 +186,7 @@ describe("administrator farmer invitations (integration)", () => {
       contactHash: phoneHash,
       invitationToken: created.token,
       occurredAt: new Date(now.getTime() + 11_000),
+      publicBaseUrl: "https://farmfriend.test",
     });
     if (opened.status !== "opened") throw new Error("request fixture was not opened");
 
@@ -193,6 +195,7 @@ describe("administrator farmer invitations (integration)", () => {
       requestId: opened.requestId,
       administratorId,
       occurredAt: new Date(now.getTime() + 12_000),
+      publicBaseUrl: "https://farmfriend.test",
     })).toEqual({ status: "farm_mismatch" });
   });
 
@@ -223,6 +226,7 @@ describe("administrator farmer invitations (integration)", () => {
       contactHash: phoneHash,
       invitationToken: created.token,
       occurredAt: new Date(now.getTime() + 22_000),
+      publicBaseUrl: "https://farmfriend.test",
     });
     expect(opened.status).toBe("opened");
 

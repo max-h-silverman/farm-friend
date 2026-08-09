@@ -11,7 +11,8 @@ import {
   createInventoryInterpreter,
 } from "@farm-friend/ai";
 import {
-  FARMER_AUTHORIZED_NOTIFICATION,
+  renderContactCardOffer,
+  renderFarmerAuthorizedNotification,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FixedClock,
   hashPhone,
@@ -689,13 +690,35 @@ describe("inbound routing end to end (integration)", () => {
       // Ordered by `logical_key`, which is an ordering over KEYS and not a claim about send
       // order — the carrier receipt (`consent-…`) sorts before the authorization notification
       // (`farmer-authorized-…`). Both are present, which is the property.
-      expect(work).toEqual([
-        { message_category: "required_reply", body: REGISTERED_OPT_IN_AUTO_RESPONSE },
-        {
-          message_category: "inventory_prompt",
-          body: FARMER_AUTHORIZED_NOTIFICATION,
-        },
+      // Ordered by `logical_key`: `consent-…` then `contact-card-…` then `farmer-authorized-…`.
+      expect(work.map((row) => row.message_category)).toEqual([
+        "required_reply",
+        "inquiry_reply",
+        "inventory_prompt",
       ]);
+      expect(work[0]?.body).toBe(REGISTERED_OPT_IN_AUTO_RESPONSE);
+
+      // The contact card, its own message since max asked for it 2026-08-08 — the number is
+      // otherwise unnamed in the handset for every prompt and alert that follows.
+      expect(work[1]?.body).toBe(renderContactCardOffer("https://ff.example"));
+
+      /*
+        F-094 — the setup message. This fixture's invitation names a farm with NO stand: it
+        mints the invitation directly and never runs `saveOnboardingListing`, so there is no
+        `sales_locations` row and no link can be issued. The fallback is therefore what a
+        farmer on THIS path receives, and it is asserted as such rather than papered over.
+
+        The link-carrying branch is proven where a stand actually exists —
+        `farmer-authorization.integration.test.ts`, against `farmWithStand`.
+      */
+      const setupBody = work[2]?.body as string;
+      expect(setupBody).toBe(renderFarmerAuthorizedNotification(null));
+      // Whichever branch it took, the farmer is taught the keywords (F-093) and gets no
+      // footer competing with them (F-096).
+      for (const keyword of ["LINK", "STAND", "SETTINGS"]) {
+        expect(setupBody).toContain(keyword);
+      }
+      expect(setupBody).not.toContain("STOP");
       expect(work.map((row) => row.body)).not.toContain(
         FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       );
@@ -728,7 +751,28 @@ describe("inbound routing end to end (integration)", () => {
         select body from outbox_work where recipient_hash = ${farmerHash}
         order by logical_key
       `;
-      expect(bodies.map((row) => row.body)).not.toContain(FARMER_AUTHORIZED_NOTIFICATION);
+      const texts = bodies.map((row) => row.body as string);
+      // No setup message — it would be a lie — and no link, since nothing was set up.
+      // Compared against the renderer's own output rather than a quoted phrase, so rewording
+      // the copy cannot quietly turn this into an assertion about a string nobody sends.
+      expect(texts).not.toContain(renderFarmerAuthorizedNotification(null));
+      expect(texts.some((body) => body.includes("/stand/"))).toBe(false);
+
+      /*
+        B-043 — and this is the half that was missing.
+
+        The farmer did exactly what the onboarding form told them to do. Before this they got
+        ONLY the carrier opt-in receipt — a compliance notice that says nothing about their
+        farm — and no acknowledgement, no explanation, and no sign anyone would act. A farmer
+        who tries once and hears nothing does not try again.
+
+        The old test asserted only the ABSENCE of the authorization notification, so the
+        silence it left behind was invisible to it.
+      */
+      expect(texts).toContain(FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT);
+      // And not the customer welcome: pointing a farmer mid-onboarding at the public map is
+      // the same wrong turn the code comment already forbids for an onboarded farmer.
+      expect(texts.some((body) => body.includes("Ask what is available"))).toBe(false);
       expect(provider.calls).toBe(0);
     });
 
@@ -807,8 +851,9 @@ describe("inbound routing end to end (integration)", () => {
       `;
       expect(events[0]?.count).toBe(1);
 
-      // The one accepted JOIN intentionally creates a carrier receipt and a product welcome.
-      // A retry must create neither a second receipt nor a second welcome.
+      // The one accepted JOIN intentionally creates a carrier receipt, a product welcome, and
+      // the contact-card offer. A retry must create no second copy of ANY of them — each
+      // logical key is derived from the provider event, which is what makes the retry a no-op.
       const work = await client()`
         select logical_key, message_category from outbox_work
         where recipient_hash = ${customerHash}
@@ -816,6 +861,7 @@ describe("inbound routing end to end (integration)", () => {
       `;
       expect(work).toEqual([
         { logical_key: `consent-${providerEventId}`, message_category: "required_reply" },
+        { logical_key: `contact-card-${providerEventId}`, message_category: "inquiry_reply" },
         { logical_key: `customer-welcome-${providerEventId}`, message_category: "inquiry_reply" },
       ]);
     });
@@ -987,6 +1033,7 @@ describe("inbound routing end to end (integration)", () => {
       `;
       expect(work).toEqual([
         { logical_key: `consent-${providerEventId}`, message_category: "required_reply" },
+        { logical_key: `contact-card-${providerEventId}`, message_category: "inquiry_reply" },
         { logical_key: `customer-welcome-${providerEventId}`, message_category: "inquiry_reply" },
       ]);
     });

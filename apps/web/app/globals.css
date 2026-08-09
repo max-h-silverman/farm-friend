@@ -2115,32 +2115,81 @@ form.farmer-picker-next {
   cursor: pointer;
 }
 
-.farmer-listing-saved-next {
+/* THE REMINDER — the one thing still owed on a screen that otherwise reads as finished, so it
+   must not read as a footnote: a farmer who takes "saved" as the end of the errand never turns
+   on their texting.
+
+   NO BACKGROUND AND NO BORDER (max 2026-08-08). It used to paint `--green-soft` inside
+   `.farmer-listing-saved`, which is already `--green-soft` — an invisible fill whose only
+   visible effect was a left rule and an inset that read as a stray indent. The parent card is
+   the container; weight and space do the separating. */
+.farmer-listing-saved-reminder {
+  display: grid;
+  gap: 0.4rem;
   margin: 0;
-  font-weight: 600;
+}
+
+.farmer-listing-saved-reminder p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.45;
   color: var(--ink);
 }
 
-/* THE REMINDER, under "live on the map" (max 2026-08-08). Drawn as a called-out band rather than
-   as another paragraph: it is the one thing still owed on a screen that otherwise reads as
-   finished, and a farmer who takes "live" as the end of the errand never turns on their texting.
-   The left rule is what separates it from the summary below without making it an alarm — this is
-   good news with a tail, not a warning. */
-.farmer-listing-saved-reminder {
-  margin: 0;
-  padding: 0.7rem 0.85rem;
-  font-size: 1rem;
+/* The instruction carries the weight; the reason behind it does not compete. */
+.farmer-listing-saved-reminder p:first-child {
   font-weight: 600;
-  line-height: 1.45;
-  color: var(--ink);
-  background: var(--green-soft);
-  border-left: 3px solid var(--green);
-  border-radius: 6px;
+}
+
+.farmer-listing-saved-reminder p:last-child {
+  color: var(--ink-soft);
 }
 
 .farmer-listing-saved-reminder a {
   color: var(--green);
   font-weight: 700;
+}
+
+/* THE KEYWORD REFERENCE (F-093). A definition list because that is what it is — a word and
+   what it does. Same shape as the summary above it, so the screen reads as one card with
+   sections rather than as stacked panels. */
+.farmer-listing-saved-keywords {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--green);
+}
+
+.farmer-listing-saved-keywords > p {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.farmer-listing-saved-keywords dl {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0;
+}
+
+/* Each word sits with its own explanation, exactly as the summary pairs its label and value. */
+.farmer-listing-saved-keywords dl div {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.farmer-listing-saved-keywords dt {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.farmer-listing-saved-keywords dd {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
 }
 
 /* The phone confirmation (max 2026-08-07).

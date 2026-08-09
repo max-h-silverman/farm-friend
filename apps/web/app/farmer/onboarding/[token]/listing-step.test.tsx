@@ -582,6 +582,35 @@ describe("onboarding listing step", () => {
     expect(screen.getByRole("button", { name: /change/i })).toBeInTheDocument();
   });
 
+  it("teaches the farmer how to run their stand by text (F-093)", async () => {
+    // The gap: STAND and SETTINGS appeared in no farmer-facing copy anywhere, and LINK only as
+    // an aside in one SMS. A farmer finished onboarding knowing one word — START — and the
+    // rest of the interface was undiscoverable except by guessing.
+    const user = userEvent.setup();
+    stubFetch({ ok: true });
+    render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
+
+    await user.click(screen.getByLabelText(/I deliver, or coordinate/i));
+    await placeStand(user);
+    await submitListing(user);
+
+    const saved = await screen.findByRole("status");
+    // Each keyword is its own `<dt>`, so the assertion is made against that element rather
+    // than against the card's concatenated text — where `STAND` would also be satisfied by the
+    // "Stand" summary label, and a word boundary cannot help because adjacent elements' text
+    // runs together with no separator.
+    const terms = Array.from(
+      saved.querySelectorAll(".farmer-listing-saved-keywords dt"),
+      (node) => node.textContent?.trim(),
+    );
+    expect(terms).toEqual(
+      expect.arrayContaining(["LINK", "SETTINGS", "STAND"]) as unknown as string[],
+    );
+    // The primary interface is not a keyword at all, and a farmer who learns three words and
+    // not this one has learned the accessories and missed the product.
+    expect(saved).toHaveTextContent(/text what you have/i);
+  });
+
   it("names the next step rather than leaving the farmer to find it", async () => {
     // The SIGNUP card was always below the fold; the collapse merely scrolled it into view
     // unannounced. Saving must SAY that a text is next, so the hand-off is expected.
@@ -2332,19 +2361,24 @@ describe("onboarding listing step", () => {
         const dialog = await screen.findByRole("dialog");
         await user.click(within(dialog).getByRole("button", { name: /yes|confirm|correct/i }));
 
-        // The word and the number live in the REMINDER now (max 2026-08-08), directly under
-        // the headline rather than below the summary.
-        const saved = await screen.findByText(/text/i, {
-          selector: ".farmer-listing-saved-reminder",
-        });
-        expect(saved).toHaveTextContent(/START/);
+        // The word and the number live in the REMINDER, directly under the headline rather
+        // than below the summary — and since max 2026-08-08 that reminder is a BLOCK holding
+        // both the instruction and the reason it must be that handset, so the whole block is
+        // queried rather than a single paragraph inside it.
+        const saved = await screen.findByRole("status");
+        const reminder = saved.querySelector(".farmer-listing-saved-reminder");
+        expect(reminder).not.toBeNull();
+        // Scoped to the reminder, not the whole card: the keyword reference below it also
+        // contains the word "text", and asserting against the card would let the instruction
+        // disappear entirely while this still passed.
+        expect(reminder).toHaveTextContent(/START/);
         // Formatted for READING: `206-555-0000`, never the E.164 the `sms:` href carries.
-        expect(saved).toHaveTextContent(/206-555-0000/);
-        expect(saved.textContent ?? "").not.toContain("+1");
+        expect(reminder).toHaveTextContent(/206-555-0000/);
+        expect(reminder?.textContent ?? "").not.toContain("+1");
         // No 64-character token anywhere — that grammar is gone.
         expect(saved.textContent ?? "").not.toMatch(/[0-9a-f]{64}/i);
         // The tap-to-text link survives the move: on a phone this composes the message.
-        expect(saved.querySelector("a")?.getAttribute("href") ?? "").toContain("+12065550000");
+        expect(reminder?.querySelector("a")?.getAttribute("href") ?? "").toContain("+12065550000");
       });
 
       it("lands on a confirmation that leads with LIVE and carries the START reminder", async () => {
@@ -2372,11 +2406,17 @@ describe("onboarding listing step", () => {
 
         const banner = await screen.findByRole("status");
         expect(banner).toHaveTextContent(/live on the map/i);
-        // The errand, on the same screen — with the word and the number. The apostrophe is a
-        // typographic one on screen, so the matcher admits either rather than pinning the glyph.
-        expect(banner).toHaveTextContent(/don[’']t forget/i);
-        expect(banner).toHaveTextContent(/START/);
-        expect(banner).toHaveTextContent(/206-555-0000/);
+        // The errand, on the same screen — with the word and the number. Anchored to the
+        // reminder BLOCK and to "last step" rather than to a phrase: the exact wording is copy
+        // and has already changed once, but a screen that stops naming a remaining step is the
+        // regression this guards.
+        const reminder = banner.querySelector(".farmer-listing-saved-reminder");
+        expect(reminder).toHaveTextContent(/last step/i);
+        expect(reminder).toHaveTextContent(/START/);
+        expect(reminder).toHaveTextContent(/206-555-0000/);
+        // Both halves of the one errand live together now (max 2026-08-08) — the instruction
+        // and why it must be that handset — rather than split across the summary list.
+        expect(reminder).toHaveTextContent(/phone you want to use/i);
       });
 
       it("tells the farmer their number is not a phone, before any modal", async () => {

@@ -136,12 +136,14 @@ describe("the farmer web surface behind a standing link (integration)", () => {
     const opened = await openFarmerOnboardingRequest(database(), {
       contactHash,
       occurredAt: at(0),
+      publicBaseUrl: "https://farmfriend.test",
     });
     const authorized = await authorizeFarmer(database(), {
       farmId,
       requestId: opened.status === "opened" ? opened.requestId : "",
       administratorId,
       occurredAt: at(1),
+      publicBaseUrl: "https://farmfriend.test",
     });
     const authorizationId =
       authorized.status === "authorized" ? authorized.authorizationId : "";

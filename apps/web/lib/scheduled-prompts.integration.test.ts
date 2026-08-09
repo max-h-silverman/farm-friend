@@ -4,7 +4,11 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FixedClock, renderClarificationRequest } from "@farm-friend/core";
+import {
+  FixedClock,
+  renderClarificationRequest,
+  renderScheduledInventoryUpdateRequest,
+} from "@farm-friend/core";
 import {
   authorizeDispatch,
   createDb,
@@ -905,8 +909,20 @@ describe("scheduled inventory prompt pass (integration)", () => {
       where subject.proposal_id = ${fixture.proposalId}
     `).toEqual([{
       offers_same: false,
-      body: `Dispatch Stand ${fixtureNumber.toString().padStart(2, "0")}: no complete current listing can be shown here. Please text what is available now.`,
+      // Through the renderer, not a second copy of its wording: it carries the opt-out
+      // reminder since F-096, and a hand-written literal here would have to be edited in
+      // lockstep forever to keep saying the same thing.
+      body: renderScheduledInventoryUpdateRequest({
+        locationName: `Dispatch Stand ${fixtureNumber.toString().padStart(2, "0")}`,
+      }),
     }]);
+    // The renderer is the expectation above, so its OUTPUT is checked here — otherwise an
+    // empty or gutted body would match itself and the assertion would prove nothing.
+    const sentBody = renderScheduledInventoryUpdateRequest({
+      locationName: `Dispatch Stand ${fixtureNumber.toString().padStart(2, "0")}`,
+    });
+    expect(sentBody).toContain("text what is available now");
+    expect(sentBody).toContain("STOP");
     const before = await sameSideEffectCounts(fixture);
     const claim = await authorizeDispatch(handle(), { outboxWorkId: fixture.outboxWorkId, now: DUE });
     expect(claim.status).toBe("authorized");

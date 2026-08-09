@@ -92,6 +92,7 @@ describe("farmer stand-link request (integration)", () => {
       contactHash,
       occurredAt: later(2000),
       invitationToken: invitation.token,
+      publicBaseUrl: "https://farmfriend.test",
     });
     if (opened.status !== "opened" || opened.authorizationId === null) {
       throw new Error("fixture did not authorize; the self-serve chain changed");

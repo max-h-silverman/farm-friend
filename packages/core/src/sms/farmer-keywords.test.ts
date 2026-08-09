@@ -8,6 +8,7 @@ import {
   REGISTERED_OPT_IN_KEYWORDS,
   REGISTERED_OPT_OUT_KEYWORDS,
 } from "./commands";
+import { FARMER_TAUGHT_KEYWORDS } from "./onboarding-copy";
 
 // F-040 / F-080 — the FARMER keywords, and the line they must not cross.
 //
@@ -40,6 +41,32 @@ const registeredFieldValues = resolve(
 );
 
 describe("farmer keywords (F-040, F-080)", () => {
+  it("teaches every farmer keyword the parser honours (F-093)", () => {
+    // The gap this closes: `STAND` and `SETTINGS` were parsed, documented, and reachable — and
+    // named in NO farmer-facing copy anywhere, web or SMS. A farmer finished onboarding knowing
+    // one word, START, and the rest of the interface was undiscoverable except by guessing.
+    //
+    // Anchored to the SOURCE of the parser's table, not to a hand-written candidate list: a
+    // list written here could not contain a keyword nobody had thought to add to it, so it
+    // would pass while the new keyword went untaught — the exact failure being guarded.
+    //
+    // `FARMER_WORDS` is private, so the keys are read from the file. Anchored to the literal
+    // table entry (`  WORD: "WORD",`) rather than to loose vocabulary, so a mention of `STAND`
+    // in a comment cannot satisfy it.
+    const source = readFileSync(resolve(__dirname, "commands.ts"), "utf8");
+    const table = source.slice(
+      source.indexOf("const FARMER_WORDS"),
+      source.indexOf("};", source.indexOf("const FARMER_WORDS")),
+    );
+    const declared = [...table.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]);
+    expect(declared.length).toBeGreaterThan(0);
+    // Every keyword the parser honours is taught, and nothing is taught that is not honoured.
+    expect([...FARMER_TAUGHT_KEYWORDS].sort()).toEqual([...declared].sort());
+    for (const word of declared) {
+      expect(parseCommand(word!).kind).toBe("farmer");
+    }
+  });
+
   it("parses LINK as a farmer command", () => {
     expect(parseCommand("LINK")).toEqual({ kind: "farmer", keyword: "LINK" });
   });

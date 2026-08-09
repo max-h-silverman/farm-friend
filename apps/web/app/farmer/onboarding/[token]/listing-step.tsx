@@ -1399,14 +1399,40 @@ export function ListingStep({
           dead link. The number is shown as well, because this page is also read on a laptop
           where the link does nothing.
         */}
-        {isOnboarding && smsNumber !== undefined ? (
-          <p className="farmer-listing-saved-reminder">
-            Don&rsquo;t forget to text <strong>START</strong> to{" "}
-            <a href={buildKeywordSmsUrl(smsNumber, "START")}>
-              {formatSmsNumberForDisplay(smsNumber)}
-            </a>{" "}
-            to complete the signup process.
-          </p>
+        {isOnboarding ? (
+          <div className="farmer-listing-saved-reminder">
+            {/*
+              The number is CONFIGURATION and can be absent (`TELNYX_FROM_NUMBER` unset), but
+              the instruction must not be: gating the whole block on it left a farmer with no
+              last step named at all on a screen that otherwise reads as finished. Without a
+              number they are told to text START and where to find it; with one, they tap.
+            */}
+            {smsNumber === undefined ? (
+              <p>
+                One last step: text <strong>START</strong> to VIGA Farm Friend from the phone
+                you want to use.
+              </p>
+            ) : (
+              <p>
+                One last step: text <strong>START</strong> to{" "}
+                <a href={buildKeywordSmsUrl(smsNumber, "START")}>
+                  {formatSmsNumberForDisplay(smsNumber)}
+                </a>
+                .
+              </p>
+            )}
+            {/*
+              WHY it must be that handset — joined to the instruction it explains (max
+              2026-08-08). These were two paragraphs separated by the whole summary list and
+              the "Change something" button: the farmer read "text START" at the top, and the
+              reason it had to come from a particular phone somewhere below the fold, minutes
+              later or never. One errand, one block.
+            */}
+            <p>
+              Send it from the phone you want to use for stand updates — that is what turns on
+              texting for you, and we cannot text you until you do.
+            </p>
+          </div>
         ) : null}
 
         <dl className="farmer-listing-summary">
@@ -1474,19 +1500,41 @@ export function ListingStep({
           Change something
         </button>
 
-        {/* WHY it must be that handset. The instruction itself is in the reminder above. */}
-        {isOnboarding && smsNumber !== undefined ? (
-          <p className="farmer-listing-saved-next">
-            Send it from the phone you want to use for stand updates. That is what turns on
-            texting for you — we cannot text you until you do.
-          </p>
-        ) : (
-          <p className="farmer-listing-saved-next">
-            {isOnboarding
-              ? "Next: send one text from the phone you want to use for stand updates. It is the last step."
-              : "You can change any of this later by texting SETTINGS."}
-          </p>
-        )}
+        {/*
+          HOW THE FARMER RUNS THEIR STAND FROM A PHONE (F-093).
+
+          The gap this closes: `STAND` and `SETTINGS` appeared in no farmer-facing copy at all,
+          and `LINK` only as an aside in one text. A farmer finished onboarding knowing one
+          word — START — and everything after that was undiscoverable except by guessing.
+
+          It sits BELOW the summary and after the START instruction on purpose. The screen's
+          first job is getting that one text sent; a reference competing with it costs
+          completions, which is the mistake the note further down this file already records.
+
+          `MORE`, `YES`/`NO` and `SAME` are deliberately absent — each answers a message Farm
+          Friend sends, and the message that needs one teaches it in context.
+        */}
+        <div className="farmer-listing-saved-keywords">
+          <p>Once you are set up, you run everything by text:</p>
+          <dl>
+            <div>
+              <dt>Text what you have</dt>
+              <dd>&ldquo;six dozen eggs, kale&rdquo; — that is the whole thing</dd>
+            </div>
+            <div>
+              <dt>LINK</dt>
+              <dd>a link back to this page, to change your listing</dd>
+            </div>
+            <div>
+              <dt>SETTINGS</dt>
+              <dd>change how often we text you</dd>
+            </div>
+            <div>
+              <dt>STAND</dt>
+              <dd>pick which stand you mean, if you have more than one</dd>
+            </div>
+          </dl>
+        </div>
       </div>
     );
   }

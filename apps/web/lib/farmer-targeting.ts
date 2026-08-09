@@ -44,10 +44,13 @@ function refusal(providerEventId: string): FarmerTargetHandlerResult {
 
 export function renderFarmerTargetMenu(options: FarmerTargetOption[]): string {
   const choices = options.map((option) => `${option.optionNumber}. ${option.locationName}`);
+  // No opt-out footer (F-096): this answers a farmer keyword sent seconds ago. The instruction
+  // that stays is the one the menu cannot work without — the reply is a bare number.
+  // The 12 hours is real (`FARMER_TARGET_MENU_TTL_MS`) and stays, in plain words: a farmer who
+  // replies the next morning gets told the choice is gone, and would rightly wonder why.
   return [
-    "Which stand do you mean? Reply with its number within 12 hours:",
+    "Which stand do you mean? Reply with the number in the next 12 hours:",
     ...choices,
-    "Reply STOP to opt out.",
   ].join("\n");
 }
 
@@ -75,7 +78,7 @@ async function finishPurpose(
     return {
       status: "selected",
       replies: [{
-        body: `Using ${target.locationName}. Send what changed at this stand. Reply STOP to opt out.`,
+        body: `Using ${target.locationName}. Text us what you have out there now.`,
         category: "inquiry_reply",
         logicalKey: `farmer-target-selected-${input.providerEventId}`,
       }],
@@ -91,13 +94,19 @@ async function finishPurpose(
   const url = purpose === "settings"
     ? farmerSettingsUrl(deps.publicBaseUrl, issued.token)
     : farmerLinkUrl(deps.publicBaseUrl, issued.token);
+  // Says what the farmer will DO on the page, not what the page is called. "Settings" and
+  // "private update link" are our words for these screens; "change how often we text you" and
+  // "update your listing" are what the farmer came for.
   const action = purpose === "settings"
-    ? `Settings for ${target.locationName}`
-    : `Private update link for ${target.locationName}`;
+    ? `Change how often we text you about ${target.locationName}:`
+    : `Update your listing for ${target.locationName}:`;
   return {
     status: "issued",
     replies: [{
-      body: `VIGA Farm Friend: ${action} - keep it to yourself. ${url} Reply STOP to opt out.`,
+      // The URL on its own line and no footer (F-096) — the link is the one thing the farmer
+      // needs to tap, and it used to sit mid-sentence between prose and compliance boilerplate.
+      // "Keep it to yourself" is the honest warning for a link with no password behind it.
+      body: `VIGA Farm Friend: ${action}\n${url}\nThis link is just for you - please don't share it.`,
       category: "inventory_prompt",
       logicalKey: `farmer-${purpose}-${input.providerEventId}`,
     }],
@@ -136,7 +145,9 @@ export async function handleStandSelection(
   return {
     status: selected.status,
     replies: [{
-      body: "That stand choice is not active. Text STAND, LINK, or SETTINGS to start again.",
+      body:
+        "Sorry - that choice has expired. Text LINK to update your listing, " +
+        "STAND to pick a different stand, or SETTINGS to change how often we text you.",
       category: "inquiry_reply",
       logicalKey: `farmer-target-choice-${input.providerEventId}`,
     }],
