@@ -150,13 +150,6 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Owed data runs and live checks**
 
-- **B-024 is fixed in the SEEDER but not in the live row.** Handpicked Homestead's home address
-  was still published as a visitable stand as of the 2026-08-08 rebuild, which ran the old
-  classifier. The fix takes effect only on a re-seed, so production must be **re-seeded or the row
-  corrected by hand** — and verified by effect (`visitability = 'contact_only'`,
-  `public_address IS NULL`, no coordinate reaching the map). Until then a private residence is on
-  the map against the farmer's written request, which is the one open item that should block
-  sharing the map with anyone.
 - **F-029:** finish live carrier launch verification — the `START` onboarding path has never been
   exercised against Telnyx from a real handset.
 - **F-056:** finish protected-page, logout, copied-cookie, throttle, expiry/revocation, mobile,
