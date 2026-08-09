@@ -172,40 +172,11 @@ owns the embed check).
 
 ### GL-014 — Complete the canonical listing-data pipeline
 
-**Confirmed gap**
-
-The schema can hold structured availability, offerings, payments, and Farm Bucks, but the current
-seed/read paths do not carry them end to end:
-
-- `open_days` is never populated;
-- a parsed stocking qualifier is discarded;
-- payment methods are never loaded;
-- Farm Bucks defaults to `false`, conflating “no” with “not loaded”;
-- approved offerings have no public reader;
-- public web and SMS read only a narrow subset of listing facts.
-
-**Required outcome**
-
-- Preserve unknown separately from a truthful negative where the source does not state a fact.
-- Parse and load open weekdays where the source supports them.
-- Preserve stocking caveats as display-only farmer/source wording.
-- Load approved offerings, payment methods, and Farm Bucks facts.
-- Read the same canonical listing facts from web and SMS.
-- Add corpus-level tests over the real approved artifact, including the suspicious Venison Valley /
-  Aeggy's cross-row-looking text in `maps/offerings-proposals.json`.
-
-**Code complete (2026-08-06); the production ingest run is what remains.** The F-059 audit
-([archived](archive/LISTING_INGESTION_AUDIT_2026-08-04.md)) superseded this item's bullets and
-produced F-061 → F-064, all merged and deployed. Every bullet above is now met in code: `open_days`
-and stocking qualifiers are written, payment methods and Farm Bucks load, offerings have a public
-reader, and web and SMS read the same canonical facts. The invented `EXPECTED_COLUMNS` parser the
-audit found is gone.
-
-**Still owed, and it is a data run rather than a build:** F-064's production ingest — a re-export of
-all three CSVs, a `neondb` snapshot (with an insert-only utility the snapshot *is* the rollback),
-max's explicit approval for the bulk write, and a render check on a real card afterwards. Until it
-runs, production serves the pre-tranche listing content through the new code. Tracked in
-CURRENT_STATE.
+**Completed: 2026-08-09.** F-061 → F-064 carry structured availability, payment methods, Farm Bucks,
+and approved offerings through the shared seed/read path. The production rebuild loaded the reviewed
+corpus; B-044 made its 212 usual items part of the same atomic restore unit and removed their overlap
+from descriptive prose. Web and SMS read the same canonical listing facts, and the live public API
+verifies the corrected Tian Tian and 3 Brothers cards.
 
 ### GL-015 — Provide a real listing-correction path
 

@@ -8,18 +8,18 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. Production Postgres `neondb` has **36 migrations** (`0000`–`0035`);
-Cloud Run web is `farm-friend-web-00053-jcr` and worker is `farm-friend-worker-00048-4st`, both on
-digest `sha256:cb9a6fa262ed7edf414486f65261f5e4e6c5a6abe220de664903f87137e630a8`.
+Cloud Run web is `farm-friend-web-00054-wfk` and worker is `farm-friend-worker-00049-w4v`, both on
+digest `sha256:247393a9f769e76bd13e91195eb332dbda0d8e815b8ea4b84dfc82d213b36840`.
 
-**Deployed runtime is `be50780`** (2026-08-09): F-076, F-097, F-098, B-045, B-046 and B-047 are live.
-Migrations `0034` and `0035` are applied and verified by schema effect; none remains unapplied.
-B-044's rebuild tooling and description parser are live with its production data repair.
+**Deployed runtime is `af2cc0d`** (2026-08-09): F-076, F-097, F-098, B-044, B-045, B-046 and B-047
+are live. Migrations `0034` and `0035` are applied and verified by schema effect; none remains
+unapplied. B-044's rebuild tooling and overlap-safe description parser are live with its data repair.
 
 **B-045 is verified by effect.** Gmail's HTTPS API accepted a production verification request on
 `farm-friend-web-00053-jcr`, and its six-digit code arrived in the recipient's inbox.
 
-**Max walks the farmer surfaces at phone width before a tranche ships.** He confirmed that pass for
-this deploy; a session that opens by deploying has skipped the gate.
+**Max walks farmer surfaces at phone width before a UI tranche ships.** He confirmed the latest UI
+tranche; a session that opens a UI deploy without that pass has skipped the gate.
 
 **Production data and schema are current.** Neon has all structured-price and pending-stock columns,
 no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
@@ -47,10 +47,10 @@ fixed administrator or farm-email roster; email ingest must reuse the deployed `
 
 ## Verification
 
-**Current main:** **1777 unit**, full integration suite, typecheck, lint, web production build, and a
+**Current main:** **1778 unit**, **860 integration**, typecheck, lint, web production build, and a
 complete seed dry run against the real exports: 35 stands, 212 reviewed usual items, 0 unknown, 0
-unresolved. B-044 sabotage proved the integration checks fail if offerings are omitted or the stand
-half commits before an offering failure.
+unresolved. B-044 sabotage proved its parser regression and atomic offering restore checks fail when
+their guarantees are broken. Production cleanup dry-runs at 25/25 descriptions clean.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
@@ -132,9 +132,7 @@ link** — a conditional with a test behind it rather than an unbypassable const
   Includes whether `?hidden=true` needs to survive the embed — max's call.
 - Physical-handset vCard and paged-SMS checks remain owed.
 - Exercise the administrator, settings, customer inquiry, and farmer SMS journeys against production
-  by database effect. Consent is proven against Postgres but not a handset; email waits on B-045.
-- **B-045 blocks go-live for the grandfathered door** — no farmer can onboard by email while
-  production cannot send. See the Release-state section for what has been ruled out.
+  by database effect. Consent is proven against Postgres but not a handset.
 
 **Open build items**
 
