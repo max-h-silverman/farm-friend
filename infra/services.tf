@@ -122,7 +122,7 @@ locals {
     ADMIN_PASSWORD_HASH = google_secret_manager_secret.protected["admin-password-hash"].secret_id
     }, var.mount_geocoding_key ? {
     GEOCODING_API_KEY = google_secret_manager_secret.protected["geocoding-api-key"].secret_id
-    } : {}, var.mount_smtp_password ? {
+    } : {}, var.mount_smtp_password && !var.mount_gmail_delivery ? {
     SMTP_PASSWORD = google_secret_manager_secret.protected["smtp-password"].secret_id
     } : {}, var.mount_gmail_delivery ? {
     GMAIL_OAUTH_CLIENT_SECRET = google_secret_manager_secret.protected["gmail-oauth-client-secret"].secret_id

@@ -38,7 +38,7 @@ export function createEmailSimulatorTransport(options: EmailSimulatorOptions): E
     throw new Error(
       "EMAIL_PROVIDER=simulator must never be used on a deployment: it accepts every message " +
         "and reports success, so real verification emails would silently stop reaching " +
-        "farmers. Configure SMTP_* instead, or leave email unconfigured.",
+        "farmers. Configure EMAIL_PROVIDER=gmail instead, or leave email unconfigured.",
     );
   }
 
