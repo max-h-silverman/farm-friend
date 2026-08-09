@@ -698,6 +698,17 @@ export function ListingStep({
     storedPayments.filter((method) => !offered.has(method)).join(", "),
   );
   /*
+    Whether this door may state what is on the table TODAY.
+
+    Onboarding only. An already-onboarded farmer reports today's stock on their status tab,
+    through the proposal-and-confirmation gate — offering it here as well would be two ways
+    to make one claim, by two different routes, with two different provenances.
+
+    Declared ABOVE the item rows because it is what they default `inStock` to.
+  */
+  const asksForCurrentStock = credential.kind === "invitation";
+
+  /*
     WHAT THE STAND USUALLY SELLS, one row per item (F-090).
 
     Was a single comma-separated string. Each item now carries an optional price and, during
@@ -724,9 +735,11 @@ export function ListingStep({
       // The ONE place the suggestion list decides a control (B-040). A farmer's own word — "cord",
       // "half-flat" — has to arrive in the box that can show it; after that the row holds the mode.
       unitMode: initialUnitMode(item.price?.unit),
-      // An edit door never asks about today's stock, so this is always false there and is
-      // never sent. Onboarding is the only door that can state it.
-      inStock: false,
+      // IN STOCK BY DEFAULT wherever the control is offered (max, 2026-08-08) — same rule as a
+      // newly typed row below, so a farmer whose listing VIGA already prefilled does not see
+      // half their items on and half off. The edit door never asks, so this is always false
+      // there and is never sent.
+      inStock: asksForCurrentStock,
     })),
   );
   const [draftItem, setDraftItem] = useState("");
@@ -765,7 +778,20 @@ export function ListingStep({
           priceUnit: "",
           priceBasis: "per",
           unitMode: "menu",
-          inStock: false,
+          /*
+            IN STOCK BY DEFAULT, on the door that asks (max, 2026-08-08).
+
+            A farmer setting up their stand is describing what is on the table as they type it,
+            so "yes, it is there" is the answer they already mean — and a toggle they must
+            switch ON is one they leave off by omission, which publishes a stand with nothing
+            on it. `asksForCurrentStock` is what keeps this to onboarding: the edit door never
+            renders the control, so there is nothing there to default.
+
+            It still publishes nothing on its own. The claim is held on the invitation until
+            the farmer's START proves the handset, because a dated claim needs someone to
+            stand behind it.
+          */
+          inStock: asksForCurrentStock,
         },
       ]);
     }
@@ -889,14 +915,6 @@ export function ListingStep({
     steps === null || steps[step] === which;
 
   const asksForPhone = credential.kind === "invitation";
-  /*
-    Whether this door may state what is on the table TODAY.
-
-    Onboarding only. An already-onboarded farmer reports today's stock on their status tab,
-    through the proposal-and-confirmation gate — offering it here as well would be two ways
-    to make one claim, by two different routes, with two different provenances.
-  */
-  const asksForCurrentStock = credential.kind === "invitation";
   const [phone, setPhone] = useState("");
   const [confirming, setConfirming] = useState(false);
 
@@ -2142,7 +2160,14 @@ export function ListingStep({
                 own to carry a whole sentence — which made ten items twenty lines of form on
                 the phone this is filled in on.
               */
-              <li key={`${row.name}-${index}`} className="farmer-listing-item">
+              <li key={`${row.name}-${index}`} className="farmer-listing-item-row">
+                {/*
+                  THE CARD holds only the item's own facts — what it is, whether it is there
+                  today, what it costs. Removing it is not one of those facts, so the × sits
+                  OUTSIDE the card (max, 2026-08-08): it stops competing with the stock toggle
+                  for the end of the identity line, and "in stock" gets that space to itself.
+                */}
+                <div className="farmer-listing-item">
                 {/*
                   LINE ONE — what this item IS, and whether it is there today (max 2026-08-08).
                   Identity and availability belong together; the price is a different kind of
@@ -2181,14 +2206,6 @@ export function ListingStep({
                       </span>
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="farmer-listing-item-remove"
-                    aria-label={`Remove ${row.name}`}
-                    onClick={() => removeItem(index)}
-                  >
-                    <span aria-hidden="true">×</span>
-                  </button>
                 </div>
 
                 {/*
@@ -2322,7 +2339,15 @@ export function ListingStep({
                           setItemPriceField(index, "priceUnit", event.target.value);
                         }}
                       >
-                        <option value="">unit</option>
+                        {/*
+                          THE RESTING CHOICE IS "item", not "unit" (max, 2026-08-08). It is the
+                          EMPTY value either way — nothing is stored, and that is what lets a
+                          bundle render "$5 for 3" with no invented word (B-041). "unit" asked
+                          the farmer to name something a corn stand has no word for; "item" says
+                          what the price is already for, so leaving it alone is a real answer
+                          rather than an unfinished one.
+                        */}
+                        <option value="">item</option>
                         {SUGGESTED_UNITS.map((unit) => (
                           <option key={unit} value={unit}>
                             {unit}
@@ -2333,6 +2358,15 @@ export function ListingStep({
                     )}
                   </div>
                 )}
+                </div>
+                <button
+                  type="button"
+                  className="farmer-listing-item-remove"
+                  aria-label={`Remove ${row.name}`}
+                  onClick={() => removeItem(index)}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
               </li>
             ))}
           </ul>

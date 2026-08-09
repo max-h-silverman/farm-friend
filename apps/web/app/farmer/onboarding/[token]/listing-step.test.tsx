@@ -2983,6 +2983,40 @@ describe("onboarding listing step", () => {
       expect(posted(fetchMock).items).toEqual([{ name: "eggs", price: null }]);
     });
 
+    it("starts a newly added item IN STOCK on the onboarding door", async () => {
+      // max's call (2026-08-08). A farmer listing their stand for the first time is describing
+      // what is on the table as they type it, so "in stock" is the answer they already mean —
+      // and an item they have to switch ON is one they will leave off by omission.
+      //
+      // Onboarding only: `asksForCurrentStock` gates the control itself, so the edit door has
+      // no toggle to default. A dated claim still needs their START to publish.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+          smsNumber="+12068645326"
+        />,
+      );
+
+      // The item control lives on the wizard's "what you sell" step; `revealField` walks there.
+      await user.type(await revealField(user, /what do you usually sell/i), "eggs");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+
+      expect(screen.getByRole("switch", { name: /eggs in stock/i })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+
+      // And it TRAVELS: the claim reaches the boundary as today's stock without the farmer
+      // having touched the toggle at all, which is the half a rendered switch cannot prove.
+      await submitListing(user);
+
+      expect(posted(fetchMock).currentStock).toEqual([{ itemName: "eggs" }]);
+    });
+
     // ── B-041: a bundle needs no unit ────────────────────────────────────────────────────────
 
     it("submits a bundle with NO unit, which is a complete price for corn", async () => {
@@ -3004,6 +3038,45 @@ describe("onboarding listing step", () => {
       await user.clear(screen.getByLabelText(/how many corn/i));
       await user.type(screen.getByLabelText(/how many corn/i), "3");
       // The unit is left alone entirely — the whole point.
+
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+      expect(posted(fetchMock).items).toEqual([
+        { name: "corn", price: { amount: "5", quantity: "3", unit: null, basis: "for" } },
+      ]);
+    });
+
+    it("names the no-unit choice ITEM, and stores no unit for it", async () => {
+      // max's call (2026-08-08). "unit" as the resting label asked the farmer to name something
+      // a corn stand has no word for; "item" says what the price is already for. It is the same
+      // EMPTY choice wearing a better word — the value must stay "" so nothing is stored, which
+      // is what keeps "$5 for 3" rendering without an invented unit.
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...PLACED, items: [] }}
+        />,
+      );
+
+      await user.type(screen.getByLabelText(/what do you usually sell/i), "corn");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      await user.click(screen.getByRole("switch", { name: /add prices/i }));
+
+      const unit = screen.getByLabelText(/unit for corn/i);
+      expect(unit).toHaveValue("");
+      expect(
+        within(unit).getByRole("option", { name: "item" }),
+        "the resting option should read 'item'",
+      ).toHaveValue("");
+      // And it is not a unit the farmer can state: no option carries the WORD as a value.
+      expect(within(unit).queryByRole("option", { name: "unit" })).toBeNull();
+
+      await user.type(screen.getByLabelText(/^price for corn$/i), "5");
+      await user.selectOptions(screen.getByLabelText(/price basis for corn/i), "for");
+      await user.clear(screen.getByLabelText(/how many corn/i));
+      await user.type(screen.getByLabelText(/how many corn/i), "3");
 
       await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
       expect(posted(fetchMock).items).toEqual([
@@ -3389,8 +3462,12 @@ describe("onboarding listing step", () => {
       await withItems(user, "eggs");
 
       const toggle = screen.getByRole("switch", { name: /eggs in stock/i });
-      expect(toggle).toHaveAttribute("aria-checked", "false");
+      // ON at rest on this door (max, 2026-08-08) — see "starts a newly added item IN STOCK".
+      expect(toggle).toHaveAttribute("aria-checked", "true");
 
+      // It is a real switch, so it moves BOTH ways rather than being a default that sticks.
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-checked", "false");
       await user.click(toggle);
       expect(toggle).toHaveAttribute("aria-checked", "true");
 
@@ -3410,13 +3487,21 @@ describe("onboarding listing step", () => {
 
       await placeStand(user);
       await user.click(screen.getByLabelText(/yes — there is a stand/i));
-      await user.type(await revealField(user, /what do you usually sell/i), "eggs");
+      const box = await revealField(user, /what do you usually sell/i);
+      await user.type(box, "eggs");
       await user.click(screen.getByRole("button", { name: /add item/i }));
-      await user.click(screen.getByRole("switch", { name: /eggs in stock/i }));
+      await user.type(box, "rhubarb");
+      await user.click(screen.getByRole("button", { name: /add item/i }));
+      // Both start in stock, so turning ONE off is what makes the two lists differ — and a
+      // toggle wired to `items` rather than `currentStock` would drop rhubarb from both.
+      await user.click(screen.getByRole("switch", { name: /rhubarb in stock/i }));
       await submitListing(user);
 
       const body = posted(fetchMock);
-      expect(body.items).toEqual([{ name: "eggs", price: null }]);
+      expect(body.items).toEqual([
+        { name: "eggs", price: null },
+        { name: "rhubarb", price: null },
+      ]);
       expect(body.currentStock).toEqual([{ itemName: "eggs" }]);
     });
 
