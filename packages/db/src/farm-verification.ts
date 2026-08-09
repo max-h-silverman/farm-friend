@@ -69,7 +69,12 @@ export interface IssueVerificationInput {
 export type IssueVerificationResult =
   /** `code` is the PLAINTEXT, for the send path only. It is never stored and never logged. */
   | { status: "issued"; id: string; code: string }
-  /** A live code already exists for this farm. */
+  /**
+   * A concurrent request won the race and issued the live code for this farm.
+   *
+   * No longer returned for the farmer's own earlier code — that is SUPERSEDED (see below).
+   * This is now only the genuine simultaneous-request case.
+   */
   | { status: "already_live" }
   /** The farm's or the address's window budget is spent. */
   | { status: "rate_limited" };
@@ -87,6 +92,24 @@ export type IssueVerificationResult =
  * requests both read nothing and both insert. The partial unique index
  * `farm_email_verifications_one_live_per_farm` decides, and an empty `returning` means the
  * other request won — which is reported as `already_live`, not as an error.
+ *
+ * **A code the farmer never used is SUPERSEDED, not a wall** (max, 2026-08-09). The index is
+ * partial on `consumed_at IS NULL`, so an UNUSED code held the farm's only slot until it was
+ * consumed — and expiry does not release it. A farmer whose first mail never arrived was
+ * refused for the next thirty minutes while the route answered "sent", with nothing on screen
+ * to escape it. Production hit exactly this.
+ *
+ * Superseding retires the farm's own live row inside this transaction, so the invariant is
+ * unchanged — still exactly one live code, and the old one stops opening the listing the
+ * moment the new one exists. What changes is which request wins: the farmer's newest intent,
+ * rather than her abandoned first attempt.
+ *
+ * The retired row is KEPT, marked consumed. It is the record that a code was issued and never
+ * used, which is what an operator reads when a farmer reports this. Deleting it would erase
+ * the only evidence of the failure being diagnosed.
+ *
+ * The rate limit above is what still bounds this: superseding is not a way to send unlimited
+ * mail, because the window budget is counted from issued rows and is checked first.
  */
 export async function issueVerificationCode(
   db: Db,
@@ -107,24 +130,52 @@ export async function issueVerificationCode(
   }
 
   const code = generateVerificationCode();
-  const rows = (await db.sql`
-    insert into farm_email_verifications
-      (farm_id, email_hash, code_hash, issued_at, expires_at)
-    values (
-      ${input.farmId},
-      ${emailHash},
-      ${hashVerificationCode(code, input.codeSalt)},
-      ${input.now.toISOString()},
-      ${verificationExpiryFor(input.now).toISOString()}
-    )
-    on conflict do nothing
-    returning id
-  `) as unknown as Array<{ id: string }>;
 
-  // Empty means the partial unique index refused: a live code already exists for this farm.
-  if (rows.length === 0) return { status: "already_live" };
+  return db.sql.begin(async (tx) => {
+    /*
+      Retire only a code this farmer has ALREADY BEEN SENT — never one issued microseconds ago
+      by a request still in flight.
 
-  return { status: "issued", id: rows[0]!.id, code };
+      This guard is the WHOLE arbiter, and a farm-level `for update` lock was tried here and
+      deleted: with the timestamp comparison in place the lock changed nothing (removing it
+      again leaves all 25 tests green), so it was a line claiming to protect something it did
+      not. `issued_at < now` is what separates a RETRY from a RACE. Eight simultaneous requests share
+      one instant, so none of them can retire another's code and exactly one wins on the index —
+      the guarantee the eight-claimant test states. A farmer coming back later carries a later
+      instant, so her request supersedes the code she never received.
+
+      Strict `<`, never `<=`: with equal timestamps the comparison must be FALSE, or the race
+      collapses back into all-succeed.
+    */
+    await tx`
+      update farm_email_verifications
+      set consumed_at = ${input.now.toISOString()}
+      where farm_id = ${input.farmId}
+        and consumed_at is null
+        and issued_at < ${input.now.toISOString()}
+    `;
+
+    const rows = (await tx`
+      insert into farm_email_verifications
+        (farm_id, email_hash, code_hash, issued_at, expires_at)
+      values (
+        ${input.farmId},
+        ${emailHash},
+        ${hashVerificationCode(code, input.codeSalt)},
+        ${input.now.toISOString()},
+        ${verificationExpiryFor(input.now).toISOString()}
+      )
+      on conflict do nothing
+      returning id
+    `) as unknown as Array<{ id: string }>;
+
+    // Still empty: a CONCURRENT request inserted between the retire and this insert. The index
+    // decided, and the other request's code is the live one — which is what the farmer will be
+    // sent, so this is not an error.
+    if (rows.length === 0) return { status: "already_live" as const };
+
+    return { status: "issued" as const, id: rows[0]!.id, code };
+  });
 }
 
 /**

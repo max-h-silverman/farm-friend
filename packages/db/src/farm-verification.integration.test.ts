@@ -176,7 +176,7 @@ describe("F-079 farm email verification (integration)", () => {
       expect(rows[0]?.email_hash).toBe(hashEmail("cathy@example.com", SALT));
     });
 
-    it("permits ONE live code per farm — the second issuance reuses nothing and is refused", async () => {
+    it("permits ONE live code per farm, and the newest is the one that lives", async () => {
       const first = await issueVerificationCode(database(), {
         farmId: lavenderId,
         email: "cathy@example.com",
@@ -193,12 +193,92 @@ describe("F-079 farm email verification (integration)", () => {
         codeSalt: SALT,
         now: new Date(NOW.getTime() + 60_000),
       });
-      // A second live code would mean the older one still opens the listing while the farmer
-      // types the newer — two keys where the design promises one.
-      expect(second.status).toBe("already_live");
-      expect(await sql()`select count(*)::int as n from farm_email_verifications`).toEqual([
-        { n: 1 },
-      ]);
+      // A second LIVE code would mean the older one still opens the listing while the farmer
+      // types the newer — two keys where the design promises one. Superseding keeps that
+      // promise; what it changes is that the farmer's newest request is the key that works,
+      // rather than her abandoned first attempt locking the farm (see the test below).
+      expect(second.status).toBe("issued");
+      const live = await sql()`
+        select count(*)::int as n from farm_email_verifications
+        where farm_id = ${lavenderId} and consumed_at is null
+      `;
+      expect(live).toEqual([{ n: 1 }]);
+    });
+
+    it("SUPERSEDES a code the farmer never used, rather than locking the farm out", async () => {
+      /*
+        THE PRODUCTION FAILURE THIS FIXES (max, 2026-08-09).
+
+        A farmer requested a code, the mail did not reach her, and every retry for the next 30
+        minutes was refused: `one_live_per_farm` is partial on `consumed_at IS NULL`, so an
+        UNUSED code holds the farm's only slot until it is consumed — and expiry does not
+        release it. The route answers "sent" either way, so the screen said the mail was on its
+        way while the insert had been silently refused. She was locked out by her own first
+        attempt, with nothing to click to escape it.
+
+        Superseding keeps the invariant the test above states: still exactly one live code, so
+        the old one stops opening the listing the moment a new one is issued. What changes is
+        WHICH request loses — the farmer's newest intent wins over her abandoned one.
+      */
+      const first = await issueVerificationCode(database(), {
+        farmId: lavenderId,
+        email: "cathy@example.com",
+        salt: SALT,
+        codeSalt: SALT,
+        now: NOW,
+      });
+      expect(first.status).toBe("issued");
+
+      const second = await issueVerificationCode(database(), {
+        farmId: lavenderId,
+        email: "cathy@example.com",
+        salt: SALT,
+        codeSalt: SALT,
+        now: new Date(NOW.getTime() + 60_000),
+      });
+      expect(second.status).toBe("issued");
+
+      // STILL exactly one live code — the invariant is unchanged, the winner is not.
+      const live = await sql()`
+        select id from farm_email_verifications
+        where farm_id = ${lavenderId} and consumed_at is null
+      `;
+      expect(live).toHaveLength(1);
+      if (second.status !== "issued") throw new Error(second.status);
+      expect(live[0]?.id).toBe(second.id);
+
+      // The superseded row is retained rather than deleted: it is the record that a code was
+      // issued and never used, which is what an operator reads when a farmer reports this.
+      const all = await sql()`
+        select count(*)::int as n from farm_email_verifications where farm_id = ${lavenderId}
+      `;
+      expect(all).toEqual([{ n: 2 }]);
+    });
+
+    it("REFUSES the old code once it has been superseded", async () => {
+      // Superseding is only honest if the old code stops working. Two keys where the design
+      // promises one is the failure the one-live-code rule exists to prevent.
+      const first = await issueVerificationCode(database(), {
+        farmId: lavenderId,
+        email: "cathy@example.com",
+        salt: SALT,
+        codeSalt: SALT,
+        now: NOW,
+      });
+      if (first.status !== "issued") throw new Error(first.status);
+
+      await issueVerificationCode(database(), {
+        farmId: lavenderId,
+        email: "cathy@example.com",
+        salt: SALT,
+        codeSalt: SALT,
+        now: new Date(NOW.getTime() + 60_000),
+      });
+
+      const live = await readLiveVerification(database(), { farmId: lavenderId });
+      // The live record is the NEW one, so the old code cannot be the one a submission is
+      // checked against.
+      expect(live?.id).not.toBe(first.id);
     });
 
     it("permits a fresh code once the previous one is CONSUMED", async () => {
