@@ -20,6 +20,7 @@ import {
   formatSmsNumberForDisplay,
 } from "../../../../lib/farmer-invite";
 import { IslandArtwork } from "../../../island-artwork";
+import { StockItemRow } from "../../stock-item-row";
 
 /**
  * One row of the inventory builder, as the FORM holds it (F-092).
@@ -2210,61 +2211,16 @@ export function ListingStep({
         ) : (
           <ul className="farmer-listing-items">
             {itemRows.map((row, index) => (
-              /*
-                ONE LINE PER ITEM: name, price, in stock, remove. The row is the unit of
-                meaning, so everything about one item is on one line and two items are two
-                lines. It used to wrap to two — the stock tick claimed a full-width row of its
-                own to carry a whole sentence — which made ten items twenty lines of form on
-                the phone this is filled in on.
-              */
-              <li key={`${row.name}-${index}`} className="farmer-listing-item-row">
-                {/*
-                  THE CARD holds only the item's own facts — what it is, whether it is there
-                  today, what it costs. Removing it is not one of those facts, so the × sits
-                  OUTSIDE the card (max, 2026-08-08): it stops competing with the stock toggle
-                  for the end of the identity line, and "in stock" gets that space to itself.
-                */}
-                <div className="farmer-listing-item">
-                {/*
-                  LINE ONE — what this item IS, and whether it is there today (max 2026-08-08).
-                  Identity and availability belong together; the price is a different kind of
-                  fact and gets its own line below.
-                */}
-                <div className="farmer-listing-item-identity">
-                  <span className="farmer-listing-item-name">{row.name}</span>
-                  {/*
-                    TODAY'S STOCK, toggled per item and asked only where it can be acted on.
-
-                    F-066's split, on the form: "we usually sell eggs" is a standing claim and
-                    "eggs are on the table right now" is a dated confirmation. They are
-                    different fields here because they are different facts, and only the second
-                    waits for the farmer's START to prove the handset before it publishes.
-
-                    `role="switch"` is what states on/off to a screen reader — a checkbox merely
-                    styled as a toggle would announce the wrong thing — and the visible "in
-                    stock" text names it for everyone else.
-
-                    Not offered on the edit door: an onboarded farmer reports today's stock on
-                    their status tab, through the confirmation gate. Two ways to do one thing is
-                    exactly what the zen desk refuses.
-                  */}
-                  {asksForCurrentStock && (
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={row.inStock}
-                      aria-label={`${row.name} in stock`}
-                      className="farmer-listing-item-stock"
-                      onClick={() => toggleItemStock(index)}
-                    >
-                      <span className="farmer-listing-item-stock-track" aria-hidden="true" />
-                      <span className="farmer-listing-item-stock-text" aria-hidden="true">
-                        in stock
-                      </span>
-                    </button>
-                  )}
-                </div>
-
+              <StockItemRow
+                key={`${row.name}-${index}`}
+                name={row.name}
+                stock={
+                  asksForCurrentStock
+                    ? { checked: row.inStock, onChange: () => toggleItemStock(index) }
+                    : undefined
+                }
+                onRemove={() => removeItem(index)}
+              >
                 {/*
                   LINE TWO — the price, shown only when the section's switch is on.
 
@@ -2415,16 +2371,7 @@ export function ListingStep({
                     )}
                   </div>
                 )}
-                </div>
-                <button
-                  type="button"
-                  className="farmer-listing-item-remove"
-                  aria-label={`Remove ${row.name}`}
-                  onClick={() => removeItem(index)}
-                >
-                  <span aria-hidden="true">×</span>
-                </button>
-              </li>
+              </StockItemRow>
             ))}
           </ul>
         )}

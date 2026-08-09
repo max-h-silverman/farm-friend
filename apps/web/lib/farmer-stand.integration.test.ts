@@ -7,8 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   FixedClock,
   issueFarmerLinkToken,
-  type InventoryInterpretation,
-  type InventoryInterpreter,
+  type StructuredInventoryEdit,
 } from "@farm-friend/core";
 import {
   activateWebProposal,
@@ -23,7 +22,7 @@ import {
 } from "@farm-friend/db";
 import {
   confirmFromLink,
-  proposeFromLink,
+  proposeStructuredFromLink,
   resolveStandFromToken,
   saveParticipantsFromLink,
 } from "./farmer-stand";
@@ -63,27 +62,6 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
   const url = new URL(baseUrl);
   url.pathname = `/${databaseName}`;
   return url.toString();
-}
-
-/**
- * An interpreter that returns whatever the test scripted. Deterministic on purpose: this
- * file is about what CODE does with an interpretation, and a real model would make the
- * blast-radius assertions non-reproducible. Seam quality is `evals`' job.
- *
- * It also records what crossed the seam, so the projection assertion below has something to
- * check rather than trusting the boundary.
- */
-function scriptedInterpreter(
-  interpretation: InventoryInterpretation,
-): InventoryInterpreter & { seen: { taskText: string }[] } {
-  const seen: { taskText: string }[] = [];
-  return {
-    seen,
-    async interpret(request) {
-      seen.push({ taskText: request.taskText });
-      return interpretation;
-    },
-  };
 }
 
 describe("the farmer web surface behind a standing link (integration)", () => {
@@ -164,12 +142,11 @@ describe("the farmer web surface behind a standing link (integration)", () => {
     };
   }
 
-  /** The deps a surface call needs, with a scripted interpretation. */
-  function deps(interpretation: InventoryInterpretation) {
-    const interpreter = scriptedInterpreter(interpretation);
+  /** The deterministic web dependencies plus the direct edit this test will submit. */
+  function deps(edit: StructuredInventoryEdit) {
     return {
       db: database(),
-      interpreter,
+      edit,
       clock: new FixedClock(at(3)),
       activate: (input: {
         proposalId: string;
@@ -178,6 +155,10 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         at: Date;
       }) => activateWebProposal(database(), input),
     };
+  }
+
+  function propose(d: ReturnType<typeof deps>, token: string) {
+    return proposeStructuredFromLink(d, { token, edit: d.edit });
   }
 
   /** Propose then confirm, the whole farmer journey in one call. */
@@ -191,7 +172,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       changes: [],
       removals: [],
     });
-    const proposed = await proposeFromLink(d, { token, taskText: items.join(", ") });
+    const proposed = await propose(d, token);
     if (proposed.outcome !== "proposed") return { status: proposed.outcome };
     return confirmFromLink(d, {
       token,
@@ -273,7 +254,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         changes: [],
         removals: [],
       });
-      const proposed = await proposeFromLink(d, { token, taskText: "beets" });
+      const proposed = await propose(d, token);
       expect(proposed.outcome).toBe("proposed");
       const declined = await confirmFromLink(d, {
         token,
@@ -292,6 +273,71 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         where revision.sales_location_id = ${salesLocationId} and revision.is_current
       `;
       expect(entries.map((row) => row.item_name)).toEqual(["carrots"]);
+    });
+
+    it("accepts only a structured web edit and returns the published rows after confirmation", async () => {
+      const { token, salesLocationId } = await farmer();
+      const proposedResponse = await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token,
+            action: "propose",
+            edit: {
+              additions: [{ itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$6" }],
+              changes: [],
+              removals: [],
+            },
+          }),
+        }),
+      );
+      expect(proposedResponse.status).toBe(200);
+      const proposed = (await proposedResponse.json()) as {
+        proposalId: string;
+        confirmationText: string;
+      };
+      expect(proposed.confirmationText).toContain("Eggs (12 dozen, $6)");
+
+      const confirmedResponse = await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token,
+            action: "confirm",
+            proposalId: proposed.proposalId,
+            confirmationText: proposed.confirmationText,
+          }),
+        }),
+      );
+      expect(confirmedResponse.status).toBe(200);
+      expect(await confirmedResponse.json()).toMatchObject({
+        status: "published",
+        currentEntries: [
+          { itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$6" },
+        ],
+      });
+      expect(await sql()`
+        select item_name, quantity, unit, price_text
+        from inventory_entries where sales_location_id = ${salesLocationId}
+      `).toEqual([{ item_name: "Eggs", quantity: 12, unit: "dozen", price_text: "$6" }]);
+    });
+
+    it("refuses free text at the web boundary without opening a proposal", async () => {
+      const { token, contactHash } = await farmer();
+      const response = await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ token, action: "propose", text: "eggs and kale" }),
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await sql()`
+        select id from inventory_publication_proposals where sender_hash = ${contactHash}
+      `).toEqual([]);
     });
   });
 
@@ -422,10 +468,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         removals: [],
       });
 
-      const proposed = await proposeFromLink(d, {
-        token,
-        taskText: "invented squash",
-      });
+      const proposed = await propose(d, token);
       expect(proposed.outcome).toBe("proposed");
 
       // Proposing is not publishing. Nothing is current, and nothing is visible to a
@@ -495,10 +538,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         changes: [],
         removals: [],
       });
-      const victimProposal = await proposeFromLink(victimDeps, {
-        token: victim.token,
-        taskText: "victim plums",
-      });
+      const victimProposal = await propose(victimDeps, victim.token);
       expect(victimProposal.outcome).toBe("proposed");
       const victimProposalId =
         victimProposal.outcome === "proposed" ? victimProposal.proposalId : "";
@@ -558,15 +598,13 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       const victim = await farmer();
       const attacker = await farmer();
 
-      const victimProposal = await proposeFromLink(
-        deps({
+      const victimDeps = deps({
           kind: "edits",
           additions: [{ itemName: "victim pears" }],
           changes: [],
           removals: [],
-        }),
-        { token: victim.token, taskText: "victim pears" },
-      );
+        });
+      const victimProposal = await propose(victimDeps, victim.token);
       const victimProposalId =
         victimProposal.outcome === "proposed" ? victimProposal.proposalId : "";
 
@@ -608,10 +646,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
 
       // Everything the surface can do, done.
       await publish(token, ["beans"]);
-      await proposeFromLink(
-        deps({ kind: "clear_all" }),
-        { token, taskText: "all gone" },
-      );
+      await propose(deps({ kind: "clear_all" }), token);
 
       const after = await sql()`
         select
@@ -668,28 +703,6 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       expect(serialized).not.toMatch(/\+1\d{10}/);
     });
 
-    it("sends only the farmer's own text and their own entry ids across the model seam", async () => {
-      // Golden Rule #5 at the seam: a leaked link must not become a way to read another
-      // actor's data THROUGH the model. The projection is what prevents it.
-      const other = await farmer();
-      await publish(other.token, ["other farm's secret crop"]);
-
-      const { token } = await farmer();
-      const d = deps({
-        kind: "edits",
-        additions: [{ itemName: "my own kale" }],
-        changes: [],
-        removals: [],
-      });
-      await proposeFromLink(d, { token, taskText: "my own kale" });
-
-      const seen = d.interpreter.seen;
-      expect(seen).toHaveLength(1);
-      expect(seen[0]?.taskText).toBe("my own kale");
-      // Nothing about the other farm crossed the boundary.
-      expect(JSON.stringify(seen)).not.toContain("other farm's secret crop");
-      expect(JSON.stringify(seen)).not.toContain(other.farmId);
-    });
   });
 
   // ── Revocation: the safety net that makes the rest recoverable ──────────────────────
@@ -706,7 +719,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         removals: [],
       });
       expect(
-        (await proposeFromLink(d, { token, taskText: "before" })).outcome,
+        (await propose(d, token)).outcome,
       ).toBe("proposed");
 
       await revokeFarmerAuthorization(database(), {
@@ -717,7 +730,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
 
       // Dead on the very next request. Nothing expired; nothing was cached.
       expect(
-        (await proposeFromLink(d, { token, taskText: "after" })).outcome,
+        (await propose(d, token)).outcome,
       ).toBe("not_authorized");
     });
 
@@ -731,7 +744,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         changes: [],
         removals: [],
       });
-      const proposed = await proposeFromLink(d, { token, taskText: "in flight" });
+      const proposed = await propose(d, token);
       expect(proposed.outcome).toBe("proposed");
 
       await revokeFarmerAuthorization(database(), {
@@ -770,12 +783,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       ]) {
         expect(await resolveStandFromToken(database(), token), token).toBeNull();
         expect(
-          (
-            await proposeFromLink(deps({ kind: "clear_all" }), {
-              token,
-              taskText: "anything",
-            })
-          ).outcome,
+          (await propose(deps({ kind: "clear_all" }), token)).outcome,
           token,
         ).toBe("not_authorized");
       }
@@ -822,7 +830,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         changes: [],
         removals: [],
       });
-      const proposed = await proposeFromLink(d, { token, taskText: "unapproved" });
+      const proposed = await propose(d, token);
 
       await sql()`
         update farm_approvals set revoked_at = ${at(4).toISOString()}
@@ -850,15 +858,13 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       const { token, contactHash } = await farmer();
 
       for (const item of ["first", "second", "third"]) {
-        await proposeFromLink(
-          deps({
+        const d = deps({
             kind: "edits",
             additions: [{ itemName: item }],
             changes: [],
             removals: [],
-          }),
-          { token, taskText: item },
-        );
+          });
+        await propose(d, token);
       }
 
       const open = await sql()`
@@ -877,7 +883,7 @@ describe("the farmer web surface behind a standing link (integration)", () => {
         changes: [],
         removals: [],
       });
-      const proposed = await proposeFromLink(d, { token, taskText: "one only" });
+      const proposed = await propose(d, token);
       const proposalId =
         proposed.outcome === "proposed" ? proposed.proposalId : "";
 

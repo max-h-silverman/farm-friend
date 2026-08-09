@@ -7,178 +7,124 @@ import { describe, expect, it, vi } from "vitest";
 import { StandForm } from "./stand-form";
 
 const CURRENT = [
-  { entryId: "e1", itemName: "Eggs", quantity: 12, unit: "dozen" },
+  { entryId: "e1", itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$6" },
   { entryId: "e2", itemName: "Kale" },
 ];
 
+function stubFetch(body: unknown) {
+  const fetchMock = vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => body,
+  })) as unknown as typeof fetch;
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock as unknown as ReturnType<typeof vi.fn>;
+}
+
 describe("StandForm", () => {
-  it("keeps a daily availability update focused on one primary task", () => {
-    render(<StandForm token="private-token" currentEntries={[]} />);
-
-    // The primary task is now editing the listing directly. Free text remains, as the
-    // escape hatch for what chips cannot say, and is labelled as the alternative it is.
-    expect(screen.getByLabelText(/add something/i)).toBeVisible();
-    expect(screen.getByLabelText(/in your own words/i)).toBeVisible();
-    expect(screen.queryByRole("heading", { name: "Also selling here" })).not.toBeInTheDocument();
-  });
-
-  // A farmer cannot reason about "what changed" without seeing what is there now. Worse,
-  // they cannot tell whether typing "eggs and bok choy" ADDS to their listing or REPLACES
-  // it — and those differ by whether kale survives. Showing the listing makes the question
-  // answerable on the page instead of after the fact in a confirmation.
-  it("shows what the stand is currently listing", () => {
+  it("presents one direct dated-stock editor with no prose or SMS proxy", () => {
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
-    expect(screen.getByText(/Eggs/)).toBeVisible();
-    expect(screen.getByText(/Kale/)).toBeVisible();
+    expect(screen.getByRole("group", { name: /what is in stock today/i })).toBeVisible();
+    expect(screen.queryByLabelText(/in your own words/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/text|sms/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/does not change what your stand usually sells/i)).toBeVisible();
   });
 
-  it("leaves untouched items visibly untouched, rather than explaining that it will", async () => {
-    // This replaces a sentence that TOLD the farmer omission preserves. With the listing
-    // directly editable the rule is shown instead of stated: removing one chip marks that
-    // chip and nothing else, so "does this add or replace?" is not a question the screen
-    // raises. Copy explaining a rule is weaker than an interface that embodies it.
+  it("shows the exact pending-or-published base the next edit targets", () => {
+    render(<StandForm token="private-token" currentEntries={CURRENT} />);
+
+    expect(screen.getByText("Eggs")).toBeVisible();
+    expect(screen.getByText("Kale")).toBeVisible();
+  });
+
+  it("gives existing and newly added items the same stock, quantity, unit, and price controls", async () => {
     const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) })));
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
-    await user.click(screen.getByRole("button", { name: /remove kale/i }));
+    expect(screen.getByRole("switch", { name: "Eggs in stock" })).toBeChecked();
+    expect(screen.getByLabelText("Quantity for Eggs")).toHaveValue("12");
+    expect(screen.getByLabelText("Unit for Eggs")).toHaveValue("dozen");
+    expect(screen.getByLabelText("Price for Eggs")).toHaveValue("$6");
 
-    // Eggs was never touched and still offers its own remove control, unmarked.
-    expect(screen.getByRole("button", { name: /remove eggs/i })).toBeVisible();
+    await user.type(screen.getByLabelText(/add an in-stock item/i), "Plum jam");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+
+    expect(screen.getByRole("switch", { name: "Plum jam in stock" })).toBeChecked();
+    expect(screen.getByLabelText("Quantity for Plum jam")).toHaveValue("");
+    expect(screen.getByLabelText("Unit for Plum jam")).toHaveValue("");
+    expect(screen.getByLabelText("Price for Plum jam")).toHaveValue("");
   });
 
-  it("tells a farmer with nothing listed that this is their first update", () => {
-    render(<StandForm token="private-token" currentEntries={[]} />);
-
-    // An empty listing must not render an empty "currently showing" box, which reads as
-    // a loading failure rather than as a stand that has published nothing yet.
-    expect(screen.getByText(/nothing listed|no items/i)).toBeVisible();
-  });
-
-  // A stand listing is a SET OF SHORT STRINGS, so direct manipulation beats composing a
-  // sentence about it. Removing an item is one tap, not "sold out of kale" typed out. The
-  // chips post the typed edit shape directly — no model call — and still reach the same
-  // confirmation gate, so nothing about who may publish changes.
-  describe("editing by chip", () => {
-    function stubFetch(body: unknown) {
-      const fetchMock = vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => body,
-      })) as unknown as typeof fetch;
-      vi.stubGlobal("fetch", fetchMock);
-      return fetchMock as unknown as ReturnType<typeof vi.fn>;
-    }
-
-    it("offers a remove control on each listed item", () => {
-      render(<StandForm token="private-token" currentEntries={CURRENT} />);
-
-      expect(screen.getByRole("button", { name: /remove eggs/i })).toBeVisible();
-      expect(screen.getByRole("button", { name: /remove kale/i })).toBeVisible();
+  it("emits additions, removals, and field changes as one structured edit", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({
+      outcome: "proposed",
+      proposalId: "p1",
+      confirmationText:
+        "Your stand will show:\n- Eggs (6 dozen, $5)\n- Plum jam (3 jars, $8)\nTaking off: Kale.",
     });
+    render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
-    it("posts a structured removal rather than a sentence for the model to re-parse", async () => {
-      const user = userEvent.setup();
-      const fetchMock = stubFetch({
-        outcome: "proposed",
-        proposalId: "p1",
-        confirmationText: "Your stand will show:\n- Eggs (12 dozen)\nTaking off: Kale.",
-      });
-      render(<StandForm token="private-token" currentEntries={CURRENT} />);
+    await user.clear(screen.getByLabelText("Quantity for Eggs"));
+    await user.type(screen.getByLabelText("Quantity for Eggs"), "6");
+    await user.clear(screen.getByLabelText("Price for Eggs"));
+    await user.type(screen.getByLabelText("Price for Eggs"), "$5");
+    await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
+    await user.type(screen.getByLabelText(/add an in-stock item/i), "Plum jam");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    await user.type(screen.getByLabelText("Quantity for Plum jam"), "3");
+    await user.type(screen.getByLabelText("Unit for Plum jam"), "jars");
+    await user.type(screen.getByLabelText("Price for Plum jam"), "$8");
+    await user.click(screen.getByRole("button", { name: "Preview update" }));
 
-      await user.click(screen.getByRole("button", { name: /remove kale/i }));
-      await user.click(screen.getByRole("button", { name: "Preview update" }));
-
-      const body = JSON.parse(
-        (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
-      ) as Record<string, unknown>;
-      // The three arrays only. `kind` is supplied by the server's parser, which is what
-      // decides the shape is an edit — a client-declared kind would be a client deciding it.
-      expect(body.edit).toEqual({
-        additions: [],
-        changes: [],
+    const body = JSON.parse(
+      (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
+    ) as Record<string, unknown>;
+    expect(body).toEqual({
+      token: "private-token",
+      action: "propose",
+      edit: {
+        additions: [{ itemName: "Plum jam", quantity: 3, unit: "jars", priceText: "$8" }],
+        changes: [{ entryId: "e1", quantity: 6, priceText: "$5" }],
         removals: [{ entryId: "e2" }],
-      });
-      // The free-text field is not also sent: two descriptions of one change is refused.
-      expect(body.text).toBeUndefined();
+      },
     });
+    expect(body.text).toBeUndefined();
+  });
 
-    it("marks a removed item without publishing anything yet", async () => {
-      const user = userEvent.setup();
-      stubFetch({});
-      render(<StandForm token="private-token" currentEntries={CURRENT} />);
+  it("does not open a proposal for an unchanged or fully reverted editor", async () => {
+    const user = userEvent.setup();
+    render(<StandForm token="private-token" currentEntries={CURRENT} />);
+    const preview = screen.getByRole("button", { name: "Preview update" });
 
-      await user.click(screen.getByRole("button", { name: /remove kale/i }));
+    expect(preview).toBeDisabled();
+    await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
+    expect(preview).toBeEnabled();
+    await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
+    expect(preview).toBeDisabled();
+  });
 
-      // Struck through and undoable — the tap is an edit in progress, not a publication.
-      expect(screen.getByRole("button", { name: /undo|keep kale/i })).toBeVisible();
+  it("keeps exact preview and explicit confirmation as the only publish boundary", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({
+      outcome: "proposed",
+      proposalId: "p1",
+      confirmationText: "Your stand will show:\n- Eggs (6 dozen, $6)\n- Kale",
     });
+    render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
-    it("lets a farmer undo a removal before previewing", async () => {
-      const user = userEvent.setup();
-      stubFetch({});
-      render(<StandForm token="private-token" currentEntries={CURRENT} />);
+    await user.clear(screen.getByLabelText("Quantity for Eggs"));
+    await user.type(screen.getByLabelText("Quantity for Eggs"), "6");
+    await user.click(screen.getByRole("button", { name: "Preview update" }));
 
-      await user.click(screen.getByRole("button", { name: /remove kale/i }));
-      await user.click(screen.getByRole("button", { name: /undo|keep kale/i }));
+    expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
+      "Eggs (6 dozen, $6)",
+    );
+    expect(screen.getByText("Nothing has changed yet.")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      expect(screen.getByRole("button", { name: /remove kale/i })).toBeVisible();
-    });
-
-    it("adds a new item as a structured addition", async () => {
-      const user = userEvent.setup();
-      const fetchMock = stubFetch({
-        outcome: "proposed",
-        proposalId: "p1",
-        confirmationText: "Your stand will show:\n- Eggs\n- Kale\n- Plum jam",
-      });
-      render(<StandForm token="private-token" currentEntries={CURRENT} />);
-
-      await user.type(screen.getByLabelText(/add something/i), "Plum jam");
-      await user.click(screen.getByRole("button", { name: /^add$/i }));
-      await user.click(screen.getByRole("button", { name: "Preview update" }));
-
-      const body = JSON.parse(
-        (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
-      ) as Record<string, unknown>;
-      expect(body.edit).toMatchObject({
-        additions: [{ itemName: "Plum jam" }],
-        removals: [],
-      });
-    });
-
-    it("marks the committing control explicitly, not by document position", async () => {
-      // The stylesheet filled `button:first-of-type` green, written when this screen had one
-      // button. Once the listing became editable the first button on the page was a chip's
-      // ×, so the control that TAKES AN ITEM OFF rendered as the one that publishes. Class
-      // names are asserted because that is what the CSS selects on; position is not intent.
-      const user = userEvent.setup();
-      stubFetch({
-        outcome: "proposed",
-        proposalId: "p1",
-        confirmationText: "Your stand will show:\n- Eggs (12 dozen)",
-      });
-      render(<StandForm token="private-token" currentEntries={CURRENT} />);
-
-      expect(screen.getByRole("button", { name: /remove kale/i })).toHaveClass(
-        "farmer-chip-action",
-      );
-
-      await user.click(screen.getByRole("button", { name: /remove kale/i }));
-      await user.click(screen.getByRole("button", { name: "Preview update" }));
-
-      expect(
-        await screen.findByRole("button", { name: /confirm and publish/i }),
-      ).toHaveClass("farmer-form-affirmative");
-    });
-
-    it("cannot preview when nothing has been changed", () => {
-      render(<StandForm token="private-token" currentEntries={CURRENT} />);
-
-      // An edit that changes nothing would open a proposal whose only effect is to restate
-      // the current listing as freshly confirmed.
-      expect(screen.getByRole("button", { name: "Preview update" })).toBeDisabled();
-    });
+    await user.click(screen.getByRole("button", { name: "Confirm and publish" }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

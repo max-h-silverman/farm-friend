@@ -2838,7 +2838,7 @@ form.farmer-picker-next {
    listing became editable the first button on the page was a chip's × — so the control that
    takes an item off was styled as the one that commits. Position is not intent. */
 .farmer-form .farmer-form-affirmative,
-.farmer-form button.farmer-chip-preview {
+.farmer-form button.farmer-stock-preview {
   color: var(--card);
   background: var(--green);
   border-color: var(--green);
@@ -2847,201 +2847,6 @@ form.farmer-picker-next {
 .farmer-form button:disabled {
   opacity: 0.65;
   cursor: default;
-}
-
-/* What the stand is showing right now, above the box where a change is described. Reads as
-   a stated fact rather than an input: no border-heavy card competing with the textarea. */
-.farmer-current {
-  display: grid;
-  gap: 0.45rem;
-  padding: 0.85rem 1rem;
-  background: var(--green-soft);
-  border-radius: var(--radius);
-}
-
-.farmer-current h2 {
-  margin: 0;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--ink-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.farmer-current-list {
-  display: grid;
-  gap: 0.2rem;
-  margin: 0;
-  padding-left: 1.1rem;
-  color: var(--ink);
-}
-
-.farmer-current-empty,
-.farmer-current-rule {
-  margin: 0;
-  font-size: 0.92rem;
-  color: var(--ink-soft);
-}
-
-/* The listing as directly editable chips. Each is a full row rather than a wrapped pill:
-   an item carries its quantity and price ("Eggs (12 dozen)"), which a pill truncates, and
-   a row gives the remove control a thumb-sized target at a predictable edge. */
-.farmer-chips {
-  display: grid;
-  gap: 0.4rem;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.farmer-chip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  min-height: 48px;
-  padding: 0.4rem 0.4rem 0.4rem 0.85rem;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-
-/* Struck through and dimmed, never removed from the list: a farmer must be able to see
-   what they are about to take off, and undo it, before anything publishes. */
-.farmer-chip--removed .farmer-chip-label {
-  color: var(--ink-faint);
-  text-decoration: line-through;
-}
-
-.farmer-chip--removed {
-  background: transparent;
-  border-style: dashed;
-}
-
-.farmer-chip--added {
-  border-color: var(--green);
-  background: var(--green-soft);
-}
-
-.farmer-chip-label {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Quiet by design, and specific enough to stay quiet: taking an item off is a small,
-   reversible act, and it must never out-shout the control that publishes. */
-.farmer-form .farmer-chip-action,
-.farmer-chip-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0 0.6rem;
-  font: inherit;
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: var(--ink-soft);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.farmer-chip-action:hover {
-  background: var(--row-hover);
-  color: var(--ink);
-}
-
-.farmer-chip-add {
-  display: grid;
-  gap: 0.3rem;
-  margin-top: 0.85rem;
-}
-
-.farmer-chip-add-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.farmer-chip-add-row input {
-  flex: 1;
-  min-width: 0;
-  min-height: 48px;
-  padding: 0.6rem 0.8rem;
-  font: inherit;
-  color: var(--ink);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-
-.farmer-chip-add-button {
-  min-height: 48px;
-  padding: 0 1.1rem;
-  font: inherit;
-  font-weight: 600;
-  color: var(--ink);
-  background: var(--card);
-  border: 1px solid var(--green);
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-.farmer-chip-add-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* The commit for the chip path. Filled green like every other action that opens the
-   confirmation gate, so the farmer never has to learn which button publishes. */
-.farmer-chip-preview {
-  width: 100%;
-  min-height: 52px;
-  margin-top: 1rem;
-  font: inherit;
-  font-size: 1.05rem;
-  font-weight: 700;
-  color: var(--card);
-  background: var(--green);
-  border: 1px solid var(--green);
-  border-radius: 10px;
-  cursor: pointer;
-}
-
-.farmer-chip-preview:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* The escape hatch reads as secondary to the chips above it. */
-.farmer-form-freetext-label {
-  margin-top: 1.75rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
-  color: var(--ink-soft);
-}
-
-.farmer-form-freetext-button {
-  font-weight: 600;
-}
-
-/* Somewhere else to go, not the next step of the update above it. */
-.farmer-stand-elsewhere {
-  display: grid;
-  gap: 0.5rem;
-  margin-top: 1.75rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
-}
-
-.farmer-stand-elsewhere h2 {
-  margin: 0;
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: var(--ink-soft);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .farmer-confirmation {
@@ -5333,6 +5138,51 @@ button.admin-action-danger,
   text-align: center;
 }
 
+/* F-076 — the returning-farmer status editor reuses onboarding's item rows but edits a dated
+   inventory snapshot. Quantity, unit and price are three equal facts below the identity line;
+   keeping their labels visible makes the row readable without relying on placeholders. */
+.farmer-stock-editor {
+  margin-top: 0;
+}
+
+.farmer-stock-editor > .farmer-listing-inventory-subtitle {
+  padding-bottom: 0.15rem;
+}
+
+.farmer-stock-item-details {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.farmer-stock-item-details label {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+}
+
+.farmer-stock-item-details input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 0.45rem 0.55rem;
+  font: inherit;
+  font-size: 0.92rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.farmer-stock-item-details input:disabled {
+  opacity: 0.45;
+}
+
 .farmer-listing-item-add {
   display: flex;
   gap: 0.5rem;
@@ -5341,6 +5191,13 @@ button.admin-action-danger,
 .farmer-listing-item-add input {
   flex: 1;
   min-width: 0;
+  min-height: 44px;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 
 .farmer-form button.farmer-listing-item-add-button,
@@ -5349,6 +5206,14 @@ button.admin-action-danger,
   min-height: 44px;
   padding: 0 0.9rem;
   white-space: nowrap;
+}
+
+.farmer-form button.farmer-stock-preview {
+  width: 100%;
+  min-height: 52px;
+  margin-top: 1rem;
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
 .farmer-listing-items {

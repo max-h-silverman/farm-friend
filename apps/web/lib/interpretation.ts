@@ -4,14 +4,15 @@ import {
   projectClosure,
   renderProposedFarmerUpdate,
   validateInterpretation,
+  validateStructuredInventoryEdit,
   vashonLocalDate,
   type ClosureInstruction,
   type Clock,
   type InventoryCompositionBase,
-  type InventoryInterpretation,
   type InventoryInterpreter,
   type ProposedSnapshot,
   type SnapshotEntry,
+  type StructuredInventoryEdit,
 } from "@farm-friend/core";
 import { openOrReviseProposal, type Db } from "@farm-friend/db";
 
@@ -39,30 +40,32 @@ export interface InterpretationDeps {
 /**
  * What to compose a proposal FROM: the farmer's words, or an edit they built directly.
  *
- * The web form's chips express edits structurally — removing a chip already *is*
+ * The web form expresses edits structurally — turning an item off already *is*
  * `removals: [{entryId}]`. Rendering that into a sentence for the model to parse back into
  * the shape it started as would add a lossy step and make the model a dependency of an edit
  * that needs no interpreting. So a structured edit skips the MODEL.
  *
- * It skips nothing else. Both forms meet the same `validateInterpretation` against the same
- * retrieved snapshot, compose the same proposal, and reach the same confirmation gate — the
- * checks are not the model's work, they are code's, and they run either way.
+ * It skips nothing else. Both forms meet code-owned validation against the same retrieved
+ * snapshot, compose the same proposal, and reach the same confirmation gate.
  */
-export type InterpretationInput = {
+type InterpretationTarget = {
   senderHash: string;
   salesLocationId: string;
-} & (
-  | {
-      /** The farmer's own message text, for the model to interpret. */
-      taskText: string;
-      edit?: undefined;
-    }
-  | {
-      /** An edit the farmer built directly, already in the interpreter's output shape. */
-      edit: Extract<InventoryInterpretation, { kind: "edits" | "clear_all" }>;
-      taskText?: undefined;
-    }
-);
+};
+
+export type TextInterpretationInput = InterpretationTarget & {
+  /** The farmer's own message text, for the model to interpret. */
+  taskText: string;
+  edit?: undefined;
+};
+
+export type StructuredInterpretationInput = InterpretationTarget & {
+  /** A model-free edit the farmer built directly in the web editor. */
+  edit: StructuredInventoryEdit;
+  taskText?: undefined;
+};
+
+export type InterpretationInput = TextInterpretationInput | StructuredInterpretationInput;
 
 export type InterpretationOutcome =
   | {
@@ -225,8 +228,16 @@ async function compositionState(
  * A clarification outcome queues a question and creates no proposal; an interpretation
  * naming an entry outside the current snapshot is rejected without consequence.
  */
-export async function applyInterpretedInventory(
+export function applyInterpretedInventory(
   deps: InterpretationDeps,
+  input: TextInterpretationInput,
+): Promise<InterpretationOutcome>;
+export function applyInterpretedInventory(
+  deps: Pick<InterpretationDeps, "db" | "clock"> & { interpreter?: InventoryInterpreter },
+  input: StructuredInterpretationInput,
+): Promise<InterpretationOutcome>;
+export async function applyInterpretedInventory(
+  deps: Pick<InterpretationDeps, "db" | "clock"> & { interpreter?: InventoryInterpreter },
   input: InterpretationInput,
 ): Promise<InterpretationOutcome> {
   const state = await compositionState(
@@ -245,9 +256,12 @@ export async function applyInterpretedInventory(
     throw new Error("an interpretation needs either taskText or a structured edit");
   }
 
-  const raw =
-    input.edit !== undefined
-      ? input.edit
+  const raw = input.edit !== undefined
+    ? input.edit
+    : deps.interpreter === undefined
+      ? (() => {
+          throw new Error("text interpretation requires an interpreter");
+        })()
       : // Only the current task text and opaque identifiers cross the seam.
         await deps.interpreter.interpret({
           taskText: input.taskText as string,
@@ -259,7 +273,9 @@ export async function applyInterpretedInventory(
           currentLocalDate: vashonLocalDate(deps.clock.now()),
         });
 
-  const validated = validateInterpretation(raw, state.inventoryBase);
+  const validated = input.edit !== undefined
+    ? validateStructuredInventoryEdit(raw, state.inventoryBase)
+    : validateInterpretation(raw, state.inventoryBase);
   if (!validated.ok) {
     return { outcome: "rejected", reason: validated.reason };
   }
@@ -272,7 +288,7 @@ export async function applyInterpretedInventory(
     validated.value.kind === "edits" || validated.value.kind === "clear_all"
       ? validated.value
       : undefined;
-  const closureChange = validated.value.closure;
+  const closureChange = "closure" in validated.value ? validated.value.closure : undefined;
 
   const proposedInventory = inventoryChange
     ? applyInventoryEdits(

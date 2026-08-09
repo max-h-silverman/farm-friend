@@ -135,10 +135,6 @@ link** — a conditional with a test behind it rather than an unbypassable const
 - **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a
   verified `senderHash`; the onboarding form has no phone, so this needs an attribution decision
   first. Its own analysis allows "stays post-authorization" as a possible right answer.
-- **F-076 — quantity/price editing on the today's-stock chips.** Now also the one place the two
-  price shapes meet: `stand_items` is structured (F-092) while `inventory_entries.price_text` is
-  still free text, and onboarding writes today's stock by rendering the structured price into it.
-  Whether that column follows is the open question.
 - **B-001:** an unreproducible integration flake from 2026-07-25 whose failing test name was never
   captured. Filed as a watch item, not diagnosed — a load-dependent flake is what latent
   nondeterminism looks like. Distinct from **B-020**, the reproducible cross-suite deadlock: three

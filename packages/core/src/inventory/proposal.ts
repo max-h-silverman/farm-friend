@@ -53,6 +53,15 @@ export interface ProposedChange {
   approximation?: "some" | "limited" | "plentiful";
 }
 
+/** A direct editor can distinguish clearing a visible field from leaving it untouched. */
+export interface DirectProposedChange
+  extends Omit<ProposedChange, "quantity" | "unit" | "priceText" | "approximation"> {
+  quantity?: number | null;
+  unit?: string | null;
+  priceText?: string | null;
+  approximation?: "some" | "limited" | "plentiful" | null;
+}
+
 export interface ProposedRemoval {
   entryId: string;
 }
@@ -75,6 +84,16 @@ export type InventoryInterpretation =
   | { kind: "clear_all"; closure?: ClosureInstruction }
   | { kind: "closure"; closure: ClosureInstruction }
   | { kind: "clarification"; question: string };
+
+/** The model-free web editor's input contract; null clears an optional visible detail. */
+export type StructuredInventoryEdit =
+  | {
+      kind: "edits";
+      additions: ProposedAddition[];
+      changes: DirectProposedChange[];
+      removals: ProposedRemoval[];
+    }
+  | { kind: "clear_all" };
 
 /** The minimal projection the interpreter port receives. */
 export interface InventoryInterpretationRequest {
@@ -313,10 +332,58 @@ export function validateInterpretation(
   };
 }
 
-function withoutUndefined(entry: SnapshotEntry): SnapshotEntry {
+export type StructuredEditValidation =
+  | { ok: true; value: StructuredInventoryEdit }
+  | { ok: false; reason: string };
+
+/**
+ * Validate the direct editor with the same membership and shape rules as model output, while
+ * reserving explicit null-clears for this model-free boundary only.
+ */
+export function validateStructuredInventoryEdit(
+  candidate: unknown,
+  base: InventoryCompositionBase,
+): StructuredEditValidation {
+  if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+    return { ok: false, reason: "structured edit must be an object" };
+  }
+  const record = candidate as Record<string, unknown>;
+  if (record.kind === "clear_all") {
+    const validated = validateInterpretation(candidate, base);
+    if (!validated.ok) return validated;
+    return validated.value.kind === "clear_all"
+      ? { ok: true, value: { kind: "clear_all" } }
+      : { ok: false, reason: "structured edit must contain edits" };
+  }
+  if (record.kind !== "edits" || !Array.isArray(record.changes)) {
+    return { ok: false, reason: "structured edit must contain edits" };
+  }
+
+  const changesForSharedValidation = record.changes.map((change) => {
+    if (typeof change !== "object" || change === null || Array.isArray(change)) return change;
+    return Object.fromEntries(
+      Object.entries(change).filter(
+        ([key, value]) =>
+          value !== null ||
+          !["quantity", "unit", "priceText", "approximation"].includes(key),
+      ),
+    );
+  });
+  const validated = validateInterpretation(
+    { ...record, changes: changesForSharedValidation },
+    base,
+  );
+  if (!validated.ok) return validated;
+  if (validated.value.kind !== "edits") {
+    return { ok: false, reason: "structured edit must contain edits" };
+  }
+  return { ok: true, value: candidate as StructuredInventoryEdit };
+}
+
+function withoutNullish(entry: SnapshotEntry | DirectProposedChange): SnapshotEntry {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(entry)) {
-    if (value !== undefined) {
+    if (value !== undefined && value !== null) {
       result[key] = value;
     }
   }
@@ -330,7 +397,9 @@ function withoutUndefined(entry: SnapshotEntry): SnapshotEntry {
  */
 export function applyInventoryEdits(
   base: InventoryCompositionBase,
-  interpretation: Extract<InventoryInterpretation, { kind: "edits" | "clear_all" }>,
+  interpretation:
+    | Extract<InventoryInterpretation, { kind: "edits" | "clear_all" }>
+    | StructuredInventoryEdit,
   issueDraftEntryId: DraftEntryIdIssuer,
 ): ProposedSnapshot {
   const baseRevisionId =
@@ -378,7 +447,7 @@ export function applyInventoryEdits(
       continue;
     }
     const change = changeById.get(entry.entryId);
-    entries.push(change ? withoutUndefined({ ...entry, ...change }) : entry);
+    entries.push(change ? withoutNullish({ ...entry, ...change }) : entry);
   }
 
   for (const addition of interpretation.additions) {
@@ -388,7 +457,7 @@ export function applyInventoryEdits(
     }
     known.add(entryId);
     entries.push(
-      withoutUndefined({ entryId, ...addition } as SnapshotEntry),
+      withoutNullish({ entryId, ...addition } as SnapshotEntry),
     );
   }
 

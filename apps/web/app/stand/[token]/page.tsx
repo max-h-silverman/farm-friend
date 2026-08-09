@@ -65,7 +65,7 @@ export default async function StandPage({
     select name from sales_locations where id = ${stand.salesLocationId}
   `;
   // Scoped to the location AND sender the TOKEN resolved to, never ones named by the
-  // request. The sender matters: the chips must show the base this farmer's next edit will
+  // request. The sender matters: the editor must show the base this farmer's next edit will
   // be composed against, which is their own open proposal when they have one.
   const currentEntries = await readCurrentStandEntries(
     db,
@@ -122,8 +122,7 @@ export default async function StandPage({
               directly editable, leading with prose would point a farmer at the slower path.
             */}
             <p className="farmer-form-note">
-              Take things off, add what you have, or write it out. We&apos;ll show you exactly
-              what people will see, and{" "}
+              Update what is in stock today. We&apos;ll show you exactly what people will see, and{" "}
               <strong>nothing changes until you confirm it</strong>.
             </p>
             <StandForm token={params.token} currentEntries={currentEntries} />
