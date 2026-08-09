@@ -7,18 +7,23 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production Postgres `neondb` has **34 migrations** (`0000`–`0033`);
-Cloud Run web is `farm-friend-web-00047-2d8` and worker is `farm-friend-worker-00044-lxh`. Both run
-digest `sha256:d5379a52198d29809517175f266e48a8f3749a51ba85cf6dcca6238c7e20623d`.
+Farm Friend is **pre-go-live**. Production Postgres `neondb` has **36 migrations** (`0000`–`0035`);
+Cloud Run web is `farm-friend-web-00048-g6r` and worker is `farm-friend-worker-00045-ctn`. Both run
+digest `sha256:a2baa845810781c22195295ae74f90e93528462659c7a3073335380da2437882`.
 
-Main includes F-076's stock editor and F-097's farmer-surface pass; production has neither. **Main
-carries one unapplied migration, `0034_invitation_pending_cadence`**, so production is a migration
-behind where it was previously level. Its next deployment must start from a fresh live
-revision/schema/source audit, include the merged main artifact, and apply 0034.
+**Production is level with main at `33bc946`** (deployed 2026-08-09): F-076's stock editor, F-097's
+farmer-surface pass and F-098 are all live, and migrations `0034_invitation_pending_cadence` and
+`0035_self_issued_invitation` are applied — verified by schema effect against `information_schema`,
+not by the migrator's success message. No unapplied migration remains.
 
-**The next tranche is that deploy, and it is GATED on max's own local verification first** (max,
-2026-08-09). He walks the farmer surfaces at phone width before anything ships; a session that
-opens by deploying has skipped the gate.
+Verified against the deployed revision on 2026-08-09: the served favicon (`/icon.png`, 39,243 bytes),
+the F-098 farmer surfaces (one commit button on the details tab, reminders on the stock tab, the new
+link copy), and one web stand update end to end against a test farm — confirmed by the changed row
+and its advanced `updated_at`, then restored. `deploy_assertions.py` and `served_card_assertions.py`
+both passed; the plan carried 55/55 safety assertions and changed only the image digest.
+
+**Max walks the farmer surfaces at phone width before a tranche ships.** He confirmed that pass for
+this deploy; a session that opens by deploying has skipped the gate.
 
 **Data, schema and runtime code are current.** Neon has all structured-price and pending-stock
 columns, no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
@@ -45,9 +50,11 @@ Telnyx remains untested live.
 
 ## Verification
 
-**Latest, 2026-08-09:** **1743 unit**, **851 integration**, typecheck, lint and production build.
-Sabotage lists and what each check proved: [SESSION_LOG.md](SESSION_LOG.md). Production
-verification below still describes the unchanged deployed digest.
+**Latest, 2026-08-09:** **1763 unit**, typecheck, lint and the production Cloud Build. Integration is
+green for every suite touching F-098, including the self-issued claim end to end from an empty
+schema; four unrelated suites fail under cross-suite contention and fail the same way on a clean
+tree (B-020 below). Sabotage lists and what each check proved:
+[SESSION_LOG.md](SESSION_LOG.md).
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
