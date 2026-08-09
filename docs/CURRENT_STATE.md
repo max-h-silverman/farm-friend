@@ -7,26 +7,19 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **30 migrations**
-(`0000`–`0029`). Cloud Run web is revision `farm-friend-web-00046-jth`; worker is
-`farm-friend-worker-00043-2mx`.
+Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **34 migrations**
+(`0000`–`0033`). Cloud Run web is revision `farm-friend-web-00047-2d8`; worker is
+`farm-friend-worker-00044-lxh`.
 
-**The DATA is current; the CODE is deliberately hotfixed from the last release.** Both services run
-immutable image digest `sha256:dfff942104af009c3cbfe67b2bf2ce1ad496d41d86ecb33c4d4902be1afb5faa`,
-built from `57cd404`: deployed baseline `6ab087e`
-plus the contact-only onboarding-location fix, and nothing else. The same fix is merged into local
-`main` at `c581e1f`; every other change after `6ab087e` remains undeployed. **A full deploy is still
-owed and is the next release step.**
+**The DATA and runtime code are current.** Both services run immutable image digest
+`sha256:d5379a52198d29809517175f266e48a8f3749a51ba85cf6dcca6238c7e20623d`, built from
+`b4fa60f`: pushed `main` at `40466fd`, the contact-only onboarding-location fix at `c581e1f`, and
+the first deployment-record commit. The status correction after that image changes no runtime.
 
-**Four migrations are written and unapplied in production**: `0030_stand_item_price`,
-`0031_invitation_pending_stock` (F-090), `0032_structured_item_price` (F-092) and
-`0033_price_basis_unit` (B-041). All verified by effect against a fresh database and applied to
-local dev. `0031` **recreates the `inventory_revision_source` enum** to add `web`. `0032` **drops
-`stand_items.price_text`** — safe because no row anywhere has ever carried a price (285 CSV stands,
-one dollar sign, and it is a delivery threshold; 37 local stand items, none priced). `0033`
-rewrites `stand_items_price_complete` and adds `stand_items_price_basis_unit`. It changes no
-column — only which shapes the price columns admit — and it depends on `0032` having run first,
-which the journal order guarantees.
+**Migrations `0030`–`0033` are applied in production.** Verified directly from Neon on 2026-08-08:
+34 ledger rows; `farmer_invitations.pending_stock`, `sales_locations.prices_public`, and all four
+structured `stand_items.price_*` columns exist; `stand_items.price_text` is absent; and the final
+price-completeness, price-unit, and placeable-contact-only constraints have their intended forms.
 
 **Production data was rebuilt from the CSVs on 2026-08-08.** Verified counts after the final
 re-seed: 35 farms / 35 sales locations / 35 live approvals; 35 `farm_links`, 53 payment methods, 10
@@ -42,8 +35,10 @@ copy of that evidence.
 (`bootstrap-administrator.ts`) and the farm email roster (`ingest-farm-emails.ts`, which must reuse
 the stored `EMAIL_HASH_SALT` or no farmer can verify). Neither is in the CSVs.
 
-**Nothing has been exercised against Telnyx or in a browser on production.** The `START` onboarding
-path is proven through the real webhook handler against real Postgres only.
+**Nothing has been exercised against Telnyx on production.** The `START` onboarding path is proven
+through the real webhook handler against real Postgres only. The four-step onboarding form was
+exercised in a production browser through the contact-only submission that exposed this writer bug;
+the corrected submission has not yet been retried with that invitation.
 
 ### Secrets
 
@@ -59,13 +54,13 @@ path is proven through the real webhook handler against real Postgres only.
 
 ## Verification
 
-**Latest, 2026-08-08** (contact-only onboarding hotfix): local `main` passed **1720 unit** and
-**849 integration** tests, typecheck and lint. The production hotfix branch passed **1580 unit**,
-all **42 onboarding-listing integration** tests against fresh local Postgres, typecheck and lint.
-The regression test was sabotaged by restoring the rejection and failed on the exact contact-only
-case. The deployment plan passed **55/55** assertions; both serving revisions were verified newer
-than every mounted secret version, and the served vCard passed its byte-level contract. No model
-seam changed, so no `evals`/`evals:live` was owed.
+**Latest, 2026-08-08** (contact-only onboarding fix): local `main` passed **1720 unit** and
+**849 integration** tests, typecheck and lint; all **52 onboarding-listing integration** tests also
+passed independently against fresh local Postgres. The regression test was sabotaged by restoring
+the rejection and failed on the exact contact-only case. The final image-only deployment plan
+passed **55/55** assertions; both serving revisions are ready on the same digest, newer than every
+mounted secret version, with 100% web traffic, and the served vCard passed its byte-level contract.
+No model seam changed, so no `evals`/`evals:live` was owed.
 
 Sabotaged before believing: inverting `standItemPriceNeedsUnit` fails 5 renderer tests; restoring
 the value-sniffing unit control fails B-040's test; `CHECK (true)` fails the constraint test;
@@ -155,7 +150,6 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Owed data runs and live checks**
 
-- **A deploy is owed**, including migrations `0030`/`0031`/`0032`/`0033`.
 - **B-024 is fixed in the SEEDER but not in the live row.** Handpicked Homestead's home address
   was still published as a visitable stand as of the 2026-08-08 rebuild, which ran the old
   classifier. The fix takes effect only on a re-seed, so production must be **re-seeded or the row
