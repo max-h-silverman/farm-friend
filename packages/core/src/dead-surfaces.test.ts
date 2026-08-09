@@ -15,12 +15,18 @@ function executableSource(relativePath: string): string {
 }
 
 describe("admin routes expose only live browser contracts (B-033)", () => {
+  // Each mutation route paired with the page that actually reads its data. The three message
+  // queues share one page now: "Customer reports", "Stock reports" and the never-linked
+  // /admin/stand-data were three destinations for one kind of work, and a volunteer could not
+  // tell the first two apart by name. The pairing below is what keeps that merge honest — a
+  // route whose reader stops being called on its page fails here.
   const serverRenderedQueues = [
-    ["apps/web/app/api/admin/farms/route.ts", "apps/web/app/admin/page.tsx", "listFarmsForApproval"],
-    ["apps/web/app/api/admin/farmers/route.ts", "apps/web/app/admin/farmers/page.tsx", "listFarmerAuthorizations"],
-    ["apps/web/app/api/admin/flags/route.ts", "apps/web/app/admin/flags/page.tsx", "listFlagsForReview"],
-    ["apps/web/app/api/admin/stock-out-reports/route.ts", "apps/web/app/admin/reports/page.tsx", "listStockOutReports"],
-    ["apps/web/app/api/admin/stand-data-flags/route.ts", "apps/web/app/admin/stand-data/page.tsx", "listStandDataFlags"],
+    ["apps/web/app/api/admin/farms/route.ts", "apps/web/app/admin/farms/page.tsx", "listFarmsForApproval"],
+    ["apps/web/app/api/admin/farmers/route.ts", "apps/web/app/admin/farms/page.tsx", "listFarmerAuthorizations"],
+    ["apps/web/app/api/admin/flags/route.ts", "apps/web/app/admin/messages/page.tsx", "listFlagsForReview"],
+    ["apps/web/app/api/admin/stock-out-reports/route.ts", "apps/web/app/admin/messages/page.tsx", "listStockOutReports"],
+    ["apps/web/app/api/admin/stand-data-flags/route.ts", "apps/web/app/admin/messages/page.tsx", "listStandDataFlags"],
+    ["apps/web/app/api/admin/stands/route.ts", "apps/web/app/admin/farms/page.tsx", "listStandsForAdministration"],
   ] as const;
 
   it.each(serverRenderedQueues)(

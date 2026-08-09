@@ -1,16 +1,12 @@
 import { headers } from "next/headers";
 import {
-  listFarmerAuthorizations,
-  listFarmsAwaitingOnboarding,
   listFarmsForApproval,
   listOpenFarmerOnboardingRequests,
-  listUsersForAdministration,
 } from "@farm-friend/db";
 import { resolveAdministrator } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { FarmerQueue } from "./farmer-queue";
 import { AdminShell, SignedOutAdmin } from "../admin-shell";
-import { UserList } from "../user-list";
 
 // The farmer authorization surface (F-040). Same server-side authorization shape as every
 // other admin page: an unauthenticated caller is never handed queue data, because it is
@@ -38,57 +34,30 @@ export default async function FarmersPage() {
     return <SignedOutAdmin />;
   }
 
-  const { db, clock } = publicReadContext();
-  const [requests, authorizations, farms, users, awaiting] = await Promise.all([
+  const { db } = publicReadContext();
+  const [requests, farms] = await Promise.all([
     listOpenFarmerOnboardingRequests(db),
-    listFarmerAuthorizations(db),
     listFarmsForApproval(db),
-    listUsersForAdministration(db),
-    listFarmsAwaitingOnboarding(db, clock.now()),
   ]);
 
   return (
     <AdminShell currentPath="/admin/farmers">
-      <section className="admin-priority admin-priority--farmer-access" aria-labelledby="farmer-access-heading">
-        <h2 id="farmer-access-heading" className="admin-section-title">Farmer access</h2>
-        <p className="admin-boundary-note">Only give access to a verified farm operator.</p>
-        <FarmerQueue
-          requests={requests.map((request) => ({
-            requestId: request.requestId,
-            senderMask: request.senderMask,
-            requestedAt: request.requestedAt.toISOString(),
-            farmId: request.farmId,
-            farmName: request.farmName,
-          }))}
-          authorizations={authorizations.map((authorization) => ({
-            authorizationId: authorization.authorizationId,
-            farmId: authorization.farmId,
-            farmName: authorization.farmName,
-            senderMask: authorization.senderMask,
-            authorizedAt: authorization.authorizedAt.toISOString(),
-            revokedAt: authorization.revokedAt?.toISOString() ?? null,
-            hasLiveLink: authorization.hasLiveLink,
-            stands: authorization.stands,
-            liveLinkStand: authorization.liveLinkStand,
-          }))}
-          farms={farms.map((farm) => ({ farmId: farm.farmId, name: farm.name }))}
-          awaitingOnboarding={awaiting.map((row) => ({
-            farmId: row.farmId,
-            farmName: row.farmName,
-            invitationState: row.invitationState,
-            invitationExpiresAt: row.invitationExpiresAt?.toISOString() ?? null,
-          }))}
-        />
-      </section>
-
-      <section className="admin-directory-section" aria-labelledby="people-list-heading">
-        <div className="admin-section-heading">
-          <div>
-            <h2 id="people-list-heading" className="admin-section-title">People directory</h2>
-          </div>
-        </div>
-        <UserList users={users} />
-      </section>
+      <h2 className="admin-section-title">Invite a farmer</h2>
+      <p className="admin-boundary-note">Only give access to a verified farm operator.</p>
+      <FarmerQueue
+        requests={requests.map((request) => ({
+          requestId: request.requestId,
+          senderMask: request.senderMask,
+          requestedAt: request.requestedAt.toISOString(),
+          farmId: request.farmId,
+          farmName: request.farmName,
+        }))}
+        // Retired farms are not offered: inviting a farmer to take over a farm VIGA has
+        // taken down would produce a link that onboards someone onto nothing.
+        farms={farms
+          .filter((farm) => !farm.retired)
+          .map((farm) => ({ farmId: farm.farmId, name: farm.name }))}
+      />
     </AdminShell>
   );
 }

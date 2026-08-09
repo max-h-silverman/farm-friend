@@ -10,7 +10,8 @@ import { ApprovalQueue } from "../app/admin/approval-queue";
 import { FarmerQueue } from "../app/admin/farmers/farmer-queue";
 import { FlagQueue } from "../app/admin/flags/flag-queue";
 import { ReportQueue } from "../app/admin/reports/report-queue";
-import { StandList } from "../app/admin/stand-list";
+import { FarmList, type AdminFarmCard } from "../app/admin/farm-list";
+import { StandDetails } from "../app/admin/stand-list";
 import { StandDataQueue } from "../app/admin/stand-data/stand-data-queue";
 import { UserList } from "../app/admin/user-list";
 import { StandForm } from "../app/stand/[token]/stand-form";
@@ -21,6 +22,22 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+/** A farm nobody can publish for yet — the state the setup-link control exists to resolve. */
+const waitingFarm: AdminFarmCard = {
+  farmId: "farm-waiting",
+  name: "Waiting Farm",
+  description: null,
+  approved: true,
+  approvedAt: "2026-08-01T10:00:00Z",
+  approvedByEmail: "board@vigavashon.org",
+  isTestFarm: false,
+  retired: false,
+  invitationState: "expired",
+  invitationExpiresAt: "2026-08-02T10:00:00Z",
+  access: [],
+  stands: [],
+};
 
 function response(status: number, payload: Record<string, unknown> = {}): Response {
   return new Response(JSON.stringify(payload), {
@@ -40,27 +57,24 @@ describe("the shared administrator shell", () => {
     );
 
     expect(
-      screen.getAllByRole(
-        "link",
-        { name: /^(home|farmers|customer reports|stock reports)$/i },
-      ),
-    ).toHaveLength(4);
+      screen.getAllByRole("link", { name: /^(home|farms|messages)$/i }),
+    ).toHaveLength(3);
     // F-071 — max: "change 'volunteer desk' to 'Home'". Asserted on the rendered link rather
     // than on source text, so a rename that misses the tab fails here.
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/admin");
     expect(screen.queryByRole("link", { name: /volunteer desk/i })).toBeNull();
-    expect(screen.getByRole("link", { name: "Farmers" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Farms" })).toHaveAttribute(
       "href",
-      "/admin/farmers",
+      "/admin/farms",
     );
-    expect(screen.getByRole("link", { name: "Customer reports" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute(
       "href",
-      "/admin/flags",
+      "/admin/messages",
     );
-    expect(screen.getByRole("link", { name: "Stock reports" })).toHaveAttribute(
-      "href",
-      "/admin/reports",
-    );
+    // The three merged destinations are gone. "Customer reports" and "Stock reports" were
+    // near-synonyms to a volunteer, and /admin/stand-data was never linked from anywhere.
+    expect(screen.queryByRole("link", { name: "Customer reports" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Stock reports" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Stands" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Stand data" })).toBeNull();
     expect(screen.queryByRole("banner")).toBeNull();
@@ -76,7 +90,7 @@ describe("the shared administrator shell", () => {
 
     render(
       <AdminShell
-        currentPath="/admin/flags"
+        currentPath="/admin/messages"
         fetcher={fetcher}
         onSignedOut={signedOut}
       >
@@ -84,7 +98,7 @@ describe("the shared administrator shell", () => {
       </AdminShell>,
     );
 
-    expect(screen.getByRole("link", { name: "Customer reports" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -135,7 +149,7 @@ describe("the stand list", () => {
   it("keeps the scan view to stand, status, open state, and approval, then reveals metadata on demand", async () => {
     const user = userEvent.setup();
     render(
-      <StandList
+      <StandDetails
         stands={[
           {
             standId: "stand-1",
@@ -145,6 +159,7 @@ describe("the stand list", () => {
             openState: "Open now",
             approved: true,
             retired: false,
+            retiredWithFarm: false,
             farmBucksStatus: "not_eligible",
             sections: [
               {
@@ -170,7 +185,6 @@ describe("the stand list", () => {
     expect(screen.getByText("North Stand")).toBeTruthy();
     expect(screen.getByText("Public")).toBeTruthy();
     expect(screen.getByText("Open now")).toBeTruthy();
-    expect(screen.getByText("Approved")).toBeTruthy();
     const details = screen.getByText("North Stand").closest("details");
     expect(details).toBeTruthy();
     expect(details).not.toHaveAttribute("open");
@@ -194,7 +208,7 @@ describe("the stand list", () => {
     const fetcher = vi.fn(async () => response(200));
     vi.stubGlobal("fetch", fetcher);
     render(
-      <StandList
+      <StandDetails
         stands={[{
           standId: "stand-farm-bucks",
           name: "North Stand",
@@ -203,6 +217,7 @@ describe("the stand list", () => {
           openState: "Open now",
           approved: true,
           retired: false,
+          retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
           sections: [{ title: "Other details", items: [["Farm Bucks", "Not reviewed"]] }],
         }]}
@@ -230,7 +245,7 @@ describe("the stand list", () => {
   // missing. The section states what it is in the vocabulary an operator arrives with.
   it("names removing a stand in the words an operator looks for", () => {
     render(
-      <StandList
+      <StandDetails
         stands={[{
           standId: "stand-vocab",
           name: "North Stand",
@@ -239,6 +254,7 @@ describe("the stand list", () => {
           openState: "Open now",
           approved: true,
           retired: false,
+          retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
           sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
         }]}
@@ -258,7 +274,7 @@ describe("the stand list", () => {
     const fetcher = vi.fn(async () => response(200, { status: "retired" }));
     vi.stubGlobal("fetch", fetcher);
     render(
-      <StandList
+      <StandDetails
         stands={[{
           standId: "stand-retire",
           name: "North Stand",
@@ -267,6 +283,7 @@ describe("the stand list", () => {
           openState: "Open now",
           approved: true,
           retired: false,
+          retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
           sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
         }]}
@@ -302,7 +319,7 @@ describe("the stand list", () => {
     const fetcher = vi.fn(async () => response(200, { status: "restored" }));
     vi.stubGlobal("fetch", fetcher);
     render(
-      <StandList
+      <StandDetails
         stands={[{
           standId: "stand-restore",
           name: "South Stand",
@@ -311,6 +328,7 @@ describe("the stand list", () => {
           openState: "Open now",
           approved: true,
           retired: true,
+          retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
           sections: [{ title: "Visit", items: [["Address", "9 Farm Lane"]] }],
         }]}
@@ -336,7 +354,7 @@ describe("the stand list", () => {
     const fetcher = vi.fn(async () => response(409, { status: "already_retired" }));
     vi.stubGlobal("fetch", fetcher);
     render(
-      <StandList
+      <StandDetails
         stands={[{
           standId: "stand-fail",
           name: "West Stand",
@@ -345,6 +363,7 @@ describe("the stand list", () => {
           openState: "Open now",
           approved: true,
           retired: false,
+          retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
           sections: [{ title: "Visit", items: [["Address", "3 Farm Lane"]] }],
         }]}
@@ -367,7 +386,7 @@ describe("administrator language", () => {
   it("uses map language and action-first labels in the stand and farmer queues", () => {
     render(
       <>
-        <StandList
+        <StandDetails
           stands={[
             {
               standId: "stand-language",
@@ -377,6 +396,7 @@ describe("administrator language", () => {
               openState: "Open now",
               approved: true,
               retired: false,
+              retiredWithFarm: false,
               farmBucksStatus: "not_eligible",
               sections: [{ title: "Visit", items: [["Visit in person", "Yes"]] }],
             },
@@ -384,7 +404,6 @@ describe("administrator language", () => {
         />
         <FarmerQueue
           requests={[]}
-          authorizations={[]}
           farms={[]}
         />
       </>,
@@ -394,8 +413,10 @@ describe("administrator language", () => {
     expect(screen.getByRole("heading", { name: "Invite a farmer to join" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Waiting for your decision" })).toBeTruthy();
     expect(screen.getByText("No requests.")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "People with farmer access" })).toBeTruthy();
     expect(screen.getByText("Contact")).toBeTruthy();
+    // Who can update a farm is the FARM card's subject now, not this queue's. The same farm
+    // appearing in both places under two different headings is what this restructure removed.
+    expect(screen.queryByRole("heading", { name: "People with farmer access" })).toBeNull();
     expect(screen.getByRole("combobox", { name: "Farm" })).toBeTruthy();
     expect(screen.queryByText("Waiting on you")).toBeNull();
     expect(screen.queryByText("Start here")).toBeNull();
@@ -543,22 +564,6 @@ describe("administrator queue interactions", () => {
         requests={[
           { requestId: "request-1", senderMask: "(•••) •••-0701", requestedAt: "2026-08-01T10:00:00Z" },
         ]}
-        authorizations={[
-          {
-            authorizationId: "authorization-1",
-            farmId: "farm-1",
-            farmName: "Example Farm",
-            senderMask: "(•••) •••-0702",
-            authorizedAt: "2026-08-01T10:00:00Z",
-            revokedAt: null,
-            stands: [
-              { salesLocationId: "stand-1", name: "North Stand" },
-              { salesLocationId: "stand-2", name: "South Stand" },
-            ],
-            hasLiveLink: false,
-            liveLinkStand: null,
-          },
-        ]}
         farms={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
@@ -566,30 +571,12 @@ describe("administrator queue interactions", () => {
     expect(document.body.textContent).not.toContain("+1206");
     await user.selectOptions(screen.getByRole("combobox", { name: "Which farm do they run?" }), "farm-1");
     await user.click(screen.getByRole("button", { name: "Give access" }));
-    expect(await screen.findByRole("status")).toHaveTextContent(/farmer access given/i);
-
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Stand this link can update" }),
-      "stand-2",
-    );
-    await user.click(screen.getByRole("button", { name: "Create link" }));
-    expect(fetcher).toHaveBeenNthCalledWith(
-      2,
-      "/api/admin/farmers",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({
-          action: "issue_link",
-          authorizationId: "authorization-1",
-          salesLocationId: "stand-2",
-        }),
-      }),
-    );
-    const copy = await screen.findByRole("button", { name: "Copy private link" });
-    await user.click(copy);
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      "https://ff.example/stand/private",
-    );
+    expect(await screen.findByRole("status")).toHaveTextContent(/access given/i);
+    // Names where the record now lives. "Reload to see their access record" told the operator
+    // to perform a browser action to find something the screen could have named.
+    expect(screen.getByRole("status")).toHaveTextContent(/Example Farm/);
+    expect(screen.getByRole("status")).toHaveTextContent(/farms tab/i);
+    expect(document.body.textContent).not.toContain("+1206");
   });
 
   it("prepares a farm-specific text invitation without requiring prior SMS enrollment", async () => {
@@ -607,7 +594,6 @@ describe("administrator queue interactions", () => {
     render(
       <FarmerQueue
         requests={[]}
-        authorizations={[]}
         farms={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
@@ -620,7 +606,7 @@ describe("administrator queue interactions", () => {
       "href",
       expect.stringContaining("sms:+12065550123?body="),
     );
-    await user.click(screen.getByText("Review invite details"));
+    await user.click(screen.getByText("See the message we prepared"));
     expect(screen.getByDisplayValue("https://ff.example/farmer/onboarding/invite-token")).toBeTruthy();
     expect(fetcher).toHaveBeenCalledWith(
       "/api/admin/farmers",
@@ -649,7 +635,6 @@ describe("administrator queue interactions", () => {
     render(
       <FarmerQueue
         requests={[]}
-        authorizations={[]}
         farms={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
@@ -689,7 +674,6 @@ describe("administrator queue interactions", () => {
     render(
       <FarmerQueue
         requests={[]}
-        authorizations={[]}
         farms={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
@@ -741,7 +725,6 @@ describe("administrator queue interactions", () => {
     render(
       <FarmerQueue
         requests={[]}
-        authorizations={[]}
         farms={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
@@ -760,7 +743,7 @@ describe("administrator queue interactions", () => {
     expect(screen.queryByText(/Copy failed/i)).not.toBeInTheDocument();
   });
 
-  it("sends a farmer who lost their link a new one, and says the old one is gone (F-071)", async () => {
+  it("sends a farmer who lost their link a new one, on the card that minted it (F-071)", async () => {
     const user = userEvent.setup();
     const fetcher = vi.fn().mockResolvedValueOnce(
       response(200, {
@@ -771,30 +754,22 @@ describe("administrator queue interactions", () => {
       }),
     );
     vi.stubGlobal("fetch", fetcher);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn(async () => undefined) },
+    });
 
-    render(
-      <FarmerQueue
-        requests={[]}
-        authorizations={[]}
-        farms={[{ farmId: "farm-waiting", name: "Waiting Farm" }]}
-        awaitingOnboarding={[
-          {
-            farmId: "farm-waiting",
-            farmName: "Waiting Farm",
-            invitationState: "expired",
-            invitationExpiresAt: "2026-07-01T10:00:00Z",
-          },
-        ]}
-      />,
-    );
+    render(<FarmList farms={[waitingFarm]} />);
 
-    expect(screen.getByRole("heading", { name: "Waiting Farm" })).toBeTruthy();
+    await user.click(screen.getAllByText("Waiting Farm")[0] as HTMLElement);
     // The operator must not be left thinking the old link can be recovered — it cannot, and
-    // the copy has to say so rather than letting them assume otherwise.
-    expect(screen.getByText(/link expired/i)).toBeTruthy();
-    expect(screen.getByText(/earlier links cannot be looked up/i)).toBeTruthy();
+    // the copy has to say so rather than letting them assume otherwise. Scoped to the section
+    // that owns the question, since the summary also flags the expiry as a state chip.
+    const access = screen.getByLabelText("Who can update Waiting Farm");
+    expect(access).toHaveTextContent(/setup link expired/i);
+    expect(access).toHaveTextContent(/earlier links cannot be looked up/i);
 
-    await user.click(screen.getByRole("button", { name: "New onboarding link for Waiting Farm" }));
+    await user.click(screen.getByRole("button", { name: "New setup link for Waiting Farm" }));
 
     // A fresh invitation for the SAME farm, through the mechanism that already exists. No
     // second endpoint, and no attempt to resurrect a token that is stored only as a hash.
@@ -809,21 +784,71 @@ describe("administrator queue interactions", () => {
         }),
       }),
     );
+
+    // The load-bearing half of this restructure: the link appears on the card whose button
+    // was pressed. It used to render in a separate "Invite a farmer" panel further up the
+    // page, so an operator pressed a button here and the only copy of an unrecoverable
+    // credential appeared somewhere else entirely.
+    const reveal = await screen.findByRole("group", { name: "New setup link for Waiting Farm" });
+    expect(reveal).toContainElement(
+      screen.getByDisplayValue("https://ff.example/farmer/onboarding/fresh-token"),
+    );
     expect(
-      await screen.findByDisplayValue("https://ff.example/farmer/onboarding/fresh-token"),
-    ).toBeTruthy();
+      screen.getByRole("group", { name: "New setup link for Waiting Farm" }),
+    ).toHaveTextContent(/only show it once/i);
   });
 
-  it("says nothing is waiting when every farm has a farmer (F-071)", async () => {
+  it("copies a new setup link without a second press, and says so", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(
+        response(200, { status: "created", channel: "sms", farmName: "Waiting Farm", link: "https://ff.example/x" }),
+      ),
+    );
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+
+    render(<FarmList farms={[waitingFarm]} />);
+    await user.click(screen.getAllByText("Waiting Farm")[0] as HTMLElement);
+    await user.click(screen.getByRole("button", { name: "New setup link for Waiting Farm" }));
+
+    expect(writeText).toHaveBeenCalledWith("https://ff.example/x");
+    expect(await screen.findByRole("status")).toHaveTextContent(/copied/i);
+  });
+
+  it("says nothing is waiting when a farm already has someone who can update it (F-071)", async () => {
+    const user = userEvent.setup();
     render(
-      <FarmerQueue
-        requests={[]}
-        authorizations={[]}
-        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
-        awaitingOnboarding={[]}
+      <FarmList
+        farms={[
+          {
+            ...waitingFarm,
+            farmId: "farm-covered",
+            name: "Covered Farm",
+            invitationState: "not_applicable",
+            invitationExpiresAt: null,
+            access: [
+              {
+                authorizationId: "auth-1",
+                senderMask: "(•••) •••-0701",
+                authorizedAt: "2026-08-01T10:00:00Z",
+                revokedAt: null,
+                stands: [],
+                hasLiveLink: false,
+                liveLinkStand: null,
+              },
+            ],
+          },
+        ]}
       />,
     );
-    expect(screen.getByText(/every farm has someone who can update it/i)).toBeTruthy();
+
+    await user.click(screen.getAllByText("Covered Farm")[0] as HTMLElement);
+    expect(screen.getByText(/can update since/i)).toBeTruthy();
+    // No setup-link offer for a farm that already has a farmer: the button would invite the
+    // operator to solve a problem this farm does not have.
+    expect(screen.queryByRole("button", { name: /new setup link/i })).toBeNull();
   });
 
   it("loads a retained thread honestly and marks the flagged message accessibly", async () => {

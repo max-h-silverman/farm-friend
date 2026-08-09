@@ -16,22 +16,33 @@ const page = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 
 const ADMIN_PAGES = [
   "apps/web/app/admin/page.tsx",
+  "apps/web/app/admin/farms/page.tsx",
   "apps/web/app/admin/farmers/page.tsx",
-  "apps/web/app/admin/flags/page.tsx",
-  "apps/web/app/admin/reports/page.tsx",
-  "apps/web/app/admin/stand-data/page.tsx",
+  "apps/web/app/admin/messages/page.tsx",
 ] as const;
 
 describe("the admin desk", () => {
-  it("starts with work that needs a decision and keeps stand records secondary", () => {
+  it("names every queue that can have pending work, and nothing else", () => {
+    // The desk is the complete list of what needs deciding. "Farms nobody can update" is the
+    // one that matters most here: it is routinely NOT empty and it used to be countable only
+    // by navigating to a screen that never said it had work waiting.
     const dashboard = page("apps/web/app/admin/page.tsx");
     expect(dashboard).toContain("Needs attention");
-    expect(dashboard).toContain("Farm approvals");
+    expect(dashboard).toContain("Farms waiting for approval");
+    expect(dashboard).toContain("Farms nobody can update");
     expect(dashboard).toContain("Farmer access requests");
-    expect(dashboard).toContain("Customer reports");
-    expect(dashboard).toContain("Stock reports");
-    expect(dashboard).toContain("Stand records ({stands.length})");
-    expect(dashboard).toContain("admin-secondary-disclosure");
+    expect(dashboard).toContain("Messages");
+    expect(dashboard).toContain("Stock-outs");
+  });
+
+  it("keeps browsable records off the desk", () => {
+    // Reference records moved to /admin/farms. The desk mixing "here is a decision" with
+    // "here is a list you can browse" is what made an operator guess which disclosure hid
+    // their task. Anchored on the disclosure CLASS, which is the construct that carried them.
+    const dashboard = page("apps/web/app/admin/page.tsx");
+    expect(dashboard).not.toContain("admin-secondary-disclosure");
+    expect(dashboard).not.toContain("Stand records");
+    expect(dashboard).not.toContain("Test farms");
   });
 
   it("repeats no page title or subtitle under the tabs (F-071)", () => {

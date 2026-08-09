@@ -5,11 +5,22 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { LoginForm } from "./login/login-form";
 
+/**
+ * Three destinations, each owning one subject.
+ *
+ * The console used to be organized by database table — one screen per queue — which is why a
+ * farm appeared six ways and no screen owned it. "Customer reports" and "Stock reports" were
+ * also near-synonyms to a volunteer: a stock-out IS a customer report.
+ *
+ * Home is what needs deciding, Farms is every record and control about a farm, Messages is
+ * everything a person sent us. `/admin/farmers` keeps the two acts that are about PEOPLE
+ * rather than a farm — an access request arrives from a phone with no farm attached — and is
+ * reached from the desk rather than the nav.
+ */
 const ADMIN_ROUTES = [
   { href: "/admin", label: "Home" },
-  { href: "/admin/farmers", label: "Farmers" },
-  { href: "/admin/flags", label: "Customer reports" },
-  { href: "/admin/reports", label: "Stock reports" },
+  { href: "/admin/farms", label: "Farms" },
+  { href: "/admin/messages", label: "Messages" },
 ] as const;
 
 /**
@@ -52,7 +63,7 @@ export function AdminShell({
   fetcher = fetch,
   onSignedOut,
 }: {
-  currentPath: (typeof ADMIN_ROUTES)[number]["href"] | "/admin/stand-data";
+  currentPath: (typeof ADMIN_ROUTES)[number]["href"] | "/admin/farmers";
   children: ReactNode;
   fetcher?: typeof fetch;
   onSignedOut?: () => void;

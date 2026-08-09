@@ -1048,6 +1048,31 @@ body {
   font-weight: 600;
 }
 
+/* The one chip that means "this needs you", so it is the one that does not blend into the
+   row of neutral state pills. Amber rather than red: it is work waiting, not a fault. */
+.admin-stand-states span.admin-state-attention {
+  color: #7a4a00;
+  background: #fdf1d6;
+  border-color: var(--admin-yellow);
+}
+
+/* Off the map reads as withdrawn rather than as another state, so it drops the fill. */
+.admin-stand-states span.admin-stand-retired {
+  color: var(--ink-soft);
+  background: transparent;
+  border-style: dashed;
+}
+
+/* The farm card's own summary carries more weight than a stand's: it is the row an operator
+   scans a long list by. */
+.admin-farm-card > details > summary .admin-stand-name strong {
+  font-size: 1.05rem;
+}
+
+.admin-farm-card > details > .admin-stand-detail-groups {
+  padding-top: 0.5rem;
+}
+
 .admin-stand-detail-groups {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));

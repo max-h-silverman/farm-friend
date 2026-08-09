@@ -53,12 +53,16 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Home | `/admin` | See work needing a decision, verify and approve farms, inspect stand records, and take a stand off the map or put it back |
-| Flag review + thread viewer | `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
-| Stock-out report queue | `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
-| Stand-data questions | `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
-| Stand listing facts | `/admin` (Stand records) | Review and save a stand's Farm Bucks eligibility and acceptance status |
-| Farmer access | `/admin/farmers` | Invite a farmer, authorize them to publish for a farm, see every farmer's access live and withdrawn, revoke it, issue a replacement private link, and send a fresh onboarding link to a farm nobody can update yet |
+| Home | `/admin` | See everything waiting for a decision, and nothing else. Each item links to where the work is done |
+| Farms | `/admin/farms` | Everything about one farm on one card: approve it, edit its name and description, see and revoke who can update it, send a setup link, review its stands and their Farm Bucks status, take a stand or the whole farm off the map and put it back, mark it a test farm |
+| Messages | `/admin/messages` | Everything a person sent us: customer `FLAG` messages with the thread viewer (phones masked), stock-out reports, and questions about VIGA's own records |
+| Invite a farmer | `/admin/farmers` | Prepare an invitation for someone not yet on Farm Friend, and decide access requests that arrived by text with no farm attached |
+
+**Three tabs: Home, Farms, Messages.** The console used to have one screen per queue, which is
+why a farm appeared six ways and no screen owned it — and why "Customer reports" and "Stock
+reports" sat side by side as separate tabs when a stock-out *is* a customer report. Each screen
+now owns one subject. `/admin/farmers` is reached from Home, because it is about *people* rather
+than about a farm.
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
 
@@ -68,7 +72,7 @@ request body. Queue GET APIs do not exist because the pages already have the dat
 a browser consumer is `/api/admin/flags/<flag-id>/thread`, guarded by the same
 `apps/web/lib/admin-guard.ts` mechanism and projected at the query boundary.
 
-The Stand records Farm Bucks selector is a guarded browser mutation. It accepts only the three
+The Farm Bucks selector on each stand is a guarded browser mutation. It accepts only the three
 states, derives the two stored booleans together, locks the stand row while saving, and records the
 administrator from the session rather than the request body.
 
@@ -82,26 +86,37 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Seed initial listing data:** run the one-time seed utility per [RUNBOOK.md](RUNBOOK.md). This
   is a greenfield load from reference input, not a migration with provenance. A location that
   cannot be geocoded is an operator task — the system never invents a coordinate.
-- **Invite a farmer — this is where you decide.** In the **Farmer access** section, choose the
-  farm (or **New farm** and type its name, which creates it), choose text or email, and enter the
+- **Invite a farmer — this is where you decide.** On `/admin/farmers`, choose the farm (or
+  **New farm** and type its name, which creates it), choose text or email, and enter the
   recipient's address. Farm Friend creates a one-use onboarding link and opens your own text or
   email app with the message ready. Send it from there. The link expires after seven days.
   **Sending an invitation that names a farm IS your approval of that farmer for that farm** — when
   they accept the SMS agreement and send the prepared `JOIN <invite>` from their phone, Farm
   Friend sets them up and approves the farm, and texts them that they are ready. So check the
   person really runs the farm **before you send the link**; nothing asks you again afterwards.
-- **A farmer lost their onboarding link:** `/admin/farmers` lists every farm nobody can update yet
-  under **Farms with no one to update them**, saying whether its most recent link is still open,
-  has expired, or was never sent. **The original link cannot be shown again** — only a scrambled
-  form of it is stored, the same reason a website sends a password reset instead of your old
-  password. Press **New onboarding link** for that farm and send the new one; it replaces any
-  earlier link, and the same "sending it is your approval" rule applies.
-- **Take a stand off the map:** open its record under **Stand records** on `/admin` and press
-  **Take off the map**, then confirm. The stand leaves the map and the text answers, and its farmer
+- **A farmer lost their setup link:** open the farm on `/admin/farms`. Its **Who can update this
+  farm** section says whether the most recent link is still open, has expired, or was never sent.
+  **The original link cannot be shown again** — only a scrambled form of it is stored, the same
+  reason a website sends a password reset instead of your old password. Press **New setup link**;
+  it is copied to your clipboard and shown on that farm's card, it replaces any earlier link, and
+  the same "sending it is your approval" rule applies. Home counts these under **Farms nobody can
+  update**, so you do not have to go looking for them.
+- **Take a stand off the map:** open its farm on `/admin/farms`, open the stand under **Stands**,
+  and press **Take off the map**, then confirm. The stand leaves the map and the text answers, and its farmer
   can no longer publish updates to it. **Nothing it already published is deleted** — the record of
   what that stand said it had, and when, is kept. Press **Put back on the map** to undo it. Use this
   when a farm stops running a stand; it is not how you fix a wrong listing detail.
-- **Rehearse against the real site with a test farm (F-074):** open **Test farms** on `/admin`.
+- **Correct a farm's name or description:** open it on `/admin/farms` and press **Edit details**.
+  This is VIGA's own record of the farm — its name and description. It is **not** the listing:
+  what a stand has, when it is open, and what it costs stay the farmer's (Golden Rule #1), and
+  there is deliberately no control here that changes them.
+- **Remove a whole farm:** open it on `/admin/farms` and press **Remove this farm**, then confirm.
+  The farm and **all of its stands** leave the map and the text answers. **Nothing it already
+  published is deleted** — a farm cannot be erased, because that would erase the record of what
+  its stands said they had and when. Press **Put this farm back** to undo it. A stand you had
+  already taken off the map on its own stays off when the farm comes back.
+- **Rehearse against the real site with a test farm (F-074):** open the farm on `/admin/farms` and
+  press **Mark as test farm**.
   Marking a farm as a test farm makes it **absent** — from the map, from `/api/public/stands`,
   from customer text answers, and from the farm list at `/farmer/start`. It is not a listing with
   a warning on it; islanders simply never see it. Unmark it to put it back. Both directions are
@@ -154,21 +169,22 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Restore or rotate administrator access:** follow [RUNBOOK.md](RUNBOOK.md). Rotation adds a new
   password-verifier secret version, deploys a new web revision, proves the new password, and revokes
   every old session. There is no second account or add-administrator path.
-- **Watch stock-out reports:** open `/admin/reports`. The queue shows customer reports per farm and
+- **Watch stock-out reports:** open `/admin/messages` and find **Stock-outs**. The queue shows customer reports per farm and
   stand, with the item named — including when the report pointed at a published entry rather than
   free text. Reports **never** change the map, answers, or ranking, and the surface offers no action
   that could: the only two are **mark reviewed** and **dismiss**, both of which record that a human
   looked and change nothing a customer sees. Only the farmer's confirmed revision through the
   ordinary inventory flow changes publication. If reports pile up for one stand, chase the farmer;
   do not edit their inventory on their behalf.
-- **Resolve a flag:** open `/admin/flags`. A `FLAG` creates a review item. Read the thread, take the
+- **Resolve a flag:** open `/admin/messages`. A `FLAG` creates a review item. Read the thread, take the
   needed action, then record **resolved** or **dismissed** with a short reason — the reason is
   required, because an audit record that does not say why is not much of one. Both dispositions
   record who acted and when, in `flags` and the audit trail, and both are **final**: a flag is
   disposed of exactly once, so a second operator gets a conflict rather than silently overwriting
   the first one's decision. `FLAG` is a **Farm Friend product safety feature**, not a
   carrier-mandated keyword.
-- **Answer a stand-data question:** open `/admin/stand-data`. When VIGA's export contradicts itself
+- **Answer a question about our records:** open `/admin/messages` and find **Questions about our
+  records**. When VIGA's export contradicts itself
   or states something the loader cannot resolve — two different `Open:` lines, an unresolvable
   season, a dated note saying the stand closed — the loader records the question rather than
   guessing, and this is where it surfaces. Each item names the stand, the reason in plain words, and

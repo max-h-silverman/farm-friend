@@ -7,13 +7,16 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production Postgres `neondb` has **36 migrations** (`0000`–`0035`);
+Farm Friend is **pre-go-live**. Migration `0036` (farm retirement + the `address_unresolved` flag
+reason) is **written and verified locally but NOT applied to production** — it is the only
+unapplied migration. Production Postgres `neondb` has **36 migrations** (`0000`–`0035`);
 Cloud Run web is `farm-friend-web-00054-wfk` and worker is `farm-friend-worker-00049-w4v`, both on
 digest `sha256:247393a9f769e76bd13e91195eb332dbda0d8e815b8ea4b84dfc82d213b36840`.
 
 **Deployed runtime is `af2cc0d`** (2026-08-09): F-076, F-097, F-098, B-044, B-045, B-046 and B-047
-are live. Migrations `0034` and `0035` are applied and verified by schema effect; none remains
-unapplied. B-044's rebuild tooling and overlap-safe description parser are live with its data repair.
+are live. Migrations `0034` and `0035` are applied and verified by schema effect. B-044's rebuild
+tooling and overlap-safe description parser are live with its data repair. The admin console
+restructure and `0036` are on `f-099-admin-console-ux`, not deployed.
 
 **B-045 is verified by effect.** Gmail's HTTPS API accepted a production verification request on
 `farm-friend-web-00053-jcr`, and its six-digit code arrived in the recipient's inbox.
@@ -46,6 +49,12 @@ fixed administrator or farm-email roster; email ingest must reuse the deployed `
   farm-friend-vashon`. Rotating it invalidates links already sent.
 
 ## Verification
+
+**On `f-099-admin-console-ux`:** **1781 unit**, **871 integration**, typecheck, lint, and the web
+production build all pass. Sabotage proved the farm take-down's two guarantees (no write-through to
+stands, `farms_coherent_retirement` genuinely refusing) and the setup link rendering on the card
+that minted it. One `CONNECTION_CLOSED` appeared in a single integration run and did not reproduce
+across three further runs — the B-020 signature, not a defect in this work.
 
 **Current main:** **1778 unit**, **860 integration**, typecheck, lint, web production build, and a
 complete seed dry run against the real exports: 35 stands, 212 reviewed usual items, 0 unknown, 0
@@ -115,8 +124,11 @@ link** — a conditional with a test behind it rather than an unbypassable const
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.
 - **Administration:** fixed-account password sign-in (the signed-out screen renders the fields
-  directly) and server-rendered farm approval, farmer access, flag, stock-report, and stand-data
-  workflows. Phones are masked at the query boundary.
+  directly) and three server-rendered surfaces — **Home** (every pending decision, counted),
+  **Farms** (one card owning approval, details, access, setup links, stands, and take-down), and
+  **Messages** (flags, stock-outs, record questions). `/admin/farmers` keeps the two acts about
+  people rather than farms. Phones are masked at the query boundary. A farm take-down carries its
+  stands without writing their own retirement, so restoring returns exactly what it held down.
 - **Scheduled work:** Cloud Tasks handles immediate sender work; one Cloud Scheduler route runs
   recovery, prompts, delivery, callbacks, and retention.
 
