@@ -5,7 +5,7 @@ import type { Sql, Tx } from "./sql";
 //
 // WHAT `seedStands` DELIBERATELY DOES NOT DO: publish inventory. A stand it creates renders the
 // honest "no current listing" until something confirms it. Specialties — what a stand USUALLY
-// carries — are a different fact and live in `sales_location_offerings`.
+// carries — are a different fact and live in `stand_items.usually_carried`.
 //
 // Inventory has its own writer, `seedWeeklyConfirmations` (F-062), and it is not a loophole: it
 // writes ONLY from a farmer's own dated weekly-form submission, stamps `source = 'viga'`, and
@@ -187,6 +187,8 @@ export interface SeedOfferingsResult {
   skipped: number;
   /** Approved-file names with no matching sales location. Reported, never invented. */
   unknownStands: string[];
+  /** Existing listings left untouched because their farmer owns the published state. */
+  refusedStands: string[];
 }
 
 /** What one approved entry resolves to, for a dry run to report before anything is written. */
@@ -205,6 +207,8 @@ export interface OfferingPlan {
   matched: OfferingPlanEntry[];
   /** Approved-file names with no matching sales location. */
   unknownStands: string[];
+  /** Existing listings a real run would leave untouched because their farmer owns them. */
+  refusedStands: string[];
 }
 
 /**
@@ -217,6 +221,7 @@ export interface OfferingPlan {
 interface LocationMatch {
   id: string;
   name: string;
+  farmerOwned: boolean;
 }
 
 /**
@@ -240,8 +245,14 @@ interface LocationMatch {
  * joined pair is silently wrong where a missed one is a reported refusal a human resolves.
  */
 async function indexLocationsByMatchKey(sql: Sql | Tx): Promise<Map<string, LocationMatch>> {
-  const rows = await sql<{ id: string; name: string }[]>`
-    select id, name from sales_locations
+  const rows = await sql<{ id: string; name: string; farmer_owned: boolean }[]>`
+    select location.id, location.name, exists (
+      select 1
+      from farmer_authorizations auth
+      where auth.farm_id = location.owner_farm_id
+        and auth.revoked_at is null
+    ) as farmer_owned
+    from sales_locations location
   `;
 
   const byKey = new Map<string, LocationMatch>();
@@ -253,7 +264,7 @@ async function indexLocationsByMatchKey(sql: Sql | Tx): Promise<Map<string, Loca
       collisions.set(key, [...(collisions.get(key) ?? [existing.name]), row.name]);
       continue;
     }
-    byKey.set(key, { id: row.id, name: row.name });
+    byKey.set(key, { id: row.id, name: row.name, farmerOwned: row.farmer_owned });
   }
 
   if (collisions.size > 0) {
@@ -298,11 +309,16 @@ export async function planOfferings(
   const byKey = await indexLocationsByMatchKey(sql);
   const matched: OfferingPlanEntry[] = [];
   const unknownStands: string[] = [];
+  const refusedStands: string[] = [];
 
   for (const offering of offerings) {
     const location = resolveStand(byKey, offering.standName);
     if (location === undefined) {
       unknownStands.push(offering.standName);
+      continue;
+    }
+    if (location.farmerOwned) {
+      refusedStands.push(offering.standName);
       continue;
     }
 
@@ -325,21 +341,21 @@ export async function planOfferings(
     });
   }
 
-  return { matched, unknownStands };
+  return { matched, unknownStands, refusedStands };
 }
 
 /**
  * Commit HUMAN-APPROVED offering tags (F-024/F-036).
  *
  * The model only ever PROPOSED these; this is the "code commits what was approved" half of
- * the offering seam's contract. It writes `sales_location_offerings` — specialties, what a
+ * the offering seam's contract. It writes `stand_items.usually_carried` — specialties, what a
  * stand usually carries — and is structurally incapable of touching inventory, which needs
  * an authorization and approval this path does not have.
  *
- * Idempotent on the (location, item) key, and it never rewrites an existing tag: once live,
- * a farmer or operator may have edited their tags, and a re-run must not revert that. An
- * unknown stand name is reported rather than silently dropped — the address-refused stands
- * legitimately exist in the CSV but not the database.
+ * Idempotent on the normalized (location, display name) key, and it never rewrites an existing
+ * tag. A farm with a live authorization is refused entirely: once live, its farmer owns the
+ * listing and a re-run must not add back an item they removed. An unknown stand name is reported
+ * rather than silently dropped.
  *
  * Stand names are matched through the seed join's own key, never an exact string; see
  * `indexLocationsByMatchKey` for why, and for why an ambiguous name aborts the batch.
@@ -348,50 +364,60 @@ export async function seedOfferings(
   sql: Sql,
   offerings: SeedOfferingInput[],
 ): Promise<SeedOfferingsResult> {
+  return sql.begin((tx) => seedOfferingsInTransaction(tx, offerings));
+}
+
+async function seedOfferingsInTransaction(
+  tx: Tx,
+  offerings: SeedOfferingInput[],
+): Promise<SeedOfferingsResult> {
   let inserted = 0;
   let skipped = 0;
   const unknownStands: string[] = [];
+  const refusedStands: string[] = [];
 
-  await sql.begin(async (tx) => {
-    // Built inside the transaction so the index cannot go stale mid-batch, and so an ambiguity
-    // aborts before any tag lands rather than after some of them have.
-    const byKey = await indexLocationsByMatchKey(tx);
+  // Built inside the transaction so the index cannot go stale mid-batch, and so an ambiguity
+  // aborts before any tag lands rather than after some of them have.
+  const byKey = await indexLocationsByMatchKey(tx);
 
-    for (const offering of offerings) {
-      const location = resolveStand(byKey, offering.standName);
-      if (location === undefined) {
-        unknownStands.push(offering.standName);
-        continue;
-      }
-
-      for (const [index, item] of offering.items.entries()) {
-        // F-066 — the unique index is the arbiter, not a prior read: two writers naming the
-        // same new item share no parent row to lock, and a row that does not exist yet cannot
-        // be locked at all. An empty `returning` means the item is already there.
-        //
-        // The conflict case RAISES the standing state and nothing else. An item can already
-        // exist without being a standing claim — the backfill creates one for every name a
-        // past revision confirmed — and a plain `do nothing` would leave that item
-        // `usually_carried = false` forever, silently dropping approved tags. So the update
-        // sets the flag, and is guarded by `where not usually_carried` so a row that is
-        // already a standing claim is genuinely untouched rather than rewritten to the same
-        // value. Display name and sort order are left alone: a re-run must never revert an
-        // edit a farmer or operator made, which is the rule this seeder has always held.
-        const result = await tx`
-          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-          values (${location.id}, ${item}, true, ${index})
-          on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
-          do update set usually_carried = true
-          where not stand_items.usually_carried
-          returning id
-        `;
-        if (result.length > 0) inserted++;
-        else skipped++;
-      }
+  for (const offering of offerings) {
+    const location = resolveStand(byKey, offering.standName);
+    if (location === undefined) {
+      unknownStands.push(offering.standName);
+      continue;
     }
-  });
+    if (location.farmerOwned) {
+      refusedStands.push(offering.standName);
+      continue;
+    }
 
-  return { inserted, skipped, unknownStands };
+    for (const [index, item] of offering.items.entries()) {
+      // F-066 — the unique index is the arbiter, not a prior read: two writers naming the
+      // same new item share no parent row to lock, and a row that does not exist yet cannot
+      // be locked at all. An empty `returning` means the item is already there.
+      //
+      // The conflict case RAISES the standing state and nothing else. An item can already
+      // exist without being a standing claim — the backfill creates one for every name a
+      // past revision confirmed — and a plain `do nothing` would leave that item
+      // `usually_carried = false` forever, silently dropping approved tags. So the update
+      // sets the flag, and is guarded by `where not usually_carried` so a row that is
+      // already a standing claim is genuinely untouched rather than rewritten to the same
+      // value. Display name and sort order are left alone: a re-run must never revert an
+      // edit a farmer or operator made, which is the rule this seeder has always held.
+      const result = await tx`
+        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+        values (${location.id}, ${item}, true, ${index})
+        on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+        do update set usually_carried = true
+        where not stand_items.usually_carried
+        returning id
+      `;
+      if (result.length > 0) inserted++;
+      else skipped++;
+    }
+  }
+
+  return { inserted, skipped, unknownStands, refusedStands };
 }
 
 /**
@@ -401,112 +427,148 @@ export async function seedOfferings(
  * stopped is the state hardest to recover from.
  */
 export async function seedStands(sql: Sql, stands: SeedStandInput[]): Promise<SeedResult> {
+  return sql.begin((tx) => seedStandsInTransaction(tx, stands));
+}
+
+async function seedStandsInTransaction(
+  tx: Tx,
+  stands: SeedStandInput[],
+): Promise<SeedResult> {
   let seeded = 0;
   let skipped = 0;
   let flagsRaised = 0;
   let backfilled = 0;
   let backfillRefused = 0;
 
-  await sql.begin(async (tx) => {
-    for (const stand of stands) {
-      // Idempotency by natural key. The stand's OWN listing fields are left alone rather than
-      // updated: a farmer may have corrected their listing since the export, and a re-run must
-      // not revert their change to VIGA's older text.
-      const existing = await tx`
-        select l.id, l.owner_farm_id from sales_locations l
-        where l.name = ${stand.name} limit 1
+  for (const stand of stands) {
+    // Idempotency by natural key. The stand's OWN listing fields are left alone rather than
+    // updated: a farmer may have corrected their listing since the export, and a re-run must
+    // not revert their change to VIGA's older text.
+    const existing = await tx`
+      select l.id, l.owner_farm_id from sales_locations l
+      where l.name = ${stand.name} limit 1
+    `;
+    if (existing.length > 0) {
+      skipped++;
+
+      // GL-015 — but its EMPTY side tables are still fillable.
+      //
+      // Insert-only meant "create the stand or do nothing", and running F-064's ingest against
+      // production proved how sharp that edge is: all 35 stands already existed, so the batch
+      // wrote nothing and links, hosts and most payment methods stayed empty with no way to
+      // supply them. The rehearsal missed it by running from an empty schema, where every
+      // stand is an insert.
+      //
+      // These three tables are ADDITIVE and carry no farmer-authored state of their own: every
+      // write below is `on conflict do nothing`, so this fills gaps and never overwrites,
+      // reorders, or removes. The listing itself — address, season, hours, stocking,
+      // description — is still never touched here.
+      const locationId = existing[0]?.id as string;
+      const ownerFarmId = existing[0]?.owner_farm_id as string;
+
+      // Once a farmer holds a live authorization they own the listing (golden rule #1), and
+      // VIGA's older spreadsheet must not add to it behind their back — a payment method or a
+      // host they deliberately removed would silently come back on the next run.
+      const authorized = await tx`
+        select 1 from farmer_authorizations
+        where farm_id = ${ownerFarmId} and revoked_at is null
+        limit 1
       `;
-      if (existing.length > 0) {
-        skipped++;
-
-        // GL-015 — but its EMPTY side tables are still fillable.
-        //
-        // Insert-only meant "create the stand or do nothing", and running F-064's ingest against
-        // production proved how sharp that edge is: all 35 stands already existed, so the batch
-        // wrote nothing and links, hosts and most payment methods stayed empty with no way to
-        // supply them. The rehearsal missed it by running from an empty schema, where every
-        // stand is an insert.
-        //
-        // These three tables are ADDITIVE and carry no farmer-authored state of their own: every
-        // write below is `on conflict do nothing`, so this fills gaps and never overwrites,
-        // reorders, or removes. The listing itself — address, season, hours, stocking,
-        // description — is still never touched here.
-        const locationId = existing[0]?.id as string;
-        const ownerFarmId = existing[0]?.owner_farm_id as string;
-
-        // Once a farmer holds a live authorization they own the listing (golden rule #1), and
-        // VIGA's older spreadsheet must not add to it behind their back — a payment method or a
-        // host they deliberately removed would silently come back on the next run.
-        const authorized = await tx`
-          select 1 from farmer_authorizations
-          where farm_id = ${ownerFarmId} and revoked_at is null
-          limit 1
-        `;
-        if (authorized.length > 0) {
-          backfillRefused++;
-          continue;
-        }
-
-        const added = await writeSideFacts(tx, stand, ownerFarmId, locationId);
-        if (added) backfilled++;
+      if (authorized.length > 0) {
+        backfillRefused++;
         continue;
       }
 
-      const farmRows = await tx`
-        insert into farms (name, description) values (${stand.name}, ${stand.description ?? null}) returning id
-      `;
-      const farmId = farmRows[0]!.id as string;
-
-      const season = seasonColumns(stand.season);
-      const hours = openHoursColumns(stand.openHours);
-      const stocking = stand.stocking;
-
-      const locationRows = await tx`
-        insert into sales_locations (
-          owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
-          visitability, offering_type,
-          hours_text, is_public, farm_bucks_accepted, farm_bucks_eligible,
-          season_kind, season_start_month, season_start_day, season_end_month,
-          season_end_day, season_names,
-          open_hours_kind, open_from_minutes, open_until_minutes, open_days,
-          stocking_cadence, stocking_days
-        ) values (
-          ${farmId}, ${stand.kind}, ${stand.name}, 'America/Los_Angeles', ${stand.place?.address ?? null},
-          ${stand.place?.latitude ?? null}, ${stand.place?.longitude ?? null},
-          ${stand.visitability}, ${stand.offeringType},
-          ${stand.hoursText ?? null}, true,
-          ${stand.farmBucksAccepted ?? false}, ${stand.farmBucksEligible ?? false},
-          ${season.kind}, ${season.startMonth}, ${season.startDay},
-          ${season.endMonth}, ${season.endDay},
-          ${season.names as unknown as string[] | null},
-          ${hours.kind}, ${hours.from}, ${hours.until},
-          ${(stand.openDays ?? null) as unknown as number[] | null},
-          ${stocking.cadence === "not_stated" ? null : stocking.cadence},
-          ${stocking.days ?? null}
-        ) returning id
-      `;
-      const locationId = locationRows[0]!.id as string;
-
-      await writeSideFacts(tx, stand, farmId, locationId);
-
-      for (const flag of stand.flags) {
-        // `on conflict do nothing` against the partial unique index on
-        // (sales_location_id, reason) where resolved_at is null: re-running must not pile
-        // up duplicate copies of the same unresolved question for an operator.
-        const inserted = await tx`
-          insert into stand_data_flags (sales_location_id, reason, source_text)
-          values (${locationId}, ${flag.reason}, ${flag.sourceText})
-          on conflict do nothing
-          returning id
-        `;
-        if (inserted.length > 0) flagsRaised++;
-      }
-
-      seeded++;
+      const added = await writeSideFacts(tx, stand, ownerFarmId, locationId);
+      if (added) backfilled++;
+      continue;
     }
-  });
+
+    const farmRows = await tx`
+      insert into farms (name, description) values (${stand.name}, ${stand.description ?? null}) returning id
+    `;
+    const farmId = farmRows[0]!.id as string;
+
+    const season = seasonColumns(stand.season);
+    const hours = openHoursColumns(stand.openHours);
+    const stocking = stand.stocking;
+
+    const locationRows = await tx`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        visitability, offering_type,
+        hours_text, is_public, farm_bucks_accepted, farm_bucks_eligible,
+        season_kind, season_start_month, season_start_day, season_end_month,
+        season_end_day, season_names,
+        open_hours_kind, open_from_minutes, open_until_minutes, open_days,
+        stocking_cadence, stocking_days
+      ) values (
+        ${farmId}, ${stand.kind}, ${stand.name}, 'America/Los_Angeles', ${stand.place?.address ?? null},
+        ${stand.place?.latitude ?? null}, ${stand.place?.longitude ?? null},
+        ${stand.visitability}, ${stand.offeringType},
+        ${stand.hoursText ?? null}, true,
+        ${stand.farmBucksAccepted ?? false}, ${stand.farmBucksEligible ?? false},
+        ${season.kind}, ${season.startMonth}, ${season.startDay},
+        ${season.endMonth}, ${season.endDay},
+        ${season.names as unknown as string[] | null},
+        ${hours.kind}, ${hours.from}, ${hours.until},
+        ${(stand.openDays ?? null) as unknown as number[] | null},
+        ${stocking.cadence === "not_stated" ? null : stocking.cadence},
+        ${stocking.days ?? null}
+      ) returning id
+    `;
+    const locationId = locationRows[0]!.id as string;
+
+    await writeSideFacts(tx, stand, farmId, locationId);
+
+    for (const flag of stand.flags) {
+      // `on conflict do nothing` against the partial unique index on
+      // (sales_location_id, reason) where resolved_at is null: re-running must not pile
+      // up duplicate copies of the same unresolved question for an operator.
+      const inserted = await tx`
+        insert into stand_data_flags (sales_location_id, reason, source_text)
+        values (${locationId}, ${flag.reason}, ${flag.sourceText})
+        on conflict do nothing
+        returning id
+      `;
+      if (inserted.length > 0) flagsRaised++;
+    }
+
+    seeded++;
+  }
 
   return { seeded, skipped, flagsRaised, backfilled, backfillRefused };
+}
+
+export interface SeedReviewedCorpusResult {
+  stands: SeedResult;
+  offerings: SeedOfferingsResult;
+}
+
+/**
+ * Restore the VIGA stand corpus and its HUMAN-REVIEWED usual offerings atomically (B-044).
+ *
+ * The model proposal and Max's review remain separate from this operation. Once that review is
+ * recorded in the approved artifact, however, stands and their standing item facts are one
+ * restore unit: committing only the first half makes every public card claim it usually has
+ * nothing. An unmatched approved name aborts the whole transaction; a partial corpus must never
+ * look like a completed restore.
+ */
+export async function seedReviewedCorpus(
+  sql: Sql,
+  stands: SeedStandInput[],
+  offerings: SeedOfferingInput[],
+): Promise<SeedReviewedCorpusResult> {
+  return sql.begin(async (tx) => {
+    const standResult = await seedStandsInTransaction(tx, stands);
+    const offeringResult = await seedOfferingsInTransaction(tx, offerings);
+    if (offeringResult.unknownStands.length > 0) {
+      throw new Error(
+        `reviewed offerings name unknown stands: ${offeringResult.unknownStands.join(", ")}`,
+      );
+    }
+    return { stands: standResult, offerings: offeringResult };
+  });
 }
 
 /**

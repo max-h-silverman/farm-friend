@@ -11,42 +11,8 @@
 
 import postgres from "postgres";
 import { readFileSync } from "node:fs";
-import { planOfferings, seedOfferings, type SeedOfferingInput } from "../src/seed";
-
-function parseApprovedFile(path: string): {
-  approved: SeedOfferingInput[];
-  skippedNoItems: string[];
-} {
-  const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (!Array.isArray(raw)) {
-    throw new Error("approved file must be a JSON array of { standName, items } entries");
-  }
-
-  const approved: SeedOfferingInput[] = [];
-  const skippedNoItems: string[] = [];
-  for (const entry of raw) {
-    if (typeof entry !== "object" || entry === null) {
-      throw new Error("approved file entries must be objects");
-    }
-    const record = entry as Record<string, unknown>;
-    if (typeof record.standName !== "string" || record.standName.trim() === "") {
-      throw new Error("an approved entry is missing its standName");
-    }
-    if (record.items === undefined) {
-      skippedNoItems.push(record.standName);
-      continue;
-    }
-    if (
-      !Array.isArray(record.items) ||
-      !record.items.every((item) => typeof item === "string" && item.trim() !== "")
-    ) {
-      // A malformed hand-edit must fail loudly, not seed a blank tag.
-      throw new Error(`"${record.standName}" has a malformed items array`);
-    }
-    approved.push({ standName: record.standName, items: record.items });
-  }
-  return { approved, skippedNoItems };
-}
+import { parseApprovedOfferings } from "../src/approved-offerings";
+import { planOfferings, seedOfferings } from "../src/seed";
 
 async function main(): Promise<void> {
   const [jsonPath, ...rest] = process.argv.slice(2);
@@ -68,7 +34,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const { approved, skippedNoItems } = parseApprovedFile(jsonPath);
+  const { approved, skippedNoItems } = parseApprovedOfferings(
+    JSON.parse(readFileSync(jsonPath, "utf8")) as unknown,
+  );
   for (const name of skippedNoItems) {
     console.log(`  SKIPPED  ${name}: no items array (unresolved extraction error)`);
   }
@@ -93,10 +61,14 @@ async function main(): Promise<void> {
       for (const name of plan.unknownStands) {
         console.log(`  UNKNOWN STAND  ${name}: no sales location matches this name`);
       }
+      for (const name of plan.refusedStands) {
+        console.log(`  REFUSED  ${name}: farmer owns the listing`);
+      }
       const wouldInsert = plan.matched.reduce((sum, e) => sum + e.newItems.length, 0);
       console.log(
         `\n--dry-run: nothing written. ${plan.matched.length} stands matched, ` +
-          `${plan.unknownStands.length} unknown, ${wouldInsert} tags would be inserted`,
+          `${plan.unknownStands.length} unknown, ${plan.refusedStands.length} refused, ` +
+          `${wouldInsert} tags would be inserted`,
       );
       return;
     }
@@ -107,6 +79,9 @@ async function main(): Promise<void> {
     );
     for (const name of result.unknownStands) {
       console.log(`  UNKNOWN STAND  ${name}: no sales location with this name`);
+    }
+    for (const name of result.refusedStands) {
+      console.log(`  REFUSED  ${name}: farmer owns the listing`);
     }
   } finally {
     await sql.end({ timeout: 5 });

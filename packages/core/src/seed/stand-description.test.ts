@@ -184,6 +184,15 @@ describe("buildStandDescription", () => {
   // lines that are still pure restatement. Every fixture below is a real line, copied verbatim,
   // because these labels were invisible to fixtures invented from the doc's description.
   describe("labels the first pass missed, measured on the real corpus", () => {
+    it("drops an 'OPEN has:' line, which stand_items now holds", () => {
+      // 3 Brothers Outpost, verbatim. "OPEN" describes the stand's state here; "has"
+      // introduces the offering list. It is neither opening-hours prose nor additional
+      // information, and keeping it makes the card claim eggs only in the wrong section.
+      expect(
+        buildStandDescription({ mapDescription: "OPEN has: eggs" }),
+      ).toBeUndefined();
+    });
+
     it("drops a 'Generally Offers:' line, which stand_items now holds", () => {
       // THE BIGGEST ONE — 13 of 34 farms. It duplicates the exact field the onboarding form
       // asks a farmer to fill in, so a farmer who types their items sees their own list AND
