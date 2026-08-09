@@ -159,7 +159,23 @@ export function FarmList({ farms }: { farms: AdminFarmCard[] }) {
     setConfirming(null);
     if (payload === null) return;
     setRows((current) =>
-      current.map((row) => (row.farmId === farm.farmId ? { ...row, retired } : row)),
+      current.map((row) =>
+        row.farmId === farm.farmId
+          ? {
+              ...row,
+              retired,
+              // The nested stands must move with the farm, or the card contradicts itself:
+              // "Removed" at the top while every stand below still reads "Visible to
+              // customers". A stand carrying its OWN retirement keeps it — that decision was
+              // not this one's to reverse, which is the same rule the writer enforces.
+              stands: row.stands.map((stand) =>
+                stand.retiredWithFarm || !stand.retired
+                  ? { ...stand, retired, retiredWithFarm: retired }
+                  : stand,
+              ),
+            }
+          : row,
+      ),
     );
     say(
       farm.farmId,
@@ -536,7 +552,14 @@ export function FarmList({ farms }: { farms: AdminFarmCard[] }) {
                       {farm.stands.length === 0 ? (
                         <p className="admin-note">This farm has no stands.</p>
                       ) : (
-                        <StandDetails stands={farm.stands} />
+                        // Keyed on the farm's retirement so a take-down remounts the list.
+                        // `StandDetails` snapshots its prop into state (it owns per-stand
+                        // saves), so without this the stands keep rendering the state they
+                        // had when the card opened while the farm above them says "Removed".
+                        <StandDetails
+                          key={`${farm.farmId}-${farm.retired}`}
+                          stands={farm.stands}
+                        />
                       )}
                     </section>
 

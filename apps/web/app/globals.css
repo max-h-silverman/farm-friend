@@ -1069,7 +1069,13 @@ body {
   font-size: 1.05rem;
 }
 
+/* A farm card's sections are full-width panels — details, who can update it, its stands, and
+   the take-down — not the small fact tables a stand card holds. The shared `auto-fit` grid
+   below packs those into ~20rem columns, which turns a farm card into a ragged mosaic where
+   the reading order stops matching the order of the work. They stack. */
 .admin-farm-card > details > .admin-stand-detail-groups {
+  display: flex;
+  flex-direction: column;
   padding-top: 0.5rem;
 }
 
