@@ -21,11 +21,9 @@ import type { Db, Sql } from "./index";
 //
 // What only real Postgres can prove, and what this suite is therefore for:
 //
-//   1. THE VISITABILITY BRANCH IS STRUCTURAL. `coherentVisitability` is all-or-nothing in
-//      BOTH directions — a visitable stand needs an address AND a complete coordinate pair, a
-//      contact-only stand must have none of the three. This is what forbids inventing an
-//      address (F-038, B-024), and it is the reason the form must ASK whether there is a
-//      stand to visit before it can know what to require.
+//   1. LOCATION IS ALL-OR-NOTHING. Every placed farm needs an address AND a complete coordinate
+//      pair, whether or not it has a stand to visit. A contact-only farm may also remain entirely
+//      unplaced. This is the same shape the database constraint enforces.
 //   2. The three deliberately defaulted-nothing columns — timezone, visitability,
 //      offering_type — are supplied on every write, because the schema refuses to guess.
 //   3. Payment methods and standing items are written as the farmer's own words, and the
@@ -196,13 +194,13 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("REFUSES an address or pin on a stand with nowhere to visit", async () => {
-    // The other direction of the same constraint. A farmer who ticks "no stand to visit"
-    // but whose address field still carries text must not publish a pin — that is exactly
-    // the map error B-024 exists to prevent.
+  it("records a complete location for a farm with no stand to visit", async () => {
+    // F-088 — visitability controls whether customers are invited to drive there, not whether
+    // the farm may be placed. The onboarding form asks every farm for a resolved address and
+    // sends this exact shape, so the writer must agree with the database's widened constraint.
     const result = await saveOnboardingListing(database(), {
       farmId,
-      standName: "Contradictory Stand",
+      standName: "Delivery Farm",
       listing: {
         visitability: "contact_only",
         offeringType: "produce",
@@ -217,11 +215,18 @@ describe("F-067 onboarding listing (integration)", () => {
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
 
-    expect(result.status).toBe("incomplete_location");
+    expect(result.status).toBe("saved");
     const rows = await client()`
-      select id from sales_locations where owner_farm_id = ${farmId}
+      select visitability, public_address, public_latitude, public_longitude
+      from sales_locations where owner_farm_id = ${farmId}
     `;
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      visitability: "contact_only",
+      public_address: "12345 Vashon Highway SW",
+      public_latitude: 47.4471,
+      public_longitude: -122.4594,
+    });
   });
 
   it("writes what the farmer usually sells as F-066 STANDING state", async () => {
