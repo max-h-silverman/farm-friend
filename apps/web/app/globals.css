@@ -945,14 +945,17 @@ body {
   border-radius: 10px;
 }
 
+/* The one action on the signed-out screen, so it is filled rather than outlined — it reads
+   as the thing to press instead of as one of several equal choices. Uses the same --green
+   fill as the public map's primary button rather than a second green of its own. */
 .admin-login button {
   min-height: 48px;
   padding: 0 1.1rem;
   font: inherit;
   font-weight: 600;
-  color: var(--ink);
-  background: transparent;
-  border: 1px solid var(--line);
+  color: #fff;
+  background: var(--green);
+  border: 1px solid var(--green);
   border-radius: 10px;
   cursor: pointer;
 }

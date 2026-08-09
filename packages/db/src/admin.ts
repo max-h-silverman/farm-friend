@@ -514,14 +514,220 @@ export async function restoreStand(
   });
 }
 
+export interface FarmRetirementInput {
+  farmId: string;
+  administratorId: string;
+  occurredAt: Date;
+}
+
+export type RetireFarmResult =
+  | { status: "retired" }
+  | { status: "already_retired" }
+  | { status: "not_an_administrator" }
+  | { status: "unknown_farm" };
+
+/**
+ * Take a whole farm down: off the map, off the SMS answers, and closed to new publication.
+ *
+ * **This is what "delete a farm" means here** — max's choice, and the same one he made for
+ * stands in F-071. It is not a softened deletion, it is the only correct one:
+ *
+ *   - `farms` is referenced `on delete restrict` by `sales_locations`,
+ *     `farmer_authorizations`, `farm_approvals`, `farmer_invitations` and more, so a hard
+ *     DELETE fails at the constraint for any farm that has ever been used.
+ *   - Erasing it would erase what its stands published and when — exactly what the audit
+ *     trail exists to keep (Golden Rule #1).
+ *
+ * **A farm take-down deliberately does NOT write each stand's own `retired_at`.** Every
+ * reader treats a stand under a retired farm as off the map, but the stand's own column
+ * stays untouched, so restoring the farm can put back exactly the stands the farm was
+ * holding down — and a stand retired on its own beforehand stays retired. Writing through
+ * to the stands would collapse two independent decisions into one and make restore guess.
+ *
+ * The administrator's authority is re-read inside the transaction: a principal resolved at
+ * the start of a request proves they were an administrator then; the row proves they are one
+ * now, and a revocation that committed in between must win.
+ */
+export async function retireFarm(
+  db: Db,
+  input: FarmRetirementInput,
+): Promise<RetireFarmResult> {
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators
+      where id = ${input.administratorId} and revoked_at is null
+      for update
+    `;
+    if (administrator.length === 0) {
+      return { status: "not_an_administrator" as const };
+    }
+
+    // Locked so two concurrent take-downs cannot both see "live" and write two audit events
+    // for one decision.
+    const farm = await tx`
+      select id, retired_at from farms where id = ${input.farmId} for update
+    `;
+    if (farm.length === 0) return { status: "unknown_farm" as const };
+    // Idempotent, and it keeps the FIRST take-down's timestamp. Moving it would falsify when
+    // the farm actually came down, which is the one fact the record is for.
+    if (farm[0]?.retired_at !== null) return { status: "already_retired" as const };
+
+    await tx`
+      update farms
+      set retired_at = ${input.occurredAt.toISOString()},
+          retired_by_administrator_id = ${input.administratorId},
+          updated_at = ${input.occurredAt.toISOString()}
+      where id = ${input.farmId}
+    `;
+
+    // The audit event commits with the take-down or not at all: a farm taken down with no
+    // record of who did it is exactly what the audit trail exists to prevent.
+    await tx`
+      insert into audit_events (action, actor_administrator_id, subject_type, subject_id,
+        occurred_at)
+      values ('farm_retired', ${input.administratorId}, 'farm', ${input.farmId},
+        ${input.occurredAt.toISOString()})
+    `;
+
+    return { status: "retired" as const };
+  });
+}
+
+export type RestoreFarmResult =
+  | { status: "restored" }
+  | { status: "not_retired" }
+  | { status: "not_an_administrator" }
+  | { status: "unknown_farm" };
+
+/**
+ * Put a retired farm back. This is what makes a take-down safe to reach for: an operator who
+ * removes the wrong farm fixes it themselves rather than asking for a database repair.
+ *
+ * Clears the actor alongside the timestamp — `farms_coherent_retirement` requires the two to
+ * move together, and a farm that is not retired was retired by nobody. Stands that carry
+ * their own retirement stay retired, because this never wrote them in the first place.
+ */
+export async function restoreFarm(
+  db: Db,
+  input: FarmRetirementInput,
+): Promise<RestoreFarmResult> {
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators
+      where id = ${input.administratorId} and revoked_at is null
+      for update
+    `;
+    if (administrator.length === 0) {
+      return { status: "not_an_administrator" as const };
+    }
+
+    const farm = await tx`
+      select id, retired_at from farms where id = ${input.farmId} for update
+    `;
+    if (farm.length === 0) return { status: "unknown_farm" as const };
+    if (farm[0]?.retired_at === null) return { status: "not_retired" as const };
+
+    await tx`
+      update farms
+      set retired_at = null, retired_by_administrator_id = null,
+          updated_at = ${input.occurredAt.toISOString()}
+      where id = ${input.farmId}
+    `;
+
+    await tx`
+      insert into audit_events (action, actor_administrator_id, subject_type, subject_id,
+        occurred_at)
+      values ('farm_restored', ${input.administratorId}, 'farm', ${input.farmId},
+        ${input.occurredAt.toISOString()})
+    `;
+
+    return { status: "restored" as const };
+  });
+}
+
+export interface SaveFarmDetailsInput {
+  farmId: string;
+  administratorId: string;
+  name: string;
+  description: string | null;
+  occurredAt: Date;
+}
+
+export type SaveFarmDetailsResult =
+  | { status: "saved" }
+  | { status: "invalid_name" }
+  | { status: "not_an_administrator" }
+  | { status: "unknown_farm" };
+
+/**
+ * Correct a farm's own identity — its name and description.
+ *
+ * **This is a farm record, NOT a listing.** What a stand has, when it is open, and what it
+ * costs all belong to the farmer (Golden Rule #1) and are not reachable from here. A farm's
+ * name is VIGA's own roster entry: it arrives from a spreadsheet import, it is what an
+ * operator reads out on the phone, and correcting a typo in it was previously possible only
+ * with hand-written SQL.
+ *
+ * The blank-name check is here rather than left to `farms_name_not_blank` because a
+ * constraint violation surfaces as a thrown error, and a route cannot turn that into a
+ * sentence an operator can act on. The constraint still stands behind it as the guarantee.
+ */
+export async function saveFarmDetails(
+  db: Db,
+  input: SaveFarmDetailsInput,
+): Promise<SaveFarmDetailsResult> {
+  const name = input.name.trim();
+  if (name === "") return { status: "invalid_name" };
+  const description =
+    input.description === null || input.description.trim() === ""
+      ? null
+      : input.description.trim();
+
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators
+      where id = ${input.administratorId} and revoked_at is null
+      for update
+    `;
+    if (administrator.length === 0) {
+      return { status: "not_an_administrator" as const };
+    }
+
+    const farm = await tx`
+      select id from farms where id = ${input.farmId} for update
+    `;
+    if (farm.length === 0) return { status: "unknown_farm" as const };
+
+    await tx`
+      update farms
+      set name = ${name}, description = ${description},
+          updated_at = ${input.occurredAt.toISOString()}
+      where id = ${input.farmId}
+    `;
+
+    await tx`
+      insert into audit_events (action, actor_administrator_id, subject_type, subject_id,
+        occurred_at)
+      values ('farm_details_saved', ${input.administratorId}, 'farm', ${input.farmId},
+        ${input.occurredAt.toISOString()})
+    `;
+
+    return { status: "saved" as const };
+  });
+}
+
 export interface AdminFarmRow {
   farmId: string;
   name: string;
+  description: string | null;
   approved: boolean;
   approvedAt: Date | null;
   approvedByEmail: string | null;
   /** F-074 — VIGA marked this farm as fake, so customers never see it. */
   isTestFarm: boolean;
+  /** VIGA took this whole farm down. Its stands are off the map with it. */
+  retired: boolean;
+  retiredAt: Date | null;
 }
 
 /**
@@ -533,22 +739,27 @@ export interface AdminFarmRow {
  */
 export async function listFarmsForApproval(db: Db): Promise<AdminFarmRow[]> {
   const rows = await driver(db)`
-    select farm.id, farm.name, farm.test_farm_at, approval.approved_at,
-      administrator.email
+    select farm.id, farm.name, farm.description, farm.test_farm_at, farm.retired_at,
+      approval.approved_at, administrator.email
     from farms as farm
     left join farm_approvals as approval
       on approval.farm_id = farm.id and approval.revoked_at is null
     left join administrators as administrator
       on administrator.id = approval.administrator_id
-    order by farm.name
+    -- A retired farm is still LISTED here, the same way a retired stand is: this is where an
+    -- operator undoes a take-down, so hiding it would strand the only control that reverses it.
+    order by (farm.retired_at is not null), farm.name
   `;
   return rows.map((row) => ({
     farmId: row.id as string,
     name: row.name as string,
+    description: (row.description as string | null) ?? null,
     approved: row.approved_at !== null,
     approvedAt:
       row.approved_at === null ? null : new Date(row.approved_at as string),
     approvedByEmail: (row.email as string | null) ?? null,
+    retired: row.retired_at !== null,
+    retiredAt: row.retired_at === null ? null : new Date(row.retired_at as string),
     // F-074 — the ADMIN surface is the one place a test farm is never hidden. An operator
     // managing the flag has to be able to see which farms carry it, and this reader is already
     // behind the session guard.
@@ -595,9 +806,21 @@ export interface AdminStandRow {
   stockingCadence: string | null;
   stockingDays: number[] | null;
   isPublic: boolean;
-  /** F-071 — VIGA has taken this stand down. It keeps every record it published. */
+  /**
+   * F-071 — this stand is off the map. True when VIGA retired the stand itself OR took its
+   * whole farm down; `retiredWithFarm` says which, because the control that reverses it
+   * differs.
+   */
   retired: boolean;
+  /** The STAND's own retirement moment. Null for a stand down only because its farm is. */
   retiredAt: Date | null;
+  /**
+   * Off the map only because its FARM is down, with no retirement of its own.
+   *
+   * The operator screen needs the difference: "put this stand back" is the wrong control for
+   * a stand nobody retired, and offering it would appear to do nothing.
+   */
+  retiredWithFarm: boolean;
   farmBucksAccepted: boolean;
   farmBucksEligible: boolean;
   approved: boolean;
@@ -648,6 +871,11 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       location.stocking_days,
       location.is_public,
       location.retired_at,
+      -- A farm take-down carries its stands down with it WITHOUT writing their own
+      -- retired_at (see retireFarm), so "is this stand off the map?" is the farm's state OR
+      -- the stand's. Reading only the stand's column would show an operator a live stand
+      -- under a farm they just took down.
+      farm.retired_at as farm_retired_at,
       location.farm_bucks_accepted,
       location.farm_bucks_eligible,
       approval.approved_at,
@@ -717,7 +945,8 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     -- restores one, and a stand that vanished from the only surface that can bring it back
     -- would make retirement irreversible in practice. Sorted after the live ones so the
     -- working list is not interrupted by stands nobody is serving.
-    order by (location.retired_at is not null), location.name, location.id
+    order by (location.retired_at is not null or farm.retired_at is not null),
+      location.name, location.id
   `;
 
   return rows.map((row) => ({
@@ -749,8 +978,12 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     stockingCadence: (row.stocking_cadence as string | null) ?? null,
     stockingDays: (row.stocking_days as number[] | null) ?? null,
     isPublic: row.is_public as boolean,
-    retired: row.retired_at !== null,
+    // Off the map for either reason. `retiredAt` stays the STAND's own moment: a stand down
+    // only because its farm is down has no retirement date of its own, and inventing one
+    // would tell an operator this stand was retired when nobody ever retired it.
+    retired: row.retired_at !== null || row.farm_retired_at !== null,
     retiredAt: row.retired_at === null ? null : new Date(row.retired_at as string),
+    retiredWithFarm: row.retired_at === null && row.farm_retired_at !== null,
     farmBucksAccepted: row.farm_bucks_accepted as boolean,
     farmBucksEligible: row.farm_bucks_eligible as boolean,
     approved: row.approved_at !== null,

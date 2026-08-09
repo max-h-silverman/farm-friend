@@ -914,7 +914,13 @@ describe("administrator queue interactions", () => {
       </>,
     );
 
-    expect(screen.getAllByText(/does not change the map/i)).toHaveLength(2);
+    // Both queues must state the boundary, in whatever words each uses: recording a decision
+    // is not editing a listing (Golden Rule #1). Anchored on the two phrasings that carry
+    // that meaning rather than on one exact sentence, so rewording the copy does not silently
+    // drop the guarantee — the assertion is that the boundary is SAID, on both queues.
+    expect(
+      screen.getAllByText(/does not change the map|is the farmer’s, not yours/i),
+    ).toHaveLength(2);
     expect(screen.queryByRole("button", { name: /edit listing/i })).toBeNull();
     expect(screen.getByRole("textbox", { name: "Resolution note for Road stand" })).toBeTruthy();
   });
@@ -1072,7 +1078,7 @@ describe("administrator queue interactions", () => {
     );
     await user.click(screen.getByRole("button", { name: "Record decision" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      /your decision is recorded.*map has not changed/i,
+      /answer recorded.*closed/i,
     );
     expect(screen.getByText(/resolved: confirmed 9am opening/i)).toBeTruthy();
   });

@@ -47,7 +47,8 @@ export interface SeedStandFlag {
     | "contradictory_hours"
     | "season_unresolved"
     | "unparsed_availability"
-    | "possibly_closed";
+    | "possibly_closed"
+    | "address_unresolved";
   sourceText: string;
 }
 

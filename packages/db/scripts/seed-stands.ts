@@ -284,7 +284,7 @@ function toSeedInput(stand: JoinedStand, usuallySells: readonly string[]): {
   // question for an operator, not a reason to drop the stand.
   if (stand.form?.addressNeedsReview === true) {
     flags.push({
-      reason: "unparsed_availability",
+      reason: "address_unresolved",
       sourceText: `address needs review: ${stand.publicAddress ?? "(none)"}`,
     });
   }
