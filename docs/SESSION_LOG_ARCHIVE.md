@@ -1,12 +1,103 @@
 # Farm Friend — Session Log Archive (through 2026-08-07)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-09; it now holds 70 entries.
+everything older lives here. Last rotated 2026-08-09; it now holds 71 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
 architecture documents ([README.md](README.md) is the index). Where an entry here disagrees with the
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
+
+---
+
+## 2026-08-07 — F-088: the address question, reversed twice, and a constraint that outlived its defect
+
+Started as UI polish on one janky field and ended by relaxing F-038's load-bearing invariant. The
+path there was three reversals, each of them max correcting the frame rather than the details.
+
+**What shipped on the form.** The full-width "Find this address on the map" button became a pin icon
+inside the field; `Enter` runs the lookup. The island map now renders from the moment the address is
+asked for — faint, pinless, fixed height — instead of materialising on a successful lookup and
+shoving every field below it down the page. A resolved address zooms the frame from the whole island
+to the stand's neighbourhood, keeping the coastline in view because Farm Friend draws its own island
+with no tiles, and a pin on a blank field is a confident-looking picture carrying no information.
+
+**The zoom is animated in JavaScript, not CSS, and the first version was wrong.** I wrote it as a
+`view-box` transition; that property is too thinly supported to depend on, so on most browsers the
+frame would have snapped and the travel — which is the part that carries the meaning — would have
+been lost. A `requestAnimationFrame` loop behaves the same everywhere. The tests passed either way,
+because they assert the settled viewBox value rather than the motion: green for a reason unrelated
+to the change being correct.
+
+**Places Autocomplete was scoped, argued for, and dropped.** The obvious answer to "make this less
+janky" is autocomplete, and I costed it: a third reopening of the no-runtime-geocoder boundary, a
+second Google API, a decision only max could make. He took the smaller path instead — polish the
+geocoding flow that exists. `GEOCODE_ALLOWLIST` stays one file and the dependency tripwire is
+untouched. Worth remembering that the boundary held because the cheaper option was actually enough.
+
+**"Don't show my farm on the map" could not exist as asked, and the real need was narrower.** The
+database had no third visitability state. Pushed back; max clarified from the live map — some farms
+show a pin with no address listed — so the ask was "don't show my *address*", which is a display
+fact, not a location one. That became `address_public` (0026), a flag beside the address that the
+public card, the SMS answer path, and the admin screen all read. The non-obvious half: the "get
+directions" link is built from the **coordinate**, not the address string, so hiding the address
+does not suppress it. Without an explicit clause a farmer who hid their address would still be
+handing every customer turn-by-turn navigation to their front door.
+
+**Then max reversed the model twice more, and the second reversal is the one that matters.** First:
+every farm should give an address, stored either way — which meant relaxing the constraint that
+forbade an address on a `contact_only` row. I argued for keeping the coordinate forbidden, since the
+pin is what sends someone driving. Max disagreed on the product: *"pin everyone. most farms would
+want to be shown on the map as lead-gen. it's just about not wanting people driving there."* That is
+a better frame than the binary I offered — "don't drive here" and "don't show me" are different
+wishes, and F-038 had collapsed them.
+
+**The original defect was never the coordinate. It was the *unlabelled* coordinate.** A pin that
+looks identical to a real stand and offers the same directions link does imply "come here"; a pin
+that says "Farm, no stand" and offers no route does not. So 0027 restates the constraint as one rule
+over the shape of a location — complete, or absent — with `visitability` named only in the branch
+that still forbids an unplaced visitable stand.
+
+**max also caught that the differentiated pin already existed.** I was scoping how to build it;
+`mapMarkerKind` has returned `contact-only` all along, with a `●` symbol, a "Farm, no stand" legend
+entry and its own CSS — **unreachable the entire time**, because the constraint forbade the
+coordinate that would have rendered it. The feature was already written and the database was
+preventing it from ever appearing.
+
+**What this trades away, stated plainly because it was a real decision.** The guarantee that nobody
+is sent driving to a farm with nothing to buy used to be enforced by Postgres and unbypassable. It
+now lives in `buildMapView` behind a test. That is weaker — a future change can drop one condition —
+and max accepted it knowingly. Sabotage-checked: removing the clause fails the test.
+
+**Two migrations applied to the local database, verified by effect.** 0026: 48 rows backfilled to
+`address_public = true`, zero NULLs, nobody's address changed visibility. 0027: checked against the
+real rows *before* applying (zero would violate), then probed after — contact-only-with-location
+accepted, half a coordinate pair still refused, unplaced-visitable still refused, probe rows deleted.
+Both recorded in `drizzle.__drizzle_migrations`, which hand-applied SQL bypasses; without that
+`drizzle-kit migrate` would have tried to reapply them.
+
+**Two corrections I owe the record.** I reported there was no Postgres locally and that integration
+tests could not run — I had checked for the `psql` *client binary* and concluded the server was
+absent. There is a database with 48 stands; the integration suite runs here and passes. And I
+reported the new UI was missing from the served HTML: that check was wrong, not the code. The
+address block renders client-side behind the visit question, so `curl` on the initial page cannot
+see it; the client bundle carries it.
+
+**Test churn worth avoiding next time.** Relaxing the constraint broke 41 tests and I fixed them in
+several passes rather than diagnosing first. Most came from one cause: `posted()` read
+`fetchMock.mock.calls[0]`, which became the *geocoding lookup* once every farm needed a resolved
+address. Finding that first would have collapsed three rounds into one.
+
+Also fixed: the map search field's native clear "x" had an I-beam cursor, so it read as text rather
+than a control. `cursor: pointer` on `::-webkit-search-cancel-button`, matching `.filter-clear`.
+
+**Verified**: 1562 unit + 805 integration passing, typecheck and lint clean, web build compiles.
+Committed and pushed to `main` at `e55cb92` (max chose to skip the branch/PR flow this session).
+**Not deployed, and the two migrations were deliberately NOT applied to production** — max's call:
+production keeps serving the current image, which does not read the new column, and the schema
+change waits for a session where it can be watched. **Not browser-verified** —
+the zoom timing, the icon placement and the map strip at phone width are judgment calls made in
+code; max does his own pass before go-live.
 
 ---
 

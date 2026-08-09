@@ -6,10 +6,93 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the **newest eight entries**; everything older rotates into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 70. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 71. A log too large to open
 mid-session defeats its own purpose.
 
 ---
+
+## 2026-08-09 — F-098, two silent refusals, and an SMTP path that stopped working
+
+Started as a UX pass on the returning farmer's tab and ended in a production incident. The two are
+unrelated except in sequence, and the incident is the part worth reading.
+
+**The "Details & settings" tab had three buttons that committed something** — the listing's "Save",
+the onboarding wizard's "Submit", and "Save settings". F-097 unified the buttons *inside* the
+settings panel and left the composition alone, so the wizard's Submit survived beside the panel that
+replaced it. The Submit was never gated on the credential: `steps === null` is true for a stand
+link, which is what put onboarding's word on a returning farmer's screen. It is now gated on the
+door, and the settings panel hands its save up through context so one press commits both. The
+writers stay separate — merging them would put the participant write, with its own audit event and
+public-text refusal, behind the listing's transaction.
+
+**The render-prop version of that wiring passed every test and 500'd on every real request.** A
+server component cannot pass a function to a client one, and jsdom has no such boundary, so the
+suite was green while production was broken. Caught only by loading the deployed page. The fix is
+context; the lesson is that the composition seam between server and client components is invisible
+to the component suites and has to be measured against the running app.
+
+**The address button no longer says "Save".** While an onboarding "Submit" was also on screen,
+"Save" was the honest word for it; with a single "Save changes" committing the tab, a second button
+saying Save reads as a competing commit. It says "Find on map", which is what it does.
+
+**The grandfathered farmer could not finish onboarding, and had not been able to since Friday.**
+`JOIN <token>` was removed 2026-08-07 and farm identity moved to a phone stated on the onboarding
+form, matched by a bare `START` against `pending_phone_hash`. That column lives on
+`farmer_invitations` — a row the honour-system door could not write, because
+`created_by_administrator_id` was NOT NULL with an FK to `administrators` and there is no
+administrator in that loop. The next day the form became a wizard and its fourth step, holding only
+invitation-gated fields, rendered as a heading and two nav buttons. Migration `0035` makes the
+issuer optional with a CHECK that a self-issued claim names its farm, and max approved making
+`farm_approvals.administrator_id` nullable too: a farm can now publish with nobody having approved
+it, and VIGA's revoke is the backstop. Verified end to end from an empty schema — claim, `START`,
+authorization, the same welcome an invited farmer gets. A doc line in `grandfathered-listing.ts` had
+been citing `JOIN <token>` as the live path for two days and was hiding this.
+
+**B-046 — an unused code locked the farm out for thirty minutes.**
+`farm_email_verifications_one_live_per_farm` is partial on `consumed_at IS NULL`, so a code the
+farmer never used holds the farm's only slot; expiry does not release it. Every retry hit `on
+conflict do nothing`, returned `already_live`, and the route answered its uniform "sent" regardless.
+Issuance now retires the farm's own earlier code in the same transaction. The invariant is unchanged
+— still exactly one live code — but the farmer's newest intent wins over her abandoned one.
+`issued_at < now` is what separates a retry from a race: eight simultaneous claimants share one
+instant, so none retires another's code and exactly one wins on the index. Strict `<`, never `<=`. A
+farm-level `for update` lock was written first and **deleted after sabotage left all 25 tests
+green** — it was a line claiming a protection it did not provide.
+
+**B-047 — the system could not see its own email failures.** `createEmailSender` takes an optional
+`logger` and no caller ever passed one, so every outcome, accepted and failed alike, was discarded.
+Three separate investigations of one incident had to reason from response timing because no evidence
+existed. The route now logs outcome, transport error code, farm and idempotency key as a JSON line
+on stdout. The farmer's address is deliberately absent and a test greps the log to prove it. The
+uniform *response* is unchanged — it is what stops the endpoint revealing which addresses are on
+file.
+
+**That logging is what found the real problem.** Production cannot open an SMTP connection at all:
+`ECONNECTION` in ~0.26s, an instant refusal rather than a timeout. Port 465 was deployed and tested
+live and failed identically; the Workspace relay's IP restriction is off and authentication is on;
+the same credentials work from max's machine on both ports; the same revision reaches the Geocoding
+API over HTTPS in 0.37s; and no email-related file, Dockerfile or lockfile changed between Friday's
+commit and now. It worked on Friday for a real farmer. The remaining explanation is Google blocking
+outbound SMTP from this service, and the recommendation is an HTTPS email API. Filed as B-045,
+carried in CURRENT_STATE, and it blocks the grandfathered door.
+
+**Two false conclusions worth recording, because both looked solid.** First: "zero verification rows
+exist, so this never worked in production" — the 2026-08-07 22:43 wipe destroyed Friday's rows, and
+absence of data the wipe explains is not evidence. Second: "I burned her rate limit" — she was at
+0 of 3; what actually refused her was the live-code block, which the timestamps showed once checked
+rather than recalled. Diagnostic requests against a real farm are not free: they consume the farm's
+hourly budget and hold its one live slot.
+
+**The commit messages carry the wrong bug IDs.** `2431c07` says "B-025" and `ca212df` says "B-026";
+both were written before checking the backlog, where those IDs belong to closed bugs from 2026-07-29
+and 2026-08-01. The real items are **B-046** (the lockout) and **B-047** (the missing send logging),
+with the SMTP outage filed as **B-045**. The commits are pushed and are not being rewritten — this
+line is the mapping.
+
+Verified: 1766 unit, 84 integration across the four suites touched, typecheck, lint, three
+production Cloud Builds. Sabotaged the Submit gate, the address-button label, the details-tab
+wiring, the supersede retire, the `issued_at` comparison and the farm lock; all failed as they
+should except the lock, which was deleted for it.
 
 ## 2026-08-09 — F-097: the link a farmer can read, and one press instead of two
 
@@ -541,94 +624,3 @@ verifying by effect rather than from the apply's exit status. Then the image: pl
 **Still owed, and it is the real gap:** no SMS has gone through this code, and nobody has used the
 form in a browser on production. The `START` path is proven through the real webhook handler against
 real Postgres — never against Telnyx.
-
-## 2026-08-07 — F-088: the address question, reversed twice, and a constraint that outlived its defect
-
-Started as UI polish on one janky field and ended by relaxing F-038's load-bearing invariant. The
-path there was three reversals, each of them max correcting the frame rather than the details.
-
-**What shipped on the form.** The full-width "Find this address on the map" button became a pin icon
-inside the field; `Enter` runs the lookup. The island map now renders from the moment the address is
-asked for — faint, pinless, fixed height — instead of materialising on a successful lookup and
-shoving every field below it down the page. A resolved address zooms the frame from the whole island
-to the stand's neighbourhood, keeping the coastline in view because Farm Friend draws its own island
-with no tiles, and a pin on a blank field is a confident-looking picture carrying no information.
-
-**The zoom is animated in JavaScript, not CSS, and the first version was wrong.** I wrote it as a
-`view-box` transition; that property is too thinly supported to depend on, so on most browsers the
-frame would have snapped and the travel — which is the part that carries the meaning — would have
-been lost. A `requestAnimationFrame` loop behaves the same everywhere. The tests passed either way,
-because they assert the settled viewBox value rather than the motion: green for a reason unrelated
-to the change being correct.
-
-**Places Autocomplete was scoped, argued for, and dropped.** The obvious answer to "make this less
-janky" is autocomplete, and I costed it: a third reopening of the no-runtime-geocoder boundary, a
-second Google API, a decision only max could make. He took the smaller path instead — polish the
-geocoding flow that exists. `GEOCODE_ALLOWLIST` stays one file and the dependency tripwire is
-untouched. Worth remembering that the boundary held because the cheaper option was actually enough.
-
-**"Don't show my farm on the map" could not exist as asked, and the real need was narrower.** The
-database had no third visitability state. Pushed back; max clarified from the live map — some farms
-show a pin with no address listed — so the ask was "don't show my *address*", which is a display
-fact, not a location one. That became `address_public` (0026), a flag beside the address that the
-public card, the SMS answer path, and the admin screen all read. The non-obvious half: the "get
-directions" link is built from the **coordinate**, not the address string, so hiding the address
-does not suppress it. Without an explicit clause a farmer who hid their address would still be
-handing every customer turn-by-turn navigation to their front door.
-
-**Then max reversed the model twice more, and the second reversal is the one that matters.** First:
-every farm should give an address, stored either way — which meant relaxing the constraint that
-forbade an address on a `contact_only` row. I argued for keeping the coordinate forbidden, since the
-pin is what sends someone driving. Max disagreed on the product: *"pin everyone. most farms would
-want to be shown on the map as lead-gen. it's just about not wanting people driving there."* That is
-a better frame than the binary I offered — "don't drive here" and "don't show me" are different
-wishes, and F-038 had collapsed them.
-
-**The original defect was never the coordinate. It was the *unlabelled* coordinate.** A pin that
-looks identical to a real stand and offers the same directions link does imply "come here"; a pin
-that says "Farm, no stand" and offers no route does not. So 0027 restates the constraint as one rule
-over the shape of a location — complete, or absent — with `visitability` named only in the branch
-that still forbids an unplaced visitable stand.
-
-**max also caught that the differentiated pin already existed.** I was scoping how to build it;
-`mapMarkerKind` has returned `contact-only` all along, with a `●` symbol, a "Farm, no stand" legend
-entry and its own CSS — **unreachable the entire time**, because the constraint forbade the
-coordinate that would have rendered it. The feature was already written and the database was
-preventing it from ever appearing.
-
-**What this trades away, stated plainly because it was a real decision.** The guarantee that nobody
-is sent driving to a farm with nothing to buy used to be enforced by Postgres and unbypassable. It
-now lives in `buildMapView` behind a test. That is weaker — a future change can drop one condition —
-and max accepted it knowingly. Sabotage-checked: removing the clause fails the test.
-
-**Two migrations applied to the local database, verified by effect.** 0026: 48 rows backfilled to
-`address_public = true`, zero NULLs, nobody's address changed visibility. 0027: checked against the
-real rows *before* applying (zero would violate), then probed after — contact-only-with-location
-accepted, half a coordinate pair still refused, unplaced-visitable still refused, probe rows deleted.
-Both recorded in `drizzle.__drizzle_migrations`, which hand-applied SQL bypasses; without that
-`drizzle-kit migrate` would have tried to reapply them.
-
-**Two corrections I owe the record.** I reported there was no Postgres locally and that integration
-tests could not run — I had checked for the `psql` *client binary* and concluded the server was
-absent. There is a database with 48 stands; the integration suite runs here and passes. And I
-reported the new UI was missing from the served HTML: that check was wrong, not the code. The
-address block renders client-side behind the visit question, so `curl` on the initial page cannot
-see it; the client bundle carries it.
-
-**Test churn worth avoiding next time.** Relaxing the constraint broke 41 tests and I fixed them in
-several passes rather than diagnosing first. Most came from one cause: `posted()` read
-`fetchMock.mock.calls[0]`, which became the *geocoding lookup* once every farm needed a resolved
-address. Finding that first would have collapsed three rounds into one.
-
-Also fixed: the map search field's native clear "x" had an I-beam cursor, so it read as text rather
-than a control. `cursor: pointer` on `::-webkit-search-cancel-button`, matching `.filter-clear`.
-
-**Verified**: 1562 unit + 805 integration passing, typecheck and lint clean, web build compiles.
-Committed and pushed to `main` at `e55cb92` (max chose to skip the branch/PR flow this session).
-**Not deployed, and the two migrations were deliberately NOT applied to production** — max's call:
-production keeps serving the current image, which does not read the new column, and the schema
-change waits for a session where it can be watched. **Not browser-verified** —
-the zoom timing, the icon placement and the map strip at phone width are judgment calls made in
-code; max does his own pass before go-live.
-
----

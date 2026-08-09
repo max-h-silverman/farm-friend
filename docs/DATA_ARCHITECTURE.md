@@ -154,10 +154,12 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   farmer did before. A stand with no farmer gets no preference rather than a guessed recipient.
   Version, next due time, and last due slot let code invalidate stale work and advance to one slot
   without a catch-up burst.
-- **VIGA approval** — recorded **separately** from onboarding completion; approval is VIGA's act,
-  not a side effect of a farmer finishing a form. Approval and revocation both record **which
-  administrator acted and when**, and revocation updates the row rather than deleting it: published
-  revisions reference the approval they were made under.
+- **VIGA approval** — recorded **separately** from onboarding completion, and it is what lets a farm
+  publish inventory. Approval and revocation record **which administrator acted, when anyone did**,
+  and when: the administrator is nullable, because the honour-system door has none to name and
+  crediting one who never acted would be a convenient lie. Revocation updates the row rather than
+  deleting it, and is the backstop for any approval nobody granted; published revisions reference
+  the approval they were made under.
 - **administrator and sessions** (F-056) — the only admitted identity is
   `board@vigavashon.org`. The password verifier is a web-only secret, never a database value. A
   session is a durable row holding only the **hash** of its token, so a database read cannot recover

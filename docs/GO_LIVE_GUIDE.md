@@ -133,6 +133,11 @@ grandfathered (`/farmer/start`, F-072), and the emailed-code migration door
 and consent stay separate records; onboarding still grants no approval. F-081 closed the last
 sub-item, the default reminder schedule an approved farmer starts on.
 
+**Regressed in production 2026-08-09 (B-045).** The emailed-code door cannot deliver: every send
+fails `ECONNECTION` from Cloud Run, so a farmer sees "sent" and receives nothing. The door is built
+and correct; the transport is not reachable. This item stays Completed — the build is done — but
+**launch cannot rely on email onboarding until B-045 is resolved.** See CURRENT_STATE.md.
+
 ### GL-011 — Build farmer web profile, listing, preferences, and inventory
 
 **Completed:** 2026-08-07 — `/stand/<token>/listing` (F-073) and `/stand/<token>/settings` are
