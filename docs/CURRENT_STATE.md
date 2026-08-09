@@ -27,10 +27,14 @@ real farm. `deploy_assertions.py` and `served_card_assertions.py` both passed; e
 **Max walks the farmer surfaces at phone width before a tranche ships.** He confirmed that pass for
 this deploy; a session that opens by deploying has skipped the gate.
 
-**Data, schema and runtime code are current.** Neon has all structured-price and pending-stock
-columns, no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
-35 farms / locations / approvals, 35 links, 53 payments, 10 participants, 15 VIGA confirmations,
-24 with open days, 38 farm emails across 32 farms, 1 administrator, 0 consents/authorizations.
+**Production data and schema are current; deployed runtime is level with main.** Neon has all
+structured-price and pending-stock columns, no legacy `price_text`, and the final price/location
+constraints. Verified corpus counts:
+35 farms / locations / approvals, **212 reviewed usual items across 33 stands**, 35 links,
+53 payments, 10 participants, 15 VIGA confirmations, 24 with open days, 38 farm emails across
+32 farms, 1 administrator, 0 consents/authorizations. The public API returns Tian Tian's complete
+nine-item usual list (including bok choy and a choy) and 3 Brothers' structured eggs with no
+duplicate Additional information prose.
 
 The rebuild deliberately removed 3 real consents; those phones must text `START` again. Its verified
 backup is `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`. Seeders do not restore the
@@ -84,11 +88,16 @@ max's approval**, plus a provider account and DNS verification of `vigavashon.or
 
 ## Verification
 
-**Latest, 2026-08-09:** **1766 unit**, **84 integration** across the four suites this tranche touched
+**Deployed B-045 tranche, 2026-08-09:** **1766 unit**, **84 integration** across its four suites
 (`farm-verification`, `grandfathered-onboarding`, `schema`, `final-schema`), typecheck, lint and the
 production Cloud Build. Four unrelated integration suites fail under cross-suite contention and fail
 the same way on a clean tree (B-020 below). Sabotage lists and what each check proved:
 [SESSION_LOG.md](SESSION_LOG.md).
+
+**B-044 verification:** **1770 unit**, the full integration suite, typecheck, lint, web production
+build, and a complete dry run against the real 35-stand exports: 212 reviewed usual items, 0
+unknown, 0 unresolved. Sabotage proved the integration checks fail if offerings are omitted or the
+stand half commits before an offering failure.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
@@ -196,6 +205,8 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Open build items**
 
+- **B-044:** production data is repaired; the rebuild hardening is in review and not deployed.
+  `db:seed` now requires the reviewed offering artifact and commits it atomically with stands.
 - **F-065 — attribution for a listing change.** A revision row carries no `admin_actor_id` and there
   is no general admin audit log. Three writers of public listing state, none recording who wrote.
 - **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a
