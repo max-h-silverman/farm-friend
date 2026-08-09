@@ -80,9 +80,52 @@ Several tests had pinned exact copy ("Confirmed X ago", "Save default stand", a 
 protecting — that the credential travels in the body at all, that pausing is not opting out —
 rather than re-pinned to the new wording.
 
-Verified: 1740 unit, 851 integration, typecheck, lint, production build. The favicon was checked by
-effect against the running standalone server rather than against the build's route listing. Not
-verified: appearance at phone width, which is max's own pass.
+### The welcome text, rewritten — and the keyword lists split in two
+
+Max read the thread on a handset again and rewrote the setup message himself. The shape that
+mattered: it now SHOWS how to phrase an update rather than describing it. "Just text us what you
+have out" states the interface without demonstrating it, and a farmer's first message is the one
+most likely to be a stilted list — because they are guessing at a format that does not exist. The
+example carries the real shape ("we're out of eggs, replenished kale and added radishes"): ordinary
+phrasing, several operations at once, add and remove and restock mixed together.
+
+**`STAND` is now named only for a farmer who has a second stand.** It picks between stands, so for
+everyone else it teaches a word for a situation they are not in. The count comes from the stands
+query that was already running in `queueFarmerAuthorizedNotification`; its `limit 1` came off. The
+parameter defaults to naming it, because a caller that does not know the count is not evidence of
+one stand, and the failure directions are asymmetric — a two-stand farmer never taught the word has
+no other way to learn it, while a one-stand farmer who reads it loses a few characters.
+
+**`SETTINGS` left the taught set entirely**, on max's reasoning: a farmer has exactly one edit page
+and `LINK` already opens it, since the reminder cadence is a tab on that same page. It stays parsed
+and working.
+
+That last one needed somewhere to put the decision, and the reason is worth recording. The keyword
+tripwire asserts that every keyword the parser honours appears in `FARMER_TAUGHT_KEYWORDS` — so
+dropping a word simply fails the test, and the cheapest way to make it pass again is to delete the
+wrong side of it. `FARMER_UNTAUGHT_KEYWORDS` is the second list: the tripwire now requires every
+parsed keyword to sit in one or the other, so **a keyword nobody teaches and a keyword somebody
+forgot cannot look the same.** It carries the expiry condition too — `SETTINGS` moves back when
+account settings become a surface genuinely separate from the stand's edit page.
+
+The message went to three segments, up from the two this session had just won. That was spent
+deliberately: the example is the most valuable line in the text, so the bound moved to the honest
+number rather than the copy being trimmed to fit a target. Two integration tests were pinned to the
+old wording through a hardcoded `["LINK", "STAND", "SETTINGS"]` list; they now assert the real rule
+including the *absence* of the latter two, so re-adding either is a decision rather than a drift.
+
+Also considered and dropped: routing the link through a Squarespace URL mapping. It cannot work —
+Squarespace redirects are 301s, so the Cloud Run host lands in the address bar anyway, the token
+transits their logs, and a 301 caches hard enough to strand farmers if the target ever moves. The
+measurement that settled it: iOS breaks URLs after `/` **and** after `-`, so the ragged whitespace
+in the thread came from the hyphens in `farm-friend-web-p5mfxfp5za-uw.a.run.app`, not from the
+token. Getting to one line needs a genuinely short domain, which is a purchase and max's call.
+
+Final verification: 1743 unit, 851 integration, typecheck, lint. The conditional-`STAND` branch was
+sabotaged (forcing it always-on) and the test caught it. The favicon was checked by effect against
+the running standalone server rather than against the build's route listing. Migration 0034 was
+checked against `information_schema` rather than its success message. Not verified: appearance at
+phone width, which is max's own pass.
 
 ## 2026-08-08 — F-076: one returning-farmer stock editor, literally shared with onboarding
 

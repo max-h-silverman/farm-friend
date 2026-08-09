@@ -11,16 +11,14 @@ Farm Friend is **pre-go-live**. Production Postgres `neondb` has **34 migrations
 Cloud Run web is `farm-friend-web-00047-2d8` and worker is `farm-friend-worker-00044-lxh`. Both run
 digest `sha256:d5379a52198d29809517175f266e48a8f3749a51ba85cf6dcca6238c7e20623d`.
 
-Main includes F-076's direct structured stock editor and F-097's farmer-surface pass; production
-has neither. **Main now carries one unapplied migration, `0034_invitation_pending_cadence`** —
-production is a migration behind, where before it was level. Its next deployment must start from a
-fresh live revision/schema/source audit, include the merged main artifact, and apply 0034.
+Main includes F-076's stock editor and F-097's farmer-surface pass; production has neither. **Main
+carries one unapplied migration, `0034_invitation_pending_cadence`**, so production is a migration
+behind where it was previously level. Its next deployment must start from a fresh live
+revision/schema/source audit, include the merged main artifact, and apply 0034.
 
-**The migration journal's clock runs ahead of the wall clock until 2026-08-30.**
-`0033_price_basis_unit` carries `when=1788064000000`, so a migration generated today gets a
-timestamp *older* than the last applied one and **is silently skipped** — exit 0, nothing applied.
-0034 is hand-stamped one second after 0033. Every migration generated before that date needs the
-same correction; `migration-ordering.test.ts` is what catches it.
+**The next tranche is that deploy, and it is GATED on max's own local verification first** (max,
+2026-08-09). He walks the farmer surfaces at phone width before anything ships; a session that
+opens by deploying has skipped the gate.
 
 **Data, schema and runtime code are current.** Neon has all structured-price and pending-stock
 columns, no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
@@ -31,8 +29,7 @@ The rebuild deliberately removed 3 real consents; those phones must text `START`
 backup is `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`. Seeders do not restore the
 fixed administrator or farm-email roster; email ingest must reuse the deployed `EMAIL_HASH_SALT`.
 
-Telnyx remains untested live. The four-step production form reached the contact-only submission
-that exposed this session's writer bug; that invitation has not yet retried the corrected submit.
+Telnyx remains untested live.
 
 ### Secrets
 
@@ -48,13 +45,9 @@ that exposed this session's writer bug; that invitation has not yet retried the 
 
 ## Verification
 
-**Latest, 2026-08-09:** **1740 unit**, **851 integration**, typecheck, lint and production build.
-F-097 sabotaged three assertions successfully — the SMS segment bound (reverting the token to hex
-fails it), the one-request publish, and the map caption's position below the items. The favicon was
-verified by effect against the running standalone server (200, `image/png`, byte-identical to
-`assets/viga-favicon.png`, `<link rel="icon">` emitted), and migration 0034 by `information_schema`
-rather than by its "migrations applied successfully" message. Production verification below still
-describes the unchanged deployed digest.
+**Latest, 2026-08-09:** **1743 unit**, **851 integration**, typecheck, lint and production build.
+Sabotage lists and what each check proved: [SESSION_LOG.md](SESSION_LOG.md). Production
+verification below still describes the unchanged deployed digest.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
@@ -120,22 +113,18 @@ link** — a conditional with a test behind it rather than an unbypassable const
   holds and asks the farmer's reminder cadence beside the SMS agreement (held on the invitation,
   applied at redemption); the farmer's own stand page is **two tabs** (status/stock,
   details+settings), and its settings panel is one section list behind one Save.
-  - **Confirmation is asymmetric by channel, deliberately** (F-097). SMS proposes and waits for
-    `YES`, because code interpreted prose and must show its reading first. The web editor
-    **publishes in one press** — the farmer is looking at the rows they typed — and its
-    confirmation SMS is written `suppressed` rather than sent. The publication TRANSACTION is the
-    same one on both paths: authority, VIGA approval, retirement, and exactly-once consumption are
-    all still enforced under its locks.
-  - **The stand link token is base64url** (22 chars), not 64 hex. `isFarmerLinkToken` accepts both,
-    so links minted before 2026-08-09 keep working; `LINK` re-mints in the new shape.
-  - **Parsed and TAUGHT are now different sets** (max, 2026-08-09). The setup text welcomes the
-    farmer, shows a worked example of natural phrasing, carries the link, and names `LINK`. It
-    names `STAND` only when the farm has more than one stand, and does not name `SETTINGS` at all
-    — a farmer has one edit page and `LINK` already opens it. Both keywords stay parsed and
-    working. `FARMER_UNTAUGHT_KEYWORDS` records the reason, and the keyword tripwire requires
-    every parsed keyword to sit in one list or the other, so an untaught word and a forgotten one
-    cannot look the same. **`SETTINGS` returns to the taught set when account settings become a
-    surface separate from the stand's edit page.**
+  - **Confirmation is asymmetric by channel, deliberately.** SMS proposes and waits for `YES`,
+    because code interpreted prose and must show its reading first. The web editor **publishes in
+    one press** and writes its confirmation message `suppressed` rather than sending it. The
+    publication TRANSACTION is the same on both paths — authority, VIGA approval, retirement and
+    exactly-once consumption are all still enforced under its locks.
+  - **The stand link token is base64url** (22 chars). `isFarmerLinkToken` also accepts the 64-hex
+    tokens minted before 2026-08-09; `LINK` re-mints in the new shape.
+  - **Parsed and TAUGHT are different sets.** The setup text names `LINK`, names `STAND` only when
+    the farm has more than one, and never names `SETTINGS` — a farmer has one edit page that
+    `LINK` already opens. Both stay parsed and working. `FARMER_UNTAUGHT_KEYWORDS` records why,
+    and the keyword tripwire requires every parsed keyword to sit in one list or the other.
+    **`SETTINGS` returns to the taught set when account settings become a separate surface.**
 - **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.
@@ -168,10 +157,7 @@ link** — a conditional with a test behind it rather than an unbypassable const
   verified `senderHash`; the onboarding form has no phone, so this needs an attribution decision
   first. Its own analysis allows "stays post-authorization" as a possible right answer.
 - **B-001:** an unreproducible integration flake from 2026-07-25 whose failing test name was never
-  captured. Filed as a watch item, not diagnosed — a load-dependent flake is what latent
-  nondeterminism looks like. Distinct from **B-020**, the reproducible cross-suite deadlock: three
-  files fail intermittently on a full `test:integration:local`, with a different set each run, and
-  they fail identically on a clean tree. Attributed by stashing, 2026-08-08.
+  captured — a watch item, not diagnosed. Distinct from **B-020** (see Verification above).
 - **B-008:** replace the incomplete deployed-build lint gate. Next does not recognize
   `outputFileTracingRoot`, and the Next ESLint plugin is not installed.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
@@ -181,14 +167,10 @@ link** — a conditional with a test behind it rather than an unbypassable const
   P2 resilience band and P3 decisions.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
-tests but not by eye: the farmer agreement step, F-067's full onboarding listing form and its map,
-and F-090's full four-step wizard. F-097's restyled surfaces join them — the settings panel's
-three-section layout and single Save, the saved-confirmation screen without its inner box, the
-onboarding cadence control, and the map card's recency caption. The two-tab stand page, expanded
-public stand detail and F-076's shared priced-item editor were verified in a real phone-width
-browser with no sideways page scroll.
-Per-tranche browser checks are **not tracked here** (max, 2026-08-05): he runs a browser pass himself
-before go-live.
+tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
+F-090's four-step wizard, and F-097's restyled surfaces (the settings panel, the saved-confirmation
+screen, the onboarding cadence control, the map card's recency caption). Per-tranche browser checks
+are **not tracked here** (max, 2026-08-05): he runs a browser pass himself before go-live.
 
 **VIGA's call, not a code question:** whether Vashon Island Farmers Market belongs in the roster as
 a farm at all — it is the market itself, not a stand with a farmer to onboard.
