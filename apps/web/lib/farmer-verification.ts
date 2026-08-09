@@ -118,7 +118,22 @@ export interface VerificationRequestDeps {
     subject: string;
     text: string;
     idempotencyKey: string;
-  }) => Promise<{ outcome: string }>;
+  }) => Promise<{ outcome: string; errorCode?: string }>;
+  /**
+   * Record what the send actually did (B-026).
+   *
+   * The RESPONSE is uniform by design — it must not reveal which addresses are on file — so
+   * without this the server had no idea whether a farmer's code was delivered or dropped. A
+   * farmer reporting "no email" left nothing to read.
+   *
+   * Optional so a caller that has not wired it still works; the route wires it.
+   */
+  logSend?: (entry: {
+    outcome: string;
+    errorCode?: string;
+    farmId: string;
+    idempotencyKey: string;
+  }) => void;
 }
 
 /** The one response this endpoint ever gives a well-formed request. */
@@ -195,7 +210,7 @@ export async function handleVerificationRequestPost(
   const farmName = await deps.readFarmName(deps.db, farmId);
   if (farmName === null) return Response.json(SENT);
 
-  await deps.sendCode({
+  const sent = await deps.sendCode({
     farmId,
     email,
     ...renderVerificationEmail({
@@ -203,6 +218,24 @@ export async function handleVerificationRequestPost(
       farmName,
       replyToAddress: deps.replyToAddress,
     }),
+    idempotencyKey: issued.id,
+  });
+
+  /*
+    WHAT HAPPENED, on the server only (B-026).
+
+    The farmer's answer stays uniform below; this is the operator's record. It carries the
+    outcome, the transport's error code, and the FARM — never the address, because the hash is
+    the only permitted log key (Golden Rule #5) and an address here would be the rich personal
+    record the privacy posture refuses.
+
+    The accepted case is logged too: logging only failures makes an absent line ambiguous
+    between "no send" and "a send that worked".
+  */
+  deps.logSend?.({
+    outcome: sent.outcome,
+    ...(sent.errorCode === undefined ? {} : { errorCode: sent.errorCode }),
+    farmId,
     idempotencyKey: issued.id,
   });
 

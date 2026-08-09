@@ -345,3 +345,67 @@ describe("submitting a code", () => {
     expect(second.status).toBe(429);
   });
 });
+describe("a send that fails is REPORTED, not swallowed (B-026)", () => {
+  /*
+    THE PRODUCTION BLINDNESS THIS FIXES (max, 2026-08-09).
+
+    A farmer reported never receiving her code. The endpoint answers a uniform "sent" by design
+    — that is what stops it revealing which addresses are on file — and `createEmailSender`'s
+    `logger` is OPTIONAL and was never wired. So every outcome, accepted and failed alike, was
+    discarded: three separate investigations of the same incident had no evidence to read, and
+    the only way to tell a delivered code from a dropped one was to ask the farmer.
+
+    The uniform RESPONSE is unchanged. What changes is that the server records what happened.
+  */
+  it("records a failed send with its error code", async () => {
+    const logged: unknown[] = [];
+    const sendCode = vi.fn(async () => ({
+      outcome: "ambiguous" as const,
+      errorCode: "ETIMEDOUT",
+    }));
+
+    const response = await handleVerificationRequestPost(
+      requestDeps({ sendCode, logSend: (entry) => logged.push(entry) }),
+      post({ farmId: FARM_ID, email: "cathy@example.com" }),
+    );
+
+    // The farmer still sees the uniform answer — the response must not change.
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "sent" });
+
+    // But the server knows.
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ outcome: "ambiguous", errorCode: "ETIMEDOUT" });
+  });
+
+  it("records an accepted send too, so silence means the code never got that far", async () => {
+    // Logging only failures would make an absent line ambiguous: no send, or a send that
+    // worked? The success line is what makes the failure line's absence meaningful.
+    const logged: unknown[] = [];
+    const sendCode = vi.fn(async () => ({ outcome: "accepted" as const }));
+
+    await handleVerificationRequestPost(
+      requestDeps({ sendCode, logSend: (entry) => logged.push(entry) }),
+      post({ farmId: FARM_ID, email: "cathy@example.com" }),
+    );
+
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({ outcome: "accepted" });
+  });
+
+  it("never puts the farmer's address in the log", async () => {
+    // Golden Rule #5: the hash is the only lookup/log key. An address in a log line is the
+    // rich personal record the privacy posture refuses.
+    const logged: unknown[] = [];
+    await handleVerificationRequestPost(
+      requestDeps({
+        sendCode: vi.fn(async () => ({ outcome: "ambiguous" as const, errorCode: "ECONNRESET" })),
+        logSend: (entry) => logged.push(entry),
+      }),
+      post({ farmId: FARM_ID, email: "cathy@example.com" }),
+    );
+
+    expect(JSON.stringify(logged)).not.toContain("cathy@example.com");
+    expect(JSON.stringify(logged)).not.toContain("cathy");
+  });
+});

@@ -72,6 +72,21 @@ export async function POST(request: Request): Promise<Response> {
           text: input.text,
           idempotencyKey: input.idempotencyKey,
         }),
+      /*
+        WHAT THE SEND DID, on the server (B-026).
+
+        `createEmailSender`'s own `logger` is optional and nothing ever passed one, so every
+        outcome — accepted and failed alike — was discarded. A farmer reporting "no email"
+        left literally nothing to read, and three investigations of one incident had to
+        reason from timing instead of evidence.
+
+        `console.log` because Cloud Run collects stdout as structured logs; a JSON line is
+        queryable there without adding a logging dependency for one call site. The farmer's
+        address is deliberately absent — the farm and the outcome are what an operator needs.
+      */
+      logSend: (entry) => {
+        console.log(JSON.stringify({ event: "farmer_verification_send", ...entry }));
+      },
     },
     request,
   );
