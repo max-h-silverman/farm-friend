@@ -28,10 +28,10 @@ describe("StandForm", () => {
     expect(screen.getByRole("group", { name: /stock today/i })).toBeVisible();
     expect(screen.queryByLabelText(/in your own words/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/text|sms/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/doesn.t change what your stand usually sells/i)).toBeVisible();
-    expect(screen.queryByText(/this is a dated stock update/i)).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Item name")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Add" })).toBeVisible();
+    expect(screen.getByText(/prices show on your listing/i)).toBeVisible();
+    expect(screen.getByPlaceholderText("e.g. eggs")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Add item" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Remove Eggs" })).toBeVisible();
   });
 
   it("uses onboarding's one price switch and removes visible prices when it is off", async () => {
@@ -107,8 +107,8 @@ describe("StandForm", () => {
     await user.selectOptions(screen.getByLabelText("Price basis for Eggs"), "for");
     expect(screen.getByLabelText("How many Eggs")).toHaveValue("1");
 
-    await user.type(screen.getByLabelText("Item name"), "Plum jam");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("Stock today"), "Plum jam");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
 
     expect(screen.getByRole("switch", { name: "Plum jam in stock" })).toBeChecked();
     expect(screen.getByLabelText("Price basis for Plum jam")).toHaveValue("per");
@@ -129,9 +129,9 @@ describe("StandForm", () => {
 
     await user.clear(screen.getByLabelText("Price for Eggs"));
     await user.type(screen.getByLabelText("Price for Eggs"), "5");
-    await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
-    await user.type(screen.getByLabelText("Item name"), "Plum jam");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.click(screen.getByRole("button", { name: "Remove Kale" }));
+    await user.type(screen.getByLabelText("Stock today"), "Plum jam");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
     await user.selectOptions(screen.getByLabelText("Price basis for Plum jam"), "for");
     await user.clear(screen.getByLabelText("How many Plum jam"));
     await user.type(screen.getByLabelText("How many Plum jam"), "3");
@@ -163,6 +163,12 @@ describe("StandForm", () => {
     await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
     expect(preview).toBeEnabled();
     await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
+    expect(preview).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Remove Kale" }));
+    expect(preview).toBeEnabled();
+    await user.type(screen.getByLabelText("Stock today"), "Kale");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
     expect(preview).toBeDisabled();
   });
 

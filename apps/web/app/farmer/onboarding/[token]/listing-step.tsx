@@ -20,8 +20,7 @@ import {
 } from "../../../../lib/farmer-invite";
 import { IslandArtwork } from "../../../island-artwork";
 import {
-  StockItemPricingFields,
-  StockItemRow,
+  StockInventoryEditor,
   initialStockUnitMode as initialUnitMode,
   stockItemPriceDraftToPrice,
   type StockItemPriceDraft,
@@ -2047,122 +2046,23 @@ export function ListingStep({
         boundary has to exist for a screen reader too, and `legend` is what names the group
         without inventing a heading level in the middle of a form.
       */}
-      <fieldset className="farmer-listing-inventory">
-        <legend>What do you usually sell?</legend>
-        {/*
-          ONE SWITCH FOR THE WHOLE SECTION (max 2026-08-08). A farmer either prices their goods
-          or does not; asking per item would put the same question in front of them once per
-          row, and pricing is the exception rather than the rule at an honor-system stand.
-
-          It governs BOTH the second line's visibility and whether prices reach a customer —
-          the two are deliberately the same switch, because a farmer turning prices "off" and
-          still finding them on the map is the surprise this design exists to avoid. Nothing is
-          cleared: the amounts stay in state and in the database, so switching back on restores
-          the work.
-
-          A `switch` rather than a checkbox, matching the per-row stock control: it turns a
-          feature on and off rather than ticking a statement as true.
-        */}
-        <div className="farmer-listing-inventory-prices">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={pricesPublic}
-            className="farmer-listing-prices-switch"
-            onClick={() => setPricesPublic(!pricesPublic)}
-          >
-            <span className="farmer-listing-item-stock-track" aria-hidden="true" />
-            <span>Add prices</span>
-          </button>
-          <p className="farmer-listing-inventory-subtitle">
-            {pricesPublic
-              ? "Prices show on your listing. Leave any of them blank to say nothing."
-              : "Your listing shows what you sell, without prices."}
-          </p>
-        </div>
-
-        {/*
-          The way in, at the TOP of the section. It is the one thing a farmer arriving here
-          does, and putting it above the rows means it stays in the same place as the list
-          grows rather than sliding down the screen behind the items already added.
-        */}
-        <div className="farmer-listing-item-add">
-          <label className="sr-only" htmlFor="stand-items">
-            What do you usually sell?
-          </label>
-          <input
-            id="stand-items"
-            type="text"
-            value={draftItem}
-            onChange={(event) => setDraftItem(event.target.value)}
-            onKeyDown={(event) => {
-              // Enter adds the item rather than submitting a form the farmer is still
-              // building — the same accident `type="button"` prevents on the button.
-              if (event.key !== "Enter") return;
-              event.preventDefault();
-              addItem();
-            }}
-            placeholder="e.g. eggs"
-            maxLength={120}
-          />
-          <button
-            type="button"
-            className="farmer-listing-item-add-button"
-            onClick={addItem}
-            disabled={draftItem.trim() === ""}
-          >
-            Add item
-          </button>
-        </div>
-
-        {itemRows.length === 0 ? (
-          /*
-            The empty state, and the only prose left in the section. It says what to do rather
-            than what the list means — the trailing paragraph that explained the standing-mix
-            versus today's-stock split is GONE (max 2026-08-08). It explained a distinction to
-            a farmer who could not yet see the control that makes it, and sat below the rows
-            where it read as a footnote to the last item. The per-row toggle carries that
-            distinction now, where it can be acted on.
-          */
-          <p className="farmer-listing-inventory-empty">
-            Nothing here yet. Add what your stand usually has.
-          </p>
-        ) : (
-          <ul className="farmer-listing-items">
-            {itemRows.map((row, index) => (
-              <StockItemRow
-                key={`${row.name}-${index}`}
-                name={row.name}
-                stock={
-                  asksForCurrentStock
-                    ? { checked: row.inStock, onChange: () => toggleItemStock(index) }
-                    : undefined
-                }
-                onRemove={() => removeItem(index)}
-              >
-                {/*
-                  LINE TWO — the price, shown only when the section's switch is on.
-
-                  Every field is labelled with ITS OWN ITEM's name. A shared label ("Price")
-                  would leave a screen reader user with a column of identical controls and no
-                  way to tell which belongs to what — and it is what the tests anchor on, so a
-                  price landing on the wrong row fails rather than passing on presence alone.
-
-                  The sentence reads left to right as it will render: `$ [6] [per] [dozen]`.
-                */}
-                {pricesPublic && (
-                  <StockItemPricingFields
-                    itemName={row.name}
-                    controlId={String(index)}
-                    value={priceDraft(row)}
-                    onChange={(price) => setItemPrice(index, price)}
-                  />
-                )}
-              </StockItemRow>
-            ))}
-          </ul>
-        )}
-      </fieldset>
+      <StockInventoryEditor
+        kind="usual"
+        items={itemRows.map((row, index) => ({
+          key: String(index),
+          name: row.name,
+          inStock: asksForCurrentStock ? row.inStock : undefined,
+          price: priceDraft(row),
+        }))}
+        pricesEnabled={pricesPublic}
+        draftItem={draftItem}
+        onPricesEnabledChange={() => setPricesPublic(!pricesPublic)}
+        onDraftItemChange={setDraftItem}
+        onAddItem={addItem}
+        onStockChange={(key) => toggleItemStock(Number(key))}
+        onPriceChange={(key, price) => setItemPrice(Number(key), price)}
+        onRemoveItem={(key) => removeItem(Number(key))}
+      />
 
       {/*
         THE FARM'S OWN PARAGRAPH, and the first farmer-facing surface that can change it.

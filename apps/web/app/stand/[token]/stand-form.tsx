@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import {
   EMPTY_STOCK_ITEM_PRICE,
-  StockItemPricingFields,
-  StockItemRow,
+  StockInventoryEditor,
   renderStockItemPriceDraft,
   stockItemPriceDraftFromText,
   type StockItemPriceDraft,
@@ -79,7 +78,14 @@ function structuredEdit(
     entryId: string;
     priceText?: string | null;
   }> = [];
-  const removals: Array<{ entryId: string }> = [];
+  const currentEntryIds = new Set(
+    rows.flatMap((row) => (row.entryId === undefined ? [] : [row.entryId])),
+  );
+  const removals = baselineRows.flatMap((row) =>
+    row.entryId !== undefined && !currentEntryIds.has(row.entryId)
+      ? [{ entryId: row.entryId }]
+      : [],
+  );
 
   for (const row of rows) {
     if (row.entryId === undefined) {
@@ -153,6 +159,14 @@ export function StandForm({
       setDraftItem("");
       return;
     }
+    const baseline = baselineRows.find(
+      (row) => row.itemName.trim().toLowerCase() === itemName.toLowerCase(),
+    );
+    if (baseline !== undefined) {
+      setRows((current) => [...current, baseline]);
+      setDraftItem("");
+      return;
+    }
     nextKey.current += 1;
     setRows((current) => [
       ...current,
@@ -171,6 +185,10 @@ export function StandForm({
     setRows((current) =>
       current.map((row) => (row.key === key ? { ...row, ...update } : row)),
     );
+  }
+
+  function removeRow(key: string) {
+    setRows((current) => current.filter((row) => row.key !== key));
   }
 
   async function post(body: Record<string, unknown>): Promise<Record<string, unknown> | null> {
@@ -261,90 +279,36 @@ export function StandForm({
             </p>
           )}
 
-          <fieldset className="farmer-listing-inventory farmer-stock-editor">
-            <legend className="sr-only">Stock today</legend>
-            <p className="farmer-listing-inventory-subtitle">
-              Doesn&apos;t change what your stand usually sells.
-            </p>
-
-            <div className="farmer-listing-inventory-prices">
+          <StockInventoryEditor
+            kind="dated"
+            items={rows.map((row) => ({
+              key: row.key,
+              name: row.itemName,
+              inStock: row.inStock,
+              price: row.price,
+            }))}
+            pricesEnabled={pricesEnabled}
+            draftItem={draftItem}
+            onPricesEnabledChange={() => setPricesEnabled(!pricesEnabled)}
+            onDraftItemChange={setDraftItem}
+            onAddItem={addDraftItem}
+            onStockChange={(key) => {
+              const row = rows.find((candidate) => candidate.key === key);
+              if (row !== undefined) updateRow(key, { inStock: !row.inStock });
+            }}
+            onPriceChange={(key, price) => updateRow(key, { price })}
+            onRemoveItem={removeRow}
+            action={
               <button
                 type="button"
-                role="switch"
-                aria-checked={pricesEnabled}
-                className="farmer-listing-prices-switch"
-                onClick={() => setPricesEnabled(!pricesEnabled)}
+                className="farmer-stock-update"
+                disabled={busy || edit === undefined}
+                onClick={() => void propose()}
               >
-                <span className="farmer-listing-item-stock-track" aria-hidden="true" />
-                <span>Add prices</span>
+                {busy ? "Checking…" : "Update"}
               </button>
-            </div>
-
-            <div className="farmer-listing-item-add">
-              <label className="sr-only" htmlFor="farmer-stock-add-item">
-                Item name
-              </label>
-              <input
-                id="farmer-stock-add-item"
-                type="text"
-                value={draftItem}
-                placeholder="Item name"
-                maxLength={120}
-                onChange={(event) => setDraftItem(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") return;
-                  event.preventDefault();
-                  addDraftItem();
-                }}
-              />
-              <button
-                type="button"
-                className="farmer-listing-item-add-button"
-                disabled={draftItem.trim() === ""}
-                onClick={addDraftItem}
-              >
-                Add
-              </button>
-            </div>
-
-            {rows.length === 0 ? (
-              <p className="farmer-listing-inventory-empty">
-                No items in stock.
-              </p>
-            ) : (
-              <ul className="farmer-listing-items">
-                {rows.map((row) => (
-                  <StockItemRow
-                    key={row.key}
-                    name={row.itemName}
-                    stock={{
-                      checked: row.inStock,
-                      onChange: () => updateRow(row.key, { inStock: !row.inStock }),
-                    }}
-                  >
-                    {pricesEnabled && (
-                      <StockItemPricingFields
-                        itemName={row.itemName}
-                        controlId={row.key}
-                        value={row.price}
-                        disabled={!row.inStock}
-                        onChange={(price) => updateRow(row.key, { price })}
-                      />
-                    )}
-                  </StockItemRow>
-                ))}
-              </ul>
-            )}
-
-            <button
-              type="button"
-              className="farmer-stock-update"
-              disabled={busy || edit === undefined}
-              onClick={() => void propose()}
-            >
-              {busy ? "Checking…" : "Update"}
-            </button>
-          </fieldset>
+            }
+          />
         </>
       )}
 

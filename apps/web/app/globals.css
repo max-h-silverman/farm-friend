@@ -5168,14 +5168,6 @@ button.admin-action-danger,
   text-align: center;
 }
 
-.farmer-stock-editor {
-  margin-top: 0;
-}
-
-.farmer-stock-editor > .farmer-listing-inventory-subtitle {
-  padding-bottom: 0.15rem;
-}
-
 .farmer-listing-item-add {
   display: flex;
   gap: 0.5rem;
@@ -5198,7 +5190,19 @@ button.admin-action-danger,
   flex: none;
   min-height: 44px;
   padding: 0 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
   white-space: nowrap;
+}
+
+.farmer-listing-item-add-button:disabled {
+  opacity: 0.65;
+  cursor: default;
 }
 
 .farmer-form button.farmer-stock-update {

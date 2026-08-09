@@ -145,13 +145,11 @@ export function StockItemPricingFields({
   itemName,
   controlId,
   value,
-  disabled = false,
   onChange,
 }: {
   itemName: string;
   controlId: string;
   value: StockItemPriceDraft;
-  disabled?: boolean;
   onChange(value: StockItemPriceDraft): void;
 }) {
   const update = (change: Partial<StockItemPriceDraft>) => onChange({ ...value, ...change });
@@ -168,7 +166,6 @@ export function StockItemPricingFields({
         type="text"
         inputMode="decimal"
         value={value.amount}
-        disabled={disabled}
         onChange={(event) => update({ amount: sanitizeDecimal(event.target.value) })}
         placeholder="0.00"
         maxLength={12}
@@ -180,7 +177,6 @@ export function StockItemPricingFields({
         id={`item-basis-${controlId}`}
         className="farmer-listing-item-basis"
         value={value.basis}
-        disabled={disabled}
         onChange={(event) => update({ basis: event.target.value === "for" ? "for" : "per" })}
       >
         <option value="per">per</option>
@@ -197,7 +193,6 @@ export function StockItemPricingFields({
             type="text"
             inputMode="decimal"
             value={value.quantity}
-            disabled={disabled}
             onChange={(event) => update({ quantity: sanitizeDecimal(event.target.value) })}
             placeholder="1"
             maxLength={12}
@@ -214,7 +209,6 @@ export function StockItemPricingFields({
             className="farmer-listing-item-unit-other"
             type="text"
             value={value.unit}
-            disabled={disabled}
             onChange={(event) => update({ unit: event.target.value })}
             placeholder="unit"
             maxLength={40}
@@ -222,7 +216,6 @@ export function StockItemPricingFields({
           <button
             type="button"
             className="farmer-listing-item-unit-back"
-            disabled={disabled}
             onClick={() => update({ unit: "", unitMode: "menu" })}
           >
             <span className="sr-only">{`Use the unit menu for ${itemName}`}</span>
@@ -234,7 +227,6 @@ export function StockItemPricingFields({
           id={`item-unit-${controlId}`}
           className="farmer-listing-item-unit"
           value={value.unit}
-          disabled={disabled}
           onChange={(event) => {
             if (event.target.value === OTHER_STOCK_UNIT) {
               update({ unit: "", unitMode: "custom" });
@@ -251,6 +243,129 @@ export function StockItemPricingFields({
         </select>
       )}
     </div>
+  );
+}
+
+export interface StockInventoryEditorItem {
+  key: string;
+  name: string;
+  inStock?: boolean;
+  price: StockItemPriceDraft;
+}
+
+/** The one inventory editor used for onboarding and every later stock update. */
+export function StockInventoryEditor({
+  kind,
+  items,
+  pricesEnabled,
+  draftItem,
+  onPricesEnabledChange,
+  onDraftItemChange,
+  onAddItem,
+  onStockChange,
+  onPriceChange,
+  onRemoveItem,
+  action,
+}: {
+  kind: "usual" | "dated";
+  items: StockInventoryEditorItem[];
+  pricesEnabled: boolean;
+  draftItem: string;
+  onPricesEnabledChange(): void;
+  onDraftItemChange(value: string): void;
+  onAddItem(): void;
+  onStockChange(key: string): void;
+  onPriceChange(key: string, price: StockItemPriceDraft): void;
+  onRemoveItem(key: string): void;
+  action?: ReactNode;
+}) {
+  const legend = kind === "usual" ? "What do you usually sell?" : "Stock today";
+  const empty =
+    kind === "usual"
+      ? "Nothing here yet. Add what your stand usually has."
+      : "Nothing here yet. Add what is in stock today.";
+
+  return (
+    <fieldset className="farmer-listing farmer-listing-inventory">
+      <legend className={kind === "dated" ? "sr-only" : undefined}>{legend}</legend>
+      <div className="farmer-listing-inventory-prices">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={pricesEnabled}
+          className="farmer-listing-prices-switch"
+          onClick={onPricesEnabledChange}
+        >
+          <span className="farmer-listing-item-stock-track" aria-hidden="true" />
+          <span>Add prices</span>
+        </button>
+        <p className="farmer-listing-inventory-subtitle">
+          {pricesEnabled
+            ? "Prices show on your listing. Leave any of them blank to say nothing."
+            : "Your listing shows what you sell, without prices."}
+        </p>
+      </div>
+
+      <div className="farmer-listing-item-add">
+        <label className="sr-only" htmlFor={`stock-items-${kind}`}>
+          {legend}
+        </label>
+        <input
+          id={`stock-items-${kind}`}
+          type="text"
+          value={draftItem}
+          onChange={(event) => onDraftItemChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            onAddItem();
+          }}
+          placeholder="e.g. eggs"
+          maxLength={120}
+        />
+        <button
+          type="button"
+          className="farmer-listing-item-add-button"
+          onClick={onAddItem}
+          disabled={draftItem.trim() === ""}
+        >
+          Add item
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="farmer-listing-inventory-empty">{empty}</p>
+      ) : (
+        <ul className="farmer-listing-items">
+          {items.map((item) => (
+            <StockItemRow
+              key={item.key}
+              name={item.name}
+              stock={
+                item.inStock === undefined
+                  ? undefined
+                  : {
+                      checked: item.inStock,
+                      onChange: () => onStockChange(item.key),
+                    }
+              }
+              onRemove={() => onRemoveItem(item.key)}
+            >
+              {pricesEnabled && (
+                <StockItemPricingFields
+                  itemName={item.name}
+                  controlId={item.key}
+                  value={item.price}
+                  onChange={(price) => onPriceChange(item.key, price)}
+                />
+              )}
+            </StockItemRow>
+          ))}
+        </ul>
+      )}
+
+      {action}
+    </fieldset>
   );
 }
 

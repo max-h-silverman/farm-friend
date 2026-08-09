@@ -1181,8 +1181,8 @@ describe("the farmer stand form", () => {
     vi.stubGlobal("fetch", fetcher);
 
     render(<StandForm token="private-token" currentEntries={[]} />);
-    await user.type(screen.getByLabelText("Item name"), "Winter squash");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("Stock today"), "Winter squash");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
     await user.click(screen.getByRole("switch", { name: "Add prices" }));
     await user.type(screen.getByLabelText("Price for Winter squash"), "4");
     await user.selectOptions(screen.getByLabelText("Price basis for Winter squash"), "for");
@@ -1215,8 +1215,8 @@ describe("the farmer stand form", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response(403)));
     render(<StandForm token="private-token" currentEntries={[]} />);
 
-    await user.type(screen.getByLabelText("Item name"), "eggs");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("Stock today"), "eggs");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
     await user.click(screen.getByRole("button", { name: "Update" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/listing is unchanged/i);
@@ -1244,8 +1244,8 @@ describe("the farmer stand form", () => {
     );
     render(<StandForm token="private-token" currentEntries={[]} />);
 
-    await user.type(screen.getByLabelText("Item name"), "Kale");
-    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("Stock today"), "Kale");
+    await user.click(screen.getByRole("button", { name: "Add item" }));
     await user.click(screen.getByRole("switch", { name: "Add prices" }));
     await user.type(screen.getByLabelText("Price for Kale"), "$3/bunch");
     await user.click(screen.getByRole("button", { name: "Update" }));
