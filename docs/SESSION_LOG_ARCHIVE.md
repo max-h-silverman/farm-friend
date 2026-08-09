@@ -1,7 +1,7 @@
 # Farm Friend — Session Log Archive (through 2026-08-07)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-08; it now holds 68 entries.
+everything older lives here. Last rotated 2026-08-09; it now holds 70 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -9,6 +9,175 @@ architecture documents ([README.md](README.md) is the index). Where an entry her
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
 
 ---
+
+## 2026-08-07 — Two farmer-facing gaps max reported, and the compliance rule that reshaped one of them
+
+max raised two things from using the app: the migration door telling farmers to "contact VIGA" to
+set up texting, and old unstructured listing text sitting under new listings. Both were real; the
+first turned out to be constrained by a rule that made the obvious design unbuildable, and the
+second turned out to be the opposite of what it looked like.
+
+**Farm Friend cannot send the first text, and that killed the natural design.** max's proposal —
+farmer types their number, ticks consent, we text "reply CONFIRM" — cannot be built.
+`isProactiveSendPermitted` permits an un-consented send only for `required_reply`, the
+carrier-required answer to that recipient's *own* message, and `authorizeDispatch` suppresses
+everything else for a number with no consent row: "silence is not permission." Any flow where a web
+form triggers an outbound SMS to an unproven number is blocked by architecture, not missing code.
+Routing around it by labelling the message `required_reply` would launder a proactive send through
+a compliance exemption. So the direction inverts: the farmer texts **us**, and that inbound message
+is the possession proof and the opt-in at once.
+
+**The word has to be `START`.** max suggested `CONFIRM`, which reads better. But Telnyx keeps its
+own opt-out list and enforces it independently — a `join` four minutes after a `stop` was still
+refused 409 (verified live 2026-07-27), and only `START` clears it. A farmer who ever opted out and
+replied `CONFIRM` would be recorded as consenting while every message to them was silently refused.
+`START` is also carrier-registered, so one word serves a first-timer and a returning farmer alike.
+
+**max asked to store the phone number anyway; it is collected in the copy's framing but not
+stored, and that is worth restating.** `DATA_ARCHITECTURE` §privacy keeps a raw phone in exactly one
+column *because the sender needs something to send to*. There is no send path here, so a stored
+number would be personal data with no reader — the exact trap `administrator_phones` avoided — and
+an unverifiable one, since a typo'd digit is a stranger's number that nothing would ever catch. The
+farmer's inbound `START` carries the real number, verified by possession.
+
+**The second issue was the reverse of its description.** max asked that the onboarding form
+"supersede but not overwrite" the old prose. In fact `saveOnboardingListing` wrote **zero** to
+`farms.description` through all three doors — it did not overwrite it, it ignored it. So a farmer
+published a clean listing and VIGA's older prose stayed welded underneath, contradicting the fields
+above it and editable by nobody. The fix is a writer plus an edit box, with `undefined` meaning
+"this door states nothing" and `""` meaning "the farmer cleared it" — collapsing those is B-037 one
+column over.
+
+**I measured the parser and reported it as if it described the live cards, and max caught it with a
+screenshot.** I ran `buildStandDescription` over the real corpus, found it removed 53% of the text,
+and argued from that against using a model. The function was right; the claim was not. F-061's
+cleanup has been *deployed since it was written and has never run against the data* — F-064's
+ingest never happened — so production stores raw prose and the card renders it verbatim. Tian Tian's
+live card shows the farmer's name, her home address, `Website:`, `Open:`, `Stocking Days:`, a dated
+update and `Accepts`, beside a "Hours not listed" chip and above a duplicate of its own "Usually
+sells" list. **To say what a card shows, read the column, not the parser.**
+
+**The model question resolved against the model, on evidence.** max asked whether an LLM could fold
+the redundant text intelligently. Measured against the real corpus the leftovers were a *fixed set
+of labels* — `Generally Offers` (13 of 34 farms, duplicating the exact field the form asks for),
+`Hosting` (7), two date spellings, colon-less `Open` lines — which a parser handles exactly and a
+model would handle non-deterministically and unreviewably. The constitution's rule decided it:
+measure against the real corpus before defending a deterministic approach.
+
+**Then measurement forced a correction on my own fix.** Dropping every labelled line emptied **nine**
+farms rather than one, because for those farms every line is labelled — and 10 lines across the
+corpus carry a *tail* no column holds ("Stocking daily. Harvest days are Tuesday and Friday. Best
+selection on those days by late afternoon"). No punctuation rule separates the halves. So a labelled
+line is dropped only when its body reads as a plain list; anything richer survives whole and reaches
+the farmer's edit box. That is where max's model instinct was right — the residue is genuinely
+model-shaped — but the farmer is on the page and is the better authority on their own words.
+
+**A sabotage escaped and exposed a test that could not fail.** Both "keep the tail" fixtures were
+long enough that the length check alone kept them, so disabling the sentence-break rule left all 26
+tests green. Flora Hill's short real line ("Everyday. Flavors change on Friday") now isolates it.
+Thirteen sabotages total this session, each verified applied by grep before running — the earlier
+lesson that a substitution which silently fails to match proves nothing.
+
+**The dry run found a defect no fixture would have.** Venison Valley's stored row begins literally
+`/22/2026 Update:` — the month gone, lost upstream in hand-editing — so the dated-update pattern,
+anchored on a leading month digit, missed it and the line printed beneath "Nothing confirmed
+recently". The month is now optional, matched by the shape that remains rather than repaired;
+supplying a month nobody wrote would be inventing a confirmation date.
+
+**max's vCard check found a live gap.** He asked whether customers texting `JOIN` receive the
+contact card. They did not, and no SMS path sent it at all: F-039 built
+`/api/public/contact-card` and wired it to a link on the public web *map* only, so anyone who
+arrived by text — the product — was never told it existed and every later message came from an
+unnamed number. It now rides in the welcome both `JOIN` and `START` trigger. That costs a second
+segment (the URL is 71 characters at production's `run.app` host); max chose the segment over
+cutting the copy. The first version of that test asserted a 160-character ceiling, which is the
+*single*-segment limit — concatenated GSM-7 is 153 — so it would have let a 2.1-segment body pass.
+
+**Merged, deployed, and the cleanup run** — max approved both at the wrap. 1553 unit (131 files),
+802 integration (58 files), typecheck, lint. No `packages/ai` change and no migration, both checked
+against the diff.
+
+Deployed at web `00041-r5m` / worker `00040-bks`, which also shipped the two tranches max had been
+holding (F-081, and the sign-up wizard plus the integration guard). Verified by effect rather than
+by the apply's status: plan assertions 55/55, `deploy_assertions` confirming each serving revision
+is newer than every secret version it consumes, and new code genuinely serving — 34 stands, bare
+`/farmer/start` 404, malformed body 400 rather than 500.
+
+**The cleanup rewrote 31 of 34 rows** in one transaction, verified by reading them back and then
+independently through `/api/public/stands` — the surface a customer reads, not the script's own
+report. Tian Tian's card went from nine lines of restated facts to one. 34 → 29 farms carry a
+description; the 5 emptied held nothing but structured facts that still render from their own
+columns. A re-run reports **0 would change**: idempotence proven by effect. The two "Stocking"
+lines that survive are the deliberate tail-keeps, which is the design holding on real data.
+
+---
+## 2026-08-07 — F-081's default schedule, and two sabotages that found gaps rather than confirming tests
+
+Built F-081 (approved farmers start on a weekly reminder schedule), closed B-038 by ingesting the
+last three farm emails into production, and filed F-082/F-083 from things max surfaced. The
+durable content is the two escaped sabotages and where the schema said the seed had to live.
+
+**The gap was wider than CURRENT_STATE described, and reading the code is what showed it.** The
+open item named `authorizeFarmer` as the door that writes no `inventory_prompt_preferences` row.
+In fact **no onboarding door wrote one**: the table had exactly one writer,
+`setInventoryPromptPreference`, behind the farmer settings surfaces. A fix touching only
+`authorizeFarmer` would have reached almost nobody, since invite and migration are the live doors.
+F-052's machinery was correct and reached zero farmers because its candidate query selected against
+an empty table.
+
+**The schema chose where the seed lives, not judgment.** A preference row carries composite foreign
+keys to BOTH `sales_locations` and `farmer_authorizations`, so it is structurally impossible before
+a stand exists — and `authorizeFarmer` and the invited redemption both run *before* one does (an
+invited farmer publishes from the web form and is authorized later, when they text `JOIN`). So
+`seedDefaultPromptPreference` is called from `saveOnboardingListing` **and** from both
+authorization writers: the doors reach the pair (stand, live authorization) at different moments,
+and seeding at whichever comes second is the only shape that covers all four.
+
+**Two of four sabotages found real gaps rather than confirming the tests, which is the whole reason
+to run them.**
+
+- A hand-computed `+7 days` **escaped every assertion**. The fixture published at 10:00 local,
+  where "seven days on at the same clock time" and "10:00 local on the seventh day" are the *same
+  instant* — so the schedule rule was never under test at all. The fixture now publishes at 15:30
+  local, and the sabotage fails on `22:30Z` vs `17:00Z`. **A test whose fixture sits exactly on the
+  boundary it is testing cannot see the boundary.**
+- Dropping the authorization validity check **escaped** — nothing exercised a revoked or foreign
+  authorization, so a revoked farmer would have been scheduled for texts. Two tests added; the
+  cross-farm one also proves the composite foreign key refuses it independently, so the check and
+  the constraint are both real barriers rather than one dressed as two.
+
+**The typecheck caught a drift trap the tests could not.** All three listing doors restated
+`saveOnboardingListing`'s input shape inline, so adding one field left three boundaries describing
+a writer that no longer existed. Now stated once as `SaveOnboardingListingInput`; two dead imports
+removed on the way through.
+
+**B-038's three farms were never in the form export at all** — which is why the fix the item
+proposed (re-run the ingest) would have changed nothing on its own. They are seeded farms that
+never filed a response. Ingested from a scratchpad copy of the export with four rows appended;
+VIGA's original file untouched. **Verified through the shipped `findVerifiableFarmByEmail`** with
+the controls that make it evidence: wrong salt matches nothing, unknown address matches nothing,
+and **one farm's address does not verify another farm** — F-079's per-farm scoping, proven rather
+than assumed. `farm_emails` 38 → 42 rows, 32 → 35 farms; every real farm now has an address.
+
+**A parsing trap worth knowing if VIGA's map export is ever reused.** `VIGA Map Stands.csv` writes
+multi-line descriptions **unquoted**, so an ordinary CSV read splits one stand across many rows — a
+naive parse produced **275 phantom farms** with names like `dawn to dusk` and `Zelle`. The real
+count is 31 stands, recoverable only by treating a `POINT` in the first column as the record
+boundary. It was obvious here because the output was nonsense; a quieter version of the same
+mistake would have silently mismatched farms to emails.
+
+**The market is not a farm, and measurement settled it.** max asked for a stand "type"; `kind`
+already exists (`farm_stand` / `farmers_market`), the market row already carries the right value,
+and **nothing reads the column**. Then max supplied the MarketWurks screenshot, which reshaped
+the question: of 19 visible market vendors, **4 are in the farm roster and 15 are not** — bakers,
+soap makers, a kids' booth, co-op tables. That killed my own earlier suggestion in F-082 that a
+vendor list should link to farm rows; F-050's display-string design is right here for a second
+reason it never anticipated. Both notes were corrected in the item rather than left contradicting
+the finding. F-083 files the larger MarketWurks question, with the caveat that "seems pretty
+basic" describes the customer-facing widget and not the unseen operator side.
+
+**Not deployed, by max's choice.** F-081 carries no migration — it is a new writer over the
+existing schema.
 
 ## 2026-08-07 — F-079 shipped, and three things that were green for the wrong reason
 

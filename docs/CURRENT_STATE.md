@@ -11,8 +11,16 @@ Farm Friend is **pre-go-live**. Production Postgres `neondb` has **34 migrations
 Cloud Run web is `farm-friend-web-00047-2d8` and worker is `farm-friend-worker-00044-lxh`. Both run
 digest `sha256:d5379a52198d29809517175f266e48a8f3749a51ba85cf6dcca6238c7e20623d`.
 
-Main includes F-076's direct structured stock editor; production does not. Its next deployment
-must start from a fresh live revision/schema/source audit and include the merged main artifact.
+Main includes F-076's direct structured stock editor and F-097's farmer-surface pass; production
+has neither. **Main now carries one unapplied migration, `0034_invitation_pending_cadence`** —
+production is a migration behind, where before it was level. Its next deployment must start from a
+fresh live revision/schema/source audit, include the merged main artifact, and apply 0034.
+
+**The migration journal's clock runs ahead of the wall clock until 2026-08-30.**
+`0033_price_basis_unit` carries `when=1788064000000`, so a migration generated today gets a
+timestamp *older* than the last applied one and **is silently skipped** — exit 0, nothing applied.
+0034 is hand-stamped one second after 0033. Every migration generated before that date needs the
+same correction; `migration-ordering.test.ts` is what catches it.
 
 **Data, schema and runtime code are current.** Neon has all structured-price and pending-stock
 columns, no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
@@ -40,10 +48,13 @@ that exposed this session's writer bug; that invitation has not yet retried the 
 
 ## Verification
 
-**Latest, 2026-08-08:** **1723 unit**, **851 integration**, typecheck, lint and production build.
-F-076's exact shared-editor regression was sabotaged successfully; phone-width Chrome verified the
-proposal/preview/confirmation flow and matched computed styles between the onboarding and returning
-farmer editors. Production verification below still describes the unchanged deployed digest.
+**Latest, 2026-08-09:** **1740 unit**, **851 integration**, typecheck, lint and production build.
+F-097 sabotaged three assertions successfully — the SMS segment bound (reverting the token to hex
+fails it), the one-request publish, and the map caption's position below the items. The favicon was
+verified by effect against the running standalone server (200, `image/png`, byte-identical to
+`assets/viga-favicon.png`, `<link rel="icon">` emitted), and migration 0034 by `information_schema`
+rather than by its "migrations applied successfully" message. Production verification below still
+describes the unchanged deployed digest.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
@@ -103,10 +114,20 @@ link** — a conditional with a test behind it rather than an unbypassable const
   so a withheld price never leaves the database. The unit is optional for a bundle and required for
   a unit price (B-041) — one rule, `standItemPriceNeedsUnit`, imported by every layer.
 - **Farmer workflows:** deterministic bare `START` onboarding, `LINK`, `STAND`, `SETTINGS`, `SAME`;
-  one exact stand per credential; SMS/web proposal and confirmation; closures, participants,
-  reminders. Three onboarding doors — invited, grandfathered (`/farmer/start`), and the emailed-code
-  migration door (`/farmer/start/<secret>`). Onboarding is a **four-step wizard** that prefills what
-  VIGA already holds; the farmer's own stand page is **two tabs** (status/stock, details+settings).
+  one exact stand per credential; closures, participants, reminders. Three onboarding doors —
+  invited, grandfathered (`/farmer/start`), and the emailed-code migration door
+  (`/farmer/start/<secret>`). Onboarding is a **four-step wizard** that prefills what VIGA already
+  holds and asks the farmer's reminder cadence beside the SMS agreement (held on the invitation,
+  applied at redemption); the farmer's own stand page is **two tabs** (status/stock,
+  details+settings), and its settings panel is one section list behind one Save.
+  - **Confirmation is asymmetric by channel, deliberately** (F-097). SMS proposes and waits for
+    `YES`, because code interpreted prose and must show its reading first. The web editor
+    **publishes in one press** — the farmer is looking at the rows they typed — and its
+    confirmation SMS is written `suppressed` rather than sent. The publication TRANSACTION is the
+    same one on both paths: authority, VIGA approval, retirement, and exactly-once consumption are
+    all still enforced under its locks.
+  - **The stand link token is base64url** (22 chars), not 64 hex. `isFarmerLinkToken` accepts both,
+    so links minted before 2026-08-09 keep working; `LINK` re-mints in the new shape.
 - **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.
@@ -153,8 +174,11 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's full onboarding listing form and its map,
-and F-090's full four-step wizard. The two-tab stand page, expanded public stand detail and F-076's
-shared priced-item editor were verified in a real phone-width browser with no sideways page scroll.
+and F-090's full four-step wizard. F-097's restyled surfaces join them — the settings panel's
+three-section layout and single Save, the saved-confirmation screen without its inner box, the
+onboarding cadence control, and the map card's recency caption. The two-tab stand page, expanded
+public stand detail and F-076's shared priced-item editor were verified in a real phone-width
+browser with no sideways page scroll.
 Per-tranche browser checks are **not tracked here** (max, 2026-08-05): he runs a browser pass himself
 before go-live.
 
@@ -178,7 +202,10 @@ a farm at all — it is the market itself, not a stand with a farmer to onboard.
 - **A migration command can exit 0 having skipped a migration** whose journal timestamp is not
   newer, or one with no journal entry at all. Verify the schema effect against
   `information_schema`, never the exit status or the words "migrations applied". This bites
-  locally exactly as it does in production.
+  locally exactly as it does in production. **This is live right now, not hypothetical:**
+  `0033`'s stamp is dated 2026-08-30, so anything `drizzle-kit generate` produces before that date
+  is born older than the last applied migration and skips itself. Hand-correct the `when` in
+  `_journal.json` and let `migration-ordering.test.ts` confirm it.
 - **A backtick inside a SQL comment ends the JS template literal.** It fails as a TypeScript syntax
   error pointing at the query, not at the comment.
 - **`printf %s`, never `echo`, when adding a salt to Secret Manager.** A trailing newline produces
