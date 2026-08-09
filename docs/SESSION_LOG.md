@@ -11,6 +11,32 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-09 — B-044, reviewed offerings restored as part of the stand corpus
+
+Two cards exposed one production-data defect. Tian Tian's prose named bok choy and a choy but its
+structured usual list was empty; 3 Brothers' prose said `OPEN has: eggs` while it had no structured
+item. The parser was not selectively losing those foods: the 2026-08-08 rebuild had restored stands
+without the separately reviewed offering artifact, leaving every reviewed usual offering absent.
+
+The reviewed artifact contained 212 approved items across 34 source entries, with no unknown or
+unresolved stands against the real exports. Those 212 rows were published, 3 Brothers' duplicate egg
+prose was removed, and the public API now returns Tian Tian's full nine-item usual list and 3
+Brothers' structured eggs. The verified backup for the one prose edit is
+`~/farm-friend-backups/farm-descriptions-backup-2026-08-09T18-42-59-230Z.json`.
+
+The lasting fix treats stands and reviewed offerings as one restore unit. `db:seed` now requires the
+approved artifact, validates every referenced stand before writing, and commits both halves in one
+transaction. A failure in either half leaves neither behind. The standalone offering path refuses
+farmer-owned listings, preserving the rule that bulk VIGA data cannot overwrite farmer authority.
+`OPEN has:` is now recognized as an offering-list label and removed from Additional information only
+when its body is a plain list.
+
+Verified with 1770 unit tests, the full integration suite, typecheck, lint, the web production build,
+and a dry run against the real 35-stand exports. Deliberate breakage proved the regression catches a
+missing `OPEN has:` rule, omitted offering writes, and a split transaction that commits stands before
+an offering failure. Production was checked by database effect, a zero-insert idempotence run, and
+the live public API—not by script success output.
+
 ## 2026-08-09 — F-098, two silent refusals, and an SMTP path that stopped working
 
 Started as a UX pass on the returning farmer's tab and ended in a production incident. The two are

@@ -11,25 +11,15 @@ Farm Friend is **pre-go-live**. Production Postgres `neondb` has **36 migrations
 Cloud Run web is `farm-friend-web-00052-pm2` and worker is `farm-friend-worker-00047-ljx`, both on
 digest `sha256:87bfe17249fb9f5f486b4eff248b716ae0e389d422dfec391aa58ca139f48c16`.
 
-**Production is level with main at `ca212df`** (deployed 2026-08-09): F-076's stock editor, F-097's
-farmer-surface pass, F-098, B-046 and B-047 are all live, and migrations
-`0034_invitation_pending_cadence` and `0035_self_issued_invitation` are applied — verified by schema
-effect against `information_schema`, not by the migrator's success message. No unapplied migration
-remains.
-
-Verified against the deployed revisions on 2026-08-09: the served favicon (`/icon.png`, 39,243
-bytes), the F-098 farmer surfaces (one commit button on the details tab, reminders on the stock tab,
-the new link copy), one web stand update end to end against a test farm (confirmed by the changed
-row and its advanced `updated_at`, then restored), and B-046 superseding a live code against the
-real farm. `deploy_assertions.py` and `served_card_assertions.py` both passed; every plan carried
-55/55 safety assertions and changed only the image digest.
+**Deployed runtime is `ca212df`** (2026-08-09): F-076, F-097, F-098, B-046 and B-047 are live.
+Migrations `0034` and `0035` are applied and verified by schema effect; none remains unapplied.
+Main also contains B-044's rebuild tooling, which has no runtime deployment surface.
 
 **Max walks the farmer surfaces at phone width before a tranche ships.** He confirmed that pass for
 this deploy; a session that opens by deploying has skipped the gate.
 
-**Production data and schema are current; deployed runtime is level with main.** Neon has all
-structured-price and pending-stock columns, no legacy `price_text`, and the final price/location
-constraints. Verified corpus counts:
+**Production data and schema are current.** Neon has all structured-price and pending-stock columns,
+no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
 35 farms / locations / approvals, **212 reviewed usual items across 33 stands**, 35 links,
 53 payments, 10 participants, 15 VIGA confirmations, 24 with open days, 38 farm emails across
 32 farms, 1 administrator, 0 consents/authorizations. The public API returns Tian Tian's complete
@@ -42,37 +32,13 @@ fixed administrator or farm-email roster; email ingest must reuse the deployed `
 
 Telnyx remains untested live.
 
-### Email verification cannot send from Cloud Run (B-045) — BLOCKING the grandfathered door
+### B-045 — BLOCKING the grandfathered door
 
-**Every verification code fails at the network layer.** The deployed service logs
-`{"event":"farmer_verification_send","outcome":"ambiguous","errorCode":"ECONNECTION"}` for every
-send, in ~0.26s — an instant refusal, not a timeout. A farmer can request a code, see "sent", and
-receive nothing; the uniform response is deliberate (it hides which addresses are on file) and
-cannot be used to detect this. **The onboarding door this gates is unusable until it is fixed.**
-
-Ruled out, each by measurement rather than inspection:
-
-- **Not our code or config.** Between Friday's commit `201b0b2` and now, the only diff to any
-  email-related file is B-047's logging. `Dockerfile`, `cloudbuild.yaml` and `package-lock.json` are
-  untouched. Revisions 00041 (Friday), 00042 and 00052 carry byte-identical SMTP env and no VPC
-  egress. `SMTP_PASSWORD` and `EMAIL_HASH_SALT` each have exactly one version, both 2026-08-07.
-- **Not the port.** 465 was deployed and tested live: same `ECONNECTION`. Reverted to 587.
-- **Not the Workspace relay.** Its IP restriction is OFF, SMTP authentication ON, TLS ON, allowed
-  senders "only addresses in my domains" — and the sender is `board@vigavashon.org`.
-- **Not general egress.** The same revision made a live Geocoding call and got real coordinates in
-  0.37s.
-- **Not the credentials.** The same password authenticates to the relay from max's machine on both
-  587 and 465, and a real message sent that way arrives.
-
-It **worked on Friday 2026-08-07** — max's farmer received a code — so this changed on Google's side
-between then and Sunday. The production wipe at 2026-08-07 22:43 destroyed those rows, so the
-verification table cannot be used as evidence either way; a session reading "no rows before today"
-must not conclude the path never worked.
-
-**The recommendation on the table is to stop using SMTP and move to an HTTPS email API** (Resend,
-Postmark, SendGrid), which sends over 443 — proven to work from this service. The `EmailTransport`
-seam already isolates this to one adapter, so the change is contained. **It spends money and needs
-max's approval**, plus a provider account and DNS verification of `vigavashon.org`.
+Every Cloud Run verification send fails immediately with `ECONNECTION`; the farmer sees the
+deliberately uniform "sent" response but receives nothing. Live checks ruled out our code/config,
+ports 465/587, Workspace relay settings, credentials, and general HTTPS egress. Move the existing
+`EmailTransport` seam to an HTTPS provider; provider account, DNS verification and any spend require
+max's approval. Full incident evidence: [SESSION_LOG.md](SESSION_LOG.md).
 
 ### Secrets
 
@@ -88,16 +54,10 @@ max's approval**, plus a provider account and DNS verification of `vigavashon.or
 
 ## Verification
 
-**Deployed B-045 tranche, 2026-08-09:** **1766 unit**, **84 integration** across its four suites
-(`farm-verification`, `grandfathered-onboarding`, `schema`, `final-schema`), typecheck, lint and the
-production Cloud Build. Four unrelated integration suites fail under cross-suite contention and fail
-the same way on a clean tree (B-020 below). Sabotage lists and what each check proved:
-[SESSION_LOG.md](SESSION_LOG.md).
-
-**B-044 verification:** **1770 unit**, the full integration suite, typecheck, lint, web production
-build, and a complete dry run against the real 35-stand exports: 212 reviewed usual items, 0
-unknown, 0 unresolved. Sabotage proved the integration checks fail if offerings are omitted or the
-stand half commits before an offering failure.
+**Current main:** **1770 unit**, full integration suite, typecheck, lint, web production build, and a
+complete seed dry run against the real exports: 35 stands, 212 reviewed usual items, 0 unknown, 0
+unresolved. B-044 sabotage proved the integration checks fail if offerings are omitted or the stand
+half commits before an offering failure.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
@@ -149,32 +109,15 @@ link** — a conditional with a test behind it rather than an unbypassable const
 
 ## What is live
 
-- **Public discovery:** model-free map/list, offering filters, honest recency, closures, participant
-  names, transient browser proximity, destination links, code-bound stock-out reporting, and
-  farmer-stated item prices — **structured** as amount/quantity/unit/basis (F-092), rendered to one
-  sentence by core's `renderStandItemPrice` and gated per stand by `sales_locations.prices_public`,
-  which is **off by default** at the column, the migration and the form. The gate is **in the SQL**,
-  so a withheld price never leaves the database. The unit is optional for a bundle and required for
-  a unit price (B-041) — one rule, `standItemPriceNeedsUnit`, imported by every layer.
+- **Public discovery:** model-free map/list, offering filters, recency, closures, participants,
+  proximity, directions, stock-out reporting, and farmer-stated structured prices. Price visibility
+  defaults off and is enforced in SQL; `standItemPriceNeedsUnit` owns the shared validity rule.
 - **Farmer workflows:** deterministic bare `START` onboarding, `LINK`, `STAND`, `SETTINGS`, `SAME`;
-  one exact stand per credential; closures, participants, reminders. Three onboarding doors —
-  invited, grandfathered (`/farmer/start`), and the emailed-code migration door
-  (`/farmer/start/<secret>`). Onboarding is a **four-step wizard** that prefills what VIGA already
-  holds and asks the farmer's reminder cadence beside the SMS agreement (held on the invitation,
-  applied at redemption); the farmer's own stand page is **two tabs** (status/stock,
-  details+settings), and its settings panel is one section list behind one Save.
-  - **Confirmation is asymmetric by channel, deliberately.** SMS proposes and waits for `YES`,
-    because code interpreted prose and must show its reading first. The web editor **publishes in
-    one press** and writes its confirmation message `suppressed` rather than sending it. The
-    publication TRANSACTION is the same on both paths — authority, VIGA approval, retirement and
-    exactly-once consumption are all still enforced under its locks.
-  - **The stand link token is base64url** (22 chars). `isFarmerLinkToken` also accepts the 64-hex
-    tokens minted before 2026-08-09; `LINK` re-mints in the new shape.
-  - **Parsed and TAUGHT are different sets.** The setup text names `LINK`, names `STAND` only when
-    the farm has more than one, and never names `SETTINGS` — a farmer has one edit page that
-    `LINK` already opens. Both stay parsed and working. `FARMER_UNTAUGHT_KEYWORDS` records why,
-    and the keyword tripwire requires every parsed keyword to sit in one list or the other.
-    **`SETTINGS` returns to the taught set when account settings become a separate surface.**
+  one stand per credential; closures, participants, and reminders. Three doors feed one four-step
+  onboarding flow; the farmer page has status/stock and details/settings tabs with one save action.
+  SMS proposes stock and waits for `YES`; web publishes in one press through the same authority and
+  exactly-once transaction. New links use 22-character base64url tokens; legacy 64-hex links remain
+  valid. `SETTINGS` remains parsed but untaught until account settings become a separate surface.
 - **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.
@@ -195,18 +138,13 @@ link** — a conditional with a test behind it rather than an unbypassable const
 - **F-044:** verify public-map and authenticated-admin embeds on VIGA's actual Squarespace pages.
   Includes whether `?hidden=true` needs to survive the embed — max's call.
 - Physical-handset vCard and paged-SMS checks remain owed.
-- Exercise the full administrator, settings, customer inquiry, and farmer SMS journeys against
-  production, verifying database effects rather than screen messages. **The consent path in
-  particular is proven against real Postgres but never against a real handset.** The farmer web
-  update journey was exercised against production 2026-08-09 and is no longer owed; the email
-  onboarding journey cannot be until B-045 is fixed.
+- Exercise the administrator, settings, customer inquiry, and farmer SMS journeys against production
+  by database effect. Consent is proven against Postgres but not a handset; email waits on B-045.
 - **B-045 blocks go-live for the grandfathered door** — no farmer can onboard by email while
   production cannot send. See the Release-state section for what has been ruled out.
 
 **Open build items**
 
-- **B-044:** production data is repaired; the rebuild hardening is in review and not deployed.
-  `db:seed` now requires the reviewed offering artifact and commits it atomically with stands.
 - **F-065 — attribution for a listing change.** A revision row carries no `admin_actor_id` and there
   is no general admin audit log. Three writers of public listing state, none recording who wrote.
 - **F-084 — participants on the onboarding form.** `saveSalesLocationParticipants` requires a
