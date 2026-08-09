@@ -135,10 +135,12 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   string. **The token also names the farm**: a `farmId` in the request body is ignored, which is
   what stops one invitation writing another farm's listing.
   The listing step is the **first farmer-facing writer of public listing facts** — before it,
-  `sales_locations` had exactly one non-test writer, the seeder. It asks whether there is a stand
-  to visit before it can know whether an address is required, because
-  `sales_locations_coherent_visitability` is all-or-nothing in both directions (F-038, B-024); the
-  coordinate comes **only from geocoding the typed address** (F-077 — see §provider seams; there
+  `sales_locations` had exactly one non-test writer, the seeder. It asks every farm for an address
+  and complete resolved location first; the later visitability answer decides whether customers
+  are invited to drive there, not whether the farm may be placed (F-088). The writer mirrors
+  `sales_locations_coherent_visitability`: complete address + coordinate for either answer, or a
+  wholly absent location only for `contact_only`. The coordinate comes **only from geocoding the
+  typed address** (F-077 — see §provider seams; there
   is still no mapping-provider seam), and an address that will not resolve is **refused** rather
   than approximated. The tap-to-place pin picker and its confirmation gate were retired with
   F-077; the drawn island survives as a **read-only display** of the resolved point, so the
@@ -543,9 +545,10 @@ What makes it safe:
 - **The farmer sees the point before publishing.** The drawn island survives as a **read-only**
   display, so a geocoder placing a Vashon Highway address at the wrong end of the island is
   something a glance catches. Editing the address **clears** the coordinate.
-- **A deployment without `GEOCODING_API_KEY` still boots, but cannot create visitable stands.**
+- **A deployment without `GEOCODING_API_KEY` still boots, but cannot create a farm listing.**
   This changed with F-077 — absence used to mean "fall back to tapping". The form now says lookup
-  is unavailable and points the farmer at VIGA; contact-only listings are unaffected.
+  is unavailable and points the farmer at VIGA. F-088 requires every onboarding farm, including
+  `contact_only`, to supply a resolved location.
 - **No SDK and no second call site.** It is a `fetch` to a REST endpoint, so the dependency tripwire
   stays armed; the allowlist is one file, so a second caller fails the architecture suite — which
   since F-077 covers `apps/web/app` and `.tsx` components too, where it previously did not.

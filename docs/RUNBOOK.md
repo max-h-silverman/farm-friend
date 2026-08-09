@@ -746,6 +746,15 @@ revision.
 between it and the ingest is this feature's quietest failure: every farmer's correct address
 fails to match, nothing errors, and the door verifies nobody.
 
+**Preflight is live evidence, never the release snapshot.** Before choosing a source baseline or
+planning, fetch `origin/main`, inspect the serving revisions and their immutable digests, identify
+the Cloud Build `SHORT_SHA`, and query Neon's migration ledger plus the schema effects the image
+expects. If any of those contradict `CURRENT_STATE.md`, stop and correct the record first — never
+reconstruct a hotfix from the commit the snapshot claims is live.
+
+Review the plan for the intended delta as well as the safety assertions. Any unrelated change —
+including a rotation marker moving backward — stops the deploy even when all assertions pass.
+
 ```bash
 # 1. Build and publish. SHORT_SHA is required; without it the image reference is invalid.
 gcloud builds submit --config cloudbuild.yaml --project farm-friend-vashon \

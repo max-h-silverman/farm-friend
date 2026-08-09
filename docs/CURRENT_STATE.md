@@ -7,38 +7,21 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production Postgres is `neondb` with **34 migrations**
-(`0000`–`0033`). Cloud Run web is revision `farm-friend-web-00047-2d8`; worker is
-`farm-friend-worker-00044-lxh`.
+Farm Friend is **pre-go-live**. Production Postgres `neondb` has **34 migrations** (`0000`–`0033`);
+Cloud Run web is `farm-friend-web-00047-2d8` and worker is `farm-friend-worker-00044-lxh`. Both run
+digest `sha256:d5379a52198d29809517175f266e48a8f3749a51ba85cf6dcca6238c7e20623d`.
 
-**The DATA and runtime code are current.** Both services run immutable image digest
-`sha256:d5379a52198d29809517175f266e48a8f3749a51ba85cf6dcca6238c7e20623d`, built from
-`b4fa60f`: pushed `main` at `40466fd`, the contact-only onboarding-location fix at `c581e1f`, and
-the first deployment-record commit. The status correction after that image changes no runtime.
+**Data, schema and runtime code are current.** Neon has all structured-price and pending-stock
+columns, no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
+35 farms / locations / approvals, 35 links, 53 payments, 10 participants, 15 VIGA confirmations,
+24 with open days, 38 farm emails across 32 farms, 1 administrator, 0 consents/authorizations.
 
-**Migrations `0030`–`0033` are applied in production.** Verified directly from Neon on 2026-08-08:
-34 ledger rows; `farmer_invitations.pending_stock`, `sales_locations.prices_public`, and all four
-structured `stand_items.price_*` columns exist; `stand_items.price_text` is absent; and the final
-price-completeness, price-unit, and placeable-contact-only constraints have their intended forms.
+The rebuild deliberately removed 3 real consents; those phones must text `START` again. Its verified
+backup is `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`. Seeders do not restore the
+fixed administrator or farm-email roster; email ingest must reuse the deployed `EMAIL_HASH_SALT`.
 
-**Production data was rebuilt from the CSVs on 2026-08-08.** Verified counts after the final
-re-seed: 35 farms / 35 sales locations / 35 live approvals; 35 `farm_links`, 53 payment methods, 10
-participants; 15 dated confirmations, all `source = 'viga'`; `open_days` on 24 of 35; 38 farm emails
-across 32 farms; 1 administrator; **0 consents and 0 farmer authorizations**.
-
-The rebuild **deleted 3 real SMS consent records** (max's explicit call). Those numbers must each
-text `START` again before Farm Friend can message them — we cannot text first. The pre-wipe dump is
-at `~/farm-friend-backups/neondb-PRE-WIPE-20260807-224344.dump`, verified restorable; it is the only
-copy of that evidence.
-
-**Two restore steps the seeders do NOT cover**: the fixed administrator
-(`bootstrap-administrator.ts`) and the farm email roster (`ingest-farm-emails.ts`, which must reuse
-the stored `EMAIL_HASH_SALT` or no farmer can verify). Neither is in the CSVs.
-
-**Nothing has been exercised against Telnyx on production.** The `START` onboarding path is proven
-through the real webhook handler against real Postgres only. The four-step onboarding form was
-exercised in a production browser through the contact-only submission that exposed this writer bug;
-the corrected submission has not yet been retried with that invitation.
+Telnyx remains untested live. The four-step production form reached the contact-only submission
+that exposed this session's writer bug; that invitation has not yet retried the corrected submit.
 
 ### Secrets
 
@@ -54,36 +37,20 @@ the corrected submission has not yet been retried with that invitation.
 
 ## Verification
 
-**Latest, 2026-08-08** (contact-only onboarding fix): local `main` passed **1720 unit** and
-**849 integration** tests, typecheck and lint; all **52 onboarding-listing integration** tests also
-passed independently against fresh local Postgres. The regression test was sabotaged by restoring
-the rejection and failed on the exact contact-only case. The final image-only deployment plan
-passed **55/55** assertions; both serving revisions are ready on the same digest, newer than every
-mounted secret version, with 100% web traffic, and the served vCard passed its byte-level contract.
-No model seam changed, so no `evals`/`evals:live` was owed.
+**Latest, 2026-08-08:** **1720 unit**, **849 integration**, typecheck and lint; independently, 52
+onboarding-listing integration tests passed against fresh Postgres. The exact regression test was
+sabotaged successfully. Production passed 55/55 plan assertions, shared-digest/readiness/secret
+checks, 100% web traffic, served-vCard bytes, and a clean error-log check on both new revisions.
 
-Sabotaged before believing: inverting `standItemPriceNeedsUnit` fails 5 renderer tests; restoring
-the value-sniffing unit control fails B-040's test; `CHECK (true)` fails the constraint test;
-removing either `[hidden]` rule fails the sweep, and blinding the sweep's own JSX matcher fails its
-guard; B-024's refusal pattern was sabotaged in **both** directions — too tight fails the honour
-test, too loose fails the false-positive test. Both constraint halves proven by direct insert
-against local dev. The wizard, the price row and the new submission flow were **walked in a real
-browser**; the stand page's two-tab fix was not — it is the same one-line rule as the wizard's, and
-is covered by the sweep.
-
-**A full `test:integration:local` fails intermittently** on three files that vary run to run, and
-fails identically with this work stashed — B-020, not the change. Touched areas pass on their own:
-52 onboarding-listing, 225 seed.
+**B-020:** full integration can fail on varying files under cross-suite contention; it passed in
+this wrap. Treat any named recurrence as real and attribute it against a clean tree.
 
 **Last `evals:live`: 2026-08-06, 25/25** against `mistralai/Mistral-Small-24B-Instruct-2501`
 (containment 4/4, closure 7/7, quality 9/9, recall 5/5). Owed again on any change to a seam's
 projection, schema, or output contract.
 
-Standing rules: real-Postgres integration runs from an empty schema against local Postgres, **never**
-production Neon. Never carry an old test count forward as current evidence. **Tests each build their
-own database, so a green suite says nothing about the local dev database** — a missing migration
-there 500s every page while all 1652 pass. Per-tranche narratives live in
-[SESSION_LOG.md](SESSION_LOG.md).
+Integration runs from an empty local Postgres schema, never Neon. Each file builds its own database,
+so green tests prove nothing about the local dev database; verify migrations by schema effect.
 
 ## Standing facts a cold start needs
 

@@ -1,12 +1,120 @@
-# Farm Friend — Session Log Archive (through 2026-08-06)
+# Farm Friend — Session Log Archive (through 2026-08-07)
 
 Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the eight most recent entries;
-everything older lives here. Last rotated 2026-08-08; it now holds 67 entries.
+everything older lives here. Last rotated 2026-08-08; it now holds 68 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
 architecture documents ([README.md](README.md) is the index). Where an entry here disagrees with the
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
+
+---
+
+## 2026-08-07 — F-079 shipped, and three things that were green for the wrong reason
+
+Built the migration door (F-079), deployed it, ingested the roster, and along the way found a
+live production defect, a tripwire that could never fail, and an assertion of my own that failed
+on correct configuration. The interesting content is all in the third category.
+
+**The item under-specified the work in two ways that changed the build.** It described the code
+as "hashed at rest, single-use, expiring, throttled per farm and per address" without noticing
+that F-078 stored nothing about what was *sent* — so F-079 carries **migration 0025**, which the
+item never mentions. And the existing `createPublicActionThrottle` rations by a coarse client
+bucket, which **cannot** do per-farm/per-address: rotating the client signal is free, so one
+farmer's inbox stays reachable. Both limits are counted from the stored rows instead, which is
+also what makes them hold across containers.
+
+**A code held in memory would have refused farmers who typed exactly the right digits.** Cloud
+Run scales to zero between a farmer reading their mail and typing the code, so the later request
+routinely lands on a different container. That is the whole argument for the table.
+
+**The secret door answered HTTP 200 while rendering 404 markup, and only the real server showed
+it.** `app/loading.tsx` was a Suspense boundary wrapping *every* route, and Next commits a 200 as
+soon as that shell streams — before the page body runs `notFound()`. A 200 carrying 404 text is
+indexable, cached as success by intermediaries, and tells a prober the path is live, which is the
+single fact the obscurity exists to hide. **Four hypotheses were tested and disproved first**
+(`force-dynamic`, awaiting params, dynamic segments, a `not-found` boundary) — each returned a
+correct 404 in isolation, which is what made the real cause findable. The middleware fix was
+abandoned because Next 14 middleware is edge-only and cannot use `timingSafeEqual`. Fixed by
+scoping the map's spinner to a `(map)` route group, which is more correct on its own terms; a
+build-shape test now asserts no root `loading.tsx`, sabotage-verified.
+
+**F-078's raw-email tripwire could not fail, and had been green since it shipped.** It ran
+`/\bfarm_emails\b/` over `codeOnly` output — which blanks **template literals**. Every query in
+this codebase is a tagged template, so it detected *no reader of the table at all*, including the
+two files its own allowlist named. The allowlist made it look verified. Now anchored to
+SQL-preserving source and sabotage-verified against a new reader and a `packages/ai` reference.
+The general lesson is the one CLAUDE.md already states — anchor to the construct, not to nearby
+vocabulary — but the specific trap is worth naming: **a source tripwire about a TABLE cannot use
+the same stripper as a tripwire about a CALL.**
+
+**Planning the infrastructure exposed a live production regression.** The first plan showed
+`SMTP_PASSWORD` being *removed* from the running web service. Cause: every `mount_*` flag
+defaults to `false` and nothing recorded which ones production ran with, so each apply silently
+reverted the previous one. It had already happened — **`GEOCODING_API_KEY` was mounted on web
+revision 00034 and stripped at 00035** by the SMTP apply, absent through 00038. Since F-077 made
+the typed address the only source of a coordinate, **production could not create a visitable
+stand for that entire window**, and every apply reported success. Fixed with
+`infra/production.tfvars` (the flags as configuration, not shell history), a plan assertion that
+fails when a service would unmount a live secret — verified by planning *without* the var-file —
+and the RUNBOOK's deploy command, which had been wrong.
+
+**One of my own assertions failed on the correct configuration.** "EMAIL_HASH_SALT is never a
+plain environment value" scanned `env` for the name at all — but a secret *mount* appears in
+`env` too, with an empty `value` and a real `value_source`. It flagged every properly-mounted
+secret. The existing `SMTP_PASSWORD` check gets this right by filtering on a truthy `value`.
+**Worth recording: my first attempt to sabotage the fix edited `resource_changes` while the
+check reads `planned_values`, so the sabotage passed and looked exactly like a check that cannot
+fail.** Aiming a sabotage at the wrong tree is indistinguishable from a vacuous test.
+
+**A dry run against production caught a defect before any write, which is why the dry run
+exists.** Four farms — Flora Hill, Green Ears, Lavender Hill Farm, Sweet Alyssum Farm — carry a
+`*does not accept VIGA Bucks*` annotation appended to the farm-name cell in VIGA's form. Exact
+matching correctly refused them, so those four farmers would have had **no address stored and no
+way to verify**, with the ingest reporting success. The annotation recurs every year, so the fix
+belongs in the parser: a trailing paired `*…*` only, with three tests guarding the opposite
+failure (over-stripping silently renames a farm). 31 → 38 addresses, 32/32 farms matched.
+
+**F-078 shipped `ingestFarmEmails` with no caller**, so the roster could not actually be loaded
+and max's chosen ordering — the ingest decides `EMAIL_HASH_SALT` — was not yet possible.
+`scripts/ingest-farm-emails.ts` is that caller. **The salt is an argument, never generated
+internally**: it is unrotatable, and a script that generated one would decide a permanent
+production value and then discard it. The farm count is **pinned at 36** (VIGA's 35 plus the
+marked `Test Farm`), not a floor — a floor accepts a half-seeded or wrong database and reports
+"0 problems" over data nobody meant to touch.
+
+**Design decisions worth keeping:**
+
+- **The publish grant is a row, not a signature**, matching `farmer-link.ts`: a signed grant
+  keeps verifying after the fact with nothing able to say otherwise. Its hash lives on the
+  verification row itself, so there is no second credential table.
+- **`consumeAndGrant` is one statement.** Consuming and granting are the same commitment — a
+  consume that succeeded while the grant failed would spend the farmer's only code and hand them
+  nothing.
+- **The attempt cap is checked FIRST.** If the code comparison ran first, a capped record would
+  still answer differently for a right guess than a wrong one, which is exactly the signal the
+  cap withholds.
+- **A malformed code is not counted against the cap.** A farmer who typed four digits made a
+  typo; charging it exhausts the honest case faster than the attacking one.
+- **All three F-079 secrets mount behind ONE flag.** The two salts are required by the verify
+  routes, so a deployment holding the door secret alone serves a door that 500s on first use —
+  one flag makes that state unrepresentable.
+
+**One acceptance criterion is satisfied only generically, and max should know it.** "A farm with
+no email on file is told to contact VIGA" cannot be done *specifically* without contradicting the
+uniform-response rule the same item requires: naming that a farm has no address discloses roster
+contents to anyone who asks. Both steps carry a standing "contact VIGA" line instead, which the
+~3 affected farms reach like everyone else.
+
+**Deployed and exercised end to end against production**, every step read back from Postgres
+rather than a response body: identical responses for an address on file and a stranger with
+**exactly one row written**; a wrong code counted and a malformed one not; the right code
+verified, set the grant cookie, and **a replay refused**; the grant opened that farm's form and
+**not another farm's**. Test row removed afterwards. Migration 0025's seven CHECKs and five
+indexes all present, each proven to genuinely refuse, with a valid row accepted as the control.
+
+Verified: **1495 unit**, **791 integration**, typecheck, lint, evals 44/44, production build.
+`packages/ai` untouched across all eight commits, so no `evals:live` was owed.
 
 ---
 
