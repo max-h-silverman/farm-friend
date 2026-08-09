@@ -1373,8 +1373,41 @@ export function ListingStep({
     return (
       <div className="farmer-listing-saved" role="status">
         <p className="farmer-form-published">
-          {isOnboarding ? "Your stand is on the map." : "Your changes are saved."}
+          {isOnboarding ? "Your farm is live on the map!" : "Your changes are saved."}
         </p>
+
+        {/*
+          THE HAND-OFF, and the step VIGA used to perform by hand. The page this replaces said
+          "contact VIGA and they will finish setting you up" — a coordinator doing what the
+          farmer can do themselves in one text.
+
+          Directly under the good news (max, 2026-08-08), moved here from the confirm modal. It
+          sits ABOVE the summary rather than after it: a farmer who reads "live on the map" and
+          stops has done everything except the one step that turns on texting for them, so the
+          errand cannot wait below a list they may not scroll.
+
+          The word is START and never JOIN or CONFIRM. Only START clears the carrier's OWN
+          opt-out list: Telnyx enforces it independently, and a JOIN four minutes after a STOP
+          was still refused 409 (verified live 2026-07-27). A farmer who ever opted out and
+          replied with any other word would be recorded as consenting while every message to
+          them was silently refused. START is also carrier-registered, so it works for a
+          first-timer and a returning farmer alike — one word covers both.
+
+          `sms:` rather than plain text so a farmer reading this on a phone taps once and the
+          message is composed for them. The LINK keeps the raw E.164 — that is what a handset
+          dials — while the visible text is the readable form; formatting the href would be a
+          dead link. The number is shown as well, because this page is also read on a laptop
+          where the link does nothing.
+        */}
+        {isOnboarding && smsNumber !== undefined ? (
+          <p className="farmer-listing-saved-reminder">
+            Don&rsquo;t forget to text <strong>START</strong> to{" "}
+            <a href={buildKeywordSmsUrl(smsNumber, "START")}>
+              {formatSmsNumberForDisplay(smsNumber)}
+            </a>{" "}
+            to complete the signup process.
+          </p>
+        ) : null}
 
         <dl className="farmer-listing-summary">
           <div>
@@ -1441,35 +1474,11 @@ export function ListingStep({
           Change something
         </button>
 
-        {/*
-          THE HAND-OFF, and the step VIGA used to perform by hand. The page this replaces said
-          "contact VIGA and they will finish setting you up" — a coordinator doing what the
-          farmer can do themselves in one text.
-
-          The word is START and never JOIN or CONFIRM. Only START clears the carrier's OWN
-          opt-out list: Telnyx enforces it independently, and a JOIN four minutes after a STOP
-          was still refused 409 (verified live 2026-07-27). A farmer who ever opted out and
-          replied with any other word would be recorded as consenting while every message to
-          them was silently refused. START is also carrier-registered, so it works for a
-          first-timer and a returning farmer alike — one word covers both.
-
-          `sms:` rather than plain text so a farmer reading this on a phone taps once and the
-          message is composed for them. The number is shown as well, because this page is also
-          read on a laptop where the link does nothing.
-        */}
+        {/* WHY it must be that handset. The instruction itself is in the reminder above. */}
         {isOnboarding && smsNumber !== undefined ? (
           <p className="farmer-listing-saved-next">
-            Last step: text <strong>START</strong> to{" "}
-            {/*
-              The LINK keeps the raw E.164 — that is what a handset dials — while the visible
-              text is the readable form. Formatting the href would be a dead link.
-            */}
-            <a href={buildKeywordSmsUrl(smsNumber, "START")}>
-              {formatSmsNumberForDisplay(smsNumber)}
-            </a>{" "}
-            from the phone you
-            want to use for stand updates. That is what turns on texting for you — we cannot
-            text you until you do.
+            Send it from the phone you want to use for stand updates. That is what turns on
+            texting for you — we cannot text you until you do.
           </p>
         ) : (
           <p className="farmer-listing-saved-next">
@@ -2562,11 +2571,16 @@ export function ListingStep({
               compare two differently-shaped strings.
             */}
             <p className="farmer-listing-confirm-number">{phone}</p>
-            <p>
-              {smsNumber === undefined
-                ? "You will text START from this phone to finish setting up, so it has to be the phone you have with you."
-                : `You will text START to ${formatSmsNumberForDisplay(smsNumber)} from this phone to finish setting up, so it has to be the phone you have with you.`}
-            </p>
+            {/*
+              ONE QUESTION, and the errand is not it (max, 2026-08-08).
+
+              This used to name START and the number here as well. That asked the farmer to
+              check ten digits and absorb an instruction at the same moment, when only the
+              first is actionable — and the instruction is repeated on the screen they land on
+              a second later, where it is the thing to act on. What stays is the reason the
+              digits matter: this has to be the handset they are holding.
+            */}
+            <p>It has to be the phone you have with you.</p>
             <div className="farmer-listing-confirm-actions">
               <button
                 type="button"

@@ -2257,6 +2257,36 @@ describe("onboarding listing step", () => {
         ).toHaveLength(0);
       });
 
+      it("CONFIRMS the number and nothing else — the instructions moved to the landing screen", async () => {
+        // max's call (2026-08-08). The modal's one job is reading the number back; a mistyped
+        // phone is the only error on this form with no feedback anywhere. Telling the farmer
+        // what to text WHILE asking them to check digits gives them two things to do at the
+        // moment they can only act on one, and the instruction is repeated on the screen they
+        // land on straight afterwards.
+        const user = userEvent.setup();
+        stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
+        render(
+          <ListingStep
+            credential={{ kind: "invitation", token: TOKEN }}
+            farmName="Test Farm"
+            smsNumber="+12065550000"
+          />,
+        );
+
+        await user.click(screen.getByLabelText(/yes . there is a stand/i));
+        await placeStand(user);
+        await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "2065550143");
+        await user.click(screen.getByLabelText(/I agree to receive texts/i));
+        await user.click(await submitButton(user));
+
+        const dialog = await screen.findByRole("dialog");
+        // The number itself is still read back — that is the whole reason this exists.
+        expect(dialog).toHaveTextContent("2065550143");
+        // But the errand is not stated here.
+        expect(dialog).not.toHaveTextContent(/START/i);
+        expect(dialog).not.toHaveTextContent(/206-555-0000/);
+      });
+
       it("REFUSES to submit without a phone on the invited door", async () => {
         // The phone is what ties the handset to the farm, so an invited farmer without one has
         // no way to finish. Better to block here than to publish a listing they cannot complete.
@@ -2302,12 +2332,51 @@ describe("onboarding listing step", () => {
         const dialog = await screen.findByRole("dialog");
         await user.click(within(dialog).getByRole("button", { name: /yes|confirm|correct/i }));
 
-        const saved = await screen.findByText(/text/i, { selector: ".farmer-listing-saved-next" });
+        // The word and the number live in the REMINDER now (max 2026-08-08), directly under
+        // the headline rather than below the summary.
+        const saved = await screen.findByText(/text/i, {
+          selector: ".farmer-listing-saved-reminder",
+        });
         expect(saved).toHaveTextContent(/START/);
+        // Formatted for READING: `206-555-0000`, never the E.164 the `sms:` href carries.
         expect(saved).toHaveTextContent(/206-555-0000/);
-      expect(saved.textContent ?? "").not.toContain("+1");
+        expect(saved.textContent ?? "").not.toContain("+1");
         // No 64-character token anywhere — that grammar is gone.
         expect(saved.textContent ?? "").not.toMatch(/[0-9a-f]{64}/i);
+        // The tap-to-text link survives the move: on a phone this composes the message.
+        expect(saved.querySelector("a")?.getAttribute("href") ?? "").toContain("+12065550000");
+      });
+
+      it("lands on a confirmation that leads with LIVE and carries the START reminder", async () => {
+        // max's call (2026-08-08): the modal just confirms, and this screen is where the farmer
+        // is told what is left. It has to say both halves — the good news and the errand — or a
+        // farmer who reads "live on the map" stops there and never texts, which is the one step
+        // that turns on messaging for them.
+        const user = userEvent.setup();
+        stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
+        render(
+          <ListingStep
+            credential={{ kind: "invitation", token: TOKEN }}
+            farmName="Test Farm"
+            smsNumber="+12065550000"
+          />,
+        );
+
+        await user.click(screen.getByLabelText(/yes . there is a stand/i));
+        await placeStand(user);
+        await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "2065550143");
+        await user.click(screen.getByLabelText(/I agree to receive texts/i));
+        await user.click(await submitButton(user));
+        const dialog = await screen.findByRole("dialog");
+        await user.click(within(dialog).getByRole("button", { name: /yes|confirm|correct/i }));
+
+        const banner = await screen.findByRole("status");
+        expect(banner).toHaveTextContent(/live on the map/i);
+        // The errand, on the same screen — with the word and the number. The apostrophe is a
+        // typographic one on screen, so the matcher admits either rather than pinning the glyph.
+        expect(banner).toHaveTextContent(/don[’']t forget/i);
+        expect(banner).toHaveTextContent(/START/);
+        expect(banner).toHaveTextContent(/206-555-0000/);
       });
 
       it("tells the farmer their number is not a phone, before any modal", async () => {

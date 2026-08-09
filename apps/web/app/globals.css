@@ -2121,6 +2121,28 @@ form.farmer-picker-next {
   color: var(--ink);
 }
 
+/* THE REMINDER, under "live on the map" (max 2026-08-08). Drawn as a called-out band rather than
+   as another paragraph: it is the one thing still owed on a screen that otherwise reads as
+   finished, and a farmer who takes "live" as the end of the errand never turns on their texting.
+   The left rule is what separates it from the summary below without making it an alarm — this is
+   good news with a tail, not a warning. */
+.farmer-listing-saved-reminder {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--green-soft);
+  border-left: 3px solid var(--green);
+  border-radius: 6px;
+}
+
+.farmer-listing-saved-reminder a {
+  color: var(--green);
+  font-weight: 700;
+}
+
 /* The phone confirmation (max 2026-08-07).
  *
  * **Interruptive on purpose.** A mistyped phone number is the one error on this form with no
