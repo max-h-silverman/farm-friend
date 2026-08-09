@@ -31,6 +31,8 @@ export interface StandDescriptionSource {
   stockingText?: string;
   website?: string;
   socialMedia?: string;
+  /** Structured usual-offering names, used to remove an offering-only sentence from prose. */
+  usuallySells?: readonly string[];
   /**
    * The map transcription, used ONLY when the farm submitted no form.
    *
@@ -104,18 +106,10 @@ const STRUCTURED_LINE = [
  * A labelled line whose body is a plain LIST — the case where dropping the whole line loses
  * nothing, because every word of it restates the column.
  *
- * Measured on the real corpus: 10 labelled lines carry a genuine TAIL instead, where the label's
- * own fact is followed by something no column holds — "Stocking Days: Stocking daily. Harvest
- * days are Tuesday and Friday. Best selection on those days by late afternoon." The first
- * sentence is the column; the rest is the farm's voice, and no punctuation rule separates them
- * reliably (Littlest Bird's offerings line ends "…Organic practices and rotational grazing for
- * chickens, sheep and pigs", which is a farming practice, not an offering).
- *
- * So the strip is deliberately CONSERVATIVE: a labelled line is removed only when its body reads
- * as a list — short, and carrying no sentence break. Anything richer is KEPT WHOLE and reaches
- * the farmer's own edit box, where the person who wrote it decides what survives. Deleting it
- * here would be the quieter failure this file was written to avoid: the farm's voice derived
- * away by a rule that could not tell a list from a sentence.
+ * Measured on the real corpus: some labelled lines carry a genuine TAIL after the structured
+ * answer — "Stocking Days: Stocking daily. Harvest days are Tuesday and Friday." The sentence
+ * break is the boundary: the labelled first sentence is removed and later sentences survive.
+ * A long body with no such boundary remains conservative and survives whole.
  */
 function isPlainList(body: string): boolean {
   const text = body.trim();
@@ -134,32 +128,118 @@ const LABELLED_LIST_LINE = [
   /^\s*hosting\b\s*:?\s*(.*)$/i,
 ];
 
+const OFFERING_FRAME_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "available",
+  "feature",
+  "features",
+  "featuring",
+  "fresh",
+  "generally",
+  "has",
+  "have",
+  "in",
+  "include",
+  "includes",
+  "including",
+  "more",
+  "of",
+  "offer",
+  "offering",
+  "offers",
+  "or",
+  "our",
+  "plus",
+  "round",
+  "seasonal",
+  "seasonally",
+  "sell",
+  "selling",
+  "sells",
+  "specialize",
+  "specializes",
+  "specializing",
+  "the",
+  "usually",
+  "we",
+  "with",
+  "year",
+]);
+
+function words(value: string): string[] {
+  return (value.toLowerCase().match(/[a-z0-9]+/g) ?? []).map((word) =>
+    word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word,
+  );
+}
+
+/** True only when structured offering names account for every substantive word. */
+function onlyRestatesOfferings(sentence: string, usuallySells: readonly string[]): boolean {
+  const sentenceWords = words(sentence);
+  const itemVocabulary = new Set(usuallySells.flatMap(words));
+  const foundItem = sentenceWords.some((word) => itemVocabulary.has(word));
+
+  return (
+    foundItem &&
+    sentenceWords.every((word) => itemVocabulary.has(word) || OFFERING_FRAME_WORDS.has(word))
+  );
+}
+
+function stripOfferingSentences(
+  text: string,
+  usuallySells: readonly string[] | undefined,
+): string | undefined {
+  if (usuallySells === undefined || usuallySells.length === 0) return text;
+  let remainder = text.trim();
+  while (remainder !== "") {
+    const sentenceBreak = /[.!?]\s+(?=\S)/.exec(remainder);
+    const firstSentence =
+      sentenceBreak === null ? remainder : remainder.slice(0, sentenceBreak.index + 1);
+    if (!onlyRestatesOfferings(firstSentence, usuallySells)) return remainder;
+    if (sentenceBreak === null) return undefined;
+    remainder = remainder.slice(sentenceBreak.index + sentenceBreak[0].length).trim();
+  }
+  return undefined;
+}
+
 /**
- * True when a line adds nothing a structured column does not already state.
+ * Remove the part of a line already represented by a structured field.
  *
  * Deliberately NOT "the line mentions hours". A sentence carrying real information survives even
  * when it names a structured fact — "we are open year round, but the greenhouse closes in
  * January" is the farm telling a customer something no column holds. The test is whether the
  * line is *only* a restatement: a labelled field, or a bare echo of the stated answer.
  */
-function restatesStructuredFact(line: string, source: StandDescriptionSource): boolean {
+function stripStructuredFact(
+  line: string,
+  source: StandDescriptionSource,
+): string | undefined {
   const text = line.trim();
-  if (text === "") return true;
+  if (text === "") return undefined;
 
-  // A labelled line survives when its body is more than a list — see `isPlainList`. Checked
-  // BEFORE the blanket patterns below, which would otherwise drop it whole.
+  // A label scopes the first sentence to a structured field. Remove that sentence, but retain
+  // later prose: Tian Tian's offering list disappears while its organic-practices note survives.
+  // Without a sentence boundary, only a body proven to be a plain list is removed.
   for (const pattern of LABELLED_LIST_LINE) {
     const match = pattern.exec(text);
-    if (match !== null) return isPlainList(match[1] ?? "");
+    if (match === null) continue;
+    const body = (match[1] ?? "").trim();
+    const sentenceBreak = /[.!?]\s+(?=\S)/.exec(body);
+    if (sentenceBreak !== null) {
+      const remainder = body.slice(sentenceBreak.index + sentenceBreak[0].length).trim();
+      return remainder === "" ? undefined : remainder;
+    }
+    return isPlainList(body) ? undefined : text;
   }
 
-  if (STRUCTURED_LINE.some((pattern) => pattern.test(text))) return true;
+  if (STRUCTURED_LINE.some((pattern) => pattern.test(text))) return undefined;
 
   // A line that is exactly the structured answer, give or take punctuation and case.
   const normalize = (value: string) =>
     value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const bare = normalize(text);
-  if (bare === "") return true;
+  if (bare === "") return undefined;
   for (const stated of [
     source.openSeasonText,
     source.openHoursText,
@@ -167,9 +247,9 @@ function restatesStructuredFact(line: string, source: StandDescriptionSource): b
     source.website,
     source.socialMedia,
   ]) {
-    if (stated !== undefined && normalize(stated) === bare) return true;
+    if (stated !== undefined && normalize(stated) === bare) return undefined;
   }
-  return false;
+  return stripOfferingSentences(text, source.usuallySells);
 }
 
 /**
@@ -214,12 +294,13 @@ export function buildStandDescription(
   const kept: string[] = [];
   const seen = new Set<string>();
   for (const line of lines) {
-    if (restatesStructuredFact(line, source)) continue;
+    const withoutStructuredFact = stripStructuredFact(line, source);
+    if (withoutStructuredFact === undefined) continue;
     // The transcription repeats itself — Forest Garden Farm states its certification twice.
-    const key = line.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const key = withoutStructuredFact.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
     if (seen.has(key)) continue;
     seen.add(key);
-    kept.push(line);
+    kept.push(withoutStructuredFact);
   }
 
   const description = kept.join("\n").trim();

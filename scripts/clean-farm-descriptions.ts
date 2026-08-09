@@ -3,16 +3,12 @@
  *
  * ## Why this script exists
  *
- * `buildStandDescription` has been deployed since F-061 and has never run against the data.
- * F-064's ingest — the step that would have rebuilt every description from the source CSVs —
- * has not happened, so production stores the RAW pre-F-061 prose and the public card renders
- * it verbatim. That is why a live stand card shows the farmer's name, their home address,
- * `Website:`, `Open:`, `Stocking Days:` and a dated update under "Additional information",
- * directly contradicting the card's own "Hours not listed" chip and duplicating its
- * "Usually sells" list.
+ * `buildStandDescription` owns the rule that prose never repeats a structured fact. This script
+ * applies that rule to stored descriptions after either the rule or the structured facts change;
+ * the public card otherwise keeps rendering the old stored prose verbatim.
  *
- * This is the narrow fix: run the shipped rule over the stored text. It does NOT re-ingest,
- * does not touch any other column, and does not need the source CSVs.
+ * This is the narrow fix: run the shared rule over stored text, with each stand's structured usual
+ * items supplied for comparison. It does NOT re-ingest, touch another column, or need source CSVs.
  *
  * ## What makes it safe to run
  *
@@ -80,19 +76,41 @@ async function main(): Promise<void> {
       );
     }
 
-    const rows = await sql<{ id: string; name: string; description: string }[]>`
-      select id, name, description from farms
-      where description is not null and btrim(description) <> ''
-      order by name
+    const rows = await sql<{
+      id: string;
+      name: string;
+      description: string;
+      usuallySells: string[];
+    }[]>`
+      select
+        farm.id,
+        farm.name,
+        farm.description,
+        coalesce(
+          array_agg(item.display_name order by item.sort_order, item.id)
+            filter (where item.id is not null),
+          array[]::text[]
+        ) as "usuallySells"
+      from farms as farm
+      left join sales_locations as location
+        on location.owner_farm_id = farm.id and location.retired_at is null
+      left join stand_items as item
+        on item.sales_location_id = location.id and item.usually_carried
+      where farm.description is not null and btrim(farm.description) <> ''
+      group by farm.id, farm.name, farm.description
+      order by farm.name
     `;
 
     const changes: Change[] = [];
     let unchanged = 0;
     for (const row of rows) {
-      // The stored text is treated as map prose: it is what the card renders today, with no
-      // structured answers alongside it to compare against. Exactly the shipped rule — this
-      // script states no cleanup logic of its own, so what it writes is what the form shows.
-      const after = buildStandDescription({ mapDescription: row.description }) ?? "";
+      // Supply the structured usual list that renders beside this prose. The cleanup remains a
+      // pure shared rule; this script only gives it the facts needed to identify overlap.
+      const after =
+        buildStandDescription({
+          mapDescription: row.description,
+          usuallySells: row.usuallySells,
+        }) ?? "";
       if (after.trim() === row.description.trim()) {
         unchanged += 1;
         continue;

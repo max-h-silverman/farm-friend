@@ -397,13 +397,12 @@ rejected. Check the other export when a farm is missing.
 
 ### Cleaning stored descriptions
 
-`buildStandDescription` (F-061) strips from a farm's prose every line that restates a fact holding a
-structured column of its own — hours, season, stocking, links, payments, dated updates. It has been
-deployed since it was written and **has never run against the data**, because F-064's ingest never
-happened, so `farms.description` still holds raw prose that the public card renders verbatim.
+`buildStandDescription` (F-061/B-044) strips prose that restates a structured fact — hours, season,
+stocking, links, payments, dated updates, and reviewed usual items. For mixed text it removes only a
+leading structured sentence and preserves the prose after it.
 
-This applies the shipped rule to the stored text. It needs no re-ingest and no CSVs, and touches no
-other column:
+Run the cleanup whenever the rule or structured facts change. It reads each stand's usual items for
+comparison, needs no re-ingest or CSVs, and touches no other column:
 
 ```bash
 DATABASE_URL="<neondb>" npx tsx scripts/clean-farm-descriptions.ts            # dry run, prints every diff
