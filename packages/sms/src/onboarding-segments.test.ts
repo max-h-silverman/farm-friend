@@ -41,20 +41,36 @@ describe("onboarding message segments", () => {
     }
   });
 
-  it("keeps the setup message within two segments now the token is short", () => {
-    // F-093/F-094 — this message does the most work of any we send: it says the farm is live,
-    // carries the private link, names the primary interface, and teaches three keywords the
-    // farmer has no other channel for. Measured against the production host with a REAL minted
-    // token, which is what a farmer actually receives.
+  it("keeps the setup message within three segments, example and link included", () => {
+    // This message does the most work of any we send: it names the channel, SHOWS how to phrase
+    // an update, carries the private link, and names the recovery word. Measured against the
+    // production host with a REAL minted token, which is what a farmer actually receives.
     //
-    // The ceiling TIGHTENS from three to two (F-097). The token went from 64 hex characters to
-    // 22 base64url and the scaffolding around the link came out, so three is no longer the
-    // honest bound — leaving it there would let the message grow back by a whole segment
-    // without a single test noticing.
+    // **Three, and the history is worth keeping straight.** F-097 got this to two by shortening
+    // the token and stripping the scaffolding around the URL; max then spent that budget
+    // deliberately (2026-08-09) on a worked example — "we're out of eggs, replenished kale and
+    // added radishes" — because stating the interface without demonstrating it left a farmer
+    // guessing at a format that does not exist. The example is the most valuable line in the
+    // message, so the segment goes to it rather than the bound forcing the copy.
+    //
+    // What this still catches is a FOURTH segment, and the blank lines are the likely cause:
+    // each paragraph break costs a character in a message already near its ceiling.
     const link = `https://farm-friend-web-p5mfxfp5za-uw.a.run.app/stand/${issueFarmerLinkToken()}`;
-    const estimate = estimateSmsSegments(renderFarmerAuthorizedNotification(link));
+    // The two-stand form is the longer one — it carries the extra STAND paragraph.
+    const estimate = estimateSmsSegments(
+      renderFarmerAuthorizedNotification(link, { standCount: 2 }),
+    );
     expect(estimate.encoding).toBe("GSM-7");
-    expect(estimate.segmentCount).toBeLessThanOrEqual(2);
+    expect(estimate.segmentCount).toBeLessThanOrEqual(3);
+  });
+
+  it("costs a one-stand farmer less than a two-stand one", () => {
+    // The STAND paragraph is real cost, imposed only on farmers who can act on it. Asserted as
+    // a comparison rather than a fixed number, so it keeps holding as the copy changes.
+    const link = `https://farm-friend-web-p5mfxfp5za-uw.a.run.app/stand/${issueFarmerLinkToken()}`;
+    const one = renderFarmerAuthorizedNotification(link, { standCount: 1 });
+    const two = renderFarmerAuthorizedNotification(link, { standCount: 2 });
+    expect(one.length).toBeLessThan(two.length);
   });
 
   it("still fits the farmer whose link predates the shortened token", () => {

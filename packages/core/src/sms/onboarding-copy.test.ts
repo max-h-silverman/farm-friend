@@ -8,6 +8,7 @@ import {
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_JOIN_INSTRUCTION,
   FARMER_TAUGHT_KEYWORDS,
+  FARMER_UNTAUGHT_KEYWORDS,
   renderFarmerLinkMessage,
 } from "./onboarding-copy";
 
@@ -127,9 +128,9 @@ describe("farmer onboarding copy", () => {
     // are live and still told how to reach their form.
     const body = renderFarmerAuthorizedNotification(null);
     expect(body).toContain("LINK");
-    // It must still say they are set up — and must NOT claim they are on the map, which is
-    // false for a farmer whose farm has no stand yet.
-    expect(body.toLowerCase()).toContain("all set");
+    // It must welcome them and name the channel — and must NOT claim they are on the map,
+    // which is false for exactly the farmer whose farm has no stand yet.
+    expect(body.toLowerCase()).toContain("welcome");
     expect(body.toLowerCase()).not.toContain("on the map");
     // No invented URL, and no dangling label for a link that is not there.
     expect(body).not.toContain("http");
@@ -139,8 +140,11 @@ describe("farmer onboarding copy", () => {
   it("teaches every farmer keyword whether or not a link was minted", () => {
     // The keywords are the point of the message; a farmer without a stand needs them MORE,
     // not less. A branch that quietly drops them is the omission F-093 exists to close.
+    //
+    // STAND is the one exception, and it is conditional on the farmer HAVING a second stand —
+    // see the test below. Measured with `standCount: 2` so this keeps asserting the full set.
     for (const link of [null, "https://farmfriend.example/stand/" + "9".repeat(64)]) {
-      const body = renderFarmerAuthorizedNotification(link);
+      const body = renderFarmerAuthorizedNotification(link, { standCount: 2 });
       for (const keyword of FARMER_TAUGHT_KEYWORDS) {
         expect(body).toContain(keyword);
       }
@@ -148,26 +152,73 @@ describe("farmer onboarding copy", () => {
     }
   });
 
+  it("names STAND only for a farmer who actually has more than one", () => {
+    // max, 2026-08-09. `STAND` picks between stands, so for the farmer with one it is an
+    // instruction for a situation they are not in — noise in the message that has to teach
+    // them the product. The keyword is still parsed and still honoured; what is conditional
+    // is whether this message spends a line on it.
+    //
+    // `farmer-keywords.test.ts` remains satisfied: its tripwire asserts against the
+    // FARMER_TAUGHT_KEYWORDS constant, which is unchanged, not against this rendered body.
+    const link = "https://farmfriend.example/stand/abcd";
+    expect(renderFarmerAuthorizedNotification(link, { standCount: 1 })).not.toContain("STAND");
+    expect(renderFarmerAuthorizedNotification(link, { standCount: 2 })).toContain("STAND");
+
+    // The rest of the vocabulary is unconditional — dropping STAND must not drop LINK with it.
+    for (const count of [1, 2]) {
+      const body = renderFarmerAuthorizedNotification(link, { standCount: count });
+      expect(body).toContain("LINK");
+    }
+  });
+
+  it("shows a farmer how to phrase an update, with a real example", () => {
+    // max, 2026-08-09. "Just text us what you have out" states the interface without showing
+    // it, and a farmer's first message is the one most likely to be a stilted list because
+    // they are guessing at a format. The example is what says "ordinary sentences work" —
+    // including the mixed add/remove/restock shape the interpreter actually handles.
+    const body = renderFarmerAuthorizedNotification(
+      "https://farmfriend.example/stand/abcd",
+      { standCount: 1 },
+    );
+    expect(body).toMatch(/out of eggs/i);
+    // It must read as a QUOTED example rather than as an instruction to type those words.
+    expect(body).toContain('"');
+    // And it names the channel for what it is: the number they can text.
+    expect(body.toLowerCase()).toContain("text");
+  });
+
   it("teaches the farmer keywords it is the only channel for", () => {
     // F-093. STAND and SETTINGS appeared in NO farmer-facing SMS copy at all, and the farmer
     // finished onboarding knowing exactly one word: START. After that the interface was
     // undiscoverable except by texting prose and hoping.
+    // Measured with two stands, since STAND is named only for a farmer who has a second one.
     const body = renderFarmerAuthorizedNotification(
       "https://farmfriend.example/stand/" + "f".repeat(64),
+      { standCount: 2 },
     );
     for (const keyword of FARMER_TAUGHT_KEYWORDS) {
       expect(body).toContain(keyword);
+    }
+
+    // SETTINGS is deliberately NOT taught here (max, 2026-08-09): a farmer has one edit page
+    // and LINK already opens it. Asserted so re-adding it is a decision rather than a drift.
+    for (const untaught of FARMER_UNTAUGHT_KEYWORDS) {
+      expect(body).not.toContain(untaught);
     }
   });
 
   it("names the primary interface, which is not a keyword at all", () => {
     // "Text what you have" is the whole point. A farmer who learns three keywords and not
     // this one has learned the accessories and missed the product.
+    // F-097/max 2026-08-09: the interface is now SHOWN by example rather than described, so
+    // this asserts the example is present and reads as a farmer's own sentence.
     const body = renderFarmerAuthorizedNotification(
       "https://farmfriend.example/stand/" + "0".repeat(64),
+      { standCount: 1 },
     ).toLowerCase();
     expect(body).toContain("text");
-    expect(body).toMatch(/what (you have|is|you'?re selling|is on)/);
+    expect(body).toContain("natural phrasing");
+    expect(body).toMatch(/out of eggs/);
   });
 
   it("drops the STOP footer from the setup message, which is not where it is owed", () => {

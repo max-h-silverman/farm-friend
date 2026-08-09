@@ -8,7 +8,10 @@ import {
   REGISTERED_OPT_IN_KEYWORDS,
   REGISTERED_OPT_OUT_KEYWORDS,
 } from "./commands";
-import { FARMER_TAUGHT_KEYWORDS } from "./onboarding-copy";
+import {
+  FARMER_TAUGHT_KEYWORDS,
+  FARMER_UNTAUGHT_KEYWORDS,
+} from "./onboarding-copy";
 
 // F-040 / F-080 — the FARMER keywords, and the line they must not cross.
 //
@@ -60,8 +63,22 @@ describe("farmer keywords (F-040, F-080)", () => {
     );
     const declared = [...table.matchAll(/^\s{2}(\w+):/gm)].map((match) => match[1]);
     expect(declared.length).toBeGreaterThan(0);
-    // Every keyword the parser honours is taught, and nothing is taught that is not honoured.
-    expect([...FARMER_TAUGHT_KEYWORDS].sort()).toEqual([...declared].sort());
+    /*
+      Every keyword the parser honours is ACCOUNTED FOR — taught, or deliberately untaught with
+      its reason recorded — and nothing is listed that the parser does not honour.
+
+      The second list exists because max dropped `SETTINGS` from farmer copy on 2026-08-09 (a
+      farmer has one edit page, and `LINK` already opens it). Without somewhere to record that,
+      dropping a word from the taught list would just make this assertion fail, and the cheapest
+      way to make it pass again is to delete the wrong side of it. A keyword nobody teaches and
+      a keyword somebody forgot must not look the same.
+    */
+    const accounted = [...FARMER_TAUGHT_KEYWORDS, ...FARMER_UNTAUGHT_KEYWORDS];
+    expect([...accounted].sort()).toEqual([...declared].sort());
+    // The two lists are disjoint: a keyword cannot be both taught and deliberately untaught.
+    for (const word of FARMER_UNTAUGHT_KEYWORDS) {
+      expect(FARMER_TAUGHT_KEYWORDS as readonly string[]).not.toContain(word);
+    }
     for (const word of declared) {
       expect(parseCommand(word!).kind).toBe("farmer");
     }

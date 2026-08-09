@@ -712,12 +712,25 @@ describe("inbound routing end to end (integration)", () => {
         `farmer-authorization.integration.test.ts`, against `farmWithStand`.
       */
       const setupBody = work[2]?.body as string;
-      expect(setupBody).toBe(renderFarmerAuthorizedNotification(null));
-      // Whichever branch it took, the farmer is taught the keywords (F-093) and gets no
-      // footer competing with them (F-096).
-      for (const keyword of ["LINK", "STAND", "SETTINGS"]) {
-        expect(setupBody).toContain(keyword);
-      }
+      // No stand yet on this path, so no link and no STAND line — the count is 0, and stating
+      // it keeps this pinned to the branch the fixture reaches.
+      expect(setupBody).toBe(renderFarmerAuthorizedNotification(null, { standCount: 0 }));
+      /*
+        The farmer is taught the recovery word (F-093) and gets no footer competing with it
+        (F-096).
+
+        This used to assert `LINK`, `STAND` and `SETTINGS` from a hardcoded list, and both of
+        the others have since left this message for a stated reason: `STAND` is named only for
+        a farmer who has a second stand to pick between, and this fixture's farm has none at
+        all; `SETTINGS` is deliberately untaught while a farmer has one edit page that `LINK`
+        already opens (both max, 2026-08-09).
+
+        Asserting their ABSENCE as well as `LINK`'s presence, so re-adding either to this
+        message is a decision someone makes on purpose rather than a drift nothing notices.
+      */
+      expect(setupBody).toContain("LINK");
+      expect(setupBody).not.toContain("STAND");
+      expect(setupBody).not.toContain("SETTINGS");
       expect(setupBody).not.toContain("STOP");
       expect(work.map((row) => row.body)).not.toContain(
         FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
@@ -755,7 +768,7 @@ describe("inbound routing end to end (integration)", () => {
       // No setup message — it would be a lie — and no link, since nothing was set up.
       // Compared against the renderer's own output rather than a quoted phrase, so rewording
       // the copy cannot quietly turn this into an assertion about a string nobody sends.
-      expect(texts).not.toContain(renderFarmerAuthorizedNotification(null));
+      expect(texts).not.toContain(renderFarmerAuthorizedNotification(null, { standCount: 0 }));
       expect(texts.some((body) => body.includes("/stand/"))).toBe(false);
 
       /*

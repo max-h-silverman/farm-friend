@@ -128,6 +128,14 @@ link** — a conditional with a test behind it rather than an unbypassable const
     all still enforced under its locks.
   - **The stand link token is base64url** (22 chars), not 64 hex. `isFarmerLinkToken` accepts both,
     so links minted before 2026-08-09 keep working; `LINK` re-mints in the new shape.
+  - **Parsed and TAUGHT are now different sets** (max, 2026-08-09). The setup text welcomes the
+    farmer, shows a worked example of natural phrasing, carries the link, and names `LINK`. It
+    names `STAND` only when the farm has more than one stand, and does not name `SETTINGS` at all
+    — a farmer has one edit page and `LINK` already opens it. Both keywords stay parsed and
+    working. `FARMER_UNTAUGHT_KEYWORDS` records the reason, and the keyword tripwire requires
+    every parsed keyword to sit in one list or the other, so an untaught word and a forgotten one
+    cannot look the same. **`SETTINGS` returns to the taught set when account settings become a
+    surface separate from the stand's edit page.**
 - **Customer SMS:** model interpretation over typed retrieval, identifier validation, and
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.

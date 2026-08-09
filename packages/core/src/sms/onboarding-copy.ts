@@ -69,13 +69,34 @@ export const FARMER_JOIN_INSTRUCTION =
  * The farmer keywords this system is the only channel for (F-093).
  *
  * Stated ONCE, here, and asserted against `FarmerKeyword` in `commands.ts` by test — a keyword
- * cannot be added to the parser without being taught, which is exactly the gap F-093 closed.
+ * cannot be added to the parser without being taught OR listed as deliberately untaught below,
+ * which is exactly the gap F-093 closed.
  *
  * **`MORE`, `YES`/`NO` and `SAME` are deliberately absent.** Each is a reply to a message Farm
  * Friend sent, and the message that needs one teaches it in context. Listing them here would
  * make a farmer memorize four words for a conversation that hands them over one at a time.
  */
-export const FARMER_TAUGHT_KEYWORDS = ["LINK", "STAND", "SETTINGS"] as const;
+export const FARMER_TAUGHT_KEYWORDS = ["LINK", "STAND"] as const;
+
+/**
+ * Keywords the parser honours that farmer-facing copy deliberately does NOT teach.
+ *
+ * **Not an escape hatch — the place a decision has to be written down.** The keyword tripwire
+ * requires every parsed keyword to appear in one list or the other, so dropping a word from the
+ * taught set forces an entry here with a reason. Without that, a keyword nobody teaches and a
+ * keyword somebody forgot look identical.
+ *
+ * **`SETTINGS` (max, 2026-08-09).** A farmer has exactly ONE edit page, and `LINK` already sends
+ * them to it — the reminder cadence is a tab on that same page. So `SETTINGS` is a second word
+ * for a door they already hold the key to, and teaching it in the welcome text spends a line on
+ * a distinction that does not exist for them yet.
+ *
+ * It stays PARSED and stays working: a farmer who texts it still gets their settings link, and
+ * the choice-expired reply in `farmer-targeting.ts` still names it. **When account settings
+ * become a surface genuinely separate from the stand's edit page, this moves back to the taught
+ * list** — that condition is why this constant exists rather than the word being deleted.
+ */
+export const FARMER_UNTAUGHT_KEYWORDS = ["SETTINGS"] as const;
 
 /**
  * Sent when VIGA authorizes a farmer. max's decision, and the reason is plain: a farmer
@@ -104,43 +125,64 @@ export const FARMER_TAUGHT_KEYWORDS = ["LINK", "STAND", "SETTINGS"] as const;
  * `authorizeDispatch` suppresses this message rather than sending it. That is correct — it
  * is a decision made by VIGA, not a message the farmer asked for.
  */
-export function renderFarmerAuthorizedNotification(link: string | null): string {
+export function renderFarmerAuthorizedNotification(
+  link: string | null,
+  options: { standCount?: number } = {},
+): string {
+  /*
+    WHETHER TO NAME `STAND` (max, 2026-08-09).
+
+    `STAND` picks between a farmer's stands, so for the farmer with one it is an instruction
+    for a situation they are not in — a line spent teaching a word they can never usefully
+    send, in the message whose whole job is teaching the product.
+
+    The keyword is untouched: still parsed, still honoured, still in
+    `FARMER_TAUGHT_KEYWORDS` (which is what `farmer-keywords.test.ts` asserts against). What
+    is conditional is whether THIS message spends a line on it.
+
+    Defaults to naming it. A caller that does not know the count is not evidence of one
+    stand, and the failure directions are asymmetric: a farmer with two stands who was never
+    taught the word has no other way to learn it, while a farmer with one who reads it loses
+    a few characters.
+  */
+  const severalStands = (options.standCount ?? 2) > 1;
+
   return [
-    // "You're all set" rather than "on the map": the no-stand branch below reaches a farmer
-    // whose farm has no stand yet, and telling them they are on the map would be false for
-    // exactly the farmer least able to check.
-    "VIGA Farm Friend: you're all set.",
-    // THE ONE THING TO DO, stated as the whole interface. Everything below is reference.
-    "Just text us what you have out - that is all it takes.",
+    // Names the CHANNEL, because that is what the farmer needs to understand first: this
+    // number is the product, not a no-reply sender. "You're all set" said the state without
+    // saying what to do with it.
+    "VIGA Farm Friend: Welcome! This is the number you can text to manage your listing.",
+    "",
+    /*
+      HOW TO SAY IT, shown rather than described (max, 2026-08-09).
+
+      "Just text us what you have out" states the interface without demonstrating it, and a
+      farmer's first message is the one most likely to be a stilted list — because they are
+      guessing at a format that does not exist. The example carries the real shape: ordinary
+      phrasing, several operations at once, add and remove and restock mixed together.
+
+      Deliberately NOT a template to copy. The words are a farmer's own, misspelling included,
+      which is the point — the interpreter reads sentences, not a syntax.
+    */
+    'You can send natural phrasing like "we\'re out of eggs, replenished kale and added ' +
+      'radishes".',
+    "",
     // A farmer with no stand yet cannot be issued a link: `issueFarmerLinkIn` needs a
     // `sales_locations` row, and the ADMIN authorization path can run before one exists (the
     // invited path always has one — the farmer published the listing on the form). Naming the
     // word is the honest fallback; inventing a URL that resolves to nothing would be worse
     // than asking for one more text.
-    /*
-      THE LINK, and the label above it cut to four words (F-097).
-
-      It read "To change your listing, open your own page here:" over the URL and "Lost it?
-      Text LINK for a new one." under it — three lines of scaffolding around one tappable
-      thing, in a message that already had a job. What a farmer needs beside a URL is what it
-      opens; the recovery word is real but it is reference, so it joins the keyword line below
-      rather than interrupting the link.
-    */
     ...(link === null
-      ? ["Text LINK when you need to update your listing."]
-      : ["Your listing page:", link]),
-    // ONE reference line, and the keywords in the order a farmer needs them. STAND is named
-    // even though most farmers have one, because the tripwire in `farmer-keywords.test.ts`
-    // requires every keyword the parser honours to be taught — and a farmer who DOES have two
-    // has no other way to learn the word that picks between them.
-    //
-    // LINK is taught HERE, in the reference list, rather than as its own sentence under the
-    // URL: it is the recovery word for a text the farmer no longer has, which is the same kind
-    // of fact as the other two.
-    link === null
-      ? "Text SETTINGS to change how often we text you, or STAND if you have more than one."
-      : "Text LINK if you lose it, SETTINGS to change how often we text you, or STAND if you " +
-        "have more than one.",
+      ? [
+          "You can also update your listing on the web. Text LINK to get your edit link.",
+        ]
+      : [
+          "You can also update your listing on the web:",
+          link,
+          "Text LINK if you lose it.",
+        ]),
+    // Only for a farmer who has a second stand to pick between — see `severalStands`.
+    ...(severalStands ? ["", "Text STAND to select a different stand."] : []),
   ].join("\n");
 }
 

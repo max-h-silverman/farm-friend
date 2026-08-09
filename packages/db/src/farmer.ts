@@ -551,13 +551,20 @@ async function queueFarmerAuthorizedNotification(
     publicBaseUrl: string;
   },
 ): Promise<void> {
-  // The farm's stand, resolved exactly as the invited redemption and the default prompt
-  // schedule both resolve it, so the link lands on the stand the farmer described.
+  /*
+    The farm's stands. The FIRST is the one the link lands on — resolved exactly as the invited
+    redemption and the default prompt schedule both resolve it, so all three agree on which
+    stand the farmer means.
+
+    **The `limit 1` is gone, and the COUNT is now load-bearing** (max, 2026-08-09): the setup
+    message names `STAND` only for a farmer who actually has a second one, since for everyone
+    else it teaches a word for a situation they are not in. Counting rows is the only way to
+    know, and this query was already reading the table.
+  */
   const locations = await tx`
     select id from sales_locations
     where owner_farm_id = ${input.farmId} and retired_at is null
     order by created_at asc
-    limit 1
   `;
   const salesLocationId = locations[0]?.id as string | undefined;
   // No stand yet: the administrator door can run before one exists. The farmer is still told
@@ -577,6 +584,8 @@ async function queueFarmerAuthorizedNotification(
     messageCategory: "inventory_prompt",
     body: renderFarmerAuthorizedNotification(
       issued === null ? null : farmerLinkUrl(input.publicBaseUrl, issued.token),
+      // Only a farmer with a second stand is taught `STAND` — see the renderer.
+      { standCount: locations.length },
     ),
     now: input.occurredAt,
   });
