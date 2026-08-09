@@ -1,6 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
+import {
+  renderStandItemPrice,
+  standItemPriceNeedsUnit,
+  type StandItemPrice,
+  type StandItemPriceBasis,
+} from "@farm-friend/core/item-price";
 
 /** Shared shortcuts; "other" always opens a free-text unit field. */
 export const SUGGESTED_STOCK_UNITS = [
@@ -16,6 +22,22 @@ export const SUGGESTED_STOCK_UNITS = [
 
 export const OTHER_STOCK_UNIT = "__other__";
 
+export interface StockItemPriceDraft {
+  amount: string;
+  quantity: string;
+  unit: string;
+  basis: StandItemPriceBasis;
+  unitMode: "menu" | "custom";
+}
+
+export const EMPTY_STOCK_ITEM_PRICE: StockItemPriceDraft = {
+  amount: "",
+  quantity: "1",
+  unit: "",
+  basis: "per",
+  unitMode: "menu",
+};
+
 export function initialStockUnitMode(
   unit: string | null | undefined,
 ): "menu" | "custom" {
@@ -25,6 +47,211 @@ export function initialStockUnitMode(
   )
     ? "menu"
     : "custom";
+}
+
+function sanitizeDecimal(value: string): string {
+  const kept = value.replace(/[^0-9.]/g, "");
+  const firstDot = kept.indexOf(".");
+  return firstDot === -1
+    ? kept
+    : kept.slice(0, firstDot + 1) + kept.slice(firstDot + 1).replaceAll(".", "");
+}
+
+export function stockItemPriceDraftToPrice(
+  draft: StockItemPriceDraft,
+): StandItemPrice | null {
+  const amount = draft.amount.trim();
+  const quantity = draft.quantity.trim() === "" ? "1" : draft.quantity.trim();
+  const unit = draft.unit.trim() === "" ? null : draft.unit.trim();
+  if (amount === "" || (unit === null && standItemPriceNeedsUnit(draft.basis))) return null;
+  const amountValue = Number(amount);
+  const quantityValue = Number(quantity);
+  if (!Number.isFinite(amountValue) || !Number.isFinite(quantityValue)) return null;
+  if (amountValue < 0 || quantityValue <= 0) return null;
+  return { amount, quantity, unit, basis: draft.basis };
+}
+
+export function renderStockItemPriceDraft(draft: StockItemPriceDraft): string | null {
+  return renderStandItemPrice(stockItemPriceDraftToPrice(draft));
+}
+
+/** Conservatively recovers the code-rendered formats already stored on dated stock rows. */
+export function stockItemPriceDraftFromText(priceText: string | undefined): StockItemPriceDraft {
+  const text = priceText?.trim() ?? "";
+  if (text === "") return { ...EMPTY_STOCK_ITEM_PRICE };
+  if (/^free$/i.test(text)) {
+    return { ...EMPTY_STOCK_ITEM_PRICE, amount: "0", basis: "for" };
+  }
+
+  const unitPrice = text.match(/^\$([0-9]+(?:\.[0-9]+)?)\s*\/\s*(.+)$/);
+  if (unitPrice) {
+    const unit = unitPrice[2]!.trim();
+    return {
+      amount: unitPrice[1]!,
+      quantity: "1",
+      unit,
+      basis: "per",
+      unitMode: initialStockUnitMode(unit),
+    };
+  }
+
+  const bundle = text.match(/^([0-9]+(?:\.[0-9]+)?)\s+(.+?)\s+for\s+\$([0-9]+(?:\.[0-9]+)?)$/i);
+  if (bundle) {
+    const unit = bundle[2]!.trim();
+    return {
+      amount: bundle[3]!,
+      quantity: bundle[1]!,
+      unit,
+      basis: "for",
+      unitMode: initialStockUnitMode(unit),
+    };
+  }
+
+  const amountForCount = text.match(/^\$([0-9]+(?:\.[0-9]+)?)\s+for\s+([0-9]+(?:\.[0-9]+)?)$/i);
+  if (amountForCount) {
+    return {
+      ...EMPTY_STOCK_ITEM_PRICE,
+      amount: amountForCount[1]!,
+      quantity: amountForCount[2]!,
+      basis: "for",
+    };
+  }
+
+  const amountEach = text.match(/^\$([0-9]+(?:\.[0-9]+)?)(?:\s+each)?$/i);
+  if (amountEach) {
+    return {
+      ...EMPTY_STOCK_ITEM_PRICE,
+      amount: amountEach[1]!,
+      basis: "for",
+    };
+  }
+
+  const legacyUnit = text.match(/^\$([0-9]+(?:\.[0-9]+)?)\s*(?:\/|per|a)\s*(.+)$/i);
+  if (legacyUnit) {
+    const unit = legacyUnit[2]!.trim();
+    return {
+      amount: legacyUnit[1]!,
+      quantity: "1",
+      unit,
+      basis: "per",
+      unitMode: initialStockUnitMode(unit),
+    };
+  }
+
+  return { ...EMPTY_STOCK_ITEM_PRICE };
+}
+
+export function StockItemPricingFields({
+  itemName,
+  controlId,
+  value,
+  disabled = false,
+  onChange,
+}: {
+  itemName: string;
+  controlId: string;
+  value: StockItemPriceDraft;
+  disabled?: boolean;
+  onChange(value: StockItemPriceDraft): void;
+}) {
+  const update = (change: Partial<StockItemPriceDraft>) => onChange({ ...value, ...change });
+
+  return (
+    <div className="farmer-listing-item-pricing">
+      <span className="farmer-listing-price-mark" aria-hidden="true">$</span>
+      <label className="sr-only" htmlFor={`item-amount-${controlId}`}>
+        {`Price for ${itemName}`}
+      </label>
+      <input
+        id={`item-amount-${controlId}`}
+        className="farmer-listing-item-amount"
+        type="text"
+        inputMode="decimal"
+        value={value.amount}
+        disabled={disabled}
+        onChange={(event) => update({ amount: sanitizeDecimal(event.target.value) })}
+        placeholder="0.00"
+        maxLength={12}
+      />
+      <label className="sr-only" htmlFor={`item-basis-${controlId}`}>
+        {`Price basis for ${itemName}`}
+      </label>
+      <select
+        id={`item-basis-${controlId}`}
+        className="farmer-listing-item-basis"
+        value={value.basis}
+        disabled={disabled}
+        onChange={(event) => update({ basis: event.target.value === "for" ? "for" : "per" })}
+      >
+        <option value="per">per</option>
+        <option value="for">for</option>
+      </select>
+      {value.basis === "for" && (
+        <>
+          <label className="sr-only" htmlFor={`item-quantity-${controlId}`}>
+            {`How many ${itemName}`}
+          </label>
+          <input
+            id={`item-quantity-${controlId}`}
+            className="farmer-listing-item-quantity"
+            type="text"
+            inputMode="decimal"
+            value={value.quantity}
+            disabled={disabled}
+            onChange={(event) => update({ quantity: sanitizeDecimal(event.target.value) })}
+            placeholder="1"
+            maxLength={12}
+          />
+        </>
+      )}
+      <label className="sr-only" htmlFor={`item-unit-${controlId}`}>
+        {`Unit for ${itemName}`}
+      </label>
+      {value.unitMode === "custom" ? (
+        <>
+          <input
+            id={`item-unit-${controlId}`}
+            className="farmer-listing-item-unit-other"
+            type="text"
+            value={value.unit}
+            disabled={disabled}
+            onChange={(event) => update({ unit: event.target.value })}
+            placeholder="unit"
+            maxLength={40}
+          />
+          <button
+            type="button"
+            className="farmer-listing-item-unit-back"
+            disabled={disabled}
+            onClick={() => update({ unit: "", unitMode: "menu" })}
+          >
+            <span className="sr-only">{`Use the unit menu for ${itemName}`}</span>
+            <span aria-hidden="true">↺</span>
+          </button>
+        </>
+      ) : (
+        <select
+          id={`item-unit-${controlId}`}
+          className="farmer-listing-item-unit"
+          value={value.unit}
+          disabled={disabled}
+          onChange={(event) => {
+            if (event.target.value === OTHER_STOCK_UNIT) {
+              update({ unit: "", unitMode: "custom" });
+              return;
+            }
+            update({ unit: event.target.value });
+          }}
+        >
+          <option value="">item</option>
+          {SUGGESTED_STOCK_UNITS.map((unit) => (
+            <option key={unit} value={unit}>{unit}</option>
+          ))}
+          <option value={OTHER_STOCK_UNIT}>other…</option>
+        </select>
+      )}
+    </div>
+  );
 }
 
 /**

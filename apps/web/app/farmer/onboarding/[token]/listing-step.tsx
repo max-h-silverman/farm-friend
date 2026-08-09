@@ -8,7 +8,6 @@ import { useEffect, useRef, useState } from "react";
 import { ISLAND_VIEWBOX, projectToIsland } from "@farm-friend/core/island-projection";
 import {
   renderStandItemPrice,
-  standItemPriceNeedsUnit,
 } from "@farm-friend/core/item-price";
 // TYPE-ONLY, so nothing in the database package reaches this client bundle. The shape is
 // IMPORTED rather than restated: B-037 was a restated `ListingDefaults` drifting out of
@@ -21,10 +20,11 @@ import {
 } from "../../../../lib/farmer-invite";
 import { IslandArtwork } from "../../../island-artwork";
 import {
-  OTHER_STOCK_UNIT as OTHER_UNIT,
-  SUGGESTED_STOCK_UNITS as SUGGESTED_UNITS,
+  StockItemPricingFields,
   StockItemRow,
   initialStockUnitMode as initialUnitMode,
+  stockItemPriceDraftToPrice,
+  type StockItemPriceDraft,
 } from "../../stock-item-row";
 
 /**
@@ -63,9 +63,14 @@ interface ItemRow {
  * it is a list of suggestions, and the day it becomes policy is the day it becomes a produce
  * taxonomy the architecture refuses.
  */
-/** A select's value is a bare string; this is the narrowing, in one place. */
-function asBasis(value: string): "per" | "for" {
-  return value === "for" ? "for" : "per";
+function priceDraft(row: ItemRow): StockItemPriceDraft {
+  return {
+    amount: row.priceAmount,
+    quantity: row.priceQuantity,
+    unit: row.priceUnit,
+    basis: row.priceBasis,
+    unitMode: row.unitMode,
+  };
 }
 
 /**
@@ -84,50 +89,7 @@ function rowPrice(
   pricesPublic: boolean,
 ): { amount: string; quantity: string; unit: string | null; basis: "per" | "for" } | null {
   if (!pricesPublic) return null;
-
-  const amount = row.priceAmount.trim();
-  // Trimmed to null, which is what the column holds and what keeps "other" with nothing typed
-  // from submitting — the property the sentinel space used to carry (B-040).
-  const typed = row.priceUnit.trim();
-  const unit = typed === "" ? null : typed;
-  // A quantity the farmer emptied means one, which is what the `per` sentence says anyway.
-  const quantity = row.priceQuantity.trim() === "" ? "1" : row.priceQuantity.trim();
-  if (amount === "") return null;
-  // B-041 — a bundle needs no unit ("$5 for 3"); a unit price does ("$6 / " is not a sentence).
-  // The rule is imported rather than restated: four copies of it is how three come to disagree.
-  if (unit === null && standItemPriceNeedsUnit(row.priceBasis)) return null;
-
-  // `Number("")` is 0 — already excluded above, but the finiteness check is what stops a stray
-  // "." (which `sanitizeMoney` permits mid-typing) arriving as NaN.
-  const amountValue = Number(amount);
-  const quantityValue = Number(quantity);
-  if (!Number.isFinite(amountValue) || !Number.isFinite(quantityValue)) return null;
-  if (amountValue < 0 || quantityValue <= 0) return null;
-
-  return { amount, quantity, unit, basis: row.priceBasis };
-}
-
-/**
- * What a farmer may type into a money box: digits and at most one decimal point (F-092).
- *
- * Filtered on the way IN rather than validated on the way out, so the box cannot hold something
- * it will not submit. A farmer who types a letter simply sees it not appear, which is a quieter
- * correction than an error message under the field.
- *
- * `type="text"` with `inputMode="decimal"` rather than `type="number"`: a number input's spinner
- * arrows are wrong for a price, its scroll-wheel-changes-the-value behaviour is a real hazard on
- * a form, and browsers disagree about what its value even is when the text is partial. The
- * decimal keypad on a phone is what was actually wanted, and `inputMode` is what asks for it.
- */
-function sanitizeMoney(value: string): string {
-  const kept = value.replace(/[^0-9.]/g, "");
-  const firstDot = kept.indexOf(".");
-  if (firstDot === -1) return kept;
-  // Everything after the first point keeps only its digits, so "1.2.3" becomes "1.23" rather
-  // than being rejected — the farmer's intent is legible and refusing it would be pedantry.
-  return (
-    kept.slice(0, firstDot + 1) + kept.slice(firstDot + 1).replace(/\./g, "")
-  );
+  return stockItemPriceDraftToPrice(priceDraft(row));
 }
 
 /**
@@ -776,39 +738,19 @@ export function ListingStep({
     setDraftItem("");
   }
 
-  /**
-   * Change one field of one row's price.
-   *
-   * One setter for all four rather than four near-identical ones: the fields differ only in
-   * which key they write, and a family of `setItemAmount` / `setItemUnit` / … would be the
-   * same function copied with a word changed.
-   */
-  function setItemPriceField(
-    index: number,
-    field: "priceAmount" | "priceQuantity" | "priceUnit" | "priceBasis",
-    value: string,
-  ): void {
+  function setItemPrice(index: number, price: StockItemPriceDraft): void {
     setItemRows((rows) =>
       rows.map((row, at) =>
         at === index
-          ? { ...row, [field]: field === "priceBasis" ? asBasis(value) : value }
+          ? {
+              ...row,
+              priceAmount: price.amount,
+              priceQuantity: price.quantity,
+              priceUnit: price.unit,
+              priceBasis: price.basis,
+              unitMode: price.unitMode,
+            }
           : row,
-      ),
-    );
-  }
-
-  /**
-   * Move one row between the unit menu and its own free-text box (B-040).
-   *
-   * **The unit is cleared on the way**, in both directions. Carrying a typed "half-flat" back to
-   * a menu that has no such option would leave a select showing something it cannot represent,
-   * and carrying "dozen" into the box would put a word there the farmer did not type. Either
-   * way the mode change is a fresh start on the unit and nothing else on the row moves.
-   */
-  function setItemUnitMode(index: number, mode: "menu" | "custom"): void {
-    setItemRows((rows) =>
-      rows.map((row, at) =>
-        at === index ? { ...row, unitMode: mode, priceUnit: "" } : row,
       ),
     );
   }
@@ -2209,144 +2151,12 @@ export function ListingStep({
                   The sentence reads left to right as it will render: `$ [6] [per] [dozen]`.
                 */}
                 {pricesPublic && (
-                  <div className="farmer-listing-item-pricing">
-                    <span className="farmer-listing-price-mark" aria-hidden="true">
-                      $
-                    </span>
-                    <label className="sr-only" htmlFor={`item-amount-${index}`}>
-                      {`Price for ${row.name}`}
-                    </label>
-                    <input
-                      id={`item-amount-${index}`}
-                      className="farmer-listing-item-amount"
-                      type="text"
-                      // `inputMode` is what raises the DECIMAL KEYPAD on a phone, which is the
-                      // whole of what a numeric field was wanted for. `type="number"` would
-                      // bring spinner arrows and scroll-to-change, both wrong for money.
-                      inputMode="decimal"
-                      value={row.priceAmount}
-                      onChange={(event) =>
-                        setItemPriceField(
-                          index,
-                          "priceAmount",
-                          sanitizeMoney(event.target.value),
-                        )
-                      }
-                      placeholder="0.00"
-                      maxLength={12}
-                    />
-                    <label className="sr-only" htmlFor={`item-basis-${index}`}>
-                      {`Price basis for ${row.name}`}
-                    </label>
-                    <select
-                      id={`item-basis-${index}`}
-                      className="farmer-listing-item-basis"
-                      value={row.priceBasis}
-                      onChange={(event) =>
-                        setItemPriceField(index, "priceBasis", event.target.value)
-                      }
-                    >
-                      <option value="per">per</option>
-                      <option value="for">for</option>
-                    </select>
-                    {/*
-                      A BUNDLE needs its count — "3 lb for $5" — where a unit price's count is
-                      always one. So the box appears with `for` and not before it: asking every
-                      farmer for a quantity they will leave at 1 is a control earning nothing.
-                    */}
-                    {row.priceBasis === "for" && (
-                      <>
-                        <label className="sr-only" htmlFor={`item-quantity-${index}`}>
-                          {`How many ${row.name}`}
-                        </label>
-                        <input
-                          id={`item-quantity-${index}`}
-                          className="farmer-listing-item-quantity"
-                          type="text"
-                          inputMode="decimal"
-                          value={row.priceQuantity}
-                          onChange={(event) =>
-                            setItemPriceField(
-                              index,
-                              "priceQuantity",
-                              sanitizeMoney(event.target.value),
-                            )
-                          }
-                          placeholder="1"
-                          maxLength={12}
-                        />
-                      </>
-                    )}
-                    <label className="sr-only" htmlFor={`item-unit-${index}`}>
-                      {`Unit for ${row.name}`}
-                    </label>
-                    {/*
-                      The menu is a SHORTCUT, never a vocabulary — see `SUGGESTED_UNITS`. Its
-                      last entry swaps in a free-text box, because `price_unit` is free text
-                      precisely so a stand selling by the half-flat or the cord can say so.
-
-                      WHICH control shows is `row.unitMode`, never a question about the value
-                      (B-040). Inferring it from whether the value was in the suggestion list
-                      made "other" a state with no exit: nothing the farmer typed was ever in
-                      the list either. The box therefore comes with its own way back.
-                    */}
-                    {row.unitMode === "custom" ? (
-                      <>
-                        <input
-                          id={`item-unit-${index}`}
-                          className="farmer-listing-item-unit-other"
-                          type="text"
-                          value={row.priceUnit}
-                          onChange={(event) =>
-                            setItemPriceField(index, "priceUnit", event.target.value)
-                          }
-                          placeholder="unit"
-                          maxLength={40}
-                        />
-                        <button
-                          type="button"
-                          className="farmer-listing-item-unit-back"
-                          onClick={() => setItemUnitMode(index, "menu")}
-                        >
-                          {/* Named per item like every other control on this line, so a screen
-                              reader user knows which row they are leaving. */}
-                          <span className="sr-only">{`Use the unit menu for ${row.name}`}</span>
-                          <span aria-hidden="true">↺</span>
-                        </button>
-                      </>
-                    ) : (
-                      <select
-                        id={`item-unit-${index}`}
-                        className="farmer-listing-item-unit"
-                        value={row.priceUnit}
-                        onChange={(event) => {
-                          // "Other" is a CONTROL choice, so it moves the mode and never lands
-                          // in `priceUnit` — the row holds only units a farmer actually stated.
-                          if (event.target.value === OTHER_UNIT) {
-                            setItemUnitMode(index, "custom");
-                            return;
-                          }
-                          setItemPriceField(index, "priceUnit", event.target.value);
-                        }}
-                      >
-                        {/*
-                          THE RESTING CHOICE IS "item", not "unit" (max, 2026-08-08). It is the
-                          EMPTY value either way — nothing is stored, and that is what lets a
-                          bundle render "$5 for 3" with no invented word (B-041). "unit" asked
-                          the farmer to name something a corn stand has no word for; "item" says
-                          what the price is already for, so leaving it alone is a real answer
-                          rather than an unfinished one.
-                        */}
-                        <option value="">item</option>
-                        {SUGGESTED_UNITS.map((unit) => (
-                          <option key={unit} value={unit}>
-                            {unit}
-                          </option>
-                        ))}
-                        <option value={OTHER_UNIT}>other…</option>
-                      </select>
-                    )}
-                  </div>
+                  <StockItemPricingFields
+                    itemName={row.name}
+                    controlId={String(index)}
+                    value={priceDraft(row)}
+                    onChange={(price) => setItemPrice(index, price)}
+                  />
                 )}
               </StockItemRow>
             ))}

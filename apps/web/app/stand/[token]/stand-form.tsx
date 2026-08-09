@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import {
-  OTHER_STOCK_UNIT,
-  SUGGESTED_STOCK_UNITS,
+  EMPTY_STOCK_ITEM_PRICE,
+  StockItemPricingFields,
   StockItemRow,
-  initialStockUnitMode,
+  renderStockItemPriceDraft,
+  stockItemPriceDraftFromText,
+  type StockItemPriceDraft,
 } from "../../farmer/stock-item-row";
 
 type Stage =
@@ -29,61 +31,36 @@ interface EditorRow {
   key: string;
   entryId?: string;
   itemName: string;
-  quantity: string;
-  unit: string;
-  unitMode: "menu" | "custom";
-  priceText: string;
-  pricePrefix: "" | "$";
+  price: StockItemPriceDraft;
+  sourcePriceText: string;
   inStock: boolean;
 }
-
-type DetailChange = number | string | null;
 
 function rowsFromEntries(entries: CurrentEntry[]): EditorRow[] {
   return entries.map((entry) => ({
     key: entry.entryId,
     entryId: entry.entryId,
     itemName: entry.itemName,
-    quantity: entry.quantity === undefined ? "" : String(entry.quantity),
-    unit: entry.unit ?? "",
-    unitMode: initialStockUnitMode(entry.unit),
-    priceText: entry.priceText?.replace(/^\$\s*/, "") ?? "",
-    pricePrefix: entry.priceText === undefined || /^\$/.test(entry.priceText) ? "$" : "",
+    price: stockItemPriceDraftFromText(entry.priceText),
+    sourcePriceText: entry.priceText ?? "",
     inStock: true,
   }));
 }
 
-function cleanQuantity(value: string): string {
-  const kept = value.replace(/[^0-9.]/g, "");
-  const firstDot = kept.indexOf(".");
-  return firstDot === -1
-    ? kept
-    : kept.slice(0, firstDot + 1) + kept.slice(firstDot + 1).replaceAll(".", "");
-}
-
-function optionalText(value: string): string | undefined {
-  const trimmed = value.trim();
-  return trimmed === "" ? undefined : trimmed;
-}
-
 function rowsHavePrices(rows: EditorRow[]): boolean {
-  return rows.some((row) => optionalText(row.priceText) !== undefined);
+  return rows.some(
+    (row) => row.sourcePriceText !== "" || renderStockItemPriceDraft(row.price) !== null,
+  );
 }
 
-function serializedPrice(row: EditorRow): string {
-  const value = row.priceText.trim();
-  return value === "" ? "" : `${row.pricePrefix}${value}`;
-}
-
-function detailDelta(
-  current: string,
-  baseline: string,
-  parse: (value: string) => number | string,
-): DetailChange | undefined {
-  const next = current.trim();
-  const before = baseline.trim();
-  if (next === before) return undefined;
-  return next === "" ? null : parse(next);
+function samePriceDraft(left: StockItemPriceDraft, right: StockItemPriceDraft): boolean {
+  return (
+    left.amount === right.amount &&
+    left.quantity === right.quantity &&
+    left.unit === right.unit &&
+    left.basis === right.basis &&
+    left.unitMode === right.unitMode
+  );
 }
 
 function structuredEdit(
@@ -96,14 +73,10 @@ function structuredEdit(
   );
   const additions: Array<{
     itemName: string;
-    quantity?: number;
-    unit?: string;
     priceText?: string;
   }> = [];
   const changes: Array<{
     entryId: string;
-    quantity?: number | null;
-    unit?: string | null;
     priceText?: string | null;
   }> = [];
   const removals: Array<{ entryId: string }> = [];
@@ -111,16 +84,10 @@ function structuredEdit(
   for (const row of rows) {
     if (row.entryId === undefined) {
       if (!row.inStock) continue;
-      const quantity = optionalText(row.quantity);
-      const parsedQuantity = quantity === undefined ? undefined : Number(quantity);
-      if (parsedQuantity !== undefined && !Number.isFinite(parsedQuantity)) return null;
+      const priceText = pricesEnabled ? renderStockItemPriceDraft(row.price) : null;
       additions.push({
         itemName: row.itemName,
-        ...(parsedQuantity === undefined ? {} : { quantity: parsedQuantity }),
-        ...(optionalText(row.unit) === undefined ? {} : { unit: optionalText(row.unit) }),
-        ...(!pricesEnabled || optionalText(serializedPrice(row)) === undefined
-          ? {}
-          : { priceText: optionalText(serializedPrice(row)) }),
+        ...(priceText === null ? {} : { priceText }),
       });
       continue;
     }
@@ -132,22 +99,14 @@ function structuredEdit(
       continue;
     }
 
-    const quantity = detailDelta(row.quantity, baseline.quantity, Number);
-    if (typeof quantity === "number" && !Number.isFinite(quantity)) return null;
-    const unit = detailDelta(row.unit, baseline.unit, (value) => value);
-    const priceText = detailDelta(
-      pricesEnabled ? serializedPrice(row) : "",
-      serializedPrice(baseline),
-      (value) => value,
-    );
-    if (quantity !== undefined || unit !== undefined || priceText !== undefined) {
-      changes.push({
-        entryId: row.entryId,
-        ...(quantity === undefined ? {} : { quantity: quantity as number | null }),
-        ...(unit === undefined ? {} : { unit: unit as string | null }),
-        ...(priceText === undefined ? {} : { priceText: priceText as string | null }),
-      });
-    }
+    const priceText = !pricesEnabled
+      ? baseline.sourcePriceText === ""
+        ? undefined
+        : null
+      : samePriceDraft(row.price, baseline.price)
+        ? undefined
+        : renderStockItemPriceDraft(row.price);
+    if (priceText !== undefined) changes.push({ entryId: row.entryId, priceText });
   }
 
   return additions.length === 0 && changes.length === 0 && removals.length === 0
@@ -200,11 +159,8 @@ export function StandForm({
       {
         key: `new-${nextKey.current}`,
         itemName,
-        quantity: "",
-        unit: "",
-        unitMode: "menu",
-        priceText: "",
-        pricePrefix: "$",
+        price: { ...EMPTY_STOCK_ITEM_PRICE },
+        sourcePriceText: "",
         inStock: true,
       },
     ]);
@@ -250,10 +206,6 @@ export function StandForm({
 
   async function propose() {
     if (edit === undefined) return;
-    if (edit === null) {
-      setError("Enter a valid quantity before previewing.");
-      return;
-    }
     setStage({ step: "typing" });
     const payload = await post({ action: "propose", edit });
     if (payload === null) return;
@@ -371,100 +323,13 @@ export function StandForm({
                     }}
                   >
                     {pricesEnabled && (
-                      <div className="farmer-listing-item-pricing">
-                        <span className="farmer-listing-price-mark" aria-hidden="true">
-                          {row.pricePrefix}
-                        </span>
-                        <label className="sr-only" htmlFor={`stock-price-${row.key}`}>
-                          Price for {row.itemName}
-                        </label>
-                        <input
-                          id={`stock-price-${row.key}`}
-                          type="text"
-                          inputMode="decimal"
-                          className="farmer-listing-item-amount"
-                          value={row.priceText}
-                          disabled={!row.inStock}
-                          placeholder="0.00"
-                          maxLength={80}
-                          onChange={(event) =>
-                            updateRow(row.key, { priceText: event.target.value })
-                          }
-                        />
-                        <span className="farmer-stock-detail-separator" aria-hidden="true">
-                          ·
-                        </span>
-                        <label className="sr-only" htmlFor={`stock-quantity-${row.key}`}>
-                          Quantity for {row.itemName}
-                        </label>
-                        <input
-                          id={`stock-quantity-${row.key}`}
-                          type="text"
-                          inputMode="decimal"
-                          className="farmer-listing-item-quantity"
-                          value={row.quantity}
-                          disabled={!row.inStock}
-                          placeholder="qty"
-                          maxLength={12}
-                          onChange={(event) =>
-                            updateRow(row.key, { quantity: cleanQuantity(event.target.value) })
-                          }
-                        />
-                        <label className="sr-only" htmlFor={`stock-unit-${row.key}`}>
-                          Unit for {row.itemName}
-                        </label>
-                        {row.unitMode === "custom" ? (
-                          <>
-                            <input
-                              id={`stock-unit-${row.key}`}
-                              type="text"
-                              className="farmer-listing-item-unit-other"
-                              value={row.unit}
-                              disabled={!row.inStock}
-                              placeholder="unit"
-                              maxLength={40}
-                              onChange={(event) =>
-                                updateRow(row.key, { unit: event.target.value })
-                              }
-                            />
-                            <button
-                              type="button"
-                              className="farmer-listing-item-unit-back"
-                              disabled={!row.inStock}
-                              onClick={() =>
-                                updateRow(row.key, { unit: "", unitMode: "menu" })
-                              }
-                            >
-                              <span className="sr-only">
-                                {`Use the unit menu for ${row.itemName}`}
-                              </span>
-                              <span aria-hidden="true">↺</span>
-                            </button>
-                          </>
-                        ) : (
-                          <select
-                            id={`stock-unit-${row.key}`}
-                            className="farmer-listing-item-unit"
-                            value={row.unit}
-                            disabled={!row.inStock}
-                            onChange={(event) => {
-                              if (event.target.value === OTHER_STOCK_UNIT) {
-                                updateRow(row.key, { unit: "", unitMode: "custom" });
-                                return;
-                              }
-                              updateRow(row.key, { unit: event.target.value });
-                            }}
-                          >
-                            <option value="">item</option>
-                            {SUGGESTED_STOCK_UNITS.map((unit) => (
-                              <option key={unit} value={unit}>
-                                {unit}
-                              </option>
-                            ))}
-                            <option value={OTHER_STOCK_UNIT}>other…</option>
-                          </select>
-                        )}
-                      </div>
+                      <StockItemPricingFields
+                        itemName={row.itemName}
+                        controlId={row.key}
+                        value={row.price}
+                        disabled={!row.inStock}
+                        onChange={(price) => updateRow(row.key, { price })}
+                      />
                     )}
                   </StockItemRow>
                 ))}
@@ -474,7 +339,7 @@ export function StandForm({
             <button
               type="button"
               className="farmer-stock-update"
-              disabled={busy || edit === undefined || edit === null}
+              disabled={busy || edit === undefined}
               onClick={() => void propose()}
             >
               {busy ? "Checking…" : "Update"}

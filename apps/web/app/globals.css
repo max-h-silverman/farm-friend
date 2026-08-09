@@ -5176,10 +5176,6 @@ button.admin-action-danger,
   padding-bottom: 0.15rem;
 }
 
-.farmer-stock-detail-separator {
-  color: var(--ink-faint);
-}
-
 .farmer-listing-item-add {
   display: flex;
   gap: 0.5rem;

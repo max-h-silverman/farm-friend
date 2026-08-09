@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { StandForm } from "./stand-form";
 
 const CURRENT = [
-  { entryId: "e1", itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$6" },
+  { entryId: "e1", itemName: "Eggs", quantity: 12, unit: "dozen", priceText: "$6 / dozen" },
   { entryId: "e2", itemName: "Kale" },
 ];
 
@@ -46,12 +46,15 @@ describe("StandForm", () => {
     const prices = screen.getByRole("switch", { name: "Add prices" });
     expect(prices).toBeChecked();
     expect(screen.getByLabelText("Price for Eggs")).toHaveValue("6");
+    await user.selectOptions(screen.getByLabelText("Price basis for Eggs"), "for");
+    expect(screen.getByLabelText("How many Eggs")).toBeVisible();
 
     await user.click(prices);
 
     expect(prices).not.toBeChecked();
     expect(screen.queryByLabelText("Price for Eggs")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Quantity for Eggs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Price basis for Eggs")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("How many Eggs")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Unit for Eggs")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Update" }));
     const body = JSON.parse(
@@ -87,24 +90,29 @@ describe("StandForm", () => {
     expect(screen.getByText("Kale")).toBeVisible();
   });
 
-  it("uses onboarding's item-card treatment and suggested-unit menu", async () => {
+  it("uses onboarding's literal price amount, per-or-for, quantity, and unit controls", async () => {
     const user = userEvent.setup();
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
     expect(screen.getByRole("switch", { name: "Eggs in stock" })).toBeChecked();
-    expect(screen.getByLabelText("Quantity for Eggs")).toHaveValue("12");
-    expect(screen.getByLabelText("Unit for Eggs")).toHaveValue("dozen");
     expect(screen.getByLabelText("Price for Eggs")).toHaveValue("6");
+    expect(screen.getByLabelText("Price basis for Eggs")).toHaveValue("per");
+    expect(screen.queryByLabelText("How many Eggs")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Unit for Eggs")).toHaveValue("dozen");
     expect(screen.getByLabelText("Unit for Eggs")).toHaveRole("combobox");
     expect(screen.getByText("Eggs").closest(".farmer-listing-item")).toContainElement(
-      screen.getByLabelText("Quantity for Eggs").closest(".farmer-listing-item-pricing"),
+      screen.getByLabelText("Price basis for Eggs").closest(".farmer-listing-item-pricing"),
     );
+
+    await user.selectOptions(screen.getByLabelText("Price basis for Eggs"), "for");
+    expect(screen.getByLabelText("How many Eggs")).toHaveValue("1");
 
     await user.type(screen.getByLabelText("Item name"), "Plum jam");
     await user.click(screen.getByRole("button", { name: "Add" }));
 
     expect(screen.getByRole("switch", { name: "Plum jam in stock" })).toBeChecked();
-    expect(screen.getByLabelText("Quantity for Plum jam")).toHaveValue("");
+    expect(screen.getByLabelText("Price basis for Plum jam")).toHaveValue("per");
+    expect(screen.queryByLabelText("How many Plum jam")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Unit for Plum jam")).toHaveValue("");
     expect(screen.getByLabelText("Price for Plum jam")).toHaveValue("");
   });
@@ -119,14 +127,14 @@ describe("StandForm", () => {
     });
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
-    await user.clear(screen.getByLabelText("Quantity for Eggs"));
-    await user.type(screen.getByLabelText("Quantity for Eggs"), "6");
     await user.clear(screen.getByLabelText("Price for Eggs"));
     await user.type(screen.getByLabelText("Price for Eggs"), "5");
     await user.click(screen.getByRole("switch", { name: "Kale in stock" }));
     await user.type(screen.getByLabelText("Item name"), "Plum jam");
     await user.click(screen.getByRole("button", { name: "Add" }));
-    await user.type(screen.getByLabelText("Quantity for Plum jam"), "3");
+    await user.selectOptions(screen.getByLabelText("Price basis for Plum jam"), "for");
+    await user.clear(screen.getByLabelText("How many Plum jam"));
+    await user.type(screen.getByLabelText("How many Plum jam"), "3");
     await user.selectOptions(screen.getByLabelText("Unit for Plum jam"), "jar");
     await user.type(screen.getByLabelText("Price for Plum jam"), "8");
     await user.click(screen.getByRole("button", { name: "Update" }));
@@ -138,8 +146,8 @@ describe("StandForm", () => {
       token: "private-token",
       action: "propose",
       edit: {
-        additions: [{ itemName: "Plum jam", quantity: 3, unit: "jar", priceText: "$8" }],
-        changes: [{ entryId: "e1", quantity: 6, priceText: "$5" }],
+        additions: [{ itemName: "Plum jam", priceText: "3 jar for $8" }],
+        changes: [{ entryId: "e1", priceText: "$5 / dozen" }],
         removals: [{ entryId: "e2" }],
       },
     });
@@ -163,16 +171,16 @@ describe("StandForm", () => {
     const fetchMock = stubFetch({
       outcome: "proposed",
       proposalId: "p1",
-      confirmationText: "Your stand will show:\n- Eggs (6 dozen, $6)\n- Kale",
+      confirmationText: "Your stand will show:\n- Eggs (12 dozen, $7 / dozen)\n- Kale",
     });
     render(<StandForm token="private-token" currentEntries={CURRENT} />);
 
-    await user.clear(screen.getByLabelText("Quantity for Eggs"));
-    await user.type(screen.getByLabelText("Quantity for Eggs"), "6");
+    await user.clear(screen.getByLabelText("Price for Eggs"));
+    await user.type(screen.getByLabelText("Price for Eggs"), "7");
     await user.click(screen.getByRole("button", { name: "Update" }));
 
     expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
-      "Eggs (6 dozen, $6)",
+      "Eggs (12 dozen, $7 / dozen)",
     );
     expect(screen.getByText("Exact preview — nothing has changed yet.")).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(1);

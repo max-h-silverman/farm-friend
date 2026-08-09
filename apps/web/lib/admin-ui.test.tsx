@@ -1166,7 +1166,7 @@ describe("the farmer stand form", () => {
         response(200, {
           outcome: "proposed",
           proposalId: "proposal-1",
-          confirmationText: "Your stand will show:\n- Winter squash (3, $4)",
+          confirmationText: "Your stand will show:\n- Winter squash (3 item for $4)",
         }),
       )
       .mockResolvedValueOnce(response(200, { outcome: "declined" }))
@@ -1174,7 +1174,7 @@ describe("the farmer stand form", () => {
         response(200, {
           outcome: "proposed",
           proposalId: "proposal-2",
-          confirmationText: "Your stand will show:\n- Winter squash (3, $4)",
+          confirmationText: "Your stand will show:\n- Winter squash (3 item for $4)",
         }),
       )
       .mockResolvedValueOnce(response(200, { outcome: "published" }));
@@ -1184,11 +1184,13 @@ describe("the farmer stand form", () => {
     await user.type(screen.getByLabelText("Item name"), "Winter squash");
     await user.click(screen.getByRole("button", { name: "Add" }));
     await user.click(screen.getByRole("switch", { name: "Add prices" }));
-    await user.type(screen.getByLabelText("Quantity for Winter squash"), "3");
     await user.type(screen.getByLabelText("Price for Winter squash"), "4");
+    await user.selectOptions(screen.getByLabelText("Price basis for Winter squash"), "for");
+    await user.clear(screen.getByLabelText("How many Winter squash"));
+    await user.type(screen.getByLabelText("How many Winter squash"), "3");
     await user.click(screen.getByRole("button", { name: "Update" }));
     expect(await screen.findByRole("region", { name: "Exact publication preview" })).toHaveTextContent(
-      "Winter squash (3, $4)",
+      "Winter squash (3 item for $4)",
     );
     expect(screen.getByText("Exact preview — nothing has changed yet.")).toBeTruthy();
 
