@@ -103,8 +103,9 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   it is copied to your clipboard and shown on that farm's card, it replaces any earlier link, and
   the same "sending it is your approval" rule applies. Home counts these under **Farms nobody can
   update**, so you do not have to go looking for them.
-- **Take a stand off the map:** open its farm on `/admin/farms`, open the stand under **Stands**,
-  and press **Take off the map**, then confirm. The stand leaves the map and the text answers, and its farmer
+- **Take a stand off the map:** open its farm on `/admin/farms`, open the stand in the green
+  **stands** group (headed by the count — "1 stand", "3 stands"), and press **Take off the map**,
+  then confirm. The stand leaves the map and the text answers, and its farmer
   can no longer publish updates to it. **Nothing it already published is deleted** — the record of
   what that stand said it had, and when, is kept. Press **Put back on the map** to undo it. Use this
   when a farm stops running a stand; it is not how you fix a wrong listing detail.

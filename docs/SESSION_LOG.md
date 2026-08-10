@@ -11,6 +11,42 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-10 — The admin farm card gets a hierarchy
+
+Max asked for a design pass on the farm/stand listing, naming one symptom: the nested stand was
+very hard to find. The card had four sections with identical 0.78rem uppercase grey micro-labels
+and identical hairline separators, so nothing led — a stand rendered as bare bold text between two
+hairlines, visually *lighter* than "Remove this farm".
+
+The organizing decision: **a stand is the only thing on this card a customer ever sees**, so it
+gets the card's one filled container (green ground, white sub-cards, its own green disclosure
+caret) while everything else — farm details, access, take-down — is VIGA's bookkeeping sitting on
+plain paper. That is what separates the subject from the paperwork about it, rather than four
+equally-weighted panels. The destructive section moved onto its own amber ground at the card's end
+so a volunteer scanning for "edit the name" never lands there by accident.
+
+Two things were making it worse than the markup suggested. `.admin-button-row button { flex: 1 1
+9rem }` stretched every button to fill the row, so a routine edit and a farm take-down rendered as
+identical 1000px slabs. And the `dl` labels were uppercase at 600 weight *under* a heading at the
+same size — three of them stacked read louder than the heading they belonged to, inverting the
+hierarchy; they dropped to quiet sentence case.
+
+**The verification is narrower than it looks.** `/admin/farms` is behind admin login and needed
+seeded farms, so rather than infer from the file, the components were rendered against the real
+served stylesheet and *measured* in Chrome — computed background, padding, caret rotation, button
+flex-basis, heading size, and no horizontal overflow at 390px. The first measurement caught a real
+failure: the stylesheet link had loaded a stale cached copy and none of the new rules applied at
+all, which reading the CSS would never have revealed. But the route itself was never opened, and a
+multi-stand farm, a removed farm, and "off the map with the farm" chips are unseen in the new
+styling. A `::before` computed transform also reads as identity on a zero-size element — the
+rendered caret, not the computed value, is the truth there.
+
+No test file covers `farm-list.tsx` or `stand-list.tsx`, so the "Stands" → "1 stand" / "N stands"
+heading change broke nothing; that absence is itself worth knowing.
+
+A scratch `.probe/inquiry-probe.ts` in the repo root belongs to an active parallel session probing
+SMS inquiry responses — left untouched, uncommitted, and deliberately not gitignored.
+
 ## 2026-08-10 — Verification email copy and code emphasis
 
 Verification emails now use Farm Friend's requested subject and concise copy. The same message is

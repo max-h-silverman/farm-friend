@@ -1231,52 +1231,166 @@ body {
 .admin-farm-card > details > .admin-stand-detail-groups {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-  margin: 0 1rem 1rem 4.35rem;
-  padding: 1rem 0 0;
+  gap: 2rem;
+  margin: 0 1rem 1.5rem 4.35rem;
+  padding: 1.4rem 0 0;
   background: transparent;
   border-top: 1px solid var(--line);
 }
 
-/* Sections are separated by SPACE and a hairline, never by a bordered box inside
-   the card — a panel within a panel spends a border and two paddings to say
-   "these lines are related", which the gap already says. Matches the public
-   stand card's `.stand-detail-body` rhythm deliberately. */
+/* Sections are separated by SPACE, never by a bordered box inside the card — a
+   panel within a panel spends a border and two paddings to say "these lines are
+   related", which the gap already says. The hairline is gone too: at this gap the
+   space alone groups, and four rules down one card read as a form to fill in. */
 .admin-farm-card .admin-stand-detail-section {
   padding: 0;
   background: transparent;
   border: none;
 }
 
-.admin-farm-card .admin-stand-detail-section + .admin-stand-detail-section {
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
-}
-
+/* A real heading, not a micro-label. The old 0.78rem uppercase grey sat at the
+   same weight as the body it governed, so nothing in the open card led. */
 .admin-farm-card .admin-stand-detail-section h3 {
-  margin: 0 0 0.6rem;
-  color: var(--ink-soft);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  margin: 0 0 0.75rem;
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
-/* A stand nested in a farm card is a row in the same directory, not a card of
-   its own — same hairline separation, one indent level in. */
+/* --- The stands group: the one thing on this card that is the product ---------
+   A stand is what a customer actually sees on the map, so it gets the card's only
+   filled container. Everything else on the card is VIGA's own bookkeeping about
+   the farm and sits on plain paper. */
+.admin-farm-card .admin-stand-detail-section--stands {
+  padding: 1.1rem 1.15rem 1.15rem;
+  background: var(--green-soft);
+  border: 1px solid color-mix(in srgb, var(--green) 22%, transparent);
+  border-radius: 12px;
+}
+
+.admin-farm-card .admin-stand-detail-section--stands > h3 {
+  color: var(--green);
+}
+
+/* A stand nested in a farm card IS a card — it is the subject, and it has its own
+   controls behind its own disclosure. White on the green ground so it reads as a
+   thing you can open, which bare bold text between two hairlines never did. */
 .admin-farm-card .admin-stands {
-  gap: 0;
+  gap: 0.5rem;
   margin: 0;
 }
 
 .admin-farm-card .admin-stand {
-  border: none;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
+  background: var(--card);
+  border: 1px solid color-mix(in srgb, var(--green) 18%, var(--line));
+  border-radius: 10px;
 }
 
-.admin-farm-card .admin-stand:first-child {
-  border-top: none;
+.admin-farm-card .admin-stand > details > .admin-stand-summary {
+  min-height: 56px;
+  padding: 0.7rem 0.85rem;
+}
+
+.admin-farm-card .admin-stand .admin-stand-name strong {
+  font-size: 1rem;
+}
+
+/* The stand's own disclosure caret. Without it the row gives no sign it opens —
+   the single most common "I could not find the stand" report. */
+.admin-farm-card .admin-stand .admin-stand-name strong::before {
+  content: "";
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-right: 0.5rem;
+  vertical-align: 0.08em;
+  border-top: 0.28rem solid transparent;
+  border-bottom: 0.28rem solid transparent;
+  border-left: 0.4rem solid var(--green);
+  transition: transform 120ms ease;
+}
+
+.admin-farm-card .admin-stand > details[open] .admin-stand-name strong::before {
+  transform: rotate(90deg);
+}
+
+/* --- The destructive group ---------------------------------------------------
+   Set apart rather than shouting: it is the last thing on the card, on its own
+   tinted ground, so a volunteer scanning for "edit the name" never lands here by
+   accident and one who wants it can find it without reading every heading. */
+.admin-farm-card .admin-stand-detail-section.admin-stand-retirement {
+  margin-top: 0.5rem;
+  padding: 1.1rem 1.15rem 1.15rem;
+  background: color-mix(in srgb, var(--amber-line) 12%, var(--paper));
+  border: 1px solid color-mix(in srgb, var(--amber-line) 45%, transparent);
+  border-radius: 12px;
+}
+
+.admin-farm-card .admin-stand-detail-section.admin-stand-retirement > h3 {
+  color: var(--amber);
+}
+
+/* Facts read as a summary line, not as a form. The label is the quiet part. */
+.admin-farm-card .admin-stand-detail-section > dl {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0 0 1.1rem;
+}
+
+.admin-farm-card .admin-stand-detail-section > dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.1rem;
+  padding: 0;
+  border: none;
+  font-size: 0.95rem;
+}
+
+/* Sentence case, not uppercase: three uppercase labels stacked under a heading read
+   as louder than the heading itself, which inverts the hierarchy. The label is the
+   quiet part — the VALUE is what the operator came to read. */
+.admin-farm-card .admin-stand-detail-section > dl > dt,
+.admin-farm-card .admin-stand-detail-section > dl > div > dt {
+  color: var(--ink-faint);
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.admin-farm-card .admin-stand-detail-section > dl > div > dd {
+  font-size: 1rem;
+}
+
+/* Buttons size to their label inside a farm card. Stretching each to fill the row
+   made a routine edit and a take-down the same 1000px slab. */
+.admin-farm-card .admin-button-row button {
+  flex: 0 0 auto;
+}
+
+/* Explanatory copy is the quiet layer under its heading, and it needs room to
+   breathe before the control it explains. */
+.admin-farm-card .admin-stand-detail-section > .admin-note {
+  max-width: 62ch;
+  margin: 0 0 0.9rem;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.admin-farm-card .admin-stand-detail-section > .admin-note + .admin-note {
+  margin-top: -0.5rem;
+}
+
+/* A stand's own state chips sit on white inside the green group, so the grey
+   outline that read as "disabled" is replaced by a legible tint. */
+.admin-farm-card .admin-stand .admin-stand-states span {
+  color: var(--ink-soft);
+  background: var(--paper);
+  border-color: var(--line);
+  font-weight: 600;
 }
 
 .admin-attention-summary {

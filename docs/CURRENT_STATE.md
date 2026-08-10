@@ -20,7 +20,8 @@ are live. Migrations `0034` and `0035` are applied and verified by schema effect
 (`1ead9a3`) and undeployed, and `0036` is its unapplied migration. Max deliberately held this deploy
 (2026-08-10) to land a parallel session's work first and ship them together, after his phone-width
 pass. **The next deploy therefore carries more than F-100** — read `git log ae7ffbc..main` before
-building, rather than assuming this tranche is the whole of it.
+building, rather than assuming this tranche is the whole of it. The admin farm-card hierarchy pass
+(2026-08-10) is part of that held tranche.
 
 **Max walks farmer surfaces at phone width before a UI tranche ships.** F-100 rewrote the admin
 surfaces and has had no phone-width pass; a session that opens a UI deploy without one has skipped
@@ -179,6 +180,11 @@ screen, the onboarding cadence control, the map card's recency caption), and **F
 tabs** — the farm directory row collapses to three columns under 34rem, unchecked by eye. Per-tranche
 browser checks are **not tracked here** (max, 2026-08-05): he runs a browser pass himself before
 go-live.
+
+The 2026-08-10 farm-card hierarchy pass was measured in Chrome (computed styles, no overflow at
+390px) against **the components rendered on the real stylesheet, not `/admin/farms` itself** — admin
+login and seeded farms were never exercised. A multi-stand farm, a removed farm, and a stand reading
+"off the map with the farm" are unseen in that new styling.
 
 **VIGA's call, not a code question:** whether Vashon Island Farmers Market belongs in the roster as
 a farm at all — it is the market itself, not a stand with a farmer to onboard.
