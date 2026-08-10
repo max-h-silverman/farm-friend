@@ -53,16 +53,18 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Home | `/admin` | See everything waiting for a decision, and nothing else. Each item links to where the work is done |
 | Farms | `/admin/farms` | Everything about one farm on one card: approve it, edit its name and description, see and revoke who can update it, send a setup link, review its stands and their Farm Bucks status, take a stand or the whole farm off the map and put it back, mark it a test farm |
 | Messages | `/admin/messages` | Everything a person sent us: customer `FLAG` messages with the thread viewer (phones masked), stock-out reports, and questions about VIGA's own records |
-| Invite a farmer | `/admin/farmers` | Prepare an invitation for someone not yet on Farm Friend, and decide access requests that arrived by text with no farm attached |
+| Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm; prepare an invitation; decide access requests that arrived by text with no farm attached |
 
-**Three tabs: Home, Farms, Messages.** The console used to have one screen per queue, which is
-why a farm appeared six ways and no screen owned it — and why "Customer reports" and "Stock
-reports" sat side by side as separate tabs when a stock-out *is* a customer report. Each screen
-now owns one subject. `/admin/farmers` is reached from Home, because it is about *people* rather
-than about a farm.
+**Three tabs: Farms, Messages, Users** — a farm, a message, a person. The console used to have
+one screen per queue, which is why a farm appeared six ways and no screen owned it, and why
+"Customer reports" and "Stock reports" sat side by side when a stock-out *is* a customer report.
+
+**There is no Home tab** (max, 2026-08-10). It held nothing but counts pointing at the other
+tabs, so every task cost two clicks and the landing screen had no work on it. Those counts now
+sit on the tab that owns the work, above the rows they describe. `/admin` still resolves — it
+redirects to Farms — so an existing bookmark keeps working.
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
 
@@ -86,7 +88,7 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Seed initial listing data:** run the one-time seed utility per [RUNBOOK.md](RUNBOOK.md). This
   is a greenfield load from reference input, not a migration with provenance. A location that
   cannot be geocoded is an operator task — the system never invents a coordinate.
-- **Invite a farmer — this is where you decide.** On `/admin/farmers`, choose the farm (or
+- **Invite a farmer — this is where you decide.** On `/admin/users`, choose the farm (or
   **New farm** and type its name, which creates it), choose text or email, and enter the
   recipient's address. Farm Friend creates a one-use onboarding link and opens your own text or
   email app with the message ready. Send it from there. The link expires after seven days.
@@ -133,14 +135,15 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   **A test farm can still be set up through `/farmer/start`** even though it is not in the
   dropdown, which is deliberate: walking a farmer's whole journey is the thing a test farm exists
   for. Name test farms so they read as fake — that name is the only marker anywhere.
-- **Set a farmer up by hand:** open `/admin/farmers`. Anyone whose request needs a person is
+- **Set a farmer up by hand:** open `/admin/users`. Anyone whose request needs a person is
   waiting at the top, shown by the last four digits of their number — an invitation naming no
   farm, or one whose agreement was never ticked. (A third source, someone texting with no
   invitation at all, ended with the `SIGNUP` keyword in F-080.)
   **Check that the person really runs the farm before you authorize them** — a phone number only
   proves someone has that phone. On authorizing, Farm Friend texts them that they are set up and
   how to post their first listing. A farm set up this way still needs approving (below).
-- **Turn off a farmer's link:** also `/admin/farmers`. A farmer's private link **keeps working
+- **Turn off a farmer's link:** open the FARM on `/admin/farms` and use **Remove access** under
+  **Who can update this farm**. A farmer's update link **keeps working
   until you revoke it** — so if a farmer loses their phone, or a link gets shared or forwarded,
   revoke it. It stops working on the very next request, and the farmer can text `LINK` for a new
   one. Revoking access also kills every link to it. **This is the only safety net a standing link

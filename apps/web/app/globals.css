@@ -1069,14 +1069,248 @@ body {
   font-size: 1.05rem;
 }
 
-/* A farm card's sections are full-width panels — details, who can update it, its stands, and
-   the take-down — not the small fact tables a stand card holds. The shared `auto-fit` grid
-   below packs those into ~20rem columns, which turns a farm card into a ragged mosaic where
-   the reading order stops matching the order of the work. They stack. */
+/* ---------------------------------------------------------------------------
+   The farm directory row.
+
+   One scan line per farm, four columns: caret, glyph, identity, meta, states.
+   Fixed leading columns keep every name on the same x — a ragged left edge is
+   what makes a long list read as a pile instead of a table.
+
+   Rows are separated by hairlines rather than each being its own bordered card:
+   at 35 farms, 35 boxes is 35 borders competing with the one thing that should
+   stand out, which is the handful needing a decision.
+   --------------------------------------------------------------------------- */
+
+.admin-farms:has(.admin-farm-card) {
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--paper);
+}
+
+/* `.admin-farm` is a flex row for the queue cards that share the class, which makes this
+   card's `<details>` shrink-wrap to its content — the row's right column then lands mid-row
+   instead of at the edge. A farm card is one full-width block, so it says so. */
+.admin-farm-card {
+  display: block;
+  padding: 0;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.admin-farm-card > details {
+  width: 100%;
+}
+
+.admin-farm-card:last-child {
+  border-bottom: none;
+}
+
+.admin-row {
+  display: grid;
+  /* The states column is `auto` and the meta column absorbs the slack, so the pills sit hard
+     against the right edge of every row — a state that drifts with the name length is a state
+     the eye has to hunt for down a 35-row list. */
+  grid-template-columns: 1.25rem 2.25rem minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  /* `<summary>` is not a block by default; without this the grid shrink-wraps its content and
+     the right column lands mid-row instead of at the edge. */
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+  list-style: none;
+  /* 48px minimum: this is the row an operator taps on a phone. */
+  min-height: 48px;
+}
+
+.admin-row::-webkit-details-marker {
+  display: none;
+}
+
+.admin-row:hover,
+.admin-farm-card > details[open] > .admin-row {
+  background: var(--admin-cream);
+}
+
+.admin-row:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline-offset: -3px;
+}
+
+/* A rotating caret rather than a ▸/▾ glyph swap: one element, and the rotation
+   animates the state change instead of replacing the character. */
+.admin-row-caret {
+  width: 0;
+  height: 0;
+  margin-left: 0.35rem;
+  border-top: 0.3rem solid transparent;
+  border-bottom: 0.3rem solid transparent;
+  border-left: 0.42rem solid var(--ink-soft);
+  transition: transform 120ms ease;
+}
+
+.admin-farm-card > details[open] > .admin-row .admin-row-caret {
+  transform: rotate(90deg);
+}
+
+.admin-row-glyph {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--ink-soft);
+  background: var(--admin-cream);
+  border: 1px solid var(--admin-leaf);
+  border-radius: 9px;
+}
+
+.admin-row-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.admin-row-identity strong {
+  overflow-wrap: anywhere;
+}
+
+.admin-row-sub,
+.admin-row-meta {
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+}
+
+.admin-row-meta {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-row-states {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+/* One pill mechanism with modifiers, rather than a family of near-duplicates.
+   Every variant keeps its own TEXT, so the state never depends on colour alone. */
+.admin-pill {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.admin-pill--attention {
+  color: #7a4a00;
+  background: #fdf1d6;
+  border-color: var(--admin-yellow);
+}
+
+.admin-pill--ok {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: color-mix(in srgb, var(--green) 30%, transparent);
+}
+
+.admin-pill--muted {
+  color: var(--ink-soft);
+  background: transparent;
+  border-style: dashed;
+}
+
+/* The expanded body, indented under the row's identity column so a nested stand
+   reads as belonging to the farm above it rather than as a sibling row. */
 .admin-farm-card > details > .admin-stand-detail-groups {
   display: flex;
   flex-direction: column;
-  padding-top: 0.5rem;
+  gap: 1.25rem;
+  margin: 0 1rem 1rem 4.35rem;
+  padding: 1rem 0 0;
+  background: transparent;
+  border-top: 1px solid var(--line);
+}
+
+/* Sections are separated by SPACE and a hairline, never by a bordered box inside
+   the card — a panel within a panel spends a border and two paddings to say
+   "these lines are related", which the gap already says. Matches the public
+   stand card's `.stand-detail-body` rhythm deliberately. */
+.admin-farm-card .admin-stand-detail-section {
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.admin-farm-card .admin-stand-detail-section + .admin-stand-detail-section {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.admin-farm-card .admin-stand-detail-section h3 {
+  margin: 0 0 0.6rem;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A stand nested in a farm card is a row in the same directory, not a card of
+   its own — same hairline separation, one indent level in. */
+.admin-farm-card .admin-stands {
+  gap: 0;
+  margin: 0;
+}
+
+.admin-farm-card .admin-stand {
+  border: none;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.admin-farm-card .admin-stand:first-child {
+  border-top: none;
+}
+
+.admin-attention-summary {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.8rem;
+  color: #7a4a00;
+  background: #fdf1d6;
+  border: 1px solid var(--admin-yellow);
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+@media (max-width: 34rem) {
+  /* The meta column is the first thing to go: on a phone the name and its state
+     are what the operator is scanning for, and the farmer is one tap away. */
+  .admin-row {
+    grid-template-columns: 1.25rem 2.25rem minmax(0, 1fr);
+    gap: 0.6rem;
+    row-gap: 0.4rem;
+  }
+
+  .admin-row-meta {
+    display: none;
+  }
+
+  .admin-row-states {
+    grid-column: 3;
+    justify-content: flex-start;
+  }
+
+  .admin-farm-card > details > .admin-stand-detail-groups {
+    margin-left: 1rem;
+  }
 }
 
 .admin-stand-detail-groups {

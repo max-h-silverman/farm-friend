@@ -15,34 +15,41 @@ import { describe, expect, it } from "vitest";
 const page = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 const ADMIN_PAGES = [
-  "apps/web/app/admin/page.tsx",
   "apps/web/app/admin/farms/page.tsx",
-  "apps/web/app/admin/farmers/page.tsx",
   "apps/web/app/admin/messages/page.tsx",
+  "apps/web/app/admin/users/page.tsx",
 ] as const;
 
 describe("the admin desk", () => {
-  it("names every queue that can have pending work, and nothing else", () => {
-    // The desk is the complete list of what needs deciding. "Farms nobody can update" is the
-    // one that matters most here: it is routinely NOT empty and it used to be countable only
-    // by navigating to a screen that never said it had work waiting.
-    const dashboard = page("apps/web/app/admin/page.tsx");
-    expect(dashboard).toContain("Needs attention");
-    expect(dashboard).toContain("Farms waiting for approval");
-    expect(dashboard).toContain("Farms nobody can update");
-    expect(dashboard).toContain("Farmer access requests");
-    expect(dashboard).toContain("Messages");
-    expect(dashboard).toContain("Stock-outs");
+  it("keeps /admin as a bookmarkable address with no screen of its own", () => {
+    // max, 2026-08-10: the desk held nothing but counts pointing at the other tabs, so every
+    // task cost two clicks. The URL stays valid — operators have it bookmarked — but it is a
+    // redirect now. Anchored on the redirect CALL, not on the import, because an import line
+    // survives the call site being deleted.
+    const landing = page("apps/web/app/admin/page.tsx");
+    expect(landing).toMatch(/redirect\(\s*["']\/admin\/farms["']\s*\)/);
+    expect(landing).not.toContain("Needs attention");
   });
 
-  it("keeps browsable records off the desk", () => {
-    // Reference records moved to /admin/farms. The desk mixing "here is a decision" with
-    // "here is a list you can browse" is what made an operator guess which disclosure hid
-    // their task. Anchored on the disclosure CLASS, which is the construct that carried them.
-    const dashboard = page("apps/web/app/admin/page.tsx");
-    expect(dashboard).not.toContain("admin-secondary-disclosure");
-    expect(dashboard).not.toContain("Stand records");
-    expect(dashboard).not.toContain("Test farms");
+  it("counts pending work on the tab that owns it", () => {
+    // The counts did not disappear with the desk; they moved above the rows they describe.
+    // "Farms nobody can update" is the one that matters most: routinely NOT empty, and
+    // previously countable only by navigating to a screen that never said it had work.
+    const farms = page("apps/web/app/admin/farms/page.tsx");
+    expect(farms).toContain("waiting for approval");
+    expect(farms).toContain("nobody who can update");
+    expect(farms).toContain("admin-attention-summary");
+  });
+
+  it("keeps browsable records off a queue screen", () => {
+    // Reference records live on /admin/farms, inside the farm they belong to — never behind a
+    // second disclosure on a different screen. Anchored on the disclosure CLASS, which is the
+    // construct that used to carry them.
+    for (const path of ADMIN_PAGES) {
+      expect(page(path), `${path} must not hide records behind a disclosure`).not.toContain(
+        "admin-secondary-disclosure",
+      );
+    }
   });
 
   it("repeats no page title or subtitle under the tabs (F-071)", () => {

@@ -340,24 +340,63 @@ export function FarmList({ farms }: { farms: AdminFarmCard[] }) {
             return (
               <li key={farm.farmId} className="admin-farm admin-farm-card">
                 <details>
-                  <summary className="admin-stand-summary">
-                    <span className="admin-stand-name">
+                  {/*
+                    The scan row. Four columns, each answering one question an operator arrives
+                    with: which farm, how big, who runs it, does it need me. The disclosure
+                    caret and the farm glyph occupy fixed leading columns so every row's name
+                    starts at the same x — a ragged left edge is what makes a long list read as
+                    a pile rather than a table.
+                  */}
+                  <summary className="admin-row">
+                    <span className="admin-row-caret" aria-hidden="true" />
+                    <span className="admin-row-glyph" aria-hidden="true">
+                      {/* A barn, not a generic box: it names the row's subject at a glance. */}
+                      <svg viewBox="0 0 24 24" width="18" height="18" role="presentation">
+                        <path
+                          d="M3 10.2 12 5l9 5.2V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M9 21v-6h6v6M3.5 13.5h17"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.4"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span className="admin-row-identity">
                       <strong>{farm.name}</strong>
-                      <span>
+                      <span className="admin-row-sub">
                         {farm.stands.length === 1
                           ? "1 stand"
                           : `${farm.stands.length} stands`}
                       </span>
                     </span>
-                    <span className="admin-stand-states" aria-label={`State for ${farm.name}`}>
+                    <span className="admin-row-meta">
+                      {live.length === 0
+                        ? "No farmer yet"
+                        : live.length === 1
+                          ? `Updated by ${live[0]?.senderMask}`
+                          : `${live.length} people can update`}
+                    </span>
+                    <span className="admin-row-states" aria-label={`State for ${farm.name}`}>
                       {farm.retired ? (
-                        <span className="admin-stand-retired">Removed</span>
+                        <span className="admin-pill admin-pill--muted">Removed</span>
                       ) : (
                         <>
                           {attention !== null && (
-                            <span className="admin-state-attention">{attention}</span>
+                            <span className="admin-pill admin-pill--attention">{attention}</span>
                           )}
-                          {farm.isTestFarm && <span>Test farm</span>}
+                          {farm.approved && attention === null && (
+                            <span className="admin-pill admin-pill--ok">Approved</span>
+                          )}
+                          {farm.isTestFarm && (
+                            <span className="admin-pill admin-pill--muted">Test farm</span>
+                          )}
                         </>
                       )}
                     </span>

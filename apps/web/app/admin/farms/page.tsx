@@ -98,6 +98,12 @@ export default async function FarmsPage() {
     };
   });
 
+  // The two counts that used to live on a separate desk screen, now above the rows they
+  // describe. Rendered only when non-zero: a standing "0 waiting" is chrome an operator
+  // learns to skip, which is exactly how the real number stops being noticed.
+  const waitingApproval = cards.filter((farm) => !farm.approved && !farm.retired).length;
+  const needSetupLink = awaiting.length;
+
   return (
     <AdminShell currentPath="/admin/farms">
       <h2 className="admin-section-title">Farms</h2>
@@ -105,6 +111,20 @@ export default async function FarmsPage() {
         Everything VIGA knows about a farm, and everything you can do about it. What a stand
         has and when it is open belongs to the farmer — this is VIGA’s own record.
       </p>
+      {(waitingApproval > 0 || needSetupLink > 0) && (
+        <p className="admin-attention-summary" role="status">
+          {[
+            waitingApproval > 0
+              ? `${waitingApproval} ${waitingApproval === 1 ? "farm is" : "farms are"} waiting for approval`
+              : null,
+            needSetupLink > 0
+              ? `${needSetupLink} ${needSetupLink === 1 ? "farm has" : "farms have"} nobody who can update ${needSetupLink === 1 ? "it" : "them"}`
+              : null,
+          ]
+            .filter((part) => part !== null)
+            .join(" · ")}
+        </p>
+      )}
       <FarmList farms={cards} />
     </AdminShell>
   );

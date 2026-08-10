@@ -47,36 +47,28 @@ function response(status: number, payload: Record<string, unknown> = {}): Respon
 }
 
 describe("the shared administrator shell", () => {
-  it("uses job-based navigation that starts with Home", () => {
+  it("navigates by subject: a farm, a message, a person", () => {
     render(
-      <AdminShell
-        currentPath="/admin"
-      >
+      <AdminShell currentPath="/admin/farms">
         <p>Stands</p>
       </AdminShell>,
     );
 
     expect(
-      screen.getAllByRole("link", { name: /^(home|farms|messages)$/i }),
+      screen.getAllByRole("link", { name: /^(farms|messages|users)$/i }),
     ).toHaveLength(3);
-    // F-071 — max: "change 'volunteer desk' to 'Home'". Asserted on the rendered link rather
-    // than on source text, so a rename that misses the tab fails here.
-    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/admin");
+    expect(screen.getByRole("link", { name: "Farms" })).toHaveAttribute("href", "/admin/farms");
+    expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute("href", "/admin/messages");
+    expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
+
+    // No Home tab (max, 2026-08-10). A desk whose only content was counts pointing at the
+    // other tabs made every task two clicks; the counts moved to the tabs that own the work.
+    expect(screen.queryByRole("link", { name: /^home$/i })).toBeNull();
     expect(screen.queryByRole("link", { name: /volunteer desk/i })).toBeNull();
-    expect(screen.getByRole("link", { name: "Farms" })).toHaveAttribute(
-      "href",
-      "/admin/farms",
-    );
-    expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute(
-      "href",
-      "/admin/messages",
-    );
-    // The three merged destinations are gone. "Customer reports" and "Stock reports" were
-    // near-synonyms to a volunteer, and /admin/stand-data was never linked from anywhere.
+    // The merged destinations stay gone.
     expect(screen.queryByRole("link", { name: "Customer reports" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Stock reports" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Stands" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Stand data" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Farmers" })).toBeNull();
     expect(screen.queryByRole("banner")).toBeNull();
     expect(screen.getByRole("navigation")).toContainElement(
       screen.getByRole("button", { name: "Sign out" }),

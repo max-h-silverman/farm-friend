@@ -124,11 +124,13 @@ link** — a conditional with a test behind it rather than an unbypassable const
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.
 - **Administration:** fixed-account password sign-in (the signed-out screen renders the fields
-  directly) and three server-rendered surfaces — **Home** (every pending decision, counted),
-  **Farms** (one card owning approval, details, access, setup links, stands, and take-down), and
-  **Messages** (flags, stock-outs, record questions). `/admin/farmers` keeps the two acts about
-  people rather than farms. Phones are masked at the query boundary. A farm take-down carries its
-  stands without writing their own retirement, so restoring returns exactly what it held down.
+  directly) and three server-rendered surfaces, one per subject — **Farms** (one row per farm
+  expanding to approval, details, access, setup links, stands, and take-down), **Messages**
+  (flags, stock-outs, record questions), and **Users** (everyone who has texted, plus inviting a
+  farmer and deciding access requests). No Home tab; `/admin` redirects to Farms and the pending
+  counts sit on the tab that owns the work. Phones are masked at the query boundary. A farm
+  take-down carries its stands without writing their own retirement, so restoring returns exactly
+  what it held down.
 - **Scheduled work:** Cloud Tasks handles immediate sender work; one Cloud Scheduler route runs
   recovery, prompts, delivery, callbacks, and retention.
 
