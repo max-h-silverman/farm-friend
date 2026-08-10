@@ -586,8 +586,18 @@ export function FarmList({ farms }: { farms: AdminFarmCard[] }) {
                       )}
                     </section>
 
-                    <section className="admin-stand-detail-section" aria-label={`Stands at ${farm.name}`}>
-                      <h3>Stands</h3>
+                    {/*
+                      The stands are the only thing on this card a customer ever sees, so they
+                      get the card's one filled group. Everything else here is VIGA's own
+                      bookkeeping about the farm.
+                    */}
+                    <section
+                      className="admin-stand-detail-section admin-stand-detail-section--stands"
+                      aria-label={`Stands at ${farm.name}`}
+                    >
+                      <h3>
+                        {farm.stands.length === 1 ? "1 stand" : `${farm.stands.length} stands`}
+                      </h3>
                       {farm.stands.length === 0 ? (
                         <p className="admin-note">This farm has no stands.</p>
                       ) : (
