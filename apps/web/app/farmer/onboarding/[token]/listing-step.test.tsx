@@ -3757,6 +3757,31 @@ describe("both onboarding doors ask the same things (F-098)", () => {
     expect(screen.getByText("Step 1 of 4")).toBeVisible();
   });
 
+  it("sends the grandfathered farmer's selected stock with their listing", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+    render(
+      <ListingStep
+        credential={{ kind: "grandfathered", farmId: FARM_ID }}
+        farmName="Test Farm"
+      />,
+    );
+
+    await placeStand(user);
+    await user.click(screen.getByLabelText(/yes — there is a stand/i));
+    const itemInput = await revealField(user, /what do you usually sell/i);
+    await user.type(itemInput, "eggs");
+    await user.click(screen.getByRole("button", { name: /add item/i }));
+
+    expect(screen.getByRole("switch", { name: /eggs in stock/i })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+
+    await submitListing(user);
+    expect(posted(fetchMock).currentStock).toEqual([{ itemName: "eggs" }]);
+  });
+
   it("does not ask a RETURNING farmer any of it — they are already onboarded", () => {
     // The editing door is the one door where these questions are wrong: the farmer's phone is
     // recorded, their consent is written, and their schedule lives on the stock tab.

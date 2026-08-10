@@ -660,7 +660,8 @@ export function ListingStep({
 
     Declared ABOVE the item rows because it is what they default `inStock` to.
   */
-  const asksForCurrentStock = credential.kind === "invitation";
+  const isOnboardingDoor = credential.kind !== "stand_link";
+  const asksForCurrentStock = isOnboardingDoor;
 
   /*
     WHAT THE STAND USUALLY SELLS, one row per item (F-090).
@@ -1395,7 +1396,6 @@ export function ListingStep({
     */
     // A door that PUBLISHES a stand rather than editing one: the invited form and F-079's
     // migration door both put a farm on the map for the first time.
-    const isOnboarding = credential.kind === "invitation" || credential.kind === "grandfathered";
     return (
       <div className="farmer-listing-saved" role="status">
         {/*
@@ -1408,7 +1408,7 @@ export function ListingStep({
           the page that opened it.
         */}
         <p className="farmer-form-published">
-          {isOnboarding ? (
+          {isOnboardingDoor ? (
             <>
               Your farm is live on the{" "}
               {mapUrl === undefined ? (
@@ -1448,7 +1448,7 @@ export function ListingStep({
           dead link. The number is shown as well, because this page is also read on a laptop
           where the link does nothing.
         */}
-        {isOnboarding ? (
+        {isOnboardingDoor ? (
           <div className="farmer-listing-saved-reminder">
             {/*
               The number is CONFIGURATION and can be absent (`TELNYX_FROM_NUMBER` unset), but

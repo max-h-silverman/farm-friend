@@ -341,6 +341,8 @@ export async function recordSelfIssuedFarmerClaim(
     phoneE164: string;
     phoneHash: string;
     agreedToSms: boolean;
+    /** Current stock held until this phone sends START, or absent when none was stated. */
+    pendingStock?: PendingStockEntry[];
     occurredAt: Date;
   },
 ): Promise<RecordPendingPhoneResult> {
@@ -350,6 +352,9 @@ export async function recordSelfIssuedFarmerClaim(
   if (!/^\+1[0-9]{10}$/.test(input.phoneE164)) return { status: "invalid" };
   if (!/^[0-9a-f]{64}$/.test(input.phoneHash)) return { status: "invalid" };
   const { phoneE164, phoneHash } = input;
+  const pendingStock =
+    input.pendingStock === undefined ? null : normalizePendingStock(input.pendingStock);
+  if (input.pendingStock !== undefined && pendingStock === null) return { status: "invalid" };
 
   return driver(db).begin(async (tx) => {
     // The farm must exist — the FK would refuse anyway, but a resolved refusal is what the
@@ -372,14 +377,16 @@ export async function recordSelfIssuedFarmerClaim(
     const inserted = await tx`
       insert into farmer_invitations (
         farm_id, token_hash, channel, created_by_administrator_id,
-        created_at, expires_at, agreed_to_sms_at, pending_phone_e164, pending_phone_hash
+        created_at, expires_at, agreed_to_sms_at, pending_phone_e164, pending_phone_hash,
+        pending_stock
       ) values (
         -- 'email' is how this farmer was actually reached: the grandfathered door proves an
         -- address VIGA already holds. The enum has no self-service value and does not need one.
         ${input.farmId}, ${hashFarmerInviteToken(token)}, 'email', null,
         ${input.occurredAt.toISOString()},
         ${new Date(input.occurredAt.getTime() + FARMER_INVITE_TTL_MS).toISOString()},
-        ${input.occurredAt.toISOString()}, ${phoneE164}, ${phoneHash}
+        ${input.occurredAt.toISOString()}, ${phoneE164}, ${phoneHash},
+        ${pendingStock === null ? null : tx.json(pendingStock)}
       )
       returning id
     `;
@@ -427,6 +434,20 @@ export interface PendingStockEntry {
 
 export type RecordPendingStockResult = { status: "recorded" } | { status: "invalid" };
 
+/** Normalize the one shared pending-stock shape before either onboarding door persists it. */
+function normalizePendingStock(
+  pendingStock: readonly PendingStockEntry[],
+): Record<string, string>[] | null {
+  const entries: Record<string, string>[] = [];
+  for (const entry of pendingStock) {
+    const itemName = entry.itemName.trim();
+    if (itemName === "") continue;
+    const priceText = entry.priceText?.trim() ?? "";
+    entries.push({ itemName, ...(priceText === "" ? {} : { priceText }) });
+  }
+  return entries.length === 0 ? null : entries;
+}
+
 /**
  * Hold what a farmer says is in the stand right now, until their `START` proves the handset.
  *
@@ -455,20 +476,8 @@ export async function recordFarmerInvitationPendingStock(
 ): Promise<RecordPendingStockResult> {
   if (!/^[0-9a-f]{64}$/.test(input.token)) return { status: "invalid" };
 
-  // Trimmed and dropped-if-blank before the emptiness test, so a list of nothing but spaces is
-  // the same "said nothing" a list of nothing is — rather than a claim of emptiness that
-  // happened to survive because it contained a space.
-  // Built as plain records rather than as `PendingStockEntry[]`: the driver's `json()` takes a
-  // JSON value, and an interface is not assignable to one (an interface has no index
-  // signature). Stating the shape here rather than casting keeps the compiler checking it.
-  const entries: Record<string, string>[] = [];
-  for (const entry of input.entries) {
-    const itemName = entry.itemName.trim();
-    if (itemName === "") continue;
-    const priceText = entry.priceText?.trim() ?? "";
-    entries.push({ itemName, ...(priceText === "" ? {} : { priceText }) });
-  }
-  if (entries.length === 0) return { status: "invalid" };
+  const entries = normalizePendingStock(input.entries);
+  if (entries === null) return { status: "invalid" };
 
   const driverSql = driver(db);
   const updated = await driverSql`

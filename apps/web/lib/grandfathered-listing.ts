@@ -5,6 +5,7 @@ import {
   saveOnboardingListing,
   type ClaimGrandfatheredFarmResult,
   type Db,
+  type PendingStockEntry,
   type SaveOnboardingListingInput,
   type SaveOnboardingListingResult,
 } from "@farm-friend/db";
@@ -67,7 +68,13 @@ export interface GrandfatheredListingDeps {
    */
   recordSelfIssuedClaim?: (
     db: Db,
-    input: { farmId: string; phone: string; agreedToSms: boolean; occurredAt: Date },
+    input: {
+      farmId: string;
+      phone: string;
+      agreedToSms: boolean;
+      pendingStock?: PendingStockEntry[];
+      occurredAt: Date;
+    },
   ) => Promise<{ status: "recorded" } | { status: "invalid" }>;
   /** The HMAC salt the phone hash is built under (Golden Rule #5). */
   phoneSalt?: string;
@@ -138,6 +145,7 @@ export async function handleGrandfatheredListingPost(
         // RAW, for the writer to normalize and hash — Golden Rule #5 keeps that in one place.
         phone: rawPhone,
         agreedToSms: true,
+        ...(submission.currentStock === null ? {} : { pendingStock: submission.currentStock }),
         occurredAt: deps.clock.now(),
       });
       if (claimed.status === "invalid") {
@@ -195,6 +203,7 @@ export function grandfatheredListingDeps(context: {
         phoneE164,
         phoneHash,
         agreedToSms: input.agreedToSms,
+        ...(input.pendingStock === undefined ? {} : { pendingStock: input.pendingStock }),
         occurredAt: input.occurredAt,
       });
     },

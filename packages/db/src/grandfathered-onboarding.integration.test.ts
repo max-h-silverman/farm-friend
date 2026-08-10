@@ -393,6 +393,7 @@ describe("grandfathered farm claims (integration)", () => {
         phoneE164: phone,
         phoneHash,
         agreedToSms: true,
+        pendingStock: [{ itemName: "Eggs", priceText: "$6/dozen" }],
         occurredAt: now,
       });
       expect(claimed.status).toBe("recorded");
@@ -422,6 +423,15 @@ describe("grandfathered farm claims (integration)", () => {
         on conflict (phone_hash) do nothing
       `;
 
+      // The claim is held until the handset proves it. A revision before START would make the
+      // public map state a dated fact behind an unverified phone.
+      const beforeStart = await sql()`
+        select revision.id from inventory_revisions revision
+        join sales_locations location on location.id = revision.sales_location_id
+        where location.owner_farm_id = ${farmId}
+      `;
+      expect(beforeStart).toHaveLength(0);
+
       // The farmer's own START — NO invitation token, which is the whole point: the handset is
       // matched against the claim they stated on the form.
       const opened = await openFarmerOnboardingRequest(database(), {
@@ -437,6 +447,26 @@ describe("grandfathered farm claims (integration)", () => {
       // has no such property.
       if (opened.status !== "opened") throw new Error(opened.status);
       expect(opened.authorizationId).not.toBeNull();
+
+      const published = await sql()`
+        select revision.source, revision.proposal_id, revision.published_by_authorization_id,
+               entry.item_name, entry.price_text, entry.sort_order
+        from inventory_revisions revision
+        join sales_locations location on location.id = revision.sales_location_id
+        join inventory_entries entry on entry.inventory_revision_id = revision.id
+        where location.owner_farm_id = ${farmId} and revision.is_current
+        order by entry.sort_order asc
+      `;
+      expect(published).toEqual([
+        {
+          source: "web",
+          proposal_id: null,
+          published_by_authorization_id: opened.authorizationId,
+          item_name: "Eggs",
+          price_text: "$6/dozen",
+          sort_order: 0,
+        },
+      ]);
 
       // And the same welcome an invited farmer gets — queued, not merely intended.
       const queued = await sql()`

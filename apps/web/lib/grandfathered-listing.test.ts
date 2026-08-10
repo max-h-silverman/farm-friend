@@ -265,6 +265,30 @@ describe("the grandfathered farmer's phone (F-098)", () => {
     );
   });
 
+  it("holds stated current stock on the self-issued claim until START", async () => {
+    const record = vi.fn(async () => ({ status: "recorded" as const }));
+    const response = await handleGrandfatheredListingPost(
+      { ...deps(), recordSelfIssuedClaim: record },
+      post({
+        farmId: FARM_ID,
+        ...LISTING,
+        phone: "(206) 555-0143",
+        agreedToSms: true,
+        currentStock: [{ itemName: "Eggs", priceText: "$6/dozen" }],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(record).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        farmId: FARM_ID,
+        pendingStock: [{ itemName: "Eggs", priceText: "$6/dozen" }],
+        occurredAt: T0,
+      }),
+    );
+  });
+
   it("refuses a phone it cannot make sense of, and writes nothing", async () => {
     const save = saver();
     const record = vi.fn(async () => ({ status: "invalid" as const }));
