@@ -11,6 +11,37 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-10 — Farmer onboarding now confirms with VIGA, and accepts incomplete forms honestly
+
+Max walked the real farmer onboarding journey end to end. The carrier keyword is now **VIGA**:
+Telnyx owns the phone-confirmation receipt, and the application sends only the distinct listing-live
+message and private update link. `START` remains the recovery keyword after an opt-out. The confirmed
+flow was added to Telnyx's messaging profile and its already-approved campaign without another review.
+
+The form now keeps Submit available, finds the earliest incomplete step after a press, and shows only
+that step's missing fields. Required facts are unchanged: a mapped address, stand choice, valid phone,
+and SMS agreement. The address action reads **Save**. The listing step leads with the yellow-outlined
+inventory section; VIGA Farm Bucks is presented alongside payment choices but remains its own stored
+fact. The confirmation screen shows the configured live sender number when available, separates its
+handset instruction from the map link, and uses the revised inventory language.
+
+The local geocoding failure was configuration, not code: the key restriction needed the machine's IPv6
+egress address. Local save then exposed an unapplied local migration; applying the 38th migration restored
+the development database. The farmer `LINK`/settings/update path was audited against these changes and
+kept its existing writer and settings behavior.
+
+Production review records were then examined before any change. Peak Moon's precise entrance and Sweet
+Alyssum's vetted point were already live; their address flags were stale. Open Gate is delivery-only, so
+butcher months are not a visitable-season claim. Holmstead's only source fact is “Mid April,” so its note
+records the incomplete start rather than inventing an end date. All four decisions were written to the
+review audit trail; no farmer listing changed.
+
+Release `2e1014d` (PR #100) merged to `main` and deployed from immutable digest
+`sha256:60117339775a9a813fb7575552e1ff9e9a96e0694ab2abfda4a85268ad990da7`. Cloud Run web
+`00059-c7j` and worker `00054-xv6` both passed secret-freshness assertions; the served vCard passed.
+The production ledger remained at 38 migrations. Verification: 1,794 unit tests, 878 local integration
+tests, typecheck, lint, and production web build all green; the build's known B-008 warnings remain.
+
 ## 2026-08-10 — Measuring the SMS agent found two false claims; then the whole tranche shipped
 
 Max asked for live testing of the SMS inquiry path. The suites were green and stayed green
