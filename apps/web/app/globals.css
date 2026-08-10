@@ -3201,6 +3201,16 @@ form.farmer-picker-next {
   border-radius: 10px;
 }
 
+.farmer-form-error p,
+.farmer-form-error ul {
+  margin: 0;
+}
+
+.farmer-form-error ul {
+  margin-top: 0.35rem;
+  padding-left: 1.2rem;
+}
+
 /* Confirmed and published — the one moment this screen gets to be unambiguous. */
 .farmer-form-published {
   margin: 0;

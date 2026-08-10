@@ -1858,7 +1858,9 @@ describe("onboarding listing step", () => {
       const submit = await submitButton(user);
       expect(submit).toBeEnabled();
       await user.click(submit);
-      expect(screen.getByRole("alert")).toHaveTextContent(/finish your contact details/i);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /agree to receive texts from viga farm friend/i,
+      );
 
       await user.click(screen.getByLabelText(/I agree to receive texts/i));
       await submitButton(user);
@@ -2363,7 +2365,7 @@ describe("onboarding listing step", () => {
         const submit = await submitButton(user);
         expect(submit).toBeEnabled();
         await user.click(submit);
-        expect(screen.getByRole("alert")).toHaveTextContent(/finish your contact details/i);
+        expect(screen.getByRole("alert")).toHaveTextContent(/enter a valid phone number/i);
       });
 
       it("shows the number to text AFTER saving, with the word VIGA", async () => {
@@ -2469,7 +2471,7 @@ describe("onboarding listing step", () => {
         const submit = await submitButton(user);
         expect(submit).toBeEnabled();
         await user.click(submit);
-        expect(screen.getByRole("alert")).toHaveTextContent(/finish your contact details/i);
+        expect(screen.getByRole("alert")).toHaveTextContent(/enter a valid phone number/i);
         expect(screen.queryByRole("dialog")).toBeNull();
       });
     });
@@ -2854,7 +2856,7 @@ describe("onboarding listing step", () => {
       expect(screen.getByLabelText(/your farm address/i)).toHaveValue("12345 Vashon Hwy");
     });
 
-    it("keeps Submit active and returns to the first incomplete step", async () => {
+    it("keeps Submit active and shows every missing field at the form top", async () => {
       const user = userEvent.setup();
       const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
       render(
@@ -2873,12 +2875,28 @@ describe("onboarding listing step", () => {
 
       await user.click(submit);
 
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        /finish your farm details before submitting/i,
-      );
+      const alert = screen.getByRole("alert");
+      expect(alert).toHaveTextContent(/finish these before submitting/i);
+      expect(alert).toHaveTextContent(/enter your farm address/i);
+      expect(alert).toHaveTextContent(/choose whether people can visit/i);
+      expect(alert).not.toHaveTextContent(/enter a valid phone number/i);
+      expect(alert).not.toHaveTextContent(/agree to receive texts/i);
       expect(screen.getByText("Step 1 of 4")).toBeVisible();
-      expect(screen.getByLabelText(/your farm address/i)).toBeVisible();
+      const address = screen.getByLabelText(/your farm address/i);
+      expect(address).toBeVisible();
+      expect(alert.compareDocumentPosition(address) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      await user.type(address, "12345 Vashon Hwy");
+      expect(alert).toHaveTextContent(/find your farm on the map/i);
       expect(screen.getByLabelText(/your phone number/i)).not.toBeVisible();
+
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Step 4 of 4")).toBeVisible();
+      expect(screen.getByRole("alert")).toHaveTextContent(/enter a valid phone number/i);
+      expect(screen.getByRole("alert")).toHaveTextContent(/agree to receive texts/i);
+      expect(screen.getByRole("alert")).not.toHaveTextContent(/find your farm on the map/i);
       expect(
         fetchMock.mock.calls.filter((entry) =>
           String((entry as [string, unknown])[0]).includes("/api/farmer/listing"),

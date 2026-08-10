@@ -893,7 +893,7 @@ export function ListingStep({
   const [agreed, setAgreed] = useState(false);
   const [agreeing, setAgreeing] = useState(false);
   const [agreeError, setAgreeError] = useState<string | null>(null);
-  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [showCompletionIssues, setShowCompletionIssues] = useState(false);
 
   /*
     HOW OFTEN WE WILL TEXT THEM, asked where they agree to be texted (max, 2026-08-08).
@@ -1179,6 +1179,30 @@ export function ListingStep({
       Blocking here is what keeps that from being discoverable only by its absence.
     */
     (!asksForAgreement || agreed);
+  const completionIssue = (step: WizardStep, message: string) => ({ step, message });
+  const completionIssues: { step: WizardStep; message: string }[] = [
+    ...(standName.trim() === ""
+      ? [completionIssue("farm", "Enter your farm's name.")]
+      : []),
+    ...(address.trim() === ""
+      ? [completionIssue("farm", "Enter your farm address.")]
+      : pin === null
+        ? [completionIssue("farm", "Find your farm on the map.")]
+        : []),
+    ...(visitability === null
+      ? [completionIssue("farm", "Choose whether people can visit your stand.")]
+      : []),
+    ...(asksForPhone && !phoneLooksReal(phone)
+      ? [completionIssue("contact", "Enter a valid phone number.")]
+      : []),
+    ...(asksForAgreement && !agreed
+      ? [completionIssue("contact", "Agree to receive texts from VIGA Farm Friend.")]
+      : []),
+  ];
+  const visibleCompletionIssues =
+    steps === null
+      ? completionIssues
+      : completionIssues.filter((issue) => issue.step === steps[step]);
   const firstIncompleteStep: WizardStep | null = !farmDetailsReady
     ? "farm"
     : !contactDetailsReady
@@ -1201,14 +1225,10 @@ export function ListingStep({
         setStep(WIZARD_STEPS.indexOf(firstIncompleteStep));
       }
       setError(null);
-      setCompletionError(
-        firstIncompleteStep === "contact"
-          ? "Finish your contact details before submitting."
-          : "Finish your farm details before submitting.",
-      );
+      setShowCompletionIssues(true);
       return;
     }
-    setCompletionError(null);
+    setShowCompletionIssues(false);
     if (asksForPhone) {
       setError(null);
       setConfirming(true);
@@ -1625,6 +1645,17 @@ export function ListingStep({
           </h3>
         </div>
       )}
+
+      {showCompletionIssues && visibleCompletionIssues.length > 0 ? (
+        <div className="farmer-form-error" role="alert">
+          <p>Finish these before submitting:</p>
+          <ul>
+            {visibleCompletionIssues.map((issue) => (
+              <li key={issue.message}>{issue.message}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/*
         Each step is a `hidden` FIELDSET over one always-mounted form, never a branch that
@@ -2384,12 +2415,6 @@ export function ListingStep({
 
       </fieldset>
 
-      {completionError === null ? null : (
-        <p className="farmer-form-error" role="alert">
-          {completionError}
-        </p>
-      )}
-
       {error === null ? null : (
         <p className="farmer-form-error" role="alert">
           {error}
@@ -2414,7 +2439,6 @@ export function ListingStep({
               type="button"
               className="farmer-listing-back"
               onClick={() => {
-                setCompletionError(null);
                 setStep((at) => at - 1);
               }}
               disabled={busy}
@@ -2427,7 +2451,6 @@ export function ListingStep({
               type="button"
               className="farmer-primary-action"
               onClick={() => {
-                setCompletionError(null);
                 setStep((at) => at + 1);
               }}
             >
