@@ -266,6 +266,7 @@ export function StockInventoryEditor({
   onPriceChange,
   onRemoveItem,
   action,
+  highlighted = false,
 }: {
   kind: "usual" | "dated";
   items: StockInventoryEditorItem[];
@@ -278,6 +279,7 @@ export function StockInventoryEditor({
   onPriceChange(key: string, price: StockItemPriceDraft): void;
   onRemoveItem(key: string): void;
   action?: ReactNode;
+  highlighted?: boolean;
 }) {
   const legend = kind === "usual" ? "What do you usually sell?" : "Stock today";
   const empty =
@@ -286,7 +288,11 @@ export function StockInventoryEditor({
       : "Nothing here yet. Add what is in stock today.";
 
   return (
-    <fieldset className="farmer-listing farmer-listing-inventory">
+    <fieldset
+      className={`farmer-listing farmer-listing-inventory${
+        highlighted ? " farmer-listing-inventory-highlighted" : ""
+      }`}
+    >
       <legend className={kind === "dated" ? "sr-only" : undefined}>{legend}</legend>
       <div className="farmer-listing-inventory-prices">
         <button

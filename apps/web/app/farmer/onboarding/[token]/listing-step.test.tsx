@@ -750,16 +750,15 @@ describe("onboarding listing step", () => {
     //
     // Acceptance is now the farmer's own claim and publishes on their word; VIGA's eligibility
     // flag survives as its own separate record for the admin surfaces.
-    it("offers VIGA Farm Bucks to every farmer, eligibility being VIGA's separate record", async () => {
+    it("lists VIGA Bucks with the other payment choices while preserving its separate saved fact", async () => {
       const user = userEvent.setup();
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       // The toggle lives on the payment step, so walk there exactly as the sibling tests do.
       await revealField(user, "Cash");
 
-      expect(
-        screen.getByRole("checkbox", { name: "Accepts VIGA Bucks" }),
-      ).toBeInTheDocument();
+      const payments = screen.getByRole("group", { name: "How can people pay?" });
+      expect(within(payments).getByRole("checkbox", { name: "VIGA Bucks" })).toBeInTheDocument();
     });
 
     it("sends the checked methods, canonically spelled", async () => {
@@ -2612,7 +2611,7 @@ describe("onboarding listing step", () => {
       const user = userEvent.setup();
       renderEdit();
 
-      const vigaBucks = screen.getByRole("checkbox", { name: "Accepts VIGA Bucks" });
+      const vigaBucks = screen.getByRole("checkbox", { name: "VIGA Bucks" });
       expect(vigaBucks).not.toBeChecked();
       await user.click(vigaBucks);
       await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
@@ -2634,7 +2633,7 @@ describe("onboarding listing step", () => {
       );
 
       expect(
-        screen.getByRole("checkbox", { name: "Accepts VIGA Bucks" }),
+        screen.getByRole("checkbox", { name: "VIGA Bucks" }),
       ).toBeInTheDocument();
     });
 
@@ -2648,7 +2647,7 @@ describe("onboarding listing step", () => {
         />,
       );
 
-      const vigaBucks = screen.getByRole("checkbox", { name: "Accepts VIGA Bucks" });
+      const vigaBucks = screen.getByRole("checkbox", { name: "VIGA Bucks" });
       expect(vigaBucks).not.toBeChecked();
       await user.click(vigaBucks);
       expect(vigaBucks).toBeChecked();
@@ -3583,6 +3582,9 @@ describe("onboarding listing step", () => {
       await withItems(user, "eggs");
 
       const section = screen.getByRole("group", { name: /what do you usually sell/i });
+      expect(section).toHaveClass("farmer-listing-inventory-highlighted");
+      const payments = screen.getByRole("group", { name: "How can people pay?" });
+      expect(section.compareDocumentPosition(payments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       // The question, the way in, and what has been added so far — all inside it.
       expect(section).toContainElement(screen.getByLabelText(/what do you usually sell/i));
       expect(section).toContainElement(screen.getByRole("button", { name: /add item/i }));

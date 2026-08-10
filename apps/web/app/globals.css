@@ -5536,6 +5536,10 @@ button.admin-action-danger,
   border-radius: 10px;
 }
 
+.farmer-listing-inventory-highlighted {
+  border: 4px solid var(--selected);
+}
+
 /* The list, and the rows in it, for the same reason — the constraint has to reach the whole way
    down or the innermost grid re-introduces the floor its parent just removed. */
 .farmer-listing-items,

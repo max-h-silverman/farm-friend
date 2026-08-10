@@ -2161,12 +2161,27 @@ export function ListingStep({
       </fieldset>
 
       <fieldset className="farmer-listing-step" hidden={!onStep("sell")}>
+      <StockInventoryEditor
+        kind="usual"
+        items={itemRows.map((row, index) => ({
+          key: String(index),
+          name: row.name,
+          inStock: asksForCurrentStock ? row.inStock : undefined,
+          price: priceDraft(row),
+        }))}
+        pricesEnabled={pricesPublic}
+        draftItem={draftItem}
+        onPricesEnabledChange={() => setPricesPublic(!pricesPublic)}
+        onDraftItemChange={setDraftItem}
+        onAddItem={addItem}
+        onStockChange={(key) => toggleItemStock(Number(key))}
+        onPriceChange={(key, price) => setItemPrice(Number(key), price)}
+        onRemoveItem={(key) => removeItem(Number(key))}
+        highlighted={isOnboardingDoor}
+      />
+
       {/* ── Payment ────────────────────────────────────────────────────────────────────── */}
-      {/*
-        Checkboxes over the closed set, so "venmo" and "Venmo" cannot become two values a
-        filter fails to join. VIGA Bucks stays outside that set because its eligibility is
-        granted by VIGA, while acceptance is the farmer's own choice.
-      */}
+      {/* Checkboxes keep payment names consistent while VIGA Bucks saves separately. */}
       <fieldset className="farmer-listing-payments">
         <legend>How can people pay?</legend>
         {PAYMENT_OPTIONS.map((method) => (
@@ -2185,26 +2200,15 @@ export function ListingStep({
             <span>{method}</span>
           </label>
         ))}
+        <label className="farmer-listing-choice">
+          <input
+            type="checkbox"
+            checked={farmBucksAccepted}
+            onChange={(event) => setFarmBucksAccepted(event.target.checked)}
+          />
+          <span>VIGA Bucks</span>
+        </label>
       </fieldset>
-
-      {/*
-        Shown to EVERY farmer (max, 2026-08-10). It used to render only when
-        `defaults.farmBucksEligible` was true, which meant it never rendered for the farmer this
-        form exists for: eligibility is a VIGA flag on a stand row that does not exist until
-        this form is saved, so a new farm could not see the option at all.
-
-        Acceptance is the farmer's own claim about their own stand and publishes on their word,
-        the same as every other fact on this form. VIGA's eligibility flag still exists and is
-        still VIGA's, but it no longer decides what the farmer may say.
-      */}
-      <label className="farmer-listing-choice">
-        <input
-          type="checkbox"
-          checked={farmBucksAccepted}
-          onChange={(event) => setFarmBucksAccepted(event.target.checked)}
-        />
-        <span>Accepts VIGA Bucks</span>
-      </label>
 
       <label htmlFor="other-payment">Anything else you accept as payment?</label>
       <input
@@ -2214,47 +2218,6 @@ export function ListingStep({
         onChange={(event) => setOtherPayment(event.target.value)}
         placeholder="e.g. trade for eggs"
         maxLength={500}
-      />
-
-      {/*
-        WHAT THE STAND USUALLY SELLS — one ROW per item since F-090, where it was a single
-        comma-separated box.
-
-        The rows exist because each item now carries its own optional price, and a price
-        cannot ride in a comma list without inventing a syntax the farmer has to learn
-        ("eggs $6, kale"). A row per item is also what lets the stock tick below sit beside
-        the thing it is about.
-
-        The farmer's OWN WORDS, and they stay that way. "tomato", "tomatoes" and "love apple"
-        remain three items — folding them would be a produce taxonomy, which no business code
-        may hard-code.
-      */}
-      {/*
-        ONE SECTION that owns the whole question (max 2026-08-08). The label, the add box, the
-        rows and two loose notes used to be five siblings among the form's other fields, so
-        nothing marked where "what you sell" began or ended — the rows read as belonging to the
-        paragraph box that follows them.
-
-        A `fieldset`/`legend` rather than a styled `div`, matching `-branch` above: the
-        boundary has to exist for a screen reader too, and `legend` is what names the group
-        without inventing a heading level in the middle of a form.
-      */}
-      <StockInventoryEditor
-        kind="usual"
-        items={itemRows.map((row, index) => ({
-          key: String(index),
-          name: row.name,
-          inStock: asksForCurrentStock ? row.inStock : undefined,
-          price: priceDraft(row),
-        }))}
-        pricesEnabled={pricesPublic}
-        draftItem={draftItem}
-        onPricesEnabledChange={() => setPricesPublic(!pricesPublic)}
-        onDraftItemChange={setDraftItem}
-        onAddItem={addItem}
-        onStockChange={(key) => toggleItemStock(Number(key))}
-        onPriceChange={(key, price) => setItemPrice(Number(key), price)}
-        onRemoveItem={(key) => removeItem(Number(key))}
       />
 
       {/*
