@@ -49,6 +49,7 @@ export function createSmtpTransport(config: SmtpConfig): EmailTransport {
       to: request.toEmail,
       subject: request.subject,
       text: request.text,
+      ...(request.html === undefined ? {} : { html: request.html }),
       // The farmer replies to a mailbox VIGA actually reads. Same address today, but stated
       // explicitly so a future dedicated sending address does not silently send replies
       // somewhere nobody looks.

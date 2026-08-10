@@ -185,38 +185,15 @@ a farm at all — it is the market itself, not a stand with a farmer to onboard.
 
 ## Traps worth not rediscovering
 
-- **`VIGA Map Stands.csv` writes multi-line descriptions unquoted**, so an ordinary CSV read splits
-  one stand into many rows — a naive parse produced 275 phantom farms. The real count is **31
-  stands**, reassembled by treating a `POINT` in the first column as the only record boundary.
-- **`drizzle-kit generate` silently drops CHECK constraints and partial unique indexes.** Always
-  RUN `generate` (it is what writes the meta snapshot), then append the CHECKs to the generated
-  file by hand; verify by effect that each constraint genuinely refuses. Writing the `.sql`
-  yourself instead skips the snapshot and strands the next author — see RUNBOOK §Migrations.
-- **A column missing from `schema.ts` is DROPPED by the next `generate`, in whatever unrelated
-  migration runs next.** `generate` diffs the database against that file, never against the
-  journal. `farmer_invitations.pending_stock` — live, hand-written in `0031`, never mirrored —
-  came within one unread line of being dropped by F-092's migration. Read generated SQL line by
-  line and treat an unasked-for `DROP` as a schema-file omission.
-- **A migration command can exit 0 having skipped a migration** whose journal timestamp is not
-  newer, or one with no journal entry at all. Verify the schema effect against
-  `information_schema`, never the exit status or the words "migrations applied". This bites
-  locally exactly as it does in production. **This is live right now, not hypothetical:**
-  `0033`'s stamp is dated 2026-08-30, so anything `drizzle-kit generate` produces before that date
-  is born older than the last applied migration and skips itself. Hand-correct the `when` in
-  `_journal.json` and let `migration-ordering.test.ts` confirm it.
-- **A backtick inside a SQL comment ends the JS template literal.** It fails as a TypeScript syntax
-  error pointing at the query, not at the comment.
-- **`printf %s`, never `echo`, when adding a salt to Secret Manager.** A trailing newline produces
-  hashes that look right in every listing and match nothing at runtime.
-- **Next expands `$NAME` inside .env values, so an Argon2id verifier cannot live in one.**
-  `ADMIN_PASSWORD_HASH` in `apps/web/.env.local` reaches the server *shorter than it was
-  written* (97 → 95 or 65), and every local sign-in then refuses with the same generic message a
-  wrong password gets — while the verifier keeps verifying correctly in any standalone script,
-  because that script reads the file directly. Quoting does not help; pass it as a real
-  environment variable. `./scripts/dev-setup.sh` does this and is the supported local path.
-  Two other refusals look identical: no administrator row, and a live `admin_login_failures`
-  bucket that outlives the server process.
-- **Measuring a parser is not measuring the data.** To say what a card shows, read
-  `farms.description` from production.
-- **The stored prose contains malformed dates.** One row begins literally `/22/2026 Update:`.
-  Patterns anchored on a leading month digit miss it.
+- **`VIGA Map Stands.csv` has unquoted multi-line descriptions.** Reassemble records from a `POINT`
+  in column one; ordinary CSV parsing produced 275 phantom farms instead of 31.
+- **`drizzle-kit generate` omits CHECKs/partial indexes and may drop columns absent from `schema.ts`.**
+  Generate first for metadata, append constraints, inspect every SQL statement, and prove constraints
+  by effect; hand-writing SQL strands the next migration.
+- **A migration can exit 0 without applying.** Verify schema effect, correct a journal `when` that
+  predates the last migration (0033 is future-dated), then run `migration-ordering.test.ts`.
+- **`printf %s`, never `echo`, for Secret Manager salts;** a newline makes hashes silently fail.
+- **Next expands `$NAME` in `.env` values.** Set `ADMIN_PASSWORD_HASH` as a real environment value
+  via `./scripts/dev-setup.sh`; a missing admin or live login-throttle bucket looks identical.
+- **Measure production data, not parsers.** `farms.description` holds malformed input including
+  `/22/2026 Update:`, so leading-month patterns miss real records.

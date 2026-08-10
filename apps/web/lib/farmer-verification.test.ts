@@ -31,10 +31,8 @@ function requestDeps(overrides: Partial<VerificationRequestDeps> = {}): Verifica
     emailSalt: SALT,
     codeSalt: SALT,
     clientSignalSalt: SALT,
-    replyToAddress: "board@vigavashon.org",
     findVerifiableFarm: vi.fn(async () => true),
     issueCode: vi.fn(async () => ({ status: "issued" as const, id: "v1", code: "012345" })),
-    readFarmName: vi.fn(async () => "Lavender Hill Farm"),
     sendCode: vi.fn(async () => ({ outcome: "accepted" as const })),
     ...overrides,
   };

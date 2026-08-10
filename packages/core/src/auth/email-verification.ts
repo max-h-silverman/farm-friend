@@ -65,80 +65,52 @@ export function isCodeExpired(issuedAt: Date, now: Date): boolean {
 
 export interface VerificationEmailInput {
   code: string;
-  /** The farm this code is for. Named in the body so the farmer knows what it concerns. */
-  farmName: string;
-  /** The monitored address a confused farmer can reply to. Configuration, never hard-coded. */
-  replyToAddress: string;
 }
 
 export interface RenderedEmail {
   subject: string;
   text: string;
+  /** Styled version for mail clients that support HTML, alongside the plain-text fallback. */
+  html: string;
 }
 
 /**
  * Render the verification email.
  *
- * **Written to minimize replies** (max, 2026-08-06), which is a real cost: replies land in
- * VIGA's board mailbox and a volunteer answers them by hand. Every choice below removes a
- * reason someone would write back:
- *
- *   - **The code is in the SUBJECT.** The single biggest one. A farmer who sees the code in
- *     their phone's notification never opens the mail, never interprets it, never replies.
- *   - **The subject names VIGA and the farm stand map**, so it does not read as spam from an
- *     unknown sender — "is this real?" is the second most likely reply.
- *   - **The farm is named in the first sentence.** A farmer with a code and no idea which
- *     listing it concerns has to ask.
- *   - **The code sits alone on its own line**, so it survives every mail client's wrapping and
- *     can be read aloud or copied cleanly.
- *   - **The expiry is stated in the same words as the rule**, rendered from `CODE_TTL_MINUTES`,
- *     so the promise cannot drift from the behavior.
- *   - **A recipient who did not ask for it is told to ignore it** — otherwise their only
- *     reasonable move is to reply and ask what it is.
- *   - **NO LINK.** A code plus a link is the exact shape of a phishing mail, and a cautious
- *     farmer replies to check rather than clicking. The farmer is already on the page that
- *     asked for the code.
- *   - **Nothing is requested back.** No password, no confirmation, no personal detail.
- *   - **Plain text, no markup.** Nothing for a mail client to mangle into something that looks
- *     broken, and broken-looking mail gets replied to.
- *
- * Replies are still welcome and the address is given — the goal is fewer CONFUSED replies, not
- * a farmer who cannot reach a person.
+ * The plain-text fallback remains the exact same message. HTML-capable mail clients receive an
+ * alternative where the code is visually prominent, without excluding clients that do not
+ * render markup.
  */
 export function renderVerificationEmail(input: VerificationEmailInput): RenderedEmail {
   if (normalizeSubmittedCode(input.code) !== input.code) {
     throw new Error("renderVerificationEmail requires an exact verification code");
   }
-  const farmName = input.farmName.trim();
-  if (farmName === "") {
-    // A sentence with a hole where the farm name goes is worse than no mail: it is precisely
-    // the kind of broken-looking message that produces a reply.
-    throw new Error("renderVerificationEmail requires a farm name");
-  }
 
-  const subject = `${input.code} is your VIGA Farm Stand Map code`;
+  const subject = `${input.code} is your Farm Friend verification code`;
 
   const text = [
-    `Hello,`,
+    `Hi there,`,
     ``,
-    `Someone asked to update the farm stand listing for ${farmName} on the VIGA`,
-    `Farm Stand Map. If that was you, here is your code:`,
+    `Here’s your Farm Friend verification code:`,
     ``,
     `${input.code}`,
     ``,
-    `Type it on the page that asked for it. It works for ${CODE_TTL_MINUTES} minutes,`,
-    `then you can request a new one.`,
+    `This code is valid for ${CODE_TTL_MINUTES} minutes.`,
     ``,
-    `We will never ask you for a password. There is nothing to click in this email.`,
+    `If you didn’t request this, no worries. You can safely ignore this email.`,
     ``,
-    `If you were not expecting this, you can safely ignore it. Nothing changes on`,
-    `the map unless the code is used.`,
-    ``,
-    `Questions? Just reply to this email and a VIGA volunteer will help.`,
-    ``,
-    `— VIGA Farm Stand Map`,
-    `${input.replyToAddress}`,
+    `Thanks,`,
+    `VIGA Farm Friend`,
   ].join("\n");
 
-  return { subject, text };
+  const html = [
+    "<p>Hi there,</p>",
+    "<p>Here’s your Farm Friend verification code:</p>",
+    `<p style="margin: 24px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 32px; font-weight: 700; letter-spacing: 0.12em; line-height: 1;">${input.code}</p>`,
+    `<p>This code is valid for ${CODE_TTL_MINUTES} minutes.</p>`,
+    "<p>If you didn’t request this, no worries. You can safely ignore this email.</p>",
+    "<p>Thanks,<br>VIGA Farm Friend</p>",
+  ].join("");
+
+  return { subject, text, html };
 }

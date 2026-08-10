@@ -130,6 +130,7 @@ describe("createEmailSender", () => {
       toEmail: "cathy@example.com",
       subject: "284107 is your VIGA Farm Stand Map code",
       text: "body",
+      html: "<p>body</p>",
       idempotencyKey: "k1",
     });
 
@@ -138,6 +139,7 @@ describe("createEmailSender", () => {
       expect.objectContaining({
         toEmail: "cathy@example.com",
         fromAddress: "board@vigavashon.org",
+        html: "<p>body</p>",
       }),
     );
   });

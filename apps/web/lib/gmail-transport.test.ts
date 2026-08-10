@@ -53,6 +53,31 @@ describe("Gmail transport", () => {
     expect(raw).toContain(Buffer.from("Your code is 284107.").toString("base64"));
   });
 
+  it("sends an HTML alternative when the rendered email includes one", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ access_token: "access-token" }))
+      .mockResolvedValueOnce(Response.json({ id: "gmail-message-id" }));
+    const send = createGmailTransport(CONFIG, { fetcher });
+
+    await send({
+      toEmail: "farmer@example.com",
+      fromAddress: CONFIG.fromAddress,
+      subject: "284107 is your Farm Friend verification code",
+      text: "Your code is 284107.",
+      html: '<p style="font-size: 32px; font-weight: 700;">284107</p>',
+      idempotencyKey: "verification-123",
+    });
+
+    const request = fetcher.mock.calls[1]?.[1] as RequestInit;
+    const raw = Buffer.from(JSON.parse(request.body as string).raw, "base64url").toString("utf8");
+    expect(raw).toContain("Content-Type: multipart/alternative;");
+    expect(raw).toContain("Content-Type: text/plain; charset=UTF-8");
+    expect(raw).toContain("Content-Type: text/html; charset=UTF-8");
+    expect(raw).toContain(Buffer.from("Your code is 284107.").toString("base64"));
+    expect(raw).toContain(Buffer.from('<p style="font-size: 32px; font-weight: 700;">284107</p>').toString("base64"));
+  });
+
   it("marks a rejected Gmail API request as definitive without logging its body", async () => {
     const fetcher = vi
       .fn()

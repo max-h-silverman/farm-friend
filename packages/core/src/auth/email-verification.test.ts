@@ -74,79 +74,39 @@ describe("isCodeExpired", () => {
 describe("renderVerificationEmail", () => {
   const rendered = renderVerificationEmail({
     code: "123456",
-    farmName: "Lavender Hill",
-    replyToAddress: "board@vigavashon.org",
   });
 
-  it("puts the code in the SUBJECT, so it is readable without opening the mail", () => {
-    // The single biggest reducer of "what is this?" replies: a farmer who can see the code in
-    // their notification never has to interpret the message at all.
-    expect(rendered.subject).toContain("123456");
+  it("uses the verification code and Farm Friend in the exact subject", () => {
+    expect(rendered.subject).toBe("123456 is your Farm Friend verification code");
   });
 
-  it("names Farm Friend and VIGA in the subject, so it is not mistaken for spam", () => {
-    expect(rendered.subject).toMatch(/VIGA|Farm Friend/);
+  it("renders the requested plain-text fallback exactly", () => {
+    expect(rendered.text).toBe([
+      "Hi there,",
+      "",
+      "Here’s your Farm Friend verification code:",
+      "",
+      "123456",
+      "",
+      `This code is valid for ${CODE_TTL_MINUTES} minutes.`,
+      "",
+      "If you didn’t request this, no worries. You can safely ignore this email.",
+      "",
+      "Thanks,",
+      "VIGA Farm Friend",
+    ].join("\n"));
   });
 
-  it("names the farm, so the farmer knows which listing this is about", () => {
-    expect(rendered.text).toContain("Lavender Hill");
-  });
-
-  it("states the code on its own line", () => {
-    expect(rendered.text).toMatch(/^\s*123456\s*$/m);
-  });
-
-  it("says how long the code lasts, in the same words as the rule", () => {
-    expect(rendered.text).toContain(String(CODE_TTL_MINUTES));
-  });
-
-  it("tells someone who did not request it that they can ignore it", () => {
-    // Without this line, the wrong recipient's only reasonable move is to reply and ask.
-    expect(rendered.text.toLowerCase()).toContain("ignore");
-  });
-
-  it("tells the farmer they can reply to a human, and names the address", () => {
-    // Replies are expected and welcome; the goal is fewer CONFUSED replies, not zero replies.
-    expect(rendered.text).toContain("board@vigavashon.org");
-  });
-
-  it("never REQUESTS a password or secret, and says so outright", () => {
-    // A verification mail that asks for anything is indistinguishable from phishing, which
-    // produces exactly the "is this real?" reply this copy exists to prevent.
-    //
-    // The assertion is on the REQUEST, not on the word: a flat ban on "password" would also
-    // forbid the reassurance line, which is the opposite of the goal. Anchored to the verb
-    // phrases that would constitute asking.
-    expect(rendered.text).not.toMatch(
-      /(?:send|enter|reply with|confirm|provide|give)[^.]{0,40}\b(?:password|passcode|card|account number|social)/i,
-    );
-    expect(rendered.text.toLowerCase()).toContain("never ask you for a password");
-  });
-
-  it("carries no link, so it cannot be confused with a phishing message", () => {
-    expect(rendered.text).not.toMatch(/https?:\/\//);
-  });
-
-  it("is plain text with no markup for a mail client to mangle", () => {
-    expect(rendered.text).not.toMatch(/<[a-z]/i);
+  it("renders an HTML version with a large, bold verification code", () => {
+    expect(rendered.html).toContain("123456");
+    expect(rendered.html).toMatch(/font-size:\s*32px/);
+    expect(rendered.html).toMatch(/font-weight:\s*700/);
   });
 
   it("refuses to render a code that is not a code", () => {
     expect(() =>
       renderVerificationEmail({
         code: "12345",
-        farmName: "Lavender Hill",
-        replyToAddress: "board@vigavashon.org",
-      }),
-    ).toThrow();
-  });
-
-  it("refuses a blank farm name rather than sending a sentence with a hole in it", () => {
-    expect(() =>
-      renderVerificationEmail({
-        code: "123456",
-        farmName: "   ",
-        replyToAddress: "board@vigavashon.org",
       }),
     ).toThrow();
   });

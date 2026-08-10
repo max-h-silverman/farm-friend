@@ -129,6 +129,8 @@ export type EmailTransport = (request: {
   fromName?: string;
   subject: string;
   text: string;
+  /** HTML alternative, when the message has a styled version. */
+  html?: string;
   idempotencyKey: string;
 }) => Promise<{ providerMessageId: string }>;
 
@@ -155,6 +157,7 @@ export interface EmailSendInput {
   recipientHash?: string;
   subject: string;
   text: string;
+  html?: string;
   idempotencyKey: string;
 }
 
@@ -229,6 +232,7 @@ export function createEmailSender(options: EmailSenderOptions) {
           : {}),
         subject: input.subject,
         text: input.text,
+        ...(input.html === undefined ? {} : { html: input.html }),
         idempotencyKey: input.idempotencyKey,
       });
       return log({ outcome: "accepted", providerMessageId });
