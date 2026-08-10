@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REGISTERED_OPT_IN_AUTO_RESPONSE } from "./auto-responses";
+import { JOIN_OPT_IN_AUTO_RESPONSE } from "./auto-responses";
 import {
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_JOIN_INSTRUCTION,
@@ -45,7 +45,7 @@ describe("signup reply bodies", () => {
     expect(bodies).not.toContain(FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT);
     // The carrier receipt is still owed: consent was established by this same message, and
     // that is the moment the registered copy exists for.
-    expect(bodies).toContain(REGISTERED_OPT_IN_AUTO_RESPONSE);
+    expect(bodies).toContain(JOIN_OPT_IN_AUTO_RESPONSE);
   });
 
   it("still says VIGA will review when nothing was authorized", () => {
@@ -68,7 +68,7 @@ describe("signup reply bodies", () => {
 
     expect(bodies).toEqual([
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-      REGISTERED_OPT_IN_AUTO_RESPONSE,
+      JOIN_OPT_IN_AUTO_RESPONSE,
     ]);
     expect(bodies).not.toContain(FARMER_JOIN_INSTRUCTION);
   });
@@ -83,7 +83,7 @@ describe("signup reply bodies", () => {
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       FARMER_JOIN_INSTRUCTION,
     ]);
-    expect(bodies).not.toContain(REGISTERED_OPT_IN_AUTO_RESPONSE);
+    expect(bodies).not.toContain(JOIN_OPT_IN_AUTO_RESPONSE);
   });
 
   it("says nothing about messaging to a farmer who already consented", () => {
@@ -102,7 +102,7 @@ describe("signup reply bodies", () => {
       for (const hadConsent of [true, false]) {
         const bodies = invitedJoinReplyBodies({ consentEstablished, hadConsent });
         const both =
-          bodies.includes(REGISTERED_OPT_IN_AUTO_RESPONSE) &&
+          bodies.includes(JOIN_OPT_IN_AUTO_RESPONSE) &&
           bodies.includes(FARMER_JOIN_INSTRUCTION);
         expect(both).toBe(false);
       }

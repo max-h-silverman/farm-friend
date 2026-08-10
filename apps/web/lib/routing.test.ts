@@ -146,6 +146,18 @@ describe("SAME routing (F-052)", () => {
   });
 });
 
+describe("VIGA onboarding confirmation (F-103)", () => {
+  it("uses the deterministic consent path and never sends a customer welcome", async () => {
+    const result = await routeInboundMessage(deps(), event("VIGA"));
+
+    expect(result.outcome).toMatchObject({
+      kind: "consent",
+      transition: "start",
+    });
+    expect(result.replies).toEqual([]);
+  });
+});
+
 describe("MAP routing (F-057)", () => {
   it("returns only the configured public-map URL without reaching a model", async () => {
     const result = await routeInboundMessage(deps(), event(" MAP. "));
@@ -218,7 +230,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
     expect(result.replies[0]?.body).toMatch(/unsubscribed/i);
   });
 
-  it("routes JOIN and START to consent with their distinct capture provenance", async () => {
+  it("routes JOIN and START to consent without duplicating Telnyx's start receipt", async () => {
     for (const word of ["JOIN", "START"]) {
       const { db, queries } = recordingDb();
       const result = await routeInboundMessage(
@@ -233,9 +245,13 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       expect(queries.some((q) => q.includes("consent_transition_watermarks"))).toBe(
         true,
       );
-      expect(result.replies[0]?.body).toMatch(/agreed to receive/i);
-      expect(result.replies[1]?.body).toMatch(/ask what is available/i);
-      expect(result.replies[1]?.category).toBe("inquiry_reply");
+      const bodies = result.replies.map((reply) => reply.body);
+      if (word === "JOIN") {
+        expect(bodies[0]).toMatch(/agreed to receive/i);
+      } else {
+        expect(bodies).not.toContainEqual(expect.stringMatching(/agreed to receive/i));
+      }
+      expect(bodies).toContainEqual(expect.stringMatching(/ask what is available/i));
     }
   });
 
@@ -368,7 +384,7 @@ describe("deterministic routing order (Golden Rule #2)", () => {
 
     it("does not give the already-joined answer to START", async () => {
       // START must reach the carrier from any state — it is the one word that lifts a block
-      // we cannot see. It gets the registered opt-in copy, never "reply START".
+      // we cannot see. Telnyx supplies its receipt, so Farm Friend does not duplicate it.
       const { db } = dbWithConsentRow("stopped");
       const result = await routeInboundMessage(
         deps({ db }),
@@ -376,7 +392,8 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       );
 
       expect(result.outcome).toMatchObject({ kind: "consent", applied: true });
-      expect(result.replies[0]?.body).toMatch(/agreed to receive/i);
+      expect(result.replies[0]?.body).toMatch(/ask what is available/i);
+      expect(result.replies[0]?.body).not.toMatch(/reply START to restart/i);
     });
   });
 

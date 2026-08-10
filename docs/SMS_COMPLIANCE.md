@@ -8,10 +8,10 @@ driver. Routing mechanics are in [ARCHITECTURE.md](ARCHITECTURE.md); consent dat
 > what is actually built, registered, and open lives in
 > [CURRENT_STATE.md](CURRENT_STATE.md).
 >
-> **Registered copy is transcribed, never authored here.** The opt-in, opt-out, and help
-> auto-responses live once in `packages/core/src/sms/auto-responses.ts` and are drift-tested
-> character-for-character against `docs/TELNYX_10DLC_FIELD_VALUES.txt`, which is a **transcript of
-> live console state**. Change the carrier console first, then transcribe — never the reverse.
+> **Carrier copy is transcribed, never authored here.** `TELNYX_FARMER_ONBOARDING_OPT_IN_AUTO_RESPONSE`,
+> the opt-out reply, and the help reply are drift-tested character-for-character against
+> `docs/TELNYX_10DLC_FIELD_VALUES.txt`, a **transcript of live console state**. The code-rendered
+> `JOIN` reply is intentionally separate. Change the carrier console first, then transcribe.
 
 ## Deterministic keyword handling (code, before any model call)
 
@@ -35,15 +35,15 @@ commit or decline.
 |---|---|
 | `STOP` / `STOPALL` / `UNSUBSCRIBE` / `CANCEL` / `END` / `QUIT` | **Global** opt-out of all SMS — the exact registered opt-out list. Clears launch-program consent immediately. **Can never be reinterpreted by conversation state.** Send the single confirming opt-out reply, then nothing further. |
 | `START` | Establish or restore consent to the one VIGA Farm Friend launch SMS program. |
+| `VIGA` | Establish or restore consent through the farmer-onboarding carrier receipt. It may also redeem a matching pending farmer invitation. |
 | `JOIN` | Establish consent to the one VIGA Farm Friend launch SMS program, **for a first-time sender only** — once a consent record exists, `JOIN` does not restore it and the sender is told to reply `START` (B-011, below). There is no launch `JOIN <program>` grammar. **`JOIN` with a 64-hex invitation token is a separate, later-matching grammar** (F-080, farmer table below); the bare word is always this compliance keyword and is matched first. |
 | `HELP` / `INFO` | Return help text; never suppressed by state. |
 
 ### Farmer keywords (F-040/F-080)
 
 `LINK`, `STAND` and `SETTINGS` are Farm Friend **product** keywords and are never
-carrier-registered. `START` carries an onboarding effect in addition to its carrier meaning, and
-the reason is set out
-in its row.
+carrier-registered. `VIGA` is the carrier-registered onboarding confirmation; `START` remains
+the recovery fallback for instructions already in farmers' hands.
 
 **This table is what the parser HONOURS, which is wider than what farmer copy TEACHES.** Every
 keyword below works when a farmer sends it; only some are advertised. `FARMER_TAUGHT_KEYWORDS` and
@@ -54,7 +54,8 @@ every rule in this document.
 
 | Keyword | Behavior |
 |---|---|
-| `START` (bare) | The carrier-registered opt-in, **and** what completes farmer onboarding (max 2026-08-07). Matched against `farmer_invitations.pending_phone_hash` — the phone the farmer stated on the onboarding form. The **invitation** is what grants; the text supplies only the handset, which `farmer_authorizations` requires as `phone_verified_at`. If the invitation carries a web agreement it establishes launch consent (see §consent model, farmer onboarding); if it also **names a farm**, the match authorizes the farmer for it in the same transaction — the invitation is the decision, made when VIGA minted it. An invitation naming no farm, or one whose box was never ticked, still waits for a coordinator.<br><br>**Ordering: the carrier transition comes FIRST, the redemption second.** `START` must enroll and lift a carrier block unconditionally, whether or not any invitation is waiting — so the redemption is attempted after the consent write, never instead of it. A sender with no invitation is the ordinary case and nothing happens.<br><br>**Only `START`, never bare `JOIN`.** `JOIN` cannot clear the carrier's own opt-out list (B-011), so completing onboarding on it would set up a farmer whose messages the carrier silently refuses. `JOIN` remains a registered opt-in and is otherwise unchanged.<br><br>**`JOIN <64-hex token>` was REMOVED.** It asked the farmer to hand-copy 64 hex characters into a text message, where any slip failed identically and silently — the token matched no invitation and nothing could distinguish "you mistyped" from "no invitation exists". That grammar is gone; `JOIN` followed by anything is now ordinary free text. |
+| `VIGA` (bare) | The farmer-facing carrier-registered opt-in that completes onboarding. It and fallback `START` are matched against `farmer_invitations.pending_phone_hash` — the phone the farmer stated on the form. The **invitation** is what grants; the text only proves handset control. The carrier transition comes first, then redemption. A successful redemption sends one Farm Friend message saying the listing is live and carrying the private update link; Telnyx sends the separate phone-confirmation receipt. It never sends the customer welcome or contact card for this milestone. `JOIN` remains the separate first-time community opt-in and can never complete onboarding. |
+| `START` (bare) | Establishes or restores launch consent and remains the fallback onboarding confirmation for farmers who received older instructions. It follows the same pending-phone redemption rule as `VIGA`; it is not taught on new onboarding pages. |
 | `LINK` | Send the farmer their private web-form link. **Refused unless the sender already holds a live authorization**; a stranger gets an acknowledgement and no link. |
 | `STAND` | Issue a 12-hour numbered menu of the sender's currently editable locations. Each number binds one exact authorization+location pair; the model sees neither menu nor choice. |
 | `SETTINGS` | Send the existing private standing link directly to its settings view. It uses the same token and revocation lifecycle as `LINK`, never a second login. |
@@ -66,7 +67,7 @@ every rule in this document.
 | `MAP` | Return only the configured canonical Farm Friend public-map URL. It is stateless, model-free, and does not alter an open confirmation or result list. |
 
 `MAP` is parsed after compliance keywords and before all stateful commands. It therefore cannot
-shadow STOP/START/JOIN/HELP, while a delayed MAP can still receive the current configured link.
+shadow STOP/START/VIGA/JOIN/HELP, while a delayed MAP can still receive the current configured link.
 Its direct reply is an `inquiry_reply`, so the existing STOP dispatch guard suppresses it for a
 stopped sender.
 
@@ -103,7 +104,7 @@ would stop working.
 
 A positive whole-message number is also deterministic and context-bound. It selects only from the
 sender's current unexpired `STAND` menu; without one it receives a code-rendered no-active-choice
-reply. Target selection never changes consent. `STOP` and `START` remain the only consent controls.
+reply. Target selection never changes consent. `STOP`, `START`, and `VIGA` remain the only consent controls.
 
 The `LINK` reply is a **proactive** category, not a reply category — handing over a durable
 credential is Farm Friend speaking first, so it passes the same consent gate as any other proactive
@@ -142,8 +143,8 @@ open.
 
 Ordinary stateful events are ordered by provider `occurred_at` plus event ID. An older event cannot
 mutate newer conversation, confirmation, or publication state and may receive a deterministic
-resend request. `STOP` and `START` use a separate consent-transition watermark: the later
-provider-time command wins, and `STOP` wins an exact timestamp tie. An older delayed `START`
+resend request. `STOP`, `START`, and `VIGA` use a separate consent-transition watermark: the later
+provider-time command wins, and `STOP` wins an exact timestamp tie. An older delayed start operation
 therefore cannot restore consent after a newer `STOP`.
 
 Because the two watermarks are independent, **conversation staleness never refuses a compliance
@@ -175,20 +176,21 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   replies, and stock-out alerts are applicable message categories inside it, not separately enrolled
   programs.
 - **Launch-program consent** — one durable consent state. `JOIN` **establishes** it for a sender
-  with no record; `START` establishes **or restores** it from any state. `STOP` clears it and
+  with no record; `START` and farmer-onboarding `VIGA` establish **or restore** it from any state.
+  `STOP` clears it and
   applies across all Farm Friend messaging. No **proactive non-required** SMS is sent without active
   launch consent. Inventory reminders use the same consent; choosing or pausing a cadence does not
   establish, restore, or revoke it. **A stand's cadence starts at `weekly` when its farmer is set
   up (F-081), and that is not consent and cannot substitute for it**: the seeded preference only
   makes a prompt *due*, and every prompt queues as the proactive `inventory_prompt` category, so
   `authorizeDispatch` re-reads consent at the claim and **suppresses** it for a sender who never
-  texted `JOIN`/`START`. Queuing is unconditional; sending is not.
+  texted `JOIN`/`START`/`VIGA`. Queuing is unconditional; sending is not.
 
-  A successful first-time `JOIN` or restoring `START` queues two distinct, deduplicated replies:
-  the carrier-registered consent receipt as `required_reply`, then a product welcome explaining
-  customer inquiry, `MAP`, `HELP`, and `STOP` as an ordinary `inquiry_reply`. A retry may create
-  neither a second receipt nor a second welcome. An already-enrolled `JOIN` receives only the
-  existing code-rendered instruction to use `START`.
+  A successful first-time `JOIN` or restoring `START` queues the code-rendered consent receipt,
+  then a product welcome explaining customer inquiry, `MAP`, `HELP`, and `STOP`. `VIGA` instead
+  leaves its phone-confirmation receipt to Telnyx; a redeemed invitation queues only the distinct
+  Farm Friend listing-live message and private update link. An already-enrolled `JOIN` receives
+  only the existing code-rendered instruction to use `START`.
 
   **Why the two opt-in keywords differ (B-011).** The carrier keeps its own opt-out list and
   enforces it independently of ours: while a number is on it, Telnyx refuses every send with
@@ -219,43 +221,33 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   halves — that the returning instruction names `START` and that the first-time `JOIN` invitation
   survives — plus the same property on `ALREADY_JOINED_RESPONSE`.
 
-  **Still owed, and not ours to change:** the registered campaign's own `Opt In Workflow
-  Description` in the Telnyx console still describes the published page without the `START`
-  sentence, and the registered opt-out auto-response names no way back. Both are live console
-  state; see GL-034 in [GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md) for the exact edits, which must be made
-  in the console first and then transcribed into
-  [TELNYX_10DLC_FIELD_VALUES.txt](TELNYX_10DLC_FIELD_VALUES.txt).
 - **Farmer onboarding** — the invited farmer accepts an SMS agreement on
   `/farmer/onboarding/[token]`, which stamps `farmer_invitations.agreed_to_sms_at`. That stamp is
   **not** consent: a tick on a web page proves nothing about who holds the handset. Consent is
-  established when a bare `START` arrives from the stated phone, which is the evidence tying the person who
-  agreed to the number that will be messaged — recorded with capture source `farmer_onboarding`, the
-  agreement's own moment as its documented origin. Every proactive farmer send must trace to that
-  opt-in or a deterministic `JOIN`/`START`.
+  established when a bare `VIGA` arrives from the stated phone (with `START` retained as fallback),
+  which is the evidence tying the person who agreed to the number that will be messaged. Every
+  proactive farmer send must trace to that opt-in or a deterministic `JOIN`/`START`.
 
-  **The capture source stays `farmer_onboarding`.** Only the keyword that reaches this path
-  changed (`SIGNUP` → `JOIN <token>` → bare `START`); the writer, the rules, and the recorded origin are
-  the same, and existing production rows reference that value.
+  **The capture source is `start`.** Both `VIGA` and fallback `START` are Telnyx start-operation
+  keywords, so the stored provenance records the carrier-compatible transition that confirmed
+  the handset.
 
-  It goes through **the same** `applyConsentTransition` writer as a bare `JOIN`, under
-  `firstTimeOnly`, so it establishes consent **only for a sender with no record**. A farmer who
-  already opted in keeps one unchanged record, and a farmer who texted `STOP` is **not** silently
-  re-enrolled by filling in a web form — the same B-011 reasoning, since the carrier would refuse
-  the send regardless and only `START` clears its list.
+  It goes through **the same** `applyConsentTransition` writer as a bare `JOIN`, but not under
+  `firstTimeOnly`: `VIGA` and fallback `START` are start-operation commands that establish or
+  restore consent. The web form never re-enrolls anyone; the inbound carrier keyword does.
 
   **One writer, two branches.** Bare `JOIN` is handled by `routeCompliance`, which owns the
   `applyConsentTransition` call; the onboarding redemption runs in that same branch, whose consent
   write happens inside `openFarmerOnboardingRequest`'s transaction. The parser's ordering is what
   keeps them apart, so neither branch tests for the other and no message can reach both.
 
-  A redemption that establishes consent is answered with the registered opt-in receipt; one with
-  no consent basis — an invitation whose box was never ticked — is told to reply `JOIN`, which is
-  the one place that word belongs in farmer-facing copy. That case survived F-080: requiring a
-  token did **not** eliminate it, because an un-ticked invitation can still be redeemed by text.
-- **The migration door's self-serve opt-in (2026-08-07)** — a farmer publishing through
-  `/farmer/start/<secret>` is told to text **`START`** from the handset they want to use, replacing
-  the "contact VIGA and they will finish setting you up" copy. It **adds no consent writer and no
-  new path**: their `START` is an ordinary registered opt-in through `routeCompliance`.
+  A matching invitation redemption queues one Farm Friend message saying the listing is live and
+  carrying the private update link. Telnyx sends the separate VIGA phone-confirmation receipt;
+  Farm Friend sends neither a customer welcome nor a contact card for this milestone.
+- **The migration door's self-serve opt-in** — a farmer publishing through
+  `/farmer/start/<secret>` is told to text **`VIGA`** from the handset they want to use. It adds
+  no consent writer and no new path: `VIGA` is a Telnyx start-operation opt-in through
+  `routeCompliance`; `START` remains an older-instruction fallback.
 
   **The direction is forced, not chosen.** Farm Friend cannot send the first message to a number
   with no consent record — `isProactiveSendPermitted` permits an un-consented send only for
@@ -264,15 +256,13 @@ carrier-mandated keyword in campaign registration or public compliance copy.
   and labelling one `required_reply` to get around that would launder a proactive send through a
   compliance exemption. The farmer's inbound message is both the possession proof and the opt-in.
 
-  **The word must be `START`, never `JOIN` or a product word like `CONFIRM`.** Only `START` clears
-  the carrier's own opt-out list (B-011), so a farmer who ever texted `STOP` and replied with
-  anything else would be recorded `active` while every send to them was refused. `START` also works
-  from any state, so one instruction serves a first-timer and a returning farmer alike.
+  **The taught word is `VIGA`, never `JOIN` or a product word like `CONFIRM`.** `START` remains
+  the recovery keyword after an opt-out; new onboarding uses the carrier-registered VIGA receipt.
 
   **No phone number is stored from the form.** A raw phone lives in exactly one column because the
   send path needs something to send to; there is no send path here, so a number captured on the web
   would be personal data with no reader and no way to verify — a typo'd digit is a stranger's
-  number that nothing would catch. The inbound `START` carries the real one.
+  number that nothing would catch. The inbound `VIGA` carries the real one.
 - **Customer-initiated inquiry** — the inbound inquiry permits its relevant direct response but does
   not create durable consent for later proactive notifications. Launch stores no follow-up interest,
   sends no passive customer follow-up, and has no scoped `MUTE` command. `MUTE` and follow-up

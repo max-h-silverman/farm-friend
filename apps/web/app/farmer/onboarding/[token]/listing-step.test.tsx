@@ -426,10 +426,9 @@ describe("onboarding listing step", () => {
       await submitListing(user);
 
       const next = await screen.findByRole("status");
-      // START, never JOIN or CONFIRM. Only START clears the carrier's own opt-out list, so a
-      // farmer who ever texted STOP is restored by this word and by no other — verified live
-      // 2026-07-27, when a JOIN four minutes after a STOP was still refused 409.
-      expect(next.textContent).toContain("START");
+      // VIGA is the onboarding word, not an overloaded carrier-default command. Telnyx owns
+      // its opt-in receipt; Farm Friend matches the same inbound text to this pending form.
+      expect(next.textContent).toContain("VIGA");
       expect(next.textContent).toContain("206-555-0000");
     });
 
@@ -2205,7 +2204,7 @@ describe("onboarding listing step", () => {
         // the number sit inside `<strong>`, so a whole-string matcher never sees them as one
         // text node.
         const note = screen.getByLabelText(/your phone number/i).parentElement!;
-        expect(note).toHaveTextContent(/text START/i);
+        expect(note).toHaveTextContent(/text VIGA/i);
         // Formatted for READING, with the country code dropped: `206-555-0000`, not
         // `+12065550000`. E.164 is a dialing format and belongs in the `sms:` href, not on
         // screen where a farmer is checking it against their keypad.
@@ -2361,9 +2360,8 @@ describe("onboarding listing step", () => {
         expect(await submitButton(user)).toBeDisabled();
       });
 
-      it("shows the number to text AFTER saving, with the word START", async () => {
-        // The hand-off. START is the only word that clears the carrier's own opt-out list, so it
-        // is the only honest instruction for a phone whose history we cannot see.
+      it("shows the number to text AFTER saving, with the word VIGA", async () => {
+        // The hand-off. VIGA is the farmer-facing word Telnyx recognizes as the onboarding opt-in.
         const user = userEvent.setup();
         stubRoutes({ status: "found", latitude: 47.4471, longitude: -122.4594 });
         render(
@@ -2397,7 +2395,7 @@ describe("onboarding listing step", () => {
         // Scoped to the reminder, not the whole card: the keyword reference below it also
         // contains the word "text", and asserting against the card would let the instruction
         // disappear entirely while this still passed.
-        expect(reminder).toHaveTextContent(/START/);
+        expect(reminder).toHaveTextContent(/VIGA/);
         // Formatted for READING: `206-555-0000`, never the E.164 the `sms:` href carries.
         expect(reminder).toHaveTextContent(/206-555-0000/);
         expect(reminder?.textContent ?? "").not.toContain("+1");
@@ -2407,7 +2405,7 @@ describe("onboarding listing step", () => {
         expect(reminder?.querySelector("a")?.getAttribute("href") ?? "").toContain("+12065550000");
       });
 
-      it("lands on a confirmation that leads with LIVE and carries the START reminder", async () => {
+      it("lands on a confirmation that leads with LIVE and carries the VIGA reminder", async () => {
         // max's call (2026-08-08): the modal just confirms, and this screen is where the farmer
         // is told what is left. It has to say both halves — the good news and the errand — or a
         // farmer who reads "live on the map" stops there and never texts, which is the one step
@@ -2438,7 +2436,7 @@ describe("onboarding listing step", () => {
         // regression this guards.
         const reminder = banner.querySelector(".farmer-listing-saved-reminder");
         expect(reminder).toHaveTextContent(/last step/i);
-        expect(reminder).toHaveTextContent(/START/);
+        expect(reminder).toHaveTextContent(/VIGA/);
         expect(reminder).toHaveTextContent(/206-555-0000/);
         // Both halves of the one errand live together now (max 2026-08-08) — the instruction
         // and why it must be that handset — rather than split across the summary list.

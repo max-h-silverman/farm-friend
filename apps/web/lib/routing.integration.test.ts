@@ -11,12 +11,11 @@ import {
   createInventoryInterpreter,
 } from "@farm-friend/ai";
 import {
-  renderContactCardOffer,
   renderFarmerAuthorizedNotification,
+  renderFarmerOnboardingComplete,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FixedClock,
   hashPhone,
-  REGISTERED_OPT_IN_AUTO_RESPONSE,
 } from "@farm-friend/core";
 import { authorizeDispatch, createDb, type Db, type Sql } from "@farm-friend/db";
 import { offeringFactId } from "./inquiry";
@@ -661,19 +660,17 @@ describe("inbound routing end to end (integration)", () => {
       return created.token;
     }
 
-    it("records consent and queues the registered opt-in receipt, with NO model call", async () => {
+    it("confirms VIGA onboarding with one listing-live message, with NO model call", async () => {
       await invite(true);
-      // A BARE START, carrying nothing. That is the whole point of the replacement: the farmer
-      // types one carrier-registered word instead of transcribing 64 hex characters.
-      await deliverInbound({ fromPhone: farmerPhone, text: "START" });
+      await deliverInbound({ fromPhone: farmerPhone, text: "VIGA" });
       const provider = await runPassWithForbiddenModel();
 
       const consent = await client()`
         select state, capture_source from sms_consents
         where recipient_hash = ${farmerHash}
       `;
-      // `start`, not `farmer_onboarding`: START is the carrier's own keyword and the provenance
-      // records the word that actually arrived and lifted any carrier block.
+      // VIGA is configured as Telnyx's start operation, so the same carrier-compatible source
+      // records the inbound command that confirmed control of the handset.
       expect(consent).toEqual([{ state: "active", capture_source: "start" }]);
 
       const work = await client()`
@@ -681,27 +678,9 @@ describe("inbound routing end to end (integration)", () => {
         where recipient_hash = ${farmerHash}
         order by logical_key
       `;
-      // F-067 — this invitation named a farm and its box was ticked, so the redemption set the
-      // farmer up. They get the carrier receipt for the consent this message established, and
-      // the "your farm is ready" notification the same transaction queued.
-      //
-      // The old acknowledgement is deliberately ABSENT: "VIGA has your request, they will
-      // review it and text you when your farm is ready" is false for a farmer who is already
-      // set up, and it would arrive beside the message saying the farm is ready.
-      // Ordered by `logical_key`, which is an ordering over KEYS and not a claim about send
-      // order — the carrier receipt (`consent-…`) sorts before the authorization notification
-      // (`farmer-authorized-…`). Both are present, which is the property.
-      // Ordered by `logical_key`: `consent-…` then `contact-card-…` then `farmer-authorized-…`.
-      expect(work.map((row) => row.message_category)).toEqual([
-        "required_reply",
-        "inquiry_reply",
-        "inventory_prompt",
-      ]);
-      expect(work[0]?.body).toBe(REGISTERED_OPT_IN_AUTO_RESPONSE);
-
-      // The contact card, its own message since max asked for it 2026-08-08 — the number is
-      // otherwise unnamed in the handset for every prompt and alert that follows.
-      expect(work[1]?.body).toBe(renderContactCardOffer("https://ff.example"));
+      // Telnyx sends the phone-confirmation receipt. Farm Friend sends exactly one distinct
+      // listing-live completion after the transaction succeeds — no customer welcome or card.
+      expect(work.map((row) => row.message_category)).toEqual(["inventory_prompt"]);
 
       /*
         F-094 — the setup message. This fixture's invitation names a farm with NO stand: it
@@ -712,10 +691,8 @@ describe("inbound routing end to end (integration)", () => {
         The link-carrying branch is proven where a stand actually exists —
         `farmer-authorization.integration.test.ts`, against `farmWithStand`.
       */
-      const setupBody = work[2]?.body as string;
-      // No stand yet on this path, so no link and no STAND line — the count is 0, and stating
-      // it keeps this pinned to the branch the fixture reaches.
-      expect(setupBody).toBe(renderFarmerAuthorizedNotification(null, { standCount: 0 }));
+      const setupBody = work[0]?.body as string;
+      expect(setupBody).toBe(renderFarmerOnboardingComplete(null));
       /*
         The farmer is taught the recovery word (F-093) and gets no footer competing with it
         (F-096).
@@ -730,9 +707,7 @@ describe("inbound routing end to end (integration)", () => {
         message is a decision someone makes on purpose rather than a drift nothing notices.
       */
       expect(setupBody).toContain("LINK");
-      expect(setupBody).not.toContain("STAND");
-      expect(setupBody).not.toContain("SETTINGS");
-      expect(setupBody).not.toContain("STOP");
+      expect(setupBody).not.toMatch(/welcome|subscribed|confirmed for messages/i);
       expect(work.map((row) => row.body)).not.toContain(
         FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       );

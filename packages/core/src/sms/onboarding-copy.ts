@@ -66,6 +66,23 @@ export const FARMER_JOIN_INSTRUCTION =
   "Msg freq may vary. Msg & data rates may apply. Reply STOP to opt out.";
 
 /**
+ * Sent only after the pending invitation has redeemed and its listing is actually public.
+ * Telnyx's VIGA auto-response has already confirmed the handset; this names the separate,
+ * truthful product outcome and gives the farmer their private update page.
+ */
+export function renderFarmerOnboardingComplete(link: string | null): string {
+  return link === null
+    ? "VIGA Farm Friend: Your farm is ready. Text LINK to get your private update page."
+    : [
+        "VIGA Farm Friend: Your listing is live.",
+        "",
+        "Update it here:",
+        link,
+        "Text LINK if you lose this page.",
+      ].join("\n");
+}
+
+/**
  * The farmer keywords this system is the only channel for (F-093).
  *
  * Stated ONCE, here, and asserted against `FarmerKeyword` in `commands.ts` by test — a keyword

@@ -6,7 +6,7 @@ import {
   renderContactCardOffer,
   CUSTOMER_WELCOME,
   REGISTERED_HELP_AUTO_RESPONSE,
-  REGISTERED_OPT_IN_AUTO_RESPONSE,
+  JOIN_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
   renderClarificationRequest,
   renderPublicStringRefusal,
@@ -32,7 +32,7 @@ import type { PagingStatus } from "./paging";
 //
 // The order is Golden Rule #2 and is not negotiable:
 //
-//   1. compliance keywords   — STOP/START/JOIN/HELP/INFO, by CODE, before any model call
+//   1. compliance keywords   — STOP/START/VIGA/JOIN/HELP/INFO, by CODE, before any model call
 //   2. MAP                   — configured public-map URL, no state or model
 //   3. FLAG                  — the human-handoff safety rail, also upstream of the model
 //   4. commitment YES/NO     — context- and version-bound to the sender's ONE open proposal
@@ -177,8 +177,12 @@ function complianceAutoResponse(keyword: ComplianceKeyword): string | null {
     case "STOP":
       return REGISTERED_OPT_OUT_AUTO_RESPONSE;
     case "JOIN":
+      return JOIN_OPT_IN_AUTO_RESPONSE;
     case "START":
-      return REGISTERED_OPT_IN_AUTO_RESPONSE;
+    case "VIGA":
+      // Telnyx owns the start-operation receipt. Farm Friend supplies the distinct listing-live
+      // completion only after redemption succeeds.
+      return null;
     case "HELP":
     case "INFO":
       return REGISTERED_HELP_AUTO_RESPONSE;
@@ -218,7 +222,7 @@ export const FLAG_ACKNOWLEDGEMENT =
  *   - **Free text** mutates it (proposals, inquiries, interpretation) → still refused.
  *   - **Confirmation tokens** are bound to a specific open proposal version → still refused.
  *   - **Compliance keywords own no conversation state.** Consent orders itself on
- *     `consent_transition_watermarks`, an independent watermark where an older START can
+ *     `consent_transition_watermarks`, an independent watermark where an older start operation can
  *     never undo a newer STOP and STOP wins an exact tie. FLAG is an append-only safety
  *     rail. Neither can corrupt newer state by arriving late, so neither is refused.
  *
@@ -413,7 +417,7 @@ async function routeCompliance(
     };
   }
 
-  // STOP/START/JOIN apply on their OWN provider-time watermark, independent of conversation
+  // STOP/START/VIGA/JOIN apply on their OWN provider-time watermark, independent of conversation
   // ordering: an older delayed START can never undo a newer STOP, and STOP wins an exact tie.
   const applied = await applyConsentTransition(deps.db, {
     recipientHash: input.senderHash,
@@ -448,7 +452,7 @@ async function routeCompliance(
     customer who ever texts START.
   */
   const redeemed =
-    keyword === "START"
+    keyword === "START" || keyword === "VIGA"
       ? await openFarmerOnboardingRequest(deps.db, {
           contactHash: input.senderHash,
           occurredAt: input.occurredAt,

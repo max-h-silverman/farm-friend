@@ -6,6 +6,7 @@
 export type ComplianceKeyword =
   | "STOP"
   | "START"
+  | "VIGA"
   | "JOIN"
   | "HELP"
   | "INFO"
@@ -74,7 +75,7 @@ export const REGISTERED_OPT_OUT_KEYWORDS = [
   "END",
   "QUIT",
 ] as const;
-export const REGISTERED_OPT_IN_KEYWORDS = ["JOIN", "START"] as const;
+export const REGISTERED_OPT_IN_KEYWORDS = ["JOIN", "START", "VIGA"] as const;
 export const REGISTERED_HELP_KEYWORDS = ["HELP", "INFO"] as const;
 
 // Every registered opt-out keyword maps to the single global opt-out.

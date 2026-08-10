@@ -1,23 +1,27 @@
-// The registered 10DLC auto-response copy (F-023).
+// The Telnyx 10DLC auto-response copy (F-023).
 //
-// These three bodies are REGISTERED WITH THE CARRIER. They are transcribed character for
-// character from the AUTO-RESPONSES block of docs/TELNYX_10DLC_FIELD_VALUES.txt, which is a
-// transcript of live Telnyx console state — not a draft. `auto-responses.test.ts` reads that
-// file and fails if code and registration disagree in EITHER direction, exactly as
-// commands.test.ts does for the keyword lists.
+// Telnyx sends the VIGA onboarding receipt below. The opt-out and help bodies are also
+// registered with the carrier. They are transcribed character for character from the
+// AUTO-RESPONSES block of docs/TELNYX_10DLC_FIELD_VALUES.txt, a transcript of live Telnyx
+// console state — not a draft. `auto-responses.test.ts` fails if code and registration drift.
 //
 // So this is not copy to edit for tone. Changing what a recipient reads means changing the
 // console first, then transcribing the result here. A code-side paraphrase would make live
 // traffic differ from what the carrier approved.
 //
-// Every one of these is sent as the `required_reply` category: each answers the recipient's
-// own inbound keyword, and the opt-out confirmation in particular must survive the STOP that
-// provoked it (see `isProactiveSendPermitted`).
+// Farm Friend sends JOIN, opt-out, and help replies as `required_reply`. Telnyx, rather than
+// Farm Friend, sends the VIGA onboarding receipt, so the successful onboarding reply can carry
+// only the distinct listing-live milestone.
 
-/** Sent when a registered opt-in keyword (JOIN/START) establishes or restores consent. */
-export const REGISTERED_OPT_IN_AUTO_RESPONSE =
+/** Sent by Farm Friend when JOIN establishes first-time community consent. */
+export const JOIN_OPT_IN_AUTO_RESPONSE =
   "You have agreed to receive SMS updates from VIGA Farm Friend. Msg freq may vary. " +
   "Std msg & data rates apply. Reply STOP to opt out, HELP for help.";
+
+/** Telnyx sends this after the VIGA farmer-onboarding opt-in keyword. */
+export const TELNYX_FARMER_ONBOARDING_OPT_IN_AUTO_RESPONSE =
+  "VIGA Farm Friend: Your phone is confirmed for farm-stand updates. Msg frequency varies. " +
+  "Msg&data rates may apply. Reply HELP for help, STOP to opt out.";
 
 /** Sent to confirm a registered opt-out keyword. Carrier-required, never suppressed. */
 export const REGISTERED_OPT_OUT_AUTO_RESPONSE =
@@ -32,7 +36,7 @@ export const REGISTERED_HELP_AUTO_RESPONSE =
 /**
  * Answer to a `JOIN` from a sender who already has a consent record (B-011).
  *
- * NOT one of the three registered auto-responses above and deliberately kept apart from
+ * Not one of the carrier-registered auto-responses above and deliberately kept apart from
  * them: those are transcribed from live Telnyx console state and a recipient reads them
  * verbatim, so `auto-responses.test.ts` pins them character-for-character. This one is
  * ordinary code-rendered reply copy — it may be edited for clarity without touching the

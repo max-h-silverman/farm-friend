@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  JOIN_OPT_IN_AUTO_RESPONSE,
   REGISTERED_HELP_AUTO_RESPONSE,
-  REGISTERED_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
+  TELNYX_FARMER_ONBOARDING_OPT_IN_AUTO_RESPONSE,
 } from "./auto-responses";
 
 // The auto-response bodies are a live external artifact, like the keyword lists: they were
@@ -35,8 +36,8 @@ describe("registered 10DLC auto-responses match the registered transcript", () =
     return match[1]!.trim();
   }
 
-  it("sends exactly the registered opt-in message", () => {
-    expect(REGISTERED_OPT_IN_AUTO_RESPONSE).toBe(
+  it("records exactly the submitted Telnyx VIGA onboarding receipt", () => {
+    expect(TELNYX_FARMER_ONBOARDING_OPT_IN_AUTO_RESPONSE).toBe(
       registeredAutoResponse("Opt in message"),
     );
   });
@@ -64,16 +65,22 @@ describe("registered 10DLC auto-responses match the registered transcript", () =
     expect(REGISTERED_HELP_AUTO_RESPONSE).toMatch(/\bSTOP\b/);
   });
 
-  it("the opt-in confirmation carries rate and opt-out language", () => {
-    expect(REGISTERED_OPT_IN_AUTO_RESPONSE).toMatch(/rates apply/i);
-    expect(REGISTERED_OPT_IN_AUTO_RESPONSE).toMatch(/\bSTOP\b/);
+  it("each opt-in confirmation carries rate and opt-out language", () => {
+    for (const body of [
+      JOIN_OPT_IN_AUTO_RESPONSE,
+      TELNYX_FARMER_ONBOARDING_OPT_IN_AUTO_RESPONSE,
+    ]) {
+      expect(body).toMatch(/rates (may )?apply/i);
+      expect(body).toMatch(/\bSTOP\b/);
+    }
   });
 
   // The campaign declares `Embedded Phone Number: No`. Copy this code actually sends must
   // keep that declaration truthful, not just the transcript.
   it("embeds no phone number in any auto-response body", () => {
     for (const body of [
-      REGISTERED_OPT_IN_AUTO_RESPONSE,
+      JOIN_OPT_IN_AUTO_RESPONSE,
+      TELNYX_FARMER_ONBOARDING_OPT_IN_AUTO_RESPONSE,
       REGISTERED_OPT_OUT_AUTO_RESPONSE,
       REGISTERED_HELP_AUTO_RESPONSE,
     ]) {

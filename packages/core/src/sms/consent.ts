@@ -96,8 +96,9 @@ export function consentTransitionFor(
         ? { transition: "start", captureSource: "join" }
         : null;
     case "START":
+    case "VIGA":
       // The carrier's own keyword. Always honoured, from any state, so our record can never
-      // swallow the one word that actually lifts a block we cannot see.
+      // swallow an onboarding opt-in that lifts a block we cannot see.
       return { transition: "start", captureSource: "start" };
     case "STOP":
       return { transition: "stop" };
