@@ -1,4 +1,4 @@
-import { REGISTERED_OPT_IN_AUTO_RESPONSE } from "./auto-responses";
+import { JOIN_OPT_IN_AUTO_RESPONSE } from "./auto-responses";
 import {
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_JOIN_INSTRUCTION,
@@ -51,12 +51,12 @@ export function invitedJoinReplyBodies(outcome: InvitedJoinConsentOutcome): stri
   // the exact moment the registered copy was approved for, and it is owed regardless of
   // whether an authorization happened in the same breath.
   if (outcome.authorized === true) {
-    return outcome.consentEstablished ? [REGISTERED_OPT_IN_AUTO_RESPONSE] : [];
+    return outcome.consentEstablished ? [JOIN_OPT_IN_AUTO_RESPONSE] : [];
   }
   if (outcome.consentEstablished) {
     return [
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-      REGISTERED_OPT_IN_AUTO_RESPONSE,
+      JOIN_OPT_IN_AUTO_RESPONSE,
     ];
   }
   if (outcome.hadConsent) {

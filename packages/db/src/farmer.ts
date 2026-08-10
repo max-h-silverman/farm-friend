@@ -1,5 +1,6 @@
 import {
   renderFarmerAuthorizedNotification,
+  renderFarmerOnboardingComplete,
   renderFarmerLinkMessage,
   farmerLinkUrl,
   hashFarmerLinkToken,
@@ -663,6 +664,8 @@ async function queueFarmerAuthorizedNotification(
     contactHash: string;
     occurredAt: Date;
     publicBaseUrl: string;
+    /** Invited self-serve redemption has a distinct completion message from VIGA approval. */
+    onboardingComplete?: boolean;
   },
 ): Promise<void> {
   /*
@@ -696,11 +699,15 @@ async function queueFarmerAuthorizedNotification(
     logicalKey: `farmer-authorized-${input.authorizationId}`,
     recipientHash: input.contactHash,
     messageCategory: "inventory_prompt",
-    body: renderFarmerAuthorizedNotification(
-      issued === null ? null : farmerLinkUrl(input.publicBaseUrl, issued.token),
-      // Only a farmer with a second stand is taught `STAND` — see the renderer.
-      { standCount: locations.length },
-    ),
+    body: input.onboardingComplete === true
+      ? renderFarmerOnboardingComplete(
+          issued === null ? null : farmerLinkUrl(input.publicBaseUrl, issued.token),
+        )
+      : renderFarmerAuthorizedNotification(
+          issued === null ? null : farmerLinkUrl(input.publicBaseUrl, issued.token),
+          // Only a farmer with a second stand is taught `STAND` — see the renderer.
+          { standCount: locations.length },
+        ),
     now: input.occurredAt,
   });
 }
@@ -1331,6 +1338,7 @@ async function authorizeInvitedFarmerIn(
     contactHash: input.contactHash,
     occurredAt: input.occurredAt,
     publicBaseUrl: input.publicBaseUrl,
+    onboardingComplete: true,
   });
 
   return authorizationId;

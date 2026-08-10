@@ -135,7 +135,7 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   no second login and no consent control; pausing reminders never changes launch-program consent.
 - **Farmer onboarding** (F-067): `/farmer/onboarding/<token>` — a one-use invitation link that
   captures the SMS agreement, the farm's **listing details**, and the **phone the farmer will text
-  from**, then hands off to a prepared bare `START` text. The invitation token is the whole
+  from**, then hands off to a prepared bare `VIGA` text. The invitation token is the whole
   credential and, like the standing link, is
   posted in the request **body** (`/api/farmer/onboarding`, `/api/farmer/listing`), never a query
   string. **The token also names the farm**: a `farmId` in the request body is ignored, which is
@@ -223,7 +223,7 @@ accepted conversation watermark cannot mutate newer conversation, confirmation, 
 state; code may ask the sender to resend. Farm Friend deliberately does not reconstruct an
 arbitrarily reordered conversation.
 
-`STOP` and `START` use a separate consent-transition watermark. The chronologically later command
+`STOP`, `START`, and `VIGA` use a separate consent-transition watermark. The chronologically later command
 wins, and `STOP` wins an exact timestamp tie, so intervening free text cannot make a consent command
 stale and an older delayed `START` cannot undo a newer `STOP`.
 
@@ -242,13 +242,12 @@ was recorded as still subscribed.
 ## Launch SMS consent
 
 Launch VIGA Farm Friend is one registered operational SMS program. Each recipient has one current
-launch-program consent state with capture provenance. `START` establishes **or restores** it from
-any state; `JOIN` establishes it **only for a sender with no consent record** — see B-011 in
-docs/SMS_COMPLIANCE.md, where the carrier's own opt-out list, which only `START` clears, is why;
-documented farmer onboarding establishes it once an inbound bare `START` from the **stated phone**
-demonstrates control of the number the web agreement was accepted for. That path deliberately does
-**not** apply the first-time-only rule: `START` is the carrier's own keyword and is exactly what a
-returning farmer sends, so refusing an existing record would strand the sender it exists to restore. Inventory prompts, publication confirmations, customer
+launch-program consent state with capture provenance. `START` and farmer-onboarding `VIGA` establish
+**or restore** it from any state; `JOIN` establishes it **only for a sender with no consent record** —
+see B-011 in docs/SMS_COMPLIANCE.md, where the carrier's own opt-out list, which only `START` clears,
+is why. A bare `VIGA` from the **stated phone** demonstrates control of the number the web agreement
+was accepted for and redeems its pending invitation. `START` remains the fallback for farmers with
+older instructions. Neither path applies the first-time-only rule. Inventory prompts, publication confirmations, customer
 inquiry replies, and stock-out alerts are message categories inside that program, not separate
 program enrollments.
 
@@ -264,7 +263,7 @@ requires **active** consent for a proactive send: an absent consent row means th
 opted in, and silence is not permission. (Before F-016 the gate asked only whether the recipient had
 `STOP`ped, so a never-enrolled recipient was authorized.) `outbox_work` carries one bounded
 `message_category` — the former free-text `message_kind` plus `is_required` boolean are deleted —
-and `consentTransitionFor` maps `JOIN`/`START` onto that one program, differing in recorded
+and `consentTransitionFor` maps `JOIN`/`START`/`VIGA` onto that one program, differing in recorded
 provenance and in whether an existing record blocks them (`JOIN` alone is first-time-only). The
 first-time rule is enforced inside `applyConsentTransition` by an `insert … on conflict do nothing
 returning` against `sms_consents`' primary key — **not** by a read, and not by the watermark's
@@ -298,10 +297,11 @@ program-enrollment mechanism.
 Each verified, accepted inbound SMS is routed by **code, before any model call**, in this fixed
 order:
 
-1. **Compliance keywords win** — STOP/START/JOIN/HELP and their required variants. `STOP` always
+1. **Compliance keywords win** — STOP/START/VIGA/JOIN/HELP and their required variants. `STOP` always
    unsubscribes **globally**, regardless of conversation state, and can never be reinterpreted.
-   `START` establishes or restores the one launch-program consent state from any state; `JOIN`
-   establishes it only for a sender with no record, and otherwise replies naming `START`.
+   `START` and `VIGA` establish or restore the one launch-program consent state from any state;
+   `VIGA` can also redeem a matching pending farmer invitation. `JOIN` establishes consent only
+   for a sender with no record, and otherwise replies naming `START`.
 2. **`MAP`** returns only the configured canonical public-map URL. It is stateless, model-free,
    and remains available for a delayed carrier event; its inquiry reply is still suppressed at
    dispatch if STOP has taken effect.
@@ -454,8 +454,8 @@ Every workflow has **one authoritative core use case and one durable path**:
 | Participant display | Let the location owner save the complete active **Also selling here** name list as structured public metadata; validate names with the shared public-string guard, retire omissions without deletion, and expose no item provenance or edit access |
 | Customer stock-out | Accept a code-bound web/QR location, store a private report, resolve the authorized farmer in code, and optionally ask for current inventory; a reply uses the ordinary inventory flow; free-text customer SMS cannot queue an alert; never alter public inventory |
 | Customer inquiry | After deterministic SMS routing, obtain model interpretation of the current request; code validates it and retrieves typed current facts; for non-empty retrieval the model selects/orders fact IDs; code validates membership, renders the factual reply, and queues it; the direct response creates no later proactive subscription |
-| Launch SMS consent | Maintain one launch-program consent state with provenance; `START` and documented farmer onboarding establish or restore it, `JOIN` establishes it for first-time senders only (B-011); message categories do not have separate enrollment |
-| STOP / START / JOIN / HELP | Apply deterministic consent behavior before any other interpretation; universal STOP applies across all Farm Friend messaging; order STOP/START on their separate provider-time watermark, with STOP winning an exact tie |
+| Launch SMS consent | Maintain one launch-program consent state with provenance; `START`, `VIGA`, and documented farmer onboarding establish or restore it, `JOIN` establishes it for first-time senders only (B-011); message categories do not have separate enrollment |
+| STOP / START / VIGA / JOIN / HELP | Apply deterministic consent behavior before any other interpretation; universal STOP applies across all Farm Friend messaging; order STOP/start-operation commands on their separate provider-time watermark, with STOP winning an exact tie |
 | FLAG | Store the concern and expose it to the single-level admin queue |
 | Authentication | Issue and consume short-lived credentials once, with replay prevention and rate limiting |
 | Provider delivery | Commit business state and unique outbox work together; recheck consent when claiming dispatch, retry only definitive retryable rejection, quarantine ambiguous results, and apply delivery events monotonically |
@@ -636,7 +636,7 @@ consent rule.
 1. The farmer owns published state — no customer action mutates published inventory or ranking.
 2. Verified, deduplicated, sender-serialized SMS ingress; deterministic compliance and confirmation
    before any model call; one launch operational SMS program; STOP always global and
-   provider-ordered against START; no passive customer follow-up or scoped MUTE; exactly one open
+provider-ordered against start-operation commands; no passive customer follow-up or scoped MUTE; exactly one open
    inventory confirmation per sender, context-bound, version-bound, exactly-once, and expiring.
 3. The model proposes; code commits. Publication is confirmation-gated.
 4. Grounded, recency-labeled answers — the model selects/orders retrieved fact IDs and code renders

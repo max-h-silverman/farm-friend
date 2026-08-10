@@ -588,7 +588,7 @@ export function ListingStep({
    */
   mapUrl?: string;
   /**
-   * Farm Friend's own SMS number, for the "text START to finish" hand-off.
+   * Farm Friend's own SMS number, for the "text VIGA to finish" hand-off.
    *
    * **The farmer texts US, and that direction is forced.** `isProactiveSendPermitted` allows a
    * send to a number with no consent record only for `required_reply` — the carrier-required
@@ -743,7 +743,7 @@ export function ListingStep({
             renders the control, so there is nothing there to default.
 
             It still publishes nothing on its own. The claim is held on the invitation until
-            the farmer's START proves the handset, because a dated claim needs someone to
+            the farmer's VIGA text proves the handset, because a dated claim needs someone to
             stand behind it.
           */
           inStock: asksForCurrentStock,
@@ -825,7 +825,7 @@ export function ListingStep({
     asking again would invite a change this form has no power to make.
 
     `confirming` holds the submission open while the modal shows the number back. A mistyped
-    number is otherwise INVISIBLE: the farmer texts START from their real phone, matches
+    number is otherwise INVISIBLE: the farmer texts VIGA from their real phone, matches
     nothing, and waits, with nothing on screen wrong. Reading it back is the only check
     available before the message is sent.
   */
@@ -878,7 +878,7 @@ export function ListingStep({
     **The tick is not consent and this component does not claim it is.** It stamps provenance —
     these disclosures were shown on this invitation and accepted at this time — and that stamp
     is what the carrier receipt claims we collect and what gates authorization when the farmer's
-    `START` arrives. Consent itself is written only by that inbound message, because a tick on a
+    `VIGA` arrives. Consent itself is written only by that inbound message, because a tick on a
     web page says nothing about who holds the handset.
 
     Stamped on the TICK rather than at submit, deliberately: the stamp must exist before the
@@ -893,6 +893,7 @@ export function ListingStep({
   const [agreed, setAgreed] = useState(false);
   const [agreeing, setAgreeing] = useState(false);
   const [agreeError, setAgreeError] = useState<string | null>(null);
+  const [showCompletionIssues, setShowCompletionIssues] = useState(false);
 
   /*
     HOW OFTEN WE WILL TEXT THEM, asked where they agree to be texted (max, 2026-08-08).
@@ -909,7 +910,7 @@ export function ListingStep({
     Defaulted to `weekly` rather than blank, because that IS what the farmer gets today — a
     blank choice would be a required field invented out of a default nobody complained about.
     The value only rides along if this door can hold it: it lands on the invitation and is
-    applied when their `START` creates the authorization the preference row needs.
+    applied when their `VIGA` text creates the authorization the preference row needs.
   */
   const asksForCadence = !isEditingDoor;
   const [promptCadence, setPromptCadence] = useState<
@@ -1161,22 +1162,53 @@ export function ListingStep({
     return digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
   }
 
-  const ready =
+  const farmDetailsReady =
     standName.trim() !== "" &&
     visitability !== null &&
     address.trim() !== "" &&
-    pin !== null &&
+    pin !== null;
+  const contactDetailsReady =
     // The phone is what ties the handset to the farm, so an invited farmer without a usable one
     // has no way to finish. Blocking here beats publishing a listing they cannot complete.
     (!asksForPhone || phoneLooksReal(phone)) &&
     /*
       No tick, no submit. Without `agreed_to_sms_at` the redemption authorizes NOBODY — so a
-      farmer who published without it would text START, get enrolled for messages, and find no
+      farmer who published without it would text VIGA, get enrolled for messages, and find no
       farm set up, with nothing on screen or in the reply explaining why.
 
       Blocking here is what keeps that from being discoverable only by its absence.
     */
     (!asksForAgreement || agreed);
+  const completionIssue = (step: WizardStep, message: string) => ({ step, message });
+  const completionIssues: { step: WizardStep; message: string }[] = [
+    ...(standName.trim() === ""
+      ? [completionIssue("farm", "Enter your farm's name.")]
+      : []),
+    ...(address.trim() === ""
+      ? [completionIssue("farm", "Enter your farm address.")]
+      : pin === null
+        ? [completionIssue("farm", "Find your farm on the map.")]
+        : []),
+    ...(visitability === null
+      ? [completionIssue("farm", "Choose whether people can visit your stand.")]
+      : []),
+    ...(asksForPhone && !phoneLooksReal(phone)
+      ? [completionIssue("contact", "Enter a valid phone number.")]
+      : []),
+    ...(asksForAgreement && !agreed
+      ? [completionIssue("contact", "Agree to receive texts from VIGA Farm Friend.")]
+      : []),
+  ];
+  const visibleCompletionIssues =
+    steps === null
+      ? completionIssues
+      : completionIssues.filter((issue) => issue.step === steps[step]);
+  const firstIncompleteStep: WizardStep | null = !farmDetailsReady
+    ? "farm"
+    : !contactDetailsReady
+      ? "contact"
+      : null;
+  const ready = firstIncompleteStep === null;
 
   /**
    * Submitting the form, which on the invited door OPENS THE CONFIRMATION rather than posting.
@@ -1187,7 +1219,16 @@ export function ListingStep({
    */
   function submit(event: React.FormEvent): void {
     event.preventDefault();
-    if (busy || !ready) return;
+    if (busy) return;
+    if (!ready) {
+      if (steps !== null && firstIncompleteStep !== null) {
+        setStep(WIZARD_STEPS.indexOf(firstIncompleteStep));
+      }
+      setError(null);
+      setShowCompletionIssues(true);
+      return;
+    }
+    setShowCompletionIssues(false);
     if (asksForPhone) {
       setError(null);
       setConfirming(true);
@@ -1280,7 +1321,7 @@ export function ListingStep({
             boundary and the column both refuse. Absent means they said nothing about today.
 
             This does NOT publish here. It is held on the invitation until the farmer's
-            START proves the handset, because a dated claim needs someone to stand behind
+            VIGA proves the handset, because a dated claim needs someone to stand behind
             it — see `recordFarmerInvitationPendingStock`.
           */
           ...(asksForCurrentStock && itemRows.some((row) => row.inStock)
@@ -1303,7 +1344,7 @@ export function ListingStep({
           // Always sent, even when blank: an empty box means the farmer CLEARED the paragraph,
           // which the boundary distinguishes from a door that states nothing about it.
           description,
-          // The phone the farmer will text START from, sent RAW for the boundary to normalize
+          // The phone the farmer will text VIGA from, sent RAW for the boundary to normalize
           // and hash. Only the invited door asks for it, and only that door has a column to
           // hold it — omitted means "this door states nothing about a phone", never "clear it".
           ...(asksForPhone ? { phone } : {}),
@@ -1414,7 +1455,12 @@ export function ListingStep({
               {mapUrl === undefined ? (
                 "map"
               ) : (
-                <a href={mapUrl} target="_blank" rel="noopener noreferrer">
+                <a
+                  className="farmer-listing-map-link"
+                  href={mapUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   map
                 </a>
               )}
@@ -1435,12 +1481,9 @@ export function ListingStep({
           stops has done everything except the one step that turns on texting for them, so the
           errand cannot wait below a list they may not scroll.
 
-          The word is START and never JOIN or CONFIRM. Only START clears the carrier's OWN
-          opt-out list: Telnyx enforces it independently, and a JOIN four minutes after a STOP
-          was still refused 409 (verified live 2026-07-27). A farmer who ever opted out and
-          replied with any other word would be recorded as consenting while every message to
-          them was silently refused. START is also carrier-registered, so it works for a
-          first-timer and a returning farmer alike — one word covers both.
+          The word is VIGA, never JOIN or CONFIRM. Telnyx treats it as a registered opt-in
+          keyword and sends the phone-confirmation receipt. START remains the carrier recovery
+          keyword for a farmer who has opted out, but new onboarding teaches VIGA.
 
           `sms:` rather than plain text so a farmer reading this on a phone taps once and the
           message is composed for them. The LINK keeps the raw E.164 — that is what a handset
@@ -1454,17 +1497,17 @@ export function ListingStep({
               The number is CONFIGURATION and can be absent (`TELNYX_FROM_NUMBER` unset), but
               the instruction must not be: gating the whole block on it left a farmer with no
               last step named at all on a screen that otherwise reads as finished. Without a
-              number they are told to text START and where to find it; with one, they tap.
+              number they are told to text VIGA and where to find it; with one, they tap.
             */}
             {smsNumber === undefined ? (
               <p>
-                One last step: text <strong>START</strong> to VIGA Farm Friend from the phone
+                One last step: text <strong>VIGA</strong> to VIGA Farm Friend from the phone
                 you want to use.
               </p>
             ) : (
               <p>
-                One last step: text <strong>START</strong> to{" "}
-                <a href={buildKeywordSmsUrl(smsNumber, "START")}>
+                One last step: text <strong>VIGA</strong> to{" "}
+                <a href={buildKeywordSmsUrl(smsNumber, "VIGA")}>
                   {formatSmsNumberForDisplay(smsNumber)}
                 </a>
                 .
@@ -1473,7 +1516,7 @@ export function ListingStep({
             {/*
               WHY it must be that handset — joined to the instruction it explains (max
               2026-08-08). These were two paragraphs separated by the whole summary list and
-              the "Change something" button: the farmer read "text START" at the top, and the
+              the "Change something" button: the farmer read "text VIGA" at the top, and the
               reason it had to come from a particular phone somewhere below the fold, minutes
               later or never. One errand, one block.
             */}
@@ -1481,6 +1524,7 @@ export function ListingStep({
               It has to come from the phone you will send stand updates from — we cannot text
               you until it does.
             </p>
+            <hr className="farmer-listing-saved-reminder-divider" />
           </div>
         ) : null}
 
@@ -1524,10 +1568,10 @@ export function ListingStep({
           )}
           {itemRows.some((row) => row.inStock) ? (
             <div>
-              <dt>On the table now</dt>
+              <dt>In stock</dt>
               {/*
                 Says what will happen rather than claiming it already has. This is held
-                until the farmer's START arrives, and a summary implying it is already
+                until the farmer's VIGA text arrives, and a summary implying it is already
                 public would be the form making a claim the system has not made.
               */}
               <dd>
@@ -1535,7 +1579,7 @@ export function ListingStep({
                   .filter((row) => row.inStock)
                   .map((row) => row.name)
                   .join(", ")}{" "}
-                — goes live when you text START
+                — goes live when you text VIGA
               </dd>
             </div>
           ) : null}
@@ -1556,9 +1600,9 @@ export function ListingStep({
 
           The gap this closes: `STAND` and `SETTINGS` appeared in no farmer-facing copy at all,
           and `LINK` only as an aside in one text. A farmer finished onboarding knowing one
-          word — START — and everything after that was undiscoverable except by guessing.
+          word — VIGA — and everything after that was undiscoverable except by guessing.
 
-          It sits BELOW the summary and after the START instruction on purpose. The screen's
+          It sits BELOW the summary and after the VIGA instruction on purpose. The screen's
           first job is getting that one text sent; a reference competing with it costs
           completions, which is the mistake the note further down this file already records.
 
@@ -1570,7 +1614,7 @@ export function ListingStep({
           <dl>
             <div>
               <dt>Text what you have</dt>
-              <dd>&ldquo;six dozen eggs, kale&rdquo; — that is the whole thing</dd>
+              <dd>e.g. we have tomatoes and eggs. no greens right now</dd>
             </div>
             <div>
               <dt>LINK</dt>
@@ -1607,6 +1651,17 @@ export function ListingStep({
           </h3>
         </div>
       )}
+
+      {showCompletionIssues && visibleCompletionIssues.length > 0 ? (
+        <div className="farmer-form-error" role="alert">
+          <p>Finish these before submitting:</p>
+          <ul>
+            {visibleCompletionIssues.map((issue) => (
+              <li key={issue.message}>{issue.message}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {/*
         Each step is a `hidden` FIELDSET over one always-mounted form, never a branch that
@@ -1693,21 +1748,8 @@ export function ListingStep({
             sentence carried in `aria-label`, which asked a sighted farmer to infer from a
             picture what a screen reader was told outright.
 
-            THE WORD IS NO LONGER "SAVE" (F-098, max 2026-08-09). This button places the
-            address on the map; the TAB's one commit button is what saves. While the editing
-            door also carried an onboarding "Submit", "Save" here was the only honest word for
-            it — with a single "Save changes" now committing the whole tab, a second button
-            saying "Save" reads as a competing commit and invites the farmer to press it and
-            wonder which one counted.
-
-            IT LOOKS LIKE SUBMIT (max 2026-08-08), carrying the shared `-primary` class rather
-            than a quieter style of its own. It says "Save" and it commits the address, so
-            dressing it as a secondary control asked the farmer to read two different-looking
-            buttons as the same kind of action.
-
-            OFF UNLESS THERE IS SOMETHING TO SAVE — see `canSaveAddress`. A live button on an
-            address already saved invites a press that changes nothing, which is what makes a
-            farmer doubt the first press worked.
+            It says Save because that is the farmer's one action after entering an address.
+            It is disabled once the address has a matching map pin — see `canSaveAddress`.
           */}
           <button
             type="button"
@@ -1723,13 +1765,20 @@ export function ListingStep({
                   exactly as long as the lookup runs.
                 */}
                 <span className="farmer-listing-lookup-busy" aria-hidden="true" />
-                <span className="sr-only">Finding on map</span>
+                <span className="sr-only">
+                  {isEditingDoor ? "Finding address on map" : "Saving address"}
+                </span>
               </>
             ) : (
-              "Find on map"
+              isEditingDoor ? "Find on map" : "Save"
             )}
           </button>
         </div>
+        {lookupNote === null ? null : (
+          <p className="farmer-form-note" role="status">
+            {lookupNote}
+          </p>
+        )}
 
         {/*
           F-088 — hiding the address WITHOUT hiding the stand.
@@ -1830,12 +1879,6 @@ export function ListingStep({
             </g>
           )}
         </svg>
-        {lookupNote === null ? null : (
-          <p className="farmer-form-note" role="status">
-            {lookupNote}
-          </p>
-        )}
-
       {/*
         THE BRANCH. Asked before anything that depends on it, and deliberately not
         pre-answered: whether there is a place to drive to is the one fact nobody may invent
@@ -2124,12 +2167,27 @@ export function ListingStep({
       </fieldset>
 
       <fieldset className="farmer-listing-step" hidden={!onStep("sell")}>
+      <StockInventoryEditor
+        kind="usual"
+        items={itemRows.map((row, index) => ({
+          key: String(index),
+          name: row.name,
+          inStock: asksForCurrentStock ? row.inStock : undefined,
+          price: priceDraft(row),
+        }))}
+        pricesEnabled={pricesPublic}
+        draftItem={draftItem}
+        onPricesEnabledChange={() => setPricesPublic(!pricesPublic)}
+        onDraftItemChange={setDraftItem}
+        onAddItem={addItem}
+        onStockChange={(key) => toggleItemStock(Number(key))}
+        onPriceChange={(key, price) => setItemPrice(Number(key), price)}
+        onRemoveItem={(key) => removeItem(Number(key))}
+        highlighted={isOnboardingDoor}
+      />
+
       {/* ── Payment ────────────────────────────────────────────────────────────────────── */}
-      {/*
-        Checkboxes over the closed set, so "venmo" and "Venmo" cannot become two values a
-        filter fails to join. VIGA Bucks stays outside that set because its eligibility is
-        granted by VIGA, while acceptance is the farmer's own choice.
-      */}
+      {/* Checkboxes keep payment names consistent while VIGA Bucks saves separately. */}
       <fieldset className="farmer-listing-payments">
         <legend>How can people pay?</legend>
         {PAYMENT_OPTIONS.map((method) => (
@@ -2148,26 +2206,15 @@ export function ListingStep({
             <span>{method}</span>
           </label>
         ))}
+        <label className="farmer-listing-choice">
+          <input
+            type="checkbox"
+            checked={farmBucksAccepted}
+            onChange={(event) => setFarmBucksAccepted(event.target.checked)}
+          />
+          <span>VIGA Bucks</span>
+        </label>
       </fieldset>
-
-      {/*
-        Shown to EVERY farmer (max, 2026-08-10). It used to render only when
-        `defaults.farmBucksEligible` was true, which meant it never rendered for the farmer this
-        form exists for: eligibility is a VIGA flag on a stand row that does not exist until
-        this form is saved, so a new farm could not see the option at all.
-
-        Acceptance is the farmer's own claim about their own stand and publishes on their word,
-        the same as every other fact on this form. VIGA's eligibility flag still exists and is
-        still VIGA's, but it no longer decides what the farmer may say.
-      */}
-      <label className="farmer-listing-choice">
-        <input
-          type="checkbox"
-          checked={farmBucksAccepted}
-          onChange={(event) => setFarmBucksAccepted(event.target.checked)}
-        />
-        <span>Accepts VIGA Bucks</span>
-      </label>
 
       <label htmlFor="other-payment">Anything else you accept as payment?</label>
       <input
@@ -2177,47 +2224,6 @@ export function ListingStep({
         onChange={(event) => setOtherPayment(event.target.value)}
         placeholder="e.g. trade for eggs"
         maxLength={500}
-      />
-
-      {/*
-        WHAT THE STAND USUALLY SELLS — one ROW per item since F-090, where it was a single
-        comma-separated box.
-
-        The rows exist because each item now carries its own optional price, and a price
-        cannot ride in a comma list without inventing a syntax the farmer has to learn
-        ("eggs $6, kale"). A row per item is also what lets the stock tick below sit beside
-        the thing it is about.
-
-        The farmer's OWN WORDS, and they stay that way. "tomato", "tomatoes" and "love apple"
-        remain three items — folding them would be a produce taxonomy, which no business code
-        may hard-code.
-      */}
-      {/*
-        ONE SECTION that owns the whole question (max 2026-08-08). The label, the add box, the
-        rows and two loose notes used to be five siblings among the form's other fields, so
-        nothing marked where "what you sell" began or ended — the rows read as belonging to the
-        paragraph box that follows them.
-
-        A `fieldset`/`legend` rather than a styled `div`, matching `-branch` above: the
-        boundary has to exist for a screen reader too, and `legend` is what names the group
-        without inventing a heading level in the middle of a form.
-      */}
-      <StockInventoryEditor
-        kind="usual"
-        items={itemRows.map((row, index) => ({
-          key: String(index),
-          name: row.name,
-          inStock: asksForCurrentStock ? row.inStock : undefined,
-          price: priceDraft(row),
-        }))}
-        pricesEnabled={pricesPublic}
-        draftItem={draftItem}
-        onPricesEnabledChange={() => setPricesPublic(!pricesPublic)}
-        onDraftItemChange={setDraftItem}
-        onAddItem={addItem}
-        onStockChange={(key) => toggleItemStock(Number(key))}
-        onPriceChange={(key, price) => setItemPrice(Number(key), price)}
-        onRemoveItem={(key) => removeItem(Number(key))}
       />
 
       {/*
@@ -2246,7 +2252,7 @@ export function ListingStep({
         THE PHONE, and the last step stated BEFORE the farmer submits.
 
         Announced here rather than only on the saved screen: the farmer is about to type the
-        number that decides which handset can finish their setup, and "you will text START to
+        number that decides which handset can finish their setup, and "you will text VIGA to
         this number" is the fact that makes the field make sense. Discovering it afterwards is
         how a farmer fills in a number they cannot actually text from.
 
@@ -2275,11 +2281,11 @@ export function ListingStep({
             {smsNumber === undefined ? (
               <>
                 The phone you will send stand updates from. After you submit, you will text{" "}
-                <strong>START</strong> from it to finish setting up.
+                <strong>VIGA</strong> from it to finish setting up.
               </>
             ) : (
               <>
-                After you submit, text <strong>START</strong> to{" "}
+                After you submit, text <strong>VIGA</strong> to{" "}
                 <strong>{formatSmsNumberForDisplay(smsNumber)}</strong> from this phone to
                 finish setting up. We cannot
                 text you until you do.
@@ -2389,7 +2395,9 @@ export function ListingStep({
             <button
               type="button"
               className="farmer-listing-back"
-              onClick={() => setStep((at) => at - 1)}
+              onClick={() => {
+                setStep((at) => at - 1);
+              }}
               disabled={busy}
             >
               Back
@@ -2399,7 +2407,9 @@ export function ListingStep({
             <button
               type="button"
               className="farmer-primary-action"
-              onClick={() => setStep((at) => at + 1)}
+              onClick={() => {
+                setStep((at) => at + 1);
+              }}
             >
               Next
             </button>
@@ -2419,7 +2429,7 @@ export function ListingStep({
         onboarding Submit directly above the settings panel's Save.
       */}
       {(steps === null || step === steps.length - 1) && (
-        <button type="submit" disabled={busy || !ready}>
+        <button type="submit" disabled={busy}>
           {busy
             ? isEditingDoor
               ? "Saving…"
@@ -2434,7 +2444,7 @@ export function ListingStep({
         THE CONFIRMATION, and why a modal rather than a note beside the field.
 
         A mistyped phone number is the one error on this form with NO feedback anywhere. The
-        listing saves, the farmer texts START from their real phone, it matches no invitation,
+        listing saves, the farmer texts VIGA from their real phone, it matches no invitation,
         and they wait — with every field on screen looking correct. Nothing in the system can
         detect it, because a number that is ten valid digits is indistinguishable from the right
         ten digits.
@@ -2464,7 +2474,7 @@ export function ListingStep({
             {/*
               ONE QUESTION, and the errand is not it (max, 2026-08-08).
 
-              This used to name START and the number here as well. That asked the farmer to
+              This used to name VIGA and the number here as well. That asked the farmer to
               check ten digits and absorb an instruction at the same moment, when only the
               first is actionable — and the instruction is repeated on the screen they land on
               a second later, where it is the thing to act on. What stays is the reason the

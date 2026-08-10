@@ -96,9 +96,6 @@ export default async function SecretFarmerOnboardingPage({
 
       {verified ? (
         <>
-          <p className="farmer-onboarding-lede">
-            Tell people what you have. This goes straight onto the island map.
-          </p>
           <section className="farmer-onboarding-card" aria-labelledby="listing-heading">
             <h2 id="listing-heading">Your stand</h2>
             {/*

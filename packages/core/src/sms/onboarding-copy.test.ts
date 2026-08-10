@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   CUSTOMER_WELCOME,
   renderContactCardOffer,
+  renderFarmerOnboardingComplete,
   renderFarmerAuthorizedNotification,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   FARMER_JOIN_INSTRUCTION,
@@ -26,6 +27,17 @@ const registeredFieldValues = resolve(
 );
 
 describe("farmer onboarding copy", () => {
+  it("separates listing-live completion from the carrier's phone confirmation", () => {
+    const link = "https://farmfriend.example/stand/" + "a".repeat(64);
+    const body = renderFarmerOnboardingComplete(link);
+
+    expect(body).toContain("listing is live");
+    expect(body).toContain(link);
+    expect(body).toContain("LINK");
+    expect(body).not.toMatch(/confirmed for messages|subscribed|welcome/i);
+    expect(body).not.toContain("contact-card");
+  });
+
   it("gives a newly joined customer a usable introduction without exposing farmer controls", () => {
     const welcome = CUSTOMER_WELCOME;
     expect(welcome.toLowerCase()).toContain("ask what is available");

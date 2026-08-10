@@ -540,7 +540,7 @@ Carrier keyword and confirmation requirements center on opt-in, opt-out, and hel
 <https://support.telnyx.com/en/articles/10645338-10dlc-keywords-and-confirmation-messages> and
 <https://support.telnyx.com/en/articles/9940291-10dlc-campaign-compliance-requirements>. **FLAG is a
 Farm Friend product safety feature and must not be represented as a carrier-mandated keyword.**
-Launch is one registered operational SMS program: `JOIN`, `START`, and documented farmer onboarding
+Launch is one registered operational SMS program: `JOIN`, `START`, `VIGA`, and documented farmer onboarding
 establish its consent; universal STOP applies across all Farm Friend messaging; a customer inquiry
 permits only its relevant direct reply and creates no passive follow-up subscription or `MUTE` path.
 Adding an outbound message type means adding a `message_category` enum value and deciding its

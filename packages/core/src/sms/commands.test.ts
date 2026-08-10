@@ -10,7 +10,7 @@ import {
 
 describe("deterministic command parsing (Golden Rule #2)", () => {
   it("compliance + commitment tokens all bypass the model", () => {
-    for (const tok of ["STOP", "STOPALL", "START", "JOIN", "HELP", "INFO", "FLAG", "YES", "NO"]) {
+    for (const tok of ["STOP", "STOPALL", "START", "VIGA", "JOIN", "HELP", "INFO", "FLAG", "YES", "NO"]) {
       expect(bypassesModel(tok)).toBe(true);
     }
   });
@@ -107,6 +107,14 @@ describe("deterministic command parsing (Golden Rule #2)", () => {
       const parsed = parseCommand(w);
       expect(parsed).toEqual({ kind: "compliance", keyword: w, global: false });
     }
+  });
+
+  it("treats VIGA as the exact onboarding opt-in keyword, never free text", () => {
+    expect(parseCommand(" viga. ")).toEqual({
+      kind: "compliance",
+      keyword: "VIGA",
+      global: false,
+    });
   });
 });
 

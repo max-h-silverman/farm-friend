@@ -1,10 +1,10 @@
 TELNYX 10DLC FIELD VALUES - VIGA FARM FRIEND
 
-STATUS: this file RECORDS THE LIVE REGISTERED CAMPAIGN as read from the Telnyx console on
-2026-07-26 and confirmed by max. It is a transcript of submitted state, NOT a draft or a
-proposal. Earlier revisions of this file were a wish list of candidate field values, which
-caused a false alarm: a sample message that existed only here was mistaken for registered
-copy advertising two retired confirmation tokens. Nothing was ever registered with them.
+STATUS: this file records the approved Telnyx campaign as amended on 2026-08-10. The amendment
+did not require a new carrier review. It is a transcript of live state, NOT a draft or a proposal. Earlier
+revisions of this file were a wish list of candidate field values, which caused a false alarm:
+a sample message that existed only here was mistaken for registered copy advertising two retired
+confirmation tokens. Nothing was ever registered with them.
 
 Change this file ONLY to match what the console actually shows. If you want to change the
 campaign, change it in the console first, then transcribe the result here.
@@ -21,25 +21,13 @@ CONTENT DETAILS
 Campaign Description
 Vashon Island Growers Association (VIGA) operates VIGA Farm Friend to keep the VIGA farm-stand map fresh and useful. VIGA Farm Friend sends operational SMS messages for participating Vashon farmers and community members. Donations are not solicited.
 
-When a user calls or is in person, the representative explains the consent process verbally:
-
-Agent states to the user: "By providing your phone number, you agree to receive SMS customer care updates from VIGA Farm Friend. Message frequency may vary. Standard Message and Data Rates may apply. Reply STOP to opt out. Reply HELP for help. We will not share mobile information with third parties for promotional or marketing purposes."
-
-Once the user verbally agrees, the phone number is recorded, and a confirmation SMS is sent:
-
-"You have agreed to receive SMS updates from VIGA Farm Friend. Msg freq may vary. Std msg & data rates apply. Reply STOP to opt out, HELP for help."
-
-VERBAL/PHONE CONSENT maps to the `farmer_onboarding` capture source in code
-(packages/core/src/sms/consent.ts). There is deliberately no separate verbal-consent state:
-the capture source records HOW consent arrived, and the one launch program is what it grants.
-
 Opt In Workflow Description (Message Flow/Call To Action)
-The public mobile opt-in call to action is published on the Vashon Island Growers Association website at this exact path: https://www.vigavashon.org/viga-farm-friend. The page says: "Text JOIN to +1 206-864-5326 (206-86-GLEAN) to receive SMS messages from VIGA Farm Friend about VIGA farm-stand listings, farm-stand inventory updates, produce availability inquiries, and stock-out reports on Vashon Island. Message frequency varies based on farm activity and your use of the service, usually 0-6 messages per week. Message and data rates may apply. Consent is not a condition of purchase or participation. Reply HELP for help. Reply STOP to unsubscribe. Terms: https://www.vigavashon.org/farm-friend-privacy-terms. Privacy: https://www.vigavashon.org/farm-friend-privacy-terms." The same JOIN call to action may also appear on VIGA Farm Friend outreach materials, VIGA website posts, VIGA social media posts, and in-person community or farmer outreach. Users opt in by texting JOIN or START to +1 206-864-5326. Farmers may also opt in during VIGA onboarding in person or by phone; VIGA records how and when SMS consent was received before any proactive SMS is sent. VIGA may review and approve a subscriber before VIGA Farm Friend sends operational messages.
+Farmers opt in while completing VIGA Farm Friend onboarding: they accept the SMS agreement on the form, enter their phone number, then text VIGA from that phone to VIGA Farm Friend. That inbound text confirms control of the phone and completes setup. Farm Friend then sends operational farm-stand messages, including update reminders, publication confirmations, and customer stock-out reports. Community members may opt in by texting JOIN after viewing the call to action at https://www.vigavashon.org/viga-farm-friend. START remains available to restart messaging after an opt-out.
 
 KEYWORDS
 
 Opt in keywords
-JOIN,START
+JOIN,START,VIGA
 
 Opt out keywords
 STOP,STOPALL,UNSUBSCRIBE,CANCEL,END,QUIT
@@ -50,7 +38,7 @@ HELP,INFO
 AUTO-RESPONSES
 
 Opt in message
-You have agreed to receive SMS updates from VIGA Farm Friend. Msg freq may vary. Std msg & data rates apply. Reply STOP to opt out, HELP for help.
+VIGA Farm Friend: Your phone is confirmed for farm-stand updates. Msg frequency varies. Msg&data rates may apply. Reply HELP for help, STOP to opt out.
 
 Opt out message
 VIGA Farm Friend: You have been unsubscribed and will no longer receive messages from us. Reply HELP for assistance.

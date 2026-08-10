@@ -2496,6 +2496,10 @@ form.farmer-picker-next {
   border-radius: 0;
 }
 
+.farmer-listing-map-link {
+  color: var(--green);
+}
+
 .farmer-listing-summary {
   display: grid;
   gap: 0.6rem;
@@ -2565,6 +2569,13 @@ form.farmer-picker-next {
 
 .farmer-listing-saved-reminder p:last-child {
   color: var(--ink-soft);
+}
+
+.farmer-listing-saved-reminder-divider {
+  width: 100%;
+  margin: 0.45rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--green);
 }
 
 .farmer-listing-saved-reminder a {
@@ -3199,6 +3210,16 @@ form.farmer-picker-next {
   background: var(--amber-soft);
   border: 1px solid var(--amber-line);
   border-radius: 10px;
+}
+
+.farmer-form-error p,
+.farmer-form-error ul {
+  margin: 0;
+}
+
+.farmer-form-error ul {
+  margin-top: 0.35rem;
+  padding-left: 1.2rem;
 }
 
 /* Confirmed and published — the one moment this screen gets to be unambiguous. */
@@ -5524,6 +5545,10 @@ button.admin-action-danger,
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 10px;
+}
+
+.farmer-listing-inventory-highlighted {
+  border: 4px solid var(--selected);
 }
 
 /* The list, and the rows in it, for the same reason — the constraint has to reach the whole way
