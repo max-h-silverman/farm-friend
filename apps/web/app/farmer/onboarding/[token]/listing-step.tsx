@@ -125,9 +125,8 @@ function rowPrice(
  *
  * **Payment methods are a closed set with a free-text tail** (F-069). They were one comma box
  * into an unconstrained column, so "venmo" and "Venmo" became two values no filter could join —
- * the unfilterable shape Farm Friend exists to replace. VIGA Farm Bucks is deliberately NOT
- * offered: it is a VIGA eligibility fact with its own admin workflow, and a farmer cannot grant
- * themselves eligibility by ticking a box.
+ * the unfilterable shape Farm Friend exists to replace. VIGA Farm Bucks remains a separate
+ * boolean: VIGA grants eligibility, then an eligible farmer states whether they accept it.
  *
  * **Season, hours and stocking are structured** (F-069) into F-035's existing filterable
  * columns, with `hoursText` surviving beside them as the farmer's own words. "Dawn to dusk" is a
@@ -139,7 +138,7 @@ function rowPrice(
  * surrounding whitespace only, never singular/plural or synonyms.
  */
 
-/** What the form may offer as checkboxes. NOT VIGA Farm Bucks — see the note above. */
+/** Ordinary payment methods; VIGA Bucks has its own eligibility-gated toggle. */
 const PAYMENT_OPTIONS = [
   "Cash",
   "Check",
@@ -504,6 +503,9 @@ export interface ListingDefaults {
    * off the next time they edited their hours.
    */
   pricesPublic: boolean;
+  /** VIGA controls eligibility; the farmer only states whether they accept it. */
+  farmBucksEligible?: boolean;
+  farmBucksAccepted?: boolean;
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
@@ -645,6 +647,9 @@ export function ListingStep({
   );
   const [otherPayment, setOtherPayment] = useState(
     storedPayments.filter((method) => !offered.has(method)).join(", "),
+  );
+  const [farmBucksAccepted, setFarmBucksAccepted] = useState(
+    defaults?.farmBucksAccepted === true,
   );
   /*
     Whether this door may state what is on the table TODAY.
@@ -1258,6 +1263,7 @@ export function ListingStep({
             ? { stockingDays: stockingDays.length > 0 ? stockingDays : null }
             : {}),
           paymentMethods: [...payments, ...list(otherPayment)],
+          farmBucksAccepted,
           // F-090 / F-092 — name and price as one pair per item. A price that is not fully
           // stated travels as `null`, never as a half-filled object: the database refuses that
           // shape, and "not stated" is a different fact from a price of nothing.
@@ -2121,8 +2127,8 @@ export function ListingStep({
       {/* ── Payment ────────────────────────────────────────────────────────────────────── */}
       {/*
         Checkboxes over the closed set, so "venmo" and "Venmo" cannot become two values a
-        filter fails to join. VIGA Farm Bucks is absent on purpose: acceptance depends on an
-        eligibility only VIGA grants, and a farmer must not be able to claim it here.
+        filter fails to join. VIGA Bucks stays outside that set because its eligibility is
+        granted by VIGA, while acceptance is the farmer's own choice.
       */}
       <fieldset className="farmer-listing-payments">
         <legend>How can people pay?</legend>
@@ -2143,6 +2149,17 @@ export function ListingStep({
           </label>
         ))}
       </fieldset>
+
+      {defaults?.farmBucksEligible === true ? (
+        <label className="farmer-listing-choice">
+          <input
+            type="checkbox"
+            checked={farmBucksAccepted}
+            onChange={(event) => setFarmBucksAccepted(event.target.checked)}
+          />
+          <span>Accepts VIGA Bucks</span>
+        </label>
+      ) : null}
 
       <label htmlFor="other-payment">Anything else you accept as payment?</label>
       <input

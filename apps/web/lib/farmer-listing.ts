@@ -543,6 +543,7 @@ export function parseListingSubmission(
       hoursText,
       availability,
       paymentMethods,
+      farmBucksAccepted: body.farmBucksAccepted === true,
       items,
       // An absent field parses as `null`, which the writer stores as "no paragraph". That is
       // the right reading HERE because every door sends this field on every save — the writer

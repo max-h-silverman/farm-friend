@@ -29,8 +29,8 @@ import { parseListingSubmission } from "./farmer-listing";
 //     claim, and "eggs are on the table today" is a dated one (F-066), and this door may only
 //     make the first.
 //
-// What it deliberately CANNOT change is unchanged: Farm Bucks is a VIGA eligibility fact with
-// its own admin workflow, and a farmer may not grant themselves eligibility from a form.
+// Farm Bucks eligibility remains VIGA-controlled. An eligible farmer may state whether they
+// accept it; this boundary cannot turn an ineligible stand into an eligible one.
 
 export interface FarmerListingEditDeps {
   db: Db;

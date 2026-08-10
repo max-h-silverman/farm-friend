@@ -744,10 +744,7 @@ describe("onboarding listing step", () => {
       }
     });
 
-    it("does NOT offer VIGA Farm Bucks, which only VIGA can grant", async () => {
-      // Acceptance is gated on an eligibility with its own admin workflow and an
-      // `acceptanceRequiresEligibility` constraint. A farmer ticking a box would be asserting
-      // a VIGA decision about themselves.
+    it("does not offer VIGA Farm Bucks to an ineligible farmer", async () => {
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
       expect(screen.queryByText(/farm bucks/i)).not.toBeInTheDocument();
@@ -2559,6 +2556,8 @@ describe("onboarding listing step", () => {
         stockingDays: [2, 5],
       },
       description: null,
+      farmBucksEligible: true,
+      farmBucksAccepted: false,
     };
 
     function renderEdit() {
@@ -2588,6 +2587,19 @@ describe("onboarding listing step", () => {
 
       expect(screen.getByLabelText("Cash")).toBeChecked();
       expect(screen.getByLabelText("Anything else you accept as payment?")).toHaveValue("Goats");
+    });
+
+    it("lets an eligible farmer state that they accept VIGA Bucks", async () => {
+      const fetchMock = stubFetch({ ok: true });
+      const user = userEvent.setup();
+      renderEdit();
+
+      const vigaBucks = screen.getByRole("checkbox", { name: "Accepts VIGA Bucks" });
+      expect(vigaBucks).not.toBeChecked();
+      await user.click(vigaBucks);
+      await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+
+      expect(posted(fetchMock).farmBucksAccepted).toBe(true);
     });
 
     it("arrives PUBLISHABLE, so an edit is not a forced re-lookup", async () => {
@@ -2627,6 +2639,7 @@ describe("onboarding listing step", () => {
       expect(body.latitude).toBe(47.4471);
       expect(body.longitude).toBe(-122.4594);
       expect(body.hoursText).toBe("Dawn to dusk");
+      expect(body.farmBucksAccepted).toBe(false);
       expect(body.paymentMethods).toEqual(["Cash", "Goats"]);
       // F-090 — items round-trip as name/price pairs. Still the same B-037 guarantee this
       // test was written for: what the form was given is exactly what it sends back.

@@ -83,6 +83,8 @@ export default async function FarmerListingEditPage({
             // F-092 — the same rule for the price switch: a form that could not see it would
             // reset it to off on the next otherwise-untouched save.
             pricesPublic: listing.pricesPublic,
+            farmBucksEligible: listing.farmBucksEligible,
+            farmBucksAccepted: listing.farmBucksAccepted,
             latitude: listing.latitude,
             longitude: listing.longitude,
             hoursText: listing.hoursText,

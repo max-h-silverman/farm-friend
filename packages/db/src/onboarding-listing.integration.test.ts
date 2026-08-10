@@ -1024,6 +1024,48 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(rows[0]!.public_address).toBe("12345 Vashon Highway SW");
   });
 
+  it("lets an eligible farmer state acceptance of VIGA Bucks", async () => {
+    const seeded = await client()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude,
+        farm_bucks_accepted, farm_bucks_eligible
+      ) values (
+        ${farmId}, 'farm_stand', 'Eligible Stand', 'America/Los_Angeles',
+        'visitable', 'produce', '1 Old Way', 47.40, -122.40, false, true
+      ) returning id
+    `;
+    const salesLocationId = seeded[0]!.id as string;
+
+    const saved = await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Eligible Stand",
+      listing: { ...visitableListing, farmBucksAccepted: true },
+      occurredAt: new Date("2026-08-09T20:00:00Z"),
+    });
+
+    expect(saved.status).toBe("saved");
+    expect(await readStandListing(database(), { salesLocationId })).toMatchObject({
+      farmBucksEligible: true,
+      farmBucksAccepted: true,
+    });
+  });
+
+  it("refuses a VIGA Bucks acceptance claim from an ineligible farm", async () => {
+    const result = await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Ineligible Stand",
+      listing: { ...visitableListing, farmBucksAccepted: true },
+      occurredAt: new Date("2026-08-09T20:00:00Z"),
+    });
+
+    expect(result).toEqual({ status: "farm_bucks_not_eligible" });
+    const rows = await client()`
+      select id from sales_locations where owner_farm_id = ${farmId}
+    `;
+    expect(rows).toHaveLength(0);
+  });
+
   it("keeps a farm's own stand separate from another farm's", async () => {
     // Two farmers onboarding at once must not write onto each other's listing. The scope is
     // the invitation's farm and nothing wider.

@@ -57,7 +57,7 @@ daily data entry, the product has failed its north star.
 | Flag review + thread viewer | `/admin/flags` | Resolve or dismiss flags and inspect the flagged thread with phones masked |
 | Stock-out report queue | `/admin/reports` | See what customers reported, per farm; mark reviewed or dismissed |
 | Stand-data questions | `/admin/stand-data` | Resolve the loader's questions about VIGA's source data, recording the decision |
-| Stand listing facts | `/admin` (Stand records) | Review and save a stand's Farm Bucks eligibility and acceptance status |
+| Stand listing facts | `/admin` (Stand records) | Set VIGA Bucks eligibility; an eligible farmer states acceptance on their listing |
 | Farmer access | `/admin/farmers` | Invite a farmer, authorize them to publish for a farm, see every farmer's access live and withdrawn, revoke it, issue a replacement private link, and send a fresh onboarding link to a farm nobody can update yet |
 
 Each surface ships **incrementally with its workflow**, never as a final phase.
