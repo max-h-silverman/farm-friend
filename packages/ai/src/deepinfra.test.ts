@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDeepInfraProvider } from "./deepinfra";
+import {
+  createDeepInfraProvider,
+  MAX_RESPONSE_TOKENS,
+  REQUEST_TIMEOUT_MS,
+} from "./deepinfra";
 import { generateValidated } from "./index";
 import { projectOfferingExtraction } from "./projections";
 import { z } from "zod";
@@ -52,6 +56,47 @@ describe("the DeepInfra adapter", () => {
     expect(sent.model).toBe("some-instruct-model");
     // Deterministic decoding: evals are only meaningful against a stable decode.
     expect(sent.temperature).toBe(0);
+  });
+
+  it("bounds the response length so a looping model fails fast (B-049)", () => {
+    // Measured against the live model and the production corpus: asked "who has eggs" over
+    // 48 candidates, the selection call sometimes ran away and emitted 62 identifiers from a
+    // set of 48 — repeating itself until it hit the 20-second abort. The customer got the
+    // timeout reply on the single commonest question, deterministically.
+    //
+    // Validation already rejects a duplicate identifier, so a runaway response was never
+    // going to be RENDERED. What it did was consume the whole request budget before that
+    // check could run. A token ceiling turns a 20-second wall into a prompt failure, and
+    // every legitimate response is far below it.
+    const fetchImpl = fakeFetch(completion('{"items":["eggs"]}'));
+    const provider = createDeepInfraProvider({
+      apiKey: "k",
+      model: "m",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    return provider.generateJson(context).then(() => {
+      const sent = JSON.parse(sentBody(fetchImpl));
+      expect(typeof sent.max_tokens).toBe("number");
+      // Above the widest legitimate selection — 60 candidates as uuids is ~750 tokens — so a
+      // real answer is never truncated into invalid JSON, and low enough to cut a loop off.
+      expect(sent.max_tokens).toBeGreaterThanOrEqual(800);
+      expect(sent.max_tokens).toBeLessThanOrEqual(2048);
+    });
+  });
+
+  it("gives the response ceiling enough time to be generated (B-049)", () => {
+    // The two budgets have to agree, and the original pair did not: 20 seconds at the
+    // configured model's ~30 tokens/second is about 600 tokens, so a longer answer could
+    // never finish and always became a timeout. Whichever bound is hit first must be the
+    // TOKEN one — that fails fast and visibly, where a timeout tells the customer we are
+    // broken. Both real constants are read here, so raising one without the other fails.
+    const OBSERVED_TOKENS_PER_SECOND = 30;
+    const msToGenerateCeiling =
+      (MAX_RESPONSE_TOKENS / OBSERVED_TOKENS_PER_SECOND) * 1000;
+    expect(msToGenerateCeiling).toBeLessThan(REQUEST_TIMEOUT_MS);
+    // And with real headroom, not by a hair: connection setup and prompt processing come
+    // out of the same budget before the first token is emitted.
+    expect(msToGenerateCeiling).toBeLessThan(REQUEST_TIMEOUT_MS * 0.8);
   });
 
   it("sends NO conversation, thread, or session identifier — calls are stateless", async () => {

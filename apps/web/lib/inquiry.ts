@@ -1,6 +1,7 @@
 import {
   rankCandidates,
   renderClarificationRequest,
+  renderInterpreterUnavailable,
   renderNoCurrentListing,
   renderResultPage,
   validateFactSelection,
@@ -79,11 +80,44 @@ export type InquiryOutcome =
   | { outcome: "rejected"; reason: string };
 
 /**
- * Distinguishes an offering candidate's identifier from a confirmed one for the same
- * location. Hyphenated rather than colon-separated so it satisfies `assertOpaqueId`, the
- * projection's guard that an identifier field carries an identifier and not free text.
+ * Derive the offering candidate's identifier for a location.
+ *
+ * One location can be a candidate on BOTH bases — confirmed stock and a standing offering —
+ * and the model hands back identifiers, so the two must not collide. The confirmed fact keeps
+ * the bare location id; this derives the offering's.
+ *
+ * **It must carry no structure the model could try to reconstruct (B-049).** The previous
+ * scheme was `offering-<locationId>`, and measured against the live model and the production
+ * corpus the model dropped the prefix and returned the bare uuid — 11 of 11 invalid
+ * identifiers in that run were this single mistake. Code refused each one correctly, so
+ * nothing false was ever rendered, but the customer lost a real answer every time, and 33 of
+ * 48 candidates are offering-only stands, so most questions were exposed to it.
+ *
+ * A fact identifier is an OPAQUE TOKEN to copy back verbatim, and an opaque token with a
+ * meaningful prefix invites exactly the editing that broke this. Flipping the uuid's variant
+ * nibble keeps every property that matters — deterministic, so a `MORE` replay dereferences
+ * to the same row; collision-free against the bare id; and `assertOpaqueId`-shaped — while
+ * leaving nothing a model would think to normalize away.
+ *
+ * `basis` is unaffected: it already travels to the model as its own typed field, which is
+ * what made the prefix redundant as well as fragile.
  */
-const OFFERING_FACT_PREFIX = "offering-";
+const OFFERING_VARIANT_NIBBLE: Record<string, string> = {
+  "8": "c",
+  "9": "d",
+  a: "e",
+  b: "f",
+};
+
+export function offeringFactId(locationId: string): string {
+  const nibble = OFFERING_VARIANT_NIBBLE[locationId[19] ?? ""];
+  if (nibble === undefined) {
+    // Not a v4 uuid — the seeded short ids some suites use. Fall back to a suffix, which is
+    // still a single token and still collision-free, and is never seen in production.
+    return `${locationId}z`;
+  }
+  return `${locationId.slice(0, 19)}${nibble}${locationId.slice(20)}`;
+}
 
 export interface LocationRow {
   factId: string;
@@ -243,11 +277,7 @@ async function retrieveCurrentListings(
     let entry = offeringsByLocation.get(locationId);
     if (!entry) {
       entry = {
-        // A distinct fact identifier: one location can be a candidate on both bases, and
-        // the model selects identifiers, so they must not collide. The separator is a
-        // hyphen because `assertOpaqueId` requires an identifier to LOOK like one — a
-        // colon would be refused, correctly, as free text wearing an id's name.
-        factId: `${OFFERING_FACT_PREFIX}${locationId}`,
+        factId: offeringFactId(locationId),
         farmName: row.farm_name as string,
         locationName: row.location_name as string,
         // `as string` was a lie even before F-088 — the column has been nullable since
@@ -363,6 +393,13 @@ export async function answerInquiry(
   // Step 2 — interpret. This call sees the question and no facts.
   const rawIntent = await deps.model.interpret({ taskText: input.taskText });
 
+  // B-049 — no model saw the question, so the reply must not blame the customer's wording.
+  // Checked before validation because "unavailable" is code's own observation about the
+  // transport, never a shape a model returned, and so has no interpretation to validate.
+  if (rawIntent.kind === "unavailable") {
+    return { outcome: "clarification", question: renderInterpreterUnavailable() };
+  }
+
   const intent = validateInterpretedIntent(rawIntent);
   if (!intent.ok) {
     return { outcome: "rejected", reason: intent.reason };
@@ -464,11 +501,16 @@ export async function answerInquiry(
     // string) is reported as such so an attack is observable; a transient provider error
     // asks the customer, because "no current listing" would be a factual claim we cannot
     // support from a failed call.
+    //
+    // B-049 — and the two failures say DIFFERENT things, exactly as on the interpretation
+    // seam above. Measured live, "who has eggs" interpreted correctly and then timed out
+    // here at 20.0s; telling that customer we did not catch which item they meant is both
+    // false and useless, since retrieval had already found the eggs.
     return rawSelection.reason === "invalid_output"
       ? { outcome: "rejected", reason: "selection carries only ordered fact identifiers" }
       : {
           outcome: "clarification",
-          question: renderClarificationRequest(),
+          question: renderInterpreterUnavailable(),
         };
   }
 

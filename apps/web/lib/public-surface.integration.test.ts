@@ -25,7 +25,7 @@ import {
   type Db,
   type Sql,
 } from "@farm-friend/db";
-import { answerInquiry } from "./inquiry";
+import { answerInquiry, offeringFactId } from "./inquiry";
 import { standListingLines } from "./map-view";
 import {
   handleStandsRequest,
@@ -786,7 +786,7 @@ describe("public web surface boundary (integration)", () => {
                 JSON.stringify({ kind: "lookup", items: ["rhubarb"], ranking: "any" }),
                 JSON.stringify({
                   kind: "selection",
-                  factIds: [`offering-${quietLocationId}`],
+                  factIds: [offeringFactId(quietLocationId)],
                 }),
               ),
             ),

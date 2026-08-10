@@ -114,8 +114,47 @@ export function assertDeepInfraSelectionApproved(model: string): void {
   assertProviderApproved("deepinfra", DEEPINFRA_ATTESTED_DATA_HANDLING);
 }
 
-/** How long a single model call may take before it is abandoned. */
-const REQUEST_TIMEOUT_MS = 20_000;
+/**
+ * How long a single model call may take before it is abandoned.
+ *
+ * 20 seconds was too short for the work this seam legitimately does (B-049). The selection
+ * call returns one identifier per selected stand, the configured model generates at roughly
+ * 30 tokens/second, and a broad question against the real corpus selects most of it — "who
+ * has eggs" matches 18 of 36 stands, and an honest answer naming 48 would need the entire
+ * budget just to be written down. The result was a deterministic timeout on the commonest
+ * question on the island, delivered to the customer as a failure to understand them.
+ *
+ * 45 seconds covers the widest legitimate answer with room to spare. Nothing waits on this:
+ * an inbound SMS is processed by a background worker and the reply is queued, so the ceiling
+ * bounds a stuck connection rather than anyone's page load. The pass that called this is
+ * itself budgeted, and cron recovers whatever a timeout drops.
+ */
+export const REQUEST_TIMEOUT_MS = 45_000;
+
+/**
+ * The most tokens one response may run to (B-049).
+ *
+ * A ceiling on the RESPONSE, which the timeout above is not: a model that loops produces
+ * output the whole time, so it never trips a connection timeout — it just spends the entire
+ * request budget. Measured live, the selection call for "who has eggs" over 48 candidates
+ * sometimes emitted 62 identifiers from a set of 48, repeating itself until the 20-second
+ * abort fired, so the commonest question on the island failed deterministically.
+ *
+ * Nothing false could have been rendered from it — `validateFactSelection` rejects a repeated
+ * identifier — but the check never got to run. This bounds the failure to a fast, visible
+ * invalid response instead of a wall-clock timeout.
+ *
+ * Sized to admit every legitimate answer and stop a loop: `MAX_INQUIRY_CANDIDATES` (60)
+ * uuids in a JSON array is roughly 750 tokens, so 1024 clears the widest honest selection
+ * while cutting off a model that has started repeating itself. Every other seam's output is
+ * far smaller.
+ *
+ * Set BELOW what the request timeout can generate, deliberately. A ceiling the timeout beats
+ * to is not a ceiling — it just yields the outage reply instead of a fast, visible failure —
+ * and a truncated response is worse than a rejected one, because it arrives as invalid JSON
+ * mid-identifier and burns the repair retry on nonsense.
+ */
+export const MAX_RESPONSE_TOKENS = 1024;
 
 export interface DeepInfraConfig {
   apiKey: string;
@@ -194,6 +233,8 @@ export function createDeepInfraProvider(config: DeepInfraConfig): LLMProvider {
             // Deterministic decoding: the same projected context should produce the same
             // extraction. Evals are only meaningful against a stable decode.
             temperature: 0,
+            // A runaway response is bounded here rather than by the request timeout.
+            max_tokens: MAX_RESPONSE_TOKENS,
             // Ask for JSON at the API level where supported; validation never relies on it.
             response_format: { type: "json_object" },
             messages: [

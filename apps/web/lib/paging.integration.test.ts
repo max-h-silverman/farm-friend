@@ -11,7 +11,7 @@ import {
 } from "@farm-friend/ai";
 import { FixedClock, PAGE_SIZE } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
-import { answerInquiry } from "./inquiry";
+import { answerInquiry, offeringFactId } from "./inquiry";
 import { handleNextPage } from "./paging";
 
 // F-046 part 3 — a question and its MORE, end to end against real Postgres.
@@ -199,7 +199,7 @@ describe("SMS result paging end to end (integration)", () => {
   async function askForEggs(
     senderHash: string,
     occurredAt: Date,
-    factIds: string[] = locationIds.map((id) => `offering-${id}`),
+    factIds: string[] = locationIds.map((id) => offeringFactId(id)),
   ) {
     const provider = new ScriptedProvider({
       "inquiry-interpretation": JSON.stringify({
@@ -264,7 +264,7 @@ describe("SMS result paging end to end (integration)", () => {
     const answer = await askForEggs(
       customerHash,
       T0,
-      locationIds.slice(0, 3).map((id) => `offering-${id}`),
+      locationIds.slice(0, 3).map((id) => offeringFactId(id)),
     );
 
     expect(answer.outcome).toBe("answered");
@@ -342,7 +342,7 @@ describe("SMS result paging end to end (integration)", () => {
     // pull confirmed facts forward, that stand would land on page three.
     await publishEggs(8);
     const factIds = [
-      ...locationIds.slice(0, 8).map((id) => `offering-${id}`),
+      ...locationIds.slice(0, 8).map((id) => offeringFactId(id)),
       locationIds[8]!,
     ];
     const answer = await askForEggs(customerHash, T0, factIds);
@@ -374,7 +374,7 @@ describe("SMS result paging end to end (integration)", () => {
     await askForEggs(
       customerHash,
       at(5),
-      locationIds.slice(5, 9).map((id) => `offering-${id}`),
+      locationIds.slice(5, 9).map((id) => offeringFactId(id)),
     );
 
     const rows = await client()`

@@ -13,7 +13,7 @@ import {
 import { FixedClock } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { containsRawPhone } from "@farm-friend/sms";
-import { answerInquiry } from "./inquiry";
+import { answerInquiry, offeringFactId } from "./inquiry";
 import { recordStockOutReport } from "./stockout";
 
 // F-013 — customer inquiry and code-bound stock-out reporting, end to end against real
@@ -318,7 +318,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       }),
       "grounded-fact-selection": JSON.stringify({
         kind: "selection",
-        factIds: [`offering-${ids.alphaLocation!}`],
+        factIds: [offeringFactId(ids.alphaLocation!)],
       }),
     });
 
@@ -362,7 +362,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       }),
       "grounded-fact-selection": JSON.stringify({
         kind: "selection",
-        factIds: [`offering-${ids.alphaLocation!}`],
+        factIds: [offeringFactId(ids.alphaLocation!)],
       }),
     });
 
@@ -399,7 +399,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       // The model may return them in any order; grouping is code's.
       "grounded-fact-selection": JSON.stringify({
         kind: "selection",
-        factIds: [`offering-${ids.betaLocation!}`, ids.alphaLocation!],
+        factIds: [offeringFactId(ids.betaLocation!), ids.alphaLocation!],
       }),
     });
 
@@ -418,6 +418,88 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.body).toContain("1 Road");
   });
 
+  // B-049. Offering facts used to be identified as `offering-<locationId>`, which asked the
+  // model to reproduce a structured string exactly. Measured against the real model and the
+  // production corpus it dropped the prefix and returned the bare UUID: 11 of 11 invalid
+  // identifiers were this one mistake, and every one cost the customer a real answer, because
+  // 33 of the 48 candidates are offering-only stands.
+  //
+  // A fact identifier is an OPAQUE TOKEN the model copies back, so it must carry no structure
+  // worth reconstructing. `basis` already travels as its own typed field, so the prefix was
+  // redundant as well as fragile.
+  it("identifies every retrieved fact by an opaque token carrying no structure", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Lamb"], hoursAgo(26));
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.betaLocation!}, 'frozen lamb', true, 0)
+    `;
+
+    const { provider, deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["lamb"],
+        ranking: "any",
+      }),
+      "grounded-fact-selection": JSON.stringify({ kind: "selection", factIds: [] }),
+    });
+
+    await answerInquiry(deps, { taskText: "who has lamb?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } });
+
+    const ctx = provider.contextFor("grounded-fact-selection");
+    expect(ctx).toBeDefined();
+    const fields = ctx!.fields as { facts: { factId: string; basis: string }[] };
+    // Both voices are present, so this covers the offering case specifically.
+    expect(fields.facts.map((f) => f.basis).sort()).toEqual(["confirmed", "offering"]);
+    for (const fact of fields.facts) {
+      // No composite the model could half-reproduce: no embedded basis, no separator-joined
+      // pair. A bare UUID is fine; `offering-<uuid>` is exactly the failure being removed.
+      expect(fact.factId).not.toMatch(/offering/i);
+      expect(fact.factId).not.toMatch(/confirmed/i);
+    }
+    // Distinct tokens: one location can appear on BOTH bases and they must not collide.
+    expect(new Set(fields.facts.map((f) => f.factId)).size).toBe(fields.facts.length);
+  });
+
+  it("answers when the model returns an offering's exact token", async () => {
+    // The end-to-end proof of the same defect: whatever the token scheme is, echoing back
+    // exactly what the model was shown must produce an answer rather than a refusal.
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, 'frozen lamb', true, 0)
+    `;
+
+    const interpretation = JSON.stringify({
+      kind: "lookup",
+      items: ["lamb"],
+      ranking: "any",
+    });
+
+    // Pass 1 — discover the exact token the seam shows for this offering.
+    const discover = inquiryDeps({
+      "inquiry-interpretation": interpretation,
+      "grounded-fact-selection": JSON.stringify({ kind: "selection", factIds: [] }),
+    });
+    await answerInquiry(discover.deps, { taskText: "who has lamb?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } });
+    const shown = (
+      discover.provider.contextFor("grounded-fact-selection")!.fields as {
+        facts: { factId: string }[];
+      }
+    ).facts;
+    expect(shown).toHaveLength(1);
+    const token = shown[0]!.factId;
+
+    // Pass 2 — hand that exact token back, as a well-behaved model would.
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": interpretation,
+      "grounded-fact-selection": JSON.stringify({ kind: "selection", factIds: [token] }),
+    });
+    const result = await answerInquiry(deps, { taskText: "who has lamb?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("Alpha Farm Stand");
+  });
+
   it("never lets a model select an offering it was not shown", async () => {
     // Grounding is unchanged by F-045: a fabricated offering identifier for a real location
     // is still refused, because it is not in the retrieved set.
@@ -431,7 +513,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       }),
       "grounded-fact-selection": JSON.stringify({
         kind: "selection",
-        factIds: [`offering-${ids.betaLocation!}`],
+        factIds: [offeringFactId(ids.betaLocation!)],
       }),
     });
 
@@ -663,6 +745,71 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     if (result.outcome !== "clarification") return;
     // The words are code's — the same text regardless of what the customer sent.
     expect(result.question).toContain("did not catch which item or farm");
+  });
+
+  // B-049. Measured against the live model, roughly one reply in six was the provider's own
+  // 20-second timeout, and the customer read the same "I did not catch which item or farm you
+  // meant" as a genuine misunderstanding — advice to rephrase a question that was understood
+  // perfectly well and simply never reached a model. The selection seam already keeps the two
+  // apart; interpretation collapsed them.
+  it("tells the customer to retry when the model could not be reached at all", async () => {
+    const provider: LLMProvider = {
+      async generateJson() {
+        // What an aborted DeepInfra request throws after REQUEST_TIMEOUT_MS.
+        throw new Error("AbortError: This operation was aborted");
+      },
+    };
+    const deps = {
+      db: db as Db,
+      model: createInquiryModel(provider),
+      clock: new FixedClock(T0),
+    };
+
+    const result = await answerInquiry(deps, { taskText: "who has eggs?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } });
+
+    expect(result.outcome).toBe("clarification");
+    if (result.outcome !== "clarification") return;
+    // Never blame the customer's wording for our own outage.
+    expect(result.question).not.toContain("did not catch which item or farm");
+    expect(result.question).toMatch(/again/i);
+    // Still code's words, and still no factual claim about what any stand has. An unanswered
+    // question is not evidence of absence, so it must not read as one.
+    expect(result.question).not.toMatch(/nobody has|no stand|not available|out of stock/i);
+  });
+
+  it("tells the customer to retry when the SELECTION call could not be reached", async () => {
+    // The same B-049 defect on the second seam. Measured live, "who has eggs" reached
+    // interpretation fine and then timed out at exactly 20.0s on selection — so the fix on
+    // the interpretation path alone still left the commonest question misreporting an outage
+    // as a misunderstanding.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Eggs"], hoursAgo(2));
+
+    let call = 0;
+    const provider: LLMProvider = {
+      async generateJson() {
+        call += 1;
+        // Interpretation succeeds; only the selection call fails to reach a model.
+        if (call === 1) {
+          return JSON.stringify({ kind: "lookup", items: ["Eggs"], ranking: "any" });
+        }
+        throw new Error("AbortError: This operation was aborted");
+      },
+    };
+    const deps = {
+      db: db as Db,
+      model: createInquiryModel(provider),
+      clock: new FixedClock(T0),
+    };
+
+    const result = await answerInquiry(deps, { taskText: "who has eggs", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } });
+
+    expect(call).toBe(2);
+    expect(result.outcome).toBe("clarification");
+    if (result.outcome !== "clarification") return;
+    expect(result.question).not.toContain("did not catch which item or farm");
+    expect(result.question).toMatch(/again/i);
+    // Retrieval DID find eggs, so silence about them is right but a denial would be a lie.
+    expect(result.question).not.toMatch(/nobody has|no stand|not available/i);
   });
 
   it("refuses a hostile model's recipe prose in a selection clarification", async () => {

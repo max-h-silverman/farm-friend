@@ -79,12 +79,39 @@ export function renderResultPage(input: {
   const subject = input.itemsRequested.join(", ");
   const lines: string[] = [];
 
+  // B-049 — the heading is a CLAIM, and it may only name what the rows can support.
+  //
+  // `matchedItems` is not always the requested item. When no published name matches the
+  // request, the caller deliberately falls back to the stand's whole list, because a
+  // category request ("leafy greens" answered by "butter lettuce") is a relationship only
+  // the model can see and listing nothing would render an empty claim. That fallback is
+  // right; naming the customer's word above it was not. Against the production corpus this
+  // rendered `Confirmed mangoes:` over a stand selling eggs and basil, and `Confirmed
+  // dairy:` over a creamery in reply to a dairy-allergy question — code fabricating a
+  // factual claim no retrieved row supports.
+  //
+  // So the item is named only where a row bears it out, per voice: the two headings make
+  // separate claims about separate stands and one must not borrow the other's evidence. Any
+  // single row is enough, because the heading covers the whole section rather than each line.
+  const wanted = new Set(
+    input.itemsRequested.map((item) => item.trim().toLowerCase()),
+  );
+  const namesRequestedItem = (group: PageableFact[]): boolean =>
+    group.some((fact) =>
+      fact.matchedItems.some((item) => wanted.has(item.itemName.trim().toLowerCase())),
+    );
+
+  // The generic subject keeps the sentence honest AND useful: the customer knows what they
+  // asked, and every stand line below still names exactly what that stand publishes.
+  const confirmedSubject = namesRequestedItem(confirmed) ? subject : "stock";
+  const offeringSubject = namesRequestedItem(offerings) ? subject : "these";
+
   // The heading states what was asked about and, only when it matters, where this page sits.
   // A result set that fits gets no count: it is noise when the customer can see everything.
   const range = hasMore || offset > 0 ? ` (${offset + 1}-${offset + facts.length} of ${total})` : "";
 
   if (confirmed.length > 0) {
-    lines.push(`Confirmed ${subject}${offerings.length === 0 ? range : ""}:`);
+    lines.push(`Confirmed ${confirmedSubject}${offerings.length === 0 ? range : ""}:`);
     for (const fact of confirmed) {
       const items = fact.matchedItems.map(renderItem).join(", ");
       const stale = isStale(fact.asOf, now) ? " - may be out of date" : "";
@@ -102,10 +129,10 @@ export function renderResultPage(input: {
     // together pushed the worst case to a third billed segment.
     lines.push(
       confirmed.length > 0
-        ? `Also list ${subject} as a typical offering${range}:`
+        ? `Also list ${offeringSubject} as a typical offering${range}:`
         : offset > 0
-          ? `More stands that usually have ${subject}${range}:`
-          : `Nobody has confirmed ${subject} recently. Stands that usually have it${range}:`,
+          ? `More stands that usually have ${offeringSubject}${range}:`
+          : `Nobody has confirmed ${offeringSubject} recently. Stands that usually have it${range}:`,
     );
     for (const fact of offerings) {
       lines.push("");

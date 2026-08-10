@@ -62,7 +62,18 @@ export const stockOutSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("unclear") }).strict(),
 ]);
 
-export type InterpretedIntentOutput = z.infer<typeof intentSchema>;
+/**
+ * The interpretation seam could not reach a model at all (B-049).
+ *
+ * Deliberately NOT part of `intentSchema`: it is a transport outcome code observed, never a
+ * shape a model may claim. Keeping it outside the schema means no model output can ever
+ * produce it, so it cannot be used to steer the reply.
+ */
+export type InterpretationUnavailable = { kind: "unavailable" };
+
+export type InterpretedIntentOutput =
+  | z.infer<typeof intentSchema>
+  | InterpretationUnavailable;
 /** The seam refused the model's output. `invalid_output` means the shape was rejected. */
 export type SeamRefusal = { kind: "refused"; reason: "invalid_output" | "provider_error" };
 export type FactSelectionOutput = z.infer<typeof selectionSchema> | SeamRefusal;
@@ -95,9 +106,20 @@ export function createInquiryModel(provider: LLMProvider): InquiryModel {
         intentSchema,
       );
       if (!result.ok) {
-        // Fail toward asking rather than guessing. The words are code's, rendered by the
-        // caller from this signal.
-        return { kind: "ambiguous" as const };
+        // Fail toward asking rather than guessing — but say WHICH failure it was (B-049).
+        //
+        // Both outcomes ask the customer something; they must not ask the same thing. An
+        // `invalid_output` means a model looked at the message and could not produce an
+        // interpretable request, so "tell me what you're looking for" is the honest reply. A
+        // `provider_error` means no model saw it at all — measured live, that was a 20-second
+        // timeout on roughly one reply in six — and telling that customer to rephrase blames
+        // their wording for our outage and invites them to retype a perfectly good question.
+        //
+        // Distinguished here rather than at the caller for the same reason `select` does it:
+        // the seam is what knows, and a caller cannot recover the difference afterwards.
+        return result.reason === "provider_error"
+          ? { kind: "unavailable" as const }
+          : { kind: "ambiguous" as const };
       }
       return result.value;
     },
