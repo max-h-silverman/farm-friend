@@ -63,6 +63,29 @@
 - F-065: attribute every listing change to its actor; F-084: decide participant attribution during onboarding.
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - VIGA must decide whether the Vashon Island Farmers Market belongs in the farmer roster.
+- **Customer stock-out reporting works end to end over SMS** (F-104, 2026-08-11). A customer texts
+  that something sold out; a new `customer-message-intent` seam routes report-vs-question; code
+  resolves the stand from the customer's own words by unique exact-substring match, or asks "Which
+  stand are you at?"; the report and the farmer's `stock_out_alert` commit in one transaction.
+  **GL-007 is done and GL-008 is superseded** (SMS instead of a QR/web form — max, 2026-08-10).
+  Migration **`0038`** adds `stock_out_reports.report_key` (unique, nullable) for reporting-event
+  idempotency — **applied locally only, not yet in Neon**.
+
+**Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
+tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
+F-090's four-step wizard, F-097's restyled surfaces (the settings panel, the saved-confirmation
+screen, the onboarding cadence control, the map card's recency caption), and **F-100's three admin
+tabs** — the farm directory row collapses to three columns under 34rem, unchecked by eye. Per-tranche
+browser checks are **not tracked here** (max, 2026-08-05): he runs a browser pass himself before
+go-live.
+
+The 2026-08-10 farm-card hierarchy pass was measured in Chrome (computed styles, no overflow at
+390px) against **the components rendered on the real stylesheet, not `/admin/farms` itself** — admin
+login and seeded farms were never exercised. A multi-stand farm, a removed farm, and a stand reading
+"off the map with the farm" are unseen in that new styling.
+
+**VIGA's call, not a code question:** whether Vashon Island Farmers Market belongs in the roster as
+a farm at all — it is the market itself, not a stand with a farmer to onboard.
 
 ## Traps worth not rediscovering
 

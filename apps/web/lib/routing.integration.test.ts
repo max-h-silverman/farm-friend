@@ -6,6 +6,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
 import {
+  createCustomerMessageIntentModel,
   createFarmerMessageIntentModel,
   createInquiryModel,
   createInventoryInterpreter,
@@ -296,6 +297,16 @@ describe("inbound routing end to end (integration)", () => {
     await runInboundPass({
       db: database(),
       farmerIntent: createFarmerMessageIntentModel(provider),
+      customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+      stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
       interpreter: createInventoryInterpreter(provider),
       inquiry: createInquiryModel(provider),
       clock: new FixedClock(at(1)),
@@ -995,6 +1006,16 @@ describe("inbound routing end to end (integration)", () => {
         runInboundPass({
           db: database(),
           farmerIntent: createFarmerMessageIntentModel(new ForbiddenProvider()),
+          customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+          stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
           interpreter: createInventoryInterpreter(new ForbiddenProvider()),
           inquiry: createInquiryModel(new ForbiddenProvider()),
           clock: new FixedClock(at(1)),
@@ -1005,6 +1026,16 @@ describe("inbound routing end to end (integration)", () => {
         runInboundPass({
           db: database(),
           farmerIntent: createFarmerMessageIntentModel(new ForbiddenProvider()),
+          customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+          stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
           interpreter: createInventoryInterpreter(new ForbiddenProvider()),
           inquiry: createInquiryModel(new ForbiddenProvider()),
           clock: new FixedClock(at(1)),
@@ -1084,6 +1115,16 @@ describe("inbound routing end to end (integration)", () => {
       await runInboundPass({
         db: database(),
         farmerIntent: createFarmerMessageIntentModel(provider),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
@@ -1129,6 +1170,16 @@ describe("inbound routing end to end (integration)", () => {
       await runInboundPass({
         db: database(),
         farmerIntent: createFarmerMessageIntentModel(provider),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
@@ -1233,6 +1284,16 @@ describe("inbound routing end to end (integration)", () => {
       await runInboundPass({
         db: database(),
         farmerIntent: createFarmerMessageIntentModel(provider),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
@@ -1426,6 +1487,8 @@ describe("inbound routing end to end (integration)", () => {
       // The model interprets and selects identifiers; it never authors the answer. This
       // one also tries to smuggle prose through the selection seam.
       const provider = new ScriptedProvider({
+        // F-104 — the route signal comes first now. "who has kale?" is a question.
+        "customer-message-intent": JSON.stringify({ kind: "farm_stand_question" }),
         "inquiry-interpretation": JSON.stringify({
           kind: "lookup",
           items: ["kale"],
@@ -1442,6 +1505,14 @@ describe("inbound routing end to end (integration)", () => {
       await runInboundPass({
         db: database(),
         farmerIntent: createFarmerMessageIntentModel(provider),
+        // The REAL customer classifier over the scripted provider, so this also proves a
+        // question still reaches the inquiry path through the new seam (F-104).
+        customerIntent: createCustomerMessageIntentModel(provider),
+        stockOut: {
+          parseItem: async (): Promise<never> => {
+            throw new Error("the stock-out seam must not run on a question");
+          },
+        },
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
@@ -1465,6 +1536,8 @@ describe("inbound routing end to end (integration)", () => {
       await deliverInboundOnly({ fromPhone: customerPhone, text: "who has kale?" });
 
       const provider = new ScriptedProvider({
+        // F-104 — the route signal comes first now. "who has kale?" is a question.
+        "customer-message-intent": JSON.stringify({ kind: "farm_stand_question" }),
         "inquiry-interpretation": JSON.stringify({
           kind: "lookup",
           items: ["kale"],
@@ -1476,6 +1549,16 @@ describe("inbound routing end to end (integration)", () => {
       await runInboundPass({
         db: database(),
         farmerIntent: createFarmerMessageIntentModel(provider),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),

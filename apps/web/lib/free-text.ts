@@ -3,7 +3,12 @@ import {
   type Clock,
   type InventoryInterpreter,
 } from "@farm-friend/core";
-import type { FarmerMessageIntentModel, InquiryModel } from "@farm-friend/ai";
+import type {
+  CustomerMessageIntentModel,
+  FarmerMessageIntentModel,
+  InquiryModel,
+  StockOutModel,
+} from "@farm-friend/ai";
 import {
   hasLiveFarmerAuthorization,
   isPrivilegedSender,
@@ -13,6 +18,7 @@ import {
 import { answerInquiry } from "./inquiry";
 import { applyInterpretedInventory } from "./interpretation";
 import { renderFarmerTargetMenu } from "./farmer-targeting";
+import { recordStockOutReport } from "./stockout";
 import type { RoutedReply } from "./routing";
 
 // The free-text branch of inbound routing (F-023) — the ONE path a model may run on.
@@ -32,10 +38,44 @@ import type { RoutedReply } from "./routing";
 export interface FreeTextDeps {
   db: Db;
   farmerIntent: FarmerMessageIntentModel;
+  /**
+   * The customer-side route signal (F-104): is this a question, or is someone telling us
+   * something sold out? A sibling of `farmerIntent`, in the same position on the other
+   * branch — not a field on the inquiry seam, which every working answer depends on.
+   */
+  customerIntent: CustomerMessageIntentModel;
+  /** Reads a report's free text into an item reference, once a stand is bound in code. */
+  stockOut: StockOutModel;
   interpreter: InventoryInterpreter;
   inquiry: InquiryModel;
   clock: Clock;
 }
+
+/**
+ * What a customer is asked when their report does not identify a stand.
+ *
+ * Code-rendered and deliberately plain. A customer has no farm affiliation, so there is
+ * nothing to infer from and nobody to disambiguate against — the honest move is to ask
+ * (max, 2026-08-10). Answering it is an ordinary next message, which arrives here with the
+ * stand named and resolves deterministically.
+ */
+export const STOCK_OUT_STAND_QUESTION =
+  "Thanks for letting us know. Which stand are you at?";
+
+/** The stand was named but the item was not readable. Ask; do not record an empty report. */
+export const STOCK_OUT_UNCLEAR_ITEM =
+  "Thanks for letting us know. What was sold out?";
+
+/**
+ * The reply to a recorded report — deliberately opaque about what happened next.
+ *
+ * It does NOT say the farmer was told. Two reasons, and the second is the stronger one:
+ * saying so would reveal whether a farmer is reachable and has consented (Golden Rule #5),
+ * and it would often be FALSE — an alert to a farmer without active consent is suppressed at
+ * dispatch, and a stand between farmers has nobody to alert at all. A stranger gets thanks,
+ * which is honest in every case.
+ */
+export const STOCK_OUT_THANKS = "Thanks for letting us know.";
 
 export const FARMER_INTENT_CLARIFICATION =
   "Are you updating your inventory or asking what a farm stand has? Reply UPDATE or QUESTION.";
@@ -117,6 +157,104 @@ async function handleCustomerInquiry(
   };
 }
 
+/**
+ * Resolve which stand a customer's report is about, deterministically, from their own words.
+ *
+ * **Code matches; the model never names a stand.** This is Golden Rule #1 at the door: a
+ * customer's report must not be able to land on a farmer they did not identify, and a model
+ * that could choose a location could route a stranger's report at any farm on the island.
+ * So the match runs in SQL against real rows, and it is exact-substring — not fuzzy, not
+ * ranked, not "closest". A near-miss is an ambiguity to ask about, never a guess to act on.
+ *
+ * Returns the single unambiguous match, or `null` when zero or several stands match. Both of
+ * those mean the same thing to the caller: ask which stand they are at.
+ */
+async function resolveReportedStand(
+  db: Db,
+  taskText: string,
+): Promise<{ id: string } | null> {
+  // Normalized on both sides so "plum forest" matches "Plum Forest Stand". The customer's
+  // text is the HAYSTACK and the stand name is the NEEDLE: a customer writes a sentence, and
+  // we are asking which known stand appears inside it.
+  const rows = await db.sql`
+    select id from sales_locations
+    where retired_at is null
+      and position(lower(name) in lower(${taskText})) > 0
+  `;
+  // Exactly one, or we ask. Two stands whose names both appear is genuinely ambiguous, and
+  // picking the first would be a silent guess against a farmer.
+  return rows.length === 1 ? { id: rows[0]?.id as string } : null;
+}
+
+/**
+ * A customer reporting that something is sold out (F-104).
+ *
+ * The stand is bound in CODE before anything durable happens. When it cannot be resolved the
+ * customer is asked which stand they are at and nothing is recorded — no report, no alert,
+ * and no stored half-finished state to expire or leak.
+ */
+async function handleCustomerStockOut(
+  deps: FreeTextDeps,
+  input: {
+    senderHash: string;
+    taskText: string;
+    providerEventId: string;
+    occurredAt: Date;
+  },
+): Promise<FreeTextResult> {
+  const stand = await resolveReportedStand(deps.db, input.taskText);
+
+  if (stand === null) {
+    return {
+      replies: [
+        {
+          body: STOCK_OUT_STAND_QUESTION,
+          // Answering the customer's own message; it creates no durable consent.
+          category: "inquiry_reply",
+          logicalKey: `stock-out-which-stand-${input.providerEventId}`,
+        },
+      ],
+      handled: "customer",
+    };
+  }
+
+  const outcome = await recordStockOutReport(
+    { db: deps.db, model: deps.stockOut, clock: deps.clock },
+    {
+      salesLocationId: stand.id,
+      taskText: input.taskText,
+      // The inbound event id makes a redelivered message one report and one farmer text.
+      reportKey: input.providerEventId,
+    },
+  );
+
+  if (outcome.outcome !== "recorded") {
+    // The text named a stand but no item we could identify. Ask rather than record a report
+    // that says nothing a farmer could act on.
+    return {
+      replies: [
+        {
+          body: STOCK_OUT_UNCLEAR_ITEM,
+          category: "inquiry_reply",
+          logicalKey: `stock-out-which-item-${input.providerEventId}`,
+        },
+      ],
+      handled: "customer",
+    };
+  }
+
+  return {
+    replies: [
+      {
+        body: STOCK_OUT_THANKS,
+        category: "inquiry_reply",
+        logicalKey: `stock-out-thanks-${input.providerEventId}`,
+      },
+    ],
+    handled: "customer",
+  };
+}
+
 export interface FreeTextResult {
   replies: RoutedReply[];
   handled: "farmer" | "customer" | "none";
@@ -155,6 +293,15 @@ export async function handleFreeText(
   });
 
   if (!isFarmer) {
+    // F-104 — the customer branch now has a route signal of its own. `farm_stand_question`
+    // is both the other arm and the fallback, so an unreachable or refused model leaves this
+    // path exactly as it was before the seam existed.
+    const customerIntent = await deps.customerIntent.classify({
+      taskText: input.taskText,
+    });
+    if (customerIntent.kind === "stock_out_report") {
+      return handleCustomerStockOut(deps, input);
+    }
     return handleCustomerInquiry(deps, input);
   }
 

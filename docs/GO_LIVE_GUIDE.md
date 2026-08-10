@@ -89,28 +89,38 @@ migration/snapshot pair. Operational contract: RUNBOOK §Migrations.
 
 ### GL-007 — Connect stock-out reports to a farmer alert
 
-**Confirmed gap**
+**Completed:** 2026-08-10 — `recordStockOutReport` now commits the report and its
+`stock_out_alert` outbox work in ONE transaction, so "recorded" and "the farmer was prompted"
+cannot diverge. The alert is idempotent on `logical_key`, and the whole workflow is idempotent on
+a new `stock_out_reports.report_key` (migration `0038`) when the surface supplies a reporting-event
+id. Consent is unchanged and not special-cased: `authorizeDispatch` suppresses the alert for a
+farmer without active consent, and the report still stands for VIGA.
 
-The public stock-out workflow records the report and resolves an authorized farmer hash, but the
-HTTP handler discards that hash. No production path creates `stock_out_alert` outbox work.
-
-**Required outcome**
-
-- Commit the private report and unique farmer-alert outbox work durably.
-- Keep the reporter opaque: never expose whether a farmer was resolved.
-- The alert asks the farmer to send current inventory; it creates no separate `OUT`/`IGNORE`
-  commitment.
-- A farmer reply enters the ordinary inventory proposal and `YES`/`NO` confirmation flow.
-- Add idempotency and consent-dispatch tests.
+The alert body is code-rendered from two typed facts — the bound stand's name and, for a listed
+entry, the stand's own item name. **An unlisted report names no item at all.** That text is model
+output derived from an anonymous stranger's SMS, and an integration test proved it reached the
+farmer verbatim before the shape changed. Validating it was rejected as a fix: `validatePublicStrings`
+is a publication gate that refuses and asks the author to retry, and a stranger who has already
+walked away cannot be asked.
 
 ### GL-008 — Build the customer stock-out surface
 
-**Confirmed gap**
+**Superseded by F-104** (max, 2026-08-10): the customer surface is **SMS**, not a QR/web form. A
+customer already texts Farm Friend; a QR code has to be printed and placed before it can be used.
+The required outcome below is retained only as the spec for a *web* surface, should one ever be
+wanted — `POST /api/public/stock-out` and its throttle remain in place as its entry point.
 
-There is a POST API but no stand page, public form, or QR destination through which a normal
-customer can use it.
+What shipped instead: a customer texts that something is sold out, a new `customer-message-intent`
+seam classifies report-vs-question, and code resolves which stand from the customer's own words.
+The stand match is exact-substring against real rows and must be UNIQUE — zero or several matches
+both produce "Which stand are you at?" rather than a guess, because a customer has no farm
+affiliation to disambiguate against and a wrong guess texts an unrelated farmer.
 
-**Required outcome**
+The classifier is a sibling of the farmer one rather than a new field on `inquiry-interpretation`:
+every working customer answer flows through that seam, and its fallback here is
+`farm_stand_question`, so a refused or unreachable model leaves the question path exactly as it was.
+
+**Retained web-surface spec (not built):**
 
 - Provide a location-bound reporting route or stand-page form.
 - Generate or document stable QR destinations for sales locations.

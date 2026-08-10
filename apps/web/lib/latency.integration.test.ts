@@ -356,6 +356,16 @@ describe("inbound reply latency (integration)", () => {
     await runInboundPass({
       db: database(),
       farmerIntent: createFarmerMessageIntentModel(provider),
+      customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+      stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
       interpreter: createInventoryInterpreter(provider),
       inquiry: createInquiryModel(provider),
       clock: new SystemClock(),
@@ -471,6 +481,16 @@ describe("inbound reply latency (integration)", () => {
       const deps = {
         db: database(),
         farmerIntent: createFarmerMessageIntentModel(provider),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new SystemClock(),
@@ -541,6 +561,16 @@ describe("inbound reply latency (integration)", () => {
       const deps = {
         db: database(),
         farmerIntent: createFarmerMessageIntentModel(provider),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         interpreter: createInventoryInterpreter(provider),
         inquiry: createInquiryModel(provider),
         clock: new SystemClock(),

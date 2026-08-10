@@ -1,5 +1,10 @@
 import type { Clock, InventoryInterpreter } from "@farm-friend/core";
-import type { FarmerMessageIntentModel, InquiryModel } from "@farm-friend/ai";
+import type {
+  CustomerMessageIntentModel,
+  FarmerMessageIntentModel,
+  InquiryModel,
+  StockOutModel,
+} from "@farm-friend/ai";
 import {
   applyPendingDeliveryEvents,
   authorizeDispatch,
@@ -30,6 +35,8 @@ import { handleScheduledSame } from "./scheduled-same";
 export interface InboundWorkerDeps {
   db: Db;
   farmerIntent: FarmerMessageIntentModel;
+  customerIntent: CustomerMessageIntentModel;
+  stockOut: StockOutModel;
   interpreter: InventoryInterpreter;
   inquiry: InquiryModel;
   clock: Clock;
@@ -150,6 +157,8 @@ export async function runInboundPass(
               {
                 db: deps.db,
                 farmerIntent: deps.farmerIntent,
+                customerIntent: deps.customerIntent,
+                stockOut: deps.stockOut,
                 interpreter: deps.interpreter,
                 inquiry: deps.inquiry,
                 clock: deps.clock,

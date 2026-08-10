@@ -1,6 +1,7 @@
 import {
   assertProviderApproved,
   createDeepInfraProvider,
+  createCustomerMessageIntentModel,
   createFarmerMessageIntentModel,
   createInquiryModel,
   createInventoryInterpreter,
@@ -8,6 +9,7 @@ import {
   DEEPINFRA_ATTESTED_DATA_HANDLING,
   DEEPINFRA_THIRD_PARTY_ROUTED_MODEL_PREFIXES,
   StubLLMProvider,
+  type CustomerMessageIntentModel,
   type FarmerMessageIntentModel,
   type InquiryModel,
   type ProviderDataHandling,
@@ -311,9 +313,11 @@ export interface AppContext {
   interpreter: InventoryInterpreter;
   /** Classifies an authorized farmer's free text before code resolves an update target. */
   farmerIntent: FarmerMessageIntentModel;
+  /** Classifies a customer's free text as a question or a stock-out report (F-104). */
+  customerIntent: CustomerMessageIntentModel;
   /** The customer inquiry seams. Constructed over the provider alone, like every seam. */
   inquiry: InquiryModel;
-  /** The stock-out item parser, used only by the code-bound web/QR surface. */
+  /** The stock-out item parser, used by the code-bound web/QR surface and the SMS door. */
   stockOut: StockOutModel;
   clock: Clock;
   /**
@@ -530,6 +534,7 @@ export function createAppContext(env: EnvVars = process.env): AppContext {
     }),
     interpreter: createInventoryInterpreter(provider),
     farmerIntent: createFarmerMessageIntentModel(provider),
+    customerIntent: createCustomerMessageIntentModel(provider),
     inquiry: createInquiryModel(provider),
     stockOut: createStockOutModel(provider),
     close: () => db.close(),

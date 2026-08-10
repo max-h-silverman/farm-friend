@@ -74,6 +74,8 @@ export async function POST(req: Request): Promise<Response> {
             {
               db: context.db,
               farmerIntent: context.farmerIntent,
+              customerIntent: context.customerIntent,
+              stockOut: context.stockOut,
               interpreter: context.interpreter,
               inquiry: context.inquiry,
               clock: context.clock,

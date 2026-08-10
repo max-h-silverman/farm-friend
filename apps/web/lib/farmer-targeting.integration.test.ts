@@ -167,6 +167,16 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         interpreter: { interpret },
         inquiry: forbiddenInquiry(),
         farmerIntent: farmerIntent("inventory_update"),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         clock: new FixedClock(T0),
       },
       {
@@ -206,6 +216,16 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret, select },
         farmerIntent: { classify },
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         clock: new FixedClock(T0),
       },
       {
@@ -244,6 +264,16 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         interpreter: { interpret: inventory },
         inquiry,
         farmerIntent: farmerIntent("unclear"),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         clock: new FixedClock(T0),
       },
       {
@@ -293,6 +323,16 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         interpreter: { interpret },
         inquiry: forbiddenInquiry(),
         farmerIntent: farmerIntent("inventory_update"),
+        customerIntent: {
+            classify: async () => {
+              throw new Error("the customer intent seam must not run on this path");
+            },
+          },
+        stockOut: {
+            parseItem: async () => {
+              throw new Error("the stock-out seam must not run on this path");
+            },
+          },
         clock: new FixedClock(new Date(T0.getTime() + 2_000)),
       },
       {
@@ -322,5 +362,221 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(await client()`
       select sales_location_id from inventory_publication_proposals where state = 'open'
     `).toEqual([{ sales_location_id: owned.locations[1] }]);
+  });
+
+  // -------------------------------------------------- F-104: the customer stock-out door
+
+  /**
+   * A stand belonging to somebody else, so a customer reporting against it is reporting
+   * against a farmer they have no relationship with — the real shape of this flow.
+   */
+  async function otherFarmersStand(
+    name: string,
+    // Distinct per call so a test can create two stands; the first farmer's hash is the
+    // default because most cases have exactly one and assert against it by name.
+    owner: { phone: string; hash: string } = {
+      phone: "+12065550188",
+      hash: "f".repeat(64),
+    },
+  ): Promise<string> {
+    const contacts = await client()`
+      insert into contacts (phone_e164, phone_hash, created_at)
+      values (${owner.phone}, ${owner.hash}, ${T0}) returning id
+    `;
+    const farms = await client()`insert into farms (name) values (${name}) returning id`;
+    const farmId = farms[0]?.id as string;
+    await client()`
+      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      values (${farmId}, ${contacts[0]?.id as string}, ${T0}, ${T0})
+    `;
+    const inserted = await client()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address,
+        public_latitude, public_longitude, farm_bucks_accepted, farm_bucks_eligible
+      ) values (${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable',
+                'produce', '2 Stand Way', 47.44, -122.46, false, false)
+      returning id
+    `;
+    return inserted[0]?.id as string;
+  }
+
+  it("asks which stand a customer is at rather than guessing one", async () => {
+    const senderHash = "c".repeat(64);
+    await otherFarmersStand("Plum Forest Stand");
+    const classifyCustomer = vi.fn(async () => ({ kind: "stock_out_report" as const }));
+    const customerIntent = { classify: classifyCustomer };
+    const inquiry = {
+      interpret: vi.fn(async () => {
+        throw new Error("a report must not reach the inquiry seam");
+      }),
+      select: vi.fn(),
+    };
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: inquiry as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent,
+        stockOut: { parseItem: vi.fn() },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "the tomatoes are all gone",
+        occurredAt: T0,
+        providerEventId: "stockout-ask-1",
+        inboxEventId: "44444444-4444-4444-4444-444444444444",
+      },
+    );
+
+    // Max's rule (2026-08-10): a customer has no stand affiliation, so when the stand is
+    // unclear we ask, rather than letting a model pick one.
+    expect(result.replies[0]?.body).toMatch(/which stand/i);
+    // Nothing durable happened. A question is not a report.
+    expect(await client()`select id from stock_out_reports`).toHaveLength(0);
+    expect(await client()`select id from outbox_work`).toHaveLength(0);
+  });
+
+  it("records the report and alerts the farmer when the customer names the stand", async () => {
+    const senderHash = "g".repeat(64);
+    const locationId = await otherFarmersStand("Plum Forest Stand");
+    const classifyCustomer = vi.fn(async () => ({ kind: "stock_out_report" as const }));
+    // The item seam runs only AFTER code has bound the stand, and never sees the location.
+    // Typed to the seam's real input so the projection assertion below inspects what was
+    // actually passed rather than an untyped `undefined`.
+    const parseItem = vi.fn(
+      async (_input: {
+        taskText: string;
+        listedItems: readonly { entryId: string; itemName: string }[];
+      }) => ({ kind: "unlisted" as const, itemText: "tomatoes" }),
+    );
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: {
+          interpret: vi.fn(async () => {
+            throw new Error("a report must not reach the inquiry seam");
+          }),
+          select: vi.fn(),
+        } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: { classify: classifyCustomer },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "no tomatoes left at Plum Forest Stand",
+        occurredAt: T0,
+        providerEventId: "stockout-record-1",
+        inboxEventId: "66666666-6666-6666-6666-666666666666",
+      },
+    );
+
+    // The report landed on the stand the customer NAMED, resolved in code.
+    const reports = await client()`
+      select sales_location_id, unlisted_item_text from stock_out_reports
+    `;
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.sales_location_id).toBe(locationId);
+
+    // And the farmer who owns that stand was queued an alert.
+    const queued = await client()`
+      select recipient_hash, message_category, body from outbox_work
+      where message_category = 'stock_out_alert'
+    `;
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.recipient_hash).toBe("f".repeat(64));
+    // The stand is named; the model's item text is not spoken back (Golden Rule #6).
+    expect(queued[0]?.body).toContain("Plum Forest Stand");
+    expect(queued[0]?.body).not.toContain("tomatoes");
+
+    // The reporter is thanked without being told whether anyone was reachable.
+    expect(result.replies[0]?.body).toBe("Thanks for letting us know.");
+    // The seam that binds the item never received a location to choose from.
+    expect(JSON.stringify(parseItem.mock.calls[0]?.[0])).not.toContain(locationId);
+  });
+
+  it("asks rather than guessing when the text matches more than one stand", async () => {
+    const senderHash = "h".repeat(64);
+    // Two stands whose names both appear in the message. Picking either would be a silent
+    // guess that texts a farmer about a stand the customer may not have meant.
+    await otherFarmersStand("Plum Forest Stand");
+    await otherFarmersStand("Plum Forest Stand North", {
+      phone: "+12065550199",
+      hash: "9".repeat(64),
+    });
+    const parseItem = vi.fn(async () => {
+      throw new Error("the item seam must not run before a stand is bound");
+    });
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "nothing left at Plum Forest Stand North",
+        occurredAt: T0,
+        providerEventId: "stockout-ambiguous-1",
+        inboxEventId: "77777777-7777-7777-7777-777777777777",
+      },
+    );
+
+    expect(result.replies[0]?.body).toMatch(/which stand/i);
+    expect(parseItem).not.toHaveBeenCalled();
+    expect(await client()`select id from stock_out_reports`).toHaveLength(0);
+    expect(await client()`
+      select id from outbox_work where message_category = 'stock_out_alert'
+    `).toHaveLength(0);
+  });
+
+  it("keeps an ordinary customer question on the inquiry path", async () => {
+    const senderHash = "e".repeat(64);
+    const classifyCustomer = vi.fn(async () => ({ kind: "farm_stand_question" as const }));
+    const customerIntent = { classify: classifyCustomer };
+    const interpret = vi.fn(async () => ({
+      kind: "lookup" as const,
+      items: ["kale"],
+      ranking: "any" as const,
+      outOfScopeRequest: false,
+      originDependent: false,
+    }));
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret, select: vi.fn() },
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent,
+        stockOut: { parseItem: vi.fn() },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "who has kale?",
+        occurredAt: T0,
+        providerEventId: "customer-question-1",
+        inboxEventId: "55555555-5555-5555-5555-555555555555",
+      },
+    );
+
+    // The whole reason this is a separate seam: the question path is untouched.
+    expect(interpret).toHaveBeenCalledOnce();
+    expect(result.handled).toBe("customer");
+    expect(await client()`select id from stock_out_reports`).toHaveLength(0);
   });
 });

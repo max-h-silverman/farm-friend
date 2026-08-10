@@ -1116,6 +1116,17 @@ describe("scheduled inventory prompt pass (integration)", () => {
         farmerIntent: {
           async classify() { return { kind: "inventory_update" as const }; },
         },
+        // This is a farmer path; reaching either customer seam would be the defect.
+        customerIntent: {
+          async classify(): Promise<never> {
+            throw new Error("the customer intent seam must not run on a farmer path");
+          },
+        },
+        stockOut: {
+          async parseItem(): Promise<never> {
+            throw new Error("the stock-out seam must not run on a farmer path");
+          },
+        },
         interpreter: {
           async interpret(request) {
             interpreterCalls += 1;

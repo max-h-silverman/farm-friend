@@ -1,6 +1,6 @@
 import type { StockOutModel } from "@farm-friend/ai";
 import { renderStockOutAlert, type Clock } from "@farm-friend/core";
-import { queueOutbox, type Db, type Tx } from "@farm-friend/db";
+import { queueOutbox, type Db } from "@farm-friend/db";
 
 // Customer stock-out report → private farmer alert.
 //
@@ -77,7 +77,10 @@ async function listedItems(
  * be able to land a message on a farmer who no longer owns the stand.
  */
 async function resolveAuthorizedRecipient(
-  tx: Tx,
+  // The transaction handle as `queueOutbox` takes it. `Tx` is deliberately not exported from
+  // the db package — transactions are owned there — so this names the shape it uses rather
+  // than widening that boundary for one caller.
+  tx: Parameters<typeof queueOutbox>[0],
   salesLocationId: string,
 ): Promise<string | null> {
   const rows = await tx`

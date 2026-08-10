@@ -57,6 +57,8 @@ async function runScheduledWork(): Promise<Response> {
   const inbound = await runInboundPass({
     db: context.db,
     farmerIntent: context.farmerIntent,
+    customerIntent: context.customerIntent,
+    stockOut: context.stockOut,
     interpreter: context.interpreter,
     inquiry: context.inquiry,
     clock: context.clock,
