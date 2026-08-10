@@ -267,6 +267,13 @@
       "when": 1788150403000,
       "tag": "0037_farmer_owns_farm_bucks_acceptance",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1788150404000,
+      "tag": "0038_stock_out_report_key",
+      "breakpoints": true
     }
   ]
 }

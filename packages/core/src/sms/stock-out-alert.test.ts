@@ -5,11 +5,13 @@ import { renderStockOutAlert } from "./stock-out-alert";
 // code-rendered from typed facts: the report reaches the farmer as a PROMPT to check their
 // listing, never as a customer's sentence quoted at them.
 
+const listed = { kind: "listed", itemName: "Kale" } as const;
+
 describe("stock-out alert copy", () => {
-  it("names the stand and the item a customer reported", () => {
+  it("names the stand and the farmer's own item name", () => {
     const body = renderStockOutAlert({
       locationName: "Alpha Farm Stand",
-      itemName: "Kale",
+      item: listed,
     });
 
     expect(body).toContain("Alpha Farm Stand");
@@ -19,7 +21,7 @@ describe("stock-out alert copy", () => {
   it("asks the farmer to send an update rather than opening a new commitment", () => {
     const body = renderStockOutAlert({
       locationName: "Alpha Farm Stand",
-      itemName: "Kale",
+      item: listed,
     });
 
     /*
@@ -35,7 +37,7 @@ describe("stock-out alert copy", () => {
   it("states the report as unconfirmed rather than as fact", () => {
     const body = renderStockOutAlert({
       locationName: "Alpha Farm Stand",
-      itemName: "Kale",
+      item: listed,
     });
 
     // Golden Rule #1: a customer's word is a signal, not a change to the farmer's listing.
@@ -46,19 +48,30 @@ describe("stock-out alert copy", () => {
   it("carries nothing identifying about the reporter", () => {
     const body = renderStockOutAlert({
       locationName: "Alpha Farm Stand",
-      itemName: "Kale",
+      item: listed,
     });
 
     // Golden Rule #5: the reporter is an anonymous stranger and stays one.
     expect(body).not.toMatch(/\d{3}[\s.-]?\d{4}/);
   });
 
-  it("renders an unlisted item the customer named without inventing a listing", () => {
+  /**
+   * The type has no field for unlisted item text, so this is the runtime half of a guarantee
+   * the compiler already enforces: an unlisted report still produces a usable alert, and the
+   * model's description of the item is simply not in it.
+   *
+   * Sabotage check: give the unlisted branch an `itemName` and interpolate it, and the
+   * integration suite's hostile-prose test fails.
+   */
+  it("still alerts on an unlisted item without speaking the model's text", () => {
     const body = renderStockOutAlert({
       locationName: "Alpha Farm Stand",
-      itemName: "rhubarb",
+      item: { kind: "unlisted" },
     });
 
-    expect(body).toContain("rhubarb");
+    // The farmer learns the stand and the ask — enough to act on.
+    expect(body).toContain("Alpha Farm Stand");
+    expect(body).toContain("sold out");
+    expect(body.toLowerCase()).toContain("text us what your stand has now");
   });
 });

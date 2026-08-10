@@ -137,12 +137,13 @@ export async function recordStockOutReport(
   let referencedEntryId: string | null = null;
   let unlistedText: string | null = null;
   /**
-   * What the farmer's alert calls the missing item. For a LISTED entry this is the stand's
-   * own `item_name` from the bound row — never the model's echo of it — so the alert names
-   * the item as the farmer wrote it. For an unlisted one there is no row to read, and the
-   * normalized text is the only description that exists.
+   * What the farmer's alert may say about the missing item. A LISTED entry contributes the
+   * stand's own `item_name` from the bound row — never the model's echo of it. An UNLISTED
+   * one contributes no text: its only description is model output derived from an anonymous
+   * stranger's message, which the renderer refuses to speak in Farm Friend's voice. The
+   * stored report keeps the detail for VIGA's queue.
    */
-  let alertItemName: string;
+  let alertItem: { kind: "listed"; itemName: string } | { kind: "unlisted" };
 
   if (parsed.kind === "listed") {
     // Membership check: the entry must belong to the CODE-BOUND location. A model naming an
@@ -155,13 +156,13 @@ export async function recordStockOutReport(
       };
     }
     referencedEntryId = parsed.entryId;
-    alertItemName = listed.itemName;
+    alertItem = { kind: "listed", itemName: listed.itemName };
   } else {
     unlistedText = parsed.itemText.trim();
     if (unlistedText === "") {
       return { outcome: "unclear" };
     }
-    alertItemName = unlistedText;
+    alertItem = { kind: "unlisted" };
   }
 
   const now = deps.clock.now();
@@ -220,7 +221,7 @@ export async function recordStockOutReport(
       // Proactive: Farm Friend speaks first, so consent is re-read at the dispatch claim.
       messageCategory: "stock_out_alert",
       // Code-rendered from two typed facts. No customer sentence, no model prose.
-      body: renderStockOutAlert({ locationName, itemName: alertItemName }),
+      body: renderStockOutAlert({ locationName, item: alertItem }),
       now,
     });
 
