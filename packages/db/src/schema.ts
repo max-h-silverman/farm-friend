@@ -2890,6 +2890,16 @@ export const stockOutReports = pgTable(
       .references(() => salesLocations.id, { onDelete: "restrict" }),
     referencedInventoryEntryId: uuid("referenced_inventory_entry_id"),
     unlistedItemText: text("unlisted_item_text"),
+    /**
+     * The reporting EVENT this report came from, when the surface has a stable one — an
+     * inbound SMS provider event id (F-104). Unique, so a redelivered message records one
+     * report and texts the farmer once.
+     *
+     * NULLABLE, and the null is load-bearing: Postgres treats NULLs as distinct in a unique
+     * index, so every keyless report (a web form, where two submissions are two people) stays
+     * its own row while keyed ones deduplicate.
+     */
+    reportKey: text("report_key"),
     status: reportStatus("status").notNull().default("open"),
     reviewedByAdministratorId: uuid("reviewed_by_administrator_id"),
     reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
@@ -2911,6 +2921,16 @@ export const stockOutReports = pgTable(
         inventoryEntries.salesLocationId,
       ],
     }).onDelete("restrict"),
+    /**
+     * One report per reporting event (F-104). This index is the ARBITER of a redelivery race,
+     * not a preceding read: `select … for update` cannot serialize a row that does not exist
+     * yet, so two concurrent deliveries of one inbound message would both find nothing and
+     * both insert. `insert … on conflict (report_key) do nothing returning id` lets exactly
+     * one win, and the loser's empty result is how it learns it lost.
+     */
+    reportKeyUnique: unique("stock_out_reports_report_key_unique").on(
+      table.reportKey,
+    ),
     exactlyOneItemReference: check(
       "stock_out_reports_exactly_one_item_reference",
       sql`

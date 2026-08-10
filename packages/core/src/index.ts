@@ -7,6 +7,7 @@ export * from "./sms/commands";
 export * from "./sms/consent";
 export * from "./sms/auto-responses";
 export * from "./sms/onboarding-copy";
+export * from "./sms/stock-out-alert";
 export * from "./sms/invited-join-reply";
 export * from "./inventory/proposal";
 export * from "./inventory/closure-timing";

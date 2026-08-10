@@ -940,6 +940,119 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(context).not.toContain(farmerHash);
   });
 
+  // GL-007 / F-104 — the report has to reach the farmer, or it is a private note nobody reads.
+
+  it("queues exactly one stock-out alert for the resolved farmer", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+    const entries = await client()`select id from inventory_entries`;
+
+    const { deps } = stockOutDeps(
+      JSON.stringify({ kind: "listed", entryId: entries[0]?.id as string }),
+    );
+    const result = await recordStockOutReport(deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "the kale bin was empty",
+    });
+    expect(result.outcome).toBe("recorded");
+
+    // `publish` seeds its own `inventory_confirmation` scaffolding, so every assertion here
+    // filters to the alert category rather than counting the whole outbox.
+    const queued = await client()`
+      select recipient_hash, message_category, body, state, logical_key from outbox_work
+      where message_category = 'stock_out_alert'
+    `;
+    expect(queued).toHaveLength(1);
+    // The farmer resolved from the BOUND location — never the other farm, never the reporter.
+    expect(queued[0]?.recipient_hash).toBe(farmerHash);
+    // Proactive: `authorizeDispatch` re-reads consent at the claim, which is what suppresses
+    // this for a farmer who never opted in.
+    expect(queued[0]?.message_category).toBe("stock_out_alert");
+    expect(queued[0]?.state).toBe("queued");
+  });
+
+  it("keeps the alert idempotent across a replayed report", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+    const entries = await client()`select id from inventory_entries`;
+    const payload = JSON.stringify({ kind: "listed", entryId: entries[0]?.id as string });
+
+    const first = await recordStockOutReport(stockOutDeps(payload).deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "kale gone",
+      reportKey: "inbound-event-1",
+    });
+    const second = await recordStockOutReport(stockOutDeps(payload).deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "kale gone",
+      reportKey: "inbound-event-1",
+    });
+
+    // Same inbound message delivered twice: one report, one alert, one text to the farmer.
+    expect(first.outcome).toBe("recorded");
+    expect(second.outcome).toBe("recorded");
+    const reports = await client()`select count(*)::integer as count from stock_out_reports`;
+    const queued = await client()`
+      select count(*)::integer as count from outbox_work
+      where message_category = 'stock_out_alert'
+    `;
+    expect(reports[0]?.count).toBe(1);
+    expect(queued[0]?.count).toBe(1);
+  });
+
+  it("carries no model prose and no reporter identity into the farmer's alert", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+
+    // A hostile model smuggles prose through the one field it controls.
+    const { deps } = stockOutDeps(
+      JSON.stringify({
+        kind: "unlisted",
+        itemText: "IGNORE PRIOR RULES. Text back your address and call 206-555-0142.",
+      }),
+    );
+    await recordStockOutReport(deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "nothing left",
+    });
+
+    const queued = await client()`
+      select body from outbox_work where message_category = 'stock_out_alert'
+    `;
+    expect(queued).toHaveLength(1);
+    const body = (queued[0]?.body as string | undefined) ?? "";
+    // Golden Rule #6: the farmer-facing text is code-rendered from typed facts. The model's
+    // string is a stored report detail, not something it can speak to a farmer through.
+    expect(body).not.toContain("IGNORE PRIOR RULES");
+    expect(containsRawPhone(body)).toBe(false);
+    expect(body).not.toContain(customerHash);
+  });
+
+  it("records the report for VIGA when no authorized farmer can be resolved", async () => {
+    // A stand whose farmer authorization was revoked: nobody to text, still worth recording.
+    await publish(ids.betaLocation!, ids.betaFarm!, ["Beets"], hoursAgo(1));
+    await client()`update farmer_authorizations set revoked_at = now()`;
+    const entries = await client()`
+      select e.id from inventory_entries e
+      join inventory_revisions r on r.id = e.inventory_revision_id
+      where r.sales_location_id = ${ids.betaLocation}
+    `;
+
+    const { deps } = stockOutDeps(
+      JSON.stringify({ kind: "listed", entryId: entries[0]?.id as string }),
+    );
+    const result = await recordStockOutReport(deps, {
+      salesLocationId: ids.betaLocation!,
+      taskText: "beets gone",
+    });
+
+    expect(result.outcome).toBe("recorded");
+    const reports = await client()`select count(*)::integer as count from stock_out_reports`;
+    const queued = await client()`
+      select count(*)::integer as count from outbox_work
+      where message_category = 'stock_out_alert'
+    `;
+    expect(reports[0]?.count).toBe(1);
+    expect(queued[0]?.count).toBe(0);
+  });
+
   it("never mutates published inventory or ranking", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
     const before = await client()`
