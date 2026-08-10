@@ -14,8 +14,13 @@ Cloud Run web is `farm-friend-web-00054-wfk` and worker is `farm-friend-worker-0
 digest `sha256:247393a9f769e76bd13e91195eb332dbda0d8e815b8ea4b84dfc82d213b36840`.
 
 **Deployed runtime is `af2cc0d`** (2026-08-09): F-076, F-097, F-098, B-044, B-045, B-046 and B-047
-are live. Migrations `0034` and `0035` are applied and verified by schema effect. **F-100's admin
-console restructure is merged to `main` but NOT deployed**, and `0036` is its unapplied migration.
+are live. Migrations `0034` and `0035` are applied and verified by schema effect.
+
+**`main` is ahead of production and a deploy is owed.** F-100's admin console restructure is merged
+(`1ead9a3`) and undeployed, and `0036` is its unapplied migration. Max deliberately held this deploy
+(2026-08-10) to land a parallel session's work first and ship them together, after his phone-width
+pass. **The next deploy therefore carries more than F-100** — read `git log ae7ffbc..main` before
+building, rather than assuming this tranche is the whole of it.
 
 **Max walks farmer surfaces at phone width before a UI tranche ships.** F-100 rewrote the admin
 surfaces and has had no phone-width pass; a session that opens a UI deploy without one has skipped

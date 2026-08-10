@@ -72,6 +72,11 @@ Verified with 1782 unit, 871 integration, typecheck, lint, the production build,
 (`evals:live` not owed — no model seam, prompt, or projection was touched). Migration `0036` is
 applied and verified by schema effect **locally only**; production has not run it.
 
+Merged as `1ead9a3` (PR #97) but **deliberately not deployed**: max chose to wrap a parallel session
+first and ship both together after his phone-width pass, so the next deploy carries more than this
+tranche. The branch kept its `f-099-…` name after F-099 was taken by the VIGA Bucks work mid-flight;
+the PM item is **F-100**.
+
 ## 2026-08-09 — B-044 follow-up, structured offerings removed from descriptive prose
 
 The first repair restored reviewed usual offerings but left the same foods in some farms'
