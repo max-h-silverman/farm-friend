@@ -3774,6 +3774,14 @@ button.admin-action-danger,
 }
 .marker-legend-farmers-market { background: #7d43d8; }
 
+/* On a phone the disclosure trigger stays visible so the customer can close the key.  The
+ * legend begins below its 44px tap target; sharing its top edge covered the first entries. */
+@media (max-width: 55.99rem) {
+  .marker-key[open] > .marker-legend {
+    top: calc(0.75rem + 44px + 0.5rem);
+  }
+}
+
 .pin-seasonal .pin-shape {
   fill: #2379d8;
 }

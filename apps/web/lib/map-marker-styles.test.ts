@@ -38,6 +38,12 @@ describe("mobile map and sheet layout", () => {
     // correct padding on an unqualified selector.
     expect(clearance![1]).toMatch(/\.sheet-open\s+\.list-column/);
   });
+
+  it("places an expanded map key below its phone trigger", () => {
+    expect(css).toMatch(
+      /\.marker-key\[open\]\s*>\s*\.marker-legend\s*\{[^}]*top:\s*calc\(0\.75rem\s*\+\s*44px\s*\+\s*0\.5rem\)/s,
+    );
+  });
 });
 
 describe("desktop map layout", () => {
