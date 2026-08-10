@@ -893,6 +893,7 @@ export function ListingStep({
   const [agreed, setAgreed] = useState(false);
   const [agreeing, setAgreeing] = useState(false);
   const [agreeError, setAgreeError] = useState<string | null>(null);
+  const [completionError, setCompletionError] = useState<string | null>(null);
 
   /*
     HOW OFTEN WE WILL TEXT THEM, asked where they agree to be texted (max, 2026-08-08).
@@ -1161,11 +1162,12 @@ export function ListingStep({
     return digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
   }
 
-  const ready =
+  const farmDetailsReady =
     standName.trim() !== "" &&
     visitability !== null &&
     address.trim() !== "" &&
-    pin !== null &&
+    pin !== null;
+  const contactDetailsReady =
     // The phone is what ties the handset to the farm, so an invited farmer without a usable one
     // has no way to finish. Blocking here beats publishing a listing they cannot complete.
     (!asksForPhone || phoneLooksReal(phone)) &&
@@ -1177,6 +1179,12 @@ export function ListingStep({
       Blocking here is what keeps that from being discoverable only by its absence.
     */
     (!asksForAgreement || agreed);
+  const firstIncompleteStep: WizardStep | null = !farmDetailsReady
+    ? "farm"
+    : !contactDetailsReady
+      ? "contact"
+      : null;
+  const ready = firstIncompleteStep === null;
 
   /**
    * Submitting the form, which on the invited door OPENS THE CONFIRMATION rather than posting.
@@ -1187,7 +1195,20 @@ export function ListingStep({
    */
   function submit(event: React.FormEvent): void {
     event.preventDefault();
-    if (busy || !ready) return;
+    if (busy) return;
+    if (!ready) {
+      if (steps !== null && firstIncompleteStep !== null) {
+        setStep(WIZARD_STEPS.indexOf(firstIncompleteStep));
+      }
+      setError(null);
+      setCompletionError(
+        firstIncompleteStep === "contact"
+          ? "Finish your contact details before submitting."
+          : "Finish your farm details before submitting.",
+      );
+      return;
+    }
+    setCompletionError(null);
     if (asksForPhone) {
       setError(null);
       setConfirming(true);
@@ -2363,6 +2384,12 @@ export function ListingStep({
 
       </fieldset>
 
+      {completionError === null ? null : (
+        <p className="farmer-form-error" role="alert">
+          {completionError}
+        </p>
+      )}
+
       {error === null ? null : (
         <p className="farmer-form-error" role="alert">
           {error}
@@ -2386,7 +2413,10 @@ export function ListingStep({
             <button
               type="button"
               className="farmer-listing-back"
-              onClick={() => setStep((at) => at - 1)}
+              onClick={() => {
+                setCompletionError(null);
+                setStep((at) => at - 1);
+              }}
               disabled={busy}
             >
               Back
@@ -2396,7 +2426,10 @@ export function ListingStep({
             <button
               type="button"
               className="farmer-primary-action"
-              onClick={() => setStep((at) => at + 1)}
+              onClick={() => {
+                setCompletionError(null);
+                setStep((at) => at + 1);
+              }}
             >
               Next
             </button>
@@ -2416,7 +2449,7 @@ export function ListingStep({
         onboarding Submit directly above the settings panel's Save.
       */}
       {(steps === null || step === steps.length - 1) && (
-        <button type="submit" disabled={busy || !ready}>
+        <button type="submit" disabled={busy}>
           {busy
             ? isEditingDoor
               ? "Saving…"

@@ -67,8 +67,8 @@ function stubFetch(response: { ok: boolean; status?: number; body?: unknown }) {
       };
     }
     // The SMS agreement stamp. Answered OK so ticking the box succeeds — an unanswered POST
-    // shows the farmer an error and leaves Submit disabled, failing every test downstream for
-    // a reason unrelated to what it asserts.
+    // shows the farmer an error and blocks submission, failing every test downstream for a
+    // reason unrelated to what it asserts.
     if (String(url).includes("/api/farmer/onboarding")) {
       return { ok: true, status: 200, json: async () => ({ status: "agreed" }) };
     }
@@ -159,7 +159,7 @@ async function stepToEnd(user: ReturnType<typeof userEvent.setup>): Promise<void
  * A wizard door reveals Submit only on its last step (F-090) — a farmer must not be able to
  * publish a listing they have not finished describing, because the writer replaces the WHOLE
  * listing and the fields they never reached would be written empty. Tests that assert
- * something ABOUT the button (that it is disabled, that a gate blocks it) need it on screen,
+ * something ABOUT the button (that it is visible, that a gate redirects it) need it on screen,
  * and should not have to know how many steps there currently are.
  */
 async function submitButton(
@@ -1322,7 +1322,7 @@ describe("onboarding listing step", () => {
       await screen.findByRole("status");
       expect(
         await submitButton(user),
-      ).toBeDisabled();
+      ).toBeEnabled();
     });
 
     it("asks the farmer to correct the address when the ADDRESS is the problem", async () => {
@@ -1347,7 +1347,7 @@ describe("onboarding listing step", () => {
         expect(note).not.toHaveTextContent(/tap the map/i);
         expect(
           await submitButton(user),
-        ).toBeDisabled();
+        ).toBeEnabled();
         document.body.innerHTML = "";
       }
     });
@@ -1376,7 +1376,7 @@ describe("onboarding listing step", () => {
       expect(note).not.toHaveTextContent(/tap the map/i);
       expect(
         await submitButton(user),
-      ).toBeDisabled();
+      ).toBeEnabled();
     });
 
     it("refuses when the lookup itself throws, rather than publishing unplaced", async () => {
@@ -1397,7 +1397,7 @@ describe("onboarding listing step", () => {
       expect(await screen.findByRole("status")).toHaveTextContent(/check the address|correct/i);
       expect(
         await submitButton(user),
-      ).toBeDisabled();
+      ).toBeEnabled();
     });
 
     it("a THROWN lookup leaves an EDITED address unpublishable, on an edit form", async () => {
@@ -1407,8 +1407,8 @@ describe("onboarding listing step", () => {
       //
       // It used to press Save on the UNTOUCHED form to reach the same refusal, and to credit
       // the catch branch's own `setPin(null)` for the result. Neither survives max's 2026-08-08
-      // call: Save is off while the field still holds the saved address, so the only route to a
-      // lookup is through an edit — and an edit has already cleared the pin by the time the
+      // call: Save returns a farmer to the missing farm detail, so the only route to a lookup
+      // is through an edit — and an edit has already cleared the pin by the time the
       // failure lands. That clearing is now `changeAddress`'s alone, and the branch's
       // defensive copy of it is gone rather than left as a second mechanism for one fact.
       const user = userEvent.setup();
@@ -1446,7 +1446,7 @@ describe("onboarding listing step", () => {
 
       expect(
         screen.getByRole("button", { name: /submit|save changes/i }),
-      ).toBeDisabled();
+      ).toBeEnabled();
     });
 
     it("EDITING THE ADDRESS CLEARS THE PIN, so A's coordinate cannot publish under B", async () => {
@@ -1464,8 +1464,8 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByRole("button", { name: /^find on map$/i }));
 
       await screen.findByText(/found it/i);
-      // Filled in so enabled/disabled below tracks the PIN alone. Without it the button stays
-      // disabled for want of a phone and the test would pass for the wrong reason.
+      // Filled in so the returned completion guidance tracks the PIN alone. Without it the
+      // missing phone would take priority and the test would pass for the wrong reason.
       await user.type(screen.getByLabelText(/your phone number/i), "2065550143");
       await user.click(screen.getByLabelText(/I agree to receive texts/i));
       await submitButton(user);
@@ -1478,7 +1478,7 @@ describe("onboarding listing step", () => {
 
       expect(
         await submitButton(user),
-      ).toBeDisabled();
+      ).toBeEnabled();
       expect(screen.queryByText(/found it/i)).not.toBeInTheDocument();
     });
 
@@ -1527,7 +1527,7 @@ describe("onboarding listing step", () => {
 
       expect(
         screen.getByRole("button", { name: /submit|save changes/i }),
-      ).toBeDisabled();
+      ).toBeEnabled();
       expect(screen.queryByText(/found it/i)).not.toBeInTheDocument();
     });
 
@@ -1855,7 +1855,10 @@ describe("onboarding listing step", () => {
       await placeStand(user);
       await user.type(screen.getByLabelText(/your phone number/i), "2065550143");
 
-      expect(await submitButton(user)).toBeDisabled();
+      const submit = await submitButton(user);
+      expect(submit).toBeEnabled();
+      await user.click(submit);
+      expect(screen.getByRole("alert")).toHaveTextContent(/finish your contact details/i);
 
       await user.click(screen.getByLabelText(/I agree to receive texts/i));
       await submitButton(user);
@@ -2357,7 +2360,10 @@ describe("onboarding listing step", () => {
         await user.click(screen.getByLabelText(/yes . there is a stand/i));
         await placeStand(user);
 
-        expect(await submitButton(user)).toBeDisabled();
+        const submit = await submitButton(user);
+        expect(submit).toBeEnabled();
+        await user.click(submit);
+        expect(screen.getByRole("alert")).toHaveTextContent(/finish your contact details/i);
       });
 
       it("shows the number to text AFTER saving, with the word VIGA", async () => {
@@ -2460,7 +2466,10 @@ describe("onboarding listing step", () => {
         await placeStand(user);
         await user.type(screen.getByLabelText(/your (mobile |cell )?phone/i), "555");
 
-        expect(await submitButton(user)).toBeDisabled();
+        const submit = await submitButton(user);
+        expect(submit).toBeEnabled();
+        await user.click(submit);
+        expect(screen.getByRole("alert")).toHaveTextContent(/finish your contact details/i);
         expect(screen.queryByRole("dialog")).toBeNull();
       });
     });
@@ -2843,6 +2852,38 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByRole("button", { name: /back/i }));
 
       expect(screen.getByLabelText(/your farm address/i)).toHaveValue("12345 Vashon Hwy");
+    });
+
+    it("keeps Submit active and returns to the first incomplete step", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+      render(
+        <ListingStep
+          credential={{ kind: "invitation", token: TOKEN }}
+          farmName="Test Farm"
+        />,
+      );
+
+      // Next is intentionally permissive: a farmer can review every section before deciding
+      // what to enter. Submit must therefore explain and reveal the first missing requirement,
+      // rather than silently disabling itself for a field on an earlier hidden page.
+      await stepToEnd(user);
+      const submit = screen.getByRole("button", { name: "Submit" });
+      expect(submit).toBeEnabled();
+
+      await user.click(submit);
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /finish your farm details before submitting/i,
+      );
+      expect(screen.getByText("Step 1 of 4")).toBeVisible();
+      expect(screen.getByLabelText(/your farm address/i)).toBeVisible();
+      expect(screen.getByLabelText(/your phone number/i)).not.toBeVisible();
+      expect(
+        fetchMock.mock.calls.filter((entry) =>
+          String((entry as [string, unknown])[0]).includes("/api/farmer/listing"),
+        ),
+      ).toHaveLength(0);
     });
 
     it("submits the WHOLE listing, including steps left at their defaults", async () => {
