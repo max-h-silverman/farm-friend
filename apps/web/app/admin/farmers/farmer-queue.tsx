@@ -39,29 +39,9 @@ export interface PendingRequestRow {
   farmName?: string | null;
 }
 
-export interface AuthorizationRow {
-  authorizationId: string;
-  farmId: string;
-  farmName: string;
-  senderMask: string;
-  authorizedAt: string;
-  revokedAt: string | null;
-  stands: Array<{ salesLocationId: string; name: string }>;
-  hasLiveLink: boolean;
-  liveLinkStand: { salesLocationId: string; name: string } | null;
-}
-
 export interface FarmOption {
   farmId: string;
   name: string;
-}
-
-/** A farm nobody can publish for yet, and the state of its most recent invitation (F-071). */
-export interface AwaitingOnboardingRow {
-  farmId: string;
-  farmName: string;
-  invitationState: "none" | "open" | "expired";
-  invitationExpiresAt: string | null;
 }
 
 function formatDate(value: string): string {
@@ -74,17 +54,12 @@ function formatDate(value: string): string {
 
 export function FarmerQueue({
   requests,
-  authorizations,
   farms,
-  awaitingOnboarding = [],
 }: {
   requests: PendingRequestRow[];
-  authorizations: AuthorizationRow[];
   farms: FarmOption[];
-  awaitingOnboarding?: AwaitingOnboardingRow[];
 }) {
   const [pendingRequests, setPendingRequests] = useState(requests);
-  const [rows, setRows] = useState(authorizations);
   const [farmChoice, setFarmChoice] = useState<Record<string, string>>({});
   const [inviteFarmId, setInviteFarmId] = useState(NEW_FARM);
   const [newFarmName, setNewFarmName] = useState("");
@@ -98,20 +73,10 @@ export function FarmerQueue({
     message: string;
     farmName: string | null;
   } | null>(null);
-  const [standChoice, setStandChoice] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
-  /**
-   * A freshly minted link, held only in this component's state and only until the operator
-   * navigates away. It is never re-readable from the server, which is correct for a standing
-   * credential — so the copy below says so rather than letting an operator assume otherwise.
-   */
-  const [freshLink, setFreshLink] = useState<{ id: string; link: string } | null>(
-    null,
-  );
-  const [replacingLink, setReplacingLink] = useState<string | null>(null);
 
   async function post(
     body: Record<string, unknown>,
@@ -121,7 +86,11 @@ export function FarmerQueue({
     setError(null);
     setSessionExpired(false);
     setSuccess(null);
-    setInvite(null);
+    // Deliberately does NOT clear `invite`. Clearing transient banners on a new request is
+    // right; clearing a rendered credential is not. A minted onboarding link cannot be read
+    // back from the server, so an unrelated later action — authorizing someone, minting a
+    // second invite — used to destroy the only copy of it with no warning. `mintInvite`
+    // replaces it, because that is the one act that supersedes it.
     try {
       const response = await fetch("/api/admin/farmers", {
         method: "POST",
@@ -158,12 +127,16 @@ export function FarmerQueue({
     }
     const { ok } = await post({ action: "authorize", requestId, farmId }, requestId);
     if (!ok) return;
-    // The authoritative record is the database's; this reflects the answer it just gave.
-    // A reload shows the new authorization in the list below.
+    const farmName =
+      farms.find((farm) => farm.farmId === farmId)?.name ?? "their farm";
     setPendingRequests((current) =>
       current.filter((request) => request.requestId !== requestId),
     );
-    setSuccess("Farmer access given. Reload to see their access record.");
+    // Names where the record now lives rather than telling the operator to reload. The row
+    // vanishing from this list with no destination named read as "the thing disappeared".
+    setSuccess(
+      `Access given. They can now update ${farmName} — see it on the Farms tab.`,
+    );
   }
 
   async function createInvite() {
@@ -249,65 +222,6 @@ export function FarmerQueue({
       return;
     }
     setError("Copy failed. Select the onboarding link and copy it before leaving this page.");
-  }
-
-  async function revoke(authorizationId: string) {
-    const { ok } = await post({ action: "revoke", authorizationId }, authorizationId);
-    if (!ok) return;
-    setRows((current) =>
-      current.map((row) =>
-        row.authorizationId === authorizationId
-          ? {
-              ...row,
-              revokedAt: new Date().toISOString(),
-              // Revoking a farmer's access revokes their links too, in the same
-              // transaction. Showing "link live" here afterwards would be a lie.
-              hasLiveLink: false,
-              liveLinkStand: null,
-            }
-          : row,
-      ),
-    );
-    if (freshLink?.id === authorizationId) setFreshLink(null);
-    setSuccess("Farmer access removed. Their private link no longer works.");
-  }
-
-  async function issueLink(row: AuthorizationRow) {
-    const salesLocationId =
-      standChoice[row.authorizationId] ??
-      row.liveLinkStand?.salesLocationId ??
-      (row.stands.length === 1 ? row.stands[0]?.salesLocationId : undefined);
-    if (salesLocationId === undefined) {
-      setError("Choose the exact stand this private link can update.");
-      return;
-    }
-    const { ok, payload } = await post(
-      { action: "issue_link", authorizationId: row.authorizationId, salesLocationId },
-      row.authorizationId,
-    );
-    if (!ok || typeof payload.link !== "string") return;
-    setFreshLink({ id: row.authorizationId, link: payload.link });
-    setReplacingLink(null);
-    const selectedStand = row.stands.find(
-      (stand) => stand.salesLocationId === salesLocationId,
-    ) ?? null;
-    setRows((current) =>
-      current.map((currentRow) =>
-        currentRow.authorizationId === row.authorizationId
-          ? { ...currentRow, hasLiveLink: true, liveLinkStand: selectedStand }
-          : currentRow,
-      ),
-    );
-    setSuccess("Private link created. Copy it now — it will not be shown again.");
-  }
-
-  async function copyFreshLink() {
-    if (freshLink === null) return;
-    if (await copyText(freshLink.link)) {
-      setSuccess("Private link copied.");
-      return;
-    }
-    setError("Copy failed. Select the private link and copy it before leaving this page.");
   }
 
   return (
@@ -453,83 +367,23 @@ export function FarmerQueue({
                 Copy link
               </button>
             </div>
+            {/*
+              The link itself is always on screen, not behind a disclosure. It is shown once
+              and cannot be looked up again, and the copy-failure message tells the operator
+              to select it by hand — advice that pointed at a collapsed panel. A credential
+              the operator may need to read is not a detail to review.
+            */}
+            <label className="admin-field">
+              <span className="admin-control-label">Setup link</span>
+              <input readOnly value={invite.link} />
+            </label>
             <details className="admin-disclosure">
-              <summary>Review invite details</summary>
+              <summary>See the message we prepared</summary>
               <div className="admin-disclosure-content">
-                <label className="admin-field">
-                  <span className="admin-control-label">Onboarding link</span>
-                  <input readOnly value={invite.link} />
-                </label>
-                <p className="admin-note">Message preview: {invite.message}</p>
+                <p className="admin-note">{invite.message}</p>
               </div>
             </details>
           </div>
-        )}
-      </section>
-
-      <section className="admin-queue-group" aria-labelledby="awaiting-onboarding-heading">
-        <div className="admin-group-heading">
-          <div>
-            <h3 id="awaiting-onboarding-heading">Farms with no one to update them</h3>
-          </div>
-          <span
-            className="admin-count"
-            aria-label={`${awaitingOnboarding.length} farms with no one to update them`}
-          >
-            {awaitingOnboarding.length}
-          </span>
-        </div>
-        {awaitingOnboarding.length === 0 ? (
-          <p className="admin-empty-state">Every farm has someone who can update it.</p>
-        ) : (
-          <>
-            {/*
-              The link a farmer was originally sent CANNOT be shown again — it is stored
-              scrambled and shown once, the same way a site sends a password reset rather than
-              your old password. So the offer here is a new link, and the copy says which it is
-              rather than letting an operator believe they are retrieving the old one.
-            */}
-            <p className="admin-note">
-              Nobody can publish updates for these farms yet. A new link replaces any earlier
-              one; earlier links cannot be looked up.
-            </p>
-            <ul className="admin-farms">
-              {awaitingOnboarding.map((row) => (
-                <li key={row.farmId} className="admin-farm admin-request-card">
-                  <div className="admin-card-person">
-                    <h4>{row.farmName}</h4>
-                    <p className="admin-note">
-                      {row.invitationState === "none"
-                        ? "Never invited"
-                        : row.invitationState === "open"
-                          ? `Link expires ${formatDate(row.invitationExpiresAt as string)}`
-                          : `Link expired ${formatDate(row.invitationExpiresAt as string)}`}
-                    </p>
-                  </div>
-                  <div className="admin-request-decision">
-                    <button
-                      className="admin-action-primary"
-                      type="button"
-                      aria-label={`New onboarding link for ${row.farmName}`}
-                      disabled={busy === `reinvite-${row.farmId}`}
-                      onClick={() =>
-                        void mintInvite(
-                          { farmId: row.farmId },
-                          "sms",
-                          null,
-                          `reinvite-${row.farmId}`,
-                        )
-                      }
-                    >
-                      {busy === `reinvite-${row.farmId}`
-                        ? "Preparing…"
-                        : "New onboarding link"}
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </>
         )}
       </section>
 
@@ -590,125 +444,6 @@ export function FarmerQueue({
                 </div>
               </li>
             ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="admin-queue-group" aria-labelledby="current-access-heading">
-        <div className="admin-group-heading">
-          <div>
-            <h3 id="current-access-heading">People with farmer access</h3>
-          </div>
-          <span className="admin-count" aria-label={`${rows.length} people with farmer access`}>
-            {rows.length}
-          </span>
-        </div>
-        {rows.length === 0 ? (
-          <p className="admin-empty-state">No one has farmer access yet.</p>
-        ) : (
-          <ul className="admin-farms">
-            {rows.map((row) => {
-              const revoked = row.revokedAt !== null;
-              return (
-                <li key={row.authorizationId} className="admin-farm admin-access-card">
-                  <div className="admin-card-person">
-                    <h4>{row.farmName}</h4>
-                    <p className={revoked ? "admin-unapproved" : "admin-approved"}>
-                      {row.senderMask} ·{" "}
-                      {revoked
-                        ? `Revoked ${formatDate(row.revokedAt as string)}`
-                        : `Authorized ${formatDate(row.authorizedAt)}`}
-                    </p>
-                    {!revoked ? (
-                      <p className="admin-note">
-                        {row.hasLiveLink && row.liveLinkStand !== null
-                          ? `Private link: ${row.liveLinkStand.name}`
-                          : "No private link"}
-                      </p>
-                    ) : null}
-                    {freshLink?.id === row.authorizationId && (
-                      <div className="admin-link-reveal" role="group" aria-label="New private link">
-                        <p className="admin-note">
-                          <strong>Copy this now — we only show it once.</strong>
-                        </p>
-                        <input aria-label="Private link" readOnly value={freshLink.link} />
-                        <button className="admin-action-secondary" type="button" onClick={() => void copyFreshLink()}>
-                          Copy private link
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {!revoked && (
-                    <div className="admin-access-actions">
-                      <label className="admin-field">
-                        <span className="admin-control-label">Stand this link can update</span>
-                        <select
-                          value={
-                            standChoice[row.authorizationId] ??
-                            row.liveLinkStand?.salesLocationId ??
-                            (row.stands.length === 1
-                              ? row.stands[0]?.salesLocationId ?? ""
-                              : "")
-                          }
-                          onChange={(event) =>
-                            setStandChoice((current) => ({
-                              ...current,
-                              [row.authorizationId]: event.target.value,
-                            }))
-                          }
-                        >
-                          <option value="">Choose a stand…</option>
-                          {row.stands.map((stand) => (
-                            <option key={stand.salesLocationId} value={stand.salesLocationId}>
-                              {stand.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="admin-button-row">
-                        <button
-                          className="admin-action-primary"
-                          type="button"
-                          disabled={busy === row.authorizationId}
-                          onClick={() => row.hasLiveLink ? setReplacingLink(row.authorizationId) : void issueLink(row)}
-                        >
-                          {row.hasLiveLink ? "Replace link" : "Create link"}
-                        </button>
-                        <button
-                          className="admin-action-danger"
-                          type="button"
-                          disabled={busy === row.authorizationId}
-                          onClick={() => void revoke(row.authorizationId)}
-                        >
-                          {busy === row.authorizationId ? "Saving…" : "Remove access"}
-                        </button>
-                      </div>
-                      {replacingLink === row.authorizationId && (
-                        <div className="admin-inline-confirm" role="group" aria-label={`Replace private link for ${row.farmName}`}>
-                          <p>Create a new private link? The old link will stop working.</p>
-                          <button
-                            className="admin-action-primary"
-                            type="button"
-                            disabled={busy === row.authorizationId}
-                            onClick={() => void issueLink(row)}
-                          >
-                            {busy === row.authorizationId ? "Saving…" : "Create new private link"}
-                          </button>
-                          <button
-                            className="admin-action-secondary"
-                            type="button"
-                            disabled={busy === row.authorizationId}
-                            onClick={() => setReplacingLink(null)}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
           </ul>
         )}
       </section>

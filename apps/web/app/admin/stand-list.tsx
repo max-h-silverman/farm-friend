@@ -9,8 +9,10 @@ export interface AdminStandCard {
   status: string;
   openState: string;
   approved: boolean;
-  /** F-071 — VIGA took this stand down. It keeps every record it published. */
+  /** F-071 — this stand is off the map, by its own retirement or its farm's. */
   retired: boolean;
+  /** Off the map only because its FARM is down. The control that reverses it is the farm's. */
+  retiredWithFarm: boolean;
   farmBucksStatus: "accepts" | "does_not_accept" | "not_eligible";
   sections: AdminStandDetailSection[];
 }
@@ -33,20 +35,42 @@ function farmBucksDetail(status: AdminStandCard["farmBucksStatus"]): string {
 }
 
 /**
- * Native disclosure keeps every card usable before JavaScript loads. It also gives a mouse
- * user one clear target — the card summary — instead of making a small text link look separate
- * from the control that actually opens the card.
+ * The stands belonging to one farm, rendered inside that farm's card.
+ *
+ * Stands stopped being a top-level list of their own: an operator looking for a stand was
+ * looking for a farm, and the flat index made them hold the farm→stand relationship in their
+ * head. This is the same card body the old index rendered, minus the farm name on every row —
+ * redundant once the enclosing card names the farm.
+ *
+ * Native disclosure keeps every card usable before JavaScript loads.
  */
-export function StandList({ stands }: { stands: AdminStandCard[] }) {
+export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
   const [rows, setRows] = useState(stands);
   const [saving, setSaving] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * Keyed by stand and rendered on the stand it belongs to. A single banner above the list
+   * reported the thirtieth stand's outcome above the first stand's card.
+   */
+  const [note, setNote] = useState<Record<string, { kind: "ok" | "bad"; text: string }>>({});
   /** The stand whose retirement is waiting on a confirmation, if any. */
   const [confirmingRetire, setConfirmingRetire] = useState<string | null>(null);
 
+  function say(standId: string, kind: "ok" | "bad", text: string) {
+    setNote((current) => ({ ...current, [standId]: { kind, text } }));
+  }
+
+  /**
+   * A select that writes on change has no natural "committed" moment, so it says so itself.
+   * Without this the control showed the value the operator had just picked whether or not the
+   * write landed — indistinguishable from having done nothing.
+   */
   async function saveFarmBucks(standId: string, status: AdminStandCard["farmBucksStatus"]) {
     setSaving(standId);
-    setError(null);
+    setNote((current) => {
+      const next = { ...current };
+      delete next[standId];
+      return next;
+    });
     try {
       const response = await fetch("/api/admin/stands", {
         method: "POST",
@@ -55,8 +79,9 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
       });
       if (!response.ok) throw new Error("save failed");
       setRows((current) => current.map((row) => row.standId === standId ? { ...row, farmBucksStatus: status } : row));
+      say(standId, "ok", "Farm Bucks saved.");
     } catch {
-      setError("That change did not go through. Reload and try again.");
+      say(standId, "bad", "That did not save. Try again.");
     } finally {
       setSaving(null);
     }
@@ -71,7 +96,11 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
    */
   async function setRetired(standId: string, retired: boolean) {
     setSaving(standId);
-    setError(null);
+    setNote((current) => {
+      const next = { ...current };
+      delete next[standId];
+      return next;
+    });
     try {
       const response = await fetch("/api/admin/stands", {
         method: "POST",
@@ -82,11 +111,20 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
       setRows((current) =>
         current.map((row) => (row.standId === standId ? { ...row, retired } : row)),
       );
-    } catch {
-      setError(
+      say(
+        standId,
+        "ok",
         retired
-          ? "That stand was not taken off the map. Reload and try again."
-          : "That stand was not put back on the map. Reload and try again.",
+          ? "Off the map. Customers no longer see this stand. Everything it published is kept."
+          : "Back on the map. Customers can see this stand again.",
+      );
+    } catch {
+      say(
+        standId,
+        "bad",
+        retired
+          ? "That stand was not taken off the map. Try again."
+          : "That stand was not put back on the map. Try again.",
       );
     } finally {
       // Closed whichever way it went. On failure the row is unchanged and the plain button is
@@ -100,7 +138,6 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
 
   return (
     <>
-      {error !== null ? <p className="admin-error" role="alert">{error}</p> : null}
       <ul className="admin-stands">
       {rows.map((stand) => (
         <li key={stand.standId} className="admin-stand">
@@ -108,15 +145,20 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
             <summary className="admin-stand-summary">
               <span className="admin-stand-name">
                 <strong>{stand.name}</strong>
-                <span>{stand.farmName}</span>
               </span>
               <span className="admin-stand-states" aria-label={`State for ${stand.name}`}>
                 {/*
                   A retired stand's `status` and `openState` describe a listing nobody is being
                   shown, so leading with them would be misleading. "Off the map" replaces them
                   rather than joining them.
+
+                  A stand that is down only because its FARM is down says so, because the
+                  operator's next move differs: this stand has no retirement of its own to
+                  undo, and the control that brings it back is on the farm.
                 */}
-                {stand.retired ? (
+                {stand.retiredWithFarm ? (
+                  <span className="admin-stand-retired">Off the map with the farm</span>
+                ) : stand.retired ? (
                   <span className="admin-stand-retired">Off the map</span>
                 ) : (
                   <>
@@ -124,10 +166,17 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
                     <span>{stand.openState}</span>
                   </>
                 )}
-                <span>{stand.approved ? "Approved" : "Not approved"}</span>
               </span>
             </summary>
             <div className="admin-stand-detail-groups">
+              {note[stand.standId] !== undefined && (
+                <p
+                  className={note[stand.standId]?.kind === "ok" ? "admin-success" : "admin-error"}
+                  role={note[stand.standId]?.kind === "ok" ? "status" : "alert"}
+                >
+                  {note[stand.standId]?.text}
+                </p>
+              )}
               {stand.sections.map((section, index) => {
                 const headingId = `stand-${stand.standId}-section-${index}`;
                 const items = section.items.map((item) =>
@@ -192,11 +241,19 @@ export function StandList({ stands }: { stands: AdminStandCard[] }) {
                 */}
                 <h3 id={`stand-${stand.standId}-retirement`}>Remove this stand</h3>
                 <p className="admin-note">
-                  {stand.retired
-                    ? "Customers cannot see this stand, and the farmer cannot publish updates to it. Everything it published before is kept."
-                    : "Removes this stand from the map and from text answers, and stops the farmer publishing updates to it. Nothing it already published is deleted, and you can put it back."}
+                  {stand.retiredWithFarm
+                    ? "This stand is off the map because the whole farm was removed. Put the farm back to bring it back."
+                    : stand.retired
+                      ? "Customers cannot see this stand, and the farmer cannot publish updates to it. Everything it published before is kept."
+                      : "Removes this stand from the map and from text answers, and stops the farmer publishing updates to it. Nothing it already published is deleted, and you can put it back."}
                 </p>
-                {stand.retired ? (
+                {/*
+                  No control at all for a stand held down by its farm. "Put back on the map"
+                  would post a restore for a stand that was never retired, the server would
+                  answer `not_retired`, and the stand would stay exactly where it is — a button
+                  that visibly does nothing.
+                */}
+                {stand.retiredWithFarm ? null : stand.retired ? (
                   <button
                     className="admin-action-secondary"
                     type="button"

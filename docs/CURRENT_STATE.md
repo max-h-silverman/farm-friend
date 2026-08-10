@@ -7,19 +7,19 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production Postgres `neondb` has **36 migrations** (`0000`–`0035`);
+Farm Friend is **pre-go-live**. Migration `0036` (farm retirement + the `address_unresolved` flag
+reason) is **written and verified locally but NOT applied to production** — it is the only
+unapplied migration. Production Postgres `neondb` has **36 migrations** (`0000`–`0035`);
 Cloud Run web is `farm-friend-web-00054-wfk` and worker is `farm-friend-worker-00049-w4v`, both on
 digest `sha256:247393a9f769e76bd13e91195eb332dbda0d8e815b8ea4b84dfc82d213b36840`.
 
 **Deployed runtime is `af2cc0d`** (2026-08-09): F-076, F-097, F-098, B-044, B-045, B-046 and B-047
-are live. Migrations `0034` and `0035` are applied and verified by schema effect; none remains
-unapplied. B-044's rebuild tooling and overlap-safe description parser are live with its data repair.
+are live. Migrations `0034` and `0035` are applied and verified by schema effect. **F-100's admin
+console restructure is merged to `main` but NOT deployed**, and `0036` is its unapplied migration.
 
-**B-045 is verified by effect.** Gmail's HTTPS API accepted a production verification request on
-`farm-friend-web-00053-jcr`, and its six-digit code arrived in the recipient's inbox.
-
-**Max walks farmer surfaces at phone width before a UI tranche ships.** He confirmed the latest UI
-tranche; a session that opens a UI deploy without that pass has skipped the gate.
+**Max walks farmer surfaces at phone width before a UI tranche ships.** F-100 rewrote the admin
+surfaces and has had no phone-width pass; a session that opens a UI deploy without one has skipped
+the gate.
 
 **Production data and schema are current.** Neon has all structured-price and pending-stock columns,
 no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
@@ -47,10 +47,15 @@ fixed administrator or farm-email roster; email ingest must reuse the deployed `
 
 ## Verification
 
-**Current main:** **1778 unit**, **860 integration**, typecheck, lint, web production build, and a
-complete seed dry run against the real exports: 35 stands, 212 reviewed usual items, 0 unknown, 0
-unresolved. B-044 sabotage proved its parser regression and atomic offering restore checks fail when
-their guarantees are broken. Production cleanup dry-runs at 25/25 descriptions clean.
+**Current main:** **1782 unit**, **871 integration**, typecheck, lint, the web production build,
+and **evals 44/44** (11 critical, 4 advisory, 29 adversarial). Also verified earlier on this main:
+a complete seed dry run against the real exports (35 stands, 212 reviewed usual items, 0 unknown, 0
+unresolved) and production cleanup dry-running at 25/25 descriptions clean.
+
+**Sabotage proofs held this pass.** F-100's farm take-down: writing through to each stand's own
+`retired_at` is caught, and `farms_coherent_retirement` genuinely refuses a half-cleared
+retirement. The setup link is proven to render on the card that minted it. B-044's parser
+regression and atomic offering restore checks still fail when their guarantees are broken.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
@@ -115,8 +120,13 @@ link** — a conditional with a test behind it rather than an unbypassable const
   code-rendered grounded answers. `MAP`, compliance commands, and confirmation routing are
   deterministic and run before any model.
 - **Administration:** fixed-account password sign-in (the signed-out screen renders the fields
-  directly) and server-rendered farm approval, farmer access, flag, stock-report, and stand-data
-  workflows. Phones are masked at the query boundary.
+  directly) and three server-rendered surfaces, one per subject — **Farms** (one row per farm
+  expanding to approval, details, access, setup links, stands, and take-down), **Messages**
+  (flags, stock-outs, record questions), and **Users** (everyone who has texted, plus inviting a
+  farmer and deciding access requests). No Home tab; `/admin` redirects to Farms and the pending
+  counts sit on the tab that owns the work. Phones are masked at the query boundary. A farm
+  take-down carries its stands without writing their own retirement, so restoring returns exactly
+  what it held down.
 - **Scheduled work:** Cloud Tasks handles immediate sender work; one Cloud Scheduler route runs
   recovery, prompts, delivery, callbacks, and retention.
 
@@ -147,15 +157,23 @@ link** — a conditional with a test behind it rather than an unbypassable const
   `outputFileTracingRoot`, and the Next ESLint plugin is not installed.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
 - **B-036:** the "North ferry" label is clipped at the island map's top edge (cosmetic).
+- **F-101 / B-048 — the admin UX audit's lower-ranked findings.** F-101 is copy and state:
+  "onboarding link" vs "private link" are indistinguishable to a volunteer, several empty states,
+  the unusable login email field, sign-out copy, and a test-farm row rendered from typed input.
+  B-048 is data with no consumer: a flag's `reasonCode` and `hasReadableThread` are fetched and
+  never rendered, so every flag card reads identically and "View thread" is offered on threads
+  already purged.
 - Remaining go-live work is in [GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md): **GL-007** (stock-out → farmer
   alert), **GL-008** (customer stock-out surface), **GL-015** (its *stand-data flag* half), plus the
   P2 resilience band and P3 decisions.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
-F-090's four-step wizard, and F-097's restyled surfaces (the settings panel, the saved-confirmation
-screen, the onboarding cadence control, the map card's recency caption). Per-tranche browser checks
-are **not tracked here** (max, 2026-08-05): he runs a browser pass himself before go-live.
+F-090's four-step wizard, F-097's restyled surfaces (the settings panel, the saved-confirmation
+screen, the onboarding cadence control, the map card's recency caption), and **F-100's three admin
+tabs** — the farm directory row collapses to three columns under 34rem, unchecked by eye. Per-tranche
+browser checks are **not tracked here** (max, 2026-08-05): he runs a browser pass himself before
+go-live.
 
 **VIGA's call, not a code question:** whether Vashon Island Farmers Market belongs in the roster as
 a farm at all — it is the market itself, not a stand with a farmer to onboard.
@@ -185,6 +203,14 @@ a farm at all — it is the market itself, not a stand with a farmer to onboard.
   error pointing at the query, not at the comment.
 - **`printf %s`, never `echo`, when adding a salt to Secret Manager.** A trailing newline produces
   hashes that look right in every listing and match nothing at runtime.
+- **Next expands `$NAME` inside .env values, so an Argon2id verifier cannot live in one.**
+  `ADMIN_PASSWORD_HASH` in `apps/web/.env.local` reaches the server *shorter than it was
+  written* (97 → 95 or 65), and every local sign-in then refuses with the same generic message a
+  wrong password gets — while the verifier keeps verifying correctly in any standalone script,
+  because that script reads the file directly. Quoting does not help; pass it as a real
+  environment variable. `./scripts/dev-setup.sh` does this and is the supported local path.
+  Two other refusals look identical: no administrator row, and a live `admin_login_failures`
+  bucket that outlives the server process.
 - **Measuring a parser is not measuring the data.** To say what a card shows, read
   `farms.description` from production.
 - **The stored prose contains malformed dates.** One row begins literally `/22/2026 Update:`.

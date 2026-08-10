@@ -253,6 +253,13 @@
       "when": 1788064002000,
       "tag": "0035_self_issued_invitation",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788064003000,
+      "tag": "0036_farm_retirement_and_address_flag",
+      "breakpoints": true
     }
   ]
 }

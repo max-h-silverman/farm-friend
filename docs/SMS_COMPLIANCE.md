@@ -158,7 +158,7 @@ was discarded while the sender remained recorded as subscribed.
 `FLAG` **pauses the thread** and **creates a review item** for the VIGA administrator (the
 human-handoff). `FLAG` is handled by code, upstream of any model call.
 
-**A flag must be disposable, or retention never terminates.** `/admin/flags` lists open flags and
+**A flag must be disposable, or retention never terminates.** `/admin/messages` lists open flags and
 resolves or dismisses them, and its thread viewer shows the flagged sender's retained messages with
 the phone masked. Both dispositions record the acting administrator and, because the retention
 exemption is keyed on `flags.status = 'open'`, **both** release the thread's expired bodies to the

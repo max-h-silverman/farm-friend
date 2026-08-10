@@ -11,6 +11,67 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-10 — F-100, the admin console reorganized around subjects
+
+Max asked for four specific admin changes and a UX audit behind them. The audit — run as a
+subagent at his request — found the root cause of everything he had described as "what just
+happened? did that work? where did it go?": the console was organized by **database table**, one
+screen per queue, so no screen owned "the farm". It appeared six ways across two pages, each with
+its own vocabulary and none linking to the others. Both examples he gave were symptoms of that one
+cause, not separate bugs.
+
+Three tabs now, one subject each — Farms, Messages, Users. A farm is one directory row expanding
+to everything about it. Messages merges three destinations for one kind of work, two of which
+("Customer reports" / "Stock reports") were synonyms to a volunteer and one of which was reachable
+only by hand-typing its URL. Users restores the people directory this branch had earlier deleted;
+that deletion was wrong — `listUsersForAdministration` answers "who has texted us and can they
+publish", which is a subject rather than a duplicate of farm access. The Home tab went last, on
+max's call: it held nothing but counts pointing at other tabs, so every task cost two clicks and
+the landing screen had no work on it. Its counts moved to the tab that owns the work; `/admin`
+redirects to Farms so bookmarks survive.
+
+**"Delete a farm" means take-down, not erasure** — max's choice, matching F-071 for stands.
+`farms` is referenced `on delete restrict` by eight tables, so a hard DELETE fails for any farm
+ever used, and erasing one would erase what its stands published and when. The load-bearing design
+decision is that a farm take-down does **not** write each stand's own `retired_at`: readers treat a
+stand under a retired farm as off the map, but the stand's column stays untouched, so restoring the
+farm returns exactly the stands it was holding down while a stand retired on its own stays retired.
+Collapsing the two would make restore guess. Both directions are tested, and both were sabotaged to
+prove the tests can fail.
+
+Migration `0036` hit three known traps in one pass, which is worth recording together: the enum
+had to be **recreated** rather than extended because `ALTER TYPE … ADD VALUE` cannot run inside
+drizzle's transaction; `generate` silently dropped the CHECK, which was hand-appended and then
+proven to genuinely refuse; and the journal `when` was born older than 0035's future-dated stamp,
+so it would have skipped itself silently. Its other half fixes the screenshot max sent: address
+questions were filed as `unparsed_availability`, so the queue rendered "Availability text could not
+be understood" directly above quoted text that was plainly an address — the label contradicted the
+evidence beneath it.
+
+Two defects were invisible to the suites and found only in the browser, both worth remembering as a
+class: jsdom reports every element as zero-sized, and each component's tests render it alone. The
+farm card's sections were landing in the shared `auto-fit` stand grid at 171px columns, and a
+take-down left nested stands rendering "Visible to customers" until reload because `StandDetails`
+snapshots its prop into state. Both were diagnosed by **measuring the running DOM** rather than
+reading source that already looked correct.
+
+A long detour on local setup produced `scripts/dev-setup.sh`. Next expands `$NAME` inside .env
+values, and an Argon2id verifier is a run of `$`-delimited segments, so `ADMIN_PASSWORD_HASH` in
+`apps/web/.env.local` reaches the server *shorter than it was written* and every sign-in refuses
+with the same generic message a wrong password gets — while the verifier keeps verifying correctly
+in any standalone script, because that script reads the file directly. Reproduced in both
+directions before documenting it.
+
+Also from the audit: `post()` was clearing a minted invite, destroying the only copy of an
+unrecoverable link on any later unrelated click; success and error messages rendered once above a
+list rather than on the row that caused them; Farm Bucks and stand retirement saved with no
+confirmation at all. The lower-ranked findings are filed as F-101 and B-048 rather than carried in
+anyone's head.
+
+Verified with 1782 unit, 871 integration, typecheck, lint, the production build, and evals 44/44
+(`evals:live` not owed — no model seam, prompt, or projection was touched). Migration `0036` is
+applied and verified by schema effect **locally only**; production has not run it.
+
 ## 2026-08-09 — B-044 follow-up, structured offerings removed from descriptive prose
 
 The first repair restored reviewed usual offerings but left the same foods in some farms'

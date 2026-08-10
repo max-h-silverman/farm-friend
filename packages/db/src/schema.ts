@@ -158,6 +158,14 @@ export const standDataFlagReason = pgEnum("stand_data_flag_reason", [
   "unparsed_availability",
   /** The source's most recent note suggests the stand may not be operating. */
   "possibly_closed",
+  /**
+   * The farmer stated an address no geocoder could resolve ("Bank Road, East of Town").
+   *
+   * Its own value because filing it under `unparsed_availability` made the operator screen
+   * lie: the queue rendered "Availability text could not be understood" above quoted text
+   * that was plainly an address, so the label contradicted the evidence directly beneath it.
+   */
+  "address_unresolved",
 ]);
 export const inboxProcessingState = pgEnum("inbox_processing_state", [
   "pending",
@@ -521,6 +529,26 @@ export const farms = pgTable(
       (): AnyPgColumn => administrators.id,
       { onDelete: "restrict" },
     ),
+    /**
+     * VIGA took this whole farm down. NULL means a live farm.
+     *
+     * **This is what "delete a farm" means here**, the same choice max made for stands in
+     * F-071 and for the same two reasons: `farms` is referenced `on delete restrict` by
+     * `sales_locations`, `farmer_authorizations`, `farm_approvals` and five more, so a hard
+     * DELETE fails at the constraint for any farm that has ever been used; and erasing it
+     * would erase the record of what its stands published and when, which is what the audit
+     * trail exists to keep (Golden Rule #1).
+     *
+     * Its own column rather than folded into approval or `test_farm_at`, for the reason
+     * `retired_at` is its own column on `sales_locations`: approval is a publication gate the
+     * farmer's own redemption can set, so an operator's take-down expressed through it would
+     * be silently cleared the next time anyone was approved.
+     */
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    retiredByAdministratorId: uuid("retired_by_administrator_id").references(
+      (): AnyPgColumn => administrators.id,
+      { onDelete: "restrict" },
+    ),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -542,6 +570,19 @@ export const farms = pgTable(
       sql`
         (${table.testFarmAt} is null and ${table.testFarmByAdministratorId} is null)
         or (${table.testFarmAt} is not null and ${table.testFarmByAdministratorId} is not null)
+      `,
+    ),
+    /**
+     * The two retirement columns move together or not at all — the same full disjunction as
+     * `farms_coherent_test_farm` above, and written that way for the same reason: a CHECK
+     * *passes* on NULL, so a one-directional test would admit a farm retired by nobody and
+     * only its mirror image would admit an actor recorded against a live farm.
+     */
+    coherentRetirement: check(
+      "farms_coherent_retirement",
+      sql`
+        (${table.retiredAt} is null and ${table.retiredByAdministratorId} is null)
+        or (${table.retiredAt} is not null and ${table.retiredByAdministratorId} is not null)
       `,
     ),
     projectionCoordinates: check(
