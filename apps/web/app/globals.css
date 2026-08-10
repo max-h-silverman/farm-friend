@@ -546,15 +546,6 @@ body {
   `standListingLines`, which never puts one on a usual line — this styling refuses to leave a
   visual slot where one would look at home.
 */
-/* The two voices are separated by the same hairline every other section on the card gets —
-   without it "Confirmed" and "Usually sells" run together as one block and the distinction the
-   whole design rests on has to be carried by type alone. */
-.listing + .listing {
-  margin-top: 1.25rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
-}
-
 /*
   ONE WAY TO NAME A SECTION, everywhere on the card — small, uppercase, letterspaced, grey.
   The eye learns it once and then skips past it to the content underneath, which is the whole
@@ -4929,29 +4920,29 @@ button.admin-action-danger,
 */
 .stand-detail-body {
   display: grid;
-  gap: 1.25rem;
+  gap: 0.9rem;
   text-align: left;
 }
 
-/* The hairline sits ON the gap the grid already opened, so a section's rule and its spacing are
-   one measurement rather than two that have to be kept in agreement. */
-.stand-detail-body > * + * {
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
+/* The detail is a stack of quiet information cards: availability first, then the practical
+   visit facts and actions. The same structure serves the sheet and expanded directory row. */
+.detail-inventory,
+.detail-usual-offerings,
+.stand-participants,
+.detail-schedule,
+.detail-visit,
+.detail-action-region,
+.detail-payment,
+.stand-description {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 38%);
 }
 
 
-.detail-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.detail-status:empty {
-  display: none;
-}
-
-.detail-status .open-state,
+.schedule-heading .open-state,
 .payment-status {
   margin: 0;
   padding: 0.3rem 0.6rem;
@@ -4970,13 +4961,24 @@ button.admin-action-danger,
 /* No box. The section separator and the card's own edge do the containing — see
    `.stand-detail-body`. */
 .detail-inventory {
-  padding: 0;
-  background: none;
-  border: none;
+  border-color: var(--sage-deep);
+  background: var(--green-soft);
+}
+
+.detail-usual-offerings {
+  border-color: var(--line);
+}
+
+.schedule-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.8rem;
 }
 
 .detail-schedule h3 {
-  margin: 0 0 0.65rem;
+  margin: 0;
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--ink-faint);
@@ -5006,17 +5008,13 @@ button.admin-action-danger,
   color: var(--ink);
 }
 
-/* No rule of its own: `.stand-detail-body` draws every section separator. */
 .detail-visit {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.25rem 0.9rem;
+  gap: 0.35rem;
 }
 
 /* The card's one section-label style, matching `.listing-label` exactly. */
 .detail-visit h3 {
-  grid-column: 1 / -1;
   margin: 0 0 0.5rem;
   font-size: 0.72rem;
   font-weight: 700;
@@ -5026,8 +5024,6 @@ button.admin-action-danger,
 }
 
 .detail-visit .address {
-  grid-column: 1;
-  grid-row: 2;
   margin: 0;
   font-size: 0.98rem;
   color: var(--ink);
@@ -5038,18 +5034,6 @@ button.admin-action-danger,
   color: var(--brick);
   font-weight: 650;
   text-decoration: underline;
-}
-
-.detail-visit .directions {
-  grid-column: 2;
-  grid-row: 2;
-  min-height: 44px;
-  padding: 0 0.9rem;
-  color: #fff;
-  background: var(--olive);
-  border-radius: 999px;
-  text-decoration: none;
-  white-space: nowrap;
 }
 
 /*
@@ -5064,10 +5048,9 @@ button.admin-action-danger,
   be much less, and the two actions must drop to a second line rather than overflow the card.
 */
 .detail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.65rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -5079,17 +5062,6 @@ button.admin-action-danger,
   one — where stacking them spent three lines to say very little. `align-items: center` keeps
   the status pills on the pill button's optical centre rather than its box top.
 */
-.detail-aside {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-}
-
-.detail-aside:empty {
-  display: none;
-}
-
 /*
   The directions PILL, wherever it appears. This styling used to hang off `.detail-visit
   .directions`, so the expanded directory row — which renders its actions outside that
@@ -5097,25 +5069,30 @@ button.admin-action-danger,
   same act. One rule, both surfaces.
 */
 .detail-actions .directions {
-  min-height: 44px;
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
   padding: 0 0.9rem;
   color: #fff;
   background: var(--olive);
-  border-radius: 999px;
+  border-radius: 0.75rem;
   text-decoration: none;
   white-space: nowrap;
 }
 
-/* The website is the SECONDARY action and reads as a link, not a second button — two filled
-   pills side by side would give a farm's homepage the same weight as the direction to drive
-   there. */
+/* The website is a visible secondary action: equal hit area, outlined surface. */
 .detail-actions .stand-website {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  min-height: 44px;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 0.9rem;
   color: var(--brick);
+  border: 1px solid currentColor;
+  border-radius: 0.75rem;
   font-weight: 650;
-  text-decoration: underline;
+  text-decoration: none;
 }
 
 .sheet .stand-detail-body {
@@ -5160,12 +5137,6 @@ button.admin-action-danger,
 
   .detail-visit h3 {
     grid-column: 1;
-  }
-
-  .detail-visit .directions {
-    grid-column: 1;
-    grid-row: auto;
-    width: fit-content;
   }
 
   .detail-visit .address,

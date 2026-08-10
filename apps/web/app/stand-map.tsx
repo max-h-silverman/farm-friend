@@ -304,36 +304,6 @@ function PublicDescription({
   );
 }
 
-/**
- * The farm's links, as a list of actions (F-061).
- *
- * REPLACES `splitWebsite`, which recovered a single website by matching a "Website: …" line
- * inside the description prose. That was a workaround for `farm_links` having no writer: it
- * found at most one link per stand and silently dropped every Instagram and Facebook a farm had
- * listed. Measured over the real corpus, the farms state 34 links across 24 stands, and that
- * regex could only ever surface the subset written as a labelled "Website:" line.
- *
- * The links now arrive structured and pre-labelled, so nothing is parsed at render time.
- */
-function StandLinks({ links }: { links: { label: string; url: string }[] }) {
-  if (links.length === 0) return null;
-  return (
-    <>
-      {links.map((link) => (
-        <a
-          key={link.url}
-          className="stand-website"
-          href={link.url}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {link.label}
-        </a>
-      ))}
-    </>
-  );
-}
-
 function MarkerLegend() {
   const [open, setOpen] = useState(true);
   const entries = [
@@ -417,9 +387,14 @@ function PosterIndicators({
 */
 function StandListings({ stand }: { stand: FilteredStand }) {
   return (
-    <section className="detail-inventory" aria-label="Availability and inventory">
+    <>
       {standListingLines(stand).map((line) => (
-        <div className={`listing listing-${line.kind}`} key={line.kind}>
+        <section
+          className={line.kind === "usual" ? "detail-usual-offerings" : "detail-inventory"}
+          aria-label={line.kind === "usual" ? "Typical offerings" : "Availability and inventory"}
+          key={line.kind}
+        >
+        <div className={`listing listing-${line.kind}`}>
           {line.items === undefined ? (
             <p className="listing-note">{line.label}</p>
           ) : line.kind === "confirmed" ? (
@@ -479,12 +454,23 @@ function StandListings({ stand }: { stand: FilteredStand }) {
             </>
           )}
         </div>
+        </section>
       ))}
-    </section>
+    </>
   );
 }
 
-function StandSchedule({ availability }: { availability: PublicStandPayload["availability"] }) {
+function StandSchedule({
+  availability,
+  stateLabel,
+  openState,
+  upcomingLabel,
+}: {
+  availability: PublicStandPayload["availability"];
+  stateLabel: string | null;
+  openState: FilteredStand["openState"];
+  upcomingLabel?: string;
+}) {
   const details = [
     ["Season", seasonLabel(availability)],
     ["Hours", hoursLabel(availability)],
@@ -493,19 +479,29 @@ function StandSchedule({ availability }: { availability: PublicStandPayload["ava
     ["Restocking", restockingLabel(availability)],
   ].filter((detail): detail is [string, string] => detail[1] !== null && detail[1] !== "");
 
-  if (details.length === 0) return null;
+  if (details.length === 0 && stateLabel === null && upcomingLabel === undefined) return null;
 
   return (
     <section className="detail-schedule" aria-label="Stand schedule">
-      <h3>Stand schedule</h3>
-      <dl>
-        {details.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <div className="schedule-heading">
+        <h3>Visit / stand schedule</h3>
+        {upcomingLabel !== undefined ? (
+          <p className="open-state open-state-upcoming">{upcomingLabel}</p>
+        ) : null}
+        {stateLabel !== null ? (
+          <p className={`open-state open-state-${openState}`}>{stateLabel}</p>
+        ) : null}
+      </div>
+      {details.length > 0 ? (
+        <dl>
+          {details.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
     </section>
   );
 }
@@ -564,7 +560,14 @@ function StandDetailBody({
         </>
       )}
 
-      {isMarket ? null : <StandSchedule availability={stand.availability} />}
+      {isMarket ? null : (
+        <StandSchedule
+          availability={stand.availability}
+          stateLabel={stateLabel}
+          openState={stand.openState}
+          upcomingLabel={stand.closure?.state === "upcoming" ? stand.closure.label : undefined}
+        />
+      )}
 
       {showDestination ? (
         <section
@@ -593,43 +596,14 @@ function StandDetailBody({
               <strong>No stand to visit</strong> — order by contacting this farm.
             </p>
           )}
-          <StandLinks links={links} />
-          {stand.routingLink !== null ? (
-            <a
-              className="directions"
-              href={stand.routingLink}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              {isMarket ? "Directions to market" : "Get directions"}
-            </a>
-          ) : null}
         </section>
       ) : null}
 
-      {/*
-        THE ASIDE — "what you can do, and what is true right now": the actions and the status
-        badges, on one row.
-
-        It held a third child, the staleness line, until that line was removed (max,
-        2026-08-06) — the card's dated "Confirmed 6 days ago" says the same thing attached to
-        the items it is actually about, where this one sat beside "Get directions" and read as
-        a caveat about the route. Its original job was to close a gap the old two-column detail
-        grid opened between these children; the body is a single column now, so the grouping
-        survives on its own merit rather than as a layout fix.
-      */}
-      <div className="detail-aside">
-        {showDestination ? null : links.length > 0 || stand.routingLink !== null ? (
-          // The expanded DIRECTORY ROW. It suppresses the "Plan your visit" section above,
-          // because the row already shows the address — so this is where its website and
-          // directions live. The website used to sit in the collapsed summary, which put it on
-          // every row of a directory meant to be scanned; it belongs with the other actions a
-          // customer wants only once they have chosen a stand.
-          //
-          // The two links are separated in the MARKUP, not only by the gap in CSS. Rendered as
-          // bare adjacent inline anchors they concatenated to "WebsiteGet directions" — so an
-          // unstyled render (reader mode, a failed stylesheet) reproduces the very defect the
-          // CSS gap fixes. A list gives them structure that survives that.
+      {links.length > 0 || stand.routingLink !== null ? (
+        <section className="detail-action-region" aria-label="Visit actions">
+        {links.length > 0 || stand.routingLink !== null ? (
+          // Both the sheet and directory row use one semantic action list. The sheet still owns
+          // its visit-address copy above; the actions themselves must not diverge by surface.
           <ul className="detail-actions">
             {stand.routingLink !== null ? (
               <li>
@@ -657,14 +631,11 @@ function StandDetailBody({
             ))}
           </ul>
         ) : null}
+        </section>
+      ) : null}
 
-        <div className="detail-status" aria-label="Stand status">
-          {stand.closure?.state === "upcoming" ? (
-            <p className="open-state open-state-upcoming">{stand.closure.label}</p>
-          ) : null}
-          {stateLabel !== null ? (
-            <p className={`open-state open-state-${stand.openState}`}>{stateLabel}</p>
-          ) : null}
+      {stand.farmBucksAccepted === true || (stand.paymentMethods ?? []).length > 0 ? (
+        <section className="detail-payment" aria-label="Payment methods">
           {stand.farmBucksAccepted === true ? (
             <p className="payment-status">Accepts VIGA Bucks</p>
           ) : null}
@@ -678,9 +649,8 @@ function StandDetailBody({
               Also accepts {(stand.paymentMethods ?? []).join(", ")}
             </p>
           ) : null}
-        </div>
-
-      </div>
+        </section>
+      ) : null}
 
       {isMarket ? (
         <PublicDescription

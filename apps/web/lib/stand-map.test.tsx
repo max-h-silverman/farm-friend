@@ -499,11 +499,10 @@ describe("farm-map poster treatment", () => {
     expect(within(card).queryByText("Plan your visit")).toBeNull();
     expect(card.querySelector(".detail-inventory")).toBeNull();
     expect(card.querySelector(".farm")).toBeNull();
-    // The actions lead the detail body — inside `.detail-aside`, which groups them with the
-    // status badges so the pair is placed as one block rather than as separate grid rows.
+    // Visit actions lead a market's detail body; inventory and farm-only status do not apply.
     const body = card.querySelector(".stand-detail-body");
-    expect(body?.firstElementChild).toHaveClass("detail-aside");
-    expect(body?.querySelector(".detail-aside")?.firstElementChild).toHaveClass(
+    expect(body?.firstElementChild).toHaveClass("detail-action-region");
+    expect(body?.querySelector(".detail-action-region")?.firstElementChild).toHaveClass(
       "detail-actions",
     );
   });
@@ -1264,15 +1263,13 @@ describe("expanded stand actions", () => {
 });
 
 /**
- * THE PHONE SHEET keeps its own visit section.
+ * THE PHONE SHEET shares the directory's action list.
  *
  * The stacked-bands work changed the DIRECTORY row's actions, and both surfaces render the
- * same component — so the risk is that the restructure leaked into the sheet, which places its
- * website and directions inside `.detail-visit` instead. That branch is selected by
- * `showDestination`, and this pins the split: the sheet gets the visit section and NOT the
- * directory's action list, with both destinations still reachable.
+ * same component — so the risk is that the sheet gets a second, divergent action structure.
+ * Both destinations are one equal-action row in either presentation.
  */
-describe("phone sheet visit section", () => {
+describe("phone sheet actions", () => {
   beforeEach(() => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -1284,7 +1281,7 @@ describe("phone sheet visit section", () => {
     });
   });
 
-  it("renders the visit section, not the directory action list, on the sheet", async () => {
+  it("renders the same action list as the expanded directory row", async () => {
     const user = userEvent.setup();
     const stand: PublicStandPayload = {
       id: "sheet-stand",
@@ -1311,15 +1308,13 @@ describe("phone sheet visit section", () => {
     const sheet = container.querySelector(".sheet") as HTMLElement;
     expect(sheet).toBeTruthy();
 
-    // The sheet's own arrangement: a visit section, and none of the directory's action list.
-    expect(sheet.querySelector(".detail-visit")).toBeTruthy();
-    expect(sheet.querySelector(".detail-actions")).toBeNull();
+    const actions = sheet.querySelector(".detail-actions") as HTMLElement;
+    expect(actions).toBeTruthy();
 
     // Both destinations remain reachable from the sheet — the restructure must not have cost
     // the phone a way to get anywhere.
-    const visit = sheet.querySelector(".detail-visit") as HTMLElement;
-    expect(within(visit).getByRole("link", { name: "Website" })).toBeTruthy();
-    expect(within(visit).getByRole("link", { name: "Get directions" })).toBeTruthy();
+    expect(within(actions).getByRole("link", { name: "Website" })).toBeTruthy();
+    expect(within(actions).getByRole("link", { name: "Get directions" })).toBeTruthy();
   });
 });
 
