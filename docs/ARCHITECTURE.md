@@ -182,8 +182,12 @@ permanent map package, gleaning artifacts, or tenancy machinery.
 - **Farmer address lookup:** `POST /api/farmer/address-lookup` —- **Farmer address lookup:** `POST /api/farmer/address-lookup` — invitation-gated, throttled,
   server-side geocoding that returns a coordinate and writes nothing. Since F-077 it is the
   **only** source of a stand's coordinate.
-- **Admin:** sign-in → **single-level** VIGA administration: farm approval, flags, stock-out
-  reports, and exceptions the system cannot safely handle.
+- **Admin:** sign-in → **single-level** VIGA administration across three surfaces, one per subject
+  (F-100): **Farms** (approval, farm details, who can update it, setup links, its stands, and
+  taking a farm or stand down), **Messages** (flags, stock-out reports, questions about VIGA's own
+  records), and **Users** (everyone who has texted, inviting a farmer, deciding access requests).
+  `/admin` redirects to Farms. Organizing by subject rather than by queue is what keeps one screen
+  owning each entity; see ADMIN_OPERATIONS.md.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
 - **Scheduled jobs:** farmer prompting, outbound delivery, retry, and retention.
 

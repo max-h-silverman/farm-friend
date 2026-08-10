@@ -71,6 +71,16 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   separation prevents. `retired_at` and `retired_by_administrator_id` move together, enforced by a
   CHECK stated as a full disjunction so the NULL case cannot pass silently.
 
+  **`farms.retired_at` is the same act one level up** (F-100): VIGA taking a whole farm down, for
+  the same reasons and with the same paired-actor CHECK. `farms` is referenced `on delete restrict`
+  by eight tables, so erasure is unavailable there too.
+
+  It deliberately **does not write each stand's own `retired_at`.** Readers treat a stand under a
+  retired farm as off the map — "is this stand served?" is the farm's state OR the stand's — but the
+  stand's column stays untouched, so restoring the farm returns exactly the stands it was holding
+  down while a stand retired on its own stays retired. Writing through would collapse two
+  independent decisions into one and leave restore guessing which stands to bring back.
+
   **`farms.test_farm_at` is the same rule applied a second time** (F-074): a farm VIGA marked as
   fake so the whole journey can be walked against real production without an islander seeing it.
   It is on **`farms`**, not `sales_locations`, because the intent is "this whole farm is fake" —
