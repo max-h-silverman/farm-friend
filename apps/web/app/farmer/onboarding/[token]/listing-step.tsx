@@ -1455,7 +1455,12 @@ export function ListingStep({
               {mapUrl === undefined ? (
                 "map"
               ) : (
-                <a href={mapUrl} target="_blank" rel="noopener noreferrer">
+                <a
+                  className="farmer-listing-map-link"
+                  href={mapUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   map
                 </a>
               )}
@@ -1519,6 +1524,7 @@ export function ListingStep({
               It has to come from the phone you will send stand updates from — we cannot text
               you until it does.
             </p>
+            <hr className="farmer-listing-saved-reminder-divider" />
           </div>
         ) : null}
 
@@ -1562,7 +1568,7 @@ export function ListingStep({
           )}
           {itemRows.some((row) => row.inStock) ? (
             <div>
-              <dt>On the table now</dt>
+              <dt>In stock</dt>
               {/*
                 Says what will happen rather than claiming it already has. This is held
                 until the farmer's VIGA text arrives, and a summary implying it is already
@@ -1608,7 +1614,7 @@ export function ListingStep({
           <dl>
             <div>
               <dt>Text what you have</dt>
-              <dd>&ldquo;six dozen eggs, kale&rdquo; — that is the whole thing</dd>
+              <dd>e.g. we have tomatoes and eggs. no greens right now</dd>
             </div>
             <div>
               <dt>LINK</dt>

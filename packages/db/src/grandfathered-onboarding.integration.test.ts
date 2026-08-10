@@ -468,12 +468,12 @@ describe("grandfathered farm claims (integration)", () => {
         },
       ]);
 
-      // And the same welcome an invited farmer gets — queued, not merely intended.
+      // The listing-live hand-off is queued, not merely intended.
       const queued = await sql()`
         select body from outbox_work where recipient_hash = ${phoneHash}
       `;
       expect(queued.length).toBeGreaterThan(0);
-      expect(String(queued[0]?.body)).toContain("Welcome!");
+      expect(String(queued[0]?.body)).toContain("Your listing is live.");
     });
 
     it("refuses a claim the farmer never agreed to be texted on", async () => {

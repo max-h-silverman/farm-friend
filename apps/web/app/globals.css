@@ -2496,6 +2496,10 @@ form.farmer-picker-next {
   border-radius: 0;
 }
 
+.farmer-listing-map-link {
+  color: var(--green);
+}
+
 .farmer-listing-summary {
   display: grid;
   gap: 0.6rem;
@@ -2565,6 +2569,13 @@ form.farmer-picker-next {
 
 .farmer-listing-saved-reminder p:last-child {
   color: var(--ink-soft);
+}
+
+.farmer-listing-saved-reminder-divider {
+  width: 100%;
+  margin: 0.45rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--green);
 }
 
 .farmer-listing-saved-reminder a {

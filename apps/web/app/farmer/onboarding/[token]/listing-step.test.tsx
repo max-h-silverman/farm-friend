@@ -2438,13 +2438,15 @@ describe("onboarding listing step", () => {
         // reminder BLOCK and to "last step" rather than to a phrase: the exact wording is copy
         // and has already changed once, but a screen that stops naming a remaining step is the
         // regression this guards.
-        const reminder = banner.querySelector(".farmer-listing-saved-reminder");
+        const reminder = banner.querySelector<HTMLElement>(".farmer-listing-saved-reminder");
         expect(reminder).toHaveTextContent(/last step/i);
         expect(reminder).toHaveTextContent(/VIGA/);
         expect(reminder).toHaveTextContent(/206-555-0000/);
         // Both halves of the one errand live together now (max 2026-08-08) — the instruction
         // and why it must be that handset — rather than split across the summary list.
         expect(reminder).toHaveTextContent(/phone you will send stand updates from/i);
+        if (reminder === null) throw new Error("missing onboarding reminder");
+        expect(within(reminder).getByRole("separator")).toBeInTheDocument();
       });
 
       it("tells the farmer their number is not a phone, before any modal", async () => {
@@ -3898,6 +3900,7 @@ describe("the confirmation links the word 'map' (F-098)", () => {
 
     const link = await screen.findByRole("link", { name: "map" });
     expect(link).toHaveAttribute("href", "https://www.vigavashon.org/farm-stand-map");
+    expect(link).toHaveClass("farmer-listing-map-link");
     // Opens away from a form the farmer just completed, so Back does not return them to a
     // submitted page — and the new tab cannot reach back into this one.
     expect(link).toHaveAttribute("target", "_blank");
