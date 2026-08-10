@@ -180,7 +180,7 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   email, password, or verifier enters the table. The existing bounded retention pass deletes
   expired rows.
 - **structured public listing facts** — including payment methods and VIGA Farm Bucks acceptance or
-  eligibility as **read-only facts**, plus the farm's own prose description, farmer-selected
+  eligibility, plus the farm's own prose description, farmer-selected
   web/social links, and an optional photo or short biography. Direct farmer email addresses and
   phone numbers never enter the public description.
   **`farms.description` is farmer-writable as of 2026-08-07** and was seeded-only before, so VIGA's
@@ -195,9 +195,10 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   Methods outside the set are kept as the farmer's **own words** — a closed set that silently
   dropped what it did not recognize would lose a real fact. This is a *spelling* table and must stay
   one: unlike produce, payment methods are a small VIGA-known set, which is why folding them is
-  correct here and folding food vocabulary is forbidden. **VIGA Farm Bucks is never farmer-settable**
-  — acceptance is gated on `acceptanceRequiresEligibility`, so the onboarding form does not offer it
-  and the writer does not touch it.
+  correct here and folding food vocabulary is forbidden. **VIGA Farm Bucks remains separate from
+  payment methods:** VIGA alone sets eligibility; an eligible farmer may state acceptance through
+  the listing form. The writer rejects an ineligible acceptance claim before the database
+  constraint can be reached.
 - **structured availability** (F-035) — season, days of week, time of day, and restocking cadence as
   **queryable columns rather than prose**, so "what is open right now" is a filter and not a text
   scan. Kinds that are not clock times (`dawn_to_dusk`, `daylight_hours`) and cadences that are not

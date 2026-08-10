@@ -24,6 +24,15 @@ const page = readFileSync(
   .replace(/^\s*\/\/.*$/gm, " ")
   .replace(/\s+/g, " ");
 
+const tabbedPage = readFileSync(
+  resolve(process.cwd(), "apps/web/app/stand/[token]/page.tsx"),
+  "utf8",
+)
+  .replace(/\{\s*\/\*[\s\S]*?\*\/\s*\}/g, " ")
+  .replace(/\/\*[\s\S]*?\*\//g, " ")
+  .replace(/^\s*\/\/.*$/gm, " ")
+  .replace(/\s+/g, " ");
+
 describe("the farmer's listing edit surface", () => {
   it("renders the listing form under the stand-link credential", () => {
     expect(page).toContain("<ListingStep");
@@ -44,5 +53,15 @@ describe("the farmer's listing edit surface", () => {
     // wrong starting value.
     expect(page).toContain("farmName={listing.farmName}");
     expect(page).toContain("standName: listing.standName");
+  });
+
+  it("threads VIGA Bucks eligibility and acceptance into every edit form", () => {
+    // The writer changes acceptance, so a form that cannot see the stored value would quietly
+    // turn it off on the next unrelated save. Both the bookmarked route and the primary tab
+    // compose `ListingStep` by hand, so both need this exact pair.
+    for (const source of [page, tabbedPage]) {
+      expect(source).toContain("farmBucksEligible: listing.farmBucksEligible");
+      expect(source).toContain("farmBucksAccepted: listing.farmBucksAccepted");
+    }
   });
 });

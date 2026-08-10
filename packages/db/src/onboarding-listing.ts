@@ -147,6 +147,11 @@ export interface OnboardingListingInput {
    */
   availability?: ListingAvailability;
   paymentMethods: string[];
+  /**
+   * Whether an eligible stand accepts VIGA Bucks. Eligibility remains VIGA-controlled; an
+   * ineligible stand is refused before this fact can be stored.
+   */
+  farmBucksAccepted?: boolean;
   /** What they usually sell, in their own words and their own order. */
   items: StandingItem[];
   /**
@@ -191,6 +196,7 @@ export interface SaveOnboardingListingInput {
 export type SaveOnboardingListingResult =
   | { status: "saved"; salesLocationId: string }
   | { status: "unknown_farm" }
+  | { status: "farm_bucks_not_eligible" }
   | { status: "invalid_name" }
   /** The visitability branch is contradicted: see `coherentVisitability`. */
   | { status: "incomplete_location" }
@@ -308,12 +314,19 @@ export async function saveOnboardingListing(
     if (farms.length === 0) return { status: "unknown_farm" as const };
 
     const existing = await tx`
-      select id from sales_locations
+      select id, farm_bucks_eligible from sales_locations
       where owner_farm_id = ${input.farmId}
       order by created_at asc
       limit 1
     `;
     const existingId = existing[0]?.id as string | undefined;
+
+    // Acceptance is the farmer's own operational fact. Eligibility remains a VIGA decision,
+    // enforced before the write instead of relying on the database constraint to reject a form
+    // submission with an opaque error.
+    if (listing.farmBucksAccepted === true && existing[0]?.farm_bucks_eligible !== true) {
+      return { status: "farm_bucks_not_eligible" as const };
+    }
 
     const salesLocationId =
       existingId === undefined
@@ -511,10 +524,8 @@ async function insertStand(
 /**
  * Update the farm's existing stand in place.
  *
- * **Farm Bucks is deliberately NOT touched.** It is a VIGA eligibility fact with its own admin
- * workflow and its own `acceptanceRequiresEligibility` constraint — a farmer cannot make
- * themselves eligible by filling in a form, and a re-submission must not silently revert what
- * an operator set.
+ * Farm Bucks acceptance is a farmer-stated fact; eligibility remains VIGA-controlled and is
+ * checked before this writer reaches the update.
  */
 async function updateStand(
   tx: Tx,
@@ -556,6 +567,7 @@ async function updateStand(
         open_days = ${available.openDays as number[] | null},
         stocking_cadence = ${available.stockingCadence},
         stocking_days = ${available.stockingDays as number[] | null},
+        farm_bucks_accepted = coalesce(${input.listing.farmBucksAccepted ?? null}, farm_bucks_accepted),
         is_public = true,
         updated_at = ${input.occurredAt.toISOString()}
     where id = ${input.salesLocationId}
@@ -757,6 +769,9 @@ export interface StandListing {
    * farmer's prices back off.
    */
   pricesPublic: boolean;
+  /** VIGA controls eligibility; an eligible farmer controls whether they accept it. */
+  farmBucksEligible: boolean;
+  farmBucksAccepted: boolean;
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
@@ -824,6 +839,7 @@ export async function readStandListing(
     select
       location.name, location.visitability, location.offering_type,
       location.public_address, location.address_public, location.prices_public,
+      location.farm_bucks_eligible, location.farm_bucks_accepted,
       location.public_latitude, location.public_longitude,
       location.hours_text,
       location.season_kind, location.season_start_month, location.season_start_day,
@@ -888,6 +904,8 @@ export async function readStandListing(
     // `=== true` rather than `!== false`, mirroring the column's own opposite default: a stand
     // that predates this column shows no prices until its farmer says otherwise.
     pricesPublic: row.prices_public === true,
+    farmBucksEligible: row.farm_bucks_eligible === true,
+    farmBucksAccepted: row.farm_bucks_accepted === true,
     latitude: (row.public_latitude as number | null) ?? null,
     longitude: (row.public_longitude as number | null) ?? null,
     hoursText: (row.hours_text as string | null) ?? null,

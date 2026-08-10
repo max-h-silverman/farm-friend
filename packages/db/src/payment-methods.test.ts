@@ -110,10 +110,9 @@ describe("canonicalPaymentMethods — blanks and ceilings", () => {
 
 describe("FARMER_SELECTABLE_PAYMENT_METHODS", () => {
   it("does NOT include VIGA Farm Bucks", () => {
-    // THE ONE THING A FARMER MAY NOT TICK. Farm Bucks is a VIGA ELIGIBILITY fact with its own
-    // admin workflow and an `acceptanceRequiresEligibility` constraint — a farmer who checked a
-    // box would be asserting an eligibility only VIGA can grant. The form offers the rest;
-    // this list is what the form is allowed to render.
+    // Farm Bucks is not an ordinary payment method. VIGA owns eligibility; an eligible farmer
+    // states acceptance through a separate control, so this list must never render it beside
+    // Cash or Venmo.
     expect(FARMER_SELECTABLE_PAYMENT_METHODS).not.toContain(VIGA_FARM_BUCKS);
     for (const method of FARMER_SELECTABLE_PAYMENT_METHODS) {
       expect(method.toLowerCase()).not.toContain("farm bucks");

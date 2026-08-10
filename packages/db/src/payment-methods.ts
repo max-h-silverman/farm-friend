@@ -22,10 +22,9 @@
 /**
  * VIGA Farm Bucks, spelled the way VIGA spells it.
  *
- * Deliberately NOT in `FARMER_SELECTABLE_PAYMENT_METHODS`: acceptance is gated on an
- * eligibility only VIGA grants (`acceptanceRequiresEligibility`), so a farmer ticking a box
- * would be asserting a VIGA decision. It is canonicalized because SEEDED listings and the
- * admin surface carry it — recognizing the words is not the same as letting a farmer claim them.
+ * Deliberately NOT in `FARMER_SELECTABLE_PAYMENT_METHODS`: it is a separate boolean fact, not
+ * an ordinary payment method. VIGA alone grants eligibility; an eligible farmer may state
+ * acceptance through that eligibility-gated control. It remains canonicalized for legacy data.
  */
 export const VIGA_FARM_BUCKS = "VIGA Farm Bucks";
 

@@ -53,7 +53,7 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Farms | `/admin/farms` | Everything about one farm on one card: approve it, edit its name and description, see and revoke who can update it, send a setup link, review its stands and their Farm Bucks status, take a stand or the whole farm off the map and put it back, mark it a test farm |
+| Farms | `/admin/farms` | Everything about one farm on one card: approve it, edit its name and description, see and revoke who can update it, send a setup link, review its stands and their Farm Bucks status (an eligible farmer states acceptance on their own listing), take a stand or the whole farm off the map and put it back, mark it a test farm |
 | Messages | `/admin/messages` | Everything a person sent us: customer `FLAG` messages with the thread viewer (phones masked), stock-out reports, and questions about VIGA's own records |
 | Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm; prepare an invitation; decide access requests that arrived by text with no farm attached |
 
