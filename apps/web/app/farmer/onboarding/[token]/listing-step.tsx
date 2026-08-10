@@ -1742,21 +1742,8 @@ export function ListingStep({
             sentence carried in `aria-label`, which asked a sighted farmer to infer from a
             picture what a screen reader was told outright.
 
-            THE WORD IS NO LONGER "SAVE" (F-098, max 2026-08-09). This button places the
-            address on the map; the TAB's one commit button is what saves. While the editing
-            door also carried an onboarding "Submit", "Save" here was the only honest word for
-            it — with a single "Save changes" now committing the whole tab, a second button
-            saying "Save" reads as a competing commit and invites the farmer to press it and
-            wonder which one counted.
-
-            IT LOOKS LIKE SUBMIT (max 2026-08-08), carrying the shared `-primary` class rather
-            than a quieter style of its own. It says "Save" and it commits the address, so
-            dressing it as a secondary control asked the farmer to read two different-looking
-            buttons as the same kind of action.
-
-            OFF UNLESS THERE IS SOMETHING TO SAVE — see `canSaveAddress`. A live button on an
-            address already saved invites a press that changes nothing, which is what makes a
-            farmer doubt the first press worked.
+            It says Save because that is the farmer's one action after entering an address.
+            It is disabled once the address has a matching map pin — see `canSaveAddress`.
           */}
           <button
             type="button"
@@ -1772,13 +1759,20 @@ export function ListingStep({
                   exactly as long as the lookup runs.
                 */}
                 <span className="farmer-listing-lookup-busy" aria-hidden="true" />
-                <span className="sr-only">Finding on map</span>
+                <span className="sr-only">
+                  {isEditingDoor ? "Finding address on map" : "Saving address"}
+                </span>
               </>
             ) : (
-              "Find on map"
+              isEditingDoor ? "Find on map" : "Save"
             )}
           </button>
         </div>
+        {lookupNote === null ? null : (
+          <p className="farmer-form-note" role="status">
+            {lookupNote}
+          </p>
+        )}
 
         {/*
           F-088 — hiding the address WITHOUT hiding the stand.
@@ -1879,12 +1873,6 @@ export function ListingStep({
             </g>
           )}
         </svg>
-        {lookupNote === null ? null : (
-          <p className="farmer-form-note" role="status">
-            {lookupNote}
-          </p>
-        )}
-
       {/*
         THE BRANCH. Asked before anything that depends on it, and deliberately not
         pre-answered: whether there is a place to drive to is the one fact nobody may invent
