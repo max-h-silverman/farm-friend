@@ -5,7 +5,8 @@
 
 ## Release state
 
-- Farm Friend is **pre-go-live**. Production and `main` are synchronized at `2e1014d` (2026-08-10).
+- Farm Friend is **pre-go-live**. Production serves application commit `2e1014d` (2026-08-10);
+  `main` head is `9587702`, which adds this release documentation only.
 - Cloud Run web `farm-friend-web-00059-c7j` and worker `farm-friend-worker-00054-xv6` serve the same
   immutable digest: `sha256:60117339775a9a813fb7575552e1ff9e9a96e0694ab2abfda4a85268ad990da7`.
 - Neon `neondb` has 38 applied migrations (`0000`–`0037`); this release has no schema change.
