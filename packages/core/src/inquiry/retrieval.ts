@@ -40,6 +40,8 @@ export type InterpretedIntent =
       items: string[];
       farmScope?: string;
       ranking: RankingOperation;
+      /** The request asks for the complete available set, not a named item or category. */
+      broad: boolean;
       /**
        * The model's read that the request also asked for something launch does not answer:
        * a recipe, cooking or preservation instructions, food-safety guidance (F-018).
@@ -110,6 +112,7 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
     "items",
     "farmScope",
     "ranking",
+    "broad",
     "outOfScopeRequest",
     "originDependent",
   ]);
@@ -130,6 +133,9 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
     // pretend to have executed.
     return { ok: false, reason: "ranking names an operation code cannot execute" };
   }
+  if (record.broad !== undefined && typeof record.broad !== "boolean") {
+    return { ok: false, reason: "broad must be a boolean when present" };
+  }
   if (record.outOfScopeRequest !== undefined && typeof record.outOfScopeRequest !== "boolean") {
     // A string here would be prose wearing a flag's name.
     return { ok: false, reason: "outOfScopeRequest must be a boolean when present" };
@@ -146,6 +152,7 @@ export function validateInterpretedIntent(candidate: unknown): IntentValidation 
       items: record.items,
       ...(record.farmScope !== undefined ? { farmScope: record.farmScope } : {}),
       ranking: record.ranking as RankingOperation,
+      broad: record.broad === true,
       outOfScopeRequest: record.outOfScopeRequest === true,
       originDependent: record.originDependent === true,
     },

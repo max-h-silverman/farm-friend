@@ -472,11 +472,23 @@ export async function answerInquiry(
     toPageableFact(byId.get(candidate.factId)!, itemsRequested),
   );
 
+  // A general "what is available" request includes every retrieved fact by definition.
+  // The deterministic ranking and display grouping already order that complete answer, so
+  // the model only needs to reproduce the first page. Named-item and category questions stay
+  // on the full selection path: only the model can judge their semantic matches (B-050).
+  const displayOrdered = [
+    ...retrieved.filter((fact) => fact.basis === "confirmed"),
+    ...retrieved.filter((fact) => fact.basis === "offering"),
+  ];
+  const selectionCandidates = intent.value.broad
+    ? displayOrdered.slice(0, PAGE_SIZE)
+    : retrieved;
+
   // Step 4 — select. This call sees the retrieved facts and NOT the raw question.
   const rawSelection = await deps.model.select({
     items: intent.value.items,
     ranking: intent.value.ranking,
-    facts: retrieved.map((fact) => ({
+    facts: selectionCandidates.map((fact) => ({
       factId: fact.factId,
       farmName: fact.farmName,
       locationName: fact.locationName,
@@ -514,7 +526,7 @@ export async function answerInquiry(
         };
   }
 
-  const selection = validateFactSelection(rawSelection, retrieved);
+  const selection = validateFactSelection(rawSelection, selectionCandidates);
   if (!selection.ok) {
     return { outcome: "rejected", reason: selection.reason };
   }
@@ -536,8 +548,11 @@ export async function answerInquiry(
   // never paged away, because it is what the customer actually asked for. The model's order
   // is preserved within each group.
   const selectedFactIds = selection.value.factIds;
+  const answerFactIds = intent.value.broad
+    ? [...selectedFactIds, ...displayOrdered.slice(PAGE_SIZE).map((fact) => fact.factId)]
+    : selectedFactIds;
   const byFactId = new Map(retrieved.map((fact) => [fact.factId, fact]));
-  const selected = selectedFactIds.map((factId) => byFactId.get(factId)!);
+  const selected = answerFactIds.map((factId) => byFactId.get(factId)!);
   const ordered = [
     ...selected.filter((fact) => fact.basis === "confirmed"),
     ...selected.filter((fact) => fact.basis === "offering"),
@@ -568,6 +583,6 @@ export async function answerInquiry(
   return {
     outcome: "answered",
     body: withScope(page.body),
-    selectedFactIds,
+    selectedFactIds: answerFactIds,
   };
 }
