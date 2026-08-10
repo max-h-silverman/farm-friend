@@ -124,12 +124,14 @@ export function assertDeepInfraSelectionApproved(model: string): void {
  * budget just to be written down. The result was a deterministic timeout on the commonest
  * question on the island, delivered to the customer as a failure to understand them.
  *
- * 45 seconds covers the widest legitimate answer with room to spare. Nothing waits on this:
- * an inbound SMS is processed by a background worker and the reply is queued, so the ceiling
+ * 90 seconds covers the widest legitimate answer with room to spare — the response ceiling
+ * below is ~2048 tokens and the model emits roughly 30 a second, so the token bound must be
+ * reachable inside this one or it is not the bound that trips. Nothing waits on this: an
+ * inbound SMS is processed by a background worker and the reply is queued, so the ceiling
  * bounds a stuck connection rather than anyone's page load. The pass that called this is
  * itself budgeted, and cron recovers whatever a timeout drops.
  */
-export const REQUEST_TIMEOUT_MS = 45_000;
+export const REQUEST_TIMEOUT_MS = 90_000;
 
 /**
  * The most tokens one response may run to (B-049).
@@ -144,17 +146,25 @@ export const REQUEST_TIMEOUT_MS = 45_000;
  * identifier — but the check never got to run. This bounds the failure to a fast, visible
  * invalid response instead of a wall-clock timeout.
  *
- * Sized to admit every legitimate answer and stop a loop: `MAX_INQUIRY_CANDIDATES` (60)
- * uuids in a JSON array is roughly 750 tokens, so 1024 clears the widest honest selection
- * while cutting off a model that has started repeating itself. Every other seam's output is
- * far smaller.
+ * Sized to admit every legitimate answer and stop a loop. Size it from how uuids actually
+ * TOKENIZE, not from their character count: a uuid is 36 characters but splits into many
+ * hex-chunk tokens — measured, closer to 18 tokens each than the ~11 a chars/3.2 estimate
+ * suggests. `MAX_INQUIRY_CANDIDATES` (60) identifiers is therefore ~1100 tokens, not ~750.
  *
- * Set BELOW what the request timeout can generate, deliberately. A ceiling the timeout beats
- * to is not a ceiling — it just yields the outage reply instead of a fast, visible failure —
- * and a truncated response is worse than a rejected one, because it arrives as invalid JSON
- * mid-identifier and burns the repair retry on nonsense.
+ * A first pass at 1024 was set from the bad estimate and TRUNCATED real answers: a broad
+ * question ("what's available today?") selects nearly every stand, the array was cut off
+ * mid-identifier, and the customer got a rejection because invalid JSON burned the repair
+ * retry. A ceiling that clips honest output is worse than none — it converts a good answer
+ * into a refusal.
+ *
+ * 2048 clears the widest possible selection with real headroom and still stops a model that
+ * has started repeating itself. Every other seam's output is far smaller.
+ *
+ * Kept BELOW what the request timeout can generate, deliberately, so the TOKEN bound is the
+ * one that trips first: that fails fast and visibly, where a timeout tells the customer we
+ * are broken.
  */
-export const MAX_RESPONSE_TOKENS = 1024;
+export const MAX_RESPONSE_TOKENS = 2048;
 
 export interface DeepInfraConfig {
   apiKey: string;
